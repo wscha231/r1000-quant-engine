@@ -1582,25 +1582,23 @@ def compute_flow_ttm_with_cum_fallback(
     return result, used_fallback
 
 
-def _alpha_vantage_get_inner(function: str, symbol: str, api_key: str) -> dict[str, Any]:
+def alpha_vantage_get(function: str, symbol: str, api_key: str) -> dict[str, Any]:
+    """Alpha Vantage API call. Daily rate limit (25/day) → immediate fail, no retry."""
     url = "https://www.alphavantage.co/query"
     params = {
         "function": function,
         "symbol": symbol,
         "apikey": api_key,
     }
-    r = requests.get(url, params=params, timeout=60)
-    r.raise_for_status()
-    payload = r.json()
-    if isinstance(payload, dict) and (payload.get("Note") or payload.get("Information")):
-        raise ValueError(f"Alpha Vantage rate limit for {symbol}: {payload.get('Note') or payload.get('Information')}")
-    return payload if isinstance(payload, dict) else {}
-
-
-def alpha_vantage_get(function: str, symbol: str, api_key: str) -> dict[str, Any]:
-    """Alpha Vantage API call with retry on rate-limit and transient errors."""
     try:
-        return _robust_retry(_alpha_vantage_get_inner, max_retries=4, backoff_factor=2.0)(function, symbol, api_key)
+        r = requests.get(url, params=params, timeout=60)
+        r.raise_for_status()
+        payload = r.json()
+        if isinstance(payload, dict) and (payload.get("Note") or payload.get("Information")):
+            msg = payload.get("Note") or payload.get("Information")
+            log(f"[WARN] Alpha Vantage daily limit reached for {symbol} — skipping remaining AV calls.")
+            return {}
+        return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
 
@@ -6998,7 +6996,9 @@ def compute_crisis_sector_fit(df: pd.DataFrame) -> pd.DataFrame:
         "carry_unwind": "carry_unwind_score",
     }
     for crisis_key, regime_col in regime_cols.items():
-        regime_strength = pd.to_numeric(d.get(regime_col), errors="coerce").fillna(0.0)
+        if regime_col not in d.columns:
+            continue
+        regime_strength = pd.to_numeric(d[regime_col], errors="coerce").fillna(0.0)
         if (regime_strength <= 0.01).all():
             continue
         beneficiaries = CRISIS_SECTOR_BENEFICIARIES.get(crisis_key, {})
