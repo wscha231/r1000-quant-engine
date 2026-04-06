@@ -14285,9 +14285,9 @@ def update_operational_tracking(
     active_portfolio = portfolio_operational.copy() if portfolio_operational is not None and not portfolio_operational.empty else research_portfolio_operational.copy()
     active_top30 = top30_operational.copy() if top30_operational is not None and not top30_operational.empty else research_top30_operational.copy()
     portfolio_kind = "operational" if portfolio_operational is not None and not portfolio_operational.empty else "research_only"
-    latest_dt = pd.to_datetime(active_top30.get("rebalance_date"), errors="coerce").max() if not active_top30.empty else pd.NaT
-    if pd.isna(latest_dt) and not active_portfolio.empty:
-        latest_dt = pd.to_datetime(active_portfolio.get("rebalance_date"), errors="coerce").max()
+    latest_dt = pd.to_datetime(active_top30["rebalance_date"], errors="coerce").max() if (not active_top30.empty and "rebalance_date" in active_top30.columns) else pd.NaT
+    if pd.isna(latest_dt) and not active_portfolio.empty and "rebalance_date" in active_portfolio.columns:
+        latest_dt = pd.to_datetime(active_portfolio["rebalance_date"], errors="coerce").max()
     run_timestamp = datetime.utcnow().isoformat(timespec="seconds")
 
     def _first_numeric(frame: pd.DataFrame, column: str, default: float = np.nan) -> float:
