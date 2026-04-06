@@ -7984,11 +7984,11 @@ def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame)
         if concurrent_risk_count >= 3:
             cash_target = max(cash_target, 0.30 + 0.05 * (concurrent_risk_count - 3))
         if balanced_live and slow_macro_available < 0.60:
-            cash_target = min(cash_target, 0.10)
+            cash_target = min(cash_target, 0.03)
         elif balanced_live and stress < 0.80:
-            cash_target = min(cash_target, 0.12)
+            cash_target = min(cash_target, 0.05)
         elif live_stress < 0.35 and stress < 0.60:
-            cash_target = min(cash_target, 0.15)
+            cash_target = min(cash_target, 0.08)
         # Reduce cash when crisis-beneficiary sectors are available for rotation
         crisis_beneficiary_ratio = 0.0
         if "crisis_sector_beneficiary_score" in month_df.columns:
