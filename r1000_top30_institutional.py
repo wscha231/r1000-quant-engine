@@ -893,7 +893,7 @@ class EngineConfig:
     roundtrip_cost_bps: float = 50.0
     starting_capital_usd: float = 100000.0
     min_port_names: int = 5
-    min_dynamic_port_names: int = 3
+    min_dynamic_port_names: int = 12
     alert_review_days: int = 7
 
     cap_leader_weight: float = 0.60
@@ -939,7 +939,7 @@ class EngineConfig:
     yf_batch_download_size: int = 64
     sec_sleep: float = 0.20
     fsds_quarters_backfill: int = 44
-    fsds_quarters_each_run: int = 16
+    fsds_quarters_each_run: int = 24
     price_history_years: int = 15
     max_new_yf_info: int = 300
     live_refresh_days: int = 2
@@ -1080,7 +1080,7 @@ class EngineConfig:
     focus_watchlist_tickers: list[str] = field(default_factory=list)
     yf_quarterly_cache_enabled: bool = True
     yf_quarterly_refresh_days: int = 7
-    yf_quarterly_max_tickers_per_run: int = 200
+    yf_quarterly_max_tickers_per_run: int = 1000
 
 
 def now_ts() -> str:
