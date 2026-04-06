@@ -1317,6 +1317,14 @@ def _robust_retry(func, max_retries=3, backoff_factor=2.0):
         for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
+            except requests.exceptions.HTTPError as exc:
+                # 404/401/403 등 영구적 에러는 재시도 불필요
+                if exc.response is not None and exc.response.status_code in (400, 401, 403, 404, 405, 410, 422):
+                    raise
+                last_exc = exc
+                wait = backoff_factor ** attempt
+                log(f"[WARN] {func.__name__} attempt {attempt + 1}/{max_retries} failed: {exc}. Retry in {wait:.1f}s")
+                time.sleep(wait)
             except Exception as exc:
                 last_exc = exc
                 wait = backoff_factor ** attempt
