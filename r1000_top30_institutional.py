@@ -492,6 +492,7 @@ DEFAULT_FEATURES = [
     "fcfy_ttm",
     "forward_pe_final",
     "peg_final",
+    "forward_ps_final",
     "op_margin_ttm",
     "gp_to_assets_ttm",
     "return_on_equity_effective",
@@ -2576,6 +2577,21 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         numeric_series_or_default(d, "sales_cagr_5y", np.nan)
     )
 
+    # Forward P/S: market_cap / (revenues_ttm * (1 + revenue_growth_final))
+    _rev_fwd = numeric_series_or_default(d, "revenues_ttm", np.nan) * (
+        1.0 + numeric_series_or_default(d, "revenue_growth_final", 0.0).clip(lower=-0.50, upper=2.0)
+    )
+    _mktcap = numeric_series_or_default(d, "mktcap", np.nan)
+    _mktcap = _mktcap.fillna(numeric_series_or_default(d, "market_cap_live", np.nan))
+    d["forward_ps"] = (_mktcap / _rev_fwd.replace(0, np.nan)).where(_rev_fwd > 0)
+    # Forward P/S final: prefer live price_to_sales adjusted, fallback to computed
+    _trailing_ps = numeric_series_or_default(d, "price_to_sales", np.nan).fillna(
+        numeric_series_or_default(d, "av_price_to_sales", np.nan)
+    )
+    _growth_adj = 1.0 + numeric_series_or_default(d, "revenue_growth_final", 0.0).clip(lower=-0.50, upper=2.0)
+    d["forward_ps_final"] = (_trailing_ps / _growth_adj).where(_growth_adj > 0)
+    d["forward_ps_final"] = d["forward_ps_final"].fillna(d["forward_ps"])
+
     ref_px = numeric_series_or_default(d, "current_price_live", np.nan)
     d["target_upside_pct"] = numeric_series_or_default(d, "target_mean_price", np.nan) / ref_px.replace(0, np.nan) - 1.0
     d["analyst_coverage_proxy"] = row_mean(
@@ -2596,6 +2612,7 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         [
             -cross_sectional_robust_z(d, "forward_pe_final"),
             -cross_sectional_robust_z(d, "peg_final"),
+            -cross_sectional_robust_z(d, "forward_ps_final"),
             -cross_sectional_robust_z(d, "ev_to_ebitda_final"),
             cross_sectional_robust_z(d, "fcfy_ttm"),
         ],
@@ -7130,26 +7147,29 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     ) * (0.55 + 0.45 * revision_cov)
 
     d["growth_blueprint_score"] = (
-        0.12 * cross_sectional_robust_z(d, "sales_cagr_3y")
-        + 0.08 * cross_sectional_robust_z(d, "sales_cagr_5y")
-        + 0.10 * cross_sectional_robust_z(d, "op_income_cagr_3y")
-        + 0.06 * cross_sectional_robust_z(d, "op_income_cagr_5y")
-        + 0.08 * cross_sectional_robust_z(d, "net_income_cagr_3y")
-        + 0.05 * cross_sectional_robust_z(d, "net_income_cagr_5y")
-        + 0.08 * cross_sectional_robust_z(d, "ocf_cagr_3y")
-        + 0.04 * cross_sectional_robust_z(d, "ocf_cagr_5y")
-        + 0.17 * cross_sectional_robust_z(d, "revenue_growth_final")
-        + 0.16 * cross_sectional_robust_z(d, "earnings_growth_final")
-        + 0.08 * cross_sectional_robust_z(d, "sales_growth_yoy")
-        + 0.08 * cross_sectional_robust_z(d, "ocf_growth_yoy")
-        + 0.08 * cross_sectional_robust_z(d, "actual_results_score")
+        0.10 * cross_sectional_robust_z(d, "sales_cagr_3y")
+        + 0.06 * cross_sectional_robust_z(d, "sales_cagr_5y")
+        + 0.08 * cross_sectional_robust_z(d, "op_income_cagr_3y")
+        + 0.05 * cross_sectional_robust_z(d, "op_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "net_income_cagr_3y")
+        + 0.04 * cross_sectional_robust_z(d, "net_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "ocf_cagr_3y")
+        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_5y")
+        + 0.05 * cross_sectional_robust_z(d, "eps_cagr_3y")
+        + 0.05 * cross_sectional_robust_z(d, "fcf_cagr_3y")
+        + 0.14 * cross_sectional_robust_z(d, "revenue_growth_final")
+        + 0.12 * cross_sectional_robust_z(d, "earnings_growth_final")
+        + 0.06 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.04 * cross_sectional_robust_z(d, "ocf_growth_yoy")
+        + 0.06 * cross_sectional_robust_z(d, "actual_results_score")
     ).fillna(0.0)
 
     d["valuation_blueprint_score"] = (
-        0.28 * -robust_z(pe_rel).fillna(0.0)
-        + 0.26 * -robust_z(ev_rel).fillna(0.0)
-        + 0.22 * robust_z(fcf_rel).fillna(0.0)
-        + 0.24 * -cross_sectional_robust_z(d, "peg_final")
+        0.24 * -robust_z(pe_rel).fillna(0.0)
+        + 0.22 * -robust_z(ev_rel).fillna(0.0)
+        + 0.20 * robust_z(fcf_rel).fillna(0.0)
+        + 0.20 * -cross_sectional_robust_z(d, "peg_final")
+        + 0.14 * -cross_sectional_robust_z(d, "forward_ps_final")
     ).fillna(0.0)
 
     moat_manual_raw = numeric_series_or_default(d, "moat_score_manual", np.nan)
@@ -7161,11 +7181,12 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         dtype=float,
     )
     d["moat_quality_blueprint_score"] = (
-        0.35 * moat_anchor
-        + 0.15 * cross_sectional_robust_z(d, "op_margin_ttm")
-        + 0.12 * cross_sectional_robust_z(d, "gp_to_assets_ttm")
-        + 0.12 * cross_sectional_robust_z(d, "roe_proxy")
-        + 0.10 * cross_sectional_robust_z(d, "quality_trend_score")
+        0.30 * moat_anchor
+        + 0.18 * cross_sectional_robust_z(d, "op_margin_ttm")
+        + 0.14 * cross_sectional_robust_z(d, "gp_to_assets_ttm")
+        + 0.14 * cross_sectional_robust_z(d, "roe_proxy")
+        + 0.12 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.06 * cross_sectional_robust_z(d, "margin_stability_8q")
         + 0.06 * cross_sectional_robust_z(d, "pricing_power_score")
         - 0.10 * cross_sectional_robust_z(d, "debt_to_equity")
     ).fillna(0.0)
@@ -7334,18 +7355,18 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.20 * numeric_series_or_default(d, "liquidity_impulse_score", 0.0)
     )
     anticipatory_raw = (
-        0.12 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
-        + 0.10 * cross_sectional_robust_z(d, "sales_growth_yoy")
-        + 0.10 * multi_growth_z
+        0.11 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.09 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.09 * multi_growth_z
         + 0.05 * multi_growth_5y_z
-        + 0.10 * benchmark_alpha
-        + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
-        + 0.08 * cross_sectional_robust_z(d, "technical_blueprint_score")
-        + 0.07 * cross_sectional_robust_z(d, "event_reaction_score")
+        + 0.09 * benchmark_alpha
+        + 0.11 * cross_sectional_robust_z(d, "growth_onset_composite")
+        + 0.07 * cross_sectional_robust_z(d, "technical_blueprint_score")
+        + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
         + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
         + 0.05 * cross_sectional_robust_z(d, "leader_emergence_score")
         + 0.05 * cross_sectional_robust_z(d, "revision_blueprint_score")
-        + 0.07 * numeric_series_or_default(d, "profitability_inflection_score", 0.0)
+        + 0.06 * numeric_series_or_default(d, "profitability_inflection_score", 0.0)
         + 0.06 * supply_demand_signal
         + 0.05 * macro_growth_boost * row_mean(
             [
@@ -7408,14 +7429,14 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         - 0.06 * leverage_penalty
     ).fillna(0.0)
     d["archetype_cyclical_recovery_score"] = (
-        0.22 * cross_sectional_robust_z(d, "valuation_blueprint_score")
-        + 0.18 * cross_sectional_robust_z(d, "profitability_inflection_score")
-        + 0.14 * cross_sectional_robust_z(d, "margin_trend_4q")
-        + 0.12 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        0.20 * cross_sectional_robust_z(d, "valuation_blueprint_score")
+        + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
+        + 0.12 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.10 * cross_sectional_robust_z(d, "sales_growth_yoy")
         + 0.10 * cross_sectional_robust_z(d, "event_reaction_score")
-        + 0.10 * cross_sectional_robust_z(d, "actual_results_score")
+        + 0.08 * cross_sectional_robust_z(d, "actual_results_score")
         + 0.08 * benchmark_alpha
-        + 0.10 * cross_sectional_robust_z(d, "energy_hedge_exposure")
+        + 0.08 * cross_sectional_robust_z(d, "energy_hedge_exposure")
         + 0.08 * structural_value_bias
         - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
     ).fillna(0.0)
@@ -10655,6 +10676,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
             cross_sectional_robust_z(d, "fcfy_ttm"),
             -cross_sectional_robust_z(d, "forward_pe_final"),
             -cross_sectional_robust_z(d, "peg_final"),
+            -cross_sectional_robust_z(d, "forward_ps_final"),
         ],
         d.index,
     ).fillna(0.0)
