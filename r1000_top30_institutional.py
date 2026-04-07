@@ -836,6 +836,7 @@ class EngineConfig:
     base_dir: str = "/content/drive/MyDrive/r1000_top30_institutional"
     sec_user_agent: str = "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
     alpha_vantage_api_key: str = "JOUOW3UV8ZV23AOZ"
+    fred_api_key: str = "8d92fb5a5de226657d912fe0284dfc00"
     alpha_vantage_free_tier_mode: bool = True
     alpha_vantage_free_refresh_tickers: int = 8
     alpha_vantage_free_statement_repair_tickers: int = 6
@@ -1049,7 +1050,7 @@ class EngineConfig:
     portfolio_seed_anticipatory_boost: float = 0.0
     portfolio_top1_conviction_boost: float = 0.0
     portfolio_top2_conviction_boost: float = 0.0
-    fear_greed_live_overlay_weight: float = 0.03
+    fear_greed_live_overlay_weight: float = 0.08
     adaptive_rebalance_enabled: bool = True
     adaptive_rebalance_growth_months: int = 1
     adaptive_rebalance_balanced_months: int = 3
@@ -3212,8 +3213,23 @@ def apply_latest_sentiment_satellite_overlay(df: pd.DataFrame, cfg: EngineConfig
         ],
         d.index,
     ).fillna(0.0)
+    # Contrarian extreme-fear bonus: favor undervalued + quality stocks when fear is extreme
+    # "Be greedy when others are fearful" — buy quality at a discount
+    fg_score = numeric_series_or_default(d, "fear_greed_score", 50.0).fillna(50.0).median()
+    contrarian_extreme_fear = max(0.0, (25.0 - fg_score) / 25.0) if fg_score < 25 else 0.0
+    contrarian_buy_tilt = row_mean(
+        [
+            cross_sectional_robust_z(d, "valuation_blueprint_score"),   # Cheap
+            cross_sectional_robust_z(d, "moat_quality_blueprint_score"),  # Quality moat
+            cross_sectional_robust_z(d, "fundamental_reliability_score"),  # Reliable data
+            cross_sectional_robust_z(d, "long_hold_compounder_score"),  # Compounders
+            -cross_sectional_robust_z(d, "debt_to_equity"),  # Low leverage
+        ],
+        d.index,
+    ).fillna(0.0)
     d["score_fear_greed_satellite"] = overlay_weight * (
         fg_risk_on * risk_on_tilt + fg_risk_off * risk_off_tilt
+        + 1.5 * contrarian_extreme_fear * contrarian_buy_tilt
     )
     d["score_live_overlay"] = numeric_series_or_default(d, "score_live_overlay", 0.0) + d["score_fear_greed_satellite"]
     d["score"] = numeric_series_or_default(d, "score", 0.0) + d["score_fear_greed_satellite"]
@@ -5231,6 +5247,33 @@ def load_fred_series(cfg: EngineConfig, paths: dict[str, Path], name: str, serie
         except Exception:
             pass
 
+    # Prefer FRED API with key (higher rate limit), fallback to CSV scrape
+    fred_key = getattr(cfg, "fred_api_key", "")
+    if fred_key:
+        api_url = (
+            f"https://api.stlouisfed.org/fred/series/observations"
+            f"?series_id={series_id}&api_key={fred_key}&file_type=json"
+        )
+        headers_api = {"User-Agent": cfg.sec_user_agent}
+        try:
+            resp = http_get(api_url, headers=headers_api, timeout=120)
+            data = resp.json()
+            obs = data.get("observations", [])
+            if obs:
+                df = pd.DataFrame(obs)
+                df = pd.DataFrame({
+                    "date": pd.to_datetime(df["date"], errors="coerce"),
+                    "value": pd.to_numeric(df["value"], errors="coerce"),
+                }).dropna(subset=["date"])
+                df = df.sort_values("date").drop_duplicates("date", keep="last")
+                df.to_parquet(cache_path, index=False)
+                time.sleep(cfg.sec_sleep)
+                s = pd.to_numeric(df["value"], errors="coerce")
+                s.index = to_naive_datetime_index(df["date"])
+                return s.sort_index()
+        except Exception:
+            pass  # Fallback to CSV scrape below
+
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     headers = {"User-Agent": cfg.sec_user_agent}
     try:
@@ -6168,7 +6211,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     ]
     present_carry_forward_cols = [c for c in carry_forward_cols if c in macro.columns]
     if present_carry_forward_cols:
-        macro[present_carry_forward_cols] = macro[present_carry_forward_cols].ffill(limit=45)
+        macro[present_carry_forward_cols] = macro[present_carry_forward_cols].ffill(limit=90)
 
     # VIX-based Fear&Greed proxy for historical periods without CNN data
     _vix_raw = pd.to_numeric(macro.get("vix_level"), errors="coerce") if "vix_level" in macro.columns else None
@@ -8108,6 +8151,34 @@ def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame)
             )
         if crisis_beneficiary_ratio > 0.05:
             cash_target *= max(0.30, 1.0 - 1.2 * crisis_beneficiary_ratio)
+
+        # ── Contrarian Fear/Greed: extreme fear = buy opportunity, not risk ──
+        fear_greed = _median_or_default("fear_greed_score", 50.0)
+        fear_greed = 50.0 if np.isnan(fear_greed) else fear_greed
+        fear_delta = _median_or_default("fear_greed_delta_1w", 0.0)
+        fear_delta = 0.0 if np.isnan(fear_delta) else fear_delta
+        # Only apply contrarian logic when there is NO structural systemic crisis
+        # (avoid catching falling knives during 2008-style meltdowns)
+        structural_crisis = (systemic > 0.55) or (concurrent_risk_count >= 3)
+        if not structural_crisis:
+            # Extreme fear (< 25): Aggressively REDUCE cash → buy undervalued stocks
+            # - Fear is mean-reverting; historically best 12m returns start here
+            # - Stronger signal when fear is already recovering (delta > 0)
+            if fear_greed < 25:
+                contrarian_buy = (25.0 - fear_greed) / 25.0  # 0→1 as fear drops 25→0
+                recovery_bonus = max(0.0, min(1.0, fear_delta / 10.0))  # Bounce detected
+                cash_target -= 0.15 * contrarian_buy * (0.60 + 0.40 * recovery_bonus)
+            elif fear_greed < 35:
+                mild_buy = (35.0 - fear_greed) / 20.0  # Moderate fear zone
+                cash_target -= 0.06 * mild_buy
+            # Extreme greed (> 75): INCREASE cash → market overextended
+            if fear_greed > 80:
+                contrarian_sell = (fear_greed - 80.0) / 20.0  # 0→1 as greed rises 80→100
+                cash_target += 0.12 * contrarian_sell
+            elif fear_greed > 70:
+                mild_sell = (fear_greed - 70.0) / 20.0
+                cash_target += 0.05 * mild_sell
+
         cash_target = float(np.clip(cash_target, 0.0, cfg.cash_weight_max))
     if cash_target >= 0.12:
         target_adj -= 1.0
