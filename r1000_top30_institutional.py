@@ -6945,21 +6945,21 @@ def compute_three_level_relative_strength(df: pd.DataFrame) -> pd.DataFrame:
     """Compute composite RS: stock-vs-market, stock-vs-sector, sector-vs-market."""
     d = df.copy()
     # Tier 1: Stock vs Market
-    rs_m1 = pd.to_numeric(d.get("rs_benchmark_1m"), errors="coerce").fillna(0.0)
-    rs_m3 = pd.to_numeric(d.get("rs_benchmark_3m"), errors="coerce").fillna(0.0)
-    rs_m6 = pd.to_numeric(d.get("rs_benchmark_6m"), errors="coerce").fillna(0.0)
-    rs_m12 = pd.to_numeric(d.get("rs_benchmark_12m"), errors="coerce").fillna(0.0)
+    rs_m1 = numeric_series_or_default(d, "rs_benchmark_1m", 0.0)
+    rs_m3 = numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+    rs_m6 = numeric_series_or_default(d, "rs_benchmark_6m", 0.0)
+    rs_m12 = numeric_series_or_default(d, "rs_benchmark_12m", 0.0)
     d["rs_market_composite"] = 0.15 * rs_m1 + 0.30 * rs_m3 + 0.35 * rs_m6 + 0.20 * rs_m12
 
     # Tier 2: Stock vs Sector
-    rs_s1 = pd.to_numeric(d.get("rs_sector_1m"), errors="coerce").fillna(0.0)
-    rs_s3 = pd.to_numeric(d.get("rs_sector_3m"), errors="coerce").fillna(0.0)
-    rs_s6 = pd.to_numeric(d.get("rs_sector_6m"), errors="coerce").fillna(0.0)
-    rs_s12 = pd.to_numeric(d.get("rs_sector_12m"), errors="coerce").fillna(0.0)
+    rs_s1 = numeric_series_or_default(d, "rs_sector_1m", 0.0)
+    rs_s3 = numeric_series_or_default(d, "rs_sector_3m", 0.0)
+    rs_s6 = numeric_series_or_default(d, "rs_sector_6m", 0.0)
+    rs_s12 = numeric_series_or_default(d, "rs_sector_12m", 0.0)
     d["rs_sector_composite"] = 0.15 * rs_s1 + 0.30 * rs_s3 + 0.35 * rs_s6 + 0.20 * rs_s12
 
     # Tier 3: Sector vs Market (reuse sector_leader_score)
-    sl = pd.to_numeric(d.get("sector_leader_score"), errors="coerce").fillna(0.0)
+    sl = numeric_series_or_default(d, "sector_leader_score", 0.0)
 
     # Composite: z-score normalize within each rebalance date, then blend
     if "rebalance_date" in d.columns:
@@ -7253,7 +7253,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         log_mktcap = np.log(pd.to_numeric(d["mktcap"], errors="coerce").clip(lower=1e6))
     small_base_high_growth = (
         np.clip(1.0 - (log_mktcap - 9.0) / 3.0, 0.0, 1.0)
-        * np.maximum(0.0, pd.to_numeric(d.get("sales_growth_yoy"), errors="coerce").fillna(0.0))
+        * np.maximum(0.0, numeric_series_or_default(d, "sales_growth_yoy", 0.0))
     ).fillna(0.0)
     d["growth_onset_composite"] = (
         0.25 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
@@ -12260,7 +12260,7 @@ def build_target_portfolio(
     spec_max = float(cfg.speculative_weight_max)
     spec_total_max = float(cfg.speculative_total_weight_max)
     if spec_total_max > 0:
-        scout_score = pd.to_numeric(sel.get("future_winner_scout_score"), errors="coerce").fillna(0.0)
+        scout_score = numeric_series_or_default(sel, "future_winner_scout_score", 0.0)
         scout_thr = scout_score.quantile(0.80) if len(scout_score) > 10 else scout_score.median()
         archetype_lbl = sel.get("dominant_archetype_label", pd.Series("", index=sel.index, dtype=str)).astype(str)
         speculative_mask = (
