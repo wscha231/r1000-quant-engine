@@ -510,6 +510,12 @@ DEFAULT_FEATURES = [
     "net_income_cagr_5y",
     "asset_growth_yoy",
     "shares_yoy",
+    "eps_growth_yoy",
+    "eps_cagr_3y",
+    "eps_cagr_5y",
+    "fcf_growth_yoy",
+    "fcf_cagr_3y",
+    "fcf_cagr_5y",
     "dividend_policy_score",
     "garp_score",
     "capital_efficiency_score",
@@ -800,6 +806,14 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "accruals_to_assets",
     "gross_margins",
     "operating_margins",
+    "eps_ttm",
+    "eps_growth_yoy",
+    "eps_cagr_3y",
+    "eps_cagr_5y",
+    "fcf_ttm",
+    "fcf_growth_yoy",
+    "fcf_cagr_3y",
+    "fcf_cagr_5y",
     "fund_history_quarters_available",
 ]
 
@@ -7271,28 +7285,69 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         np.clip(1.0 - (log_mktcap - 9.0) / 3.0, 0.0, 1.0)
         * np.maximum(0.0, numeric_series_or_default(d, "sales_growth_yoy", 0.0))
     ).fillna(0.0)
+    # EPS/FCF acceleration — captures profit inflection better than revenue alone
+    eps_accel = cross_sectional_robust_z(d, "eps_growth_yoy").fillna(0.0)
+    fcf_accel = cross_sectional_robust_z(d, "fcf_growth_yoy").fillna(0.0)
+    earnings_momentum = row_mean([eps_accel, fcf_accel], d.index).fillna(0.0)
     d["growth_onset_composite"] = (
-        0.25 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
-        + 0.25 * numeric_series_or_default(d, "growth_inflection_signal", 0.0)
-        + 0.20 * numeric_series_or_default(d, "margin_expansion_at_growth", 0.0)
-        + 0.15 * robust_z(small_base_high_growth).fillna(0.0)
-        + 0.15 * cross_sectional_robust_z(d, "rs_market_acceleration")
+        0.18 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
+        + 0.18 * numeric_series_or_default(d, "growth_inflection_signal", 0.0)
+        + 0.15 * numeric_series_or_default(d, "margin_expansion_at_growth", 0.0)
+        + 0.12 * robust_z(small_base_high_growth).fillna(0.0)
+        + 0.12 * cross_sectional_robust_z(d, "rs_market_acceleration")
+        + 0.15 * earnings_momentum
+        + 0.10 * cross_sectional_robust_z(d, "breakout_volume_z")
     ).fillna(0.0)
 
+    # Multi-dimensional growth composite: revenue + earnings + cashflow
+    multi_growth_z = row_mean(
+        [
+            cross_sectional_robust_z(d, "sales_cagr_3y"),
+            cross_sectional_robust_z(d, "eps_cagr_3y"),
+            cross_sectional_robust_z(d, "fcf_cagr_3y"),
+            cross_sectional_robust_z(d, "op_income_cagr_3y"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    multi_growth_5y_z = row_mean(
+        [
+            cross_sectional_robust_z(d, "sales_cagr_5y"),
+            cross_sectional_robust_z(d, "eps_cagr_5y"),
+            cross_sectional_robust_z(d, "fcf_cagr_5y"),
+            cross_sectional_robust_z(d, "op_income_cagr_5y"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    # Supply-demand proxy: volume confirmation + institutional flow
+    supply_demand_signal = row_mean(
+        [
+            cross_sectional_robust_z(d, "breakout_volume_z"),
+            cross_sectional_robust_z(d, "obv_trend"),
+            numeric_series_or_default(d, "institutional_flow_signal_score", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    # Macro-aligned growth boost: stronger when macro is expansionary
+    macro_growth_boost = (
+        0.50 * growth_reentry
+        + 0.30 * numeric_series_or_default(d, "growth_liquidity_reentry_score", 0.0)
+        + 0.20 * numeric_series_or_default(d, "liquidity_impulse_score", 0.0)
+    )
     anticipatory_raw = (
-        0.15 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
-        + 0.12 * cross_sectional_robust_z(d, "sales_growth_yoy")
-        + 0.07 * cross_sectional_robust_z(d, "sales_cagr_3y")
-        + 0.06 * cross_sectional_robust_z(d, "sales_cagr_5y")
-        + 0.12 * benchmark_alpha
-        + 0.15 * cross_sectional_robust_z(d, "growth_onset_composite")
-        + 0.09 * cross_sectional_robust_z(d, "event_reaction_score")
-        + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
-        + 0.06 * cross_sectional_robust_z(d, "leader_emergence_score")
-        + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
-        + 0.06 * cross_sectional_robust_z(d, "technical_blueprint_score")
-        + 0.08 * numeric_series_or_default(d, "profitability_inflection_score", 0.0)
-        + 0.06 * growth_reentry * row_mean(
+        0.12 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.10 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.10 * multi_growth_z
+        + 0.05 * multi_growth_5y_z
+        + 0.10 * benchmark_alpha
+        + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
+        + 0.08 * cross_sectional_robust_z(d, "technical_blueprint_score")
+        + 0.07 * cross_sectional_robust_z(d, "event_reaction_score")
+        + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
+        + 0.05 * cross_sectional_robust_z(d, "leader_emergence_score")
+        + 0.05 * cross_sectional_robust_z(d, "revision_blueprint_score")
+        + 0.07 * numeric_series_or_default(d, "profitability_inflection_score", 0.0)
+        + 0.06 * supply_demand_signal
+        + 0.05 * macro_growth_boost * row_mean(
             [
                 cross_sectional_robust_z(d, "rs_benchmark_3m"),
                 cross_sectional_robust_z(d, "rs_benchmark_6m"),
@@ -7300,8 +7355,8 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
             ],
             d.index,
         ).fillna(0.0)
-        - 0.10 * numeric_series_or_default(d, "overheat_penalty", 0.0)
-        - 0.06 * leverage_penalty
+        - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
+        - 0.05 * leverage_penalty
     ).fillna(0.0)
     d["anticipatory_growth_score"] = (
         anticipatory_raw
@@ -7325,27 +7380,32 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         d.index,
     ).fillna(0.0)
     d["archetype_emerging_growth_score"] = (
-        0.28 * cross_sectional_robust_z(d, "anticipatory_growth_score")
-        + 0.20 * cross_sectional_robust_z(d, "profitability_inflection_score")
-        + 0.18 * cross_sectional_robust_z(d, "technical_blueprint_score")
-        + 0.12 * cross_sectional_robust_z(d, "revision_blueprint_score")
-        + 0.10 * cross_sectional_robust_z(d, "dynamic_leader_score")
-        + 0.08 * benchmark_alpha
-        + 0.08 * cross_sectional_robust_z(d, "leader_emergence_score")
-        - 0.10 * numeric_series_or_default(d, "overheat_penalty", 0.0)
-        - 0.06 * leverage_penalty
+        0.22 * cross_sectional_robust_z(d, "anticipatory_growth_score")
+        + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
+        + 0.16 * cross_sectional_robust_z(d, "technical_blueprint_score")
+        + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
+        + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
+        + 0.07 * benchmark_alpha
+        + 0.06 * cross_sectional_robust_z(d, "leader_emergence_score")
+        + 0.06 * earnings_momentum
+        + 0.05 * supply_demand_signal
+        + 0.04 * cross_sectional_robust_z(d, "relative_strength_composite")
+        - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
+        - 0.05 * leverage_penalty
     ).fillna(0.0)
     d["archetype_compounder_score"] = (
-        0.24 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
-        + 0.16 * cross_sectional_robust_z(d, "quality_trend_score")
-        + 0.14 * cross_sectional_robust_z(d, "growth_blueprint_score")
-        + 0.10 * cross_sectional_robust_z(d, "sales_cagr_5y")
+        0.20 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
+        + 0.14 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.12 * cross_sectional_robust_z(d, "growth_blueprint_score")
+        + 0.10 * multi_growth_5y_z
         + 0.08 * cross_sectional_robust_z(d, "op_margin_ttm")
         + 0.08 * cross_sectional_robust_z(d, "margin_stability_8q")
         + 0.08 * benchmark_alpha
-        + 0.08 * cross_sectional_robust_z(d, "fundamental_reliability_score")
-        + 0.08 * low_vol_quality
-        - 0.08 * leverage_penalty
+        + 0.06 * cross_sectional_robust_z(d, "fundamental_reliability_score")
+        + 0.06 * low_vol_quality
+        + 0.04 * cross_sectional_robust_z(d, "fcf_cagr_5y")
+        + 0.04 * cross_sectional_robust_z(d, "eps_cagr_5y")
+        - 0.06 * leverage_penalty
     ).fillna(0.0)
     d["archetype_cyclical_recovery_score"] = (
         0.22 * cross_sectional_robust_z(d, "valuation_blueprint_score")
@@ -7482,29 +7542,41 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         d.index,
     ).fillna(0.0)
     d["long_hold_compounder_score"] = (
-        0.34 * cross_sectional_robust_z(d, "archetype_compounder_score")
-        + 0.20 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
-        + 0.16 * cross_sectional_robust_z(d, "quality_trend_score")
-        + 0.12 * cross_sectional_robust_z(d, "sales_cagr_5y")
-        + 0.10 * cross_sectional_robust_z(d, "margin_stability_8q")
+        0.30 * cross_sectional_robust_z(d, "archetype_compounder_score")
+        + 0.18 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
+        + 0.14 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.10 * multi_growth_5y_z
+        + 0.08 * cross_sectional_robust_z(d, "margin_stability_8q")
         + 0.08 * benchmark_alpha
-        - 0.08 * leverage_penalty
+        + 0.06 * cross_sectional_robust_z(d, "fcf_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "eps_cagr_5y")
+        - 0.06 * leverage_penalty
     ).fillna(0.0)
+    # === FUTURE WINNER SCOUT: combines all signals to detect next big winner ===
+    # Core philosophy: "Future > Past" — weight technical, macro, supply-demand
+    # more than pure financial metrics. Financials confirm; price/flow leads.
     d["future_winner_scout_score"] = (
-        (0.55 + 0.45 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
+        (0.60 + 0.40 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
         * (
-            0.22 * cross_sectional_robust_z(d, "archetype_alignment_score")
-            + 0.18 * cross_sectional_robust_z(d, "anticipatory_growth_score")
-            + 0.15 * cross_sectional_robust_z(d, "growth_onset_composite")
-            + 0.13 * cross_sectional_robust_z(d, "long_hold_compounder_score")
-            + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
-            + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
-            + 0.06 * long_base_quality
-            + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
-            + 0.05 * cross_sectional_robust_z(d, "relative_strength_composite")
-            + 0.04 * cross_sectional_robust_z(d, "fundamental_reliability_score")
-            - 0.12 * overextended_penalty
-            - 0.06 * leverage_penalty
+            # --- Forward-looking: technical + macro + supply-demand (55%) ---
+            0.14 * cross_sectional_robust_z(d, "anticipatory_growth_score")
+            + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
+            + 0.10 * cross_sectional_robust_z(d, "technical_blueprint_score")
+            + 0.07 * cross_sectional_robust_z(d, "relative_strength_composite")
+            + 0.06 * supply_demand_signal
+            + 0.06 * macro_growth_boost
+            # --- Quality confirmation (30%) ---
+            + 0.10 * cross_sectional_robust_z(d, "archetype_alignment_score")
+            + 0.08 * cross_sectional_robust_z(d, "long_hold_compounder_score")
+            + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
+            + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
+            # --- Catalysts (15%) ---
+            + 0.05 * long_base_quality
+            + 0.05 * cross_sectional_robust_z(d, "event_reaction_score")
+            + 0.05 * earnings_momentum
+            # --- Penalties ---
+            - 0.10 * overextended_penalty
+            - 0.05 * leverage_penalty
         )
     ).fillna(0.0)
 
@@ -7959,51 +8031,53 @@ def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame)
             cfg.live_event_growth_threshold,
         )
         cash_target = (
-            0.18 * systemic
-            + 0.10 * carry_unwind
-            + 0.10 * war_oil_rate
-            + 0.06 * defensive_rotation
-            + 0.12 * live_stress
-            + 0.06 * live_event_defensive
-            + 0.07 * breadth_stress
-            + 0.05 * participation_stress
-            + (0.05 if spy_trend < 0.5 else 0.0)
-            + (0.05 if bench_trend < 0.5 else 0.0)
-            + 0.08 * liquidity_drain
-            + 0.06 * stagflation_eff
-            + 0.03 * upstream_cost_eff
-            + 0.04 * labor_softening_eff
-            + 0.03 * inflation_reaccel_eff
-            - 0.12 * growth_reentry
-            - 0.12 * growth_liquidity
-            - 0.06 * liquidity_impulse
-            - 0.12 * live_event_growth
-            - 0.06 * max(0.0, bullish - 0.70)
+            0.14 * systemic
+            + 0.07 * carry_unwind
+            + 0.07 * war_oil_rate
+            + 0.03 * defensive_rotation
+            + 0.08 * live_stress
+            + 0.03 * live_event_defensive
+            + 0.04 * breadth_stress
+            + 0.03 * participation_stress
+            + (0.03 if spy_trend < 0.5 else 0.0)
+            + (0.03 if bench_trend < 0.5 else 0.0)
+            + 0.05 * liquidity_drain
+            + 0.04 * stagflation_eff
+            + 0.02 * upstream_cost_eff
+            + 0.02 * labor_softening_eff
+            + 0.02 * inflation_reaccel_eff
+            - 0.18 * growth_reentry
+            - 0.18 * growth_liquidity
+            - 0.10 * liquidity_impulse
+            - 0.18 * live_event_growth
+            - 0.10 * max(0.0, bullish - 0.55)
         )
-        if systemic > 0.50:
-            cash_target += 0.10 + 0.10 * max(0.0, systemic - 0.50) * 2.0
-        if war_oil_rate > 0.50:
-            cash_target += 0.07 + 0.06 * max(0.0, war_oil_rate - 0.50) * 2.0
-        if carry_unwind > 0.48:
-            cash_target += 0.06 + 0.04 * max(0.0, carry_unwind - 0.48) * 2.0
-        if stagflation_eff > 0.50:
-            cash_target += 0.06 + 0.04 * max(0.0, stagflation_eff - 0.50) * 2.0
-        if liquidity_drain > 0.55:
-            cash_target += 0.06 + 0.04 * max(0.0, liquidity_drain - 0.55) * 2.0
+        if systemic > 0.60:
+            cash_target += 0.06 + 0.06 * max(0.0, systemic - 0.60) * 2.0
+        if war_oil_rate > 0.60:
+            cash_target += 0.04 + 0.04 * max(0.0, war_oil_rate - 0.60) * 2.0
+        if carry_unwind > 0.58:
+            cash_target += 0.04 + 0.03 * max(0.0, carry_unwind - 0.58) * 2.0
+        if stagflation_eff > 0.60:
+            cash_target += 0.04 + 0.03 * max(0.0, stagflation_eff - 0.60) * 2.0
+        if liquidity_drain > 0.65:
+            cash_target += 0.04 + 0.03 * max(0.0, liquidity_drain - 0.65) * 2.0
         extreme_risk = max(systemic, carry_unwind, war_oil_rate, live_stress, liquidity_drain, stagflation_eff)
-        if extreme_risk > 0.60:
-            cash_target = max(cash_target, 0.25 + 0.35 * (extreme_risk - 0.60) / 0.40)
+        if extreme_risk > 0.70:
+            cash_target = max(cash_target, 0.20 + 0.30 * (extreme_risk - 0.70) / 0.30)
         concurrent_risk_count = sum([
-            systemic > 0.45, carry_unwind > 0.45, war_oil_rate > 0.45,
-            liquidity_drain > 0.50, stagflation_eff > 0.45,
+            systemic > 0.55, carry_unwind > 0.55, war_oil_rate > 0.55,
+            liquidity_drain > 0.60, stagflation_eff > 0.55,
         ])
         if concurrent_risk_count >= 3:
-            cash_target = max(cash_target, 0.30 + 0.05 * (concurrent_risk_count - 3))
+            cash_target = max(cash_target, 0.25 + 0.05 * (concurrent_risk_count - 3))
         if balanced_live and slow_macro_available < 0.60:
-            cash_target = min(cash_target, 0.03)
+            cash_target = min(cash_target, 0.02)
         elif balanced_live and stress < 0.80:
-            cash_target = min(cash_target, 0.05)
+            cash_target = min(cash_target, 0.03)
         elif live_stress < 0.35 and stress < 0.60:
+            cash_target = min(cash_target, 0.05)
+        elif live_stress < 0.45 and stress < 0.75:
             cash_target = min(cash_target, 0.08)
         # Reduce cash when crisis-beneficiary sectors are available for rotation
         crisis_beneficiary_ratio = 0.0
@@ -8979,6 +9053,40 @@ def quarterly_flow_from_ytd(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
+def _flexible_lag(d: pd.DataFrame, col: str, target_q: int, tol: int = 2) -> tuple:
+    """Get value from target_q quarters ago per CIK, falling back ±tol if NaN.
+
+    Returns (lag_series, actual_quarters_series) so CAGR can adjust for the
+    actual elapsed time when a neighbor fill was used.
+    """
+    result = d.groupby("cik")[col].shift(target_q)
+    actual_q = pd.Series(float(target_q), index=d.index)
+    for offset in range(1, tol + 1):
+        for delta in [target_q - offset, target_q + offset]:
+            if delta < 4:
+                continue
+            candidate = d.groupby("cik")[col].shift(delta)
+            fill_mask = result.isna() & candidate.notna()
+            result = result.where(~fill_mask, candidate)
+            actual_q = actual_q.where(~fill_mask, float(delta))
+    return result, actual_q
+
+
+def _cagr_from_lag(current: pd.Series, lag: pd.Series, actual_q: pd.Series,
+                   require_positive: bool = True) -> pd.Series:
+    """Compute CAGR = (current / lag)^(1/years) - 1 with variable elapsed time."""
+    years = actual_q / 4.0
+    denom = lag.replace(0, np.nan)
+    ratio = current / denom
+    if require_positive:
+        valid = (ratio > 0) & (current > 0) & (lag > 0)
+    else:
+        valid = ratio > 0
+    cagr = pd.Series(np.nan, index=current.index)
+    cagr = cagr.where(~valid, np.power(ratio, 1.0 / years) - 1.0)
+    return cagr
+
+
 def recompute_fund_panel_derived_columns(
     panel: pd.DataFrame,
     ffill_quarters: int = 2,
@@ -9057,34 +9165,28 @@ def recompute_fund_panel_derived_columns(
         d["shares_yoy"] = d.groupby("cik")["shares"].pct_change(4)
     if "revenues_ttm" in d.columns:
         d["sales_growth_yoy"] = d.groupby("cik")["revenues_ttm"].pct_change(4)
-        lag12 = d.groupby("cik")["revenues_ttm"].shift(12)
-        lag20 = d.groupby("cik")["revenues_ttm"].shift(20)
-        ratio = d["revenues_ttm"] / lag12.replace(0, np.nan)
-        d["sales_cagr_3y"] = np.where(ratio > 0, np.power(ratio, 1.0 / 3.0) - 1.0, np.nan)
-        ratio5 = d["revenues_ttm"] / lag20.replace(0, np.nan)
-        d["sales_cagr_5y"] = np.where(ratio5 > 0, np.power(ratio5, 1.0 / 5.0) - 1.0, np.nan)
+        lag3, aq3 = _flexible_lag(d, "revenues_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "revenues_ttm", 20, tol=2)
+        d["sales_cagr_3y"] = _cagr_from_lag(d["revenues_ttm"], lag3, aq3, require_positive=False)
+        d["sales_cagr_5y"] = _cagr_from_lag(d["revenues_ttm"], lag5, aq5, require_positive=False)
     if "op_income_ttm" in d.columns:
         lag4 = d.groupby("cik")["op_income_ttm"].shift(4)
         d["op_income_growth_yoy"] = (d["op_income_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
             (d["op_income_ttm"] > 0) & (lag4 > 0)
         )
-        lag12 = d.groupby("cik")["op_income_ttm"].shift(12)
-        lag20 = d.groupby("cik")["op_income_ttm"].shift(20)
-        ratio = d["op_income_ttm"] / lag12.replace(0, np.nan)
-        d["op_income_cagr_3y"] = np.where(ratio > 0, np.power(ratio, 1.0 / 3.0) - 1.0, np.nan)
-        ratio5 = d["op_income_ttm"] / lag20.replace(0, np.nan)
-        d["op_income_cagr_5y"] = np.where(ratio5 > 0, np.power(ratio5, 1.0 / 5.0) - 1.0, np.nan)
+        lag3, aq3 = _flexible_lag(d, "op_income_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "op_income_ttm", 20, tol=2)
+        d["op_income_cagr_3y"] = _cagr_from_lag(d["op_income_ttm"], lag3, aq3)
+        d["op_income_cagr_5y"] = _cagr_from_lag(d["op_income_ttm"], lag5, aq5)
     if "ocf_ttm" in d.columns:
         lag4 = d.groupby("cik")["ocf_ttm"].shift(4)
         d["ocf_growth_yoy"] = (d["ocf_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
             (d["ocf_ttm"] > 0) & (lag4 > 0)
         )
-        lag12 = d.groupby("cik")["ocf_ttm"].shift(12)
-        lag20 = d.groupby("cik")["ocf_ttm"].shift(20)
-        ratio = d["ocf_ttm"] / lag12.replace(0, np.nan)
-        d["ocf_cagr_3y"] = np.where(ratio > 0, np.power(ratio, 1.0 / 3.0) - 1.0, np.nan)
-        ratio5 = d["ocf_ttm"] / lag20.replace(0, np.nan)
-        d["ocf_cagr_5y"] = np.where(ratio5 > 0, np.power(ratio5, 1.0 / 5.0) - 1.0, np.nan)
+        lag3, aq3 = _flexible_lag(d, "ocf_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "ocf_ttm", 20, tol=2)
+        d["ocf_cagr_3y"] = _cagr_from_lag(d["ocf_ttm"], lag3, aq3)
+        d["ocf_cagr_5y"] = _cagr_from_lag(d["ocf_ttm"], lag5, aq5)
     if "gross_profit_ttm" in d.columns and "assets" in d.columns:
         d["gp_to_assets_ttm"] = d["gross_profit_ttm"] / d["assets"].replace(0, np.nan)
     if "op_income_ttm" in d.columns and "revenues_ttm" in d.columns:
@@ -9102,12 +9204,26 @@ def recompute_fund_panel_derived_columns(
         d["net_income_growth_yoy"] = (d["net_income_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
             (d["net_income_ttm"] > 0) & (lag4 > 0)
         )
-        lag12 = d.groupby("cik")["net_income_ttm"].shift(12)
-        lag20 = d.groupby("cik")["net_income_ttm"].shift(20)
-        ratio = d["net_income_ttm"] / lag12.replace(0, np.nan)
-        d["net_income_cagr_3y"] = np.where(ratio > 0, np.power(ratio, 1.0 / 3.0) - 1.0, np.nan)
-        ratio5 = d["net_income_ttm"] / lag20.replace(0, np.nan)
-        d["net_income_cagr_5y"] = np.where(ratio5 > 0, np.power(ratio5, 1.0 / 5.0) - 1.0, np.nan)
+        lag3, aq3 = _flexible_lag(d, "net_income_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "net_income_ttm", 20, tol=2)
+        d["net_income_cagr_3y"] = _cagr_from_lag(d["net_income_ttm"], lag3, aq3)
+        d["net_income_cagr_5y"] = _cagr_from_lag(d["net_income_ttm"], lag5, aq5)
+    # --- EPS & FCF TTM + CAGR ---
+    if "net_income_ttm" in d.columns and "shares" in d.columns:
+        d["eps_ttm"] = d["net_income_ttm"] / d["shares"].replace(0, np.nan)
+        d["eps_growth_yoy"] = d.groupby("cik")["eps_ttm"].pct_change(4)
+        lag3, aq3 = _flexible_lag(d, "eps_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "eps_ttm", 20, tol=2)
+        d["eps_cagr_3y"] = _cagr_from_lag(d["eps_ttm"], lag3, aq3)
+        d["eps_cagr_5y"] = _cagr_from_lag(d["eps_ttm"], lag5, aq5)
+    if "ocf_ttm" in d.columns and "capex_ttm" in d.columns:
+        d["fcf_ttm"] = d["ocf_ttm"] - d["capex_ttm"].abs()
+        d["fcf_growth_yoy"] = d.groupby("cik")["fcf_ttm"].pct_change(4)
+        lag3, aq3 = _flexible_lag(d, "fcf_ttm", 12, tol=2)
+        lag5, aq5 = _flexible_lag(d, "fcf_ttm", 20, tol=2)
+        d["fcf_cagr_3y"] = _cagr_from_lag(d["fcf_ttm"], lag3, aq3)
+        d["fcf_cagr_5y"] = _cagr_from_lag(d["fcf_ttm"], lag5, aq5)
+
     if "assets" in d.columns and "liabilities" in d.columns:
         equity = (d["assets"] - d["liabilities"]).replace(0, np.nan)
         d["debt_to_equity"] = d["liabilities"] / equity
@@ -9146,6 +9262,14 @@ def recompute_fund_panel_derived_columns(
         "net_income_cagr_5y",
         "roe_trend_4q",
         "debt_to_equity_delta_4q",
+        "eps_ttm",
+        "eps_growth_yoy",
+        "eps_cagr_3y",
+        "eps_cagr_5y",
+        "fcf_ttm",
+        "fcf_growth_yoy",
+        "fcf_cagr_3y",
+        "fcf_cagr_5y",
         "fund_history_quarters_available",
     ]
     for c in set(ttm_ready_cols + carry_cols):
