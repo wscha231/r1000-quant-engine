@@ -1225,6 +1225,17 @@ def safe_read_json_file(path: Path, default: Any = None) -> Any:
         return default
 
 
+def safe_read_parquet_file(path: Path) -> pd.DataFrame:
+    if not isinstance(path, Path):
+        path = Path(path)
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_paths(cfg: EngineConfig) -> dict[str, Path]:
     base = Path(cfg.base_dir)
     out = base / "outputs"
