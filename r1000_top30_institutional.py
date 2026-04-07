@@ -13392,6 +13392,35 @@ def fallback_latest_recommendations_from_scored(
     return scored_latest
 
 
+def _bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[str, Any]:
+    m = bt.metrics
+    row = {
+        "adaptive_rebalance_policy": bool(m.get("adaptive_rebalance_policy", False)),
+        "avg_rebalance_interval_months": float(m.get("avg_rebalance_interval_months", np.nan)),
+        "rebalance_count": int(m.get("rebalance_count", 0)),
+        "rebalanced_month_ratio": float(m.get("rebalanced_month_ratio", np.nan)),
+        "strategy_cagr": float(m.get("cagr", np.nan)),
+        "benchmark_cagr": float(m.get("benchmark_cagr", np.nan)),
+        "excess_cagr": float(m.get("excess_cagr", np.nan)),
+        "sharpe": float(m.get("sharpe", np.nan)),
+        "sortino": float(m.get("sortino", np.nan)),
+        "max_dd": float(m.get("max_dd", np.nan)),
+        "ir": float(m.get("ir", np.nan)) if pd.notna(m.get("ir", np.nan)) else np.nan,
+        "beat_month_ratio": float(m.get("beat_month_ratio", np.nan)),
+        "avg_turnover_monthly": float(m.get("avg_turnover_monthly", np.nan)),
+        "avg_cash_weight": float(m.get("avg_cash_weight", 0.0)),
+        "avg_stock_names": float(m.get("avg_stock_names", 0.0)),
+        "rebalance_interval_months": int(m.get("rebalance_interval_months", getattr(cfg_obj, "rebalance_interval_months", 1))),
+        "trade_cost_bps_per_side": float(m.get("trade_cost_bps_per_side", np.nan)),
+        "starting_capital_usd": float(m.get("starting_capital_usd", np.nan)),
+        "ending_capital_usd": float(m.get("ending_capital_usd", np.nan)),
+        "months": int(m.get("months", 0)),
+        "benchmark_source": str(m.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
+    }
+    row.update(extra)
+    return row
+
+
 def compare_portfolio_size_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -13400,64 +13429,13 @@ def compare_portfolio_size_backtests(
     cfg_obj = to_cfg(cfg)
     candidates = sizes if sizes is not None else cfg_obj.portfolio_size_comparison_sizes
     clean_sizes = sorted({int(x) for x in candidates if int(x) >= 1})
-    rows: list[dict[str, Any]] = []
     bt_dynamic = backtest_portfolio(cfg_obj, signals)
-    rows.append(
-        {
-            "portfolio_mode": "dynamic",
-            "target_stock_names": int(round(float(bt_dynamic.metrics.get("avg_stock_names", 0.0)))),
-            "adaptive_rebalance_policy": bool(bt_dynamic.metrics.get("adaptive_rebalance_policy", False)),
-            "avg_rebalance_interval_months": float(bt_dynamic.metrics.get("avg_rebalance_interval_months", np.nan)),
-            "rebalance_count": int(bt_dynamic.metrics.get("rebalance_count", 0)),
-            "rebalanced_month_ratio": float(bt_dynamic.metrics.get("rebalanced_month_ratio", np.nan)),
-            "strategy_cagr": float(bt_dynamic.metrics.get("cagr", np.nan)),
-            "benchmark_cagr": float(bt_dynamic.metrics.get("benchmark_cagr", np.nan)),
-            "excess_cagr": float(bt_dynamic.metrics.get("excess_cagr", np.nan)),
-            "sharpe": float(bt_dynamic.metrics.get("sharpe", np.nan)),
-            "sortino": float(bt_dynamic.metrics.get("sortino", np.nan)),
-            "max_dd": float(bt_dynamic.metrics.get("max_dd", np.nan)),
-            "ir": float(bt_dynamic.metrics.get("ir", np.nan)) if pd.notna(bt_dynamic.metrics.get("ir", np.nan)) else np.nan,
-            "beat_month_ratio": float(bt_dynamic.metrics.get("beat_month_ratio", np.nan)),
-            "avg_turnover_monthly": float(bt_dynamic.metrics.get("avg_turnover_monthly", np.nan)),
-            "avg_cash_weight": float(bt_dynamic.metrics.get("avg_cash_weight", 0.0)),
-            "avg_stock_names": float(bt_dynamic.metrics.get("avg_stock_names", 0.0)),
-            "rebalance_interval_months": int(bt_dynamic.metrics.get("rebalance_interval_months", getattr(cfg_obj, "rebalance_interval_months", 1))),
-            "trade_cost_bps_per_side": float(bt_dynamic.metrics.get("trade_cost_bps_per_side", np.nan)),
-            "starting_capital_usd": float(bt_dynamic.metrics.get("starting_capital_usd", np.nan)),
-            "ending_capital_usd": float(bt_dynamic.metrics.get("ending_capital_usd", np.nan)),
-            "months": int(bt_dynamic.metrics.get("months", 0)),
-            "benchmark_source": str(bt_dynamic.metrics.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
-        }
-    )
+    rows = [_bt_metrics_row(bt_dynamic, cfg_obj, portfolio_mode="dynamic",
+                            target_stock_names=int(round(float(bt_dynamic.metrics.get("avg_stock_names", 0.0)))))]
     for size in clean_sizes:
-        bt = backtest_portfolio(cfg_obj, signals, target_n_override=size)
-        rows.append(
-            {
-                "portfolio_mode": "fixed",
-                "target_stock_names": int(size),
-                "adaptive_rebalance_policy": bool(bt.metrics.get("adaptive_rebalance_policy", False)),
-                "avg_rebalance_interval_months": float(bt.metrics.get("avg_rebalance_interval_months", np.nan)),
-                "rebalance_count": int(bt.metrics.get("rebalance_count", 0)),
-                "rebalanced_month_ratio": float(bt.metrics.get("rebalanced_month_ratio", np.nan)),
-                "strategy_cagr": float(bt.metrics.get("cagr", np.nan)),
-                "benchmark_cagr": float(bt.metrics.get("benchmark_cagr", np.nan)),
-                "excess_cagr": float(bt.metrics.get("excess_cagr", np.nan)),
-                "sharpe": float(bt.metrics.get("sharpe", np.nan)),
-                "sortino": float(bt.metrics.get("sortino", np.nan)),
-                "max_dd": float(bt.metrics.get("max_dd", np.nan)),
-                "ir": float(bt.metrics.get("ir", np.nan)) if pd.notna(bt.metrics.get("ir", np.nan)) else np.nan,
-                "beat_month_ratio": float(bt.metrics.get("beat_month_ratio", np.nan)),
-                "avg_turnover_monthly": float(bt.metrics.get("avg_turnover_monthly", np.nan)),
-                "avg_cash_weight": float(bt.metrics.get("avg_cash_weight", 0.0)),
-                "avg_stock_names": float(bt.metrics.get("avg_stock_names", 0.0)),
-                "rebalance_interval_months": int(bt.metrics.get("rebalance_interval_months", getattr(cfg_obj, "rebalance_interval_months", 1))),
-                "trade_cost_bps_per_side": float(bt.metrics.get("trade_cost_bps_per_side", np.nan)),
-                "starting_capital_usd": float(bt.metrics.get("starting_capital_usd", np.nan)),
-                "ending_capital_usd": float(bt.metrics.get("ending_capital_usd", np.nan)),
-                "months": int(bt.metrics.get("months", 0)),
-                "benchmark_source": str(bt.metrics.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
-            }
-        )
+        rows.append(_bt_metrics_row(
+            backtest_portfolio(cfg_obj, signals, target_n_override=size),
+            cfg_obj, portfolio_mode="fixed", target_stock_names=int(size)))
     return pd.DataFrame(rows).sort_values(["target_stock_names", "portfolio_mode"]).reset_index(drop=True)
 
 
@@ -13469,72 +13447,13 @@ def compare_rebalance_interval_backtests(
     cfg_obj = to_cfg(cfg)
     candidates = intervals if intervals is not None else cfg_obj.rebalance_interval_comparison_months
     clean_intervals = sorted({int(x) for x in candidates if int(x) >= 1})
-    rows: list[dict[str, Any]] = []
-    adaptive_bt = backtest_portfolio(cfg_obj, signals)
-    rows.append(
-        {
-            "portfolio_mode": "dynamic",
-            "policy_mode": "adaptive",
-            "rebalance_interval_months": int(
-                adaptive_bt.metrics.get("rebalance_interval_months", getattr(cfg_obj, "rebalance_interval_months", 1))
-            ),
-            "adaptive_rebalance_policy": bool(adaptive_bt.metrics.get("adaptive_rebalance_policy", False)),
-            "avg_rebalance_interval_months": float(adaptive_bt.metrics.get("avg_rebalance_interval_months", np.nan)),
-            "rebalance_count": int(adaptive_bt.metrics.get("rebalance_count", 0)),
-            "rebalanced_month_ratio": float(adaptive_bt.metrics.get("rebalanced_month_ratio", np.nan)),
-            "strategy_cagr": float(adaptive_bt.metrics.get("cagr", np.nan)),
-            "benchmark_cagr": float(adaptive_bt.metrics.get("benchmark_cagr", np.nan)),
-            "excess_cagr": float(adaptive_bt.metrics.get("excess_cagr", np.nan)),
-            "sharpe": float(adaptive_bt.metrics.get("sharpe", np.nan)),
-            "sortino": float(adaptive_bt.metrics.get("sortino", np.nan)),
-            "max_dd": float(adaptive_bt.metrics.get("max_dd", np.nan)),
-            "ir": float(adaptive_bt.metrics.get("ir", np.nan))
-            if pd.notna(adaptive_bt.metrics.get("ir", np.nan))
-            else np.nan,
-            "beat_month_ratio": float(adaptive_bt.metrics.get("beat_month_ratio", np.nan)),
-            "avg_turnover_monthly": float(adaptive_bt.metrics.get("avg_turnover_monthly", np.nan)),
-            "avg_cash_weight": float(adaptive_bt.metrics.get("avg_cash_weight", 0.0)),
-            "avg_stock_names": float(adaptive_bt.metrics.get("avg_stock_names", 0.0)),
-            "trade_cost_bps_per_side": float(adaptive_bt.metrics.get("trade_cost_bps_per_side", np.nan)),
-            "starting_capital_usd": float(adaptive_bt.metrics.get("starting_capital_usd", np.nan)),
-            "ending_capital_usd": float(adaptive_bt.metrics.get("ending_capital_usd", np.nan)),
-            "months": int(adaptive_bt.metrics.get("months", 0)),
-            "benchmark_source": str(adaptive_bt.metrics.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
-        }
-    )
+    bt_adaptive = backtest_portfolio(cfg_obj, signals)
+    rows = [_bt_metrics_row(bt_adaptive, cfg_obj, portfolio_mode="dynamic", policy_mode="adaptive")]
     for interval in clean_intervals:
-        bt = backtest_portfolio(
-            cfg_obj,
-            signals,
-            rebalance_interval_months_override=interval,
-        )
-        rows.append(
-            {
-                "portfolio_mode": "dynamic",
-                "policy_mode": "fixed_interval",
-                "rebalance_interval_months": int(interval),
-                "adaptive_rebalance_policy": bool(bt.metrics.get("adaptive_rebalance_policy", False)),
-                "avg_rebalance_interval_months": float(bt.metrics.get("avg_rebalance_interval_months", np.nan)),
-                "rebalance_count": int(bt.metrics.get("rebalance_count", 0)),
-                "rebalanced_month_ratio": float(bt.metrics.get("rebalanced_month_ratio", np.nan)),
-                "strategy_cagr": float(bt.metrics.get("cagr", np.nan)),
-                "benchmark_cagr": float(bt.metrics.get("benchmark_cagr", np.nan)),
-                "excess_cagr": float(bt.metrics.get("excess_cagr", np.nan)),
-                "sharpe": float(bt.metrics.get("sharpe", np.nan)),
-                "sortino": float(bt.metrics.get("sortino", np.nan)),
-                "max_dd": float(bt.metrics.get("max_dd", np.nan)),
-                "ir": float(bt.metrics.get("ir", np.nan)) if pd.notna(bt.metrics.get("ir", np.nan)) else np.nan,
-                "beat_month_ratio": float(bt.metrics.get("beat_month_ratio", np.nan)),
-                "avg_turnover_monthly": float(bt.metrics.get("avg_turnover_monthly", np.nan)),
-                "avg_cash_weight": float(bt.metrics.get("avg_cash_weight", 0.0)),
-                "avg_stock_names": float(bt.metrics.get("avg_stock_names", 0.0)),
-                "trade_cost_bps_per_side": float(bt.metrics.get("trade_cost_bps_per_side", np.nan)),
-                "starting_capital_usd": float(bt.metrics.get("starting_capital_usd", np.nan)),
-                "ending_capital_usd": float(bt.metrics.get("ending_capital_usd", np.nan)),
-                "months": int(bt.metrics.get("months", 0)),
-                "benchmark_source": str(bt.metrics.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
-            }
-        )
+        rows.append(_bt_metrics_row(
+            backtest_portfolio(cfg_obj, signals, rebalance_interval_months_override=interval),
+            cfg_obj, portfolio_mode="dynamic", policy_mode="fixed_interval",
+            rebalance_interval_months=int(interval)))
     return pd.DataFrame(rows).sort_values("rebalance_interval_months").reset_index(drop=True)
 
 
@@ -13550,39 +13469,17 @@ def compare_backtest_window_years(
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     d = d.dropna(subset=["rebalance_date"]).copy()
     if d.empty:
-        return pd.DataFrame(
-            columns=[
-                "window_years",
-                "available",
-                "full_window_available",
-                "available_months",
-                "requested_start_date",
-                "actual_start_date",
-                "end_date",
-                "actual_window_years",
-                "strategy_cagr",
-                "benchmark_cagr",
-                "excess_cagr",
-                "sharpe",
-                "sortino",
-                "max_dd",
-                "ir",
-                "beat_month_ratio",
-                "avg_turnover_monthly",
-                "avg_cash_weight",
-                "avg_stock_names",
-                "benchmark_source",
-                "status",
-            ]
-        )
+        return pd.DataFrame()
     latest_dt = pd.Timestamp(d["rebalance_date"].max())
     earliest_dt = pd.Timestamp(d["rebalance_date"].min())
+    _nan_keys = ["strategy_cagr", "benchmark_cagr", "excess_cagr", "sharpe", "sortino",
+                 "max_dd", "ir", "beat_month_ratio", "avg_turnover_monthly", "avg_cash_weight", "avg_stock_names"]
     rows: list[dict[str, Any]] = []
     for years in clean_years:
         requested_start = (latest_dt - pd.DateOffset(years=int(years))).normalize()
         subset = d[d["rebalance_date"] >= requested_start].copy()
         months = sorted(subset["rebalance_date"].dropna().unique().tolist())
-        full_window_available = bool(pd.Timestamp(earliest_dt) <= pd.Timestamp(requested_start))
+        full_window = bool(pd.Timestamp(earliest_dt) <= pd.Timestamp(requested_start))
         actual_start = pd.Timestamp(months[0]) if months else pd.NaT
         row: dict[str, Any] = {
             "window_years": int(years),
@@ -13590,63 +13487,18 @@ def compare_backtest_window_years(
             "actual_start_date": str(pd.Timestamp(actual_start).date()) if pd.notna(actual_start) else None,
             "end_date": str(pd.Timestamp(latest_dt).date()),
             "available_months": int(max(len(months) - 1, 0)),
-            "actual_window_years": float(max((pd.Timestamp(latest_dt) - pd.Timestamp(actual_start)).days, 0) / 365.25)
-            if pd.notna(actual_start)
-            else 0.0,
-            "available_years_covered": float(
-                max((pd.Timestamp(latest_dt) - pd.Timestamp(earliest_dt)).days, 0) / 365.25
-            ),
+            "actual_window_years": float(max((latest_dt - actual_start).days, 0) / 365.25) if pd.notna(actual_start) else 0.0,
+            "available_years_covered": float(max((latest_dt - earliest_dt).days, 0) / 365.25),
         }
         if len(months) < 2:
-            row.update(
-                {
-                    "available": False,
-                    "full_window_available": full_window_available,
-                    "adaptive_rebalance_policy": False,
-                    "avg_rebalance_interval_months": np.nan,
-                    "rebalance_count": 0,
-                    "rebalanced_month_ratio": np.nan,
-                    "strategy_cagr": np.nan,
-                    "benchmark_cagr": np.nan,
-                    "excess_cagr": np.nan,
-                    "sharpe": np.nan,
-                    "sortino": np.nan,
-                    "max_dd": np.nan,
-                    "ir": np.nan,
-                    "beat_month_ratio": np.nan,
-                    "avg_turnover_monthly": np.nan,
-                    "avg_cash_weight": np.nan,
-                    "avg_stock_names": np.nan,
-                    "benchmark_source": benchmark_history_source_label(cfg_obj),
-                    "status": "insufficient_months",
-                }
-            )
-            rows.append(row)
-            continue
-        bt = backtest_portfolio(cfg_obj, subset)
-        row.update(
-            {
-                "available": True,
-                "full_window_available": full_window_available,
-                "adaptive_rebalance_policy": bool(bt.metrics.get("adaptive_rebalance_policy", False)),
-                "avg_rebalance_interval_months": float(bt.metrics.get("avg_rebalance_interval_months", np.nan)),
-                "rebalance_count": int(bt.metrics.get("rebalance_count", 0)),
-                "rebalanced_month_ratio": float(bt.metrics.get("rebalanced_month_ratio", np.nan)),
-                "strategy_cagr": float(bt.metrics.get("cagr", np.nan)),
-                "benchmark_cagr": float(bt.metrics.get("benchmark_cagr", np.nan)),
-                "excess_cagr": float(bt.metrics.get("excess_cagr", np.nan)),
-                "sharpe": float(bt.metrics.get("sharpe", np.nan)),
-                "sortino": float(bt.metrics.get("sortino", np.nan)),
-                "max_dd": float(bt.metrics.get("max_dd", np.nan)),
-                "ir": float(bt.metrics.get("ir", np.nan)) if pd.notna(bt.metrics.get("ir", np.nan)) else np.nan,
-                "beat_month_ratio": float(bt.metrics.get("beat_month_ratio", np.nan)),
-                "avg_turnover_monthly": float(bt.metrics.get("avg_turnover_monthly", np.nan)),
-                "avg_cash_weight": float(bt.metrics.get("avg_cash_weight", np.nan)),
-                "avg_stock_names": float(bt.metrics.get("avg_stock_names", np.nan)),
-                "benchmark_source": str(bt.metrics.get("benchmark_source", benchmark_history_source_label(cfg_obj))),
-                "status": "ok" if full_window_available else "partial_window",
-            }
-        )
+            row.update({"available": False, "full_window_available": full_window,
+                        **{k: np.nan for k in _nan_keys},
+                        "benchmark_source": benchmark_history_source_label(cfg_obj), "status": "insufficient_months"})
+        else:
+            bt = backtest_portfolio(cfg_obj, subset)
+            row.update(_bt_metrics_row(bt, cfg_obj))
+            row.update({"available": True, "full_window_available": full_window,
+                        "status": "ok" if full_window else "partial_window"})
         rows.append(row)
     return pd.DataFrame(rows).sort_values("window_years").reset_index(drop=True)
 
