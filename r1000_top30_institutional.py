@@ -3271,13 +3271,15 @@ def repair_latest_history_depth_from_diagnostics(paths: dict[str, Path], latest_
         if key in repair.columns:
             repair[key] = repair[key].astype(str)
     d = d.merge(repair, on=merge_keys, how="left", suffixes=("", "_diag"))
-    d["fund_history_quarters_available"] = pd.to_numeric(
-        d.get("fund_history_quarters_available"),
+    _fhqa = pd.to_numeric(
+        d["fund_history_quarters_available"] if "fund_history_quarters_available" in d.columns else pd.Series(np.nan, index=d.index),
         errors="coerce",
-    ).where(
-        lambda s: s > 0,
-        pd.to_numeric(d.get("fund_history_quarters_available_diag"), errors="coerce")
     )
+    _fhqa_diag = pd.to_numeric(
+        d["fund_history_quarters_available_diag"] if "fund_history_quarters_available_diag" in d.columns else pd.Series(np.nan, index=d.index),
+        errors="coerce",
+    )
+    d["fund_history_quarters_available"] = _fhqa.where(lambda s: s > 0, _fhqa_diag)
     d = d.drop(columns=["fund_history_quarters_available_diag"], errors="ignore")
     return d
 
@@ -5427,7 +5429,10 @@ def refresh_operational_realized_history(
         row: dict[str, Any] = {}
         for idx, col in enumerate(run_key_cols):
             row[col] = group_key[idx] if idx < len(group_key) else None
-        rebalance_dt = pd.to_datetime(grp["rebalance_date"], errors="coerce").dropna().iloc[0]
+        _rebal_dates = pd.to_datetime(grp["rebalance_date"], errors="coerce").dropna()
+        if _rebal_dates.empty:
+            continue
+        rebalance_dt = _rebal_dates.iloc[0]
         row["as_of_date"] = str(pd.Timestamp(as_of_date).date()) if pd.notna(as_of_date) else None
         stock_mask = grp.get("ticker", pd.Series(dtype=object)).astype(str).str.upper().ne(CASH_PROXY_TICKER)
         row["selected_n"] = int(stock_mask.sum())
@@ -9360,7 +9365,7 @@ def attach_fund_panel_join_diagnostics(monthly: pd.DataFrame, panel: pd.DataFram
     if "fund_history_quarters_available" not in d.columns:
         d["fund_history_quarters_available"] = np.nan
     d["fund_history_quarters_available"] = pd.to_numeric(
-        d.get("fund_history_quarters_available"),
+        d["fund_history_quarters_available"],
         errors="coerce",
     )
     accepted = datetime_series_or_default(d, "accepted")
