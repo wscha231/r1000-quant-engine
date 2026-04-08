@@ -51,6 +51,13 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("run_rebalance_interval_comparison", True)
     cfg.setdefault("run_backtest_window_comparison", True)
     cfg.setdefault("show_output_previews_after_run", False)
+    cfg.setdefault("cash_target_growth_cap", 0.03)
+    cfg.setdefault("cash_target_balanced_cap", 0.05)
+    cfg.setdefault("cash_target_mild_risk_cap", 0.10)
+    cfg.setdefault("core_compounder_sleeve_base_weight", 0.80)
+    cfg.setdefault("future_winner_sleeve_base_weight", 0.15)
+    cfg.setdefault("future_winner_sleeve_min_weight", 0.05)
+    cfg.setdefault("future_winner_sleeve_max_weight", 0.30)
     return cfg
 
 
@@ -414,6 +421,37 @@ def run_full_validation_suite(
                 .sum()
             )
 
+    sleeve_actual_weights: dict[str, float] = {}
+    sleeve_selected_counts: dict[str, int] = {}
+    if (
+        not portfolio_latest.empty
+        and "ticker" in portfolio_latest.columns
+        and "weight" in portfolio_latest.columns
+        and "portfolio_sleeve_label" in portfolio_latest.columns
+    ):
+        stock_only = portfolio_latest[
+            portfolio_latest["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER)
+        ].copy()
+        if not stock_only.empty:
+            sleeve_grouped = (
+                stock_only.assign(
+                    portfolio_sleeve_label=stock_only["portfolio_sleeve_label"]
+                    .fillna("core_compounder")
+                    .astype(str)
+                )
+                .groupby("portfolio_sleeve_label")["weight"]
+                .sum()
+            )
+            sleeve_actual_weights = {str(k): float(v) for k, v in sleeve_grouped.items()}
+            sleeve_selected_counts = {
+                str(k): int(v)
+                for k, v in stock_only["portfolio_sleeve_label"]
+                .fillna("core_compounder")
+                .astype(str)
+                .value_counts()
+                .items()
+            }
+
     dynamic_target_names = None
     fixed8_row: dict[str, Any] | None = None
     best_rebalance_row: dict[str, Any] | None = None
@@ -547,6 +585,14 @@ def run_full_validation_suite(
             "stock_count": int(portfolio_stock_count),
             "cash_weight": float(portfolio_cash_weight),
         },
+        "sleeve_policy_snapshot": {
+            "target_weights": run_summary.get("portfolio_sleeve_target_weights", {}),
+            "actual_weights": run_summary.get("portfolio_sleeve_actual_weights", sleeve_actual_weights),
+            "selected_counts": run_summary.get("portfolio_sleeve_selected_counts", sleeve_selected_counts),
+            "future_winner_regime_strength": safe_float(run_summary.get("future_winner_regime_strength")),
+            "growth_signal": safe_float(run_summary.get("sleeve_growth_signal")),
+            "risk_signal": safe_float(run_summary.get("sleeve_risk_signal")),
+        },
         "coverage": {
             "macro_scored_latest": _coverage_map(scored_latest, macro_cols),
             "macro_feature_store_latest": _coverage_map(latest_recommendations, macro_cols + fear_greed_cols),
@@ -577,6 +623,11 @@ def run_full_validation_suite(
                 and float(getattr(cfg_obj, "fear_greed_live_overlay_weight", 0.0)) <= 0.05
             ),
             "p2_latest_overlay_active": bool(latest_fg_nonzero_share > 0.0),
+            "sleeve_split_active": bool(
+                "portfolio_sleeve_label" in portfolio_latest.columns
+                and len(sleeve_actual_weights) >= 1
+                and safe_float(run_summary.get("portfolio_sleeve_target_weights", {}).get("core_compounder", 0.0)) > 0.0
+            ),
             "p3_top30_rows_ok": bool(top30_latest.empty or len(top30_latest) >= min(max(int(cfg_obj.top_n), 30), len(scored_latest) or 0)),
             "p3_dynamic_target_names_populated": bool(dynamic_target_names is None or float(dynamic_target_names) > 0),
         },
@@ -676,6 +727,48 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Lag in months for slow macro series like CPI/PPI/UNRATE/Sahm.",
     )
+    parser.add_argument(
+        "--cash-target-growth-cap",
+        type=float,
+        default=0.03,
+        help="Growth regime cash target cap.",
+    )
+    parser.add_argument(
+        "--cash-target-balanced-cap",
+        type=float,
+        default=0.05,
+        help="Balanced regime cash target cap.",
+    )
+    parser.add_argument(
+        "--cash-target-mild-risk-cap",
+        type=float,
+        default=0.10,
+        help="Mild risk regime cash target cap.",
+    )
+    parser.add_argument(
+        "--core-compounder-sleeve-base-weight",
+        type=float,
+        default=0.80,
+        help="Base portfolio weight for the core compounder sleeve.",
+    )
+    parser.add_argument(
+        "--future-winner-sleeve-base-weight",
+        type=float,
+        default=0.15,
+        help="Base portfolio weight for the future winner sleeve.",
+    )
+    parser.add_argument(
+        "--future-winner-sleeve-min-weight",
+        type=float,
+        default=0.05,
+        help="Minimum future winner sleeve weight.",
+    )
+    parser.add_argument(
+        "--future-winner-sleeve-max-weight",
+        type=float,
+        default=0.30,
+        help="Maximum future winner sleeve weight.",
+    )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
         "--force-full-fund-panel-rebuild",
@@ -707,6 +800,13 @@ def main() -> None:
     cfg["alpha_vantage_free_statement_repair_tickers"] = int(args.alpha_vantage_free_statement_repair_tickers)
     cfg["alpha_vantage_free_statement_refresh_days"] = int(args.alpha_vantage_free_statement_refresh_days)
     cfg["macro_slow_release_lag_months"] = int(args.macro_slow_release_lag_months)
+    cfg["cash_target_growth_cap"] = float(args.cash_target_growth_cap)
+    cfg["cash_target_balanced_cap"] = float(args.cash_target_balanced_cap)
+    cfg["cash_target_mild_risk_cap"] = float(args.cash_target_mild_risk_cap)
+    cfg["core_compounder_sleeve_base_weight"] = float(args.core_compounder_sleeve_base_weight)
+    cfg["future_winner_sleeve_base_weight"] = float(args.future_winner_sleeve_base_weight)
+    cfg["future_winner_sleeve_min_weight"] = float(args.future_winner_sleeve_min_weight)
+    cfg["future_winner_sleeve_max_weight"] = float(args.future_winner_sleeve_max_weight)
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 
