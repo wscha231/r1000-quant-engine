@@ -54,10 +54,13 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("cash_target_growth_cap", 0.03)
     cfg.setdefault("cash_target_balanced_cap", 0.05)
     cfg.setdefault("cash_target_mild_risk_cap", 0.10)
-    cfg.setdefault("core_compounder_sleeve_base_weight", 0.80)
-    cfg.setdefault("future_winner_sleeve_base_weight", 0.15)
+    cfg.setdefault("core_compounder_sleeve_base_weight", 0.70)
+    cfg.setdefault("future_winner_sleeve_base_weight", 0.20)
     cfg.setdefault("future_winner_sleeve_min_weight", 0.05)
-    cfg.setdefault("future_winner_sleeve_max_weight", 0.30)
+    cfg.setdefault("future_winner_sleeve_max_weight", 0.40)
+    cfg.setdefault("early_scout_sleeve_base_weight", 0.05)
+    cfg.setdefault("early_scout_sleeve_min_weight", 0.00)
+    cfg.setdefault("early_scout_sleeve_max_weight", 0.20)
     return cfg
 
 
@@ -590,6 +593,7 @@ def run_full_validation_suite(
             "actual_weights": run_summary.get("portfolio_sleeve_actual_weights", sleeve_actual_weights),
             "selected_counts": run_summary.get("portfolio_sleeve_selected_counts", sleeve_selected_counts),
             "future_winner_regime_strength": safe_float(run_summary.get("future_winner_regime_strength")),
+            "early_scout_regime_strength": safe_float(run_summary.get("early_scout_regime_strength")),
             "growth_signal": safe_float(run_summary.get("sleeve_growth_signal")),
             "risk_signal": safe_float(run_summary.get("sleeve_risk_signal")),
         },
@@ -627,6 +631,7 @@ def run_full_validation_suite(
                 "portfolio_sleeve_label" in portfolio_latest.columns
                 and len(sleeve_actual_weights) >= 1
                 and safe_float(run_summary.get("portfolio_sleeve_target_weights", {}).get("core_compounder", 0.0)) > 0.0
+                and "early_scout" in (run_summary.get("portfolio_sleeve_target_weights", {}) or {})
             ),
             "p3_top30_rows_ok": bool(top30_latest.empty or len(top30_latest) >= min(max(int(cfg_obj.top_n), 30), len(scored_latest) or 0)),
             "p3_dynamic_target_names_populated": bool(dynamic_target_names is None or float(dynamic_target_names) > 0),
@@ -748,13 +753,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core-compounder-sleeve-base-weight",
         type=float,
-        default=0.80,
+        default=0.70,
         help="Base portfolio weight for the core compounder sleeve.",
     )
     parser.add_argument(
         "--future-winner-sleeve-base-weight",
         type=float,
-        default=0.15,
+        default=0.20,
         help="Base portfolio weight for the future winner sleeve.",
     )
     parser.add_argument(
@@ -766,8 +771,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--future-winner-sleeve-max-weight",
         type=float,
-        default=0.30,
+        default=0.40,
         help="Maximum future winner sleeve weight.",
+    )
+    parser.add_argument(
+        "--early-scout-sleeve-base-weight",
+        type=float,
+        default=0.05,
+        help="Base portfolio weight for the early scout sleeve.",
+    )
+    parser.add_argument(
+        "--early-scout-sleeve-min-weight",
+        type=float,
+        default=0.00,
+        help="Minimum early scout sleeve weight.",
+    )
+    parser.add_argument(
+        "--early-scout-sleeve-max-weight",
+        type=float,
+        default=0.20,
+        help="Maximum early scout sleeve weight.",
     )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
@@ -807,6 +830,9 @@ def main() -> None:
     cfg["future_winner_sleeve_base_weight"] = float(args.future_winner_sleeve_base_weight)
     cfg["future_winner_sleeve_min_weight"] = float(args.future_winner_sleeve_min_weight)
     cfg["future_winner_sleeve_max_weight"] = float(args.future_winner_sleeve_max_weight)
+    cfg["early_scout_sleeve_base_weight"] = float(args.early_scout_sleeve_base_weight)
+    cfg["early_scout_sleeve_min_weight"] = float(args.early_scout_sleeve_min_weight)
+    cfg["early_scout_sleeve_max_weight"] = float(args.early_scout_sleeve_max_weight)
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 
