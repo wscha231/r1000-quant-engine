@@ -530,6 +530,14 @@ DEFAULT_FEATURES = [
     "rev_growth_accel_4q",
     "margin_trend_4q",
     "ocf_ni_quality_4q",
+    "roe_turn_positive_4q",
+    "ocf_turn_positive_4q",
+    "fcf_turn_positive_4q",
+    "op_income_turn_positive_4q",
+    "net_income_turn_positive_4q",
+    "profit_turn_positive_4q",
+    "cashflow_turn_positive_4q",
+    "fundamental_turnaround_acceleration_score",
     "forward_value_score",
     "revision_score",
     "quality_trend_score",
@@ -2501,6 +2509,9 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
     TREND_COLS = [
         "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
         "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
+        "roe_turn_positive_4q", "ocf_turn_positive_4q", "fcf_turn_positive_4q",
+        "op_income_turn_positive_4q", "net_income_turn_positive_4q",
+        "profit_turn_positive_4q", "cashflow_turn_positive_4q",
     ]
     if panel is None or panel.empty:
         return pd.DataFrame(
@@ -2522,6 +2533,37 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
     if "ocf_ttm" in d.columns and "net_income_ttm" in d.columns:
         ni = pd.to_numeric(d["net_income_ttm"], errors="coerce").replace(0, np.nan)
         d["ocf_ni_quality_4q"] = pd.to_numeric(d["ocf_ttm"], errors="coerce") / ni
+
+    def _turn_positive_4q(column: str) -> pd.Series:
+        if column not in d.columns:
+            return pd.Series(np.nan, index=d.index, dtype=float)
+        s = pd.to_numeric(d[column], errors="coerce")
+        lag4 = d.groupby("cik")[column].shift(4)
+        lag4 = pd.to_numeric(lag4, errors="coerce")
+        available = s.notna() & lag4.notna()
+        turned = (s > 0) & (lag4 <= 0)
+        return turned.astype(float).where(available, np.nan)
+
+    d["roe_turn_positive_4q"] = _turn_positive_4q("roe_proxy")
+    d["ocf_turn_positive_4q"] = _turn_positive_4q("ocf_ttm")
+    d["fcf_turn_positive_4q"] = _turn_positive_4q("fcf_ttm")
+    d["op_income_turn_positive_4q"] = _turn_positive_4q("op_income_ttm")
+    d["net_income_turn_positive_4q"] = _turn_positive_4q("net_income_ttm")
+    d["profit_turn_positive_4q"] = row_mean(
+        [
+            d["roe_turn_positive_4q"],
+            d["op_income_turn_positive_4q"],
+            d["net_income_turn_positive_4q"],
+        ],
+        d.index,
+    )
+    d["cashflow_turn_positive_4q"] = row_mean(
+        [
+            d["ocf_turn_positive_4q"],
+            d["fcf_turn_positive_4q"],
+        ],
+        d.index,
+    )
 
     # Growth inflection: growth just turned positive with acceleration
     sgy = pd.to_numeric(d.get("sales_growth_yoy"), errors="coerce")
@@ -2549,6 +2591,9 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
 TREND_MERGE_COLS = [
     "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
     "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
+    "roe_turn_positive_4q", "ocf_turn_positive_4q", "fcf_turn_positive_4q",
+    "op_income_turn_positive_4q", "net_income_turn_positive_4q",
+    "profit_turn_positive_4q", "cashflow_turn_positive_4q",
 ]
 
 
@@ -7670,6 +7715,59 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         - 0.08 * deep_negative_margin_penalty
         - 0.08 * leverage_penalty
     ).fillna(0.0)
+    revenue_thrust = row_mean(
+        [
+            cross_sectional_robust_z(d, "sales_growth_yoy"),
+            cross_sectional_robust_z(d, "revenue_growth_final"),
+            cross_sectional_robust_z(d, "rev_growth_accel_4q"),
+            cross_sectional_robust_z(d, "revenue_accel_2nd_deriv"),
+            numeric_series_or_default(d, "growth_inflection_signal", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    profit_cash_acceleration = row_mean(
+        [
+            cross_sectional_robust_z(d, "roe_trend_4q"),
+            cross_sectional_robust_z(d, "margin_trend_4q"),
+            cross_sectional_robust_z(d, "op_income_growth_yoy"),
+            cross_sectional_robust_z(d, "net_income_growth_yoy"),
+            cross_sectional_robust_z(d, "ocf_growth_yoy"),
+            cross_sectional_robust_z(d, "fcf_growth_yoy"),
+            cross_sectional_robust_z(d, "ocf_ni_quality_4q"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    turn_positive_signal = row_mean(
+        [
+            numeric_series_or_default(d, "profit_turn_positive_4q", 0.0),
+            numeric_series_or_default(d, "cashflow_turn_positive_4q", 0.0),
+            numeric_series_or_default(d, "roe_turn_positive_4q", 0.0),
+            numeric_series_or_default(d, "op_income_turn_positive_4q", 0.0),
+            numeric_series_or_default(d, "ocf_turn_positive_4q", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    ai_growth_context = np.maximum(
+        numeric_series_or_default(d, "ai_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
+        numeric_series_or_default(d, "power_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
+    )
+    d["fundamental_revenue_thrust_score"] = revenue_thrust
+    d["fundamental_profit_cash_acceleration_score"] = profit_cash_acceleration
+    d["fundamental_turn_positive_score"] = turn_positive_signal
+    d["ai_fundamental_thrust_score"] = ai_growth_context * np.clip(
+        revenue_thrust + 0.70 * profit_cash_acceleration,
+        0.0,
+        4.0,
+    )
+    d["fundamental_turnaround_acceleration_score"] = (
+        0.30 * revenue_thrust
+        + 0.30 * profit_cash_acceleration
+        + 0.20 * robust_z(turn_positive_signal).fillna(0.0)
+        + 0.10 * cross_sectional_robust_z(d, "actual_results_score")
+        + 0.10 * benchmark_alpha
+        + 0.10 * cross_sectional_robust_z(d, "ai_fundamental_thrust_score")
+        - 0.08 * leverage_penalty
+    ).fillna(0.0)
 
     anticipatory_market_confirmation = row_mean(
         [
@@ -7704,6 +7802,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.12 * cross_sectional_robust_z(d, "rs_market_acceleration")
         + 0.15 * earnings_momentum
         + 0.10 * cross_sectional_robust_z(d, "breakout_volume_z")
+        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
     ).fillna(0.0)
 
     # Multi-dimensional growth composite: revenue + earnings + cashflow
@@ -7747,6 +7846,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.05 * multi_growth_5y_z
         + 0.09 * benchmark_alpha
         + 0.11 * cross_sectional_robust_z(d, "growth_onset_composite")
+        + 0.08 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
         + 0.07 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
         + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -7789,6 +7889,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     d["archetype_emerging_growth_score"] = (
         0.22 * cross_sectional_robust_z(d, "anticipatory_growth_score")
         + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
+        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
         + 0.16 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
         + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -8770,6 +8871,7 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
         + 0.16 * sector_leader
         + 0.14 * within_sector
         + 0.12 * emergence
+        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
         + 0.06 * safety
         + 0.08 * valuation
         + 0.05 * macro_fit
@@ -12948,6 +13050,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
             0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
             0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
+            0.50 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
             minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
             -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
@@ -12963,6 +13066,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.70 * cross_sectional_robust_z(d, "revision_blueprint_score"),
             0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
             0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
+            0.55 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
             0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
             0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
             -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
@@ -13214,6 +13318,7 @@ def build_target_portfolio(
         numeric_series_or_default(month_df, "score", 0.0)
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
+        + 0.55 * numeric_series_or_default(month_df, "fundamental_turnaround_acceleration_score", 0.0)
         + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
         - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
     )
@@ -13895,6 +14000,66 @@ def performance_metrics(monthly: pd.Series, benchmark: Optional[pd.Series] = Non
     return {"cagr": cagr, "sharpe": sharpe, "sortino": sortino, "max_dd": mdd, "calmar": calmar, "ir": float(ir) if pd.notna(ir) else np.nan, "vol_ann": vol_ann}
 
 
+def sleeve_backtest_returns_from_holdings(holdings: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if holdings is None or holdings.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    required = {"rebalance_date", "ticker", "weight", "portfolio_sleeve_label", "period_forward_return"}
+    if not required.issubset(holdings.columns):
+        return pd.DataFrame(), pd.DataFrame()
+    d = holdings.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
+    d["period_forward_return"] = pd.to_numeric(d["period_forward_return"], errors="coerce")
+    d["portfolio_sleeve_label"] = d["portfolio_sleeve_label"].fillna("core_compounder").astype(str)
+    d = d[d["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER)].dropna(
+        subset=["rebalance_date", "period_forward_return"]
+    )
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    d["weighted_forward_return"] = d["weight"] * d["period_forward_return"]
+    monthly_rows = []
+    for (dt, sleeve), g in d.groupby(["rebalance_date", "portfolio_sleeve_label"], sort=True):
+        sleeve_weight = float(g["weight"].sum())
+        contribution = float(g["weighted_forward_return"].sum())
+        sleeve_return = float(contribution / sleeve_weight) if sleeve_weight > 1e-10 else np.nan
+        monthly_rows.append(
+            {
+                "rebalance_date": dt,
+                "portfolio_sleeve_label": sleeve,
+                "sleeve_weight": sleeve_weight,
+                "selected_names": int(g["ticker"].nunique()),
+                "sleeve_return": sleeve_return,
+                "portfolio_contribution": contribution,
+            }
+        )
+    monthly = pd.DataFrame(monthly_rows)
+    if monthly.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    summary_rows = []
+    for sleeve, g in monthly.groupby("portfolio_sleeve_label", sort=True):
+        returns = pd.Series(g["sleeve_return"].to_numpy(dtype=float), index=pd.to_datetime(g["rebalance_date"]))
+        returns = returns.dropna()
+        metrics = performance_metrics(returns)
+        summary_rows.append(
+            {
+                "portfolio_sleeve_label": str(sleeve),
+                "months": int(len(returns)),
+                "sleeve_cagr": float(metrics.get("cagr", np.nan)),
+                "sleeve_sharpe": float(metrics.get("sharpe", np.nan)),
+                "sleeve_sortino": float(metrics.get("sortino", np.nan)),
+                "sleeve_max_dd": float(metrics.get("max_dd", np.nan)),
+                "sleeve_vol_ann": float(metrics.get("vol_ann", np.nan)),
+                "avg_sleeve_weight": float(g["sleeve_weight"].mean()),
+                "avg_selected_names": float(g["selected_names"].mean()),
+                "avg_monthly_return": float(returns.mean()) if len(returns) else np.nan,
+                "win_rate": float((returns > 0).mean()) if len(returns) else np.nan,
+                "avg_portfolio_contribution": float(g["portfolio_contribution"].mean()),
+            }
+        )
+    summary = pd.DataFrame(summary_rows).sort_values("sleeve_cagr", ascending=False)
+    return monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True), summary.reset_index(drop=True)
+
+
 def run_acceptance_checks(
     cfg: EngineConfig,
     paths: dict[str, Path],
@@ -14168,6 +14333,7 @@ def backtest_portfolio(
             continue
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
+        month_holding_row_indices: list[int] = []
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"] == tkr]
             if str(tkr).upper() == CASH_PROXY_TICKER:
@@ -14176,6 +14342,22 @@ def backtest_portfolio(
             else:
                 sec = row["sector"].iloc[0] if not row.empty else "Unknown"
                 nm = row["Name"].iloc[0] if not row.empty else ""
+            sleeve_label_value = (
+                str(row["portfolio_sleeve_label"].iloc[0])
+                if not row.empty and "portfolio_sleeve_label" in row.columns
+                else ("cash" if str(tkr).upper() == CASH_PROXY_TICKER else "core_compounder")
+            )
+            sleeve_role_value = (
+                str(row["portfolio_sleeve_role"].iloc[0])
+                if not row.empty and "portfolio_sleeve_role" in row.columns
+                else {
+                    "future_winner": "multi_bagger",
+                    "early_scout": "early_scout",
+                    "core_compounder": "core_compounder",
+                    "cash": "cash",
+                }.get(sleeve_label_value, sleeve_label_value)
+            )
+            month_holding_row_indices.append(len(holdings_rows))
             holdings_rows.append(
                 {
                     "rebalance_date": dt,
@@ -14184,6 +14366,15 @@ def backtest_portfolio(
                     "sector": sec,
                     "weight": ww,
                     "raw_score": float(row["score"].iloc[0]) if not row.empty else np.nan,
+                    "portfolio_sleeve_label": sleeve_label_value,
+                    "portfolio_sleeve_role": sleeve_role_value,
+                    "portfolio_selection_path": (
+                        str(row["portfolio_selection_path"].iloc[0])
+                        if not row.empty and "portfolio_selection_path" in row.columns
+                        else ""
+                    ),
+                    "period_forward_return": np.nan,
+                    "weighted_forward_return": np.nan,
                     "target_n": int(current_meta.get("target_n", 0)),
                     "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                     "cash_target": float(current_meta.get("cash_target", 0.0)),
@@ -14203,6 +14394,12 @@ def backtest_portfolio(
                 continue
             month_ret += ww * ri
             ticker_month_returns[tkr] = float(ri)
+        for row_idx in month_holding_row_indices:
+            held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
+            held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
+            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
         net_ret = month_ret - cost
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
@@ -15828,6 +16025,18 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "return_on_equity_effective",
             "revenue_growth_final",
             "earnings_growth_final",
+            "fundamental_turnaround_acceleration_score",
+            "fundamental_revenue_thrust_score",
+            "fundamental_profit_cash_acceleration_score",
+            "fundamental_turn_positive_score",
+            "ai_fundamental_thrust_score",
+            "roe_turn_positive_4q",
+            "ocf_turn_positive_4q",
+            "fcf_turn_positive_4q",
+            "op_income_turn_positive_4q",
+            "net_income_turn_positive_4q",
+            "profit_turn_positive_4q",
+            "cashflow_turn_positive_4q",
             "strategy_blueprint_score",
             "technical_blueprint_score",
             "revision_blueprint_score",
@@ -16139,6 +16348,18 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "earnings_growth_final",
             "forward_pe_final",
             "peg_final",
+            "fundamental_turnaround_acceleration_score",
+            "fundamental_revenue_thrust_score",
+            "fundamental_profit_cash_acceleration_score",
+            "fundamental_turn_positive_score",
+            "ai_fundamental_thrust_score",
+            "roe_turn_positive_4q",
+            "ocf_turn_positive_4q",
+            "fcf_turn_positive_4q",
+            "op_income_turn_positive_4q",
+            "net_income_turn_positive_4q",
+            "profit_turn_positive_4q",
+            "cashflow_turn_positive_4q",
             "sales_growth_yoy",
             "net_income_growth_yoy",
             "op_income_growth_yoy",
@@ -16296,6 +16517,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_size_compare_path = paths["reports"] / "portfolio_size_comparison.csv"
     rebalance_interval_compare_path = paths["reports"] / "rebalance_interval_comparison.csv"
     backtest_window_compare_path = paths["reports"] / "backtest_window_comparison.csv"
+    sleeve_backtest_monthly_path = paths["reports"] / "portfolio_sleeve_backtest_monthly.csv"
+    sleeve_backtest_compare_path = paths["reports"] / "portfolio_sleeve_backtest_comparison.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -16703,6 +16926,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     weights_path.write_text(json.dumps(weights_payload, indent=2))
     bt_metrics_path.write_text(json.dumps(bt.metrics, indent=2))
     bt.equity_curve.to_csv(equity_path, index=False)
+    sleeve_bt_monthly, sleeve_bt_compare = sleeve_backtest_returns_from_holdings(bt.holdings)
+    sleeve_bt_monthly.to_csv(sleeve_backtest_monthly_path, index=False)
+    sleeve_bt_compare.to_csv(sleeve_backtest_compare_path, index=False)
     ops_output_files = update_operational_tracking(
         cfg,
         paths,
@@ -16771,6 +16997,16 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Ownership flow proxy-only: {bool(actual_data_status.get('ownership_flow_is_proxy_only', False))}",
         f"- Backtest window comparison years: {', '.join(str(int(x)) for x in cfg.backtest_window_comparison_years)}",
     ]
+    perf_md.append("- Sleeve backtest comparison:")
+    if not sleeve_bt_compare.empty:
+        for r in sleeve_bt_compare.itertuples(index=False):
+            perf_md.append(
+                f"  - {r.portfolio_sleeve_label}: CAGR={r.sleeve_cagr:.4f}, "
+                f"Sharpe={r.sleeve_sharpe:.3f}, MaxDD={r.sleeve_max_dd:.4f}, "
+                f"avg_weight={r.avg_sleeve_weight:.3f}, months={int(r.months)}"
+            )
+    else:
+        perf_md.append("  - unavailable")
     (paths["reports"] / "oos_performance.md").write_text("\n".join(perf_md), encoding="utf-8")
 
     output_files = {
@@ -16781,6 +17017,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest.json": str(weights_path),
         "backtest_metrics.json": str(bt_metrics_path),
         "equity_curve.csv": str(equity_path),
+        "portfolio_sleeve_backtest_monthly.csv": str(sleeve_backtest_monthly_path),
+        "portfolio_sleeve_backtest_comparison.csv": str(sleeve_backtest_compare_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -16849,6 +17087,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "future_winner": _portfolio_first_numeric("sleeve_target_future_winner_weight", default=0.0),
             "early_scout": _portfolio_first_numeric("sleeve_target_early_scout_weight", default=0.0),
         },
+        "portfolio_sleeve_backtest_comparison": (
+            sleeve_bt_compare.replace({np.nan: None}).to_dict(orient="records")
+            if not sleeve_bt_compare.empty
+            else []
+        ),
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "actual_data_coverage": actual_data_coverage,
