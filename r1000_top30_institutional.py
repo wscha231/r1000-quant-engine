@@ -642,6 +642,19 @@ LATEST_ONLY_SIGNAL_COLUMNS = [
     "target_mean_price",
     "target_median_price",
     "recommendation_mean",
+    "target_mean_price_30d_change",
+    "target_mean_price_90d_change",
+    "target_upside_pct_30d_change",
+    "target_upside_pct_90d_change",
+    "recommendation_mean_30d_change",
+    "recommendation_mean_90d_change",
+    "eps_est_fy1_30d_change",
+    "eps_est_fy2_30d_change",
+    "rev_est_fy1_30d_change",
+    "rev_est_fy2_30d_change",
+    "analyst_count_proxy",
+    "price_target_dispersion_proxy",
+    "analyst_revision_trend_score",
     "earnings_growth",
     "revenue_growth",
     "gross_margins",
@@ -708,6 +721,19 @@ LATEST_ONLY_ACCEPTANCE_COLUMNS = [
     "target_mean_price",
     "target_median_price",
     "recommendation_mean",
+    "target_mean_price_30d_change",
+    "target_mean_price_90d_change",
+    "target_upside_pct_30d_change",
+    "target_upside_pct_90d_change",
+    "recommendation_mean_30d_change",
+    "recommendation_mean_90d_change",
+    "eps_est_fy1_30d_change",
+    "eps_est_fy2_30d_change",
+    "rev_est_fy1_30d_change",
+    "rev_est_fy2_30d_change",
+    "analyst_count_proxy",
+    "price_target_dispersion_proxy",
+    "analyst_revision_trend_score",
     "earnings_growth",
     "revenue_growth",
     "return_on_equity_live",
@@ -760,6 +786,33 @@ SATELLITE_ONLY_FEATURE_COLUMNS = [
     "fear_greed_delta_1w",
     "fear_greed_risk_off_score",
     "fear_greed_risk_on_score",
+]
+
+LIVE_FUND_HISTORY_TRACK_COLUMNS = [
+    "current_price_live",
+    "target_mean_price",
+    "target_median_price",
+    "recommendation_mean",
+    "eps_est_fy1",
+    "eps_est_fy2",
+    "rev_est_fy1",
+    "rev_est_fy2",
+]
+
+LIVE_FUND_HISTORY_DERIVED_COLUMNS = [
+    "target_mean_price_30d_change",
+    "target_mean_price_90d_change",
+    "target_upside_pct_30d_change",
+    "target_upside_pct_90d_change",
+    "recommendation_mean_30d_change",
+    "recommendation_mean_90d_change",
+    "eps_est_fy1_30d_change",
+    "eps_est_fy2_30d_change",
+    "rev_est_fy1_30d_change",
+    "rev_est_fy2_30d_change",
+    "analyst_count_proxy",
+    "price_target_dispersion_proxy",
+    "analyst_revision_trend_score",
 ]
 
 CRITICAL_TTM_COVERAGE_COLUMNS = [
@@ -900,13 +953,13 @@ class EngineConfig:
     cash_target_growth_cap: float = 0.03
     cash_target_balanced_cap: float = 0.05
     cash_target_mild_risk_cap: float = 0.10
-    core_compounder_sleeve_base_weight: float = 0.70
-    future_winner_sleeve_base_weight: float = 0.20
+    core_compounder_sleeve_base_weight: float = 0.55
+    future_winner_sleeve_base_weight: float = 0.35
     future_winner_sleeve_min_weight: float = 0.05
-    future_winner_sleeve_max_weight: float = 0.40
+    future_winner_sleeve_max_weight: float = 0.60
     early_scout_sleeve_base_weight: float = 0.05
     early_scout_sleeve_min_weight: float = 0.00
-    early_scout_sleeve_max_weight: float = 0.20
+    early_scout_sleeve_max_weight: float = 0.15
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
@@ -2280,8 +2333,163 @@ def refresh_live_fundamentals(cfg: EngineConfig, paths: dict[str, Path], tickers
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["ticker"])
     if not df.empty:
+        df = enrich_live_fundamentals_with_history(paths, df)
         df.to_parquet(paths["cache_live_fund"] / "live_fundamentals_latest.parquet", index=False)
     return df
+
+
+def relative_change_from_prior(current: pd.Series, prior: pd.Series) -> pd.Series:
+    cur = pd.to_numeric(current, errors="coerce")
+    prev = pd.to_numeric(prior, errors="coerce")
+    denom = prev.abs().replace(0.0, np.nan)
+    return (cur - prev) / denom
+
+
+def enrich_live_fundamentals_with_history(paths: dict[str, Path], live_df: pd.DataFrame) -> pd.DataFrame:
+    d = live_df.copy()
+    if d.empty:
+        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
+            d[c] = np.nan
+        return d
+
+    updated_at = pd.to_datetime(d.get("updated_at"), errors="coerce")
+    if updated_at.notna().sum() == 0:
+        updated_at = pd.Series(pd.Timestamp.utcnow().tz_localize(None), index=d.index, dtype="datetime64[ns]")
+    d["updated_at"] = updated_at
+
+    ref_px = numeric_series_or_default(d, "current_price_live", np.nan).replace(0, np.nan)
+    target_mean = numeric_series_or_default(d, "target_mean_price", np.nan)
+    target_median = numeric_series_or_default(d, "target_median_price", np.nan)
+    analyst_presence_cols = [
+        "eps_est_q_next",
+        "eps_est_fy1",
+        "rev_est_fy1",
+        "eps_est_fy2",
+        "rev_est_fy2",
+        "target_mean_price",
+        "recommendation_mean",
+    ]
+    d["analyst_count_proxy"] = pd.concat(
+        [
+            (pd.to_numeric(d[c], errors="coerce") if c in d.columns else pd.Series(np.nan, index=d.index, dtype=float))
+            .notna()
+            .astype(float)
+            for c in analyst_presence_cols
+        ],
+        axis=1,
+    ).sum(axis=1).astype(float)
+    d["price_target_dispersion_proxy"] = (
+        (target_mean - target_median).abs() / ref_px.abs().replace(0, np.nan)
+    )
+
+    history_path = paths["cache_live_fund"] / "live_fundamentals_history.parquet"
+    history_cols = ["ticker", "updated_at"] + [c for c in LIVE_FUND_HISTORY_TRACK_COLUMNS if c in d.columns]
+    snapshot = d[history_cols].copy()
+    append_history_parquet(
+        history_path,
+        snapshot,
+        dedupe_subset=["ticker", "updated_at"],
+        sort_columns=["ticker", "updated_at"],
+    )
+
+    hist = safe_read_parquet_file(history_path)
+    if hist.empty:
+        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
+            if c not in d.columns:
+                d[c] = np.nan
+        d["analyst_revision_trend_score"] = 0.0
+        return d
+
+    hist["updated_at"] = pd.to_datetime(hist.get("updated_at"), errors="coerce")
+    hist["ticker"] = hist.get("ticker", pd.Series("", index=hist.index, dtype=object)).astype(str).str.upper()
+    hist = hist.dropna(subset=["updated_at"])
+    hist = hist.sort_values(["ticker", "updated_at"]).reset_index(drop=True)
+
+    derived_frames = []
+    for ticker, g in d.groupby("ticker", sort=False):
+        gg = g.copy()
+        gg["ticker"] = gg.get("ticker", pd.Series("", index=gg.index, dtype=object)).astype(str).str.upper()
+        cur = gg.reset_index().rename(columns={"index": "_orig_index"}).sort_values("updated_at")
+        h = hist[hist["ticker"] == str(ticker).upper()].copy()
+        if h.empty:
+            derived_frames.append(cur.set_index("_orig_index"))
+            continue
+        for days, suffix in [(30, "30d"), (90, "90d")]:
+            lookup = cur[["_orig_index", "updated_at"]].copy()
+            lookup["lookup_time"] = lookup["updated_at"] - pd.Timedelta(days=days)
+            prev = pd.merge_asof(
+                lookup.sort_values("lookup_time"),
+                h[["updated_at"] + [c for c in LIVE_FUND_HISTORY_TRACK_COLUMNS if c in h.columns]].sort_values("updated_at"),
+                left_on="lookup_time",
+                right_on="updated_at",
+                direction="backward",
+            ).set_index("_orig_index")
+            cur_indexed = cur.set_index("_orig_index")
+            cur[f"target_mean_price_{suffix}_change"] = relative_change_from_prior(
+                cur_indexed["target_mean_price"] if "target_mean_price" in cur_indexed.columns else pd.Series(np.nan, index=cur_indexed.index, dtype=float),
+                prev.get("target_mean_price", pd.Series(np.nan, index=prev.index, dtype=float)),
+            ).reindex(cur["_orig_index"]).values
+            cur[f"recommendation_mean_{suffix}_change"] = (
+                pd.to_numeric(prev.get("recommendation_mean", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce")
+                - pd.to_numeric(cur_indexed.get("recommendation_mean", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce")
+            ).reindex(cur["_orig_index"]).values
+            if days == 30:
+                cur[f"eps_est_fy1_{suffix}_change"] = relative_change_from_prior(
+                    cur_indexed.get("eps_est_fy1", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
+                    prev.get("eps_est_fy1", pd.Series(np.nan, index=prev.index, dtype=float)),
+                ).reindex(cur["_orig_index"]).values
+                cur[f"eps_est_fy2_{suffix}_change"] = relative_change_from_prior(
+                    cur_indexed.get("eps_est_fy2", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
+                    prev.get("eps_est_fy2", pd.Series(np.nan, index=prev.index, dtype=float)),
+                ).reindex(cur["_orig_index"]).values
+                cur[f"rev_est_fy1_{suffix}_change"] = relative_change_from_prior(
+                    cur_indexed.get("rev_est_fy1", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
+                    prev.get("rev_est_fy1", pd.Series(np.nan, index=prev.index, dtype=float)),
+                ).reindex(cur["_orig_index"]).values
+                cur[f"rev_est_fy2_{suffix}_change"] = relative_change_from_prior(
+                    cur_indexed.get("rev_est_fy2", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
+                    prev.get("rev_est_fy2", pd.Series(np.nan, index=prev.index, dtype=float)),
+                ).reindex(cur["_orig_index"]).values
+            cur_upside = (
+                pd.to_numeric(cur_indexed.get("target_mean_price", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce")
+                / pd.to_numeric(cur_indexed.get("current_price_live", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce").replace(0, np.nan)
+                - 1.0
+            )
+            prev_upside = (
+                pd.to_numeric(prev.get("target_mean_price", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce")
+                / pd.to_numeric(prev.get("current_price_live", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce").replace(0, np.nan)
+                - 1.0
+            )
+            cur[f"target_upside_pct_{suffix}_change"] = (cur_upside - prev_upside).reindex(cur["_orig_index"]).values
+        derived_frames.append(cur.set_index("_orig_index"))
+
+    if derived_frames:
+        derived = pd.concat(derived_frames, axis=0).sort_index()
+        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
+            if c in derived.columns:
+                d[c] = derived[c].reindex(d.index)
+            elif c not in d.columns:
+                d[c] = np.nan
+    else:
+        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
+            if c not in d.columns:
+                d[c] = np.nan
+
+    d["analyst_revision_trend_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "target_mean_price_30d_change"),
+            0.60 * cross_sectional_robust_z(d, "target_mean_price_90d_change"),
+            cross_sectional_robust_z(d, "target_upside_pct_30d_change"),
+            0.50 * cross_sectional_robust_z(d, "target_upside_pct_90d_change"),
+            cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
+            0.75 * cross_sectional_robust_z(d, "eps_est_fy1_30d_change"),
+            0.50 * cross_sectional_robust_z(d, "eps_est_fy2_30d_change"),
+            0.50 * cross_sectional_robust_z(d, "rev_est_fy1_30d_change"),
+            0.25 * cross_sectional_robust_z(d, "rev_est_fy2_30d_change"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    return d
 
 
 def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
@@ -2642,9 +2850,40 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         "rev_est_fy2",
         "eps_revision_proxy",
         "target_upside_pct",
+        "target_mean_price_30d_change",
+        "target_mean_price_90d_change",
+        "target_upside_pct_30d_change",
+        "target_upside_pct_90d_change",
+        "recommendation_mean_30d_change",
+        "recommendation_mean_90d_change",
+        "eps_est_fy1_30d_change",
+        "eps_est_fy2_30d_change",
+        "rev_est_fy1_30d_change",
+        "rev_est_fy2_30d_change",
+        "analyst_revision_trend_score",
     ]
     revision_raw = row_mean(
-        [cross_sectional_robust_z(d, c) for c in revision_components],
+        [
+            cross_sectional_robust_z(d, "eps_est_q_next"),
+            0.80 * cross_sectional_robust_z(d, "eps_est_fy1"),
+            0.55 * cross_sectional_robust_z(d, "eps_est_fy2"),
+            0.65 * cross_sectional_robust_z(d, "rev_est_q_next"),
+            0.70 * cross_sectional_robust_z(d, "rev_est_fy1"),
+            0.45 * cross_sectional_robust_z(d, "rev_est_fy2"),
+            0.75 * cross_sectional_robust_z(d, "eps_revision_proxy"),
+            0.70 * cross_sectional_robust_z(d, "target_upside_pct"),
+            0.90 * cross_sectional_robust_z(d, "target_mean_price_30d_change"),
+            0.45 * cross_sectional_robust_z(d, "target_mean_price_90d_change"),
+            0.90 * cross_sectional_robust_z(d, "target_upside_pct_30d_change"),
+            0.45 * cross_sectional_robust_z(d, "target_upside_pct_90d_change"),
+            0.75 * cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
+            0.35 * cross_sectional_robust_z(d, "recommendation_mean_90d_change"),
+            0.95 * cross_sectional_robust_z(d, "eps_est_fy1_30d_change"),
+            0.65 * cross_sectional_robust_z(d, "eps_est_fy2_30d_change"),
+            0.85 * cross_sectional_robust_z(d, "rev_est_fy1_30d_change"),
+            0.55 * cross_sectional_robust_z(d, "rev_est_fy2_30d_change"),
+            0.90 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
+        ],
         d.index,
     ).fillna(0.0)
     revision_avail = pd.concat(
@@ -2662,11 +2901,14 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         [
             cross_sectional_robust_z(d, "target_upside_pct"),
             -cross_sectional_robust_z(d, "recommendation_mean"),
+            cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
         ],
         d.index,
     ).fillna(0.0)
     d["revision_score"] = (
-        0.80 * revision_raw + 0.20 * analyst_sentiment
+        0.60 * revision_raw
+        + 0.20 * analyst_sentiment
+        + 0.20 * cross_sectional_robust_z(d, "analyst_revision_trend_score")
     ) * (0.55 + 0.45 * d["revision_coverage_ratio"])
 
     div_weight = float(cfg.dividend_quality_trend_weight) if cfg is not None else 0.20
@@ -3119,7 +3361,9 @@ def add_total_score_columns(
         * row_mean(
             [
                 numeric_series_or_default(d, "future_winner_scout_score", 0.0),
-                0.65 * numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
+                0.25 * numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
+                0.35 * numeric_series_or_default(d, "revision_blueprint_score", 0.0),
+                0.35 * numeric_series_or_default(d, "dynamic_leader_score", 0.0),
             ],
             d.index,
         ).fillna(0.0)
@@ -3412,6 +3656,19 @@ def write_live_fundamental_coverage_report(
         "eps_est_fy1",
         "eps_est_fy2",
         "eps_revision_proxy",
+        "target_mean_price_30d_change",
+        "target_mean_price_90d_change",
+        "target_upside_pct_30d_change",
+        "target_upside_pct_90d_change",
+        "recommendation_mean_30d_change",
+        "recommendation_mean_90d_change",
+        "eps_est_fy1_30d_change",
+        "eps_est_fy2_30d_change",
+        "rev_est_fy1_30d_change",
+        "rev_est_fy2_30d_change",
+        "analyst_count_proxy",
+        "price_target_dispersion_proxy",
+        "analyst_revision_trend_score",
         "revision_coverage_ratio",
         "rev_growth_accel_4q",
         "margin_trend_4q",
@@ -3748,10 +4005,10 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("core_compounder_sleeve_base_weight must be between 0 and 1.")
     if not (0.0 <= cfg.future_winner_sleeve_base_weight <= 1.0):
         raise ValueError("future_winner_sleeve_base_weight must be between 0 and 1.")
-    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.50):
-        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.50.")
-    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.50):
-        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.50.")
+    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.60):
+        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.60.")
+    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.60):
+        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.60.")
     if cfg.future_winner_sleeve_min_weight > cfg.future_winner_sleeve_max_weight:
         raise ValueError("future_winner_sleeve_min_weight cannot exceed future_winner_sleeve_max_weight.")
     if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.30):
@@ -7248,21 +7505,27 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     ) * (0.55 + 0.45 * revision_cov)
 
     d["growth_blueprint_score"] = (
-        0.10 * cross_sectional_robust_z(d, "sales_cagr_3y")
-        + 0.06 * cross_sectional_robust_z(d, "sales_cagr_5y")
-        + 0.08 * cross_sectional_robust_z(d, "op_income_cagr_3y")
-        + 0.05 * cross_sectional_robust_z(d, "op_income_cagr_5y")
-        + 0.06 * cross_sectional_robust_z(d, "net_income_cagr_3y")
-        + 0.04 * cross_sectional_robust_z(d, "net_income_cagr_5y")
-        + 0.06 * cross_sectional_robust_z(d, "ocf_cagr_3y")
-        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_5y")
-        + 0.05 * cross_sectional_robust_z(d, "eps_cagr_3y")
-        + 0.05 * cross_sectional_robust_z(d, "fcf_cagr_3y")
-        + 0.14 * cross_sectional_robust_z(d, "revenue_growth_final")
-        + 0.12 * cross_sectional_robust_z(d, "earnings_growth_final")
-        + 0.06 * cross_sectional_robust_z(d, "sales_growth_yoy")
-        + 0.04 * cross_sectional_robust_z(d, "ocf_growth_yoy")
-        + 0.06 * cross_sectional_robust_z(d, "actual_results_score")
+        0.06 * cross_sectional_robust_z(d, "sales_cagr_3y")
+        + 0.02 * cross_sectional_robust_z(d, "sales_cagr_5y")
+        + 0.04 * cross_sectional_robust_z(d, "op_income_cagr_3y")
+        + 0.02 * cross_sectional_robust_z(d, "op_income_cagr_5y")
+        + 0.03 * cross_sectional_robust_z(d, "net_income_cagr_3y")
+        + 0.01 * cross_sectional_robust_z(d, "net_income_cagr_5y")
+        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_3y")
+        + 0.01 * cross_sectional_robust_z(d, "ocf_cagr_5y")
+        + 0.03 * cross_sectional_robust_z(d, "eps_cagr_3y")
+        + 0.03 * cross_sectional_robust_z(d, "fcf_cagr_3y")
+        + 0.16 * cross_sectional_robust_z(d, "revenue_growth_final")
+        + 0.14 * cross_sectional_robust_z(d, "earnings_growth_final")
+        + 0.09 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.06 * cross_sectional_robust_z(d, "ocf_growth_yoy")
+        + 0.10 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.08 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.07 * cross_sectional_robust_z(d, "actual_results_score")
+        + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
+        + 0.05 * cross_sectional_robust_z(d, "dynamic_leader_score")
+        + 0.04 * cross_sectional_robust_z(d, "leader_emergence_score")
+        + 0.04 * cross_sectional_robust_z(d, "target_upside_pct")
     ).fillna(0.0)
 
     d["valuation_blueprint_score"] = (
@@ -7678,25 +7941,25 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     # Core philosophy: "Future > Past" — weight technical, macro, supply-demand
     # more than pure financial metrics. Financials confirm; price/flow leads.
     d["future_winner_scout_score"] = (
-        (0.60 + 0.40 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
+        (0.85 + 0.15 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
         * (
-            # --- Forward-looking: technical + macro + supply-demand (55%) ---
             0.14 * cross_sectional_robust_z(d, "anticipatory_growth_score")
             + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
-            + 0.10 * cross_sectional_robust_z(d, "technical_blueprint_score")
-            + 0.07 * cross_sectional_robust_z(d, "relative_strength_composite")
+            + 0.09 * cross_sectional_robust_z(d, "technical_blueprint_score")
+            + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
+            + 0.08 * cross_sectional_robust_z(d, "leader_emergence_score")
+            + 0.08 * cross_sectional_robust_z(d, "relative_strength_composite")
+            + 0.08 * cross_sectional_robust_z(d, "revision_blueprint_score")
+            + 0.06 * cross_sectional_robust_z(d, "analyst_revision_trend_score")
+            + 0.06 * cross_sectional_robust_z(d, "target_upside_pct")
+            + 0.05 * cross_sectional_robust_z(d, "revenue_growth_final")
+            + 0.04 * cross_sectional_robust_z(d, "earnings_growth_final")
             + 0.06 * supply_demand_signal
-            + 0.06 * macro_growth_boost
-            # --- Quality confirmation (30%) ---
-            + 0.10 * cross_sectional_robust_z(d, "archetype_alignment_score")
-            + 0.08 * cross_sectional_robust_z(d, "long_hold_compounder_score")
-            + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
-            + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
-            # --- Catalysts (15%) ---
-            + 0.05 * long_base_quality
-            + 0.05 * cross_sectional_robust_z(d, "event_reaction_score")
-            + 0.05 * earnings_momentum
-            # --- Penalties ---
+            + 0.05 * macro_growth_boost
+            + 0.04 * cross_sectional_robust_z(d, "event_reaction_score")
+            + 0.03 * earnings_momentum
+            + 0.03 * cross_sectional_robust_z(d, "archetype_alignment_score")
+            + 0.02 * long_base_quality
             - 0.10 * overextended_penalty
             - 0.05 * leverage_penalty
         )
@@ -12497,28 +12760,34 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
     )
     core_score = row_mean(
         [
-            cross_sectional_robust_z(d, "long_hold_compounder_score"),
-            cross_sectional_robust_z(d, "archetype_compounder_score"),
-            cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
-            cross_sectional_robust_z(d, "quality_trend_score"),
-            cross_sectional_robust_z(d, "garp_score"),
-            cross_sectional_robust_z(d, "actual_results_score"),
-            0.70 * cross_sectional_robust_z(d, "selection_confirmation_score"),
-            0.50 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
+            1.05 * cross_sectional_robust_z(d, "long_hold_compounder_score"),
+            0.90 * cross_sectional_robust_z(d, "archetype_compounder_score"),
+            1.10 * cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
+            1.00 * cross_sectional_robust_z(d, "quality_trend_score"),
+            0.45 * cross_sectional_robust_z(d, "garp_score"),
+            0.95 * cross_sectional_robust_z(d, "actual_results_score"),
+            0.55 * cross_sectional_robust_z(d, "selection_confirmation_score"),
+            0.25 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
+            0.35 * cross_sectional_robust_z(d, "pricing_power_score"),
+            0.30 * cross_sectional_robust_z(d, "margin_stability_8q"),
         ],
         d.index,
     ).fillna(0.0)
     future_score = row_mean(
         [
-            cross_sectional_robust_z(d, "future_winner_scout_score"),
-            cross_sectional_robust_z(d, "pred_future_winner_ret"),
-            cross_sectional_robust_z(d, "pred_future_winner_p"),
-            cross_sectional_robust_z(d, "anticipatory_growth_score"),
-            cross_sectional_robust_z(d, "archetype_emerging_growth_score"),
-            cross_sectional_robust_z(d, "dynamic_leader_score"),
-            cross_sectional_robust_z(d, "leader_emergence_score"),
-            cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.50 * cross_sectional_robust_z(d, "revision_blueprint_score"),
+            1.10 * cross_sectional_robust_z(d, "future_winner_scout_score"),
+            0.95 * cross_sectional_robust_z(d, "pred_future_winner_ret"),
+            0.40 * cross_sectional_robust_z(d, "pred_future_winner_p"),
+            0.95 * cross_sectional_robust_z(d, "anticipatory_growth_score"),
+            0.70 * cross_sectional_robust_z(d, "archetype_emerging_growth_score"),
+            0.95 * cross_sectional_robust_z(d, "dynamic_leader_score"),
+            0.90 * cross_sectional_robust_z(d, "leader_emergence_score"),
+            0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
+            0.80 * cross_sectional_robust_z(d, "revision_blueprint_score"),
+            0.55 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
+            0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
+            0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
+            0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
         ],
         d.index,
     ).fillna(0.0)
@@ -12600,8 +12869,8 @@ def compute_portfolio_sleeve_policy(
             "early_scout_regime_strength": 0.0,
         }
 
-    base_core = float(getattr(cfg, "core_compounder_sleeve_base_weight", 0.70))
-    base_future = float(getattr(cfg, "future_winner_sleeve_base_weight", 0.20))
+    base_core = float(getattr(cfg, "core_compounder_sleeve_base_weight", 0.55))
+    base_future = float(getattr(cfg, "future_winner_sleeve_base_weight", 0.35))
     base_early = float(getattr(cfg, "early_scout_sleeve_base_weight", 0.05))
     base_invested = max(base_core + base_future + base_early, 1e-8)
     future_base = invested_share * (base_future / base_invested)
@@ -12653,18 +12922,18 @@ def compute_portfolio_sleeve_policy(
     )
 
     future_target = future_base
-    future_target += 0.10 * np.clip((growth_signal - 0.45) / 0.55, 0.0, 1.0)
-    future_target += 0.05 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
-    future_target += 0.03 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
-    future_target -= 0.12 * np.clip((risk_signal - 0.30) / 0.70, 0.0, 1.0)
-    future_target -= 0.06 * np.clip((liquidity_drain - 0.40) / 0.60, 0.0, 1.0)
+    future_target += 0.15 * np.clip((growth_signal - 0.42) / 0.58, 0.0, 1.0)
+    future_target += 0.08 * np.clip((breadth_regime - 0.58) / 0.22, 0.0, 1.0)
+    future_target += 0.05 * np.clip((sector_participation - 0.40) / 0.20, 0.0, 1.0)
+    future_target -= 0.14 * np.clip((risk_signal - 0.28) / 0.72, 0.0, 1.0)
+    future_target -= 0.08 * np.clip((liquidity_drain - 0.35) / 0.65, 0.0, 1.0)
     early_target = early_base
-    early_target += 0.07 * np.clip((growth_signal - 0.50) / 0.50, 0.0, 1.0)
-    early_target += 0.06 * np.clip((growth_thrust - 0.45) / 0.55, 0.0, 1.0)
-    early_target += 0.05 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
-    early_target += 0.05 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
-    early_target -= 0.12 * np.clip((risk_signal - 0.25) / 0.75, 0.0, 1.0)
-    early_target -= 0.10 * np.clip((liquidity_drain - 0.35) / 0.65, 0.0, 1.0)
+    early_target += 0.05 * np.clip((growth_signal - 0.52) / 0.48, 0.0, 1.0)
+    early_target += 0.06 * np.clip((growth_thrust - 0.46) / 0.54, 0.0, 1.0)
+    early_target += 0.04 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
+    early_target += 0.04 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
+    early_target -= 0.14 * np.clip((risk_signal - 0.24) / 0.76, 0.0, 1.0)
+    early_target -= 0.10 * np.clip((liquidity_drain - 0.33) / 0.67, 0.0, 1.0)
 
     strong_future_regime = (
         growth_signal >= 0.72
@@ -12685,37 +12954,37 @@ def compute_portfolio_sleeve_policy(
         future_target = max(
             future_target,
             min(
-                float(getattr(cfg, "future_winner_sleeve_max_weight", 0.40)),
-                0.28 + 0.12 * np.clip((growth_signal - 0.72) / 0.28, 0.0, 1.0),
+                float(getattr(cfg, "future_winner_sleeve_max_weight", 0.60)),
+                0.40 + 0.20 * np.clip((growth_signal - 0.72) / 0.28, 0.0, 1.0),
             ),
         )
     if strong_early_regime:
         early_target = max(
             early_target,
             min(
-                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.20)),
-                0.10 + 0.10 * np.clip((growth_thrust - 0.62) / 0.38, 0.0, 1.0),
+                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)),
+                0.08 + 0.07 * np.clip((growth_thrust - 0.62) / 0.38, 0.0, 1.0),
             ),
         )
     if risk_signal >= 0.70:
-        future_target = min(future_target, min(0.08, invested_share))
+        future_target = min(future_target, min(0.15, invested_share))
         early_target = 0.0
     elif risk_signal >= 0.55:
-        future_target = min(future_target, min(0.12, invested_share))
+        future_target = min(future_target, min(0.18, invested_share))
         early_target = min(early_target, min(0.03, invested_share))
 
     future_target = float(
         np.clip(
             future_target,
             0.0 if invested_share < float(getattr(cfg, "future_winner_sleeve_min_weight", 0.05)) else float(getattr(cfg, "future_winner_sleeve_min_weight", 0.05)),
-            min(float(getattr(cfg, "future_winner_sleeve_max_weight", 0.30)), invested_share),
+            min(float(getattr(cfg, "future_winner_sleeve_max_weight", 0.60)), invested_share),
         )
     )
     early_target = float(
         np.clip(
             early_target,
             0.0 if invested_share < float(getattr(cfg, "early_scout_sleeve_min_weight", 0.0)) else float(getattr(cfg, "early_scout_sleeve_min_weight", 0.0)),
-            min(float(getattr(cfg, "early_scout_sleeve_max_weight", 0.20)), invested_share),
+            min(float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)), invested_share),
         )
     )
     exploratory_total = future_target + early_target

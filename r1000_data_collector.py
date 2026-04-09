@@ -54,13 +54,13 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("cash_target_growth_cap", 0.03)
     cfg.setdefault("cash_target_balanced_cap", 0.05)
     cfg.setdefault("cash_target_mild_risk_cap", 0.10)
-    cfg.setdefault("core_compounder_sleeve_base_weight", 0.70)
-    cfg.setdefault("future_winner_sleeve_base_weight", 0.20)
+    cfg.setdefault("core_compounder_sleeve_base_weight", 0.55)
+    cfg.setdefault("future_winner_sleeve_base_weight", 0.35)
     cfg.setdefault("future_winner_sleeve_min_weight", 0.05)
-    cfg.setdefault("future_winner_sleeve_max_weight", 0.40)
+    cfg.setdefault("future_winner_sleeve_max_weight", 0.60)
     cfg.setdefault("early_scout_sleeve_base_weight", 0.05)
     cfg.setdefault("early_scout_sleeve_min_weight", 0.00)
-    cfg.setdefault("early_scout_sleeve_max_weight", 0.20)
+    cfg.setdefault("early_scout_sleeve_max_weight", 0.15)
     return cfg
 
 
@@ -753,13 +753,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--core-compounder-sleeve-base-weight",
         type=float,
-        default=0.70,
+        default=0.55,
         help="Base portfolio weight for the core compounder sleeve.",
     )
     parser.add_argument(
         "--future-winner-sleeve-base-weight",
         type=float,
-        default=0.20,
+        default=0.35,
         help="Base portfolio weight for the future winner sleeve.",
     )
     parser.add_argument(
@@ -771,7 +771,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--future-winner-sleeve-max-weight",
         type=float,
-        default=0.40,
+        default=0.60,
         help="Maximum future winner sleeve weight.",
     )
     parser.add_argument(
@@ -789,7 +789,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early-scout-sleeve-max-weight",
         type=float,
-        default=0.20,
+        default=0.15,
         help="Maximum early scout sleeve weight.",
     )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
