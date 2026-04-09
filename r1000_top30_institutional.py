@@ -4308,6 +4308,10 @@ def companyfacts_cache_file(paths: dict[str, Path], cik: str) -> Path:
     return paths["cache_sec_actual"] / f"companyfacts_{str(cik).zfill(10)}.json"
 
 
+def companyfacts_not_found_cache_file(paths: dict[str, Path], cik: str) -> Path:
+    return paths["cache_sec_actual"] / f"companyfacts_{str(cik).zfill(10)}.not_found.json"
+
+
 def normalize_cik10(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -4453,12 +4457,15 @@ def load_local_companyfacts_bulk_payload(
 def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: str) -> dict[str, Any]:
     cik10 = str(cik).zfill(10)
     cache_path = companyfacts_cache_file(paths, cik10)
+    not_found_path = companyfacts_not_found_cache_file(paths, cik10)
     if is_cache_fresh(cache_path, cfg.companyfacts_refresh_days):
         try:
             payload = json.loads(cache_path.read_text())
             return payload if isinstance(payload, dict) else {}
         except Exception:
             pass
+    if is_cache_fresh(not_found_path, max(int(cfg.companyfacts_refresh_days), 30)):
+        return {}
 
     headers = {
         "User-Agent": cfg.sec_user_agent,
@@ -4476,6 +4483,26 @@ def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: s
                 time.sleep(cfg.sec_sleep)
                 return payload
             last_err = "empty companyfacts payload"
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            last_err = str(e)
+            if status_code == 404:
+                try:
+                    not_found_path.write_text(
+                        json.dumps(
+                            {
+                                "cik": cik10,
+                                "status_code": int(status_code),
+                                "url": url,
+                                "cached_at_utc": pd.Timestamp.utcnow().isoformat(),
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
+                log(f"[INFO] companyfacts unavailable for CIK{cik10}; cached negative result.")
+                return {}
         except Exception as e:
             last_err = str(e)
         if attempt + 1 < max_retries:

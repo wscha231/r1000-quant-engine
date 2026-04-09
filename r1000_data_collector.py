@@ -64,6 +64,30 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
+def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Recommended free-source Colab settings for the full collector -> engine run."""
+    cfg["sec_user_agent"] = "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+    cfg["fred_api_key"] = "8d92fb5a5de226657d912fe0284dfc00"
+    cfg["macro_refresh_days"] = 0
+    cfg["live_refresh_days"] = 1
+    cfg["companyfacts_refresh_days"] = 7
+    cfg["alpha_vantage_free_refresh_tickers"] = 0
+    cfg["alpha_vantage_free_statement_repair_tickers"] = 0
+    cfg["alpha_vantage_free_statement_refresh_days"] = 7
+    cfg["macro_slow_release_lag_months"] = 1
+    cfg["cash_target_growth_cap"] = 0.03
+    cfg["cash_target_balanced_cap"] = 0.05
+    cfg["cash_target_mild_risk_cap"] = 0.10
+    cfg["core_compounder_sleeve_base_weight"] = 0.55
+    cfg["future_winner_sleeve_base_weight"] = 0.35
+    cfg["future_winner_sleeve_min_weight"] = 0.05
+    cfg["future_winner_sleeve_max_weight"] = 0.60
+    cfg["early_scout_sleeve_base_weight"] = 0.05
+    cfg["early_scout_sleeve_min_weight"] = 0.00
+    cfg["early_scout_sleeve_max_weight"] = 0.15
+    return cfg
+
+
 def collector_full_run_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
     cfg = collector_default_cfg(base_dir=base_dir)
     cfg["reuse_existing_artifacts"] = False
@@ -83,6 +107,17 @@ def collector_lean_full_run_cfg(base_dir: Optional[str] = None, end_date: Option
     cfg["export_extended_outputs"] = False
     cfg["export_explain_outputs"] = False
     return _apply_notebook_runtime_defaults(cfg)
+
+
+def collector_colab_full_run_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
+    """Full first-run config used by colab_run.ipynb.
+
+    The notebook should keep these choices in one place instead of repeating a long
+    list of overrides in multiple cells.
+    """
+    return apply_colab_free_runtime_overrides(
+        collector_lean_full_run_cfg(base_dir=base_dir, end_date=end_date)
+    )
 
 
 def collector_reuse_step2_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
