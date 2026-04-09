@@ -10495,6 +10495,22 @@ def load_or_update_fund_panel(
     latest_path = paths["feature_store"] / "fund_panel_latest.parquet"
     base = pd.read_parquet(latest_path) if latest_path.exists() else pd.DataFrame()
     base_cov = panel_latest_flow_coverage(base) if not base.empty else np.nan
+    if (
+        not base.empty
+        and not bool(getattr(cfg, "force_full_fund_panel_rebuild", False))
+        and is_cache_fresh(latest_path, int(getattr(cfg, "companyfacts_refresh_days", 14)))
+        and (pd.isna(base_cov) or float(base_cov) >= 0.20)
+    ):
+        cov_label = f"{base_cov:.1%}" if pd.notna(base_cov) else "n/a"
+        log(
+            f"Using cached fundamental panel: {latest_path.name} "
+            f"(latest-flow coverage={cov_label})."
+        )
+        return recompute_fund_panel_derived_columns(
+            base,
+            ffill_quarters=cfg.fund_ttm_ffill_quarters,
+            balance_ffill_quarters=cfg.fund_balance_ffill_quarters,
+        )
     repair_quarters = max(int(cfg.fsds_quarters_each_run), int(cfg.fund_panel_repair_quarters))
     refresh_ciks = cik_list
     if not base.empty and base_cov < 0.20:
