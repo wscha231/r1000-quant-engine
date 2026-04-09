@@ -1106,6 +1106,10 @@ class EngineConfig:
     focus_no_ttm_bonus_cap_weak: float = 2.5
     focus_no_ttm_bonus_cap_confirmed: float = 4.5
     focus_negative_momentum_emergence_penalty: float = 0.65
+    minervini_momentum_score_weight: float = 0.60
+    minervini_portfolio_seed_weight: float = 0.75
+    minervini_future_engine_weight: float = 0.45
+    minervini_broken_trend_penalty_weight: float = 0.30
     portfolio_confirmation_utility_boost: float = 0.0
     portfolio_confirmation_conviction_boost: float = 0.0
     portfolio_seed_confirmation_boost: float = 0.0
@@ -3963,6 +3967,14 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("focus_no_ttm_bonus caps must be >= 0.")
     if cfg.focus_negative_momentum_emergence_penalty < 0:
         raise ValueError("focus_negative_momentum_emergence_penalty must be >= 0.")
+    if cfg.minervini_momentum_score_weight < 0:
+        raise ValueError("minervini_momentum_score_weight must be >= 0.")
+    if cfg.minervini_portfolio_seed_weight < 0:
+        raise ValueError("minervini_portfolio_seed_weight must be >= 0.")
+    if cfg.minervini_future_engine_weight < 0:
+        raise ValueError("minervini_future_engine_weight must be >= 0.")
+    if cfg.minervini_broken_trend_penalty_weight < 0:
+        raise ValueError("minervini_broken_trend_penalty_weight must be >= 0.")
     if cfg.portfolio_confirmation_utility_boost < 0:
         raise ValueError("portfolio_confirmation_utility_boost must be >= 0.")
     if cfg.portfolio_confirmation_conviction_boost < 0:
@@ -8820,12 +8832,116 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
     return d
 
 
+def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        return d
+
+    price_above_ma50 = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma150 = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma200 = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma50_above_ma150 = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    ma150_above_ma200 = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma200_slope_positive = (numeric_series_or_default(d, "ma200_slope_1m", 0.0) > 0.0).astype(float)
+    ma_order_score = row_mean(
+        [
+            price_above_ma50,
+            price_above_ma150,
+            price_above_ma200,
+            ma50_above_ma150,
+            ma150_above_ma200,
+            ma200_slope_positive,
+        ],
+        d.index,
+    ).fillna(0.0)
+    near_high = numeric_series_or_default(d, "near_52w_high_pct", -1.0)
+    near_high_score = ((near_high + 0.30) / 0.30).clip(lower=0.0, upper=1.0).fillna(0.0)
+    trend_template_score = row_mean(
+        [
+            numeric_series_or_default(d, "trend_template_full", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "trend_template_relaxed", 0.0).clip(lower=0.0, upper=1.0),
+            ma_order_score,
+            near_high_score,
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    absolute_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "mom_3m"),
+            cross_sectional_robust_z(d, "mom_6m"),
+            cross_sectional_robust_z(d, "mom_12m"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    relative_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "rs_benchmark_3m"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "rs_benchmark_12m"),
+            0.80 * cross_sectional_robust_z(d, "relative_strength_composite"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volume_breakout = row_mean(
+        [
+            0.80 * cross_sectional_robust_z(d, "breakout_volume_z"),
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            0.50 * cross_sectional_robust_z(d, "obv_trend"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volatility_setup = row_mean(
+        [
+            cross_sectional_robust_z(d, "volume_dryup_20d"),
+            cross_sectional_robust_z(d, "volatility_contraction_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    broken_trend = row_mean(
+        [
+            (price_above_ma50 <= 0.0).astype(float),
+            (price_above_ma150 <= 0.0).astype(float),
+            (price_above_ma200 <= 0.0).astype(float),
+            (ma150_above_ma200 <= 0.0).astype(float),
+            numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "mom_3m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) < 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    minervini_raw = (
+        0.38 * robust_z(trend_template_score).fillna(0.0)
+        + 0.26 * relative_momentum
+        + 0.18 * absolute_momentum
+        + 0.12 * volume_breakout
+        + 0.06 * volatility_setup
+    )
+    d["minervini_trend_template_score"] = trend_template_score.clip(lower=0.0, upper=1.0)
+    d["momentum_alive_relative_score"] = relative_momentum
+    d["momentum_alive_absolute_score"] = absolute_momentum
+    d["momentum_alive_volume_score"] = volume_breakout
+    d["broken_momentum_penalty"] = broken_trend.clip(lower=0.0, upper=1.0)
+    d["minervini_momentum_alive_score"] = (
+        minervini_raw - 0.65 * d["broken_momentum_penalty"]
+    ).clip(lower=-4.0, upper=4.0)
+    d["minervini_trend_pass"] = (
+        (d["minervini_trend_template_score"] >= 0.75)
+        & (near_high >= -0.30)
+        & (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0)
+    ).astype(float)
+    return d
+
+
 def apply_focus_score_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
     d = df.copy()
     d["score_focus_bonus"] = 0.0
     d["score_pre_focus_total"] = numeric_series_or_default(d, "score", 0.0)
     d["score_base_model"] = numeric_series_or_default(d, "score_model_core", 0.0)
     d = compute_benchmark_beating_focus_overlay(d, cfg)
+    d = compute_minervini_momentum_overlay(d)
     if cfg.use_benchmark_beating_focus_overlay:
         d["score_focus_bonus_raw"] = (
             float(cfg.focus_overlay_strength)
@@ -8853,7 +8969,20 @@ def apply_focus_score_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFra
         d["score_focus_bonus"] = d["score_focus_bonus"] - float(cfg.focus_missing_fundamental_penalty) * np.clip(
             0.40 - np.maximum(fundamental_confirmation, 0.85 * market_confirmation), 0.0, None
         )
+        d["score_minervini_momentum_bonus"] = (
+            float(cfg.minervini_momentum_score_weight)
+            * robust_z(pd.to_numeric(d["minervini_momentum_alive_score"], errors="coerce")).fillna(0.0)
+        )
+        d["score_broken_momentum_penalty"] = (
+            float(cfg.minervini_broken_trend_penalty_weight)
+            * pd.to_numeric(d["broken_momentum_penalty"], errors="coerce").fillna(0.0)
+        )
         d["score"] = numeric_series_or_default(d, "score", 0.0) + numeric_series_or_default(d, "score_focus_bonus", 0.0)
+        d["score"] = (
+            numeric_series_or_default(d, "score", 0.0)
+            + numeric_series_or_default(d, "score_minervini_momentum_bonus", 0.0)
+            - numeric_series_or_default(d, "score_broken_momentum_penalty", 0.0)
+        )
     d["score_total"] = numeric_series_or_default(d, "score", 0.0)
     return d
 
@@ -12764,7 +12893,7 @@ def apply_hold_policy_overlay(
     return d
 
 
-def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
+def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
     if d.empty:
         for c in [
@@ -12776,7 +12905,12 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
         ]:
             d[c] = np.nan
         return d
+    if "minervini_momentum_alive_score" not in d.columns:
+        d = compute_minervini_momentum_overlay(d)
 
+    minervini_future_engine_weight = float(
+        getattr(cfg, "minervini_future_engine_weight", EngineConfig.minervini_future_engine_weight)
+    )
     dominant_archetype = d.get("dominant_archetype_label", pd.Series("", index=d.index, dtype=str)).astype(str)
     history_depth_raw = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).astype(float)
     history_depth = pd.Series(
@@ -12814,6 +12948,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
             0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
             0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
             0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
+            minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
+            -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
     ).fillna(0.0)
@@ -12828,6 +12964,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
             0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
             0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
             0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
+            0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
+            -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
             -0.35 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
             -0.25 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
         ],
@@ -13068,12 +13206,16 @@ def build_target_portfolio(
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
     if "selection_confirmation_score" not in month_df.columns:
         month_df = compute_benchmark_beating_focus_overlay(month_df, cfg)
+    if "minervini_momentum_alive_score" not in month_df.columns:
+        month_df = compute_minervini_momentum_overlay(month_df)
     month_df = apply_hold_policy_overlay(month_df, prev_w, cfg)
-    month_df = compute_portfolio_sleeve_columns(month_df)
+    month_df = compute_portfolio_sleeve_columns(month_df, cfg)
     month_df["portfolio_seed_score"] = (
         numeric_series_or_default(month_df, "score", 0.0)
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
+        + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
+        - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
     )
 
     caps = compute_dynamic_sector_caps(cfg, month_df)
@@ -15607,7 +15749,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         apply_statement_repair=True,
         add_fundamental_flags=True,
     )
-    scored_latest = compute_portfolio_sleeve_columns(scored_latest)
+    scored_latest = compute_portfolio_sleeve_columns(scored_latest, cfg)
     if "ranking_eligible" not in scored_latest.columns:
         scored_latest["ranking_eligible"] = scored_latest["core_fundamental_minimum_pass"].fillna(False).astype(bool)
     full_rank = scored_latest[scored_latest["ranking_eligible"].fillna(False)].copy()
@@ -15645,6 +15787,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "adaptive_quality_ranker",
             "score_garp_core",
             "score_focus_bonus",
+            "score_minervini_momentum_bonus",
+            "score_broken_momentum_penalty",
             "garp_score",
             "archetype_alignment_score",
             "dominant_archetype_label",
@@ -15663,6 +15807,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_future_winner_model",
             "pred_future_winner_ret",
             "pred_future_winner_p",
+            "minervini_momentum_alive_score",
+            "minervini_trend_template_score",
+            "minervini_trend_pass",
+            "momentum_alive_relative_score",
+            "momentum_alive_absolute_score",
+            "momentum_alive_volume_score",
+            "broken_momentum_penalty",
             "fundamental_lane_label",
             "sector_adjusted_fields_present",
             "partial_scout_confirmation_score",
@@ -15858,6 +16009,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             * numeric_series_or_default(explain_df, "actual_results_score", 0.0)
         )
         explain_df["contrib_focus_overlay"] = numeric_series_or_default(explain_df, "score_focus_bonus", 0.0)
+        explain_df["contrib_minervini_momentum"] = numeric_series_or_default(
+            explain_df, "score_minervini_momentum_bonus", 0.0
+        )
+        explain_df["contrib_broken_momentum_penalty"] = -numeric_series_or_default(
+            explain_df, "score_broken_momentum_penalty", 0.0
+        )
         explain_df["contrib_sector_crowding_penalty"] = -numeric_series_or_default(explain_df, "sector_crowding_penalty", 0.0)
         explain_df["contrib_overheat_penalty"] = -numeric_series_or_default(explain_df, "overheat_penalty", 0.0)
         explain_df["contrib_portfolio_seed_overheat_penalty"] = -numeric_series_or_default(
@@ -15901,6 +16058,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_model_core",
             "score_total",
             "score_focus_bonus",
+            "score_minervini_momentum_bonus",
+            "score_broken_momentum_penalty",
             "ensemble_weight_linear",
             "ensemble_weight_catboost",
             "ensemble_weight_ranker",
@@ -15931,6 +16090,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_future_winner_model",
             "pred_future_winner_ret",
             "pred_future_winner_p",
+            "minervini_momentum_alive_score",
+            "minervini_trend_template_score",
+            "minervini_trend_pass",
+            "momentum_alive_relative_score",
+            "momentum_alive_absolute_score",
+            "momentum_alive_volume_score",
+            "broken_momentum_penalty",
             "strategy_blueprint_score",
             "stagflation_score",
             "growth_liquidity_reentry_score",
