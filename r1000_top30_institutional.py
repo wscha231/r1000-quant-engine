@@ -538,6 +538,8 @@ DEFAULT_FEATURES = [
     "profit_turn_positive_4q",
     "cashflow_turn_positive_4q",
     "fundamental_turnaround_acceleration_score",
+    "cashflow_inflection_under_loss_score",
+    "breakout_setup_quality_score",
     "forward_value_score",
     "revision_score",
     "quality_trend_score",
@@ -7747,6 +7749,46 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         ],
         d.index,
     ).fillna(0.0)
+    revenues_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan)
+    ocf_ttm = numeric_series_or_default(d, "ocf_ttm", np.nan)
+    fcf_ttm = numeric_series_or_default(d, "fcf_ttm", np.nan)
+    op_income_ttm = numeric_series_or_default(d, "op_income_ttm", np.nan)
+    net_income_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
+    under_reported_loss = (
+        ((op_income_ttm <= 0.0) & op_income_ttm.notna())
+        | ((net_income_ttm <= 0.0) & net_income_ttm.notna())
+    ).astype(float)
+    ocf_positive_now = ((ocf_ttm > 0.0) & ocf_ttm.notna()).astype(float)
+    fcf_positive_now = ((fcf_ttm > 0.0) & fcf_ttm.notna()).astype(float)
+    cash_margin_proxy = (ocf_ttm / revenues_ttm.replace(0.0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    revenue_confirmation_for_turn = row_mean(
+        [
+            (numeric_series_or_default(d, "sales_growth_yoy", 0.0) > 0.08).astype(float),
+            (numeric_series_or_default(d, "revenue_growth_final", 0.0) > 0.08).astype(float),
+            numeric_series_or_default(d, "growth_inflection_signal", 0.0).clip(lower=0.0, upper=1.0),
+            cross_sectional_robust_z(d, "sales_growth_yoy").clip(lower=0.0).fillna(0.0),
+        ],
+        d.index,
+    ).clip(lower=0.0, upper=2.0).fillna(0.0)
+    cash_turn_confirmation = row_mean(
+        [
+            1.25 * numeric_series_or_default(d, "cashflow_turn_positive_4q", 0.0),
+            1.10 * numeric_series_or_default(d, "ocf_turn_positive_4q", 0.0),
+            numeric_series_or_default(d, "fcf_turn_positive_4q", 0.0),
+            0.75 * ocf_positive_now,
+            0.45 * fcf_positive_now,
+            0.55 * numeric_series_or_default(d, "roe_turn_positive_4q", 0.0),
+            0.45 * cross_sectional_robust_z(d, "ocf_growth_yoy").clip(lower=0.0).fillna(0.0),
+            0.35 * robust_z(cash_margin_proxy).clip(lower=0.0).fillna(0.0),
+        ],
+        d.index,
+    ).clip(lower=0.0, upper=2.5).fillna(0.0)
+    # Early monetization: still loss-making on GAAP income, but cashflow/ROE turns and revenue confirms.
+    d["cashflow_inflection_under_loss_score"] = (
+        under_reported_loss
+        * revenue_confirmation_for_turn
+        * cash_turn_confirmation
+    ).clip(lower=0.0, upper=4.0).fillna(0.0)
     ai_growth_context = np.maximum(
         numeric_series_or_default(d, "ai_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
         numeric_series_or_default(d, "power_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
@@ -7766,6 +7808,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.10 * cross_sectional_robust_z(d, "actual_results_score")
         + 0.10 * benchmark_alpha
         + 0.10 * cross_sectional_robust_z(d, "ai_fundamental_thrust_score")
+        + 0.12 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         - 0.08 * leverage_penalty
     ).fillna(0.0)
 
@@ -7801,7 +7844,8 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.12 * robust_z(small_base_high_growth).fillna(0.0)
         + 0.12 * cross_sectional_robust_z(d, "rs_market_acceleration")
         + 0.15 * earnings_momentum
-        + 0.10 * cross_sectional_robust_z(d, "breakout_volume_z")
+        + 0.08 * cross_sectional_robust_z(d, "breakout_volume_z")
+        + 0.10 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
     ).fillna(0.0)
 
@@ -7847,6 +7891,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.09 * benchmark_alpha
         + 0.11 * cross_sectional_robust_z(d, "growth_onset_composite")
         + 0.08 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
+        + 0.05 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         + 0.07 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
         + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -7890,6 +7935,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         0.22 * cross_sectional_robust_z(d, "anticipatory_growth_score")
         + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
         + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
+        + 0.07 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         + 0.16 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
         + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -9001,6 +9047,29 @@ def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
         ],
         d.index,
     ).fillna(0.0)
+    positive_rs_consistency = row_mean(
+        [
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_12m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", np.nan)
+    rsi_not_extended = (1.0 - ((rsi14 - 82.0) / 10.0).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    bb_pb = numeric_series_or_default(d, "bb_pb", np.nan)
+    bollinger_not_extended = (1.0 - ((bb_pb - 1.05) / 0.25).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    breakout_follow_through = row_mean(
+        [
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "breakout_volume_z", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "obv_trend", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
     broken_trend = row_mean(
         [
             (price_above_ma50 <= 0.0).astype(float),
@@ -9014,11 +9083,30 @@ def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
         ],
         d.index,
     ).fillna(0.0)
+    atr_high_penalty = cross_sectional_robust_z(d, "atr14_pct").clip(lower=0.0).fillna(0.0)
+    setup_quality_raw = row_mean(
+        [
+            1.15 * trend_template_score,
+            1.00 * positive_rs_consistency,
+            0.85 * near_high_score,
+            0.70 * breakout_follow_through,
+            0.55 * robust_z(volatility_setup).fillna(0.0).clip(lower=-1.0, upper=2.0),
+            0.50 * rsi_not_extended,
+            0.45 * bollinger_not_extended,
+        ],
+        d.index,
+    ).fillna(0.0)
+    setup_quality_score = (
+        setup_quality_raw
+        - 0.55 * broken_trend
+        - 0.18 * atr_high_penalty
+    ).clip(lower=-2.0, upper=2.5)
     minervini_raw = (
-        0.38 * robust_z(trend_template_score).fillna(0.0)
-        + 0.26 * relative_momentum
-        + 0.18 * absolute_momentum
-        + 0.12 * volume_breakout
+        0.33 * robust_z(trend_template_score).fillna(0.0)
+        + 0.23 * relative_momentum
+        + 0.15 * absolute_momentum
+        + 0.14 * robust_z(setup_quality_score).fillna(0.0)
+        + 0.09 * volume_breakout
         + 0.06 * volatility_setup
     )
     d["minervini_trend_template_score"] = trend_template_score.clip(lower=0.0, upper=1.0)
@@ -9026,6 +9114,7 @@ def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
     d["momentum_alive_absolute_score"] = absolute_momentum
     d["momentum_alive_volume_score"] = volume_breakout
     d["broken_momentum_penalty"] = broken_trend.clip(lower=0.0, upper=1.0)
+    d["breakout_setup_quality_score"] = setup_quality_score
     d["minervini_momentum_alive_score"] = (
         minervini_raw - 0.65 * d["broken_momentum_penalty"]
     ).clip(lower=-4.0, upper=4.0)
@@ -13051,7 +13140,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
             0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
             0.50 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
+            0.35 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
             minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
+            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
             -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
@@ -13067,8 +13158,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
             0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
             0.55 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
+            0.45 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
             0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
             0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
+            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
             -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
             -0.35 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
             -0.25 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
@@ -13319,7 +13412,9 @@ def build_target_portfolio(
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
         + 0.55 * numeric_series_or_default(month_df, "fundamental_turnaround_acceleration_score", 0.0)
+        + 0.35 * numeric_series_or_default(month_df, "cashflow_inflection_under_loss_score", 0.0)
         + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
+        + 0.25 * numeric_series_or_default(month_df, "breakout_setup_quality_score", 0.0)
         - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
     )
 
@@ -16007,6 +16102,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "minervini_momentum_alive_score",
             "minervini_trend_template_score",
             "minervini_trend_pass",
+            "breakout_setup_quality_score",
             "momentum_alive_relative_score",
             "momentum_alive_absolute_score",
             "momentum_alive_volume_score",
@@ -16029,6 +16125,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "fundamental_revenue_thrust_score",
             "fundamental_profit_cash_acceleration_score",
             "fundamental_turn_positive_score",
+            "cashflow_inflection_under_loss_score",
             "ai_fundamental_thrust_score",
             "roe_turn_positive_4q",
             "ocf_turn_positive_4q",
@@ -16302,6 +16399,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "minervini_momentum_alive_score",
             "minervini_trend_template_score",
             "minervini_trend_pass",
+            "breakout_setup_quality_score",
             "momentum_alive_relative_score",
             "momentum_alive_absolute_score",
             "momentum_alive_volume_score",
@@ -16352,6 +16450,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "fundamental_revenue_thrust_score",
             "fundamental_profit_cash_acceleration_score",
             "fundamental_turn_positive_score",
+            "cashflow_inflection_under_loss_score",
             "ai_fundamental_thrust_score",
             "roe_turn_positive_4q",
             "ocf_turn_positive_4q",
