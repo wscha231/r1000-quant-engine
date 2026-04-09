@@ -1055,6 +1055,7 @@ class EngineConfig:
     w_event_reaction: float = 0.10
     w_institutional_flow: float = 0.10
     w_insider_flow: float = 0.08
+    ownership_proxy_score_discount: float = 0.25
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
@@ -3392,9 +3393,16 @@ def add_total_score_columns(
         float(cfg.strategy_blueprint_weight)
         * numeric_series_or_default(d, "strategy_blueprint_score", 0.0)
     )
+    inst_signal = numeric_series_or_default(d, "institutional_flow_signal_score", 0.0)
+    insider_signal = numeric_series_or_default(d, "insider_flow_signal_score", 0.0)
+    proxy_discount = float(getattr(cfg, "ownership_proxy_score_discount", 0.25))
+    inst_actual_source = numeric_series_or_default(d, "institutional_actual_available", 0.0).fillna(0.0) > 0
+    insider_actual_source = numeric_series_or_default(d, "insider_actual_available", 0.0).fillna(0.0) > 0
+    inst_source_weight = pd.Series(np.where(inst_actual_source, 1.0, proxy_discount), index=d.index, dtype=float)
+    insider_source_weight = pd.Series(np.where(insider_actual_source, 1.0, proxy_discount), index=d.index, dtype=float)
     d["score_flow_satellite"] = (
-        cfg.w_institutional_flow * numeric_series_or_default(d, "institutional_flow_signal_score", 0.0)
-        + cfg.w_insider_flow * numeric_series_or_default(d, "insider_flow_signal_score", 0.0)
+        cfg.w_institutional_flow * inst_source_weight * inst_signal
+        + cfg.w_insider_flow * insider_source_weight * insider_signal
     )
     d["score_multidimensional_confirmation"] = (
         float(cfg.w_multidimensional_confirmation)
@@ -3860,6 +3868,8 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("stock_weight_max_high_conviction must be >= stock_weight_max_no_ttm_confirmed.")
     if not (0.0 <= cfg.proxy_decay_after_actual <= 1.0):
         raise ValueError("proxy_decay_after_actual must be between 0 and 1.")
+    if not (0.0 <= cfg.ownership_proxy_score_discount <= 1.0):
+        raise ValueError("ownership_proxy_score_discount must be between 0 and 1.")
     target_w = cfg.target_blend_1m + cfg.target_blend_3m + cfg.target_blend_6m
     if target_w <= 0:
         raise ValueError("At least one target blend weight must be positive.")
@@ -12841,6 +12851,22 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
     second_val = np.partition(sleeve_matrix, -2, axis=1)[:, -2]
     sleeve_confidence = np.clip((top_val - second_val) / 3.0, 0.0, 1.0)
     sleeve_label = sleeve_labels[top_idx]
+    core_or_future_max = np.maximum(sleeve_matrix[:, 0], sleeve_matrix[:, 1])
+    early_edge = sleeve_matrix[:, 2] - core_or_future_max
+    # Keep early_scout for names where the early/inflection engine is clearly
+    # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
+    weak_early_edge = sleeve_label == "early_scout"
+    weak_early_edge &= (early_edge < 0.20) | (sleeve_matrix[:, 2] < 0.65)
+    sleeve_label = np.where(
+        weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
+        "future_winner",
+        sleeve_label,
+    )
+    sleeve_label = np.where(
+        weak_early_edge & (sleeve_matrix[:, 1] < sleeve_matrix[:, 0]),
+        "core_compounder",
+        sleeve_label,
+    )
     low_gap = (top_val - second_val) < 0.10
     sleeve_label = np.where(
         low_gap & dominant_archetype.eq("emerging_growth") & (sleeve_matrix[:, 2] >= sleeve_matrix[:, 1]),
@@ -13088,6 +13114,10 @@ def build_target_portfolio(
         early_target_n = 0
     core_target_n = max(1, target_n - future_target_n - early_target_n) if target_n > 0 else 0
 
+    score_top_rank = pool["score"].rank(method="first", ascending=False) if "score" in pool.columns else pd.Series(np.inf, index=pool.index)
+    future_engine_score = numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
+    early_engine_score = numeric_series_or_default(pool, "portfolio_early_scout_engine_score", 0.0)
+
     def _prepare_sleeve_pool(
         base_pool: pd.DataFrame,
         preferred_mask: pd.Series,
@@ -13115,6 +13145,20 @@ def build_target_portfolio(
         return pd.concat([preferred, remainder.head(needed)], ignore_index=False)
 
     sleeve_labels = pool.get("portfolio_sleeve_label", pd.Series("core_compounder", index=pool.index, dtype=object)).astype(str)
+    top_score_early_mask = (
+        sleeve_labels.eq("early_scout")
+        & (score_top_rank <= max(target_n, 12))
+        & (pd.to_numeric(pool.get("score"), errors="coerce").notna())
+    )
+    if early_target_n <= 0 and early_target_share >= 0.03 and target_n >= 10 and bool(top_score_early_mask.any()):
+        early_target_n = 1
+        core_target_n = max(1, target_n - future_target_n - early_target_n)
+    future_fallback_from_early = (
+        sleeve_labels.eq("early_scout")
+        & (score_top_rank <= max(target_n + 4, 14))
+        & (future_engine_score >= future_engine_score.quantile(0.70))
+        & ((early_engine_score - future_engine_score) < 0.45)
+    )
     core_pool = _prepare_sleeve_pool(
         pool,
         ~(sleeve_labels.eq("future_winner") | sleeve_labels.eq("early_scout")),
@@ -13134,7 +13178,7 @@ def build_target_portfolio(
     if future_target_n > 0:
         future_pool = _prepare_sleeve_pool(
             pool,
-            sleeve_labels.eq("future_winner"),
+            sleeve_labels.eq("future_winner") | future_fallback_from_early,
             future_target_n,
             "portfolio_future_winner_engine_score",
         )
@@ -13305,6 +13349,11 @@ def build_target_portfolio(
             sel["_sleeve_factor"], errors="coerce"
         ).fillna(1.0)
         sel = sel.drop(columns="_sleeve_factor", errors="ignore")
+        # Sleeve rescaling can push a leader back above the name cap. Re-run the
+        # hard name/sector caps after the sleeve target pass; sleeve targets are
+        # desired tilts, while name caps are hard risk controls.
+        sel["weight"] = normalize_with_limits(sel["weight"], weight_floor, name_caps)
+        sel = apply_sector_weight_caps(sel, caps, cfg.cap_base_weight, single_name_cap=name_caps)
 
     target_w = dict_from_weights(sel)
     target_w = apply_cash_buffer_to_weights(target_w, regime_ctl.get("cash_target", 0.0))
@@ -15579,6 +15628,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             return out
         enrich_cols = [
             "ticker",
+            "score_rank",
             "score",
             "score_total",
             "score_pre_focus_total",
@@ -15699,7 +15749,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             out.get("raw_score"), errors="coerce"
         ).isna().all():
             out["raw_score"] = pd.to_numeric(out.get("score"), errors="coerce")
-        return out.sort_values("weight", ascending=False).copy()
+        out = out.sort_values("weight", ascending=False).copy()
+        if "portfolio_rank" not in out.columns:
+            out["portfolio_rank"] = np.arange(1, len(out) + 1)
+        if "rank" in out.columns:
+            out["portfolio_rank"] = pd.to_numeric(out.get("portfolio_rank"), errors="coerce").fillna(
+                pd.to_numeric(out["rank"], errors="coerce")
+            )
+        return out
 
     def _annotate_output_frame(frame: pd.DataFrame, *, research_only_output: bool) -> pd.DataFrame:
         out = frame.copy()
@@ -15711,16 +15768,32 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     def _build_top_table(rank_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> pd.DataFrame:
         top = rank_df.copy()
         if not portfolio_df.empty and "ticker" in portfolio_df.columns and "weight" in portfolio_df.columns:
-            top = top.merge(portfolio_df[["ticker", "weight"]], on="ticker", how="left")
+            port_cols = ["ticker", "weight"]
+            if "rank" in portfolio_df.columns:
+                port_cols.append("rank")
+            portfolio_map = portfolio_df[port_cols].copy()
+            if "rank" in portfolio_map.columns:
+                portfolio_map = portfolio_map.rename(columns={"rank": "portfolio_rank"})
+            top = top.merge(portfolio_map, on="ticker", how="left")
         else:
             top["weight"] = 0.0
+            top["portfolio_rank"] = np.nan
         top["weight"] = pd.to_numeric(top["weight"], errors="coerce").fillna(0.0)
+        if "portfolio_rank" not in top.columns:
+            top["portfolio_rank"] = np.nan
         top["selected_for_portfolio"] = top["weight"] > 0
+        sleeve_label_for_reason = top.get("portfolio_sleeve_label", pd.Series("", index=top.index, dtype=object)).fillna("").astype(str)
+        top["selection_reason"] = np.where(
+            top["selected_for_portfolio"],
+            "selected_for_live_portfolio",
+            np.where(sleeve_label_for_reason.eq("early_scout"), "score_ranked_early_scout_watchlist", "score_ranked_watchlist"),
+        )
         top = dedupe_same_company_rows(
             top,
             score_col="score",
-            selected_col="selected_for_portfolio",
         ).head(max(int(cfg.top_n), 30)).copy()
+        top = top.sort_values("score", ascending=False).reset_index(drop=True)
+        top["score_rank"] = np.arange(1, len(top) + 1)
         top.insert(0, "rank", np.arange(1, len(top) + 1))
         return top
 
@@ -15755,11 +15828,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         explain_df["contrib_score_missing_fundamental_penalty"] = -numeric_series_or_default(
             explain_df, "score_missing_fundamental_penalty", 0.0
         )
-        explain_df["contrib_institutional_flow"] = cfg.w_institutional_flow * numeric_series_or_default(
-            explain_df, "institutional_flow_signal_score", 0.0
+        proxy_discount = float(getattr(cfg, "ownership_proxy_score_discount", 0.25))
+        inst_source_weight = pd.Series(
+            np.where(numeric_series_or_default(explain_df, "institutional_actual_available", 0.0).fillna(0.0) > 0, 1.0, proxy_discount),
+            index=explain_df.index,
+            dtype=float,
         )
-        explain_df["contrib_insider_flow"] = cfg.w_insider_flow * numeric_series_or_default(
-            explain_df, "insider_flow_signal_score", 0.0
+        insider_source_weight = pd.Series(
+            np.where(numeric_series_or_default(explain_df, "insider_actual_available", 0.0).fillna(0.0) > 0, 1.0, proxy_discount),
+            index=explain_df.index,
+            dtype=float,
+        )
+        explain_df["contrib_institutional_flow"] = (
+            cfg.w_institutional_flow
+            * inst_source_weight
+            * numeric_series_or_default(explain_df, "institutional_flow_signal_score", 0.0)
+        )
+        explain_df["contrib_insider_flow"] = (
+            cfg.w_insider_flow
+            * insider_source_weight
+            * numeric_series_or_default(explain_df, "insider_flow_signal_score", 0.0)
         )
         explain_df["contrib_multidimensional_confirmation"] = numeric_series_or_default(
             explain_df, "score_multidimensional_confirmation", 0.0
@@ -15797,11 +15885,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             return out
         cols = [
             "rank",
+            "score_rank",
+            "portfolio_rank",
             "ticker",
             "Name",
             "sector",
             "weight",
             "selected_for_portfolio",
+            "selection_reason",
             "score",
             "score_model_core",
             "score_total",
@@ -16220,6 +16311,76 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         else {}
     )
 
+    def _non_null_ratio(frame: pd.DataFrame, column: str) -> float:
+        if frame.empty or column not in frame.columns:
+            return 0.0
+        s = frame[column]
+        non_null = s.notna()
+        if pd.api.types.is_object_dtype(s):
+            non_null = non_null & s.astype(str).str.strip().ne("")
+        return float(non_null.mean()) if len(s) else 0.0
+
+    def _positive_flag_ratio(frame: pd.DataFrame, column: str) -> float:
+        if frame.empty or column not in frame.columns:
+            return 0.0
+        flags = pd.to_numeric(frame[column], errors="coerce").fillna(0.0) > 0
+        return float(flags.mean()) if len(flags) else 0.0
+
+    actual_data_coverage = {
+        "analyst_target": max(
+            _non_null_ratio(scored_latest, "target_mean_price"),
+            _non_null_ratio(scored_latest, "target_upside_pct"),
+        ),
+        "analyst_revision_change": max(
+            _non_null_ratio(scored_latest, "target_mean_price_30d_change"),
+            _non_null_ratio(scored_latest, "eps_est_fy1_30d_change"),
+            _non_null_ratio(scored_latest, "rev_est_fy1_30d_change"),
+        ),
+        "sec13f_actual": max(
+            _positive_flag_ratio(scored_latest, "institutional_actual_available"),
+            _non_null_ratio(scored_latest, "sec13f_value"),
+            _non_null_ratio(scored_latest, "sec13f_delta_value"),
+        ),
+        "insider_actual": max(
+            _positive_flag_ratio(scored_latest, "insider_actual_available"),
+            _non_null_ratio(scored_latest, "sec_form345_net_shares"),
+            _non_null_ratio(scored_latest, "sec_form345_buy_ratio"),
+        ),
+        "institutional_signal_proxy": _non_null_ratio(scored_latest, "institutional_flow_signal_score"),
+        "insider_signal_proxy": _non_null_ratio(scored_latest, "insider_flow_signal_score"),
+    }
+    actual_data_status = {
+        "analyst_revision_active": actual_data_coverage["analyst_revision_change"] >= 0.05,
+        "analyst_target_active": actual_data_coverage["analyst_target"] >= 0.05,
+        "sec13f_actual_active": actual_data_coverage["sec13f_actual"] >= 0.05,
+        "insider_actual_active": actual_data_coverage["insider_actual"] >= 0.05,
+        "ownership_proxy_score_discount": float(getattr(cfg, "ownership_proxy_score_discount", 0.25)),
+        "ownership_flow_is_proxy_only": (
+            actual_data_coverage["sec13f_actual"] < 0.05
+            and actual_data_coverage["insider_actual"] < 0.05
+            and max(actual_data_coverage["institutional_signal_proxy"], actual_data_coverage["insider_signal_proxy"]) > 0.0
+        ),
+    }
+    champion_rebalance_policy = {
+        "policy_mode": str(best_rebalance_interval.get("policy_mode", "unknown")),
+        "rebalance_interval_months": int(
+            best_rebalance_interval.get("rebalance_interval_months", getattr(cfg, "rebalance_interval_months", 1))
+        ),
+        "strategy_cagr": safe_float(best_rebalance_interval.get("strategy_cagr")),
+        "benchmark_cagr": safe_float(best_rebalance_interval.get("benchmark_cagr")),
+        "excess_cagr": safe_float(best_rebalance_interval.get("excess_cagr")),
+        "sharpe": safe_float(best_rebalance_interval.get("sharpe")),
+        "sortino": safe_float(best_rebalance_interval.get("sortino")),
+        "max_dd": safe_float(best_rebalance_interval.get("max_dd")),
+        "ir": safe_float(best_rebalance_interval.get("ir")),
+        "avg_turnover_monthly": safe_float(best_rebalance_interval.get("avg_turnover_monthly")),
+        "ending_capital_usd": safe_float(best_rebalance_interval.get("ending_capital_usd")),
+        "regime_target_interval_months": int(
+            best_rebalance_interval.get("target_interval_months", getattr(cfg, "rebalance_interval_months", 1))
+        ),
+        "regime_interval_label": str(best_rebalance_interval.get("regime_interval_label", "")),
+    }
+
     weights_payload = {
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
         "holdings": {
@@ -16251,6 +16412,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         },
         "sleeve_actual_weights": portfolio_sleeve_actual_weights,
         "sleeve_selected_counts": portfolio_sleeve_selected_counts,
+        "actual_data_coverage": actual_data_coverage,
+        "actual_data_status": actual_data_status,
+        "champion_rebalance_policy": champion_rebalance_policy,
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
@@ -16329,6 +16493,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Run timestamp: {datetime.now().isoformat(timespec='seconds')}",
         f"- Period: {cfg.start_date} ~ {cfg.end_date}",
         f"- Months: {bt.metrics.get('months')}",
+        f"- Champion policy mode: {champion_rebalance_policy.get('policy_mode')}",
+        f"- Champion rebalance interval (months): {champion_rebalance_policy.get('rebalance_interval_months')}",
+        f"- Champion CAGR: {champion_rebalance_policy.get('strategy_cagr'):.4f}",
+        f"- Champion excess CAGR: {champion_rebalance_policy.get('excess_cagr'):.4f}",
+        f"- Champion Sharpe: {champion_rebalance_policy.get('sharpe'):.4f}",
+        f"- Champion MaxDD: {champion_rebalance_policy.get('max_dd'):.4f}",
+        f"- Active backtest below is the configured policy used for the exported equity_curve.csv.",
         f"- CAGR: {bt.metrics.get('cagr'):.4f}",
         f"- Benchmark source: {bt.metrics.get('benchmark_source')}",
         f"- Benchmark CAGR: {bt.metrics.get('benchmark_cagr'):.4f}",
@@ -16364,6 +16535,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Recommendation note: {next_run_recommendation.get('recommended_next_run_reason')}",
         f"- Strict live/backtest alignment: {bool(cfg.strict_live_backtest_alignment)}",
         f"- Operational realized coverage threshold: {float(cfg.ops_min_realized_coverage):.2f}",
+        f"- Analyst/revision actual coverage: {actual_data_coverage.get('analyst_revision_change', 0.0):.4f}",
+        f"- 13F actual coverage: {actual_data_coverage.get('sec13f_actual', 0.0):.4f}",
+        f"- Insider actual coverage: {actual_data_coverage.get('insider_actual', 0.0):.4f}",
+        f"- Ownership proxy score discount: {actual_data_status.get('ownership_proxy_score_discount', 0.25):.2f}",
+        f"- Ownership flow proxy-only: {bool(actual_data_status.get('ownership_flow_is_proxy_only', False))}",
         f"- Backtest window comparison years: {', '.join(str(int(x)) for x in cfg.backtest_window_comparison_years)}",
     ]
     (paths["reports"] / "oos_performance.md").write_text("\n".join(perf_md), encoding="utf-8")
@@ -16446,6 +16622,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         },
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
+        "actual_data_coverage": actual_data_coverage,
+        "actual_data_status": actual_data_status,
+        "champion_rebalance_policy": champion_rebalance_policy,
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
         "sleeve_risk_signal": _portfolio_first_numeric("sleeve_risk_signal", default=0.0),
         "n_research_only_top30": int(len(research_only_top30)),
