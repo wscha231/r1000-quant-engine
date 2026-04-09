@@ -15893,6 +15893,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "weight",
             "selected_for_portfolio",
             "selection_reason",
+            "portfolio_selection_path",
+            "portfolio_sleeve_role",
+            "portfolio_sleeve_winner_engine",
+            "portfolio_sleeve_engine_edge",
             "score",
             "score_model_core",
             "score_total",
@@ -16022,6 +16026,61 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         cols = [c for c in cols if c in out.columns]
         return out[cols].copy()
 
+    def _add_sleeve_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
+        out = frame.copy()
+        if out.empty:
+            return out
+        sleeve_label = out.get(
+            "portfolio_sleeve_label",
+            pd.Series("core_compounder", index=out.index, dtype=object),
+        ).fillna("core_compounder").astype(str)
+        role_map = {
+            "core_compounder": "core_compounder",
+            "future_winner": "multi_bagger",
+            "early_scout": "early_scout",
+        }
+        role = sleeve_label.map(role_map).fillna(sleeve_label)
+        out["portfolio_sleeve_role"] = role
+
+        engine_cols = [
+            "portfolio_core_compounder_engine_score",
+            "portfolio_future_winner_engine_score",
+            "portfolio_early_scout_engine_score",
+        ]
+        engine_labels = np.array(["core_compounder", "multi_bagger", "early_scout"], dtype=object)
+        if all(c in out.columns for c in engine_cols):
+            engine_scores = np.column_stack(
+                [
+                    pd.to_numeric(out[c], errors="coerce").fillna(-np.inf).to_numpy(dtype=float)
+                    for c in engine_cols
+                ]
+            )
+            winner_idx = np.argmax(engine_scores, axis=1)
+            sorted_scores = np.sort(engine_scores, axis=1)
+            edge = sorted_scores[:, -1] - sorted_scores[:, -2]
+            out["portfolio_sleeve_winner_engine"] = engine_labels[winner_idx]
+            out["portfolio_sleeve_engine_edge"] = np.where(np.isfinite(edge), edge, np.nan)
+        else:
+            out["portfolio_sleeve_winner_engine"] = role
+            out["portfolio_sleeve_engine_edge"] = np.nan
+
+        weight = pd.to_numeric(out.get("weight", 0.0), errors="coerce").fillna(0.0)
+        selected = out.get("selected_for_portfolio", pd.Series(False, index=out.index))
+        selected = selected.fillna(False).astype(bool) | (weight > 0)
+        out["portfolio_selection_path"] = np.where(
+            selected,
+            "live_portfolio_" + role,
+            "top30_watchlist_" + role,
+        )
+        reason = out.get(
+            "selection_reason",
+            pd.Series("", index=out.index, dtype=object),
+        ).fillna("").astype(str)
+        reason = reason.mask(reason.str.strip().eq(""), out["portfolio_selection_path"].astype(str))
+        has_role_suffix = reason.str.contains(":core_compounder|:multi_bagger|:early_scout", regex=True)
+        out["selection_reason"] = reason.mask(~has_role_suffix, reason + ":" + role.astype(str))
+        return out
+
     coef = model_bundle.linear_feature_weights
     portfolio_latest = _normalize_portfolio_frame(current_portfolio)
     research_only_portfolio = _normalize_portfolio_frame(research_only_portfolio_artifact)
@@ -16045,6 +16104,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_latest = _annotate_output_frame(portfolio_latest, research_only_output=False)
     research_only_top30 = _annotate_output_frame(research_only_top30, research_only_output=True)
     research_only_portfolio = _annotate_output_frame(research_only_portfolio, research_only_output=True)
+    top30 = _add_sleeve_display_columns(top30)
+    portfolio_latest = _add_sleeve_display_columns(portfolio_latest)
+    research_only_top30 = _add_sleeve_display_columns(research_only_top30)
+    research_only_portfolio = _add_sleeve_display_columns(research_only_portfolio)
     top30_operational = _build_operational_view(top30, include_selected=True)
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
