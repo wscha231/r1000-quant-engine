@@ -53,6 +53,9 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("run_standalone_sleeve_backtest_comparison", True)
     cfg.setdefault("standalone_sleeve_top_n", 7)
     cfg.setdefault("standalone_sleeve_rebalance_intervals", [1, 3])
+    cfg.setdefault("run_historical_data_quality_reports", True)
+    cfg.setdefault("growth_history_confidence_penalty_weight", 0.18)
+    cfg.setdefault("growth_history_confidence_min_for_full_sleeve", 0.35)
     cfg.setdefault("show_output_previews_after_run", False)
     cfg.setdefault("cash_target_growth_cap", 0.03)
     cfg.setdefault("cash_target_balanced_cap", 0.05)
@@ -102,6 +105,9 @@ def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["run_sleeve_cap_policy_comparison"] = True
     cfg["sleeve_cap_policy_apply_champion"] = True
     cfg["sleeve_cap_policy_max_candidates"] = 9
+    cfg["run_historical_data_quality_reports"] = True
+    cfg["growth_history_confidence_penalty_weight"] = 0.18
+    cfg["growth_history_confidence_min_for_full_sleeve"] = 0.35
     return cfg
 
 
@@ -379,6 +385,9 @@ def run_full_validation_suite(
         "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
         "sleeve_cap_policy_champion_latest": paths["reports"] / "sleeve_cap_policy_champion_latest.json",
         "portfolio_sleeve_top7_standalone_comparison": paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv",
+        "historical_data_quality_by_month": paths["reports"] / "historical_data_quality_by_month.csv",
+        "historical_data_quality_by_sleeve": paths["reports"] / "historical_data_quality_by_sleeve.csv",
+        "historical_data_quality_latest": paths["reports"] / "historical_data_quality_latest.csv",
         "market_adaptation_latest": paths["reports"] / "market_adaptation_latest.json",
         "macro_regime_latest": paths["feature_store"] / "macro_regime_latest.parquet",
         "latest_recommendations": paths["feature_store"] / "latest_recommendations.parquet",
@@ -402,6 +411,9 @@ def run_full_validation_suite(
     sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
     sleeve_cap_policy_champion = _safe_read_json(outputs["sleeve_cap_policy_champion_latest"])
     standalone_sleeve_comp = _safe_read_csv(outputs["portfolio_sleeve_top7_standalone_comparison"])
+    historical_quality_monthly = _safe_read_csv(outputs["historical_data_quality_by_month"])
+    historical_quality_sleeve = _safe_read_csv(outputs["historical_data_quality_by_sleeve"])
+    historical_quality_latest = _safe_read_csv(outputs["historical_data_quality_latest"])
     market_adaptation = _safe_read_json(outputs["market_adaptation_latest"])
     macro_regime = _safe_read_parquet(outputs["macro_regime_latest"])
     latest_recommendations = _safe_read_parquet(outputs["latest_recommendations"])
@@ -665,6 +677,45 @@ def run_full_validation_suite(
                 if not ranked.empty:
                     standalone_sleeve_snapshot["best_by_sleeve"][str(sleeve)] = _jsonable_row(ranked.iloc[0])
 
+    historical_quality_snapshot: dict[str, Any] = {
+        "monthly_rows": int(len(historical_quality_monthly)),
+        "sleeve_rows": int(len(historical_quality_sleeve)),
+        "latest_rows": int(len(historical_quality_latest)),
+        "latest_summary": run_summary.get("historical_data_quality_latest", {}),
+        "latest_by_sleeve": [],
+        "monthly_tail": [],
+    }
+    if not historical_quality_sleeve.empty:
+        sleeve_view = historical_quality_sleeve.copy()
+        if "rebalance_date" in sleeve_view.columns:
+            sleeve_view["rebalance_date"] = pd.to_datetime(sleeve_view["rebalance_date"], errors="coerce")
+            latest_q_dt = sleeve_view["rebalance_date"].max()
+            if pd.notna(latest_q_dt):
+                sleeve_view = sleeve_view[sleeve_view["rebalance_date"].eq(latest_q_dt)]
+        cols = [
+            c
+            for c in [
+                "rebalance_date",
+                "portfolio_sleeve_label",
+                "rows",
+                "tickers",
+                "fundamental_history_coverage_score_mean",
+                "growth_sleeve_data_confidence_mean",
+                "growth_sleeve_sparse_history_penalty_mean",
+                "sales_cagr_3y_coverage",
+                "forward_return_coverage_score_mean",
+            ]
+            if c in sleeve_view.columns
+        ]
+        historical_quality_snapshot["latest_by_sleeve"] = [
+            _jsonable_row(row) for _, row in sleeve_view[cols].iterrows()
+        ] if cols else []
+    if not historical_quality_monthly.empty:
+        monthly_view = historical_quality_monthly.tail(6).copy()
+        historical_quality_snapshot["monthly_tail"] = [
+            _jsonable_row(row) for _, row in monthly_view.iterrows()
+        ]
+
     latest_fg_nonzero_share = 0.0
     latest_fg_abs_mean = 0.0
     if not latest_recommendations.empty and "score_fear_greed_satellite" in latest_recommendations.columns:
@@ -752,6 +803,7 @@ def run_full_validation_suite(
             "candidate_count": int(len(sleeve_cap_policy_comp)),
         },
         "standalone_sleeve_topn_backtest_snapshot": standalone_sleeve_snapshot,
+        "historical_data_quality_snapshot": historical_quality_snapshot,
         "coverage": {
             "macro_scored_latest": _coverage_map(scored_latest, macro_cols),
             "macro_feature_store_latest": _coverage_map(latest_recommendations, macro_cols + fear_greed_cols),
@@ -841,6 +893,9 @@ def run_full_validation_suite(
             "fundamental_coverage_rows": int(len(fundamental_cov)),
             "fundamental_comprehensive_rows": int(len(comprehensive_cov)),
             "live_fundamental_coverage_rows": int(len(live_cov)),
+            "historical_data_quality_monthly_rows": int(len(historical_quality_monthly)),
+            "historical_data_quality_sleeve_rows": int(len(historical_quality_sleeve)),
+            "historical_data_quality_latest_rows": int(len(historical_quality_latest)),
         },
     }
 
@@ -1004,6 +1059,23 @@ def parse_args() -> argparse.Namespace:
         default="1,3",
         help="Comma-separated rebalance intervals for standalone sleeve backtests.",
     )
+    parser.add_argument(
+        "--disable-historical-data-quality-reports",
+        action="store_true",
+        help="Disable historical financial/forward-return data quality report exports.",
+    )
+    parser.add_argument(
+        "--growth-history-confidence-penalty-weight",
+        type=float,
+        default=0.18,
+        help="Mild penalty weight for growth sleeves when both financial history and technical confirmation are sparse.",
+    )
+    parser.add_argument(
+        "--growth-history-confidence-min-for-full-sleeve",
+        type=float,
+        default=0.35,
+        help="Diagnostic threshold for treating growth sleeve data confidence as adequate.",
+    )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
         "--force-full-fund-panel-rebuild",
@@ -1059,6 +1131,11 @@ def main() -> None:
         for x in str(args.standalone_sleeve_rebalance_intervals).split(",")
         if x.strip()
     ]
+    cfg["run_historical_data_quality_reports"] = not bool(args.disable_historical_data_quality_reports)
+    cfg["growth_history_confidence_penalty_weight"] = float(args.growth_history_confidence_penalty_weight)
+    cfg["growth_history_confidence_min_for_full_sleeve"] = float(
+        args.growth_history_confidence_min_for_full_sleeve
+    )
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 

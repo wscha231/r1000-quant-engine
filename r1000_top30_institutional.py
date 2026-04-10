@@ -881,6 +881,81 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "fund_history_quarters_available",
 ]
 
+HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS = [
+    "revenues_ttm",
+    "gross_profit_ttm",
+    "op_income_ttm",
+    "net_income_ttm",
+    "ocf_ttm",
+    "fcf_ttm",
+]
+
+HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS = [
+    "sales_growth_yoy",
+    "op_income_growth_yoy",
+    "net_income_growth_yoy",
+    "ocf_growth_yoy",
+    "fcf_growth_yoy",
+    "eps_growth_yoy",
+    "roe_trend_4q",
+    "margin_trend_4q",
+    "rev_growth_accel_4q",
+]
+
+HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS = [
+    "sales_cagr_3y",
+    "sales_cagr_5y",
+    "op_income_cagr_3y",
+    "op_income_cagr_5y",
+    "net_income_cagr_3y",
+    "net_income_cagr_5y",
+    "ocf_cagr_3y",
+    "ocf_cagr_5y",
+    "fcf_cagr_3y",
+    "fcf_cagr_5y",
+    "eps_cagr_3y",
+    "eps_cagr_5y",
+]
+
+HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS = [
+    "return_on_equity_effective",
+    "roa_proxy",
+    "asset_turnover_ttm",
+    "capital_efficiency_score",
+    "sector_adjusted_quality_score",
+    "accruals_to_assets",
+    "debt_to_equity",
+    "gross_margins",
+    "operating_margins",
+]
+
+HISTORICAL_FUNDAMENTAL_HISTORY_COLUMNS = list(
+    dict.fromkeys(
+        HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS
+        + ["fund_history_quarters_available"]
+    )
+)
+
+FORWARD_RETURN_COVERAGE_COLUMNS = ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m"]
+
+HISTORICAL_DATA_QUALITY_COLUMNS = [
+    "fundamental_history_level_coverage",
+    "fundamental_history_change_coverage",
+    "fundamental_history_cagr_coverage",
+    "fundamental_history_quality_coverage",
+    "fundamental_history_depth_3y_score",
+    "fundamental_history_depth_5y_score",
+    "fundamental_history_coverage_score",
+    "growth_sleeve_technical_confirmation_score",
+    "growth_sleeve_data_confidence",
+    "growth_sleeve_sparse_history_penalty",
+    "data_history_quality_label",
+    "forward_return_coverage_score",
+]
+
 CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
     "revenues_ttm",
     "op_income_ttm",
@@ -1004,6 +1079,9 @@ class EngineConfig:
     run_standalone_sleeve_backtest_comparison: bool = True
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
+    run_historical_data_quality_reports: bool = True
+    growth_history_confidence_penalty_weight: float = 0.18
+    growth_history_confidence_min_for_full_sleeve: float = 0.35
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -4212,6 +4290,10 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("standalone_sleeve_rebalance_intervals must not be empty.")
     if any(int(x) < 1 for x in cfg.standalone_sleeve_rebalance_intervals):
         raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
+    if not (0.0 <= cfg.growth_history_confidence_penalty_weight <= 1.0):
+        raise ValueError("growth_history_confidence_penalty_weight must be between 0 and 1.")
+    if not (0.0 <= cfg.growth_history_confidence_min_for_full_sleeve <= 1.0):
+        raise ValueError("growth_history_confidence_min_for_full_sleeve must be between 0 and 1.")
     if int(cfg.alert_review_days) < 1:
         raise ValueError("alert_review_days must be >= 1.")
     if not 0.0 <= cfg.min_live_estimate_coverage <= 1.0:
@@ -11644,6 +11726,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     universe = compute_strategy_blueprint_columns(universe, cfg)
     universe = compute_multidimensional_pillar_scores(universe)
     universe = add_core_fundamental_minimum_flags(universe, cfg)
+    universe = add_historical_data_quality_columns(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -11701,6 +11784,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + MACRO_REGIME_COLUMNS
             + MACRO_INTERACTION_COLUMNS
             + LATEST_ONLY_SIGNAL_COLUMNS
+            + HISTORICAL_DATA_QUALITY_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -11716,6 +11800,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + SEC_13F_COLUMNS
         + SEC_FORM345_COLUMNS
         + PILLAR_SCORE_COLUMNS
+        + [c for c in HISTORICAL_DATA_QUALITY_COLUMNS if c != "data_history_quality_label"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -13181,6 +13266,81 @@ def apply_hold_policy_overlay(
     return d
 
 
+def add_historical_data_quality_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add PIT-safe data quality diagnostics; forward returns are report-only."""
+    d = df.copy()
+    for c in HISTORICAL_DATA_QUALITY_COLUMNS:
+        if c not in d.columns:
+            d[c] = np.nan
+    if d.empty:
+        return d
+
+    def _presence(cols: list[str]) -> pd.Series:
+        if not cols:
+            return pd.Series(0.0, index=d.index, dtype=float)
+        return (count_present_columns(d, cols).astype(float) / float(len(cols))).clip(lower=0.0, upper=1.0)
+
+    level_cov = _presence(HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS)
+    change_cov = _presence(HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS)
+    cagr_cov = _presence(HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS)
+    quality_cov = _presence(HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS)
+    history_quarters = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).clip(lower=0.0)
+    depth_3y = (history_quarters / 12.0).clip(lower=0.0, upper=1.0)
+    depth_5y = (history_quarters / 20.0).clip(lower=0.0, upper=1.0)
+    fund_history_score = (
+        0.20 * level_cov
+        + 0.25 * change_cov
+        + 0.25 * cagr_cov
+        + 0.15 * quality_cov
+        + 0.15 * depth_3y
+    ).clip(lower=0.0, upper=1.0)
+
+    market_confirmation = numeric_series_or_default(d, "selection_market_confirmation_score", 0.0).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+    technical_confirmation = row_mean(
+        [
+            market_confirmation,
+            numeric_series_or_default(d, "minervini_momentum_alive_score", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "breakout_setup_quality_score", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "technical_blueprint_score", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0).clip(lower=0.0, upper=1.0)
+
+    sleeve_data_confidence = np.maximum(
+        fund_history_score,
+        (0.55 * technical_confirmation + 0.25 * level_cov + 0.10 * depth_3y).clip(lower=0.0, upper=0.90),
+    )
+    sparse_penalty = ((0.45 - fund_history_score).clip(lower=0.0) / 0.45).clip(0.0, 1.0)
+    sparse_penalty = (sparse_penalty * (1.0 - technical_confirmation)).clip(0.0, 1.0)
+    labels = np.where(
+        fund_history_score >= 0.70,
+        "full_history",
+        np.where(
+            fund_history_score >= 0.45,
+            "usable_history",
+            np.where(fund_history_score >= 0.25, "sparse_growth_history", "latest_or_price_only"),
+        ),
+    )
+
+    d["fundamental_history_level_coverage"] = level_cov
+    d["fundamental_history_change_coverage"] = change_cov
+    d["fundamental_history_cagr_coverage"] = cagr_cov
+    d["fundamental_history_quality_coverage"] = quality_cov
+    d["fundamental_history_depth_3y_score"] = depth_3y
+    d["fundamental_history_depth_5y_score"] = depth_5y
+    d["fundamental_history_coverage_score"] = fund_history_score
+    d["growth_sleeve_technical_confirmation_score"] = technical_confirmation
+    d["growth_sleeve_data_confidence"] = pd.Series(sleeve_data_confidence, index=d.index, dtype=float).clip(0.0, 1.0)
+    d["growth_sleeve_sparse_history_penalty"] = pd.Series(sparse_penalty, index=d.index, dtype=float).clip(0.0, 1.0)
+    d["data_history_quality_label"] = pd.Series(labels, index=d.index, dtype=object)
+    d["forward_return_coverage_score"] = _presence(FORWARD_RETURN_COVERAGE_COLUMNS)
+    return d
+
+
 def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
     if d.empty:
@@ -13190,14 +13350,29 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "portfolio_early_scout_engine_score",
             "portfolio_sleeve_label",
             "portfolio_sleeve_confidence",
-        ]:
+        ] + HISTORICAL_DATA_QUALITY_COLUMNS:
             d[c] = np.nan
         return d
     if "minervini_momentum_alive_score" not in d.columns:
         d = compute_minervini_momentum_overlay(d)
+    d = add_historical_data_quality_columns(d)
 
     minervini_future_engine_weight = float(
         getattr(cfg, "minervini_future_engine_weight", EngineConfig.minervini_future_engine_weight)
+    )
+    growth_history_penalty_weight = float(
+        getattr(
+            cfg,
+            "growth_history_confidence_penalty_weight",
+            EngineConfig.growth_history_confidence_penalty_weight,
+        )
+    )
+    growth_history_confidence_floor = float(
+        getattr(
+            cfg,
+            "growth_history_confidence_min_for_full_sleeve",
+            EngineConfig.growth_history_confidence_min_for_full_sleeve,
+        )
     )
     dominant_archetype = d.get("dominant_archetype_label", pd.Series("", index=d.index, dtype=str)).astype(str)
     history_depth_raw = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).astype(float)
@@ -13265,6 +13440,22 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         ],
         d.index,
     ).fillna(0.0)
+    sparse_history_penalty = numeric_series_or_default(d, "growth_sleeve_sparse_history_penalty", 0.0).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+    data_confidence = numeric_series_or_default(d, "growth_sleeve_data_confidence", 0.0).clip(lower=0.0, upper=1.0)
+    confidence_shortfall = (
+        (growth_history_confidence_floor - data_confidence).clip(lower=0.0)
+        / max(growth_history_confidence_floor, 1e-8)
+    ).clip(lower=0.0, upper=1.0)
+    sparse_history_penalty = pd.Series(
+        np.maximum(sparse_history_penalty, 0.50 * confidence_shortfall),
+        index=d.index,
+        dtype=float,
+    ).clip(lower=0.0, upper=1.0)
+    future_score = future_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
+    early_score = early_score - (0.80 * growth_history_penalty_weight * sparse_history_penalty)
     early_score = early_score - 0.30 * np.clip(history_depth - 0.55, 0.0, 1.0)
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
@@ -14040,6 +14231,18 @@ def build_target_portfolio(
             "portfolio_sleeve_confidence",
             "portfolio_sleeve_promotion_signal",
             "portfolio_sleeve_promoted",
+            "fundamental_history_coverage_score",
+            "fundamental_history_level_coverage",
+            "fundamental_history_change_coverage",
+            "fundamental_history_cagr_coverage",
+            "fundamental_history_quality_coverage",
+            "fundamental_history_depth_3y_score",
+            "fundamental_history_depth_5y_score",
+            "growth_sleeve_data_confidence",
+            "growth_sleeve_technical_confirmation_score",
+            "growth_sleeve_sparse_history_penalty",
+            "data_history_quality_label",
+            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
@@ -14447,6 +14650,146 @@ def sleeve_backtest_returns_from_holdings(holdings: pd.DataFrame) -> tuple[pd.Da
     return monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True), summary.reset_index(drop=True)
 
 
+def build_historical_data_quality_report_frames(
+    cfg: EngineConfig,
+    scored: pd.DataFrame,
+    scored_latest: pd.DataFrame,
+    portfolio_latest: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    hist = add_historical_data_quality_columns(scored.copy() if scored is not None else pd.DataFrame())
+    latest = add_historical_data_quality_columns(scored_latest.copy() if scored_latest is not None else pd.DataFrame())
+    if not hist.empty and "portfolio_sleeve_label" not in hist.columns:
+        hist = compute_portfolio_sleeve_columns(hist, cfg)
+    if not latest.empty and "portfolio_sleeve_label" not in latest.columns:
+        latest = compute_portfolio_sleeve_columns(latest, cfg)
+
+    coverage_cols = list(
+        dict.fromkeys(
+            [
+                "revenues_ttm",
+                "gross_profit_ttm",
+                "op_income_ttm",
+                "net_income_ttm",
+                "ocf_ttm",
+                "fcf_ttm",
+                "sales_growth_yoy",
+                "op_income_growth_yoy",
+                "net_income_growth_yoy",
+                "ocf_growth_yoy",
+                "fcf_growth_yoy",
+                "eps_growth_yoy",
+                "sales_cagr_3y",
+                "sales_cagr_5y",
+                "op_income_cagr_3y",
+                "net_income_cagr_3y",
+                "ocf_cagr_3y",
+                "fcf_cagr_3y",
+                "eps_cagr_3y",
+                "fund_history_quarters_available",
+            ]
+            + FORWARD_RETURN_COVERAGE_COLUMNS
+        )
+    )
+    score_cols = [
+        "fundamental_history_coverage_score",
+        "fundamental_history_level_coverage",
+        "fundamental_history_change_coverage",
+        "fundamental_history_cagr_coverage",
+        "fundamental_history_quality_coverage",
+        "fundamental_history_depth_3y_score",
+        "fundamental_history_depth_5y_score",
+        "growth_sleeve_data_confidence",
+        "growth_sleeve_technical_confirmation_score",
+        "growth_sleeve_sparse_history_penalty",
+        "forward_return_coverage_score",
+    ]
+    label_values = ["full_history", "usable_history", "sparse_growth_history", "latest_or_price_only"]
+
+    def _group_value(v: Any) -> Any:
+        if isinstance(v, pd.Timestamp):
+            return str(v.date())
+        if pd.isna(v):
+            return None
+        return v
+
+    def _summarize(frame: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+        if frame.empty or not all(c in frame.columns for c in group_cols):
+            return pd.DataFrame()
+        rows: list[dict[str, Any]] = []
+        work = frame.copy()
+        if "rebalance_date" in work.columns:
+            work["rebalance_date"] = pd.to_datetime(work["rebalance_date"], errors="coerce")
+        for keys, grp in work.groupby(group_cols, dropna=False, sort=True):
+            key_tuple = keys if isinstance(keys, tuple) else (keys,)
+            row: dict[str, Any] = {c: _group_value(v) for c, v in zip(group_cols, key_tuple)}
+            row["rows"] = int(len(grp))
+            row["tickers"] = int(grp["ticker"].nunique()) if "ticker" in grp.columns else int(len(grp))
+            for c in score_cols:
+                if c in grp.columns:
+                    vals = pd.to_numeric(grp[c], errors="coerce")
+                    row[f"{c}_mean"] = float(vals.mean()) if vals.notna().any() else np.nan
+                    row[f"{c}_median"] = float(vals.median()) if vals.notna().any() else np.nan
+            for c in coverage_cols:
+                row[f"{c}_coverage"] = float(grp[c].notna().mean()) if c in grp.columns and len(grp) else 0.0
+            label = grp.get("data_history_quality_label", pd.Series("", index=grp.index, dtype=object)).fillna("").astype(str)
+            for v in label_values:
+                row[f"{v}_share"] = float(label.eq(v).mean()) if len(label) else 0.0
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    by_month = _summarize(hist, ["rebalance_date"])
+    by_sleeve = _summarize(hist, ["rebalance_date", "portfolio_sleeve_label"])
+
+    if not latest.empty:
+        selected_tickers: set[str] = set()
+        if portfolio_latest is not None and not portfolio_latest.empty and "ticker" in portfolio_latest.columns:
+            port_tickers = portfolio_latest["ticker"].astype(str).str.upper()
+            selected_tickers = set(port_tickers.loc[port_tickers.ne(CASH_PROXY_TICKER)])
+        latest["selected_for_portfolio"] = latest.get(
+            "selected_for_portfolio",
+            pd.Series(False, index=latest.index, dtype=bool),
+        ).fillna(False).astype(bool) | latest.get("ticker", pd.Series("", index=latest.index)).astype(str).str.upper().isin(selected_tickers)
+        keep_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "score",
+            "weight",
+            "selected_for_portfolio",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_label_raw",
+            "portfolio_sleeve_confidence",
+            "portfolio_core_compounder_engine_score",
+            "portfolio_future_winner_engine_score",
+            "portfolio_early_scout_engine_score",
+        ] + HISTORICAL_DATA_QUALITY_COLUMNS + coverage_cols + [
+            "minervini_momentum_alive_score",
+            "technical_blueprint_score",
+            "breakout_setup_quality_score",
+            "selection_market_confirmation_score",
+            "selection_fundamental_confirmation_score",
+        ]
+        keep_cols = [c for c in dict.fromkeys(keep_cols) if c in latest.columns]
+        latest_detail = latest[keep_cols].copy()
+        if "rebalance_date" in latest_detail.columns:
+            latest_detail["rebalance_date"] = pd.to_datetime(
+                latest_detail["rebalance_date"],
+                errors="coerce",
+            ).dt.date.astype(str)
+        sort_cols = [c for c in ["selected_for_portfolio", "score"] if c in latest_detail.columns]
+        if sort_cols:
+            latest_detail = latest_detail.sort_values(
+                sort_cols,
+                ascending=[False] * len(sort_cols),
+            )
+        latest_detail = latest_detail.reset_index(drop=True)
+    else:
+        latest_detail = pd.DataFrame()
+
+    return by_month.reset_index(drop=True), by_sleeve.reset_index(drop=True), latest_detail
+
+
 def run_acceptance_checks(
     cfg: EngineConfig,
     paths: dict[str, Path],
@@ -14460,6 +14803,7 @@ def run_acceptance_checks(
     fs["accepted"] = datetime_series_or_default(fs, "accepted")
     fs["feature_date"] = datetime_series_or_default(fs, "feature_date")
     fs["rebalance_date"] = datetime_series_or_default(fs, "rebalance_date")
+    fs = add_historical_data_quality_columns(fs)
     pit = fs.dropna(subset=["accepted", "feature_date", "rebalance_date"])
     pit_bad = pit[~((pit["accepted"] <= pit["feature_date"]) & (pit["feature_date"] <= pit["rebalance_date"]))]
     checks["pit_violation_count"] = int(len(pit_bad))
@@ -14543,6 +14887,7 @@ def run_acceptance_checks(
         float(np.nanmean(list(comprehensive_cov.values()))) if comprehensive_cov else 0.0
     )
     latest_view = add_core_fundamental_minimum_flags(latest_view, cfg)
+    latest_view = add_historical_data_quality_columns(latest_view)
     core_pass = numeric_series_or_default(latest_view, "core_fundamental_minimum_pass", 0.0)
     checks["core_fundamental_pass_ratio"] = float(core_pass.mean()) if len(core_pass) else 0.0
     checks["core_fundamental_pass_count"] = int(core_pass.sum()) if len(core_pass) else 0
@@ -14587,6 +14932,28 @@ def run_acceptance_checks(
     all_cagr3 = [v["sales_cagr_3y"] for v in cagr_coverage_per_month.values()]
     checks["cagr_3y_coverage_mean"] = round(float(np.nanmean(all_cagr3)), 3) if all_cagr3 else 0.0
     checks["cagr_3y_low_months"] = sum(1 for x in all_cagr3 if x < 0.20)
+    checks["historical_data_quality_latest"] = {}
+    if not latest_view.empty:
+        for c in [
+            "fundamental_history_coverage_score",
+            "growth_sleeve_data_confidence",
+            "growth_sleeve_sparse_history_penalty",
+            "forward_return_coverage_score",
+        ]:
+            if c in latest_view.columns:
+                vals = pd.to_numeric(latest_view[c], errors="coerce")
+                checks["historical_data_quality_latest"][f"{c}_mean"] = (
+                    round(float(vals.mean()), 3) if vals.notna().any() else 0.0
+                )
+        if "data_history_quality_label" in latest_view.columns:
+            checks["historical_data_quality_latest"]["quality_label_counts"] = {
+                str(k): int(v)
+                for k, v in latest_view["data_history_quality_label"]
+                .fillna("unknown")
+                .astype(str)
+                .value_counts()
+                .items()
+            }
 
     (paths["reports"] / "acceptance_checks.json").write_text(json.dumps(checks, indent=2))
     return checks
@@ -17167,6 +17534,18 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_sleeve_confidence",
             "portfolio_sleeve_promotion_signal",
             "portfolio_sleeve_promoted",
+            "fundamental_history_coverage_score",
+            "fundamental_history_level_coverage",
+            "fundamental_history_change_coverage",
+            "fundamental_history_cagr_coverage",
+            "fundamental_history_quality_coverage",
+            "fundamental_history_depth_3y_score",
+            "fundamental_history_depth_5y_score",
+            "growth_sleeve_data_confidence",
+            "growth_sleeve_technical_confirmation_score",
+            "growth_sleeve_sparse_history_penalty",
+            "data_history_quality_label",
+            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
@@ -17466,6 +17845,18 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_sleeve_confidence",
             "portfolio_sleeve_promotion_signal",
             "portfolio_sleeve_promoted",
+            "fundamental_history_coverage_score",
+            "fundamental_history_level_coverage",
+            "fundamental_history_change_coverage",
+            "fundamental_history_cagr_coverage",
+            "fundamental_history_quality_coverage",
+            "fundamental_history_depth_3y_score",
+            "fundamental_history_depth_5y_score",
+            "growth_sleeve_data_confidence",
+            "growth_sleeve_technical_confirmation_score",
+            "growth_sleeve_sparse_history_penalty",
+            "data_history_quality_label",
+            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
@@ -17710,6 +18101,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
     standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
     standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
+    historical_quality_monthly_path = paths["reports"] / "historical_data_quality_by_month.csv"
+    historical_quality_sleeve_path = paths["reports"] / "historical_data_quality_by_sleeve.csv"
+    historical_quality_latest_path = paths["reports"] / "historical_data_quality_latest.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -17829,6 +18223,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(standalone_sleeve_compare_path)
         _safe_unlink(standalone_sleeve_monthly_path)
         _safe_unlink(standalone_sleeve_holdings_path)
+
+    if bool(getattr(cfg, "run_historical_data_quality_reports", True)):
+        historical_quality_monthly, historical_quality_sleeve, historical_quality_latest = (
+            build_historical_data_quality_report_frames(
+                cfg,
+                scored,
+                scored_latest,
+                portfolio_operational,
+            )
+        )
+        historical_quality_monthly.to_csv(historical_quality_monthly_path, index=False)
+        historical_quality_sleeve.to_csv(historical_quality_sleeve_path, index=False)
+        historical_quality_latest.to_csv(historical_quality_latest_path, index=False)
+    else:
+        historical_quality_monthly = pd.DataFrame()
+        historical_quality_sleeve = pd.DataFrame()
+        historical_quality_latest = pd.DataFrame()
+        _safe_unlink(historical_quality_monthly_path)
+        _safe_unlink(historical_quality_sleeve_path)
+        _safe_unlink(historical_quality_latest_path)
 
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
@@ -18280,6 +18694,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "portfolio_sleeve_top7_standalone_comparison.csv": str(standalone_sleeve_compare_path),
         "portfolio_sleeve_top7_standalone_monthly.csv": str(standalone_sleeve_monthly_path),
         "portfolio_sleeve_top7_standalone_holdings.csv": str(standalone_sleeve_holdings_path),
+        "historical_data_quality_by_month.csv": str(historical_quality_monthly_path),
+        "historical_data_quality_by_sleeve.csv": str(historical_quality_sleeve_path),
+        "historical_data_quality_latest.csv": str(historical_quality_latest_path),
         "sleeve_cap_policy_comparison.csv": str(sleeve_cap_policy_compare_path),
         "sleeve_cap_policy_champion_latest.json": str(sleeve_cap_policy_champion_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
@@ -18323,6 +18740,37 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_backtest_window_compare:
         output_files["backtest_window_comparison.csv"] = str(backtest_window_compare_path)
 
+    historical_quality_latest_summary: dict[str, Any] = {}
+    if not historical_quality_latest.empty:
+        latest_quality_cols = [
+            "fundamental_history_coverage_score",
+            "growth_sleeve_data_confidence",
+            "growth_sleeve_sparse_history_penalty",
+            "forward_return_coverage_score",
+        ]
+        for c in latest_quality_cols:
+            if c in historical_quality_latest.columns:
+                vals = pd.to_numeric(historical_quality_latest[c], errors="coerce")
+                historical_quality_latest_summary[f"{c}_mean"] = float(vals.mean()) if vals.notna().any() else np.nan
+        if "data_history_quality_label" in historical_quality_latest.columns:
+            historical_quality_latest_summary["quality_label_counts"] = {
+                str(k): int(v)
+                for k, v in historical_quality_latest["data_history_quality_label"]
+                .fillna("unknown")
+                .astype(str)
+                .value_counts()
+                .items()
+            }
+        if {"portfolio_sleeve_label", "growth_sleeve_data_confidence"}.issubset(historical_quality_latest.columns):
+            sleeve_conf = (
+                historical_quality_latest.groupby("portfolio_sleeve_label")["growth_sleeve_data_confidence"]
+                .mean()
+                .dropna()
+            )
+            historical_quality_latest_summary["growth_sleeve_data_confidence_by_sleeve"] = {
+                str(k): float(v) for k, v in sleeve_conf.items()
+            }
+
     summary = {
         "run_ts": now_ts(),
         "base_dir": cfg.base_dir,
@@ -18364,6 +18812,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "standalone_sleeve_rebalance_intervals": [
             int(x) for x in getattr(cfg, "standalone_sleeve_rebalance_intervals", [1, 3])
         ],
+        "historical_data_quality_latest": historical_quality_latest_summary,
+        "historical_data_quality_report_rows": {
+            "by_month": int(len(historical_quality_monthly)),
+            "by_sleeve": int(len(historical_quality_sleeve)),
+            "latest": int(len(historical_quality_latest)),
+        },
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "actual_data_coverage": actual_data_coverage,
@@ -18453,6 +18907,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "equity_curve": str(equity_path),
         "sleeve_cap_policy_comparison": str(sleeve_cap_policy_compare_path),
         "sleeve_cap_policy_champion_latest": str(sleeve_cap_policy_champion_path),
+        "historical_data_quality_by_month": str(historical_quality_monthly_path),
+        "historical_data_quality_by_sleeve": str(historical_quality_sleeve_path),
+        "historical_data_quality_latest": str(historical_quality_latest_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),

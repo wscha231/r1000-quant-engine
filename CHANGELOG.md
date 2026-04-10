@@ -244,3 +244,31 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - Local Python runtime was not available, so no local `py_compile` check was run.
 - risks_or_notes:
   - Defensive-only patch; no portfolio selection behavior change.
+
+### 14:04 KST - historical-data-quality-guardrails
+
+- scope:
+  - Historical financial statement coverage diagnostics and growth-sleeve data confidence.
+- files:
+  - `r1000_top30_institutional.py`
+  - `r1000_data_collector.py`
+  - `colab_run.ipynb`
+  - `CHANGELOG.md`
+- behavior:
+  - Added PIT-safe historical data quality columns for financial level coverage, change coverage, CAGR coverage, history depth, growth-sleeve data confidence, sparse-history penalty, and forward-return coverage.
+  - Applied only a mild sparse-history penalty to `future_winner` and `early_scout` engine scores when both historical financial coverage and technical confirmation are weak.
+  - Kept forward-return coverage as report-only diagnostics so `r_1m` through `r_36m` are not introduced as model or portfolio-selection features.
+  - Added validation and Colab display hooks for historical data quality snapshots.
+- outputs:
+  - `outputs/reports/historical_data_quality_by_month.csv`
+  - `outputs/reports/historical_data_quality_by_sleeve.csv`
+  - `outputs/reports/historical_data_quality_latest.csv`
+  - `run_summary.json` field: `historical_data_quality_latest`
+  - `full_validation_suite.json` field: `historical_data_quality_snapshot`
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+- risks_or_notes:
+  - This does not magically create missing historical statements; it makes the missing-history risk measurable and prevents weak-history growth candidates from being treated as equally proven.
+  - Intended next step after a fresh Colab run: inspect the new monthly/sleeve reports and decide whether a deeper SEC historical reconstruction job is worth the runtime.
