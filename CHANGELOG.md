@@ -327,6 +327,29 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - `git diff --check` passed.
   - Local Python runtime not available; no local `py_compile` check.
 - risks_or_notes:
-  - `compare_sleeve_policy_per_regime()` runs 12 full backtests; adds meaningful runtime when `run_comparison_backtests=True`. Disable with `run_sleeve_regime_comparison=False`.
+  - `compare_sleeve_policy_per_regime()` runs 12 full backtests; adds meaningful runtime. Disabled by default (`run_sleeve_regime_comparison=False`).
   - Cash is held as low as possible (default 2% max) so results reflect full-investment sleeve exposure, not cash drag.
   - Per-regime metrics require sufficient months per regime; regimes with fewer than 3 months are skipped.
+
+## 2026-04-10
+
+### KST - full-codebase-review-fixes
+
+- scope:
+  - Config correctness, runtime performance, and code consistency.
+- files:
+  - `r1000_top30_institutional.py`
+  - `CHANGELOG.md`
+- behavior:
+  - Added `run_sleeve_regime_comparison: bool = False` and `sleeve_regime_comparison_cash_max: float = 0.02` to `EngineConfig` dataclass so they have proper type-checking and default visibility. Defaults to `False` to avoid automatically running 12 extra backtests on every pipeline execution.
+  - Updated `run_default_pipeline()` to read `run_sleeve_regime_comparison` directly from `cfg` instead of via `getattr` with a dangerous `cfg.run_comparison_backtests` default.
+  - Added `run_sleeve_regime_comparison` and `sleeve_regime_comparison_cash_max` to `run_summary.json` summary dict so Colab post-run parsing can observe the flags.
+  - Removed the redundant explicit CAGR column listing in the null-panel fallback of `asof_join_fundamentals`; these columns are already fully covered by `FUND_TTM_FALLBACK_COLUMNS` so the duplicate list was dead code.
+- outputs:
+  - `run_summary.json` gains fields: `run_sleeve_regime_comparison`, `sleeve_regime_comparison_cash_max`.
+- validation:
+  - `git diff --check` passed.
+  - Local Python runtime not available; no local `py_compile` check.
+  - No behavioral changes to sleeve selection, backtest, or data pipeline — fixes only.
+- risks_or_notes:
+  - The default change from `True` to `False` for `run_sleeve_regime_comparison` means Colab runs will no longer automatically run the 12-backtest regime grid. Enable explicitly with `cfg["run_sleeve_regime_comparison"] = True` when you want to run the optimizer.

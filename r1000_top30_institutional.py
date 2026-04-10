@@ -902,6 +902,8 @@ class EngineConfig:
     run_portfolio_size_comparison: bool = True
     run_rebalance_interval_comparison: bool = True
     run_backtest_window_comparison: bool = True
+    run_sleeve_regime_comparison: bool = False
+    sleeve_regime_comparison_cash_max: float = 0.02
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -10397,24 +10399,6 @@ def asof_join_fundamentals(
         return base_df
     if panel is None or panel.empty:
         for c in ["accepted"] + CORE_FUNDAMENTAL_COLUMNS + FUND_TTM_FALLBACK_COLUMNS + [
-            "asset_growth_yoy",
-            "sales_growth_yoy",
-            "sales_cagr_1y", "sales_cagr_2y", "sales_cagr_3y", "sales_cagr_5y", "sales_cagr_best",
-            "op_income_cagr_1y", "op_income_cagr_2y", "op_income_cagr_3y", "op_income_cagr_5y", "op_income_cagr_best",
-            "net_income_cagr_1y", "net_income_cagr_2y", "net_income_cagr_3y", "net_income_cagr_5y", "net_income_cagr_best",
-            "ocf_cagr_1y", "ocf_cagr_2y", "ocf_cagr_3y", "ocf_cagr_5y", "ocf_cagr_best",
-            "eps_cagr_1y", "eps_cagr_2y", "eps_cagr_3y", "eps_cagr_5y", "eps_cagr_best",
-            "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
-            "gp_to_assets_ttm",
-            "op_margin_ttm",
-            "margin_stability_8q",
-            "accruals_to_assets",
-            "roe_proxy",
-            "roe_trend_4q",
-            "debt_to_equity",
-            "debt_to_equity_delta_4q",
-            "shares_yoy",
-            "fund_history_quarters_available",
             "fund_ttm_fallback_accepted",
             "fund_ttm_fallback_period",
             "fund_ttm_fallback_age_days",
@@ -16028,7 +16012,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         backtest_window_compare = pd.DataFrame()
         _safe_unlink(backtest_window_compare_path)
 
-    run_sleeve_regime_compare = bool(getattr(cfg, "run_sleeve_regime_comparison", cfg.run_comparison_backtests))
+    run_sleeve_regime_compare = bool(getattr(cfg, "run_sleeve_regime_comparison", False))
     sleeve_regime_cash_max = float(getattr(cfg, "sleeve_regime_comparison_cash_max", 0.02))
     if run_sleeve_regime_compare:
         log("Phase 5: running sleeve policy per-regime comparison ...")
@@ -16497,6 +16481,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_portfolio_size_comparison": run_portfolio_size_compare,
         "run_rebalance_interval_comparison": run_rebalance_interval_compare,
         "run_backtest_window_comparison": run_backtest_window_compare,
+        "run_sleeve_regime_comparison": run_sleeve_regime_compare,
+        "sleeve_regime_comparison_cash_max": sleeve_regime_cash_max,
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
