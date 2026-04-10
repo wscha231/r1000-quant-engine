@@ -429,17 +429,15 @@ FUND_TTM_FALLBACK_COLUMNS = [
     "capex_ttm",
     "asset_growth_yoy",
     "sales_growth_yoy",
-    "sales_cagr_3y",
-    "sales_cagr_5y",
+    "sales_cagr_1y", "sales_cagr_2y", "sales_cagr_3y", "sales_cagr_5y", "sales_cagr_best",
     "op_income_growth_yoy",
-    "op_income_cagr_3y",
-    "op_income_cagr_5y",
+    "op_income_cagr_1y", "op_income_cagr_2y", "op_income_cagr_3y", "op_income_cagr_5y", "op_income_cagr_best",
     "net_income_growth_yoy",
-    "net_income_cagr_3y",
-    "net_income_cagr_5y",
+    "net_income_cagr_1y", "net_income_cagr_2y", "net_income_cagr_3y", "net_income_cagr_5y", "net_income_cagr_best",
     "ocf_growth_yoy",
-    "ocf_cagr_3y",
-    "ocf_cagr_5y",
+    "ocf_cagr_1y", "ocf_cagr_2y", "ocf_cagr_3y", "ocf_cagr_5y", "ocf_cagr_best",
+    "eps_cagr_1y", "eps_cagr_2y", "eps_cagr_3y", "eps_cagr_5y", "eps_cagr_best",
+    "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
     "gp_to_assets_ttm",
     "op_margin_ttm",
     "margin_stability_8q",
@@ -503,20 +501,16 @@ DEFAULT_FEATURES = [
     "debt_to_equity",
     "debt_to_equity_delta_4q",
     "sales_growth_yoy",
-    "sales_cagr_3y",
-    "sales_cagr_5y",
-    "op_income_cagr_3y",
-    "op_income_cagr_5y",
-    "net_income_cagr_3y",
-    "net_income_cagr_5y",
+    "sales_cagr_1y", "sales_cagr_2y", "sales_cagr_3y", "sales_cagr_5y", "sales_cagr_best",
+    "op_income_cagr_1y", "op_income_cagr_2y", "op_income_cagr_3y", "op_income_cagr_5y", "op_income_cagr_best",
+    "net_income_cagr_1y", "net_income_cagr_2y", "net_income_cagr_3y", "net_income_cagr_5y", "net_income_cagr_best",
+    "ocf_cagr_1y", "ocf_cagr_2y", "ocf_cagr_3y", "ocf_cagr_5y", "ocf_cagr_best",
     "asset_growth_yoy",
     "shares_yoy",
     "eps_growth_yoy",
-    "eps_cagr_3y",
-    "eps_cagr_5y",
+    "eps_cagr_1y", "eps_cagr_2y", "eps_cagr_3y", "eps_cagr_5y", "eps_cagr_best",
     "fcf_growth_yoy",
-    "fcf_cagr_3y",
-    "fcf_cagr_5y",
+    "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
     "dividend_policy_score",
     "garp_score",
     "capital_efficiency_score",
@@ -530,16 +524,6 @@ DEFAULT_FEATURES = [
     "rev_growth_accel_4q",
     "margin_trend_4q",
     "ocf_ni_quality_4q",
-    "roe_turn_positive_4q",
-    "ocf_turn_positive_4q",
-    "fcf_turn_positive_4q",
-    "op_income_turn_positive_4q",
-    "net_income_turn_positive_4q",
-    "profit_turn_positive_4q",
-    "cashflow_turn_positive_4q",
-    "fundamental_turnaround_acceleration_score",
-    "cashflow_inflection_under_loss_score",
-    "breakout_setup_quality_score",
     "forward_value_score",
     "revision_score",
     "quality_trend_score",
@@ -652,19 +636,6 @@ LATEST_ONLY_SIGNAL_COLUMNS = [
     "target_mean_price",
     "target_median_price",
     "recommendation_mean",
-    "target_mean_price_30d_change",
-    "target_mean_price_90d_change",
-    "target_upside_pct_30d_change",
-    "target_upside_pct_90d_change",
-    "recommendation_mean_30d_change",
-    "recommendation_mean_90d_change",
-    "eps_est_fy1_30d_change",
-    "eps_est_fy2_30d_change",
-    "rev_est_fy1_30d_change",
-    "rev_est_fy2_30d_change",
-    "analyst_count_proxy",
-    "price_target_dispersion_proxy",
-    "analyst_revision_trend_score",
     "earnings_growth",
     "revenue_growth",
     "gross_margins",
@@ -731,19 +702,6 @@ LATEST_ONLY_ACCEPTANCE_COLUMNS = [
     "target_mean_price",
     "target_median_price",
     "recommendation_mean",
-    "target_mean_price_30d_change",
-    "target_mean_price_90d_change",
-    "target_upside_pct_30d_change",
-    "target_upside_pct_90d_change",
-    "recommendation_mean_30d_change",
-    "recommendation_mean_90d_change",
-    "eps_est_fy1_30d_change",
-    "eps_est_fy2_30d_change",
-    "rev_est_fy1_30d_change",
-    "rev_est_fy2_30d_change",
-    "analyst_count_proxy",
-    "price_target_dispersion_proxy",
-    "analyst_revision_trend_score",
     "earnings_growth",
     "revenue_growth",
     "return_on_equity_live",
@@ -798,33 +756,6 @@ SATELLITE_ONLY_FEATURE_COLUMNS = [
     "fear_greed_risk_on_score",
 ]
 
-LIVE_FUND_HISTORY_TRACK_COLUMNS = [
-    "current_price_live",
-    "target_mean_price",
-    "target_median_price",
-    "recommendation_mean",
-    "eps_est_fy1",
-    "eps_est_fy2",
-    "rev_est_fy1",
-    "rev_est_fy2",
-]
-
-LIVE_FUND_HISTORY_DERIVED_COLUMNS = [
-    "target_mean_price_30d_change",
-    "target_mean_price_90d_change",
-    "target_upside_pct_30d_change",
-    "target_upside_pct_90d_change",
-    "recommendation_mean_30d_change",
-    "recommendation_mean_90d_change",
-    "eps_est_fy1_30d_change",
-    "eps_est_fy2_30d_change",
-    "rev_est_fy1_30d_change",
-    "rev_est_fy2_30d_change",
-    "analyst_count_proxy",
-    "price_target_dispersion_proxy",
-    "analyst_revision_trend_score",
-]
-
 CRITICAL_TTM_COVERAGE_COLUMNS = [
     "revenues_ttm",
     "net_income_ttm",
@@ -851,14 +782,10 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "net_income_growth_yoy",
     "op_income_growth_yoy",
     "ocf_growth_yoy",
-    "sales_cagr_3y",
-    "sales_cagr_5y",
-    "op_income_cagr_3y",
-    "op_income_cagr_5y",
-    "net_income_cagr_3y",
-    "net_income_cagr_5y",
-    "ocf_cagr_3y",
-    "ocf_cagr_5y",
+    "sales_cagr_1y", "sales_cagr_2y", "sales_cagr_3y", "sales_cagr_5y", "sales_cagr_best",
+    "op_income_cagr_1y", "op_income_cagr_2y", "op_income_cagr_3y", "op_income_cagr_5y", "op_income_cagr_best",
+    "net_income_cagr_1y", "net_income_cagr_2y", "net_income_cagr_3y", "net_income_cagr_5y", "net_income_cagr_best",
+    "ocf_cagr_1y", "ocf_cagr_2y", "ocf_cagr_3y", "ocf_cagr_5y", "ocf_cagr_best",
     "roe_proxy",
     "return_on_equity_effective",
     "roa_proxy",
@@ -872,88 +799,11 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "operating_margins",
     "eps_ttm",
     "eps_growth_yoy",
-    "eps_cagr_3y",
-    "eps_cagr_5y",
+    "eps_cagr_1y", "eps_cagr_2y", "eps_cagr_3y", "eps_cagr_5y", "eps_cagr_best",
     "fcf_ttm",
     "fcf_growth_yoy",
-    "fcf_cagr_3y",
-    "fcf_cagr_5y",
+    "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
     "fund_history_quarters_available",
-]
-
-HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS = [
-    "revenues_ttm",
-    "gross_profit_ttm",
-    "op_income_ttm",
-    "net_income_ttm",
-    "ocf_ttm",
-    "fcf_ttm",
-]
-
-HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS = [
-    "sales_growth_yoy",
-    "op_income_growth_yoy",
-    "net_income_growth_yoy",
-    "ocf_growth_yoy",
-    "fcf_growth_yoy",
-    "eps_growth_yoy",
-    "roe_trend_4q",
-    "margin_trend_4q",
-    "rev_growth_accel_4q",
-]
-
-HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS = [
-    "sales_cagr_3y",
-    "sales_cagr_5y",
-    "op_income_cagr_3y",
-    "op_income_cagr_5y",
-    "net_income_cagr_3y",
-    "net_income_cagr_5y",
-    "ocf_cagr_3y",
-    "ocf_cagr_5y",
-    "fcf_cagr_3y",
-    "fcf_cagr_5y",
-    "eps_cagr_3y",
-    "eps_cagr_5y",
-]
-
-HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS = [
-    "return_on_equity_effective",
-    "roa_proxy",
-    "asset_turnover_ttm",
-    "capital_efficiency_score",
-    "sector_adjusted_quality_score",
-    "accruals_to_assets",
-    "debt_to_equity",
-    "gross_margins",
-    "operating_margins",
-]
-
-HISTORICAL_FUNDAMENTAL_HISTORY_COLUMNS = list(
-    dict.fromkeys(
-        HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS
-        + HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS
-        + HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS
-        + HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS
-        + ["fund_history_quarters_available"]
-    )
-)
-
-FORWARD_RETURN_COVERAGE_COLUMNS = ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m"]
-
-HISTORICAL_DATA_QUALITY_COLUMNS = [
-    "fundamental_history_level_coverage",
-    "fundamental_history_change_coverage",
-    "fundamental_history_cagr_coverage",
-    "fundamental_history_quality_coverage",
-    "fundamental_history_depth_3y_score",
-    "fundamental_history_depth_5y_score",
-    "fundamental_history_coverage_score",
-    "growth_sleeve_technical_confirmation_score",
-    "growth_sleeve_data_confidence",
-    "growth_sleeve_sparse_history_penalty",
-    "data_history_quality_label",
-    "forward_return_coverage_score",
 ]
 
 CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
@@ -1038,37 +888,13 @@ class EngineConfig:
     cash_target_growth_cap: float = 0.03
     cash_target_balanced_cap: float = 0.05
     cash_target_mild_risk_cap: float = 0.10
-    core_compounder_sleeve_base_weight: float = 0.55
-    future_winner_sleeve_base_weight: float = 0.35
+    core_compounder_sleeve_base_weight: float = 0.70
+    future_winner_sleeve_base_weight: float = 0.20
     future_winner_sleeve_min_weight: float = 0.05
-    future_winner_sleeve_max_weight: float = 0.60
-    early_scout_sleeve_base_weight: float = 0.08
+    future_winner_sleeve_max_weight: float = 0.40
+    early_scout_sleeve_base_weight: float = 0.05
     early_scout_sleeve_min_weight: float = 0.00
     early_scout_sleeve_max_weight: float = 0.20
-    early_scout_growth_floor_weight: float = 0.08
-    early_scout_growth_floor_min_signal: float = 0.38
-    early_scout_growth_floor_max_risk: float = 0.55
-    early_scout_candidate_floor_min_share: float = 0.01
-    future_winner_entry_weight_cap: float = 0.10
-    future_winner_drift_weight_cap: float = 0.18
-    future_winner_hard_weight_cap: float = 0.24
-    early_scout_entry_weight_cap: float = 0.05
-    early_scout_drift_weight_cap: float = 0.10
-    early_scout_hard_weight_cap: float = 0.14
-    sleeve_drift_headroom_pct: float = 0.35
-    early_scout_promotion_edge_max: float = 0.12
-    early_scout_promotion_confidence_max: float = 0.12
-    early_scout_promotion_min_score: float = 0.70
-    run_sleeve_cap_policy_comparison: bool = True
-    sleeve_cap_policy_apply_champion: bool = True
-    sleeve_cap_policy_max_candidates: int = 9
-    sleeve_cap_policy_objective_excess_weight: float = 1.00
-    sleeve_cap_policy_objective_sharpe_weight: float = 0.25
-    sleeve_cap_policy_objective_sortino_weight: float = 0.15
-    sleeve_cap_policy_objective_drawdown_weight: float = 0.55
-    sleeve_cap_policy_objective_turnover_weight: float = 0.10
-    sleeve_cap_policy_objective_concentration_weight: float = 0.20
-    sleeve_cap_policy_objective_cash_drag_weight: float = 0.05
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
@@ -1076,12 +902,6 @@ class EngineConfig:
     run_portfolio_size_comparison: bool = True
     run_rebalance_interval_comparison: bool = True
     run_backtest_window_comparison: bool = True
-    run_standalone_sleeve_backtest_comparison: bool = True
-    standalone_sleeve_top_n: int = 7
-    standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
-    run_historical_data_quality_reports: bool = True
-    growth_history_confidence_penalty_weight: float = 0.18
-    growth_history_confidence_min_for_full_sleeve: float = 0.35
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -1134,7 +954,7 @@ class EngineConfig:
     yf_enable_batch_download: bool = True
     yf_batch_download_size: int = 64
     sec_sleep: float = 0.20
-    fsds_quarters_backfill: int = 44
+    fsds_quarters_backfill: int = 60
     fsds_quarters_each_run: int = 24
     price_history_years: int = 15
     max_new_yf_info: int = 300
@@ -1170,7 +990,6 @@ class EngineConfig:
     w_event_reaction: float = 0.10
     w_institutional_flow: float = 0.10
     w_insider_flow: float = 0.08
-    ownership_proxy_score_discount: float = 0.25
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
@@ -1221,10 +1040,6 @@ class EngineConfig:
     focus_no_ttm_bonus_cap_weak: float = 2.5
     focus_no_ttm_bonus_cap_confirmed: float = 4.5
     focus_negative_momentum_emergence_penalty: float = 0.65
-    minervini_momentum_score_weight: float = 0.60
-    minervini_portfolio_seed_weight: float = 0.75
-    minervini_future_engine_weight: float = 0.45
-    minervini_broken_trend_penalty_weight: float = 0.30
     portfolio_confirmation_utility_boost: float = 0.0
     portfolio_confirmation_conviction_boost: float = 0.0
     portfolio_seed_confirmation_boost: float = 0.0
@@ -2453,172 +2268,14 @@ def refresh_live_fundamentals(cfg: EngineConfig, paths: dict[str, Path], tickers
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["ticker"])
     if not df.empty:
-        df = enrich_live_fundamentals_with_history(paths, df)
         df.to_parquet(paths["cache_live_fund"] / "live_fundamentals_latest.parquet", index=False)
     return df
-
-
-def relative_change_from_prior(current: pd.Series, prior: pd.Series) -> pd.Series:
-    cur = pd.to_numeric(current, errors="coerce")
-    prev = pd.to_numeric(prior, errors="coerce")
-    denom = prev.abs().replace(0.0, np.nan)
-    return (cur - prev) / denom
-
-
-def enrich_live_fundamentals_with_history(paths: dict[str, Path], live_df: pd.DataFrame) -> pd.DataFrame:
-    d = live_df.copy()
-    if d.empty:
-        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
-            d[c] = np.nan
-        return d
-
-    updated_at = pd.to_datetime(d.get("updated_at"), errors="coerce")
-    if updated_at.notna().sum() == 0:
-        updated_at = pd.Series(pd.Timestamp.utcnow().tz_localize(None), index=d.index, dtype="datetime64[ns]")
-    d["updated_at"] = updated_at
-
-    ref_px = numeric_series_or_default(d, "current_price_live", np.nan).replace(0, np.nan)
-    target_mean = numeric_series_or_default(d, "target_mean_price", np.nan)
-    target_median = numeric_series_or_default(d, "target_median_price", np.nan)
-    analyst_presence_cols = [
-        "eps_est_q_next",
-        "eps_est_fy1",
-        "rev_est_fy1",
-        "eps_est_fy2",
-        "rev_est_fy2",
-        "target_mean_price",
-        "recommendation_mean",
-    ]
-    d["analyst_count_proxy"] = pd.concat(
-        [
-            (pd.to_numeric(d[c], errors="coerce") if c in d.columns else pd.Series(np.nan, index=d.index, dtype=float))
-            .notna()
-            .astype(float)
-            for c in analyst_presence_cols
-        ],
-        axis=1,
-    ).sum(axis=1).astype(float)
-    d["price_target_dispersion_proxy"] = (
-        (target_mean - target_median).abs() / ref_px.abs().replace(0, np.nan)
-    )
-
-    history_path = paths["cache_live_fund"] / "live_fundamentals_history.parquet"
-    history_cols = ["ticker", "updated_at"] + [c for c in LIVE_FUND_HISTORY_TRACK_COLUMNS if c in d.columns]
-    snapshot = d[history_cols].copy()
-    append_history_parquet(
-        history_path,
-        snapshot,
-        dedupe_subset=["ticker", "updated_at"],
-        sort_columns=["ticker", "updated_at"],
-    )
-
-    hist = safe_read_parquet_file(history_path)
-    if hist.empty:
-        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
-            if c not in d.columns:
-                d[c] = np.nan
-        d["analyst_revision_trend_score"] = 0.0
-        return d
-
-    hist["updated_at"] = pd.to_datetime(hist.get("updated_at"), errors="coerce")
-    hist["ticker"] = hist.get("ticker", pd.Series("", index=hist.index, dtype=object)).astype(str).str.upper()
-    hist = hist.dropna(subset=["updated_at"])
-    hist = hist.sort_values(["ticker", "updated_at"]).reset_index(drop=True)
-
-    derived_frames = []
-    for ticker, g in d.groupby("ticker", sort=False):
-        gg = g.copy()
-        gg["ticker"] = gg.get("ticker", pd.Series("", index=gg.index, dtype=object)).astype(str).str.upper()
-        cur = gg.reset_index().rename(columns={"index": "_orig_index"}).sort_values("updated_at")
-        h = hist[hist["ticker"] == str(ticker).upper()].copy()
-        if h.empty:
-            derived_frames.append(cur.set_index("_orig_index"))
-            continue
-        for days, suffix in [(30, "30d"), (90, "90d")]:
-            lookup = cur[["_orig_index", "updated_at"]].copy()
-            lookup["lookup_time"] = lookup["updated_at"] - pd.Timedelta(days=days)
-            prev = pd.merge_asof(
-                lookup.sort_values("lookup_time"),
-                h[["updated_at"] + [c for c in LIVE_FUND_HISTORY_TRACK_COLUMNS if c in h.columns]].sort_values("updated_at"),
-                left_on="lookup_time",
-                right_on="updated_at",
-                direction="backward",
-            ).set_index("_orig_index")
-            cur_indexed = cur.set_index("_orig_index")
-            cur[f"target_mean_price_{suffix}_change"] = relative_change_from_prior(
-                cur_indexed["target_mean_price"] if "target_mean_price" in cur_indexed.columns else pd.Series(np.nan, index=cur_indexed.index, dtype=float),
-                prev.get("target_mean_price", pd.Series(np.nan, index=prev.index, dtype=float)),
-            ).reindex(cur["_orig_index"]).values
-            cur[f"recommendation_mean_{suffix}_change"] = (
-                pd.to_numeric(prev.get("recommendation_mean", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce")
-                - pd.to_numeric(cur_indexed.get("recommendation_mean", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce")
-            ).reindex(cur["_orig_index"]).values
-            if days == 30:
-                cur[f"eps_est_fy1_{suffix}_change"] = relative_change_from_prior(
-                    cur_indexed.get("eps_est_fy1", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
-                    prev.get("eps_est_fy1", pd.Series(np.nan, index=prev.index, dtype=float)),
-                ).reindex(cur["_orig_index"]).values
-                cur[f"eps_est_fy2_{suffix}_change"] = relative_change_from_prior(
-                    cur_indexed.get("eps_est_fy2", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
-                    prev.get("eps_est_fy2", pd.Series(np.nan, index=prev.index, dtype=float)),
-                ).reindex(cur["_orig_index"]).values
-                cur[f"rev_est_fy1_{suffix}_change"] = relative_change_from_prior(
-                    cur_indexed.get("rev_est_fy1", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
-                    prev.get("rev_est_fy1", pd.Series(np.nan, index=prev.index, dtype=float)),
-                ).reindex(cur["_orig_index"]).values
-                cur[f"rev_est_fy2_{suffix}_change"] = relative_change_from_prior(
-                    cur_indexed.get("rev_est_fy2", pd.Series(np.nan, index=cur_indexed.index, dtype=float)),
-                    prev.get("rev_est_fy2", pd.Series(np.nan, index=prev.index, dtype=float)),
-                ).reindex(cur["_orig_index"]).values
-            cur_upside = (
-                pd.to_numeric(cur_indexed.get("target_mean_price", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce")
-                / pd.to_numeric(cur_indexed.get("current_price_live", pd.Series(np.nan, index=cur_indexed.index, dtype=float)), errors="coerce").replace(0, np.nan)
-                - 1.0
-            )
-            prev_upside = (
-                pd.to_numeric(prev.get("target_mean_price", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce")
-                / pd.to_numeric(prev.get("current_price_live", pd.Series(np.nan, index=prev.index, dtype=float)), errors="coerce").replace(0, np.nan)
-                - 1.0
-            )
-            cur[f"target_upside_pct_{suffix}_change"] = (cur_upside - prev_upside).reindex(cur["_orig_index"]).values
-        derived_frames.append(cur.set_index("_orig_index"))
-
-    if derived_frames:
-        derived = pd.concat(derived_frames, axis=0).sort_index()
-        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
-            if c in derived.columns:
-                d[c] = derived[c].reindex(d.index)
-            elif c not in d.columns:
-                d[c] = np.nan
-    else:
-        for c in LIVE_FUND_HISTORY_DERIVED_COLUMNS:
-            if c not in d.columns:
-                d[c] = np.nan
-
-    d["analyst_revision_trend_score"] = row_mean(
-        [
-            cross_sectional_robust_z(d, "target_mean_price_30d_change"),
-            0.60 * cross_sectional_robust_z(d, "target_mean_price_90d_change"),
-            cross_sectional_robust_z(d, "target_upside_pct_30d_change"),
-            0.50 * cross_sectional_robust_z(d, "target_upside_pct_90d_change"),
-            cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
-            0.75 * cross_sectional_robust_z(d, "eps_est_fy1_30d_change"),
-            0.50 * cross_sectional_robust_z(d, "eps_est_fy2_30d_change"),
-            0.50 * cross_sectional_robust_z(d, "rev_est_fy1_30d_change"),
-            0.25 * cross_sectional_robust_z(d, "rev_est_fy2_30d_change"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    return d
 
 
 def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
     TREND_COLS = [
         "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
         "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
-        "roe_turn_positive_4q", "ocf_turn_positive_4q", "fcf_turn_positive_4q",
-        "op_income_turn_positive_4q", "net_income_turn_positive_4q",
-        "profit_turn_positive_4q", "cashflow_turn_positive_4q",
     ]
     if panel is None or panel.empty:
         return pd.DataFrame(
@@ -2640,37 +2297,6 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
     if "ocf_ttm" in d.columns and "net_income_ttm" in d.columns:
         ni = pd.to_numeric(d["net_income_ttm"], errors="coerce").replace(0, np.nan)
         d["ocf_ni_quality_4q"] = pd.to_numeric(d["ocf_ttm"], errors="coerce") / ni
-
-    def _turn_positive_4q(column: str) -> pd.Series:
-        if column not in d.columns:
-            return pd.Series(np.nan, index=d.index, dtype=float)
-        s = pd.to_numeric(d[column], errors="coerce")
-        lag4 = d.groupby("cik")[column].shift(4)
-        lag4 = pd.to_numeric(lag4, errors="coerce")
-        available = s.notna() & lag4.notna()
-        turned = (s > 0) & (lag4 <= 0)
-        return turned.astype(float).where(available, np.nan)
-
-    d["roe_turn_positive_4q"] = _turn_positive_4q("roe_proxy")
-    d["ocf_turn_positive_4q"] = _turn_positive_4q("ocf_ttm")
-    d["fcf_turn_positive_4q"] = _turn_positive_4q("fcf_ttm")
-    d["op_income_turn_positive_4q"] = _turn_positive_4q("op_income_ttm")
-    d["net_income_turn_positive_4q"] = _turn_positive_4q("net_income_ttm")
-    d["profit_turn_positive_4q"] = row_mean(
-        [
-            d["roe_turn_positive_4q"],
-            d["op_income_turn_positive_4q"],
-            d["net_income_turn_positive_4q"],
-        ],
-        d.index,
-    )
-    d["cashflow_turn_positive_4q"] = row_mean(
-        [
-            d["ocf_turn_positive_4q"],
-            d["fcf_turn_positive_4q"],
-        ],
-        d.index,
-    )
 
     # Growth inflection: growth just turned positive with acceleration
     sgy = pd.to_numeric(d.get("sales_growth_yoy"), errors="coerce")
@@ -2698,9 +2324,6 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
 TREND_MERGE_COLS = [
     "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
     "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
-    "roe_turn_positive_4q", "ocf_turn_positive_4q", "fcf_turn_positive_4q",
-    "op_income_turn_positive_4q", "net_income_turn_positive_4q",
-    "profit_turn_positive_4q", "cashflow_turn_positive_4q",
 ]
 
 
@@ -2918,10 +2541,16 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         numeric_series_or_default(d, "net_income_cagr_5y", np.nan)
     )
     d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "op_income_cagr_best", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
         numeric_series_or_default(d, "op_income_cagr_3y", np.nan)
     )
     d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
         numeric_series_or_default(d, "op_income_cagr_5y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "ocf_cagr_best", np.nan)
     )
     d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
         numeric_series_or_default(d, "ocf_cagr_3y", np.nan)
@@ -2948,6 +2577,9 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
     )
     d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
         numeric_series_or_default(d, "sales_growth_yoy", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "sales_cagr_best", np.nan)
     )
     d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
         numeric_series_or_default(d, "sales_cagr_3y", np.nan)
@@ -3007,40 +2639,9 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         "rev_est_fy2",
         "eps_revision_proxy",
         "target_upside_pct",
-        "target_mean_price_30d_change",
-        "target_mean_price_90d_change",
-        "target_upside_pct_30d_change",
-        "target_upside_pct_90d_change",
-        "recommendation_mean_30d_change",
-        "recommendation_mean_90d_change",
-        "eps_est_fy1_30d_change",
-        "eps_est_fy2_30d_change",
-        "rev_est_fy1_30d_change",
-        "rev_est_fy2_30d_change",
-        "analyst_revision_trend_score",
     ]
     revision_raw = row_mean(
-        [
-            cross_sectional_robust_z(d, "eps_est_q_next"),
-            0.80 * cross_sectional_robust_z(d, "eps_est_fy1"),
-            0.55 * cross_sectional_robust_z(d, "eps_est_fy2"),
-            0.65 * cross_sectional_robust_z(d, "rev_est_q_next"),
-            0.70 * cross_sectional_robust_z(d, "rev_est_fy1"),
-            0.45 * cross_sectional_robust_z(d, "rev_est_fy2"),
-            0.75 * cross_sectional_robust_z(d, "eps_revision_proxy"),
-            0.70 * cross_sectional_robust_z(d, "target_upside_pct"),
-            0.90 * cross_sectional_robust_z(d, "target_mean_price_30d_change"),
-            0.45 * cross_sectional_robust_z(d, "target_mean_price_90d_change"),
-            0.90 * cross_sectional_robust_z(d, "target_upside_pct_30d_change"),
-            0.45 * cross_sectional_robust_z(d, "target_upside_pct_90d_change"),
-            0.75 * cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
-            0.35 * cross_sectional_robust_z(d, "recommendation_mean_90d_change"),
-            0.95 * cross_sectional_robust_z(d, "eps_est_fy1_30d_change"),
-            0.65 * cross_sectional_robust_z(d, "eps_est_fy2_30d_change"),
-            0.85 * cross_sectional_robust_z(d, "rev_est_fy1_30d_change"),
-            0.55 * cross_sectional_robust_z(d, "rev_est_fy2_30d_change"),
-            0.90 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
-        ],
+        [cross_sectional_robust_z(d, c) for c in revision_components],
         d.index,
     ).fillna(0.0)
     revision_avail = pd.concat(
@@ -3058,14 +2659,11 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         [
             cross_sectional_robust_z(d, "target_upside_pct"),
             -cross_sectional_robust_z(d, "recommendation_mean"),
-            cross_sectional_robust_z(d, "recommendation_mean_30d_change"),
         ],
         d.index,
     ).fillna(0.0)
     d["revision_score"] = (
-        0.60 * revision_raw
-        + 0.20 * analyst_sentiment
-        + 0.20 * cross_sectional_robust_z(d, "analyst_revision_trend_score")
+        0.80 * revision_raw + 0.20 * analyst_sentiment
     ) * (0.55 + 0.45 * d["revision_coverage_ratio"])
 
     div_weight = float(cfg.dividend_quality_trend_weight) if cfg is not None else 0.20
@@ -3518,9 +3116,7 @@ def add_total_score_columns(
         * row_mean(
             [
                 numeric_series_or_default(d, "future_winner_scout_score", 0.0),
-                0.25 * numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
-                0.35 * numeric_series_or_default(d, "revision_blueprint_score", 0.0),
-                0.35 * numeric_series_or_default(d, "dynamic_leader_score", 0.0),
+                0.65 * numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
             ],
             d.index,
         ).fillna(0.0)
@@ -3549,16 +3145,9 @@ def add_total_score_columns(
         float(cfg.strategy_blueprint_weight)
         * numeric_series_or_default(d, "strategy_blueprint_score", 0.0)
     )
-    inst_signal = numeric_series_or_default(d, "institutional_flow_signal_score", 0.0)
-    insider_signal = numeric_series_or_default(d, "insider_flow_signal_score", 0.0)
-    proxy_discount = float(getattr(cfg, "ownership_proxy_score_discount", 0.25))
-    inst_actual_source = numeric_series_or_default(d, "institutional_actual_available", 0.0).fillna(0.0) > 0
-    insider_actual_source = numeric_series_or_default(d, "insider_actual_available", 0.0).fillna(0.0) > 0
-    inst_source_weight = pd.Series(np.where(inst_actual_source, 1.0, proxy_discount), index=d.index, dtype=float)
-    insider_source_weight = pd.Series(np.where(insider_actual_source, 1.0, proxy_discount), index=d.index, dtype=float)
     d["score_flow_satellite"] = (
-        cfg.w_institutional_flow * inst_source_weight * inst_signal
-        + cfg.w_insider_flow * insider_source_weight * insider_signal
+        cfg.w_institutional_flow * numeric_series_or_default(d, "institutional_flow_signal_score", 0.0)
+        + cfg.w_insider_flow * numeric_series_or_default(d, "insider_flow_signal_score", 0.0)
     )
     d["score_multidimensional_confirmation"] = (
         float(cfg.w_multidimensional_confirmation)
@@ -3820,19 +3409,6 @@ def write_live_fundamental_coverage_report(
         "eps_est_fy1",
         "eps_est_fy2",
         "eps_revision_proxy",
-        "target_mean_price_30d_change",
-        "target_mean_price_90d_change",
-        "target_upside_pct_30d_change",
-        "target_upside_pct_90d_change",
-        "recommendation_mean_30d_change",
-        "recommendation_mean_90d_change",
-        "eps_est_fy1_30d_change",
-        "eps_est_fy2_30d_change",
-        "rev_est_fy1_30d_change",
-        "rev_est_fy2_30d_change",
-        "analyst_count_proxy",
-        "price_target_dispersion_proxy",
-        "analyst_revision_trend_score",
         "revision_coverage_ratio",
         "rev_growth_accel_4q",
         "margin_trend_4q",
@@ -4024,8 +3600,6 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("stock_weight_max_high_conviction must be >= stock_weight_max_no_ttm_confirmed.")
     if not (0.0 <= cfg.proxy_decay_after_actual <= 1.0):
         raise ValueError("proxy_decay_after_actual must be between 0 and 1.")
-    if not (0.0 <= cfg.ownership_proxy_score_discount <= 1.0):
-        raise ValueError("ownership_proxy_score_discount must be between 0 and 1.")
     target_w = cfg.target_blend_1m + cfg.target_blend_3m + cfg.target_blend_6m
     if target_w <= 0:
         raise ValueError("At least one target blend weight must be positive.")
@@ -4119,14 +3693,6 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("focus_no_ttm_bonus caps must be >= 0.")
     if cfg.focus_negative_momentum_emergence_penalty < 0:
         raise ValueError("focus_negative_momentum_emergence_penalty must be >= 0.")
-    if cfg.minervini_momentum_score_weight < 0:
-        raise ValueError("minervini_momentum_score_weight must be >= 0.")
-    if cfg.minervini_portfolio_seed_weight < 0:
-        raise ValueError("minervini_portfolio_seed_weight must be >= 0.")
-    if cfg.minervini_future_engine_weight < 0:
-        raise ValueError("minervini_future_engine_weight must be >= 0.")
-    if cfg.minervini_broken_trend_penalty_weight < 0:
-        raise ValueError("minervini_broken_trend_penalty_weight must be >= 0.")
     if cfg.portfolio_confirmation_utility_boost < 0:
         raise ValueError("portfolio_confirmation_utility_boost must be >= 0.")
     if cfg.portfolio_confirmation_conviction_boost < 0:
@@ -4179,57 +3745,20 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("core_compounder_sleeve_base_weight must be between 0 and 1.")
     if not (0.0 <= cfg.future_winner_sleeve_base_weight <= 1.0):
         raise ValueError("future_winner_sleeve_base_weight must be between 0 and 1.")
-    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.60):
-        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.60.")
-    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.70):
-        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.70.")
+    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.50):
+        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.50.")
+    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.50):
+        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.50.")
     if cfg.future_winner_sleeve_min_weight > cfg.future_winner_sleeve_max_weight:
         raise ValueError("future_winner_sleeve_min_weight cannot exceed future_winner_sleeve_max_weight.")
-    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.45):
-        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 0.45.")
-    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 0.40):
-        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 0.40.")
-    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 0.45):
-        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.45.")
+    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.30):
+        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 0.30.")
+    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 0.20):
+        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 0.20.")
+    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 0.25):
+        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.25.")
     if cfg.early_scout_sleeve_min_weight > cfg.early_scout_sleeve_max_weight:
         raise ValueError("early_scout_sleeve_min_weight cannot exceed early_scout_sleeve_max_weight.")
-    if not (0.0 <= cfg.early_scout_growth_floor_weight <= 0.25):
-        raise ValueError("early_scout_growth_floor_weight must be between 0 and 0.25.")
-    if not (0.0 <= cfg.early_scout_growth_floor_min_signal <= 1.0):
-        raise ValueError("early_scout_growth_floor_min_signal must be between 0 and 1.")
-    if not (0.0 <= cfg.early_scout_growth_floor_max_risk <= 1.0):
-        raise ValueError("early_scout_growth_floor_max_risk must be between 0 and 1.")
-    if not (0.0 <= cfg.early_scout_candidate_floor_min_share <= 1.0):
-        raise ValueError("early_scout_candidate_floor_min_share must be between 0 and 1.")
-    if not (0.0 < cfg.future_winner_entry_weight_cap <= cfg.future_winner_hard_weight_cap <= 0.50):
-        raise ValueError("future_winner entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.50.")
-    if not (cfg.future_winner_entry_weight_cap <= cfg.future_winner_drift_weight_cap <= cfg.future_winner_hard_weight_cap):
-        raise ValueError("future_winner_entry_weight_cap <= future_winner_drift_weight_cap <= future_winner_hard_weight_cap must hold.")
-    if not (0.0 < cfg.early_scout_entry_weight_cap <= cfg.early_scout_hard_weight_cap <= 0.40):
-        raise ValueError("early_scout entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.40.")
-    if not (cfg.early_scout_entry_weight_cap <= cfg.early_scout_drift_weight_cap <= cfg.early_scout_hard_weight_cap):
-        raise ValueError("early_scout_entry_weight_cap <= early_scout_drift_weight_cap <= early_scout_hard_weight_cap must hold.")
-    if not (0.0 <= cfg.sleeve_drift_headroom_pct <= 2.0):
-        raise ValueError("sleeve_drift_headroom_pct must be between 0 and 2.")
-    if not (0.0 <= cfg.early_scout_promotion_edge_max <= 1.0):
-        raise ValueError("early_scout_promotion_edge_max must be between 0 and 1.")
-    if not (0.0 <= cfg.early_scout_promotion_confidence_max <= 1.0):
-        raise ValueError("early_scout_promotion_confidence_max must be between 0 and 1.")
-    if not (0.0 <= cfg.early_scout_promotion_min_score <= 1.0):
-        raise ValueError("early_scout_promotion_min_score must be between 0 and 1.")
-    if cfg.sleeve_cap_policy_max_candidates < 1:
-        raise ValueError("sleeve_cap_policy_max_candidates must be >= 1.")
-    for attr in [
-        "sleeve_cap_policy_objective_excess_weight",
-        "sleeve_cap_policy_objective_sharpe_weight",
-        "sleeve_cap_policy_objective_sortino_weight",
-        "sleeve_cap_policy_objective_drawdown_weight",
-        "sleeve_cap_policy_objective_turnover_weight",
-        "sleeve_cap_policy_objective_concentration_weight",
-        "sleeve_cap_policy_objective_cash_drag_weight",
-    ]:
-        if float(getattr(cfg, attr)) < 0:
-            raise ValueError(f"{attr} must be >= 0.")
     if (
         cfg.core_compounder_sleeve_base_weight
         + cfg.future_winner_sleeve_base_weight
@@ -4284,16 +3813,6 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("rebalance_interval_comparison_months must not be empty.")
     if any(int(x) < 1 for x in cfg.rebalance_interval_comparison_months):
         raise ValueError("rebalance_interval_comparison_months values must be >= 1.")
-    if int(cfg.standalone_sleeve_top_n) < 1:
-        raise ValueError("standalone_sleeve_top_n must be >= 1.")
-    if not cfg.standalone_sleeve_rebalance_intervals:
-        raise ValueError("standalone_sleeve_rebalance_intervals must not be empty.")
-    if any(int(x) < 1 for x in cfg.standalone_sleeve_rebalance_intervals):
-        raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
-    if not (0.0 <= cfg.growth_history_confidence_penalty_weight <= 1.0):
-        raise ValueError("growth_history_confidence_penalty_weight must be between 0 and 1.")
-    if not (0.0 <= cfg.growth_history_confidence_min_for_full_sleeve <= 1.0):
-        raise ValueError("growth_history_confidence_min_for_full_sleeve must be between 0 and 1.")
     if int(cfg.alert_review_days) < 1:
         raise ValueError("alert_review_days must be >= 1.")
     if not 0.0 <= cfg.min_live_estimate_coverage <= 1.0:
@@ -4460,10 +3979,6 @@ def companyfacts_cache_file(paths: dict[str, Path], cik: str) -> Path:
     return paths["cache_sec_actual"] / f"companyfacts_{str(cik).zfill(10)}.json"
 
 
-def companyfacts_not_found_cache_file(paths: dict[str, Path], cik: str) -> Path:
-    return paths["cache_sec_actual"] / f"companyfacts_{str(cik).zfill(10)}.not_found.json"
-
-
 def normalize_cik10(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -4609,15 +4124,12 @@ def load_local_companyfacts_bulk_payload(
 def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: str) -> dict[str, Any]:
     cik10 = str(cik).zfill(10)
     cache_path = companyfacts_cache_file(paths, cik10)
-    not_found_path = companyfacts_not_found_cache_file(paths, cik10)
     if is_cache_fresh(cache_path, cfg.companyfacts_refresh_days):
         try:
             payload = json.loads(cache_path.read_text())
             return payload if isinstance(payload, dict) else {}
         except Exception:
             pass
-    if is_cache_fresh(not_found_path, max(int(cfg.companyfacts_refresh_days), 30)):
-        return {}
 
     headers = {
         "User-Agent": cfg.sec_user_agent,
@@ -4635,26 +4147,6 @@ def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: s
                 time.sleep(cfg.sec_sleep)
                 return payload
             last_err = "empty companyfacts payload"
-        except requests.exceptions.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            last_err = str(e)
-            if status_code == 404:
-                try:
-                    not_found_path.write_text(
-                        json.dumps(
-                            {
-                                "cik": cik10,
-                                "status_code": int(status_code),
-                                "url": url,
-                                "cached_at_utc": pd.Timestamp.utcnow().isoformat(),
-                            }
-                        ),
-                        encoding="utf-8",
-                    )
-                except Exception:
-                    pass
-                log(f"[INFO] companyfacts unavailable for CIK{cik10}; cached negative result.")
-                return {}
         except Exception as e:
             last_err = str(e)
         if attempt + 1 < max_retries:
@@ -7753,27 +7245,22 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     ) * (0.55 + 0.45 * revision_cov)
 
     d["growth_blueprint_score"] = (
-        0.06 * cross_sectional_robust_z(d, "sales_cagr_3y")
-        + 0.02 * cross_sectional_robust_z(d, "sales_cagr_5y")
-        + 0.04 * cross_sectional_robust_z(d, "op_income_cagr_3y")
-        + 0.02 * cross_sectional_robust_z(d, "op_income_cagr_5y")
-        + 0.03 * cross_sectional_robust_z(d, "net_income_cagr_3y")
-        + 0.01 * cross_sectional_robust_z(d, "net_income_cagr_5y")
-        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_3y")
-        + 0.01 * cross_sectional_robust_z(d, "ocf_cagr_5y")
-        + 0.03 * cross_sectional_robust_z(d, "eps_cagr_3y")
-        + 0.03 * cross_sectional_robust_z(d, "fcf_cagr_3y")
-        + 0.16 * cross_sectional_robust_z(d, "revenue_growth_final")
-        + 0.14 * cross_sectional_robust_z(d, "earnings_growth_final")
-        + 0.09 * cross_sectional_robust_z(d, "sales_growth_yoy")
-        + 0.06 * cross_sectional_robust_z(d, "ocf_growth_yoy")
-        + 0.10 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
-        + 0.08 * cross_sectional_robust_z(d, "margin_trend_4q")
-        + 0.07 * cross_sectional_robust_z(d, "actual_results_score")
-        + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
-        + 0.05 * cross_sectional_robust_z(d, "dynamic_leader_score")
-        + 0.04 * cross_sectional_robust_z(d, "leader_emergence_score")
-        + 0.04 * cross_sectional_robust_z(d, "target_upside_pct")
+        # Use _cagr_best (3y preferred, falls back to 2y then 1y) for broader coverage
+        0.10 * cross_sectional_robust_z(d, "sales_cagr_best")
+        + 0.06 * cross_sectional_robust_z(d, "sales_cagr_5y")
+        + 0.08 * cross_sectional_robust_z(d, "op_income_cagr_best")
+        + 0.05 * cross_sectional_robust_z(d, "op_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "net_income_cagr_best")
+        + 0.04 * cross_sectional_robust_z(d, "net_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "ocf_cagr_best")
+        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_5y")
+        + 0.05 * cross_sectional_robust_z(d, "eps_cagr_best")
+        + 0.05 * cross_sectional_robust_z(d, "fcf_cagr_best")
+        + 0.14 * cross_sectional_robust_z(d, "revenue_growth_final")
+        + 0.12 * cross_sectional_robust_z(d, "earnings_growth_final")
+        + 0.06 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.04 * cross_sectional_robust_z(d, "ocf_growth_yoy")
+        + 0.06 * cross_sectional_robust_z(d, "actual_results_score")
     ).fillna(0.0)
 
     d["valuation_blueprint_score"] = (
@@ -7896,100 +7383,6 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         - 0.08 * deep_negative_margin_penalty
         - 0.08 * leverage_penalty
     ).fillna(0.0)
-    revenue_thrust = row_mean(
-        [
-            cross_sectional_robust_z(d, "sales_growth_yoy"),
-            cross_sectional_robust_z(d, "revenue_growth_final"),
-            cross_sectional_robust_z(d, "rev_growth_accel_4q"),
-            cross_sectional_robust_z(d, "revenue_accel_2nd_deriv"),
-            numeric_series_or_default(d, "growth_inflection_signal", 0.0),
-        ],
-        d.index,
-    ).fillna(0.0)
-    profit_cash_acceleration = row_mean(
-        [
-            cross_sectional_robust_z(d, "roe_trend_4q"),
-            cross_sectional_robust_z(d, "margin_trend_4q"),
-            cross_sectional_robust_z(d, "op_income_growth_yoy"),
-            cross_sectional_robust_z(d, "net_income_growth_yoy"),
-            cross_sectional_robust_z(d, "ocf_growth_yoy"),
-            cross_sectional_robust_z(d, "fcf_growth_yoy"),
-            cross_sectional_robust_z(d, "ocf_ni_quality_4q"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    turn_positive_signal = row_mean(
-        [
-            numeric_series_or_default(d, "profit_turn_positive_4q", 0.0),
-            numeric_series_or_default(d, "cashflow_turn_positive_4q", 0.0),
-            numeric_series_or_default(d, "roe_turn_positive_4q", 0.0),
-            numeric_series_or_default(d, "op_income_turn_positive_4q", 0.0),
-            numeric_series_or_default(d, "ocf_turn_positive_4q", 0.0),
-        ],
-        d.index,
-    ).fillna(0.0)
-    revenues_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan)
-    ocf_ttm = numeric_series_or_default(d, "ocf_ttm", np.nan)
-    fcf_ttm = numeric_series_or_default(d, "fcf_ttm", np.nan)
-    op_income_ttm = numeric_series_or_default(d, "op_income_ttm", np.nan)
-    net_income_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
-    under_reported_loss = (
-        ((op_income_ttm <= 0.0) & op_income_ttm.notna())
-        | ((net_income_ttm <= 0.0) & net_income_ttm.notna())
-    ).astype(float)
-    ocf_positive_now = ((ocf_ttm > 0.0) & ocf_ttm.notna()).astype(float)
-    fcf_positive_now = ((fcf_ttm > 0.0) & fcf_ttm.notna()).astype(float)
-    cash_margin_proxy = (ocf_ttm / revenues_ttm.replace(0.0, np.nan)).replace([np.inf, -np.inf], np.nan)
-    revenue_confirmation_for_turn = row_mean(
-        [
-            (numeric_series_or_default(d, "sales_growth_yoy", 0.0) > 0.08).astype(float),
-            (numeric_series_or_default(d, "revenue_growth_final", 0.0) > 0.08).astype(float),
-            numeric_series_or_default(d, "growth_inflection_signal", 0.0).clip(lower=0.0, upper=1.0),
-            cross_sectional_robust_z(d, "sales_growth_yoy").clip(lower=0.0).fillna(0.0),
-        ],
-        d.index,
-    ).clip(lower=0.0, upper=2.0).fillna(0.0)
-    cash_turn_confirmation = row_mean(
-        [
-            1.25 * numeric_series_or_default(d, "cashflow_turn_positive_4q", 0.0),
-            1.10 * numeric_series_or_default(d, "ocf_turn_positive_4q", 0.0),
-            numeric_series_or_default(d, "fcf_turn_positive_4q", 0.0),
-            0.75 * ocf_positive_now,
-            0.45 * fcf_positive_now,
-            0.55 * numeric_series_or_default(d, "roe_turn_positive_4q", 0.0),
-            0.45 * cross_sectional_robust_z(d, "ocf_growth_yoy").clip(lower=0.0).fillna(0.0),
-            0.35 * robust_z(cash_margin_proxy).clip(lower=0.0).fillna(0.0),
-        ],
-        d.index,
-    ).clip(lower=0.0, upper=2.5).fillna(0.0)
-    # Early monetization: still loss-making on GAAP income, but cashflow/ROE turns and revenue confirms.
-    d["cashflow_inflection_under_loss_score"] = (
-        under_reported_loss
-        * revenue_confirmation_for_turn
-        * cash_turn_confirmation
-    ).clip(lower=0.0, upper=4.0).fillna(0.0)
-    ai_growth_context = np.maximum(
-        numeric_series_or_default(d, "ai_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
-        numeric_series_or_default(d, "power_infra_exposure", 0.0).clip(lower=0.0, upper=1.0),
-    )
-    d["fundamental_revenue_thrust_score"] = revenue_thrust
-    d["fundamental_profit_cash_acceleration_score"] = profit_cash_acceleration
-    d["fundamental_turn_positive_score"] = turn_positive_signal
-    d["ai_fundamental_thrust_score"] = ai_growth_context * np.clip(
-        revenue_thrust + 0.70 * profit_cash_acceleration,
-        0.0,
-        4.0,
-    )
-    d["fundamental_turnaround_acceleration_score"] = (
-        0.30 * revenue_thrust
-        + 0.30 * profit_cash_acceleration
-        + 0.20 * robust_z(turn_positive_signal).fillna(0.0)
-        + 0.10 * cross_sectional_robust_z(d, "actual_results_score")
-        + 0.10 * benchmark_alpha
-        + 0.10 * cross_sectional_robust_z(d, "ai_fundamental_thrust_score")
-        + 0.12 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
-        - 0.08 * leverage_penalty
-    ).fillna(0.0)
 
     anticipatory_market_confirmation = row_mean(
         [
@@ -8023,9 +7416,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.12 * robust_z(small_base_high_growth).fillna(0.0)
         + 0.12 * cross_sectional_robust_z(d, "rs_market_acceleration")
         + 0.15 * earnings_momentum
-        + 0.08 * cross_sectional_robust_z(d, "breakout_volume_z")
-        + 0.10 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
-        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
+        + 0.10 * cross_sectional_robust_z(d, "breakout_volume_z")
     ).fillna(0.0)
 
     # Multi-dimensional growth composite: revenue + earnings + cashflow
@@ -8069,8 +7460,6 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.05 * multi_growth_5y_z
         + 0.09 * benchmark_alpha
         + 0.11 * cross_sectional_robust_z(d, "growth_onset_composite")
-        + 0.08 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
-        + 0.05 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         + 0.07 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
         + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -8113,8 +7502,6 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     d["archetype_emerging_growth_score"] = (
         0.22 * cross_sectional_robust_z(d, "anticipatory_growth_score")
         + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
-        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
-        + 0.07 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")
         + 0.16 * cross_sectional_robust_z(d, "technical_blueprint_score")
         + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
         + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
@@ -8289,25 +7676,25 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     # Core philosophy: "Future > Past" — weight technical, macro, supply-demand
     # more than pure financial metrics. Financials confirm; price/flow leads.
     d["future_winner_scout_score"] = (
-        (0.85 + 0.15 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
+        (0.60 + 0.40 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
         * (
+            # --- Forward-looking: technical + macro + supply-demand (55%) ---
             0.14 * cross_sectional_robust_z(d, "anticipatory_growth_score")
             + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
-            + 0.09 * cross_sectional_robust_z(d, "technical_blueprint_score")
-            + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
-            + 0.08 * cross_sectional_robust_z(d, "leader_emergence_score")
-            + 0.08 * cross_sectional_robust_z(d, "relative_strength_composite")
-            + 0.08 * cross_sectional_robust_z(d, "revision_blueprint_score")
-            + 0.06 * cross_sectional_robust_z(d, "analyst_revision_trend_score")
-            + 0.06 * cross_sectional_robust_z(d, "target_upside_pct")
-            + 0.05 * cross_sectional_robust_z(d, "revenue_growth_final")
-            + 0.04 * cross_sectional_robust_z(d, "earnings_growth_final")
+            + 0.10 * cross_sectional_robust_z(d, "technical_blueprint_score")
+            + 0.07 * cross_sectional_robust_z(d, "relative_strength_composite")
             + 0.06 * supply_demand_signal
-            + 0.05 * macro_growth_boost
-            + 0.04 * cross_sectional_robust_z(d, "event_reaction_score")
-            + 0.03 * earnings_momentum
-            + 0.03 * cross_sectional_robust_z(d, "archetype_alignment_score")
-            + 0.02 * long_base_quality
+            + 0.06 * macro_growth_boost
+            # --- Quality confirmation (30%) ---
+            + 0.10 * cross_sectional_robust_z(d, "archetype_alignment_score")
+            + 0.08 * cross_sectional_robust_z(d, "long_hold_compounder_score")
+            + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
+            + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
+            # --- Catalysts (15%) ---
+            + 0.05 * long_base_quality
+            + 0.05 * cross_sectional_robust_z(d, "event_reaction_score")
+            + 0.05 * earnings_momentum
+            # --- Penalties ---
             - 0.10 * overextended_penalty
             - 0.05 * leverage_penalty
         )
@@ -9096,7 +8483,6 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
         + 0.16 * sector_leader
         + 0.14 * within_sector
         + 0.12 * emergence
-        + 0.12 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")
         + 0.06 * safety
         + 0.08 * valuation
         + 0.05 * macro_fit
@@ -9159,159 +8545,12 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
     return d
 
 
-def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-    if d.empty:
-        return d
-
-    price_above_ma50 = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(lower=0.0, upper=1.0)
-    price_above_ma150 = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
-    price_above_ma200 = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
-    ma50_above_ma150 = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
-    ma150_above_ma200 = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
-    ma200_slope_positive = (numeric_series_or_default(d, "ma200_slope_1m", 0.0) > 0.0).astype(float)
-    ma_order_score = row_mean(
-        [
-            price_above_ma50,
-            price_above_ma150,
-            price_above_ma200,
-            ma50_above_ma150,
-            ma150_above_ma200,
-            ma200_slope_positive,
-        ],
-        d.index,
-    ).fillna(0.0)
-    near_high = numeric_series_or_default(d, "near_52w_high_pct", -1.0)
-    near_high_score = ((near_high + 0.30) / 0.30).clip(lower=0.0, upper=1.0).fillna(0.0)
-    trend_template_score = row_mean(
-        [
-            numeric_series_or_default(d, "trend_template_full", 0.0).clip(lower=0.0, upper=1.0),
-            numeric_series_or_default(d, "trend_template_relaxed", 0.0).clip(lower=0.0, upper=1.0),
-            ma_order_score,
-            near_high_score,
-        ],
-        d.index,
-    ).fillna(0.0)
-
-    absolute_momentum = row_mean(
-        [
-            cross_sectional_robust_z(d, "mom_3m"),
-            cross_sectional_robust_z(d, "mom_6m"),
-            cross_sectional_robust_z(d, "mom_12m"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    relative_momentum = row_mean(
-        [
-            cross_sectional_robust_z(d, "rs_benchmark_3m"),
-            cross_sectional_robust_z(d, "rs_benchmark_6m"),
-            cross_sectional_robust_z(d, "rs_benchmark_12m"),
-            0.80 * cross_sectional_robust_z(d, "relative_strength_composite"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    volume_breakout = row_mean(
-        [
-            0.80 * cross_sectional_robust_z(d, "breakout_volume_z"),
-            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
-            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
-            0.50 * cross_sectional_robust_z(d, "obv_trend"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    volatility_setup = row_mean(
-        [
-            cross_sectional_robust_z(d, "volume_dryup_20d"),
-            cross_sectional_robust_z(d, "volatility_contraction_score"),
-        ],
-        d.index,
-    ).fillna(0.0)
-    positive_rs_consistency = row_mean(
-        [
-            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "rs_benchmark_12m", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "mom_3m", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
-        ],
-        d.index,
-    ).fillna(0.0)
-    rsi14 = numeric_series_or_default(d, "rsi14", np.nan)
-    rsi_not_extended = (1.0 - ((rsi14 - 82.0) / 10.0).clip(lower=0.0, upper=1.0)).fillna(0.65)
-    bb_pb = numeric_series_or_default(d, "bb_pb", np.nan)
-    bollinger_not_extended = (1.0 - ((bb_pb - 1.05) / 0.25).clip(lower=0.0, upper=1.0)).fillna(0.65)
-    breakout_follow_through = row_mean(
-        [
-            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
-            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
-            (numeric_series_or_default(d, "breakout_volume_z", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "obv_trend", 0.0) > 0.0).astype(float),
-        ],
-        d.index,
-    ).fillna(0.0)
-    broken_trend = row_mean(
-        [
-            (price_above_ma50 <= 0.0).astype(float),
-            (price_above_ma150 <= 0.0).astype(float),
-            (price_above_ma200 <= 0.0).astype(float),
-            (ma150_above_ma200 <= 0.0).astype(float),
-            numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(lower=0.0, upper=1.0),
-            (numeric_series_or_default(d, "mom_3m", 0.0) < 0.0).astype(float),
-            (numeric_series_or_default(d, "mom_6m", 0.0) < 0.0).astype(float),
-            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) < 0.0).astype(float),
-        ],
-        d.index,
-    ).fillna(0.0)
-    atr_high_penalty = cross_sectional_robust_z(d, "atr14_pct").clip(lower=0.0).fillna(0.0)
-    setup_quality_raw = row_mean(
-        [
-            1.15 * trend_template_score,
-            1.00 * positive_rs_consistency,
-            0.85 * near_high_score,
-            0.70 * breakout_follow_through,
-            0.55 * robust_z(volatility_setup).fillna(0.0).clip(lower=-1.0, upper=2.0),
-            0.50 * rsi_not_extended,
-            0.45 * bollinger_not_extended,
-        ],
-        d.index,
-    ).fillna(0.0)
-    setup_quality_score = (
-        setup_quality_raw
-        - 0.55 * broken_trend
-        - 0.18 * atr_high_penalty
-    ).clip(lower=-2.0, upper=2.5)
-    minervini_raw = (
-        0.33 * robust_z(trend_template_score).fillna(0.0)
-        + 0.23 * relative_momentum
-        + 0.15 * absolute_momentum
-        + 0.14 * robust_z(setup_quality_score).fillna(0.0)
-        + 0.09 * volume_breakout
-        + 0.06 * volatility_setup
-    )
-    d["minervini_trend_template_score"] = trend_template_score.clip(lower=0.0, upper=1.0)
-    d["momentum_alive_relative_score"] = relative_momentum
-    d["momentum_alive_absolute_score"] = absolute_momentum
-    d["momentum_alive_volume_score"] = volume_breakout
-    d["broken_momentum_penalty"] = broken_trend.clip(lower=0.0, upper=1.0)
-    d["breakout_setup_quality_score"] = setup_quality_score
-    d["minervini_momentum_alive_score"] = (
-        minervini_raw - 0.65 * d["broken_momentum_penalty"]
-    ).clip(lower=-4.0, upper=4.0)
-    d["minervini_trend_pass"] = (
-        (d["minervini_trend_template_score"] >= 0.75)
-        & (near_high >= -0.30)
-        & (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0)
-    ).astype(float)
-    return d
-
-
 def apply_focus_score_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
     d = df.copy()
     d["score_focus_bonus"] = 0.0
     d["score_pre_focus_total"] = numeric_series_or_default(d, "score", 0.0)
     d["score_base_model"] = numeric_series_or_default(d, "score_model_core", 0.0)
     d = compute_benchmark_beating_focus_overlay(d, cfg)
-    d = compute_minervini_momentum_overlay(d)
     if cfg.use_benchmark_beating_focus_overlay:
         d["score_focus_bonus_raw"] = (
             float(cfg.focus_overlay_strength)
@@ -9339,20 +8578,7 @@ def apply_focus_score_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFra
         d["score_focus_bonus"] = d["score_focus_bonus"] - float(cfg.focus_missing_fundamental_penalty) * np.clip(
             0.40 - np.maximum(fundamental_confirmation, 0.85 * market_confirmation), 0.0, None
         )
-        d["score_minervini_momentum_bonus"] = (
-            float(cfg.minervini_momentum_score_weight)
-            * robust_z(pd.to_numeric(d["minervini_momentum_alive_score"], errors="coerce")).fillna(0.0)
-        )
-        d["score_broken_momentum_penalty"] = (
-            float(cfg.minervini_broken_trend_penalty_weight)
-            * pd.to_numeric(d["broken_momentum_penalty"], errors="coerce").fillna(0.0)
-        )
         d["score"] = numeric_series_or_default(d, "score", 0.0) + numeric_series_or_default(d, "score_focus_bonus", 0.0)
-        d["score"] = (
-            numeric_series_or_default(d, "score", 0.0)
-            + numeric_series_or_default(d, "score_minervini_momentum_bonus", 0.0)
-            - numeric_series_or_default(d, "score_broken_momentum_penalty", 0.0)
-        )
     d["score_total"] = numeric_series_or_default(d, "score", 0.0)
     return d
 
@@ -10007,22 +9233,83 @@ def quarterly_flow_from_ytd(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _flexible_lag(d: pd.DataFrame, col: str, target_q: int, tol: int = 2) -> tuple:
-    """Get value from target_q quarters ago per CIK, falling back ±tol if NaN.
+    """Calendar-time accurate lag: finds value ~target_q fiscal quarters ago by period date.
 
-    Returns (lag_series, actual_quarters_series) so CAGR can adjust for the
-    actual elapsed time when a neighbor fill was used.
+    Uses pd.merge_asof per CIK so it works correctly for both quarterly filers
+    (4 rows/yr) and annual-only filers (1 row/yr, e.g. 20-F filers).  The old
+    row-count shift(12) treated annual filers as if 12 rows = 12 years, which
+    made sales_cagr_3y always NaN for them.
+
+    Falls back to the legacy row-shift when the 'period' column is absent/sparse.
+    Returns (lag_series, actual_quarters_series) so CAGR can use actual elapsed time.
     """
-    result = d.groupby("cik")[col].shift(target_q)
-    actual_q = pd.Series(float(target_q), index=d.index)
-    for offset in range(1, tol + 1):
-        for delta in [target_q - offset, target_q + offset]:
-            if delta < 4:
-                continue
-            candidate = d.groupby("cik")[col].shift(delta)
-            fill_mask = result.isna() & candidate.notna()
-            result = result.where(~fill_mask, candidate)
-            actual_q = actual_q.where(~fill_mask, float(delta))
-    return result, actual_q
+    if d.empty or col not in d.columns:
+        return pd.Series(np.nan, index=d.index), pd.Series(float(target_q), index=d.index)
+
+    DAYS_PER_Q = 365.25 / 4.0
+    TOL_DAYS = 46  # ±~1.5-month window per quarter-end boundary
+
+    if "period" not in d.columns or d["period"].notna().mean() < 0.5:
+        # --- legacy row-shift fallback ---
+        res = d.groupby("cik")[col].shift(target_q)
+        aq = pd.Series(float(target_q), index=d.index)
+        for off in range(1, tol + 1):
+            for delta in [target_q - off, target_q + off]:
+                if delta < 4:
+                    continue
+                cand = d.groupby("cik")[col].shift(delta)
+                mask = res.isna() & cand.notna()
+                res = res.where(~mask, cand)
+                aq = aq.where(~mask, float(delta))
+        return res, aq
+
+    res = pd.Series(np.nan, index=d.index, dtype=float)
+    aq = pd.Series(float(target_q), index=d.index, dtype=float)
+    # Try exact delta first, then closest neighbours
+    delta_order = [target_q] + [
+        x for off in range(1, tol + 1)
+        for x in [target_q - off, target_q + off] if x >= 4
+    ]
+
+    for _cik, grp in d.groupby("cik", sort=False):
+        g = grp.copy()
+        g["_p"] = pd.to_datetime(g["period"], errors="coerce")
+        g["_v"] = pd.to_numeric(g[col], errors="coerce")
+
+        lkp = (
+            g[g["_p"].notna() & g["_v"].notna()][["_p", "_v"]]
+            .sort_values("_p")
+        )
+        if lkp.empty:
+            continue
+        qry = g[g["_p"].notna()].copy()
+        if qry.empty:
+            continue
+
+        for dq in delta_order:
+            unfilled = qry[res[qry.index].isna()]
+            if unfilled.empty:
+                break
+            approx_days = int(dq * DAYS_PER_Q + 0.5)
+            uf = unfilled.copy()
+            uf["_tgt"] = uf["_p"] - pd.Timedelta(days=approx_days)
+
+            mrg = pd.merge_asof(
+                uf[["_tgt", "_p"]].rename_axis("_oi").reset_index().sort_values("_tgt"),
+                lkp.rename(columns={"_p": "_lp", "_v": "_lv"}),
+                left_on="_tgt",
+                right_on="_lp",
+                direction="nearest",
+                tolerance=pd.Timedelta(days=TOL_DAYS),
+            )
+            hit = mrg["_lv"].notna()
+            if hit.any():
+                sub = mrg[hit]
+                res.loc[sub["_oi"].values] = sub["_lv"].values
+                elapsed = (sub["_p"] - sub["_lp"]).dt.days
+                aq.loc[sub["_oi"].values] = (elapsed / DAYS_PER_Q).values
+
+    return res, aq
 
 
 def _cagr_from_lag(current: pd.Series, lag: pd.Series, actual_q: pd.Series,
@@ -10118,28 +9405,44 @@ def recompute_fund_panel_derived_columns(
         d["shares_yoy"] = d.groupby("cik")["shares"].pct_change(4)
     if "revenues_ttm" in d.columns:
         d["sales_growth_yoy"] = d.groupby("cik")["revenues_ttm"].pct_change(4)
+        lag1, aq1 = _flexible_lag(d, "revenues_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "revenues_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "revenues_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "revenues_ttm", 20, tol=2)
+        d["sales_cagr_1y"] = _cagr_from_lag(d["revenues_ttm"], lag1, aq1, require_positive=False)
+        d["sales_cagr_2y"] = _cagr_from_lag(d["revenues_ttm"], lag2, aq2, require_positive=False)
         d["sales_cagr_3y"] = _cagr_from_lag(d["revenues_ttm"], lag3, aq3, require_positive=False)
         d["sales_cagr_5y"] = _cagr_from_lag(d["revenues_ttm"], lag5, aq5, require_positive=False)
+        # Best available: 3y preferred, fallback 2y then 1y
+        d["sales_cagr_best"] = d["sales_cagr_3y"].fillna(d["sales_cagr_2y"]).fillna(d["sales_cagr_1y"])
     if "op_income_ttm" in d.columns:
-        lag4 = d.groupby("cik")["op_income_ttm"].shift(4)
-        d["op_income_growth_yoy"] = (d["op_income_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
-            (d["op_income_ttm"] > 0) & (lag4 > 0)
+        lag4_prev = d.groupby("cik")["op_income_ttm"].shift(4)
+        d["op_income_growth_yoy"] = (d["op_income_ttm"] / lag4_prev.replace(0, np.nan) - 1.0).where(
+            (d["op_income_ttm"] > 0) & (lag4_prev > 0)
         )
+        lag1, aq1 = _flexible_lag(d, "op_income_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "op_income_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "op_income_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "op_income_ttm", 20, tol=2)
+        d["op_income_cagr_1y"] = _cagr_from_lag(d["op_income_ttm"], lag1, aq1)
+        d["op_income_cagr_2y"] = _cagr_from_lag(d["op_income_ttm"], lag2, aq2)
         d["op_income_cagr_3y"] = _cagr_from_lag(d["op_income_ttm"], lag3, aq3)
         d["op_income_cagr_5y"] = _cagr_from_lag(d["op_income_ttm"], lag5, aq5)
+        d["op_income_cagr_best"] = d["op_income_cagr_3y"].fillna(d["op_income_cagr_2y"]).fillna(d["op_income_cagr_1y"])
     if "ocf_ttm" in d.columns:
-        lag4 = d.groupby("cik")["ocf_ttm"].shift(4)
-        d["ocf_growth_yoy"] = (d["ocf_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
-            (d["ocf_ttm"] > 0) & (lag4 > 0)
+        lag4_prev = d.groupby("cik")["ocf_ttm"].shift(4)
+        d["ocf_growth_yoy"] = (d["ocf_ttm"] / lag4_prev.replace(0, np.nan) - 1.0).where(
+            (d["ocf_ttm"] > 0) & (lag4_prev > 0)
         )
+        lag1, aq1 = _flexible_lag(d, "ocf_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "ocf_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "ocf_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "ocf_ttm", 20, tol=2)
+        d["ocf_cagr_1y"] = _cagr_from_lag(d["ocf_ttm"], lag1, aq1)
+        d["ocf_cagr_2y"] = _cagr_from_lag(d["ocf_ttm"], lag2, aq2)
         d["ocf_cagr_3y"] = _cagr_from_lag(d["ocf_ttm"], lag3, aq3)
         d["ocf_cagr_5y"] = _cagr_from_lag(d["ocf_ttm"], lag5, aq5)
+        d["ocf_cagr_best"] = d["ocf_cagr_3y"].fillna(d["ocf_cagr_2y"]).fillna(d["ocf_cagr_1y"])
     if "gross_profit_ttm" in d.columns and "assets" in d.columns:
         d["gp_to_assets_ttm"] = d["gross_profit_ttm"] / d["assets"].replace(0, np.nan)
     if "op_income_ttm" in d.columns and "revenues_ttm" in d.columns:
@@ -10153,29 +9456,44 @@ def recompute_fund_panel_derived_columns(
     if "net_income_ttm" in d.columns and "ocf_ttm" in d.columns and "assets" in d.columns:
         d["accruals_to_assets"] = (d["net_income_ttm"] - d["ocf_ttm"]) / d["assets"].replace(0, np.nan)
     if "net_income_ttm" in d.columns:
-        lag4 = d.groupby("cik")["net_income_ttm"].shift(4)
-        d["net_income_growth_yoy"] = (d["net_income_ttm"] / lag4.replace(0, np.nan) - 1.0).where(
-            (d["net_income_ttm"] > 0) & (lag4 > 0)
+        lag4_prev = d.groupby("cik")["net_income_ttm"].shift(4)
+        d["net_income_growth_yoy"] = (d["net_income_ttm"] / lag4_prev.replace(0, np.nan) - 1.0).where(
+            (d["net_income_ttm"] > 0) & (lag4_prev > 0)
         )
+        lag1, aq1 = _flexible_lag(d, "net_income_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "net_income_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "net_income_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "net_income_ttm", 20, tol=2)
+        d["net_income_cagr_1y"] = _cagr_from_lag(d["net_income_ttm"], lag1, aq1)
+        d["net_income_cagr_2y"] = _cagr_from_lag(d["net_income_ttm"], lag2, aq2)
         d["net_income_cagr_3y"] = _cagr_from_lag(d["net_income_ttm"], lag3, aq3)
         d["net_income_cagr_5y"] = _cagr_from_lag(d["net_income_ttm"], lag5, aq5)
+        d["net_income_cagr_best"] = d["net_income_cagr_3y"].fillna(d["net_income_cagr_2y"]).fillna(d["net_income_cagr_1y"])
     # --- EPS & FCF TTM + CAGR ---
     if "net_income_ttm" in d.columns and "shares" in d.columns:
         d["eps_ttm"] = d["net_income_ttm"] / d["shares"].replace(0, np.nan)
         d["eps_growth_yoy"] = d.groupby("cik")["eps_ttm"].pct_change(4)
+        lag1, aq1 = _flexible_lag(d, "eps_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "eps_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "eps_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "eps_ttm", 20, tol=2)
+        d["eps_cagr_1y"] = _cagr_from_lag(d["eps_ttm"], lag1, aq1)
+        d["eps_cagr_2y"] = _cagr_from_lag(d["eps_ttm"], lag2, aq2)
         d["eps_cagr_3y"] = _cagr_from_lag(d["eps_ttm"], lag3, aq3)
         d["eps_cagr_5y"] = _cagr_from_lag(d["eps_ttm"], lag5, aq5)
+        d["eps_cagr_best"] = d["eps_cagr_3y"].fillna(d["eps_cagr_2y"]).fillna(d["eps_cagr_1y"])
     if "ocf_ttm" in d.columns and "capex_ttm" in d.columns:
         d["fcf_ttm"] = d["ocf_ttm"] - d["capex_ttm"].abs()
         d["fcf_growth_yoy"] = d.groupby("cik")["fcf_ttm"].pct_change(4)
+        lag1, aq1 = _flexible_lag(d, "fcf_ttm", 4, tol=1)
+        lag2, aq2 = _flexible_lag(d, "fcf_ttm", 8, tol=2)
         lag3, aq3 = _flexible_lag(d, "fcf_ttm", 12, tol=2)
         lag5, aq5 = _flexible_lag(d, "fcf_ttm", 20, tol=2)
+        d["fcf_cagr_1y"] = _cagr_from_lag(d["fcf_ttm"], lag1, aq1)
+        d["fcf_cagr_2y"] = _cagr_from_lag(d["fcf_ttm"], lag2, aq2)
         d["fcf_cagr_3y"] = _cagr_from_lag(d["fcf_ttm"], lag3, aq3)
         d["fcf_cagr_5y"] = _cagr_from_lag(d["fcf_ttm"], lag5, aq5)
+        d["fcf_cagr_best"] = d["fcf_cagr_3y"].fillna(d["fcf_cagr_2y"]).fillna(d["fcf_cagr_1y"])
 
     if "assets" in d.columns and "liabilities" in d.columns:
         equity = (d["assets"] - d["liabilities"]).replace(0, np.nan)
@@ -10196,14 +9514,23 @@ def recompute_fund_panel_derived_columns(
         "asset_growth_yoy",
         "shares_yoy",
         "sales_growth_yoy",
+        "sales_cagr_1y",
+        "sales_cagr_2y",
         "sales_cagr_3y",
         "sales_cagr_5y",
+        "sales_cagr_best",
         "op_income_growth_yoy",
+        "op_income_cagr_1y",
+        "op_income_cagr_2y",
         "op_income_cagr_3y",
         "op_income_cagr_5y",
+        "op_income_cagr_best",
         "ocf_growth_yoy",
+        "ocf_cagr_1y",
+        "ocf_cagr_2y",
         "ocf_cagr_3y",
         "ocf_cagr_5y",
+        "ocf_cagr_best",
         "gp_to_assets_ttm",
         "op_margin_ttm",
         "margin_stability_8q",
@@ -10211,18 +9538,27 @@ def recompute_fund_panel_derived_columns(
         "debt_to_equity",
         "roe_proxy",
         "net_income_growth_yoy",
+        "net_income_cagr_1y",
+        "net_income_cagr_2y",
         "net_income_cagr_3y",
         "net_income_cagr_5y",
+        "net_income_cagr_best",
         "roe_trend_4q",
         "debt_to_equity_delta_4q",
         "eps_ttm",
         "eps_growth_yoy",
+        "eps_cagr_1y",
+        "eps_cagr_2y",
         "eps_cagr_3y",
         "eps_cagr_5y",
+        "eps_cagr_best",
         "fcf_ttm",
         "fcf_growth_yoy",
+        "fcf_cagr_1y",
+        "fcf_cagr_2y",
         "fcf_cagr_3y",
         "fcf_cagr_5y",
+        "fcf_cagr_best",
         "fund_history_quarters_available",
     ]
     for c in set(ttm_ready_cols + carry_cols):
@@ -11004,22 +10340,6 @@ def load_or_update_fund_panel(
     latest_path = paths["feature_store"] / "fund_panel_latest.parquet"
     base = pd.read_parquet(latest_path) if latest_path.exists() else pd.DataFrame()
     base_cov = panel_latest_flow_coverage(base) if not base.empty else np.nan
-    if (
-        not base.empty
-        and not bool(getattr(cfg, "force_full_fund_panel_rebuild", False))
-        and is_cache_fresh(latest_path, int(getattr(cfg, "companyfacts_refresh_days", 14)))
-        and (pd.isna(base_cov) or float(base_cov) >= 0.20)
-    ):
-        cov_label = f"{base_cov:.1%}" if pd.notna(base_cov) else "n/a"
-        log(
-            f"Using cached fundamental panel: {latest_path.name} "
-            f"(latest-flow coverage={cov_label})."
-        )
-        return recompute_fund_panel_derived_columns(
-            base,
-            ffill_quarters=cfg.fund_ttm_ffill_quarters,
-            balance_ffill_quarters=cfg.fund_balance_ffill_quarters,
-        )
     repair_quarters = max(int(cfg.fsds_quarters_each_run), int(cfg.fund_panel_repair_quarters))
     refresh_ciks = cik_list
     if not base.empty and base_cov < 0.20:
@@ -11079,12 +10399,12 @@ def asof_join_fundamentals(
         for c in ["accepted"] + CORE_FUNDAMENTAL_COLUMNS + FUND_TTM_FALLBACK_COLUMNS + [
             "asset_growth_yoy",
             "sales_growth_yoy",
-            "sales_cagr_3y",
-            "sales_cagr_5y",
-            "op_income_cagr_3y",
-            "op_income_cagr_5y",
-            "net_income_cagr_3y",
-            "net_income_cagr_5y",
+            "sales_cagr_1y", "sales_cagr_2y", "sales_cagr_3y", "sales_cagr_5y", "sales_cagr_best",
+            "op_income_cagr_1y", "op_income_cagr_2y", "op_income_cagr_3y", "op_income_cagr_5y", "op_income_cagr_best",
+            "net_income_cagr_1y", "net_income_cagr_2y", "net_income_cagr_3y", "net_income_cagr_5y", "net_income_cagr_best",
+            "ocf_cagr_1y", "ocf_cagr_2y", "ocf_cagr_3y", "ocf_cagr_5y", "ocf_cagr_best",
+            "eps_cagr_1y", "eps_cagr_2y", "eps_cagr_3y", "eps_cagr_5y", "eps_cagr_best",
+            "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
             "gp_to_assets_ttm",
             "op_margin_ttm",
             "margin_stability_8q",
@@ -11726,7 +11046,6 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     universe = compute_strategy_blueprint_columns(universe, cfg)
     universe = compute_multidimensional_pillar_scores(universe)
     universe = add_core_fundamental_minimum_flags(universe, cfg)
-    universe = add_historical_data_quality_columns(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -11784,7 +11103,6 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + MACRO_REGIME_COLUMNS
             + MACRO_INTERACTION_COLUMNS
             + LATEST_ONLY_SIGNAL_COLUMNS
-            + HISTORICAL_DATA_QUALITY_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -11800,7 +11118,6 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + SEC_13F_COLUMNS
         + SEC_FORM345_COLUMNS
         + PILLAR_SCORE_COLUMNS
-        + [c for c in HISTORICAL_DATA_QUALITY_COLUMNS if c != "data_history_quality_label"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -13266,82 +12583,7 @@ def apply_hold_policy_overlay(
     return d
 
 
-def add_historical_data_quality_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Add PIT-safe data quality diagnostics; forward returns are report-only."""
-    d = df.copy()
-    for c in HISTORICAL_DATA_QUALITY_COLUMNS:
-        if c not in d.columns:
-            d[c] = np.nan
-    if d.empty:
-        return d
-
-    def _presence(cols: list[str]) -> pd.Series:
-        if not cols:
-            return pd.Series(0.0, index=d.index, dtype=float)
-        return (count_present_columns(d, cols).astype(float) / float(len(cols))).clip(lower=0.0, upper=1.0)
-
-    level_cov = _presence(HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS)
-    change_cov = _presence(HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS)
-    cagr_cov = _presence(HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS)
-    quality_cov = _presence(HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS)
-    history_quarters = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).clip(lower=0.0)
-    depth_3y = (history_quarters / 12.0).clip(lower=0.0, upper=1.0)
-    depth_5y = (history_quarters / 20.0).clip(lower=0.0, upper=1.0)
-    fund_history_score = (
-        0.20 * level_cov
-        + 0.25 * change_cov
-        + 0.25 * cagr_cov
-        + 0.15 * quality_cov
-        + 0.15 * depth_3y
-    ).clip(lower=0.0, upper=1.0)
-
-    market_confirmation = numeric_series_or_default(d, "selection_market_confirmation_score", 0.0).clip(
-        lower=0.0,
-        upper=1.0,
-    )
-    technical_confirmation = row_mean(
-        [
-            market_confirmation,
-            numeric_series_or_default(d, "minervini_momentum_alive_score", 0.0).clip(lower=0.0, upper=1.0),
-            numeric_series_or_default(d, "breakout_setup_quality_score", 0.0).clip(lower=0.0, upper=1.0),
-            numeric_series_or_default(d, "technical_blueprint_score", 0.0).clip(lower=0.0, upper=1.0),
-            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
-        ],
-        d.index,
-    ).fillna(0.0).clip(lower=0.0, upper=1.0)
-
-    sleeve_data_confidence = np.maximum(
-        fund_history_score,
-        (0.55 * technical_confirmation + 0.25 * level_cov + 0.10 * depth_3y).clip(lower=0.0, upper=0.90),
-    )
-    sparse_penalty = ((0.45 - fund_history_score).clip(lower=0.0) / 0.45).clip(0.0, 1.0)
-    sparse_penalty = (sparse_penalty * (1.0 - technical_confirmation)).clip(0.0, 1.0)
-    labels = np.where(
-        fund_history_score >= 0.70,
-        "full_history",
-        np.where(
-            fund_history_score >= 0.45,
-            "usable_history",
-            np.where(fund_history_score >= 0.25, "sparse_growth_history", "latest_or_price_only"),
-        ),
-    )
-
-    d["fundamental_history_level_coverage"] = level_cov
-    d["fundamental_history_change_coverage"] = change_cov
-    d["fundamental_history_cagr_coverage"] = cagr_cov
-    d["fundamental_history_quality_coverage"] = quality_cov
-    d["fundamental_history_depth_3y_score"] = depth_3y
-    d["fundamental_history_depth_5y_score"] = depth_5y
-    d["fundamental_history_coverage_score"] = fund_history_score
-    d["growth_sleeve_technical_confirmation_score"] = technical_confirmation
-    d["growth_sleeve_data_confidence"] = pd.Series(sleeve_data_confidence, index=d.index, dtype=float).clip(0.0, 1.0)
-    d["growth_sleeve_sparse_history_penalty"] = pd.Series(sparse_penalty, index=d.index, dtype=float).clip(0.0, 1.0)
-    d["data_history_quality_label"] = pd.Series(labels, index=d.index, dtype=object)
-    d["forward_return_coverage_score"] = _presence(FORWARD_RETURN_COVERAGE_COLUMNS)
-    return d
-
-
-def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
+def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     if d.empty:
         for c in [
@@ -13350,30 +12592,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "portfolio_early_scout_engine_score",
             "portfolio_sleeve_label",
             "portfolio_sleeve_confidence",
-        ] + HISTORICAL_DATA_QUALITY_COLUMNS:
+        ]:
             d[c] = np.nan
         return d
-    if "minervini_momentum_alive_score" not in d.columns:
-        d = compute_minervini_momentum_overlay(d)
-    d = add_historical_data_quality_columns(d)
 
-    minervini_future_engine_weight = float(
-        getattr(cfg, "minervini_future_engine_weight", EngineConfig.minervini_future_engine_weight)
-    )
-    growth_history_penalty_weight = float(
-        getattr(
-            cfg,
-            "growth_history_confidence_penalty_weight",
-            EngineConfig.growth_history_confidence_penalty_weight,
-        )
-    )
-    growth_history_confidence_floor = float(
-        getattr(
-            cfg,
-            "growth_history_confidence_min_for_full_sleeve",
-            EngineConfig.growth_history_confidence_min_for_full_sleeve,
-        )
-    )
     dominant_archetype = d.get("dominant_archetype_label", pd.Series("", index=d.index, dtype=str)).astype(str)
     history_depth_raw = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).astype(float)
     history_depth = pd.Series(
@@ -13383,39 +12605,28 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     )
     core_score = row_mean(
         [
-            1.05 * cross_sectional_robust_z(d, "long_hold_compounder_score"),
-            0.90 * cross_sectional_robust_z(d, "archetype_compounder_score"),
-            1.10 * cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
-            1.00 * cross_sectional_robust_z(d, "quality_trend_score"),
-            0.45 * cross_sectional_robust_z(d, "garp_score"),
-            0.95 * cross_sectional_robust_z(d, "actual_results_score"),
-            0.55 * cross_sectional_robust_z(d, "selection_confirmation_score"),
-            0.25 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
-            0.35 * cross_sectional_robust_z(d, "pricing_power_score"),
-            0.30 * cross_sectional_robust_z(d, "margin_stability_8q"),
+            cross_sectional_robust_z(d, "long_hold_compounder_score"),
+            cross_sectional_robust_z(d, "archetype_compounder_score"),
+            cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
+            cross_sectional_robust_z(d, "quality_trend_score"),
+            cross_sectional_robust_z(d, "garp_score"),
+            cross_sectional_robust_z(d, "actual_results_score"),
+            0.70 * cross_sectional_robust_z(d, "selection_confirmation_score"),
+            0.50 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
         ],
         d.index,
     ).fillna(0.0)
     future_score = row_mean(
         [
-            1.10 * cross_sectional_robust_z(d, "future_winner_scout_score"),
-            0.95 * cross_sectional_robust_z(d, "pred_future_winner_ret"),
-            0.40 * cross_sectional_robust_z(d, "pred_future_winner_p"),
-            0.95 * cross_sectional_robust_z(d, "anticipatory_growth_score"),
-            0.70 * cross_sectional_robust_z(d, "archetype_emerging_growth_score"),
-            0.95 * cross_sectional_robust_z(d, "dynamic_leader_score"),
-            0.90 * cross_sectional_robust_z(d, "leader_emergence_score"),
-            0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.80 * cross_sectional_robust_z(d, "revision_blueprint_score"),
-            0.55 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
-            0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
-            0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
-            0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
-            0.50 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
-            0.35 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
-            minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
-            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
-            -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
+            cross_sectional_robust_z(d, "future_winner_scout_score"),
+            cross_sectional_robust_z(d, "pred_future_winner_ret"),
+            cross_sectional_robust_z(d, "pred_future_winner_p"),
+            cross_sectional_robust_z(d, "anticipatory_growth_score"),
+            cross_sectional_robust_z(d, "archetype_emerging_growth_score"),
+            cross_sectional_robust_z(d, "dynamic_leader_score"),
+            cross_sectional_robust_z(d, "leader_emergence_score"),
+            cross_sectional_robust_z(d, "relative_strength_composite"),
+            0.50 * cross_sectional_robust_z(d, "revision_blueprint_score"),
         ],
         d.index,
     ).fillna(0.0)
@@ -13429,33 +12640,12 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.70 * cross_sectional_robust_z(d, "revision_blueprint_score"),
             0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
             0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
-            0.55 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
-            0.45 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
             0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
-            0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
-            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
-            -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
             -0.35 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
             -0.25 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
         ],
         d.index,
     ).fillna(0.0)
-    sparse_history_penalty = numeric_series_or_default(d, "growth_sleeve_sparse_history_penalty", 0.0).clip(
-        lower=0.0,
-        upper=1.0,
-    )
-    data_confidence = numeric_series_or_default(d, "growth_sleeve_data_confidence", 0.0).clip(lower=0.0, upper=1.0)
-    confidence_shortfall = (
-        (growth_history_confidence_floor - data_confidence).clip(lower=0.0)
-        / max(growth_history_confidence_floor, 1e-8)
-    ).clip(lower=0.0, upper=1.0)
-    sparse_history_penalty = pd.Series(
-        np.maximum(sparse_history_penalty, 0.50 * confidence_shortfall),
-        index=d.index,
-        dtype=float,
-    ).clip(lower=0.0, upper=1.0)
-    future_score = future_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
-    early_score = early_score - (0.80 * growth_history_penalty_weight * sparse_history_penalty)
     early_score = early_score - 0.30 * np.clip(history_depth - 0.55, 0.0, 1.0)
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
@@ -13474,22 +12664,6 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     second_val = np.partition(sleeve_matrix, -2, axis=1)[:, -2]
     sleeve_confidence = np.clip((top_val - second_val) / 3.0, 0.0, 1.0)
     sleeve_label = sleeve_labels[top_idx]
-    core_or_future_max = np.maximum(sleeve_matrix[:, 0], sleeve_matrix[:, 1])
-    early_edge = sleeve_matrix[:, 2] - core_or_future_max
-    # Keep early_scout for names where the early/inflection engine is clearly
-    # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
-    weak_early_edge = sleeve_label == "early_scout"
-    weak_early_edge &= (early_edge < 0.12) | (sleeve_matrix[:, 2] < 0.50)
-    sleeve_label = np.where(
-        weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
-        "future_winner",
-        sleeve_label,
-    )
-    sleeve_label = np.where(
-        weak_early_edge & (sleeve_matrix[:, 1] < sleeve_matrix[:, 0]),
-        "core_compounder",
-        sleeve_label,
-    )
     low_gap = (top_val - second_val) < 0.10
     sleeve_label = np.where(
         low_gap & dominant_archetype.eq("emerging_growth") & (sleeve_matrix[:, 2] >= sleeve_matrix[:, 1]),
@@ -13502,51 +12676,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         sleeve_label,
     )
     sleeve_label = np.where(low_gap & ~dominant_archetype.eq("emerging_growth"), "core_compounder", sleeve_label)
-    sleeve_label_raw = sleeve_label.copy()
-    fundamental_confirmation = numeric_series_or_default(
-        d, "selection_fundamental_confirmation_score", 0.0
-    ).clip(lower=0.0, upper=1.0)
-    market_confirmation = numeric_series_or_default(
-        d, "selection_market_confirmation_score", 0.0
-    ).clip(lower=0.0, upper=1.0)
-    promotion_signal = row_mean(
-        [
-            fundamental_confirmation,
-            0.85 * market_confirmation,
-            history_depth,
-            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "minervini_momentum_alive_score", 0.0) > 1.0).astype(float),
-            (numeric_series_or_default(d, "breakout_setup_quality_score", 0.0) > 0.75).astype(float),
-        ],
-        d.index,
-    ).fillna(0.0)
-    mature_history_confirmed = (
-        (history_depth >= 0.75)
-        & (fundamental_confirmation >= 0.55)
-        & (market_confirmation >= 0.55)
-    )
-    mature_early_mask = (
-        pd.Series(sleeve_label, index=d.index, dtype=object).astype(str).eq("early_scout")
-        & (
-            (early_edge <= float(getattr(cfg, "early_scout_promotion_edge_max", 0.12)))
-            | (sleeve_confidence <= float(getattr(cfg, "early_scout_promotion_confidence_max", 0.12)))
-        )
-        & (
-            (promotion_signal >= float(getattr(cfg, "early_scout_promotion_min_score", 0.70)))
-            | mature_history_confirmed
-        )
-    )
-    sleeve_label = np.where(mature_early_mask.to_numpy(dtype=bool), "future_winner", sleeve_label)
-    d["portfolio_sleeve_label_raw"] = pd.Series(sleeve_label_raw, index=d.index, dtype=object)
     d["portfolio_sleeve_label"] = pd.Series(sleeve_label, index=d.index, dtype=object)
     d["portfolio_sleeve_confidence"] = pd.Series(sleeve_confidence, index=d.index, dtype=float)
-    d["portfolio_sleeve_promotion_signal"] = pd.Series(promotion_signal, index=d.index, dtype=float)
-    d["portfolio_sleeve_promoted"] = pd.Series(
-        pd.Series(sleeve_label_raw, index=d.index, dtype=object).astype(str)
-        != pd.Series(sleeve_label, index=d.index, dtype=object).astype(str),
-        index=d.index,
-        dtype=bool,
-    )
     return d
 
 
@@ -13575,11 +12706,10 @@ def compute_portfolio_sleeve_policy(
             "risk_signal": 0.0,
             "future_winner_regime_strength": 0.0,
             "early_scout_regime_strength": 0.0,
-            "early_scout_candidate_share": 0.0,
         }
 
-    base_core = float(getattr(cfg, "core_compounder_sleeve_base_weight", 0.55))
-    base_future = float(getattr(cfg, "future_winner_sleeve_base_weight", 0.35))
+    base_core = float(getattr(cfg, "core_compounder_sleeve_base_weight", 0.70))
+    base_future = float(getattr(cfg, "future_winner_sleeve_base_weight", 0.20))
     base_early = float(getattr(cfg, "early_scout_sleeve_base_weight", 0.05))
     base_invested = max(base_core + base_future + base_early, 1e-8)
     future_base = invested_share * (base_future / base_invested)
@@ -13629,63 +12759,20 @@ def compute_portfolio_sleeve_policy(
             0.25 * defensive_rotation,
         ),
     )
-    early_candidate_share = 0.0
-    if not d.empty:
-        for label_col in ["portfolio_sleeve_label_raw", "portfolio_sleeve_label"]:
-            if label_col in d.columns:
-                labels = d[label_col].astype(str)
-                early_candidate_share = max(early_candidate_share, float(labels.eq("early_scout").mean()))
-        if "portfolio_early_scout_engine_score" in d.columns:
-            early_engine = pd.to_numeric(d["portfolio_early_scout_engine_score"], errors="coerce")
-            valid_early_engine = early_engine.dropna()
-            if not valid_early_engine.empty:
-                early_engine_cut = max(0.35, float(valid_early_engine.quantile(0.80)))
-                early_candidate_share = max(early_candidate_share, float((early_engine >= early_engine_cut).mean()))
 
     future_target = future_base
-    future_target += 0.15 * np.clip((growth_signal - 0.42) / 0.58, 0.0, 1.0)
-    future_target += 0.08 * np.clip((breadth_regime - 0.58) / 0.22, 0.0, 1.0)
-    future_target += 0.05 * np.clip((sector_participation - 0.40) / 0.20, 0.0, 1.0)
-    future_target -= 0.14 * np.clip((risk_signal - 0.28) / 0.72, 0.0, 1.0)
-    future_target -= 0.08 * np.clip((liquidity_drain - 0.35) / 0.65, 0.0, 1.0)
+    future_target += 0.10 * np.clip((growth_signal - 0.45) / 0.55, 0.0, 1.0)
+    future_target += 0.05 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
+    future_target += 0.03 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
+    future_target -= 0.12 * np.clip((risk_signal - 0.30) / 0.70, 0.0, 1.0)
+    future_target -= 0.06 * np.clip((liquidity_drain - 0.40) / 0.60, 0.0, 1.0)
     early_target = early_base
-    early_target += 0.05 * np.clip((growth_signal - 0.52) / 0.48, 0.0, 1.0)
-    early_target += 0.06 * np.clip((growth_thrust - 0.46) / 0.54, 0.0, 1.0)
-    early_target += 0.04 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
-    early_target += 0.04 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
-    early_target -= 0.14 * np.clip((risk_signal - 0.24) / 0.76, 0.0, 1.0)
-    early_target -= 0.10 * np.clip((liquidity_drain - 0.33) / 0.67, 0.0, 1.0)
-
-    early_floor_weight = float(getattr(cfg, "early_scout_growth_floor_weight", 0.0))
-    early_floor_min_signal = float(getattr(cfg, "early_scout_growth_floor_min_signal", 0.38))
-    early_floor_max_risk = float(getattr(cfg, "early_scout_growth_floor_max_risk", 0.55))
-    early_floor_min_share = max(float(getattr(cfg, "early_scout_candidate_floor_min_share", 0.01)), 1e-8)
-    if (
-        early_floor_weight > 0.0
-        and early_candidate_share >= early_floor_min_share
-        and growth_signal >= early_floor_min_signal
-        and risk_signal < early_floor_max_risk
-    ):
-        growth_floor_factor = float(np.clip((growth_signal - early_floor_min_signal) / 0.22, 0.65, 1.0))
-        risk_floor_discount = float(
-            1.0
-            - 0.35
-            * np.clip(
-                (risk_signal - 0.25) / max(early_floor_max_risk - 0.25, 1e-8),
-                0.0,
-                1.0,
-            )
-        )
-        candidate_floor_factor = float(np.clip(early_candidate_share / max(early_floor_min_share, 1e-8), 0.0, 1.0))
-        early_growth_floor = early_floor_weight * growth_floor_factor * risk_floor_discount * candidate_floor_factor
-        early_target = max(
-            early_target,
-            min(
-                early_growth_floor,
-                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)),
-                invested_share,
-            ),
-        )
+    early_target += 0.07 * np.clip((growth_signal - 0.50) / 0.50, 0.0, 1.0)
+    early_target += 0.06 * np.clip((growth_thrust - 0.45) / 0.55, 0.0, 1.0)
+    early_target += 0.05 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
+    early_target += 0.05 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
+    early_target -= 0.12 * np.clip((risk_signal - 0.25) / 0.75, 0.0, 1.0)
+    early_target -= 0.10 * np.clip((liquidity_drain - 0.35) / 0.65, 0.0, 1.0)
 
     strong_future_regime = (
         growth_signal >= 0.72
@@ -13706,37 +12793,37 @@ def compute_portfolio_sleeve_policy(
         future_target = max(
             future_target,
             min(
-                float(getattr(cfg, "future_winner_sleeve_max_weight", 0.60)),
-                0.40 + 0.20 * np.clip((growth_signal - 0.72) / 0.28, 0.0, 1.0),
+                float(getattr(cfg, "future_winner_sleeve_max_weight", 0.40)),
+                0.28 + 0.12 * np.clip((growth_signal - 0.72) / 0.28, 0.0, 1.0),
             ),
         )
     if strong_early_regime:
         early_target = max(
             early_target,
             min(
-                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)),
-                0.08 + 0.07 * np.clip((growth_thrust - 0.62) / 0.38, 0.0, 1.0),
+                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.20)),
+                0.10 + 0.10 * np.clip((growth_thrust - 0.62) / 0.38, 0.0, 1.0),
             ),
         )
     if risk_signal >= 0.70:
-        future_target = min(future_target, min(0.15, invested_share))
+        future_target = min(future_target, min(0.08, invested_share))
         early_target = 0.0
     elif risk_signal >= 0.55:
-        future_target = min(future_target, min(0.18, invested_share))
+        future_target = min(future_target, min(0.12, invested_share))
         early_target = min(early_target, min(0.03, invested_share))
 
     future_target = float(
         np.clip(
             future_target,
             0.0 if invested_share < float(getattr(cfg, "future_winner_sleeve_min_weight", 0.05)) else float(getattr(cfg, "future_winner_sleeve_min_weight", 0.05)),
-            min(float(getattr(cfg, "future_winner_sleeve_max_weight", 0.60)), invested_share),
+            min(float(getattr(cfg, "future_winner_sleeve_max_weight", 0.30)), invested_share),
         )
     )
     early_target = float(
         np.clip(
             early_target,
             0.0 if invested_share < float(getattr(cfg, "early_scout_sleeve_min_weight", 0.0)) else float(getattr(cfg, "early_scout_sleeve_min_weight", 0.0)),
-            min(float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)), invested_share),
+            min(float(getattr(cfg, "early_scout_sleeve_max_weight", 0.20)), invested_share),
         )
     )
     exploratory_total = future_target + early_target
@@ -13755,74 +12842,8 @@ def compute_portfolio_sleeve_policy(
         "growth_signal": float(growth_signal),
         "risk_signal": float(risk_signal),
         "future_winner_regime_strength": float(1.0 if strong_future_regime else max(0.0, growth_signal - risk_signal)),
-        "early_scout_regime_strength": float(
-            1.0 if strong_early_regime else max(0.0, growth_thrust - risk_signal, early_candidate_share * 0.25)
-        ),
-        "early_scout_candidate_share": float(early_candidate_share),
+        "early_scout_regime_strength": float(1.0 if strong_early_regime else max(0.0, growth_thrust - risk_signal)),
     }
-
-
-def apply_sleeve_entry_drift_name_caps(
-    cfg: EngineConfig,
-    sel: pd.DataFrame,
-    name_caps: pd.Series,
-    prev_w: Optional[dict[str, float]] = None,
-) -> pd.Series:
-    caps = pd.to_numeric(name_caps.reindex(sel.index), errors="coerce").fillna(float(name_caps.max())).astype(float)
-    if sel.empty:
-        return caps
-
-    prev_map = {str(k): float(v) for k, v in (prev_w or {}).items() if pd.notna(v)}
-    prev_weight = sel.get("ticker", pd.Series("", index=sel.index, dtype=object)).astype(str).map(prev_map).fillna(0.0)
-    held_mask = prev_weight > 1e-8
-    sleeve_label = sel.get("portfolio_sleeve_label", pd.Series("core_compounder", index=sel.index, dtype=object)).fillna(
-        "core_compounder"
-    ).astype(str)
-    drift_mult = 1.0 + max(float(getattr(cfg, "sleeve_drift_headroom_pct", 0.35)), 0.0)
-    no_ttm_mask = sel.get("fund_join_status", pd.Series("", index=sel.index, dtype=object)).astype(str).eq("matched_no_ttm")
-    fundamental_lane = sel.get("fundamental_lane_label", pd.Series("full_ttm", index=sel.index, dtype=object)).astype(str)
-    high_confirm = np.maximum(
-        numeric_series_or_default(sel, "selection_fundamental_confirmation_score", 0.0),
-        numeric_series_or_default(sel, "selection_market_confirmation_score", 0.0),
-    )
-
-    future_mask = sleeve_label.eq("future_winner")
-    future_new_cap = float(getattr(cfg, "future_winner_entry_weight_cap", 0.10))
-    future_drift_cap = float(getattr(cfg, "future_winner_drift_weight_cap", 0.18))
-    future_hard_cap = float(getattr(cfg, "future_winner_hard_weight_cap", 0.24))
-    if future_mask.any():
-        future_cap = pd.Series(np.minimum(caps.to_numpy(dtype=float), future_new_cap), index=sel.index, dtype=float)
-        future_allow_drift = future_mask & held_mask & (~no_ttm_mask) & fundamental_lane.ne("partial_scout") & (high_confirm >= 0.45)
-        future_hold_cap = np.minimum(
-            future_hard_cap,
-            np.maximum(
-                future_drift_cap,
-                prev_weight.to_numpy(dtype=float) * drift_mult,
-            ),
-        )
-        future_cap = future_cap.where(~(future_mask & held_mask), np.minimum(caps, future_drift_cap))
-        future_cap = future_cap.where(~future_allow_drift, np.minimum(caps, future_hold_cap))
-        caps.loc[future_mask] = future_cap.loc[future_mask]
-
-    early_mask = sleeve_label.eq("early_scout")
-    early_new_cap = float(getattr(cfg, "early_scout_entry_weight_cap", 0.05))
-    early_drift_cap = float(getattr(cfg, "early_scout_drift_weight_cap", 0.10))
-    early_hard_cap = float(getattr(cfg, "early_scout_hard_weight_cap", 0.14))
-    if early_mask.any():
-        early_cap = pd.Series(np.minimum(caps.to_numpy(dtype=float), early_new_cap), index=sel.index, dtype=float)
-        early_hold_cap = np.minimum(
-            early_hard_cap,
-            np.maximum(
-                early_drift_cap,
-                prev_weight.to_numpy(dtype=float) * min(drift_mult, 1.15),
-            ),
-        )
-        early_allow_drift = early_mask & held_mask & (high_confirm >= 0.55) & (~no_ttm_mask)
-        early_cap = early_cap.where(~(early_mask & held_mask), np.minimum(caps, early_drift_cap))
-        early_cap = early_cap.where(~early_allow_drift, np.minimum(caps, early_hold_cap))
-        caps.loc[early_mask] = early_cap.loc[early_mask]
-
-    return caps.clip(lower=0.0, upper=1.0)
 
 
 def build_target_portfolio(
@@ -13844,19 +12865,12 @@ def build_target_portfolio(
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
     if "selection_confirmation_score" not in month_df.columns:
         month_df = compute_benchmark_beating_focus_overlay(month_df, cfg)
-    if "minervini_momentum_alive_score" not in month_df.columns:
-        month_df = compute_minervini_momentum_overlay(month_df)
     month_df = apply_hold_policy_overlay(month_df, prev_w, cfg)
-    month_df = compute_portfolio_sleeve_columns(month_df, cfg)
+    month_df = compute_portfolio_sleeve_columns(month_df)
     month_df["portfolio_seed_score"] = (
         numeric_series_or_default(month_df, "score", 0.0)
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
-        + 0.55 * numeric_series_or_default(month_df, "fundamental_turnaround_acceleration_score", 0.0)
-        + 0.35 * numeric_series_or_default(month_df, "cashflow_inflection_under_loss_score", 0.0)
-        + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
-        + 0.25 * numeric_series_or_default(month_df, "breakout_setup_quality_score", 0.0)
-        - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
     )
 
     caps = compute_dynamic_sector_caps(cfg, month_df)
@@ -13897,10 +12911,6 @@ def build_target_portfolio(
         early_target_n = 0
     core_target_n = max(1, target_n - future_target_n - early_target_n) if target_n > 0 else 0
 
-    score_top_rank = pool["score"].rank(method="first", ascending=False) if "score" in pool.columns else pd.Series(np.inf, index=pool.index)
-    future_engine_score = numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
-    early_engine_score = numeric_series_or_default(pool, "portfolio_early_scout_engine_score", 0.0)
-
     def _prepare_sleeve_pool(
         base_pool: pd.DataFrame,
         preferred_mask: pd.Series,
@@ -13928,20 +12938,6 @@ def build_target_portfolio(
         return pd.concat([preferred, remainder.head(needed)], ignore_index=False)
 
     sleeve_labels = pool.get("portfolio_sleeve_label", pd.Series("core_compounder", index=pool.index, dtype=object)).astype(str)
-    top_score_early_mask = (
-        sleeve_labels.eq("early_scout")
-        & (score_top_rank <= max(target_n, 12))
-        & (pd.to_numeric(pool.get("score"), errors="coerce").notna())
-    )
-    if early_target_n <= 0 and early_target_share >= 0.03 and target_n >= 10 and bool(top_score_early_mask.any()):
-        early_target_n = 1
-        core_target_n = max(1, target_n - future_target_n - early_target_n)
-    future_fallback_from_early = (
-        sleeve_labels.eq("early_scout")
-        & (score_top_rank <= max(target_n + 4, 14))
-        & (future_engine_score >= future_engine_score.quantile(0.70))
-        & ((early_engine_score - future_engine_score) < 0.45)
-    )
     core_pool = _prepare_sleeve_pool(
         pool,
         ~(sleeve_labels.eq("future_winner") | sleeve_labels.eq("early_scout")),
@@ -13961,7 +12957,7 @@ def build_target_portfolio(
     if future_target_n > 0:
         future_pool = _prepare_sleeve_pool(
             pool,
-            sleeve_labels.eq("future_winner") | future_fallback_from_early,
+            sleeve_labels.eq("future_winner"),
             future_target_n,
             "portfolio_future_winner_engine_score",
         )
@@ -14100,15 +13096,6 @@ def build_target_portfolio(
             name_caps.loc[partial_scout_mask],
             float(cfg.stock_weight_max_partial_scout),
         )
-    name_caps = apply_sleeve_entry_drift_name_caps(cfg, sel, name_caps, prev_w=prev_w)
-    sel["portfolio_prev_weight"] = (
-        sel.get("ticker", pd.Series("", index=sel.index, dtype=object))
-        .astype(str)
-        .map({str(k): float(v) for k, v in (prev_w or {}).items() if pd.notna(v)})
-        .fillna(0.0)
-    )
-    sel["portfolio_existing_holding"] = (pd.to_numeric(sel["portfolio_prev_weight"], errors="coerce").fillna(0.0) > 1e-8).astype(float)
-    sel["portfolio_name_cap"] = pd.to_numeric(name_caps, errors="coerce").fillna(float(weight_cap))
     weight_floor = min(cfg.stock_weight_min, 1.0 / max(len(sel), 1))
     sel["weight"] = normalize_with_limits(raw_w, weight_floor, name_caps)
     sel = apply_sector_weight_caps(sel, caps, cfg.cap_base_weight, single_name_cap=name_caps)
@@ -14141,11 +13128,6 @@ def build_target_portfolio(
             sel["_sleeve_factor"], errors="coerce"
         ).fillna(1.0)
         sel = sel.drop(columns="_sleeve_factor", errors="ignore")
-        # Sleeve rescaling can push a leader back above the name cap. Re-run the
-        # hard name/sector caps after the sleeve target pass; sleeve targets are
-        # desired tilts, while name caps are hard risk controls.
-        sel["weight"] = normalize_with_limits(sel["weight"], weight_floor, name_caps)
-        sel = apply_sector_weight_caps(sel, caps, cfg.cap_base_weight, single_name_cap=name_caps)
 
     target_w = dict_from_weights(sel)
     target_w = apply_cash_buffer_to_weights(target_w, regime_ctl.get("cash_target", 0.0))
@@ -14227,28 +13209,10 @@ def build_target_portfolio(
         sleeve_cols = [
             "ticker",
             "portfolio_sleeve_label",
-            "portfolio_sleeve_label_raw",
             "portfolio_sleeve_confidence",
-            "portfolio_sleeve_promotion_signal",
-            "portfolio_sleeve_promoted",
-            "fundamental_history_coverage_score",
-            "fundamental_history_level_coverage",
-            "fundamental_history_change_coverage",
-            "fundamental_history_cagr_coverage",
-            "fundamental_history_quality_coverage",
-            "fundamental_history_depth_3y_score",
-            "fundamental_history_depth_5y_score",
-            "growth_sleeve_data_confidence",
-            "growth_sleeve_technical_confirmation_score",
-            "growth_sleeve_sparse_history_penalty",
-            "data_history_quality_label",
-            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
-            "portfolio_prev_weight",
-            "portfolio_existing_holding",
-            "portfolio_name_cap",
         ]
         final_df = final_df.merge(sel[[c for c in sleeve_cols if c in sel.columns]].drop_duplicates("ticker"), on="ticker", how="left")
     if not final_df.empty:
@@ -14264,7 +13228,6 @@ def build_target_portfolio(
         final_df["early_scout_regime_strength"] = float(
             sleeve_policy.get("early_scout_regime_strength", 0.0)
         )
-        final_df["early_scout_candidate_share"] = float(sleeve_policy.get("early_scout_candidate_share", 0.0))
     final_df = final_df.sort_values("weight", ascending=False).reset_index(drop=True) if not final_df.empty else final_df
     stock_selected_n = int((final_df.get("ticker", pd.Series(dtype=object)).astype(str).str.upper() != CASH_PROXY_TICKER).sum()) if not final_df.empty else 0
     meta = {
@@ -14448,32 +13411,6 @@ def apply_cash_buffer_to_weights(weights: dict[str, float], cash_target: float) 
     return out
 
 
-def drift_weights_by_period_returns(
-    weights: dict[str, float],
-    period_returns: dict[str, float],
-) -> dict[str, float]:
-    if not weights:
-        return {}
-    grown: dict[str, float] = {}
-    for ticker, weight in weights.items():
-        base_weight = float(weight)
-        if not np.isfinite(base_weight) or base_weight <= 1e-10:
-            continue
-        ticker_norm = str(ticker).upper()
-        if ticker_norm == CASH_PROXY_TICKER:
-            gross = 1.0
-        else:
-            period_ret = safe_float(period_returns.get(str(ticker), 0.0))
-            if not np.isfinite(period_ret):
-                period_ret = 0.0
-            gross = max(0.0, 1.0 + float(period_ret))
-        grown[str(ticker)] = base_weight * gross
-    total = float(sum(grown.values()))
-    if total <= 1e-10:
-        return {}
-    return {str(k): float(v / total) for k, v in grown.items() if float(v) > 1e-10}
-
-
 def turnover(prev_w: dict[str, float], new_w: dict[str, float]) -> float:
     keys = set(prev_w.keys()) | set(new_w.keys())
     return 0.5 * float(sum(abs(new_w.get(k, 0.0) - prev_w.get(k, 0.0)) for k in keys))
@@ -14590,206 +13527,6 @@ def performance_metrics(monthly: pd.Series, benchmark: Optional[pd.Series] = Non
     return {"cagr": cagr, "sharpe": sharpe, "sortino": sortino, "max_dd": mdd, "calmar": calmar, "ir": float(ir) if pd.notna(ir) else np.nan, "vol_ann": vol_ann}
 
 
-def sleeve_backtest_returns_from_holdings(holdings: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if holdings is None or holdings.empty:
-        return pd.DataFrame(), pd.DataFrame()
-    required = {"rebalance_date", "ticker", "weight", "portfolio_sleeve_label", "period_forward_return"}
-    if not required.issubset(holdings.columns):
-        return pd.DataFrame(), pd.DataFrame()
-    d = holdings.copy()
-    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
-    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
-    d["period_forward_return"] = pd.to_numeric(d["period_forward_return"], errors="coerce")
-    d["portfolio_sleeve_label"] = d["portfolio_sleeve_label"].fillna("core_compounder").astype(str)
-    d = d[d["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER)].dropna(
-        subset=["rebalance_date", "period_forward_return"]
-    )
-    if d.empty:
-        return pd.DataFrame(), pd.DataFrame()
-    d["weighted_forward_return"] = d["weight"] * d["period_forward_return"]
-    monthly_rows = []
-    for (dt, sleeve), g in d.groupby(["rebalance_date", "portfolio_sleeve_label"], sort=True):
-        sleeve_weight = float(g["weight"].sum())
-        contribution = float(g["weighted_forward_return"].sum())
-        sleeve_return = float(contribution / sleeve_weight) if sleeve_weight > 1e-10 else np.nan
-        monthly_rows.append(
-            {
-                "rebalance_date": dt,
-                "portfolio_sleeve_label": sleeve,
-                "sleeve_weight": sleeve_weight,
-                "selected_names": int(g["ticker"].nunique()),
-                "sleeve_return": sleeve_return,
-                "portfolio_contribution": contribution,
-            }
-        )
-    monthly = pd.DataFrame(monthly_rows)
-    if monthly.empty:
-        return pd.DataFrame(), pd.DataFrame()
-    summary_rows = []
-    for sleeve, g in monthly.groupby("portfolio_sleeve_label", sort=True):
-        returns = pd.Series(g["sleeve_return"].to_numpy(dtype=float), index=pd.to_datetime(g["rebalance_date"]))
-        returns = returns.dropna()
-        metrics = performance_metrics(returns)
-        summary_rows.append(
-            {
-                "portfolio_sleeve_label": str(sleeve),
-                "months": int(len(returns)),
-                "sleeve_cagr": float(metrics.get("cagr", np.nan)),
-                "sleeve_sharpe": float(metrics.get("sharpe", np.nan)),
-                "sleeve_sortino": float(metrics.get("sortino", np.nan)),
-                "sleeve_max_dd": float(metrics.get("max_dd", np.nan)),
-                "sleeve_vol_ann": float(metrics.get("vol_ann", np.nan)),
-                "avg_sleeve_weight": float(g["sleeve_weight"].mean()),
-                "avg_selected_names": float(g["selected_names"].mean()),
-                "avg_monthly_return": float(returns.mean()) if len(returns) else np.nan,
-                "win_rate": float((returns > 0).mean()) if len(returns) else np.nan,
-                "avg_portfolio_contribution": float(g["portfolio_contribution"].mean()),
-            }
-        )
-    summary = pd.DataFrame(summary_rows).sort_values("sleeve_cagr", ascending=False)
-    return monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True), summary.reset_index(drop=True)
-
-
-def build_historical_data_quality_report_frames(
-    cfg: EngineConfig,
-    scored: pd.DataFrame,
-    scored_latest: pd.DataFrame,
-    portfolio_latest: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    hist = add_historical_data_quality_columns(scored.copy() if scored is not None else pd.DataFrame())
-    latest = add_historical_data_quality_columns(scored_latest.copy() if scored_latest is not None else pd.DataFrame())
-    if not hist.empty and "portfolio_sleeve_label" not in hist.columns:
-        hist = compute_portfolio_sleeve_columns(hist, cfg)
-    if not latest.empty and "portfolio_sleeve_label" not in latest.columns:
-        latest = compute_portfolio_sleeve_columns(latest, cfg)
-
-    coverage_cols = list(
-        dict.fromkeys(
-            [
-                "revenues_ttm",
-                "gross_profit_ttm",
-                "op_income_ttm",
-                "net_income_ttm",
-                "ocf_ttm",
-                "fcf_ttm",
-                "sales_growth_yoy",
-                "op_income_growth_yoy",
-                "net_income_growth_yoy",
-                "ocf_growth_yoy",
-                "fcf_growth_yoy",
-                "eps_growth_yoy",
-                "sales_cagr_3y",
-                "sales_cagr_5y",
-                "op_income_cagr_3y",
-                "net_income_cagr_3y",
-                "ocf_cagr_3y",
-                "fcf_cagr_3y",
-                "eps_cagr_3y",
-                "fund_history_quarters_available",
-            ]
-            + FORWARD_RETURN_COVERAGE_COLUMNS
-        )
-    )
-    score_cols = [
-        "fundamental_history_coverage_score",
-        "fundamental_history_level_coverage",
-        "fundamental_history_change_coverage",
-        "fundamental_history_cagr_coverage",
-        "fundamental_history_quality_coverage",
-        "fundamental_history_depth_3y_score",
-        "fundamental_history_depth_5y_score",
-        "growth_sleeve_data_confidence",
-        "growth_sleeve_technical_confirmation_score",
-        "growth_sleeve_sparse_history_penalty",
-        "forward_return_coverage_score",
-    ]
-    label_values = ["full_history", "usable_history", "sparse_growth_history", "latest_or_price_only"]
-
-    def _group_value(v: Any) -> Any:
-        if isinstance(v, pd.Timestamp):
-            return str(v.date())
-        if pd.isna(v):
-            return None
-        return v
-
-    def _summarize(frame: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
-        if frame.empty or not all(c in frame.columns for c in group_cols):
-            return pd.DataFrame()
-        rows: list[dict[str, Any]] = []
-        work = frame.copy()
-        if "rebalance_date" in work.columns:
-            work["rebalance_date"] = pd.to_datetime(work["rebalance_date"], errors="coerce")
-        for keys, grp in work.groupby(group_cols, dropna=False, sort=True):
-            key_tuple = keys if isinstance(keys, tuple) else (keys,)
-            row: dict[str, Any] = {c: _group_value(v) for c, v in zip(group_cols, key_tuple)}
-            row["rows"] = int(len(grp))
-            row["tickers"] = int(grp["ticker"].nunique()) if "ticker" in grp.columns else int(len(grp))
-            for c in score_cols:
-                if c in grp.columns:
-                    vals = pd.to_numeric(grp[c], errors="coerce")
-                    row[f"{c}_mean"] = float(vals.mean()) if vals.notna().any() else np.nan
-                    row[f"{c}_median"] = float(vals.median()) if vals.notna().any() else np.nan
-            for c in coverage_cols:
-                row[f"{c}_coverage"] = float(grp[c].notna().mean()) if c in grp.columns and len(grp) else 0.0
-            label = grp.get("data_history_quality_label", pd.Series("", index=grp.index, dtype=object)).fillna("").astype(str)
-            for v in label_values:
-                row[f"{v}_share"] = float(label.eq(v).mean()) if len(label) else 0.0
-            rows.append(row)
-        return pd.DataFrame(rows)
-
-    by_month = _summarize(hist, ["rebalance_date"])
-    by_sleeve = _summarize(hist, ["rebalance_date", "portfolio_sleeve_label"])
-
-    if not latest.empty:
-        selected_tickers: set[str] = set()
-        if portfolio_latest is not None and not portfolio_latest.empty and "ticker" in portfolio_latest.columns:
-            port_tickers = portfolio_latest["ticker"].astype(str).str.upper()
-            selected_tickers = set(port_tickers.loc[port_tickers.ne(CASH_PROXY_TICKER)])
-        latest["selected_for_portfolio"] = latest.get(
-            "selected_for_portfolio",
-            pd.Series(False, index=latest.index, dtype=bool),
-        ).fillna(False).astype(bool) | latest.get("ticker", pd.Series("", index=latest.index)).astype(str).str.upper().isin(selected_tickers)
-        keep_cols = [
-            "rebalance_date",
-            "ticker",
-            "Name",
-            "sector",
-            "score",
-            "weight",
-            "selected_for_portfolio",
-            "portfolio_sleeve_label",
-            "portfolio_sleeve_label_raw",
-            "portfolio_sleeve_confidence",
-            "portfolio_core_compounder_engine_score",
-            "portfolio_future_winner_engine_score",
-            "portfolio_early_scout_engine_score",
-        ] + HISTORICAL_DATA_QUALITY_COLUMNS + coverage_cols + [
-            "minervini_momentum_alive_score",
-            "technical_blueprint_score",
-            "breakout_setup_quality_score",
-            "selection_market_confirmation_score",
-            "selection_fundamental_confirmation_score",
-        ]
-        keep_cols = [c for c in dict.fromkeys(keep_cols) if c in latest.columns]
-        latest_detail = latest[keep_cols].copy()
-        if "rebalance_date" in latest_detail.columns:
-            latest_detail["rebalance_date"] = pd.to_datetime(
-                latest_detail["rebalance_date"],
-                errors="coerce",
-            ).dt.date.astype(str)
-        sort_cols = [c for c in ["selected_for_portfolio", "score"] if c in latest_detail.columns]
-        if sort_cols:
-            latest_detail = latest_detail.sort_values(
-                sort_cols,
-                ascending=[False] * len(sort_cols),
-            )
-        latest_detail = latest_detail.reset_index(drop=True)
-    else:
-        latest_detail = pd.DataFrame()
-
-    return by_month.reset_index(drop=True), by_sleeve.reset_index(drop=True), latest_detail
-
-
 def run_acceptance_checks(
     cfg: EngineConfig,
     paths: dict[str, Path],
@@ -14803,7 +13540,6 @@ def run_acceptance_checks(
     fs["accepted"] = datetime_series_or_default(fs, "accepted")
     fs["feature_date"] = datetime_series_or_default(fs, "feature_date")
     fs["rebalance_date"] = datetime_series_or_default(fs, "rebalance_date")
-    fs = add_historical_data_quality_columns(fs)
     pit = fs.dropna(subset=["accepted", "feature_date", "rebalance_date"])
     pit_bad = pit[~((pit["accepted"] <= pit["feature_date"]) & (pit["feature_date"] <= pit["rebalance_date"]))]
     checks["pit_violation_count"] = int(len(pit_bad))
@@ -14887,7 +13623,6 @@ def run_acceptance_checks(
         float(np.nanmean(list(comprehensive_cov.values()))) if comprehensive_cov else 0.0
     )
     latest_view = add_core_fundamental_minimum_flags(latest_view, cfg)
-    latest_view = add_historical_data_quality_columns(latest_view)
     core_pass = numeric_series_or_default(latest_view, "core_fundamental_minimum_pass", 0.0)
     checks["core_fundamental_pass_ratio"] = float(core_pass.mean()) if len(core_pass) else 0.0
     checks["core_fundamental_pass_count"] = int(core_pass.sum()) if len(core_pass) else 0
@@ -14932,28 +13667,6 @@ def run_acceptance_checks(
     all_cagr3 = [v["sales_cagr_3y"] for v in cagr_coverage_per_month.values()]
     checks["cagr_3y_coverage_mean"] = round(float(np.nanmean(all_cagr3)), 3) if all_cagr3 else 0.0
     checks["cagr_3y_low_months"] = sum(1 for x in all_cagr3 if x < 0.20)
-    checks["historical_data_quality_latest"] = {}
-    if not latest_view.empty:
-        for c in [
-            "fundamental_history_coverage_score",
-            "growth_sleeve_data_confidence",
-            "growth_sleeve_sparse_history_penalty",
-            "forward_return_coverage_score",
-        ]:
-            if c in latest_view.columns:
-                vals = pd.to_numeric(latest_view[c], errors="coerce")
-                checks["historical_data_quality_latest"][f"{c}_mean"] = (
-                    round(float(vals.mean()), 3) if vals.notna().any() else 0.0
-                )
-        if "data_history_quality_label" in latest_view.columns:
-            checks["historical_data_quality_latest"]["quality_label_counts"] = {
-                str(k): int(v)
-                for k, v in latest_view["data_history_quality_label"]
-                .fillna("unknown")
-                .astype(str)
-                .value_counts()
-                .items()
-            }
 
     (paths["reports"] / "acceptance_checks.json").write_text(json.dumps(checks, indent=2))
     return checks
@@ -15087,7 +13800,6 @@ def backtest_portfolio(
             continue
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
-        month_holding_row_indices: list[int] = []
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"] == tkr]
             if str(tkr).upper() == CASH_PROXY_TICKER:
@@ -15096,22 +13808,6 @@ def backtest_portfolio(
             else:
                 sec = row["sector"].iloc[0] if not row.empty else "Unknown"
                 nm = row["Name"].iloc[0] if not row.empty else ""
-            sleeve_label_value = (
-                str(row["portfolio_sleeve_label"].iloc[0])
-                if not row.empty and "portfolio_sleeve_label" in row.columns
-                else ("cash" if str(tkr).upper() == CASH_PROXY_TICKER else "core_compounder")
-            )
-            sleeve_role_value = (
-                str(row["portfolio_sleeve_role"].iloc[0])
-                if not row.empty and "portfolio_sleeve_role" in row.columns
-                else {
-                    "future_winner": "multi_bagger",
-                    "early_scout": "early_scout",
-                    "core_compounder": "core_compounder",
-                    "cash": "cash",
-                }.get(sleeve_label_value, sleeve_label_value)
-            )
-            month_holding_row_indices.append(len(holdings_rows))
             holdings_rows.append(
                 {
                     "rebalance_date": dt,
@@ -15120,15 +13816,6 @@ def backtest_portfolio(
                     "sector": sec,
                     "weight": ww,
                     "raw_score": float(row["score"].iloc[0]) if not row.empty else np.nan,
-                    "portfolio_sleeve_label": sleeve_label_value,
-                    "portfolio_sleeve_role": sleeve_role_value,
-                    "portfolio_selection_path": (
-                        str(row["portfolio_selection_path"].iloc[0])
-                        if not row.empty and "portfolio_selection_path" in row.columns
-                        else ""
-                    ),
-                    "period_forward_return": np.nan,
-                    "weighted_forward_return": np.nan,
                     "target_n": int(current_meta.get("target_n", 0)),
                     "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                     "cash_target": float(current_meta.get("cash_target", 0.0)),
@@ -15148,14 +13835,7 @@ def backtest_portfolio(
                 continue
             month_ret += ww * ri
             ticker_month_returns[tkr] = float(ri)
-        for row_idx in month_holding_row_indices:
-            held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
-            held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
-            held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
         net_ret = month_ret - cost
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
         if stop_loss_pct > 0:
@@ -15191,19 +13871,6 @@ def backtest_portfolio(
             # Clear stopped_out set at rebalance (allow re-entry if signals improve)
             if rebalance_action in ("rebalance", "initial_rebalance"):
                 stopped_out_tickers.clear()
-        if current_w:
-            current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
-            if current_total > 0 and abs(current_total - 1.0) > 1e-8:
-                current_w = {str(k): float(v / current_total) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
-        if not current_portfolio.empty and "ticker" in current_portfolio.columns:
-            keep_tickers = {
-                str(k)
-                for k in current_w.keys()
-                if str(k).upper() != CASH_PROXY_TICKER
-            }
-            current_portfolio = current_portfolio[
-                current_portfolio["ticker"].astype(str).isin(keep_tickers)
-            ].copy()
         ret_rows.append(
             {
                 "rebalance_date": dt,
@@ -15735,384 +14402,6 @@ def _bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[str, Any]:
     return row
 
 
-SLEEVE_CAP_POLICY_FIELDS: tuple[str, ...] = (
-    "core_compounder_sleeve_base_weight",
-    "future_winner_sleeve_base_weight",
-    "future_winner_sleeve_min_weight",
-    "future_winner_sleeve_max_weight",
-    "early_scout_sleeve_base_weight",
-    "early_scout_sleeve_min_weight",
-    "early_scout_sleeve_max_weight",
-    "early_scout_growth_floor_weight",
-    "early_scout_growth_floor_min_signal",
-    "early_scout_growth_floor_max_risk",
-    "early_scout_candidate_floor_min_share",
-    "future_winner_entry_weight_cap",
-    "future_winner_drift_weight_cap",
-    "future_winner_hard_weight_cap",
-    "early_scout_entry_weight_cap",
-    "early_scout_drift_weight_cap",
-    "early_scout_hard_weight_cap",
-    "sleeve_drift_headroom_pct",
-    "stock_weight_max",
-    "stock_weight_max_high_conviction",
-    "cash_target_growth_cap",
-    "cash_target_balanced_cap",
-    "cash_target_mild_risk_cap",
-    "min_dynamic_port_names",
-)
-
-
-def clone_cfg_with_updates(cfg: dict | EngineConfig, updates: dict[str, Any]) -> EngineConfig:
-    cfg_obj = to_cfg(cfg)
-    out = to_cfg(asdict(cfg_obj))
-    for key, value in updates.items():
-        if hasattr(out, key):
-            setattr(out, key, value)
-    return out
-
-
-def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict[str, Any]]:
-    cfg_obj = to_cfg(cfg)
-    base = {field: getattr(cfg_obj, field) for field in SLEEVE_CAP_POLICY_FIELDS if hasattr(cfg_obj, field)}
-
-    def candidate(name: str, description: str, **updates: Any) -> dict[str, Any]:
-        row = dict(base)
-        row.update(updates)
-        row["sleeve_cap_policy_name"] = name
-        row["sleeve_cap_policy_description"] = description
-        return row
-
-    return [
-        candidate(
-            "baseline_current",
-            "Current configured sleeve/cap policy.",
-        ),
-        candidate(
-            "defensive_drawdown_control",
-            "High core weight, low exploratory sleeves, lower caps, and higher mild-risk cash ceiling.",
-            core_compounder_sleeve_base_weight=0.80,
-            future_winner_sleeve_base_weight=0.12,
-            future_winner_sleeve_min_weight=0.00,
-            future_winner_sleeve_max_weight=0.25,
-            early_scout_sleeve_base_weight=0.04,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.12,
-            early_scout_growth_floor_weight=0.07,
-            early_scout_growth_floor_min_signal=0.38,
-            early_scout_growth_floor_max_risk=0.55,
-            future_winner_entry_weight_cap=0.07,
-            future_winner_drift_weight_cap=0.12,
-            future_winner_hard_weight_cap=0.18,
-            early_scout_entry_weight_cap=0.04,
-            early_scout_drift_weight_cap=0.08,
-            early_scout_hard_weight_cap=0.12,
-            stock_weight_max=0.12,
-            stock_weight_max_high_conviction=0.25,
-            cash_target_growth_cap=0.03,
-            cash_target_balanced_cap=0.07,
-            cash_target_mild_risk_cap=0.18,
-            min_dynamic_port_names=18,
-        ),
-        candidate(
-            "quality_balanced",
-            "Quality compounder dominant, with a smaller multi-bagger sleeve.",
-            core_compounder_sleeve_base_weight=0.65,
-            future_winner_sleeve_base_weight=0.25,
-            future_winner_sleeve_min_weight=0.03,
-            future_winner_sleeve_max_weight=0.45,
-            early_scout_sleeve_base_weight=0.05,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.12,
-            early_scout_growth_floor_weight=0.07,
-            future_winner_entry_weight_cap=0.09,
-            future_winner_drift_weight_cap=0.16,
-            future_winner_hard_weight_cap=0.24,
-            early_scout_entry_weight_cap=0.04,
-            early_scout_drift_weight_cap=0.08,
-            early_scout_hard_weight_cap=0.12,
-            stock_weight_max=0.16,
-            stock_weight_max_high_conviction=0.38,
-            min_dynamic_port_names=14,
-        ),
-        candidate(
-            "growth_balanced",
-            "Higher future-winner exposure without letting early scout dominate.",
-            core_compounder_sleeve_base_weight=0.45,
-            future_winner_sleeve_base_weight=0.38,
-            future_winner_sleeve_min_weight=0.05,
-            future_winner_sleeve_max_weight=0.58,
-            early_scout_sleeve_base_weight=0.12,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.22,
-            early_scout_growth_floor_weight=0.10,
-            future_winner_entry_weight_cap=0.12,
-            future_winner_drift_weight_cap=0.22,
-            future_winner_hard_weight_cap=0.32,
-            early_scout_entry_weight_cap=0.05,
-            early_scout_drift_weight_cap=0.10,
-            early_scout_hard_weight_cap=0.16,
-            stock_weight_max=0.18,
-            stock_weight_max_high_conviction=0.45,
-            min_dynamic_port_names=12,
-        ),
-        candidate(
-            "future_winner_tilt",
-            "Multi-bagger sleeve leads in growth regimes; core remains a stabilizer.",
-            core_compounder_sleeve_base_weight=0.30,
-            future_winner_sleeve_base_weight=0.50,
-            future_winner_sleeve_min_weight=0.08,
-            future_winner_sleeve_max_weight=0.65,
-            early_scout_sleeve_base_weight=0.15,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.25,
-            early_scout_growth_floor_weight=0.12,
-            future_winner_entry_weight_cap=0.15,
-            future_winner_drift_weight_cap=0.30,
-            future_winner_hard_weight_cap=0.42,
-            early_scout_entry_weight_cap=0.06,
-            early_scout_drift_weight_cap=0.13,
-            early_scout_hard_weight_cap=0.20,
-            stock_weight_max=0.20,
-            stock_weight_max_high_conviction=0.50,
-            min_dynamic_port_names=10,
-        ),
-        candidate(
-            "early_scout_bull",
-            "Bull-market needle-finding policy; early scout can expand materially only when regime confirms.",
-            core_compounder_sleeve_base_weight=0.25,
-            future_winner_sleeve_base_weight=0.35,
-            future_winner_sleeve_min_weight=0.05,
-            future_winner_sleeve_max_weight=0.55,
-            early_scout_sleeve_base_weight=0.35,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.40,
-            early_scout_growth_floor_weight=0.18,
-            early_scout_growth_floor_min_signal=0.34,
-            early_scout_growth_floor_max_risk=0.48,
-            future_winner_entry_weight_cap=0.14,
-            future_winner_drift_weight_cap=0.28,
-            future_winner_hard_weight_cap=0.40,
-            early_scout_entry_weight_cap=0.08,
-            early_scout_drift_weight_cap=0.18,
-            early_scout_hard_weight_cap=0.28,
-            sleeve_drift_headroom_pct=0.50,
-            stock_weight_max=0.20,
-            stock_weight_max_high_conviction=0.50,
-            min_dynamic_port_names=9,
-        ),
-        candidate(
-            "early_scout_very_bull",
-            "Most aggressive growth-thrust policy; early scout is large but capped per name.",
-            core_compounder_sleeve_base_weight=0.15,
-            future_winner_sleeve_base_weight=0.40,
-            future_winner_sleeve_min_weight=0.05,
-            future_winner_sleeve_max_weight=0.60,
-            early_scout_sleeve_base_weight=0.40,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.45,
-            early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
-            early_scout_growth_floor_max_risk=0.45,
-            future_winner_entry_weight_cap=0.16,
-            future_winner_drift_weight_cap=0.32,
-            future_winner_hard_weight_cap=0.45,
-            early_scout_entry_weight_cap=0.09,
-            early_scout_drift_weight_cap=0.20,
-            early_scout_hard_weight_cap=0.34,
-            sleeve_drift_headroom_pct=0.65,
-            stock_weight_max=0.22,
-            stock_weight_max_high_conviction=0.50,
-            min_dynamic_port_names=8,
-        ),
-        candidate(
-            "concentrated_leaders",
-            "Let proven leaders run while keeping early scout smaller.",
-            core_compounder_sleeve_base_weight=0.20,
-            future_winner_sleeve_base_weight=0.60,
-            future_winner_sleeve_min_weight=0.08,
-            future_winner_sleeve_max_weight=0.70,
-            early_scout_sleeve_base_weight=0.10,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.20,
-            early_scout_growth_floor_weight=0.10,
-            future_winner_entry_weight_cap=0.18,
-            future_winner_drift_weight_cap=0.36,
-            future_winner_hard_weight_cap=0.50,
-            early_scout_entry_weight_cap=0.06,
-            early_scout_drift_weight_cap=0.14,
-            early_scout_hard_weight_cap=0.22,
-            sleeve_drift_headroom_pct=0.75,
-            stock_weight_max=0.22,
-            stock_weight_max_high_conviction=0.50,
-            min_dynamic_port_names=8,
-        ),
-        candidate(
-            "risk_guarded_growth",
-            "Growth tilt with wider mild-risk cash protection and moderate concentration.",
-            core_compounder_sleeve_base_weight=0.50,
-            future_winner_sleeve_base_weight=0.35,
-            future_winner_sleeve_min_weight=0.04,
-            future_winner_sleeve_max_weight=0.55,
-            early_scout_sleeve_base_weight=0.08,
-            early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.18,
-            early_scout_growth_floor_weight=0.09,
-            future_winner_entry_weight_cap=0.11,
-            future_winner_drift_weight_cap=0.22,
-            future_winner_hard_weight_cap=0.34,
-            early_scout_entry_weight_cap=0.05,
-            early_scout_drift_weight_cap=0.10,
-            early_scout_hard_weight_cap=0.16,
-            stock_weight_max=0.16,
-            stock_weight_max_high_conviction=0.40,
-            cash_target_growth_cap=0.03,
-            cash_target_balanced_cap=0.06,
-            cash_target_mild_risk_cap=0.16,
-            min_dynamic_port_names=12,
-        ),
-    ]
-
-
-def holdings_concentration_metrics(holdings: pd.DataFrame) -> dict[str, float]:
-    if holdings is None or holdings.empty or not {"rebalance_date", "ticker", "weight"}.issubset(holdings.columns):
-        return {
-            "avg_top_name_weight": np.nan,
-            "max_top_name_weight": np.nan,
-            "avg_hhi": np.nan,
-            "max_hhi": np.nan,
-        }
-    d = holdings.copy()
-    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
-    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
-    d = d[d["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER)].dropna(subset=["rebalance_date"])
-    if d.empty:
-        return {
-            "avg_top_name_weight": np.nan,
-            "max_top_name_weight": np.nan,
-            "avg_hhi": np.nan,
-            "max_hhi": np.nan,
-        }
-    per_month = d.groupby("rebalance_date")["weight"].agg(
-        top_name_weight="max",
-        hhi=lambda x: float(np.square(pd.to_numeric(x, errors="coerce").fillna(0.0)).sum()),
-    )
-    return {
-        "avg_top_name_weight": float(per_month["top_name_weight"].mean()),
-        "max_top_name_weight": float(per_month["top_name_weight"].max()),
-        "avg_hhi": float(per_month["hhi"].mean()),
-        "max_hhi": float(per_month["hhi"].max()),
-    }
-
-
-def sleeve_cap_policy_objective(row: dict[str, Any], cfg: EngineConfig) -> float:
-    strategy_cagr = safe_float(row.get("strategy_cagr"), 0.0)
-    benchmark_cagr = safe_float(row.get("benchmark_cagr"), np.nan)
-    excess_cagr = safe_float(row.get("excess_cagr"), np.nan)
-    if not np.isfinite(excess_cagr):
-        excess_cagr = strategy_cagr - benchmark_cagr if np.isfinite(benchmark_cagr) else strategy_cagr
-    sharpe = safe_float(row.get("sharpe"), 0.0)
-    sortino = safe_float(row.get("sortino"), 0.0)
-    max_dd = min(safe_float(row.get("max_dd"), 0.0), 0.0)
-    turnover = max(safe_float(row.get("avg_turnover_monthly"), 0.0), 0.0)
-    avg_cash = max(safe_float(row.get("avg_cash_weight"), 0.0), 0.0)
-    avg_top = max(safe_float(row.get("avg_top_name_weight"), 0.0), 0.0)
-    avg_hhi = max(safe_float(row.get("avg_hhi"), 0.0), 0.0)
-    concentration_penalty = max(0.0, avg_top - 0.22) + 0.50 * max(0.0, avg_hhi - 0.12)
-    return float(
-        float(cfg.sleeve_cap_policy_objective_excess_weight) * excess_cagr
-        + float(cfg.sleeve_cap_policy_objective_sharpe_weight) * 0.05 * sharpe
-        + float(cfg.sleeve_cap_policy_objective_sortino_weight) * 0.03 * sortino
-        - float(cfg.sleeve_cap_policy_objective_drawdown_weight) * abs(max_dd)
-        - float(cfg.sleeve_cap_policy_objective_turnover_weight) * turnover
-        - float(cfg.sleeve_cap_policy_objective_concentration_weight) * concentration_penalty
-        - float(cfg.sleeve_cap_policy_objective_cash_drag_weight) * avg_cash
-    )
-
-
-def compare_sleeve_cap_policy_backtests(
-    cfg: dict | EngineConfig,
-    signals: pd.DataFrame,
-    candidates: Optional[Iterable[dict[str, Any]]] = None,
-) -> pd.DataFrame:
-    cfg_obj = to_cfg(cfg)
-    raw_candidates = list(candidates) if candidates is not None else generate_sleeve_cap_policy_candidates(cfg_obj)
-    max_candidates = max(int(getattr(cfg_obj, "sleeve_cap_policy_max_candidates", len(raw_candidates))), 1)
-    rows: list[dict[str, Any]] = []
-    backtests_by_policy: dict[str, BacktestResult] = {}
-    for idx, policy in enumerate(raw_candidates[:max_candidates], start=1):
-        name = str(policy.get("sleeve_cap_policy_name", f"candidate_{idx}"))
-        updates = {field: policy[field] for field in SLEEVE_CAP_POLICY_FIELDS if field in policy}
-        row: dict[str, Any] = {
-            "sleeve_cap_policy_rank": int(idx),
-            "sleeve_cap_policy_name": name,
-            "sleeve_cap_policy_description": str(policy.get("sleeve_cap_policy_description", "")),
-            **updates,
-        }
-        try:
-            policy_cfg = clone_cfg_with_updates(cfg_obj, updates)
-            validate_config(policy_cfg)
-            bt = backtest_portfolio(policy_cfg, signals)
-            row.update(_bt_metrics_row(bt, policy_cfg, portfolio_mode="dynamic", policy_mode="sleeve_cap_policy"))
-            row.update(holdings_concentration_metrics(bt.holdings))
-            backtests_by_policy[name] = bt
-            row["policy_status"] = "ok"
-            row["policy_error"] = ""
-            row["sleeve_cap_policy_objective"] = sleeve_cap_policy_objective(row, cfg_obj)
-        except Exception as exc:
-            row["policy_status"] = "failed"
-            row["policy_error"] = f"{type(exc).__name__}: {exc}"
-            row["sleeve_cap_policy_objective"] = -np.inf
-        rows.append(row)
-    if not rows:
-        return pd.DataFrame()
-    out = pd.DataFrame(rows)
-    out["_status_sort"] = np.where(out["policy_status"].astype(str).eq("ok"), 0, 1)
-    out = out.sort_values(["_status_sort", "sleeve_cap_policy_objective"], ascending=[True, False]).drop(
-        columns=["_status_sort"]
-    )
-    out["sleeve_cap_policy_rank"] = np.arange(1, len(out) + 1)
-    out.attrs["backtests_by_policy"] = backtests_by_policy
-    return out.reset_index(drop=True)
-
-
-def _clean_json_scalar(value: Any) -> Any:
-    if isinstance(value, (np.integer,)):
-        return int(value)
-    if isinstance(value, (np.floating,)):
-        return None if not np.isfinite(float(value)) else float(value)
-    if isinstance(value, float):
-        return None if not np.isfinite(value) else float(value)
-    if not isinstance(value, (dict, list, tuple, str)):
-        try:
-            if pd.isna(value):
-                return None
-        except Exception:
-            pass
-    return value
-
-
-def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
-    if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
-        return {}
-    ok = policy_compare[policy_compare["policy_status"].astype(str).eq("ok")].copy()
-    if ok.empty:
-        return {}
-    if "sleeve_cap_policy_objective" in ok.columns:
-        ok = ok.sort_values("sleeve_cap_policy_objective", ascending=False)
-    best = ok.iloc[0].to_dict()
-    return {str(k): _clean_json_scalar(v) for k, v in best.items() if not str(k).startswith("_")}
-
-
-def apply_sleeve_cap_policy_to_cfg(cfg: dict | EngineConfig, selected_policy: dict[str, Any]) -> EngineConfig:
-    updates = {
-        field: selected_policy[field]
-        for field in SLEEVE_CAP_POLICY_FIELDS
-        if field in selected_policy and selected_policy[field] is not None
-    }
-    return clone_cfg_with_updates(cfg, updates)
-
-
 def compare_portfolio_size_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -16135,12 +14424,11 @@ def compare_rebalance_interval_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
     intervals: Optional[Iterable[int]] = None,
-    active_backtest: Optional[BacktestResult] = None,
 ) -> pd.DataFrame:
     cfg_obj = to_cfg(cfg)
     candidates = intervals if intervals is not None else cfg_obj.rebalance_interval_comparison_months
     clean_intervals = sorted({int(x) for x in candidates if int(x) >= 1})
-    bt_adaptive = active_backtest if active_backtest is not None else backtest_portfolio(cfg_obj, signals)
+    bt_adaptive = backtest_portfolio(cfg_obj, signals)
     rows = [_bt_metrics_row(bt_adaptive, cfg_obj, portfolio_mode="dynamic", policy_mode="adaptive")]
     for interval in clean_intervals:
         rows.append(_bt_metrics_row(
@@ -16148,396 +14436,6 @@ def compare_rebalance_interval_backtests(
             cfg_obj, portfolio_mode="dynamic", policy_mode="fixed_interval",
             rebalance_interval_months=int(interval)))
     return pd.DataFrame(rows).sort_values("rebalance_interval_months").reset_index(drop=True)
-
-
-SLEEVE_STANDALONE_LABELS: tuple[str, ...] = ("core_compounder", "future_winner", "early_scout")
-SLEEVE_STANDALONE_ROLE_MAP: dict[str, str] = {
-    "core_compounder": "core_compounder",
-    "future_winner": "multi_bagger",
-    "early_scout": "early_scout",
-}
-SLEEVE_STANDALONE_ENGINE_COL: dict[str, str] = {
-    "core_compounder": "portfolio_core_compounder_engine_score",
-    "future_winner": "portfolio_future_winner_engine_score",
-    "early_scout": "portfolio_early_scout_engine_score",
-}
-
-
-def prepare_standalone_sleeve_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.DataFrame:
-    d = frame.copy()
-    if d.empty:
-        return d
-    if "score" not in d.columns:
-        if "score_total" in d.columns:
-            d["score"] = pd.to_numeric(d["score_total"], errors="coerce").fillna(0.0)
-        else:
-            d["score"] = pd.Series(0.0, index=d.index, dtype=float)
-    if "selection_confirmation_score" not in d.columns:
-        d = compute_benchmark_beating_focus_overlay(d, cfg)
-    if "minervini_momentum_alive_score" not in d.columns:
-        d = compute_minervini_momentum_overlay(d)
-    d = compute_portfolio_sleeve_columns(d, cfg)
-    return d
-
-
-def select_standalone_sleeve_topn(
-    cfg: EngineConfig,
-    month_df: pd.DataFrame,
-    sleeve_label: str,
-    top_n: int,
-) -> pd.DataFrame:
-    if month_df.empty or int(top_n) <= 0:
-        return month_df.iloc[0:0].copy()
-    if sleeve_label not in SLEEVE_STANDALONE_LABELS:
-        raise ValueError(f"Unknown standalone sleeve label: {sleeve_label}")
-    engine_col = SLEEVE_STANDALONE_ENGINE_COL[sleeve_label]
-    d = prepare_standalone_sleeve_frame(cfg, month_df)
-    if d.empty:
-        return d
-    labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
-    raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
-    d["sleeve_standalone_score"] = row_mean(
-        [
-            cross_sectional_robust_z(d, "score"),
-            1.25 * numeric_series_or_default(d, engine_col, 0.0),
-            0.35 * cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.30 * numeric_series_or_default(d, "minervini_momentum_alive_score", 0.0),
-            0.25 * numeric_series_or_default(d, "breakout_setup_quality_score", 0.0),
-            -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
-        ],
-        d.index,
-    ).fillna(0.0)
-    selected_parts: list[pd.DataFrame] = []
-    selected_tickers: set[str] = set()
-
-    def _take(mask: pd.Series, source: str, limit: int) -> None:
-        nonlocal selected_tickers
-        if limit <= 0:
-            return
-        mask = mask.reindex(d.index).fillna(False).astype(bool)
-        pool = d.loc[mask].copy()
-        if pool.empty:
-            return
-        if selected_tickers and "ticker" in pool.columns:
-            pool = pool[~pool["ticker"].astype(str).isin(selected_tickers)].copy()
-        if pool.empty:
-            return
-        pool = pool.sort_values(["sleeve_standalone_score", engine_col, "score"], ascending=False)
-        pool = dedupe_same_company_rows(pool, score_col="sleeve_standalone_score").head(limit).copy()
-        if pool.empty:
-            return
-        pool["sleeve_standalone_selection_source"] = source
-        selected_parts.append(pool)
-        if "ticker" in pool.columns:
-            selected_tickers.update(pool["ticker"].astype(str).tolist())
-
-    _take(labels.eq(sleeve_label), "final_label", int(top_n))
-    remaining = int(top_n) - sum(len(x) for x in selected_parts)
-    if remaining > 0:
-        _take(raw_labels.eq(sleeve_label), "raw_label_fallback", remaining)
-    remaining = int(top_n) - sum(len(x) for x in selected_parts)
-    if remaining > 0:
-        engine_series = numeric_series_or_default(d, engine_col, 0.0)
-        engine_cut = float(engine_series.quantile(0.70)) if len(engine_series) else 0.0
-        _take(engine_series >= engine_cut, "engine_score_fallback", remaining)
-    if not selected_parts:
-        return d.iloc[0:0].copy()
-    out = pd.concat(selected_parts, ignore_index=False)
-    out = dedupe_same_company_rows(out, score_col="sleeve_standalone_score").head(int(top_n)).copy()
-    out["portfolio_sleeve_label"] = sleeve_label
-    out["portfolio_sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label)
-    return out
-
-
-def backtest_standalone_sleeve_topn(
-    cfg: dict | EngineConfig,
-    signals: pd.DataFrame,
-    sleeve_label: str,
-    top_n: int = 7,
-    rebalance_interval_months: int = 1,
-) -> BacktestResult:
-    cfg_obj = to_cfg(cfg)
-    paths = get_paths(cfg_obj)
-    top_n = max(int(top_n), 1)
-    interval_months = max(int(rebalance_interval_months), 1)
-    d = signals.copy()
-    if "score" not in d.columns:
-        if "score_total" in d.columns:
-            d["score"] = pd.to_numeric(d["score_total"], errors="coerce").fillna(0.0)
-        else:
-            d["score"] = 0.0
-    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
-    d = d.dropna(subset=["rebalance_date"]).sort_values(["rebalance_date", "score"], ascending=[True, False]).reset_index(drop=True)
-    months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
-    if len(months) < 2:
-        raise RuntimeError("Need at least two months of OOS signals for standalone sleeve backtest.")
-
-    cost_candidates = [
-        safe_float(getattr(cfg_obj, "roundtrip_cost_bps", np.nan)),
-        2.0 * safe_float(getattr(cfg_obj, "trade_cost_bps_per_side", 0.0)),
-    ]
-    cost_candidates = [float(x) for x in cost_candidates if np.isfinite(x)]
-    effective_roundtrip_cost_bps = float(max(cost_candidates)) if cost_candidates else 0.0
-    starting_capital_usd = float(max(safe_float(getattr(cfg_obj, "starting_capital_usd", 100000.0)), 1.0))
-
-    current_w: dict[str, float] = {}
-    current_portfolio = pd.DataFrame()
-    next_scheduled_dt = pd.NaT
-    rebalance_dates_taken: list[pd.Timestamp] = []
-    holdings_rows: list[dict[str, Any]] = []
-    ret_rows: list[dict[str, Any]] = []
-
-    def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
-        return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
-
-    for i in range(len(months) - 1):
-        dt = pd.Timestamp(months[i])
-        next_dt = pd.Timestamp(months[i + 1])
-        mm = d[d["rebalance_date"] == dt].copy()
-        rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
-        turn = 0.0
-        cost = 0.0
-        rebalance_action = "scheduled_hold"
-
-        if rebalance_due:
-            prev_w = current_w.copy()
-            sel = select_standalone_sleeve_topn(cfg_obj, mm, sleeve_label=sleeve_label, top_n=top_n)
-            if not sel.empty:
-                tickers = sel["ticker"].astype(str).tolist()
-                equal_weight = 1.0 / max(len(tickers), 1)
-                current_w = {str(t): float(equal_weight) for t in tickers}
-                current_portfolio = sel.copy()
-            else:
-                current_w = {CASH_PROXY_TICKER: 1.0}
-                current_portfolio = pd.DataFrame()
-            turn = turnover(prev_w, current_w)
-            cost = turn * (effective_roundtrip_cost_bps / 10000.0)
-            rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
-            rebalance_dates_taken.append(dt)
-            next_scheduled_dt = next_rebalance_date_for_interval(dt, interval_months=interval_months)
-
-        if not current_w:
-            current_w = {CASH_PROXY_TICKER: 1.0}
-
-        holdings_source = current_portfolio if not current_portfolio.empty else mm
-        month_holding_row_indices: list[int] = []
-        for tkr, ww in current_w.items():
-            row = holdings_source[holdings_source["ticker"].astype(str).eq(str(tkr))] if "ticker" in holdings_source.columns else pd.DataFrame()
-            month_holding_row_indices.append(len(holdings_rows))
-            holdings_rows.append(
-                {
-                    "rebalance_date": dt,
-                    "ticker": tkr,
-                    "Name": row["Name"].iloc[0] if not row.empty and "Name" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else ""),
-                    "sector": row["sector"].iloc[0] if not row.empty and "sector" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else "Unknown"),
-                    "weight": float(ww),
-                    "raw_score": float(row["score"].iloc[0]) if not row.empty and "score" in row.columns else np.nan,
-                    "portfolio_sleeve_label": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else sleeve_label,
-                    "portfolio_sleeve_role": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label),
-                    "sleeve_standalone_score": float(row["sleeve_standalone_score"].iloc[0]) if not row.empty and "sleeve_standalone_score" in row.columns else np.nan,
-                    "sleeve_standalone_selection_source": str(row["sleeve_standalone_selection_source"].iloc[0]) if not row.empty and "sleeve_standalone_selection_source" in row.columns else "",
-                    "period_forward_return": np.nan,
-                    "weighted_forward_return": np.nan,
-                    "target_n": int(top_n),
-                    "rebalance_action": rebalance_action,
-                    "active_rebalance_interval_months": int(interval_months),
-                    "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
-                }
-            )
-
-        month_ret = 0.0
-        missing = 0
-        ticker_month_returns: dict[str, float] = {}
-        for tkr, ww in current_w.items():
-            ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
-            if ri is None:
-                missing += 1
-                continue
-            month_ret += float(ww) * float(ri)
-            ticker_month_returns[str(tkr)] = float(ri)
-        for row_idx in month_holding_row_indices:
-            held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
-            held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
-            held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
-        net_ret = month_ret - cost
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
-        if current_w:
-            total_w = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
-            if total_w > 0 and abs(total_w - 1.0) > 1e-8:
-                current_w = {str(k): float(v / total_w) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
-        ret_rows.append(
-            {
-                "rebalance_date": dt,
-                "next_rebalance_date": next_dt,
-                "gross_return": float(month_ret),
-                "cost": float(cost),
-                "net_return": float(net_ret),
-                "turnover": float(turn),
-                "missing_tickers": int(missing),
-                "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
-                "rebalance_action": rebalance_action,
-                "active_rebalance_interval_months": int(interval_months),
-                "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
-                "target_n": int(top_n),
-                "portfolio_sleeve_label": str(sleeve_label),
-                "portfolio_sleeve_role": SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label),
-            }
-        )
-
-    ret_df = pd.DataFrame(ret_rows)
-    if ret_df.empty:
-        raise RuntimeError("Standalone sleeve backtest produced no monthly returns.")
-    ret_df["rebalance_date"] = pd.to_datetime(ret_df["rebalance_date"])
-    ret_df = ret_df.sort_values("rebalance_date")
-    ret_df["equity"] = (1.0 + ret_df["net_return"]).cumprod()
-    ret_df["equity_value_usd"] = starting_capital_usd * ret_df["equity"]
-    benchmark_close = load_benchmark_price_series(cfg_obj, paths)
-    bench = []
-    if not benchmark_close.empty:
-        for r in ret_df.itertuples(index=False):
-            rr = return_series_between_dates(
-                benchmark_close,
-                r.rebalance_date + pd.Timedelta(days=1),
-                r.next_rebalance_date + pd.Timedelta(days=1),
-            )
-            bench.append(rr if rr is not None else np.nan)
-    else:
-        bench = [np.nan] * len(ret_df)
-    ret_df["bench_return"] = bench
-    metrics = performance_metrics(ret_df["net_return"], benchmark=ret_df["bench_return"])
-    metrics["avg_turnover_monthly"] = float(ret_df["turnover"].mean())
-    metrics["avg_cash_weight"] = float(ret_df["cash_weight"].mean()) if "cash_weight" in ret_df.columns else 0.0
-    metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
-    metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
-    metrics["months"] = int(len(ret_df))
-    metrics["target_n_override"] = int(top_n)
-    metrics["rebalance_interval_months"] = int(interval_months)
-    rebalance_intervals = (
-        [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
-        if len(rebalance_dates_taken) >= 2
-        else []
-    )
-    metrics["avg_rebalance_interval_months"] = float(np.mean(rebalance_intervals)) if rebalance_intervals else float(interval_months)
-    metrics["adaptive_rebalance_policy"] = False
-    metrics["rebalance_count"] = int(len(rebalance_dates_taken))
-    metrics["rebalanced_month_ratio"] = float(len(rebalance_dates_taken) / max(len(ret_df), 1))
-    metrics["benchmark_source"] = benchmark_history_source_label(cfg_obj)
-    metrics["starting_capital_usd"] = starting_capital_usd
-    if ret_df["bench_return"].notna().any():
-        bench_eq = (1.0 + ret_df["bench_return"].fillna(0.0)).cumprod()
-        ret_df["benchmark_equity"] = bench_eq
-        ret_df["benchmark_value_usd"] = starting_capital_usd * bench_eq
-        years = max(len(ret_df), 1) / 12.0
-        metrics["benchmark_cagr"] = float(bench_eq.iloc[-1] ** (1.0 / years) - 1.0) if years > 0 else np.nan
-        metrics["excess_cagr"] = float(metrics.get("cagr", np.nan) - metrics.get("benchmark_cagr", np.nan))
-        metrics["beat_month_ratio"] = float((ret_df["net_return"] > ret_df["bench_return"]).mean())
-        metrics["benchmark_ending_capital_usd"] = float(ret_df["benchmark_value_usd"].iloc[-1])
-    else:
-        metrics["benchmark_cagr"] = np.nan
-        metrics["excess_cagr"] = np.nan
-        metrics["beat_month_ratio"] = np.nan
-        ret_df["benchmark_equity"] = np.nan
-        ret_df["benchmark_value_usd"] = np.nan
-        metrics["benchmark_ending_capital_usd"] = np.nan
-    metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
-    holdings_df = pd.DataFrame(holdings_rows)
-    if not holdings_df.empty:
-        stock_names = holdings_df[
-            holdings_df["ticker"].astype(str).str.upper() != CASH_PROXY_TICKER
-        ].groupby("rebalance_date")["ticker"].nunique()
-        metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
-    else:
-        metrics["avg_stock_names"] = 0.0
-    equity_df = ret_df[
-        [
-            "rebalance_date",
-            "equity",
-            "equity_value_usd",
-            "benchmark_equity",
-            "benchmark_value_usd",
-            "net_return",
-            "bench_return",
-        ]
-    ].copy()
-    return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
-
-
-def compare_standalone_sleeve_topn_backtests(
-    cfg: dict | EngineConfig,
-    signals: pd.DataFrame,
-    top_n: Optional[int] = None,
-    intervals: Optional[Iterable[int]] = None,
-    active_backtest: Optional[BacktestResult] = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    cfg_obj = to_cfg(cfg)
-    test_top_n = int(top_n if top_n is not None else getattr(cfg_obj, "standalone_sleeve_top_n", 7))
-    candidates = intervals if intervals is not None else getattr(cfg_obj, "standalone_sleeve_rebalance_intervals", [1, 3])
-    clean_intervals = sorted({int(x) for x in candidates if int(x) >= 1})
-    rows: list[dict[str, Any]] = []
-    monthly_frames: list[pd.DataFrame] = []
-    holdings_frames: list[pd.DataFrame] = []
-    log(
-        f"Phase 5c: standalone sleeve top{test_top_n} backtests "
-        f"(sleeves={','.join(SLEEVE_STANDALONE_LABELS)}, intervals={clean_intervals}) ..."
-    )
-    for sleeve in SLEEVE_STANDALONE_LABELS:
-        for interval in clean_intervals:
-            bt = backtest_standalone_sleeve_topn(
-                cfg_obj,
-                signals,
-                sleeve_label=sleeve,
-                top_n=test_top_n,
-                rebalance_interval_months=int(interval),
-            )
-            rows.append(
-                _bt_metrics_row(
-                    bt,
-                    cfg_obj,
-                    portfolio_mode="standalone_sleeve_topn",
-                    policy_mode="fixed_interval",
-                    sleeve_test=str(sleeve),
-                    sleeve_role=SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve),
-                    target_stock_names=int(test_top_n),
-                    weighting_mode="equal_weight",
-                    rebalance_interval_months=int(interval),
-                )
-            )
-            m = bt.monthly_returns.copy()
-            m["sleeve_test"] = str(sleeve)
-            m["sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve)
-            m["target_stock_names"] = int(test_top_n)
-            m["policy_mode"] = "fixed_interval"
-            monthly_frames.append(m)
-            h = bt.holdings.copy()
-            h["sleeve_test"] = str(sleeve)
-            h["sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve)
-            h["target_stock_names"] = int(test_top_n)
-            h["policy_mode"] = "fixed_interval"
-            holdings_frames.append(h)
-    if active_backtest is not None:
-        rows.append(
-            _bt_metrics_row(
-                active_backtest,
-                cfg_obj,
-                portfolio_mode="adaptive_three_sleeve",
-                policy_mode="adaptive",
-                sleeve_test="adaptive_three_sleeve",
-                sleeve_role="adaptive_three_sleeve",
-                target_stock_names=int(round(float(active_backtest.metrics.get("avg_stock_names", 0.0)))),
-                weighting_mode="dynamic_score_invvol_caps",
-            )
-        )
-    compare = pd.DataFrame(rows)
-    if not compare.empty:
-        compare = compare.sort_values(
-            ["portfolio_mode", "sleeve_test", "rebalance_interval_months"],
-            ascending=[True, True, True],
-        ).reset_index(drop=True)
-    monthly = pd.concat(monthly_frames, ignore_index=True) if monthly_frames else pd.DataFrame()
-    holdings = pd.concat(holdings_frames, ignore_index=True) if holdings_frames else pd.DataFrame()
-    return compare, monthly, holdings
 
 
 def compare_backtest_window_years(
@@ -17466,8 +15364,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     current_portfolio = artifacts.get("latest_portfolio")
     research_only_portfolio_artifact = artifacts.get("research_only_portfolio")
     acceptance_checks = artifacts.get("acceptance_checks", {})
-    sleeve_cap_policy_compare = pd.DataFrame(artifacts.get("sleeve_cap_policy_compare", pd.DataFrame())).copy()
-    selected_sleeve_cap_policy = dict(artifacts.get("selected_sleeve_cap_policy", {}) or {})
 
     if current_scored is None or current_scored.empty:
         latest_dt = pd.to_datetime(scored["rebalance_date"], errors="coerce").max()
@@ -17485,7 +15381,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         apply_statement_repair=True,
         add_fundamental_flags=True,
     )
-    scored_latest = compute_portfolio_sleeve_columns(scored_latest, cfg)
+    scored_latest = compute_portfolio_sleeve_columns(scored_latest)
     if "ranking_eligible" not in scored_latest.columns:
         scored_latest["ranking_eligible"] = scored_latest["core_fundamental_minimum_pass"].fillna(False).astype(bool)
     full_rank = scored_latest[scored_latest["ranking_eligible"].fillna(False)].copy()
@@ -17506,7 +15402,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             return out
         enrich_cols = [
             "ticker",
-            "score_rank",
             "score",
             "score_total",
             "score_pre_focus_total",
@@ -17523,35 +15418,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "adaptive_quality_ranker",
             "score_garp_core",
             "score_focus_bonus",
-            "score_minervini_momentum_bonus",
-            "score_broken_momentum_penalty",
             "garp_score",
             "archetype_alignment_score",
             "dominant_archetype_label",
             "future_winner_scout_score",
             "portfolio_sleeve_label",
-            "portfolio_sleeve_label_raw",
             "portfolio_sleeve_confidence",
-            "portfolio_sleeve_promotion_signal",
-            "portfolio_sleeve_promoted",
-            "fundamental_history_coverage_score",
-            "fundamental_history_level_coverage",
-            "fundamental_history_change_coverage",
-            "fundamental_history_cagr_coverage",
-            "fundamental_history_quality_coverage",
-            "fundamental_history_depth_3y_score",
-            "fundamental_history_depth_5y_score",
-            "growth_sleeve_data_confidence",
-            "growth_sleeve_technical_confirmation_score",
-            "growth_sleeve_sparse_history_penalty",
-            "data_history_quality_label",
-            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
-            "portfolio_prev_weight",
-            "portfolio_existing_holding",
-            "portfolio_name_cap",
             "sleeve_target_core_compounder_weight",
             "sleeve_target_future_winner_weight",
             "sleeve_target_early_scout_weight",
@@ -17561,14 +15436,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_future_winner_model",
             "pred_future_winner_ret",
             "pred_future_winner_p",
-            "minervini_momentum_alive_score",
-            "minervini_trend_template_score",
-            "minervini_trend_pass",
-            "breakout_setup_quality_score",
-            "momentum_alive_relative_score",
-            "momentum_alive_absolute_score",
-            "momentum_alive_volume_score",
-            "broken_momentum_penalty",
             "fundamental_lane_label",
             "sector_adjusted_fields_present",
             "partial_scout_confirmation_score",
@@ -17583,19 +15450,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "return_on_equity_effective",
             "revenue_growth_final",
             "earnings_growth_final",
-            "fundamental_turnaround_acceleration_score",
-            "fundamental_revenue_thrust_score",
-            "fundamental_profit_cash_acceleration_score",
-            "fundamental_turn_positive_score",
-            "cashflow_inflection_under_loss_score",
-            "ai_fundamental_thrust_score",
-            "roe_turn_positive_4q",
-            "ocf_turn_positive_4q",
-            "fcf_turn_positive_4q",
-            "op_income_turn_positive_4q",
-            "net_income_turn_positive_4q",
-            "profit_turn_positive_4q",
-            "cashflow_turn_positive_4q",
             "strategy_blueprint_score",
             "technical_blueprint_score",
             "revision_blueprint_score",
@@ -17668,14 +15522,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             out.get("raw_score"), errors="coerce"
         ).isna().all():
             out["raw_score"] = pd.to_numeric(out.get("score"), errors="coerce")
-        out = out.sort_values("weight", ascending=False).copy()
-        if "portfolio_rank" not in out.columns:
-            out["portfolio_rank"] = np.arange(1, len(out) + 1)
-        if "rank" in out.columns:
-            out["portfolio_rank"] = pd.to_numeric(out.get("portfolio_rank"), errors="coerce").fillna(
-                pd.to_numeric(out["rank"], errors="coerce")
-            )
-        return out
+        return out.sort_values("weight", ascending=False).copy()
 
     def _annotate_output_frame(frame: pd.DataFrame, *, research_only_output: bool) -> pd.DataFrame:
         out = frame.copy()
@@ -17687,32 +15534,16 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     def _build_top_table(rank_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> pd.DataFrame:
         top = rank_df.copy()
         if not portfolio_df.empty and "ticker" in portfolio_df.columns and "weight" in portfolio_df.columns:
-            port_cols = ["ticker", "weight"]
-            if "rank" in portfolio_df.columns:
-                port_cols.append("rank")
-            portfolio_map = portfolio_df[port_cols].copy()
-            if "rank" in portfolio_map.columns:
-                portfolio_map = portfolio_map.rename(columns={"rank": "portfolio_rank"})
-            top = top.merge(portfolio_map, on="ticker", how="left")
+            top = top.merge(portfolio_df[["ticker", "weight"]], on="ticker", how="left")
         else:
             top["weight"] = 0.0
-            top["portfolio_rank"] = np.nan
         top["weight"] = pd.to_numeric(top["weight"], errors="coerce").fillna(0.0)
-        if "portfolio_rank" not in top.columns:
-            top["portfolio_rank"] = np.nan
         top["selected_for_portfolio"] = top["weight"] > 0
-        sleeve_label_for_reason = top.get("portfolio_sleeve_label", pd.Series("", index=top.index, dtype=object)).fillna("").astype(str)
-        top["selection_reason"] = np.where(
-            top["selected_for_portfolio"],
-            "selected_for_live_portfolio",
-            np.where(sleeve_label_for_reason.eq("early_scout"), "score_ranked_early_scout_watchlist", "score_ranked_watchlist"),
-        )
         top = dedupe_same_company_rows(
             top,
             score_col="score",
+            selected_col="selected_for_portfolio",
         ).head(max(int(cfg.top_n), 30)).copy()
-        top = top.sort_values("score", ascending=False).reset_index(drop=True)
-        top["score_rank"] = np.arange(1, len(top) + 1)
         top.insert(0, "rank", np.arange(1, len(top) + 1))
         return top
 
@@ -17747,26 +15578,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         explain_df["contrib_score_missing_fundamental_penalty"] = -numeric_series_or_default(
             explain_df, "score_missing_fundamental_penalty", 0.0
         )
-        proxy_discount = float(getattr(cfg, "ownership_proxy_score_discount", 0.25))
-        inst_source_weight = pd.Series(
-            np.where(numeric_series_or_default(explain_df, "institutional_actual_available", 0.0).fillna(0.0) > 0, 1.0, proxy_discount),
-            index=explain_df.index,
-            dtype=float,
+        explain_df["contrib_institutional_flow"] = cfg.w_institutional_flow * numeric_series_or_default(
+            explain_df, "institutional_flow_signal_score", 0.0
         )
-        insider_source_weight = pd.Series(
-            np.where(numeric_series_or_default(explain_df, "insider_actual_available", 0.0).fillna(0.0) > 0, 1.0, proxy_discount),
-            index=explain_df.index,
-            dtype=float,
-        )
-        explain_df["contrib_institutional_flow"] = (
-            cfg.w_institutional_flow
-            * inst_source_weight
-            * numeric_series_or_default(explain_df, "institutional_flow_signal_score", 0.0)
-        )
-        explain_df["contrib_insider_flow"] = (
-            cfg.w_insider_flow
-            * insider_source_weight
-            * numeric_series_or_default(explain_df, "insider_flow_signal_score", 0.0)
+        explain_df["contrib_insider_flow"] = cfg.w_insider_flow * numeric_series_or_default(
+            explain_df, "insider_flow_signal_score", 0.0
         )
         explain_df["contrib_multidimensional_confirmation"] = numeric_series_or_default(
             explain_df, "score_multidimensional_confirmation", 0.0
@@ -17777,12 +15593,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             * numeric_series_or_default(explain_df, "actual_results_score", 0.0)
         )
         explain_df["contrib_focus_overlay"] = numeric_series_or_default(explain_df, "score_focus_bonus", 0.0)
-        explain_df["contrib_minervini_momentum"] = numeric_series_or_default(
-            explain_df, "score_minervini_momentum_bonus", 0.0
-        )
-        explain_df["contrib_broken_momentum_penalty"] = -numeric_series_or_default(
-            explain_df, "score_broken_momentum_penalty", 0.0
-        )
         explain_df["contrib_sector_crowding_penalty"] = -numeric_series_or_default(explain_df, "sector_crowding_penalty", 0.0)
         explain_df["contrib_overheat_penalty"] = -numeric_series_or_default(explain_df, "overheat_penalty", 0.0)
         explain_df["contrib_portfolio_seed_overheat_penalty"] = -numeric_series_or_default(
@@ -17810,24 +15620,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             return out
         cols = [
             "rank",
-            "score_rank",
-            "portfolio_rank",
             "ticker",
             "Name",
             "sector",
             "weight",
             "selected_for_portfolio",
-            "selection_reason",
-            "portfolio_selection_path",
-            "portfolio_sleeve_role",
-            "portfolio_sleeve_winner_engine",
-            "portfolio_sleeve_engine_edge",
             "score",
             "score_model_core",
             "score_total",
             "score_focus_bonus",
-            "score_minervini_momentum_bonus",
-            "score_broken_momentum_penalty",
             "ensemble_weight_linear",
             "ensemble_weight_catboost",
             "ensemble_weight_ranker",
@@ -17840,23 +15641,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "profitability_inflection_score",
             "dominant_archetype_label",
             "archetype_alignment_score",
-            "portfolio_sleeve_label_raw",
             "portfolio_sleeve_label",
             "portfolio_sleeve_confidence",
-            "portfolio_sleeve_promotion_signal",
-            "portfolio_sleeve_promoted",
-            "fundamental_history_coverage_score",
-            "fundamental_history_level_coverage",
-            "fundamental_history_change_coverage",
-            "fundamental_history_cagr_coverage",
-            "fundamental_history_quality_coverage",
-            "fundamental_history_depth_3y_score",
-            "fundamental_history_depth_5y_score",
-            "growth_sleeve_data_confidence",
-            "growth_sleeve_technical_confirmation_score",
-            "growth_sleeve_sparse_history_penalty",
-            "data_history_quality_label",
-            "forward_return_coverage_score",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
@@ -17868,20 +15654,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "sleeve_risk_signal",
             "future_winner_regime_strength",
             "early_scout_regime_strength",
-            "early_scout_candidate_share",
             "future_winner_scout_score",
             "long_hold_compounder_score",
             "score_future_winner_model",
             "pred_future_winner_ret",
             "pred_future_winner_p",
-            "minervini_momentum_alive_score",
-            "minervini_trend_template_score",
-            "minervini_trend_pass",
-            "breakout_setup_quality_score",
-            "momentum_alive_relative_score",
-            "momentum_alive_absolute_score",
-            "momentum_alive_volume_score",
-            "broken_momentum_penalty",
             "strategy_blueprint_score",
             "stagflation_score",
             "growth_liquidity_reentry_score",
@@ -17924,19 +15701,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "earnings_growth_final",
             "forward_pe_final",
             "peg_final",
-            "fundamental_turnaround_acceleration_score",
-            "fundamental_revenue_thrust_score",
-            "fundamental_profit_cash_acceleration_score",
-            "fundamental_turn_positive_score",
-            "cashflow_inflection_under_loss_score",
-            "ai_fundamental_thrust_score",
-            "roe_turn_positive_4q",
-            "ocf_turn_positive_4q",
-            "fcf_turn_positive_4q",
-            "op_income_turn_positive_4q",
-            "net_income_turn_positive_4q",
-            "profit_turn_positive_4q",
-            "cashflow_turn_positive_4q",
             "sales_growth_yoy",
             "net_income_growth_yoy",
             "op_income_growth_yoy",
@@ -17990,61 +15754,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         cols = [c for c in cols if c in out.columns]
         return out[cols].copy()
 
-    def _add_sleeve_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
-        out = frame.copy()
-        if out.empty:
-            return out
-        sleeve_label = out.get(
-            "portfolio_sleeve_label",
-            pd.Series("core_compounder", index=out.index, dtype=object),
-        ).fillna("core_compounder").astype(str)
-        role_map = {
-            "core_compounder": "core_compounder",
-            "future_winner": "multi_bagger",
-            "early_scout": "early_scout",
-        }
-        role = sleeve_label.map(role_map).fillna(sleeve_label)
-        out["portfolio_sleeve_role"] = role
-
-        engine_cols = [
-            "portfolio_core_compounder_engine_score",
-            "portfolio_future_winner_engine_score",
-            "portfolio_early_scout_engine_score",
-        ]
-        engine_labels = np.array(["core_compounder", "multi_bagger", "early_scout"], dtype=object)
-        if all(c in out.columns for c in engine_cols):
-            engine_scores = np.column_stack(
-                [
-                    pd.to_numeric(out[c], errors="coerce").fillna(-np.inf).to_numpy(dtype=float)
-                    for c in engine_cols
-                ]
-            )
-            winner_idx = np.argmax(engine_scores, axis=1)
-            sorted_scores = np.sort(engine_scores, axis=1)
-            edge = sorted_scores[:, -1] - sorted_scores[:, -2]
-            out["portfolio_sleeve_winner_engine"] = engine_labels[winner_idx]
-            out["portfolio_sleeve_engine_edge"] = np.where(np.isfinite(edge), edge, np.nan)
-        else:
-            out["portfolio_sleeve_winner_engine"] = role
-            out["portfolio_sleeve_engine_edge"] = np.nan
-
-        weight = pd.to_numeric(out.get("weight", 0.0), errors="coerce").fillna(0.0)
-        selected = out.get("selected_for_portfolio", pd.Series(False, index=out.index))
-        selected = selected.fillna(False).astype(bool) | (weight > 0)
-        out["portfolio_selection_path"] = np.where(
-            selected,
-            "live_portfolio_" + role,
-            "top30_watchlist_" + role,
-        )
-        reason = out.get(
-            "selection_reason",
-            pd.Series("", index=out.index, dtype=object),
-        ).fillna("").astype(str)
-        reason = reason.mask(reason.str.strip().eq(""), out["portfolio_selection_path"].astype(str))
-        has_role_suffix = reason.str.contains(":core_compounder|:multi_bagger|:early_scout", regex=True)
-        out["selection_reason"] = reason.mask(~has_role_suffix, reason + ":" + role.astype(str))
-        return out
-
     coef = model_bundle.linear_feature_weights
     portfolio_latest = _normalize_portfolio_frame(current_portfolio)
     research_only_portfolio = _normalize_portfolio_frame(research_only_portfolio_artifact)
@@ -18068,10 +15777,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_latest = _annotate_output_frame(portfolio_latest, research_only_output=False)
     research_only_top30 = _annotate_output_frame(research_only_top30, research_only_output=True)
     research_only_portfolio = _annotate_output_frame(research_only_portfolio, research_only_output=True)
-    top30 = _add_sleeve_display_columns(top30)
-    portfolio_latest = _add_sleeve_display_columns(portfolio_latest)
-    research_only_top30 = _add_sleeve_display_columns(research_only_top30)
-    research_only_portfolio = _add_sleeve_display_columns(research_only_portfolio)
     top30_operational = _build_operational_view(top30, include_selected=True)
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
@@ -18094,16 +15799,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_size_compare_path = paths["reports"] / "portfolio_size_comparison.csv"
     rebalance_interval_compare_path = paths["reports"] / "rebalance_interval_comparison.csv"
     backtest_window_compare_path = paths["reports"] / "backtest_window_comparison.csv"
-    sleeve_cap_policy_compare_path = paths["reports"] / "sleeve_cap_policy_comparison.csv"
-    sleeve_cap_policy_champion_path = paths["reports"] / "sleeve_cap_policy_champion_latest.json"
-    sleeve_backtest_monthly_path = paths["reports"] / "portfolio_sleeve_backtest_monthly.csv"
-    sleeve_backtest_compare_path = paths["reports"] / "portfolio_sleeve_backtest_comparison.csv"
-    standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
-    standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
-    standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
-    historical_quality_monthly_path = paths["reports"] / "historical_data_quality_by_month.csv"
-    historical_quality_sleeve_path = paths["reports"] / "historical_data_quality_by_sleeve.csv"
-    historical_quality_latest_path = paths["reports"] / "historical_data_quality_latest.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -18157,24 +15852,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "ir": float(bt.metrics.get("ir", np.nan)) if pd.notna(bt.metrics.get("ir", np.nan)) else np.nan,
     }
     benchmark_compare_path.write_text(json.dumps(benchmark_compare, indent=2))
-    if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)) and not sleeve_cap_policy_compare.empty:
-        sleeve_cap_policy_compare.to_csv(sleeve_cap_policy_compare_path, index=False)
-        sleeve_cap_policy_champion_path.write_text(
-            json.dumps(selected_sleeve_cap_policy or {}, indent=2),
-            encoding="utf-8",
-        )
-    else:
-        _safe_unlink(sleeve_cap_policy_compare_path)
-        _safe_unlink(sleeve_cap_policy_champion_path)
     run_portfolio_size_compare = bool(getattr(cfg, "run_portfolio_size_comparison", cfg.run_comparison_backtests))
     run_rebalance_interval_compare = bool(
         getattr(cfg, "run_rebalance_interval_comparison", cfg.run_comparison_backtests)
     )
     run_backtest_window_compare = bool(
         getattr(cfg, "run_backtest_window_comparison", cfg.run_comparison_backtests)
-    )
-    run_standalone_sleeve_compare = bool(
-        getattr(cfg, "run_standalone_sleeve_backtest_comparison", cfg.run_comparison_backtests)
     )
     if run_portfolio_size_compare:
         portfolio_size_compare = compare_portfolio_size_backtests(cfg, scored, cfg.portfolio_size_comparison_sizes)
@@ -18187,7 +15870,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             cfg,
             scored,
             cfg.rebalance_interval_comparison_months,
-            active_backtest=bt,
         )
         rebalance_interval_compare.to_csv(rebalance_interval_compare_path, index=False)
     else:
@@ -18203,46 +15885,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     else:
         backtest_window_compare = pd.DataFrame()
         _safe_unlink(backtest_window_compare_path)
-    if run_standalone_sleeve_compare:
-        standalone_sleeve_compare, standalone_sleeve_monthly, standalone_sleeve_holdings = (
-            compare_standalone_sleeve_topn_backtests(
-                cfg,
-                scored,
-                top_n=int(getattr(cfg, "standalone_sleeve_top_n", 7)),
-                intervals=getattr(cfg, "standalone_sleeve_rebalance_intervals", [1, 3]),
-                active_backtest=bt,
-            )
-        )
-        standalone_sleeve_compare.to_csv(standalone_sleeve_compare_path, index=False)
-        standalone_sleeve_monthly.to_csv(standalone_sleeve_monthly_path, index=False)
-        standalone_sleeve_holdings.to_csv(standalone_sleeve_holdings_path, index=False)
-    else:
-        standalone_sleeve_compare = pd.DataFrame()
-        standalone_sleeve_monthly = pd.DataFrame()
-        standalone_sleeve_holdings = pd.DataFrame()
-        _safe_unlink(standalone_sleeve_compare_path)
-        _safe_unlink(standalone_sleeve_monthly_path)
-        _safe_unlink(standalone_sleeve_holdings_path)
-
-    if bool(getattr(cfg, "run_historical_data_quality_reports", True)):
-        historical_quality_monthly, historical_quality_sleeve, historical_quality_latest = (
-            build_historical_data_quality_report_frames(
-                cfg,
-                scored,
-                scored_latest,
-                portfolio_operational,
-            )
-        )
-        historical_quality_monthly.to_csv(historical_quality_monthly_path, index=False)
-        historical_quality_sleeve.to_csv(historical_quality_sleeve_path, index=False)
-        historical_quality_latest.to_csv(historical_quality_latest_path, index=False)
-    else:
-        historical_quality_monthly = pd.DataFrame()
-        historical_quality_sleeve = pd.DataFrame()
-        historical_quality_latest = pd.DataFrame()
-        _safe_unlink(historical_quality_monthly_path)
-        _safe_unlink(historical_quality_sleeve_path)
-        _safe_unlink(historical_quality_latest_path)
 
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
@@ -18401,76 +16043,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         else {}
     )
 
-    def _non_null_ratio(frame: pd.DataFrame, column: str) -> float:
-        if frame.empty or column not in frame.columns:
-            return 0.0
-        s = frame[column]
-        non_null = s.notna()
-        if pd.api.types.is_object_dtype(s):
-            non_null = non_null & s.astype(str).str.strip().ne("")
-        return float(non_null.mean()) if len(s) else 0.0
-
-    def _positive_flag_ratio(frame: pd.DataFrame, column: str) -> float:
-        if frame.empty or column not in frame.columns:
-            return 0.0
-        flags = pd.to_numeric(frame[column], errors="coerce").fillna(0.0) > 0
-        return float(flags.mean()) if len(flags) else 0.0
-
-    actual_data_coverage = {
-        "analyst_target": max(
-            _non_null_ratio(scored_latest, "target_mean_price"),
-            _non_null_ratio(scored_latest, "target_upside_pct"),
-        ),
-        "analyst_revision_change": max(
-            _non_null_ratio(scored_latest, "target_mean_price_30d_change"),
-            _non_null_ratio(scored_latest, "eps_est_fy1_30d_change"),
-            _non_null_ratio(scored_latest, "rev_est_fy1_30d_change"),
-        ),
-        "sec13f_actual": max(
-            _positive_flag_ratio(scored_latest, "institutional_actual_available"),
-            _non_null_ratio(scored_latest, "sec13f_value"),
-            _non_null_ratio(scored_latest, "sec13f_delta_value"),
-        ),
-        "insider_actual": max(
-            _positive_flag_ratio(scored_latest, "insider_actual_available"),
-            _non_null_ratio(scored_latest, "sec_form345_net_shares"),
-            _non_null_ratio(scored_latest, "sec_form345_buy_ratio"),
-        ),
-        "institutional_signal_proxy": _non_null_ratio(scored_latest, "institutional_flow_signal_score"),
-        "insider_signal_proxy": _non_null_ratio(scored_latest, "insider_flow_signal_score"),
-    }
-    actual_data_status = {
-        "analyst_revision_active": actual_data_coverage["analyst_revision_change"] >= 0.05,
-        "analyst_target_active": actual_data_coverage["analyst_target"] >= 0.05,
-        "sec13f_actual_active": actual_data_coverage["sec13f_actual"] >= 0.05,
-        "insider_actual_active": actual_data_coverage["insider_actual"] >= 0.05,
-        "ownership_proxy_score_discount": float(getattr(cfg, "ownership_proxy_score_discount", 0.25)),
-        "ownership_flow_is_proxy_only": (
-            actual_data_coverage["sec13f_actual"] < 0.05
-            and actual_data_coverage["insider_actual"] < 0.05
-            and max(actual_data_coverage["institutional_signal_proxy"], actual_data_coverage["insider_signal_proxy"]) > 0.0
-        ),
-    }
-    champion_rebalance_policy = {
-        "policy_mode": str(best_rebalance_interval.get("policy_mode", "unknown")),
-        "rebalance_interval_months": int(
-            best_rebalance_interval.get("rebalance_interval_months", getattr(cfg, "rebalance_interval_months", 1))
-        ),
-        "strategy_cagr": safe_float(best_rebalance_interval.get("strategy_cagr")),
-        "benchmark_cagr": safe_float(best_rebalance_interval.get("benchmark_cagr")),
-        "excess_cagr": safe_float(best_rebalance_interval.get("excess_cagr")),
-        "sharpe": safe_float(best_rebalance_interval.get("sharpe")),
-        "sortino": safe_float(best_rebalance_interval.get("sortino")),
-        "max_dd": safe_float(best_rebalance_interval.get("max_dd")),
-        "ir": safe_float(best_rebalance_interval.get("ir")),
-        "avg_turnover_monthly": safe_float(best_rebalance_interval.get("avg_turnover_monthly")),
-        "ending_capital_usd": safe_float(best_rebalance_interval.get("ending_capital_usd")),
-        "regime_target_interval_months": int(
-            best_rebalance_interval.get("target_interval_months", getattr(cfg, "rebalance_interval_months", 1))
-        ),
-        "regime_interval_label": str(best_rebalance_interval.get("regime_interval_label", "")),
-    }
-
     weights_payload = {
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
         "holdings": {
@@ -18502,13 +16074,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         },
         "sleeve_actual_weights": portfolio_sleeve_actual_weights,
         "sleeve_selected_counts": portfolio_sleeve_selected_counts,
-        "actual_data_coverage": actual_data_coverage,
-        "actual_data_status": actual_data_status,
-        "champion_rebalance_policy": champion_rebalance_policy,
-        "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
-        "sleeve_cap_policy_applied": bool(
-            selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True))
-        ),
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
@@ -18568,9 +16133,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     weights_path.write_text(json.dumps(weights_payload, indent=2))
     bt_metrics_path.write_text(json.dumps(bt.metrics, indent=2))
     bt.equity_curve.to_csv(equity_path, index=False)
-    sleeve_bt_monthly, sleeve_bt_compare = sleeve_backtest_returns_from_holdings(bt.holdings)
-    sleeve_bt_monthly.to_csv(sleeve_backtest_monthly_path, index=False)
-    sleeve_bt_compare.to_csv(sleeve_backtest_compare_path, index=False)
     ops_output_files = update_operational_tracking(
         cfg,
         paths,
@@ -18590,16 +16152,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Run timestamp: {datetime.now().isoformat(timespec='seconds')}",
         f"- Period: {cfg.start_date} ~ {cfg.end_date}",
         f"- Months: {bt.metrics.get('months')}",
-        f"- Champion policy mode: {champion_rebalance_policy.get('policy_mode')}",
-        f"- Champion rebalance interval (months): {champion_rebalance_policy.get('rebalance_interval_months')}",
-        f"- Champion CAGR: {champion_rebalance_policy.get('strategy_cagr'):.4f}",
-        f"- Champion excess CAGR: {champion_rebalance_policy.get('excess_cagr'):.4f}",
-        f"- Champion Sharpe: {champion_rebalance_policy.get('sharpe'):.4f}",
-        f"- Champion MaxDD: {champion_rebalance_policy.get('max_dd'):.4f}",
-        f"- Champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', 'unavailable')}",
-        f"- Champion sleeve/cap objective: {safe_float(selected_sleeve_cap_policy.get('sleeve_cap_policy_objective'), np.nan):.4f}",
-        f"- Sleeve/cap champion applied: {bool(selected_sleeve_cap_policy and bool(getattr(cfg, 'sleeve_cap_policy_apply_champion', True)))}",
-        f"- Active backtest below is the configured policy used for the exported equity_curve.csv.",
         f"- CAGR: {bt.metrics.get('cagr'):.4f}",
         f"- Benchmark source: {bt.metrics.get('benchmark_source')}",
         f"- Benchmark CAGR: {bt.metrics.get('benchmark_cagr'):.4f}",
@@ -18635,50 +16187,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Recommendation note: {next_run_recommendation.get('recommended_next_run_reason')}",
         f"- Strict live/backtest alignment: {bool(cfg.strict_live_backtest_alignment)}",
         f"- Operational realized coverage threshold: {float(cfg.ops_min_realized_coverage):.2f}",
-        f"- Analyst/revision actual coverage: {actual_data_coverage.get('analyst_revision_change', 0.0):.4f}",
-        f"- 13F actual coverage: {actual_data_coverage.get('sec13f_actual', 0.0):.4f}",
-        f"- Insider actual coverage: {actual_data_coverage.get('insider_actual', 0.0):.4f}",
-        f"- Ownership proxy score discount: {actual_data_status.get('ownership_proxy_score_discount', 0.25):.2f}",
-        f"- Ownership flow proxy-only: {bool(actual_data_status.get('ownership_flow_is_proxy_only', False))}",
         f"- Backtest window comparison years: {', '.join(str(int(x)) for x in cfg.backtest_window_comparison_years)}",
     ]
-    perf_md.append("- Sleeve backtest comparison:")
-    if not sleeve_bt_compare.empty:
-        for r in sleeve_bt_compare.itertuples(index=False):
-            perf_md.append(
-                f"  - {r.portfolio_sleeve_label}: CAGR={r.sleeve_cagr:.4f}, "
-                f"Sharpe={r.sleeve_sharpe:.3f}, MaxDD={r.sleeve_max_dd:.4f}, "
-                f"avg_weight={r.avg_sleeve_weight:.3f}, months={int(r.months)}"
-            )
-    else:
-        perf_md.append("  - unavailable")
-    perf_md.append("- Standalone sleeve top-N backtest comparison:")
-    if not standalone_sleeve_compare.empty:
-        display_cols = [
-            "sleeve_test",
-            "rebalance_interval_months",
-            "strategy_cagr",
-            "benchmark_cagr",
-            "excess_cagr",
-            "sharpe",
-            "max_dd",
-            "avg_stock_names",
-        ]
-        for r in standalone_sleeve_compare[standalone_sleeve_compare["portfolio_mode"].eq("standalone_sleeve_topn")][display_cols].itertuples(index=False):
-            perf_md.append(
-                f"  - {r.sleeve_test} top{int(round(float(r.avg_stock_names)))} / {int(r.rebalance_interval_months)}m: "
-                f"CAGR={float(r.strategy_cagr):.4f}, benchmark={float(r.benchmark_cagr):.4f}, "
-                f"excess={float(r.excess_cagr):.4f}, Sharpe={float(r.sharpe):.3f}, MaxDD={float(r.max_dd):.4f}"
-            )
-        adaptive_rows = standalone_sleeve_compare[standalone_sleeve_compare["portfolio_mode"].eq("adaptive_three_sleeve")]
-        for r in adaptive_rows.itertuples(index=False):
-            perf_md.append(
-                f"  - adaptive_three_sleeve/adaptive: CAGR={float(r.strategy_cagr):.4f}, "
-                f"benchmark={float(r.benchmark_cagr):.4f}, excess={float(r.excess_cagr):.4f}, "
-                f"Sharpe={float(r.sharpe):.3f}, MaxDD={float(r.max_dd):.4f}"
-            )
-    else:
-        perf_md.append("  - unavailable")
     (paths["reports"] / "oos_performance.md").write_text("\n".join(perf_md), encoding="utf-8")
 
     output_files = {
@@ -18689,16 +16199,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest.json": str(weights_path),
         "backtest_metrics.json": str(bt_metrics_path),
         "equity_curve.csv": str(equity_path),
-        "portfolio_sleeve_backtest_monthly.csv": str(sleeve_backtest_monthly_path),
-        "portfolio_sleeve_backtest_comparison.csv": str(sleeve_backtest_compare_path),
-        "portfolio_sleeve_top7_standalone_comparison.csv": str(standalone_sleeve_compare_path),
-        "portfolio_sleeve_top7_standalone_monthly.csv": str(standalone_sleeve_monthly_path),
-        "portfolio_sleeve_top7_standalone_holdings.csv": str(standalone_sleeve_holdings_path),
-        "historical_data_quality_by_month.csv": str(historical_quality_monthly_path),
-        "historical_data_quality_by_sleeve.csv": str(historical_quality_sleeve_path),
-        "historical_data_quality_latest.csv": str(historical_quality_latest_path),
-        "sleeve_cap_policy_comparison.csv": str(sleeve_cap_policy_compare_path),
-        "sleeve_cap_policy_champion_latest.json": str(sleeve_cap_policy_champion_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -18740,37 +16240,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_backtest_window_compare:
         output_files["backtest_window_comparison.csv"] = str(backtest_window_compare_path)
 
-    historical_quality_latest_summary: dict[str, Any] = {}
-    if not historical_quality_latest.empty:
-        latest_quality_cols = [
-            "fundamental_history_coverage_score",
-            "growth_sleeve_data_confidence",
-            "growth_sleeve_sparse_history_penalty",
-            "forward_return_coverage_score",
-        ]
-        for c in latest_quality_cols:
-            if c in historical_quality_latest.columns:
-                vals = pd.to_numeric(historical_quality_latest[c], errors="coerce")
-                historical_quality_latest_summary[f"{c}_mean"] = float(vals.mean()) if vals.notna().any() else np.nan
-        if "data_history_quality_label" in historical_quality_latest.columns:
-            historical_quality_latest_summary["quality_label_counts"] = {
-                str(k): int(v)
-                for k, v in historical_quality_latest["data_history_quality_label"]
-                .fillna("unknown")
-                .astype(str)
-                .value_counts()
-                .items()
-            }
-        if {"portfolio_sleeve_label", "growth_sleeve_data_confidence"}.issubset(historical_quality_latest.columns):
-            sleeve_conf = (
-                historical_quality_latest.groupby("portfolio_sleeve_label")["growth_sleeve_data_confidence"]
-                .mean()
-                .dropna()
-            )
-            historical_quality_latest_summary["growth_sleeve_data_confidence_by_sleeve"] = {
-                str(k): float(v) for k, v in sleeve_conf.items()
-            }
-
     summary = {
         "run_ts": now_ts(),
         "base_dir": cfg.base_dir,
@@ -18798,35 +16267,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "future_winner": _portfolio_first_numeric("sleeve_target_future_winner_weight", default=0.0),
             "early_scout": _portfolio_first_numeric("sleeve_target_early_scout_weight", default=0.0),
         },
-        "portfolio_sleeve_backtest_comparison": (
-            sleeve_bt_compare.replace({np.nan: None}).to_dict(orient="records")
-            if not sleeve_bt_compare.empty
-            else []
-        ),
-        "standalone_sleeve_topn_backtest_comparison": (
-            standalone_sleeve_compare.replace({np.nan: None}).to_dict(orient="records")
-            if not standalone_sleeve_compare.empty
-            else []
-        ),
-        "standalone_sleeve_top_n": int(getattr(cfg, "standalone_sleeve_top_n", 7)),
-        "standalone_sleeve_rebalance_intervals": [
-            int(x) for x in getattr(cfg, "standalone_sleeve_rebalance_intervals", [1, 3])
-        ],
-        "historical_data_quality_latest": historical_quality_latest_summary,
-        "historical_data_quality_report_rows": {
-            "by_month": int(len(historical_quality_monthly)),
-            "by_sleeve": int(len(historical_quality_sleeve)),
-            "latest": int(len(historical_quality_latest)),
-        },
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
-        "actual_data_coverage": actual_data_coverage,
-        "actual_data_status": actual_data_status,
-        "champion_rebalance_policy": champion_rebalance_policy,
-        "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
-        "sleeve_cap_policy_applied": bool(
-            selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True))
-        ),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
         "sleeve_risk_signal": _portfolio_first_numeric("sleeve_risk_signal", default=0.0),
         "n_research_only_top30": int(len(research_only_top30)),
@@ -18884,12 +16326,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "backtest_usable": bool(acceptance_checks.get("backtest_usable", False)),
         "research_only_backtest": bool(acceptance_checks.get("backtest_research_only", False)),
         "run_comparison_backtests": bool(cfg.run_comparison_backtests),
-        "run_sleeve_cap_policy_comparison": bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)),
-        "sleeve_cap_policy_apply_champion": bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)),
         "run_portfolio_size_comparison": run_portfolio_size_compare,
         "run_rebalance_interval_comparison": run_rebalance_interval_compare,
         "run_backtest_window_comparison": run_backtest_window_compare,
-        "run_standalone_sleeve_backtest_comparison": run_standalone_sleeve_compare,
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
@@ -18905,11 +16344,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest": str(weights_path),
         "backtest_metrics": str(bt_metrics_path),
         "equity_curve": str(equity_path),
-        "sleeve_cap_policy_comparison": str(sleeve_cap_policy_compare_path),
-        "sleeve_cap_policy_champion_latest": str(sleeve_cap_policy_champion_path),
-        "historical_data_quality_by_month": str(historical_quality_monthly_path),
-        "historical_data_quality_by_sleeve": str(historical_quality_sleeve_path),
-        "historical_data_quality_latest": str(historical_quality_latest_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),
@@ -18951,10 +16385,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["rebalance_interval_comparison"] = str(rebalance_interval_compare_path)
     if run_backtest_window_compare:
         result_outputs["backtest_window_comparison"] = str(backtest_window_compare_path)
-    if run_standalone_sleeve_compare:
-        result_outputs["portfolio_sleeve_top7_standalone_comparison"] = str(standalone_sleeve_compare_path)
-        result_outputs["portfolio_sleeve_top7_standalone_monthly"] = str(standalone_sleeve_monthly_path)
-        result_outputs["portfolio_sleeve_top7_standalone_holdings"] = str(standalone_sleeve_holdings_path)
     return result_outputs
 
 
@@ -19151,35 +16581,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         )
 
     scored = pd.read_parquet(scored_path)
-    sleeve_cap_policy_compare = pd.DataFrame()
-    selected_sleeve_cap_policy: dict[str, Any] = {}
-    policy_cfg = cfg
-    bt: Optional[BacktestResult] = None
-    if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)):
-        log("Phase 4b: optimizing sleeve/cap policy by OOS backtest candidates ...")
-        sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
-        selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare)
-        if selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)):
-            policy_cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
-            validate_config(policy_cfg)
-            policy_name = str(selected_sleeve_cap_policy.get("sleeve_cap_policy_name", ""))
-            candidate_backtests = sleeve_cap_policy_compare.attrs.get("backtests_by_policy", {})
-            if isinstance(candidate_backtests, dict):
-                bt = candidate_backtests.get(policy_name)
-            log(
-                "Phase 4b: applying sleeve/cap champion "
-                f"{policy_name} "
-                f"(objective={safe_float(selected_sleeve_cap_policy.get('sleeve_cap_policy_objective'), np.nan):.4f})."
-            )
-        elif selected_sleeve_cap_policy:
-            log(
-                "Phase 4b: sleeve/cap champion identified but not applied "
-                f"({selected_sleeve_cap_policy.get('sleeve_cap_policy_name')})."
-            )
-    if bt is None:
-        bt = backtest_portfolio(policy_cfg, scored)
-    else:
-        log("Phase 5: reusing champion sleeve/cap backtest result for active policy.")
+    bt = backtest_portfolio(cfg, scored)
     save_stage_flag(paths, "phase5_backtest", "completed", {"months": int(bt.metrics.get("months", 0))})
 
     try:
@@ -19192,7 +16594,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             scored,
             reason=exc,
         )
-    checks = run_acceptance_checks(policy_cfg, paths, feature_store, scored, bt)
+    checks = run_acceptance_checks(cfg, paths, feature_store, scored, bt)
     save_stage_flag(paths, "acceptance_checks", "completed", checks)
     if not checks.get("backtest_usable", False):
         log(
@@ -19209,10 +16611,10 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         latest_portfolio = pd.DataFrame(
             columns=["rank", "ticker", "Name", "sector", "weight", "selected_for_portfolio", "rebalance_date"]
         )
-        research_only_portfolio = build_latest_portfolio(policy_cfg, latest_recommendations)
+        research_only_portfolio = build_latest_portfolio(cfg, latest_recommendations)
         log(f"[INFO] Research-only portfolio built with {len(research_only_portfolio)} names.")
     else:
-        latest_portfolio = build_latest_portfolio(policy_cfg, latest_recommendations)
+        latest_portfolio = build_latest_portfolio(cfg, latest_recommendations)
     save_stage_flag(
         paths,
         "phase5b_latest_recommendations",
@@ -19226,7 +16628,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     )
 
     output_paths = export_outputs(
-        policy_cfg,
+        cfg,
         {
             "scored": scored,
             "backtest": bt,
@@ -19235,9 +16637,6 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             "latest_portfolio": latest_portfolio,
             "research_only_portfolio": research_only_portfolio,
             "acceptance_checks": checks,
-            "sleeve_cap_policy_compare": sleeve_cap_policy_compare,
-            "selected_sleeve_cap_policy": selected_sleeve_cap_policy,
-            "base_config_before_sleeve_cap_policy": asdict(cfg),
         },
     )
     save_stage_flag(paths, "phase6_export", "completed", output_paths)
@@ -19255,7 +16654,6 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         "latest_portfolio_rows": int(len(latest_portfolio)),
         "research_only_portfolio_rows": int(len(research_only_portfolio)),
         "acceptance_checks": checks,
-        "selected_sleeve_cap_policy": selected_sleeve_cap_policy,
         "outputs": output_paths,
     }
 
