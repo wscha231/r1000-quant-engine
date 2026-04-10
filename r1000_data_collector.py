@@ -61,6 +61,9 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("early_scout_sleeve_base_weight", 0.05)
     cfg.setdefault("early_scout_sleeve_min_weight", 0.00)
     cfg.setdefault("early_scout_sleeve_max_weight", 0.15)
+    cfg.setdefault("run_sleeve_cap_policy_comparison", True)
+    cfg.setdefault("sleeve_cap_policy_apply_champion", True)
+    cfg.setdefault("sleeve_cap_policy_max_candidates", 9)
     return cfg
 
 
@@ -85,6 +88,9 @@ def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["early_scout_sleeve_base_weight"] = 0.05
     cfg["early_scout_sleeve_min_weight"] = 0.00
     cfg["early_scout_sleeve_max_weight"] = 0.15
+    cfg["run_sleeve_cap_policy_comparison"] = True
+    cfg["sleeve_cap_policy_apply_champion"] = True
+    cfg["sleeve_cap_policy_max_candidates"] = 9
     return cfg
 
 
@@ -359,6 +365,8 @@ def run_full_validation_suite(
         "live_fundamental_coverage_latest": paths["out"] / "live_fundamental_coverage_latest.csv",
         "portfolio_size_comparison": paths["reports"] / "portfolio_size_comparison.csv",
         "rebalance_interval_comparison": paths["reports"] / "rebalance_interval_comparison.csv",
+        "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
+        "sleeve_cap_policy_champion_latest": paths["reports"] / "sleeve_cap_policy_champion_latest.json",
         "market_adaptation_latest": paths["reports"] / "market_adaptation_latest.json",
         "macro_regime_latest": paths["feature_store"] / "macro_regime_latest.parquet",
         "latest_recommendations": paths["feature_store"] / "latest_recommendations.parquet",
@@ -379,6 +387,8 @@ def run_full_validation_suite(
     live_cov = _safe_read_csv(outputs["live_fundamental_coverage_latest"])
     portfolio_size_comp = _safe_read_csv(outputs["portfolio_size_comparison"])
     rebalance_interval_comp = _safe_read_csv(outputs["rebalance_interval_comparison"])
+    sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
+    sleeve_cap_policy_champion = _safe_read_json(outputs["sleeve_cap_policy_champion_latest"])
     market_adaptation = _safe_read_json(outputs["market_adaptation_latest"])
     macro_regime = _safe_read_parquet(outputs["macro_regime_latest"])
     latest_recommendations = _safe_read_parquet(outputs["latest_recommendations"])
@@ -493,6 +503,7 @@ def run_full_validation_suite(
     dynamic_target_names = None
     fixed8_row: dict[str, Any] | None = None
     best_rebalance_row: dict[str, Any] | None = None
+    best_sleeve_cap_policy_row: dict[str, Any] | None = None
     if not portfolio_size_comp.empty and "portfolio_mode" in portfolio_size_comp.columns:
         dynamic_rows = portfolio_size_comp[portfolio_size_comp["portfolio_mode"].astype(str).eq("dynamic")]
         if not dynamic_rows.empty:
@@ -550,6 +561,36 @@ def run_full_validation_suite(
                     continue
                 num = safe_float(v)
                 adaptive_rebalance_row[k] = float(num) if pd.notna(num) else str(v)
+
+    sleeve_cap_policy_summary = run_summary.get("champion_sleeve_cap_policy") or sleeve_cap_policy_champion
+    if isinstance(sleeve_cap_policy_summary, dict) and sleeve_cap_policy_summary:
+        best_sleeve_cap_policy_row = {}
+        for k, v in sleeve_cap_policy_summary.items():
+            if pd.isna(v):
+                best_sleeve_cap_policy_row[k] = None
+                continue
+            num = safe_float(v)
+            best_sleeve_cap_policy_row[k] = float(num) if pd.notna(num) else v
+    elif not sleeve_cap_policy_comp.empty and "sleeve_cap_policy_objective" in sleeve_cap_policy_comp.columns:
+        ranked_policy = sleeve_cap_policy_comp.copy()
+        if "policy_status" in ranked_policy.columns:
+            ranked_policy = ranked_policy[ranked_policy["policy_status"].astype(str).eq("ok")]
+        ranked_policy["sleeve_cap_policy_objective"] = pd.to_numeric(
+            ranked_policy["sleeve_cap_policy_objective"],
+            errors="coerce",
+        )
+        ranked_policy = ranked_policy.dropna(subset=["sleeve_cap_policy_objective"]).sort_values(
+            "sleeve_cap_policy_objective",
+            ascending=False,
+        )
+        if not ranked_policy.empty:
+            best_sleeve_cap_policy_row = {}
+            for k, v in ranked_policy.iloc[0].to_dict().items():
+                if pd.isna(v):
+                    best_sleeve_cap_policy_row[k] = None
+                    continue
+                num = safe_float(v)
+                best_sleeve_cap_policy_row[k] = float(num) if pd.notna(num) else str(v)
 
     latest_fg_nonzero_share = 0.0
     latest_fg_abs_mean = 0.0
@@ -632,6 +673,11 @@ def run_full_validation_suite(
             "growth_signal": safe_float(run_summary.get("sleeve_growth_signal")),
             "risk_signal": safe_float(run_summary.get("sleeve_risk_signal")),
         },
+        "sleeve_cap_policy_optimization_snapshot": {
+            "champion": best_sleeve_cap_policy_row,
+            "applied": bool(run_summary.get("sleeve_cap_policy_applied", False)),
+            "candidate_count": int(len(sleeve_cap_policy_comp)),
+        },
         "coverage": {
             "macro_scored_latest": _coverage_map(scored_latest, macro_cols),
             "macro_feature_store_latest": _coverage_map(latest_recommendations, macro_cols + fear_greed_cols),
@@ -679,6 +725,7 @@ def run_full_validation_suite(
                 safe_float(run_summary.get("ops_min_realized_coverage", getattr(cfg_obj, "ops_min_realized_coverage", 0.0))) >= 0.90
             ),
             "adaptive_policy_backtested": bool(run_summary.get("adaptive_rebalance_policy", False)),
+            "sleeve_cap_policy_optimized": bool(best_sleeve_cap_policy_row),
         },
         "latest_sentiment_overlay": {
             "fear_greed_live_overlay_weight": float(getattr(cfg_obj, "fear_greed_live_overlay_weight", 0.0)),
@@ -827,6 +874,22 @@ def parse_args() -> argparse.Namespace:
         default=0.15,
         help="Maximum early scout sleeve weight.",
     )
+    parser.add_argument(
+        "--disable-sleeve-cap-policy-comparison",
+        action="store_true",
+        help="Disable OOS sleeve/cap policy candidate optimization.",
+    )
+    parser.add_argument(
+        "--disable-sleeve-cap-policy-champion",
+        action="store_true",
+        help="Identify but do not apply the sleeve/cap champion policy to the active run.",
+    )
+    parser.add_argument(
+        "--sleeve-cap-policy-max-candidates",
+        type=int,
+        default=9,
+        help="Maximum sleeve/cap policy candidates to backtest.",
+    )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
         "--force-full-fund-panel-rebuild",
@@ -868,6 +931,9 @@ def main() -> None:
     cfg["early_scout_sleeve_base_weight"] = float(args.early_scout_sleeve_base_weight)
     cfg["early_scout_sleeve_min_weight"] = float(args.early_scout_sleeve_min_weight)
     cfg["early_scout_sleeve_max_weight"] = float(args.early_scout_sleeve_max_weight)
+    cfg["run_sleeve_cap_policy_comparison"] = not bool(args.disable_sleeve_cap_policy_comparison)
+    cfg["sleeve_cap_policy_apply_champion"] = not bool(args.disable_sleeve_cap_policy_champion)
+    cfg["sleeve_cap_policy_max_candidates"] = int(args.sleeve_cap_policy_max_candidates)
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 

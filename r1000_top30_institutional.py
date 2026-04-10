@@ -980,6 +980,16 @@ class EngineConfig:
     early_scout_promotion_edge_max: float = 0.20
     early_scout_promotion_confidence_max: float = 0.18
     early_scout_promotion_min_score: float = 0.55
+    run_sleeve_cap_policy_comparison: bool = True
+    sleeve_cap_policy_apply_champion: bool = True
+    sleeve_cap_policy_max_candidates: int = 9
+    sleeve_cap_policy_objective_excess_weight: float = 1.00
+    sleeve_cap_policy_objective_sharpe_weight: float = 0.25
+    sleeve_cap_policy_objective_sortino_weight: float = 0.15
+    sleeve_cap_policy_objective_drawdown_weight: float = 0.55
+    sleeve_cap_policy_objective_turnover_weight: float = 0.10
+    sleeve_cap_policy_objective_concentration_weight: float = 0.20
+    sleeve_cap_policy_objective_cash_drag_weight: float = 0.05
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
@@ -4086,24 +4096,24 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("future_winner_sleeve_base_weight must be between 0 and 1.")
     if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.60):
         raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.60.")
-    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.60):
-        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.60.")
+    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.70):
+        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.70.")
     if cfg.future_winner_sleeve_min_weight > cfg.future_winner_sleeve_max_weight:
         raise ValueError("future_winner_sleeve_min_weight cannot exceed future_winner_sleeve_max_weight.")
-    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.30):
-        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 0.30.")
-    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 0.20):
-        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 0.20.")
-    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 0.25):
-        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.25.")
+    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.45):
+        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 0.45.")
+    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 0.40):
+        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 0.40.")
+    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 0.45):
+        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.45.")
     if cfg.early_scout_sleeve_min_weight > cfg.early_scout_sleeve_max_weight:
         raise ValueError("early_scout_sleeve_min_weight cannot exceed early_scout_sleeve_max_weight.")
-    if not (0.0 < cfg.future_winner_entry_weight_cap <= cfg.future_winner_hard_weight_cap <= 0.35):
-        raise ValueError("future_winner entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.35.")
+    if not (0.0 < cfg.future_winner_entry_weight_cap <= cfg.future_winner_hard_weight_cap <= 0.50):
+        raise ValueError("future_winner entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.50.")
     if not (cfg.future_winner_entry_weight_cap <= cfg.future_winner_drift_weight_cap <= cfg.future_winner_hard_weight_cap):
         raise ValueError("future_winner_entry_weight_cap <= future_winner_drift_weight_cap <= future_winner_hard_weight_cap must hold.")
-    if not (0.0 < cfg.early_scout_entry_weight_cap <= cfg.early_scout_hard_weight_cap <= 0.20):
-        raise ValueError("early_scout entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.20.")
+    if not (0.0 < cfg.early_scout_entry_weight_cap <= cfg.early_scout_hard_weight_cap <= 0.40):
+        raise ValueError("early_scout entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.40.")
     if not (cfg.early_scout_entry_weight_cap <= cfg.early_scout_drift_weight_cap <= cfg.early_scout_hard_weight_cap):
         raise ValueError("early_scout_entry_weight_cap <= early_scout_drift_weight_cap <= early_scout_hard_weight_cap must hold.")
     if not (0.0 <= cfg.sleeve_drift_headroom_pct <= 2.0):
@@ -4114,6 +4124,19 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("early_scout_promotion_confidence_max must be between 0 and 1.")
     if not (0.0 <= cfg.early_scout_promotion_min_score <= 1.0):
         raise ValueError("early_scout_promotion_min_score must be between 0 and 1.")
+    if cfg.sleeve_cap_policy_max_candidates < 1:
+        raise ValueError("sleeve_cap_policy_max_candidates must be >= 1.")
+    for attr in [
+        "sleeve_cap_policy_objective_excess_weight",
+        "sleeve_cap_policy_objective_sharpe_weight",
+        "sleeve_cap_policy_objective_sortino_weight",
+        "sleeve_cap_policy_objective_drawdown_weight",
+        "sleeve_cap_policy_objective_turnover_weight",
+        "sleeve_cap_policy_objective_concentration_weight",
+        "sleeve_cap_policy_objective_cash_drag_weight",
+    ]:
+        if float(getattr(cfg, attr)) < 0:
+            raise ValueError(f"{attr} must be >= 0.")
     if (
         cfg.core_compounder_sleeve_base_weight
         + cfg.future_winner_sleeve_base_weight
@@ -15271,6 +15294,363 @@ def _bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[str, Any]:
     return row
 
 
+SLEEVE_CAP_POLICY_FIELDS: tuple[str, ...] = (
+    "core_compounder_sleeve_base_weight",
+    "future_winner_sleeve_base_weight",
+    "future_winner_sleeve_min_weight",
+    "future_winner_sleeve_max_weight",
+    "early_scout_sleeve_base_weight",
+    "early_scout_sleeve_min_weight",
+    "early_scout_sleeve_max_weight",
+    "future_winner_entry_weight_cap",
+    "future_winner_drift_weight_cap",
+    "future_winner_hard_weight_cap",
+    "early_scout_entry_weight_cap",
+    "early_scout_drift_weight_cap",
+    "early_scout_hard_weight_cap",
+    "sleeve_drift_headroom_pct",
+    "stock_weight_max",
+    "stock_weight_max_high_conviction",
+    "cash_target_growth_cap",
+    "cash_target_balanced_cap",
+    "cash_target_mild_risk_cap",
+    "min_dynamic_port_names",
+)
+
+
+def clone_cfg_with_updates(cfg: dict | EngineConfig, updates: dict[str, Any]) -> EngineConfig:
+    cfg_obj = to_cfg(cfg)
+    out = to_cfg(asdict(cfg_obj))
+    for key, value in updates.items():
+        if hasattr(out, key):
+            setattr(out, key, value)
+    return out
+
+
+def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict[str, Any]]:
+    cfg_obj = to_cfg(cfg)
+    base = {field: getattr(cfg_obj, field) for field in SLEEVE_CAP_POLICY_FIELDS if hasattr(cfg_obj, field)}
+
+    def candidate(name: str, description: str, **updates: Any) -> dict[str, Any]:
+        row = dict(base)
+        row.update(updates)
+        row["sleeve_cap_policy_name"] = name
+        row["sleeve_cap_policy_description"] = description
+        return row
+
+    return [
+        candidate(
+            "baseline_current",
+            "Current configured sleeve/cap policy.",
+        ),
+        candidate(
+            "defensive_drawdown_control",
+            "High core weight, low exploratory sleeves, lower caps, and higher mild-risk cash ceiling.",
+            core_compounder_sleeve_base_weight=0.80,
+            future_winner_sleeve_base_weight=0.12,
+            future_winner_sleeve_min_weight=0.00,
+            future_winner_sleeve_max_weight=0.25,
+            early_scout_sleeve_base_weight=0.00,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.05,
+            future_winner_entry_weight_cap=0.07,
+            future_winner_drift_weight_cap=0.12,
+            future_winner_hard_weight_cap=0.18,
+            early_scout_entry_weight_cap=0.03,
+            early_scout_drift_weight_cap=0.05,
+            early_scout_hard_weight_cap=0.08,
+            stock_weight_max=0.12,
+            stock_weight_max_high_conviction=0.25,
+            cash_target_growth_cap=0.03,
+            cash_target_balanced_cap=0.07,
+            cash_target_mild_risk_cap=0.18,
+            min_dynamic_port_names=18,
+        ),
+        candidate(
+            "quality_balanced",
+            "Quality compounder dominant, with a smaller multi-bagger sleeve.",
+            core_compounder_sleeve_base_weight=0.65,
+            future_winner_sleeve_base_weight=0.25,
+            future_winner_sleeve_min_weight=0.03,
+            future_winner_sleeve_max_weight=0.45,
+            early_scout_sleeve_base_weight=0.05,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.12,
+            future_winner_entry_weight_cap=0.09,
+            future_winner_drift_weight_cap=0.16,
+            future_winner_hard_weight_cap=0.24,
+            early_scout_entry_weight_cap=0.04,
+            early_scout_drift_weight_cap=0.08,
+            early_scout_hard_weight_cap=0.12,
+            stock_weight_max=0.16,
+            stock_weight_max_high_conviction=0.38,
+            min_dynamic_port_names=14,
+        ),
+        candidate(
+            "growth_balanced",
+            "Higher future-winner exposure without letting early scout dominate.",
+            core_compounder_sleeve_base_weight=0.45,
+            future_winner_sleeve_base_weight=0.38,
+            future_winner_sleeve_min_weight=0.05,
+            future_winner_sleeve_max_weight=0.58,
+            early_scout_sleeve_base_weight=0.12,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.22,
+            future_winner_entry_weight_cap=0.12,
+            future_winner_drift_weight_cap=0.22,
+            future_winner_hard_weight_cap=0.32,
+            early_scout_entry_weight_cap=0.05,
+            early_scout_drift_weight_cap=0.10,
+            early_scout_hard_weight_cap=0.16,
+            stock_weight_max=0.18,
+            stock_weight_max_high_conviction=0.45,
+            min_dynamic_port_names=12,
+        ),
+        candidate(
+            "future_winner_tilt",
+            "Multi-bagger sleeve leads in growth regimes; core remains a stabilizer.",
+            core_compounder_sleeve_base_weight=0.30,
+            future_winner_sleeve_base_weight=0.50,
+            future_winner_sleeve_min_weight=0.08,
+            future_winner_sleeve_max_weight=0.65,
+            early_scout_sleeve_base_weight=0.15,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.25,
+            future_winner_entry_weight_cap=0.15,
+            future_winner_drift_weight_cap=0.30,
+            future_winner_hard_weight_cap=0.42,
+            early_scout_entry_weight_cap=0.06,
+            early_scout_drift_weight_cap=0.13,
+            early_scout_hard_weight_cap=0.20,
+            stock_weight_max=0.20,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=10,
+        ),
+        candidate(
+            "early_scout_bull",
+            "Bull-market needle-finding policy; early scout can expand materially only when regime confirms.",
+            core_compounder_sleeve_base_weight=0.25,
+            future_winner_sleeve_base_weight=0.35,
+            future_winner_sleeve_min_weight=0.05,
+            future_winner_sleeve_max_weight=0.55,
+            early_scout_sleeve_base_weight=0.35,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.40,
+            future_winner_entry_weight_cap=0.14,
+            future_winner_drift_weight_cap=0.28,
+            future_winner_hard_weight_cap=0.40,
+            early_scout_entry_weight_cap=0.08,
+            early_scout_drift_weight_cap=0.18,
+            early_scout_hard_weight_cap=0.28,
+            sleeve_drift_headroom_pct=0.50,
+            stock_weight_max=0.20,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=9,
+        ),
+        candidate(
+            "early_scout_very_bull",
+            "Most aggressive growth-thrust policy; early scout is large but capped per name.",
+            core_compounder_sleeve_base_weight=0.15,
+            future_winner_sleeve_base_weight=0.40,
+            future_winner_sleeve_min_weight=0.05,
+            future_winner_sleeve_max_weight=0.60,
+            early_scout_sleeve_base_weight=0.40,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.45,
+            future_winner_entry_weight_cap=0.16,
+            future_winner_drift_weight_cap=0.32,
+            future_winner_hard_weight_cap=0.45,
+            early_scout_entry_weight_cap=0.09,
+            early_scout_drift_weight_cap=0.20,
+            early_scout_hard_weight_cap=0.34,
+            sleeve_drift_headroom_pct=0.65,
+            stock_weight_max=0.22,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=8,
+        ),
+        candidate(
+            "concentrated_leaders",
+            "Let proven leaders run while keeping early scout smaller.",
+            core_compounder_sleeve_base_weight=0.20,
+            future_winner_sleeve_base_weight=0.60,
+            future_winner_sleeve_min_weight=0.08,
+            future_winner_sleeve_max_weight=0.70,
+            early_scout_sleeve_base_weight=0.10,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.20,
+            future_winner_entry_weight_cap=0.18,
+            future_winner_drift_weight_cap=0.36,
+            future_winner_hard_weight_cap=0.50,
+            early_scout_entry_weight_cap=0.06,
+            early_scout_drift_weight_cap=0.14,
+            early_scout_hard_weight_cap=0.22,
+            sleeve_drift_headroom_pct=0.75,
+            stock_weight_max=0.22,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=8,
+        ),
+        candidate(
+            "risk_guarded_growth",
+            "Growth tilt with wider mild-risk cash protection and moderate concentration.",
+            core_compounder_sleeve_base_weight=0.50,
+            future_winner_sleeve_base_weight=0.35,
+            future_winner_sleeve_min_weight=0.04,
+            future_winner_sleeve_max_weight=0.55,
+            early_scout_sleeve_base_weight=0.08,
+            early_scout_sleeve_min_weight=0.00,
+            early_scout_sleeve_max_weight=0.18,
+            future_winner_entry_weight_cap=0.11,
+            future_winner_drift_weight_cap=0.22,
+            future_winner_hard_weight_cap=0.34,
+            early_scout_entry_weight_cap=0.05,
+            early_scout_drift_weight_cap=0.10,
+            early_scout_hard_weight_cap=0.16,
+            stock_weight_max=0.16,
+            stock_weight_max_high_conviction=0.40,
+            cash_target_growth_cap=0.03,
+            cash_target_balanced_cap=0.06,
+            cash_target_mild_risk_cap=0.16,
+            min_dynamic_port_names=12,
+        ),
+    ]
+
+
+def holdings_concentration_metrics(holdings: pd.DataFrame) -> dict[str, float]:
+    if holdings is None or holdings.empty or not {"rebalance_date", "ticker", "weight"}.issubset(holdings.columns):
+        return {
+            "avg_top_name_weight": np.nan,
+            "max_top_name_weight": np.nan,
+            "avg_hhi": np.nan,
+            "max_hhi": np.nan,
+        }
+    d = holdings.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
+    d = d[d["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER)].dropna(subset=["rebalance_date"])
+    if d.empty:
+        return {
+            "avg_top_name_weight": np.nan,
+            "max_top_name_weight": np.nan,
+            "avg_hhi": np.nan,
+            "max_hhi": np.nan,
+        }
+    per_month = d.groupby("rebalance_date")["weight"].agg(
+        top_name_weight="max",
+        hhi=lambda x: float(np.square(pd.to_numeric(x, errors="coerce").fillna(0.0)).sum()),
+    )
+    return {
+        "avg_top_name_weight": float(per_month["top_name_weight"].mean()),
+        "max_top_name_weight": float(per_month["top_name_weight"].max()),
+        "avg_hhi": float(per_month["hhi"].mean()),
+        "max_hhi": float(per_month["hhi"].max()),
+    }
+
+
+def sleeve_cap_policy_objective(row: dict[str, Any], cfg: EngineConfig) -> float:
+    strategy_cagr = safe_float(row.get("strategy_cagr"), 0.0)
+    benchmark_cagr = safe_float(row.get("benchmark_cagr"), np.nan)
+    excess_cagr = safe_float(row.get("excess_cagr"), np.nan)
+    if not np.isfinite(excess_cagr):
+        excess_cagr = strategy_cagr - benchmark_cagr if np.isfinite(benchmark_cagr) else strategy_cagr
+    sharpe = safe_float(row.get("sharpe"), 0.0)
+    sortino = safe_float(row.get("sortino"), 0.0)
+    max_dd = min(safe_float(row.get("max_dd"), 0.0), 0.0)
+    turnover = max(safe_float(row.get("avg_turnover_monthly"), 0.0), 0.0)
+    avg_cash = max(safe_float(row.get("avg_cash_weight"), 0.0), 0.0)
+    avg_top = max(safe_float(row.get("avg_top_name_weight"), 0.0), 0.0)
+    avg_hhi = max(safe_float(row.get("avg_hhi"), 0.0), 0.0)
+    concentration_penalty = max(0.0, avg_top - 0.22) + 0.50 * max(0.0, avg_hhi - 0.12)
+    return float(
+        float(cfg.sleeve_cap_policy_objective_excess_weight) * excess_cagr
+        + float(cfg.sleeve_cap_policy_objective_sharpe_weight) * 0.05 * sharpe
+        + float(cfg.sleeve_cap_policy_objective_sortino_weight) * 0.03 * sortino
+        - float(cfg.sleeve_cap_policy_objective_drawdown_weight) * abs(max_dd)
+        - float(cfg.sleeve_cap_policy_objective_turnover_weight) * turnover
+        - float(cfg.sleeve_cap_policy_objective_concentration_weight) * concentration_penalty
+        - float(cfg.sleeve_cap_policy_objective_cash_drag_weight) * avg_cash
+    )
+
+
+def compare_sleeve_cap_policy_backtests(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    candidates: Optional[Iterable[dict[str, Any]]] = None,
+) -> pd.DataFrame:
+    cfg_obj = to_cfg(cfg)
+    raw_candidates = list(candidates) if candidates is not None else generate_sleeve_cap_policy_candidates(cfg_obj)
+    max_candidates = max(int(getattr(cfg_obj, "sleeve_cap_policy_max_candidates", len(raw_candidates))), 1)
+    rows: list[dict[str, Any]] = []
+    for idx, policy in enumerate(raw_candidates[:max_candidates], start=1):
+        name = str(policy.get("sleeve_cap_policy_name", f"candidate_{idx}"))
+        updates = {field: policy[field] for field in SLEEVE_CAP_POLICY_FIELDS if field in policy}
+        row: dict[str, Any] = {
+            "sleeve_cap_policy_rank": int(idx),
+            "sleeve_cap_policy_name": name,
+            "sleeve_cap_policy_description": str(policy.get("sleeve_cap_policy_description", "")),
+            **updates,
+        }
+        try:
+            policy_cfg = clone_cfg_with_updates(cfg_obj, updates)
+            validate_config(policy_cfg)
+            bt = backtest_portfolio(policy_cfg, signals)
+            row.update(_bt_metrics_row(bt, policy_cfg, portfolio_mode="dynamic", policy_mode="sleeve_cap_policy"))
+            row.update(holdings_concentration_metrics(bt.holdings))
+            row["policy_status"] = "ok"
+            row["policy_error"] = ""
+            row["sleeve_cap_policy_objective"] = sleeve_cap_policy_objective(row, cfg_obj)
+        except Exception as exc:
+            row["policy_status"] = "failed"
+            row["policy_error"] = f"{type(exc).__name__}: {exc}"
+            row["sleeve_cap_policy_objective"] = -np.inf
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    out["_status_sort"] = np.where(out["policy_status"].astype(str).eq("ok"), 0, 1)
+    out = out.sort_values(["_status_sort", "sleeve_cap_policy_objective"], ascending=[True, False]).drop(
+        columns=["_status_sort"]
+    )
+    out["sleeve_cap_policy_rank"] = np.arange(1, len(out) + 1)
+    return out.reset_index(drop=True)
+
+
+def _clean_json_scalar(value: Any) -> Any:
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return None if not np.isfinite(float(value)) else float(value)
+    if isinstance(value, float):
+        return None if not np.isfinite(value) else float(value)
+    if not isinstance(value, (dict, list, tuple, str)):
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+    return value
+
+
+def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
+    if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
+        return {}
+    ok = policy_compare[policy_compare["policy_status"].astype(str).eq("ok")].copy()
+    if ok.empty:
+        return {}
+    if "sleeve_cap_policy_objective" in ok.columns:
+        ok = ok.sort_values("sleeve_cap_policy_objective", ascending=False)
+    best = ok.iloc[0].to_dict()
+    return {str(k): _clean_json_scalar(v) for k, v in best.items() if not str(k).startswith("_")}
+
+
+def apply_sleeve_cap_policy_to_cfg(cfg: dict | EngineConfig, selected_policy: dict[str, Any]) -> EngineConfig:
+    updates = {
+        field: selected_policy[field]
+        for field in SLEEVE_CAP_POLICY_FIELDS
+        if field in selected_policy and selected_policy[field] is not None
+    }
+    return clone_cfg_with_updates(cfg, updates)
+
+
 def compare_portfolio_size_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -16233,6 +16613,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     current_portfolio = artifacts.get("latest_portfolio")
     research_only_portfolio_artifact = artifacts.get("research_only_portfolio")
     acceptance_checks = artifacts.get("acceptance_checks", {})
+    sleeve_cap_policy_compare = pd.DataFrame(artifacts.get("sleeve_cap_policy_compare", pd.DataFrame())).copy()
+    selected_sleeve_cap_policy = dict(artifacts.get("selected_sleeve_cap_policy", {}) or {})
 
     if current_scored is None or current_scored.empty:
         latest_dt = pd.to_datetime(scored["rebalance_date"], errors="coerce").max()
@@ -16831,6 +17213,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_size_compare_path = paths["reports"] / "portfolio_size_comparison.csv"
     rebalance_interval_compare_path = paths["reports"] / "rebalance_interval_comparison.csv"
     backtest_window_compare_path = paths["reports"] / "backtest_window_comparison.csv"
+    sleeve_cap_policy_compare_path = paths["reports"] / "sleeve_cap_policy_comparison.csv"
+    sleeve_cap_policy_champion_path = paths["reports"] / "sleeve_cap_policy_champion_latest.json"
     sleeve_backtest_monthly_path = paths["reports"] / "portfolio_sleeve_backtest_monthly.csv"
     sleeve_backtest_compare_path = paths["reports"] / "portfolio_sleeve_backtest_comparison.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
@@ -16886,6 +17270,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "ir": float(bt.metrics.get("ir", np.nan)) if pd.notna(bt.metrics.get("ir", np.nan)) else np.nan,
     }
     benchmark_compare_path.write_text(json.dumps(benchmark_compare, indent=2))
+    if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)) and not sleeve_cap_policy_compare.empty:
+        sleeve_cap_policy_compare.to_csv(sleeve_cap_policy_compare_path, index=False)
+        sleeve_cap_policy_champion_path.write_text(
+            json.dumps(selected_sleeve_cap_policy or {}, indent=2),
+            encoding="utf-8",
+        )
+    else:
+        _safe_unlink(sleeve_cap_policy_compare_path)
+        _safe_unlink(sleeve_cap_policy_champion_path)
     run_portfolio_size_compare = bool(getattr(cfg, "run_portfolio_size_comparison", cfg.run_comparison_backtests))
     run_rebalance_interval_compare = bool(
         getattr(cfg, "run_rebalance_interval_comparison", cfg.run_comparison_backtests)
@@ -17181,6 +17574,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "actual_data_coverage": actual_data_coverage,
         "actual_data_status": actual_data_status,
         "champion_rebalance_policy": champion_rebalance_policy,
+        "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
+        "sleeve_cap_policy_applied": bool(
+            selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True))
+        ),
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
@@ -17268,6 +17665,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         f"- Champion excess CAGR: {champion_rebalance_policy.get('excess_cagr'):.4f}",
         f"- Champion Sharpe: {champion_rebalance_policy.get('sharpe'):.4f}",
         f"- Champion MaxDD: {champion_rebalance_policy.get('max_dd'):.4f}",
+        f"- Champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', 'unavailable')}",
+        f"- Champion sleeve/cap objective: {safe_float(selected_sleeve_cap_policy.get('sleeve_cap_policy_objective'), np.nan):.4f}",
+        f"- Sleeve/cap champion applied: {bool(selected_sleeve_cap_policy and bool(getattr(cfg, 'sleeve_cap_policy_apply_champion', True)))}",
         f"- Active backtest below is the configured policy used for the exported equity_curve.csv.",
         f"- CAGR: {bt.metrics.get('cagr'):.4f}",
         f"- Benchmark source: {bt.metrics.get('benchmark_source')}",
@@ -17333,6 +17733,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "equity_curve.csv": str(equity_path),
         "portfolio_sleeve_backtest_monthly.csv": str(sleeve_backtest_monthly_path),
         "portfolio_sleeve_backtest_comparison.csv": str(sleeve_backtest_compare_path),
+        "sleeve_cap_policy_comparison.csv": str(sleeve_cap_policy_compare_path),
+        "sleeve_cap_policy_champion_latest.json": str(sleeve_cap_policy_champion_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -17411,6 +17813,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "actual_data_coverage": actual_data_coverage,
         "actual_data_status": actual_data_status,
         "champion_rebalance_policy": champion_rebalance_policy,
+        "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
+        "sleeve_cap_policy_applied": bool(
+            selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True))
+        ),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
         "sleeve_risk_signal": _portfolio_first_numeric("sleeve_risk_signal", default=0.0),
         "n_research_only_top30": int(len(research_only_top30)),
@@ -17468,6 +17874,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "backtest_usable": bool(acceptance_checks.get("backtest_usable", False)),
         "research_only_backtest": bool(acceptance_checks.get("backtest_research_only", False)),
         "run_comparison_backtests": bool(cfg.run_comparison_backtests),
+        "run_sleeve_cap_policy_comparison": bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)),
+        "sleeve_cap_policy_apply_champion": bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)),
         "run_portfolio_size_comparison": run_portfolio_size_compare,
         "run_rebalance_interval_comparison": run_rebalance_interval_compare,
         "run_backtest_window_comparison": run_backtest_window_compare,
@@ -17486,6 +17894,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest": str(weights_path),
         "backtest_metrics": str(bt_metrics_path),
         "equity_curve": str(equity_path),
+        "sleeve_cap_policy_comparison": str(sleeve_cap_policy_compare_path),
+        "sleeve_cap_policy_champion_latest": str(sleeve_cap_policy_champion_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),
@@ -17723,7 +18133,27 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         )
 
     scored = pd.read_parquet(scored_path)
-    bt = backtest_portfolio(cfg, scored)
+    sleeve_cap_policy_compare = pd.DataFrame()
+    selected_sleeve_cap_policy: dict[str, Any] = {}
+    policy_cfg = cfg
+    if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)):
+        log("Phase 4b: optimizing sleeve/cap policy by OOS backtest candidates ...")
+        sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
+        selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare)
+        if selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)):
+            policy_cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
+            validate_config(policy_cfg)
+            log(
+                "Phase 4b: applying sleeve/cap champion "
+                f"{selected_sleeve_cap_policy.get('sleeve_cap_policy_name')} "
+                f"(objective={safe_float(selected_sleeve_cap_policy.get('sleeve_cap_policy_objective'), np.nan):.4f})."
+            )
+        elif selected_sleeve_cap_policy:
+            log(
+                "Phase 4b: sleeve/cap champion identified but not applied "
+                f"({selected_sleeve_cap_policy.get('sleeve_cap_policy_name')})."
+            )
+    bt = backtest_portfolio(policy_cfg, scored)
     save_stage_flag(paths, "phase5_backtest", "completed", {"months": int(bt.metrics.get("months", 0))})
 
     try:
@@ -17736,7 +18166,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             scored,
             reason=exc,
         )
-    checks = run_acceptance_checks(cfg, paths, feature_store, scored, bt)
+    checks = run_acceptance_checks(policy_cfg, paths, feature_store, scored, bt)
     save_stage_flag(paths, "acceptance_checks", "completed", checks)
     if not checks.get("backtest_usable", False):
         log(
@@ -17753,10 +18183,10 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         latest_portfolio = pd.DataFrame(
             columns=["rank", "ticker", "Name", "sector", "weight", "selected_for_portfolio", "rebalance_date"]
         )
-        research_only_portfolio = build_latest_portfolio(cfg, latest_recommendations)
+        research_only_portfolio = build_latest_portfolio(policy_cfg, latest_recommendations)
         log(f"[INFO] Research-only portfolio built with {len(research_only_portfolio)} names.")
     else:
-        latest_portfolio = build_latest_portfolio(cfg, latest_recommendations)
+        latest_portfolio = build_latest_portfolio(policy_cfg, latest_recommendations)
     save_stage_flag(
         paths,
         "phase5b_latest_recommendations",
@@ -17770,7 +18200,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     )
 
     output_paths = export_outputs(
-        cfg,
+        policy_cfg,
         {
             "scored": scored,
             "backtest": bt,
@@ -17779,6 +18209,9 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             "latest_portfolio": latest_portfolio,
             "research_only_portfolio": research_only_portfolio,
             "acceptance_checks": checks,
+            "sleeve_cap_policy_compare": sleeve_cap_policy_compare,
+            "selected_sleeve_cap_policy": selected_sleeve_cap_policy,
+            "base_config_before_sleeve_cap_policy": asdict(cfg),
         },
     )
     save_stage_flag(paths, "phase6_export", "completed", output_paths)
@@ -17796,6 +18229,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         "latest_portfolio_rows": int(len(latest_portfolio)),
         "research_only_portfolio_rows": int(len(research_only_portfolio)),
         "acceptance_checks": checks,
+        "selected_sleeve_cap_policy": selected_sleeve_cap_policy,
         "outputs": output_paths,
     }
 

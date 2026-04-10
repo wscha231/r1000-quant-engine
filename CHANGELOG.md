@@ -49,3 +49,14 @@ This file is a rolling update log. Keep appending new entries here by date and t
 
 - Local Python runtime was not available in this desktop environment, so no local `py_compile` check was run here.
 - The intended validation path remains a fresh Colab rerun producing updated `portfolio_latest.csv`, `top30_latest.csv`, and sleeve backtest outputs.
+
+### 09:35 KST
+
+- Added OOS sleeve/cap policy optimization so sleeve mix and name caps are no longer set only by fixed intuition.
+- The engine now backtests multiple policies ranging from defensive drawdown control to aggressive early-scout bull-market exposure.
+- The champion policy is selected by a utility objective that rewards excess CAGR and risk-adjusted return while penalizing max drawdown, turnover, concentration, and cash drag.
+- When enabled, the champion policy is applied to the active backtest and latest portfolio generation.
+- New outputs:
+  - `outputs/reports/sleeve_cap_policy_comparison.csv`
+  - `outputs/reports/sleeve_cap_policy_champion_latest.json`
+- Colab and validation output now display the selected sleeve/cap champion policy.
