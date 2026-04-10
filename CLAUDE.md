@@ -31,7 +31,7 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 cfg["reuse_existing_artifacts"] = True      # 캐시된 데이터 재사용
 cfg["resume_partial_walkforward"] = False   # walk-forward 처음부터
 cfg["macro_slow_release_lag_months"] = 1    # 매크로 지연 반영
-cfg["companyfacts_refresh_days"] = 7        # SEC 데이터 갱신 주기
+cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 ```
 
 ## Architecture

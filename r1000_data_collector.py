@@ -83,7 +83,7 @@ def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["fred_api_key"] = "8d92fb5a5de226657d912fe0284dfc00"
     cfg["macro_refresh_days"] = 0
     cfg["live_refresh_days"] = 1
-    cfg["companyfacts_refresh_days"] = 7
+    cfg["companyfacts_refresh_days"] = 3
     cfg["alpha_vantage_free_refresh_tickers"] = 0
     cfg["alpha_vantage_free_statement_repair_tickers"] = 0
     cfg["alpha_vantage_free_statement_refresh_days"] = 7
@@ -916,7 +916,7 @@ def parse_args() -> argparse.Namespace:
         help="Config preset tuned for default collection, full rebuild, lean rebuild, fast Step 2 reuse, or coverage debugging.",
     )
     parser.add_argument("--end-date", default="", help="Optional YYYY-MM-DD override for the pipeline end date.")
-    parser.add_argument("--companyfacts-refresh-days", type=int, default=0, help="SEC companyfacts cache freshness days.")
+    parser.add_argument("--companyfacts-refresh-days", type=int, default=3, help="SEC companyfacts cache freshness days.")
     parser.add_argument("--live-refresh-days", type=int, default=0, help="Live fundamentals cache freshness days.")
     parser.add_argument("--macro-refresh-days", type=int, default=0, help="Macro cache freshness days.")
     parser.add_argument(

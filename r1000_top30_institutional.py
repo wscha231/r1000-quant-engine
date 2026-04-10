@@ -898,6 +898,20 @@ class EngineConfig:
     early_scout_sleeve_base_weight: float = 0.05
     early_scout_sleeve_min_weight: float = 0.00
     early_scout_sleeve_max_weight: float = 0.20
+    early_scout_growth_floor_weight: float = 0.08
+    early_scout_growth_floor_min_signal: float = 0.38
+    early_scout_growth_floor_max_risk: float = 0.55
+    early_scout_candidate_floor_min_share: float = 0.01
+    future_winner_entry_weight_cap: float = 0.10
+    future_winner_drift_weight_cap: float = 0.18
+    future_winner_hard_weight_cap: float = 0.24
+    early_scout_entry_weight_cap: float = 0.05
+    early_scout_drift_weight_cap: float = 0.10
+    early_scout_hard_weight_cap: float = 0.14
+    sleeve_drift_headroom_pct: float = 0.35
+    early_scout_promotion_edge_max: float = 0.12
+    early_scout_promotion_confidence_max: float = 0.12
+    early_scout_promotion_min_score: float = 0.70
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
@@ -907,6 +921,22 @@ class EngineConfig:
     run_backtest_window_comparison: bool = True
     run_sleeve_regime_comparison: bool = False
     sleeve_regime_comparison_cash_max: float = 0.02
+    run_sleeve_cap_policy_comparison: bool = True
+    sleeve_cap_policy_apply_champion: bool = True
+    sleeve_cap_policy_max_candidates: int = 9
+    sleeve_cap_policy_objective_excess_weight: float = 1.0
+    sleeve_cap_policy_objective_sharpe_weight: float = 1.0
+    sleeve_cap_policy_objective_sortino_weight: float = 0.50
+    sleeve_cap_policy_objective_drawdown_weight: float = 0.80
+    sleeve_cap_policy_objective_turnover_weight: float = 0.20
+    sleeve_cap_policy_objective_concentration_weight: float = 0.35
+    sleeve_cap_policy_objective_cash_drag_weight: float = 0.25
+    run_standalone_sleeve_backtest_comparison: bool = True
+    standalone_sleeve_top_n: int = 7
+    standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
+    run_historical_data_quality_reports: bool = True
+    growth_history_confidence_penalty_weight: float = 0.18
+    growth_history_confidence_min_for_full_sleeve: float = 0.35
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -969,7 +999,7 @@ class EngineConfig:
     latest_statement_repair_enabled: bool = True
     latest_statement_repair_tickers: int = 60
     latest_statement_repair_refresh_days: int = 7
-    companyfacts_refresh_days: int = 14
+    companyfacts_refresh_days: int = 3
     companyfacts_max_retries: int = 4
     companyfacts_retry_backoff: float = 1.0
     use_sec_companyfacts_bulk_local: bool = True
@@ -3764,6 +3794,35 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("early_scout_sleeve_max_weight must be between 0 and 1.")
     if cfg.early_scout_sleeve_min_weight > cfg.early_scout_sleeve_max_weight:
         raise ValueError("early_scout_sleeve_min_weight cannot exceed early_scout_sleeve_max_weight.")
+    for name in [
+        "early_scout_growth_floor_weight",
+        "early_scout_growth_floor_min_signal",
+        "early_scout_growth_floor_max_risk",
+        "early_scout_candidate_floor_min_share",
+        "future_winner_entry_weight_cap",
+        "future_winner_drift_weight_cap",
+        "future_winner_hard_weight_cap",
+        "early_scout_entry_weight_cap",
+        "early_scout_drift_weight_cap",
+        "early_scout_hard_weight_cap",
+        "sleeve_drift_headroom_pct",
+        "early_scout_promotion_edge_max",
+        "early_scout_promotion_confidence_max",
+        "early_scout_promotion_min_score",
+        "growth_history_confidence_penalty_weight",
+        "growth_history_confidence_min_for_full_sleeve",
+    ]:
+        value = float(getattr(cfg, name))
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"{name} must be between 0 and 1.")
+    if cfg.future_winner_entry_weight_cap > cfg.future_winner_hard_weight_cap:
+        raise ValueError("future_winner_entry_weight_cap cannot exceed future_winner_hard_weight_cap.")
+    if cfg.future_winner_drift_weight_cap > cfg.future_winner_hard_weight_cap:
+        raise ValueError("future_winner_drift_weight_cap cannot exceed future_winner_hard_weight_cap.")
+    if cfg.early_scout_entry_weight_cap > cfg.early_scout_hard_weight_cap:
+        raise ValueError("early_scout_entry_weight_cap cannot exceed early_scout_hard_weight_cap.")
+    if cfg.early_scout_drift_weight_cap > cfg.early_scout_hard_weight_cap:
+        raise ValueError("early_scout_drift_weight_cap cannot exceed early_scout_hard_weight_cap.")
     if (
         cfg.core_compounder_sleeve_base_weight
         + cfg.future_winner_sleeve_base_weight
@@ -3818,6 +3877,25 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("rebalance_interval_comparison_months must not be empty.")
     if any(int(x) < 1 for x in cfg.rebalance_interval_comparison_months):
         raise ValueError("rebalance_interval_comparison_months values must be >= 1.")
+    if int(cfg.sleeve_cap_policy_max_candidates) < 1:
+        raise ValueError("sleeve_cap_policy_max_candidates must be >= 1.")
+    if int(cfg.standalone_sleeve_top_n) < 1:
+        raise ValueError("standalone_sleeve_top_n must be >= 1.")
+    if not cfg.standalone_sleeve_rebalance_intervals:
+        raise ValueError("standalone_sleeve_rebalance_intervals must not be empty.")
+    if any(int(x) < 1 for x in cfg.standalone_sleeve_rebalance_intervals):
+        raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
+    for name in [
+        "sleeve_cap_policy_objective_excess_weight",
+        "sleeve_cap_policy_objective_sharpe_weight",
+        "sleeve_cap_policy_objective_sortino_weight",
+        "sleeve_cap_policy_objective_drawdown_weight",
+        "sleeve_cap_policy_objective_turnover_weight",
+        "sleeve_cap_policy_objective_concentration_weight",
+        "sleeve_cap_policy_objective_cash_drag_weight",
+    ]:
+        if float(getattr(cfg, name)) < 0:
+            raise ValueError(f"{name} must be >= 0.")
     if int(cfg.alert_review_days) < 1:
         raise ValueError("alert_review_days must be >= 1.")
     if not 0.0 <= cfg.min_live_estimate_coverage <= 1.0:
@@ -12768,7 +12846,7 @@ def apply_hold_policy_overlay(
     return d
 
 
-def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _legacy_unused_compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     if d.empty:
         for c in [
@@ -12866,7 +12944,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def compute_portfolio_sleeve_policy(
+def _legacy_unused_compute_portfolio_sleeve_policy(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
     cash_target: float,
@@ -13031,7 +13109,7 @@ def compute_portfolio_sleeve_policy(
     }
 
 
-def build_target_portfolio(
+def _legacy_unused_build_target_portfolio(
     cfg: EngineConfig,
     month_df: pd.DataFrame,
     prev_w: Optional[dict[str, float]] = None,
@@ -13468,7 +13546,7 @@ def build_target_portfolio(
     return final_df, final_w, meta
 
 
-def normalize_with_limits(
+def _legacy_unused_normalize_with_limits(
     weights: pd.Series,
     wmin: float,
     wmax: float | pd.Series,
@@ -13511,7 +13589,7 @@ def normalize_with_limits(
     return w
 
 
-def apply_sector_weight_caps(
+def _legacy_unused_apply_sector_weight_caps(
     weights_df: pd.DataFrame,
     caps: dict[str, float],
     base_cap: float,
@@ -13599,11 +13677,11 @@ def apply_sector_weight_caps(
     return d.drop(columns="_name_cap", errors="ignore")
 
 
-def dict_from_weights(df: pd.DataFrame) -> dict[str, float]:
+def _legacy_unused_dict_from_weights(df: pd.DataFrame) -> dict[str, float]:
     return {r.ticker: float(r.weight) for r in df[["ticker", "weight"]].itertuples(index=False)}
 
 
-def apply_cash_buffer_to_weights(weights: dict[str, float], cash_target: float) -> dict[str, float]:
+def _legacy_unused_apply_cash_buffer_to_weights(weights: dict[str, float], cash_target: float) -> dict[str, float]:
     cash_target = float(np.clip(safe_float(cash_target), 0.0, 1.0))
     stock_weights = {
         str(k): float(v)
@@ -13630,12 +13708,12 @@ def apply_cash_buffer_to_weights(weights: dict[str, float], cash_target: float) 
     return out
 
 
-def turnover(prev_w: dict[str, float], new_w: dict[str, float]) -> float:
+def _legacy_unused_turnover(prev_w: dict[str, float], new_w: dict[str, float]) -> float:
     keys = set(prev_w.keys()) | set(new_w.keys())
     return 0.5 * float(sum(abs(new_w.get(k, 0.0) - prev_w.get(k, 0.0)) for k in keys))
 
 
-def cap_turnover(prev_w: dict[str, float], target_w: dict[str, float], cap: float) -> dict[str, float]:
+def _legacy_unused_cap_turnover(prev_w: dict[str, float], target_w: dict[str, float], cap: float) -> dict[str, float]:
     t = turnover(prev_w, target_w)
     if t <= cap or t == 0:
         return target_w
@@ -13648,7 +13726,7 @@ def cap_turnover(prev_w: dict[str, float], target_w: dict[str, float], cap: floa
     return out
 
 
-def accelerate_cash_deployment(
+def _legacy_unused_accelerate_cash_deployment(
     final_w: dict[str, float],
     target_w: dict[str, float],
     cfg: EngineConfig,
@@ -13700,7 +13778,7 @@ def accelerate_cash_deployment(
     return out
 
 
-def month_forward_return_open(paths: dict[str, Path], ticker: str, entry_dt: pd.Timestamp, exit_dt: pd.Timestamp) -> Optional[float]:
+def _legacy_unused_month_forward_return_open(paths: dict[str, Path], ticker: str, entry_dt: pd.Timestamp, exit_dt: pd.Timestamp) -> Optional[float]:
     if str(ticker).upper() == CASH_PROXY_TICKER:
         return 0.0
     px = load_px(paths, ticker)
@@ -13721,7 +13799,7 @@ def month_forward_return_open(paths: dict[str, Path], ticker: str, entry_dt: pd.
     return p1 / p0 - 1.0
 
 
-def performance_metrics(monthly: pd.Series, benchmark: Optional[pd.Series] = None) -> dict[str, float]:
+def _legacy_unused_performance_metrics(monthly: pd.Series, benchmark: Optional[pd.Series] = None) -> dict[str, float]:
     r = monthly.dropna()
     if r.empty:
         return {k: float("nan") for k in ["cagr", "sharpe", "sortino", "max_dd", "calmar", "ir", "vol_ann"]}
@@ -13746,7 +13824,7 @@ def performance_metrics(monthly: pd.Series, benchmark: Optional[pd.Series] = Non
     return {"cagr": cagr, "sharpe": sharpe, "sortino": sortino, "max_dd": mdd, "calmar": calmar, "ir": float(ir) if pd.notna(ir) else np.nan, "vol_ann": vol_ann}
 
 
-def run_acceptance_checks(
+def _legacy_unused_run_acceptance_checks(
     cfg: EngineConfig,
     paths: dict[str, Path],
     feature_store: pd.DataFrame,
@@ -13891,7 +13969,7 @@ def run_acceptance_checks(
     return checks
 
 
-def backtest_portfolio(
+def _legacy_unused_backtest_portfolio(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
     target_n_override: Optional[int] = None,
@@ -14204,7 +14282,7 @@ def backtest_portfolio(
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
-def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFrame) -> pd.DataFrame:
+def _legacy_unused_build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFrame) -> pd.DataFrame:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
     model_features = model_feature_columns(cfg)
@@ -14542,7 +14620,7 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     return latest_df
 
 
-def fallback_latest_recommendations_from_scored(
+def _legacy_unused_fallback_latest_recommendations_from_scored(
     cfg: dict | EngineConfig,
     paths: dict[str, Path],
     feature_store: pd.DataFrame,
@@ -14607,7 +14685,7 @@ def fallback_latest_recommendations_from_scored(
     return scored_latest
 
 
-def _bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[str, Any]:
+def _legacy_unused_bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[str, Any]:
     m = bt.metrics
     row = {
         "adaptive_rebalance_policy": bool(m.get("adaptive_rebalance_policy", False)),
@@ -15239,6 +15317,8 @@ def build_target_portfolio(
     prev_w: Optional[dict[str, float]] = None,
     apply_turnover: bool = True,
     target_n_override: Optional[int] = None,
+    sleeve_override: Optional[dict] = None,
+    cash_target_max: float = 1.0,
 ) -> tuple[pd.DataFrame, dict[str, float], dict[str, Any]]:
     if month_df.empty:
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
@@ -15276,6 +15356,39 @@ def build_target_portfolio(
         min_dynamic_names = int(getattr(cfg, "min_dynamic_port_names", cfg.min_port_names))
         target_n = int(max(min_dynamic_names, min(cfg.top_n, target_n + int(round(regime_ctl["target_n_adjustment"])))))
     sleeve_policy = compute_portfolio_sleeve_policy(cfg, month_df, regime_ctl.get("cash_target", 0.0))
+    if sleeve_override is not None or cash_target_max < 1.0:
+        raw_cash = float(sleeve_policy.get("cash_target", 0.0))
+        capped_cash = float(np.clip(min(raw_cash, float(cash_target_max)), 0.0, 1.0))
+        invested_share_override = max(0.0, 1.0 - capped_cash)
+        if sleeve_override is not None:
+            total_frac = max(
+                float(sleeve_override.get("core", 0.0))
+                + float(sleeve_override.get("future", 0.0))
+                + float(sleeve_override.get("early", 0.0)),
+                1e-8,
+            )
+            core_frac = float(sleeve_override.get("core", 0.0)) / total_frac
+            future_frac = float(sleeve_override.get("future", 0.0)) / total_frac
+            early_frac = float(sleeve_override.get("early", 0.0)) / total_frac
+            sleeve_policy = {
+                **sleeve_policy,
+                "core_compounder_target": core_frac * invested_share_override,
+                "future_winner_target": future_frac * invested_share_override,
+                "early_scout_target": early_frac * invested_share_override,
+                "invested_share": invested_share_override,
+                "cash_target": capped_cash,
+            }
+        else:
+            old_invested = max(float(sleeve_policy.get("invested_share", max(1.0 - raw_cash, 0.0))), 1e-8)
+            scale = invested_share_override / old_invested
+            sleeve_policy = {
+                **sleeve_policy,
+                "core_compounder_target": float(sleeve_policy.get("core_compounder_target", 0.0)) * scale,
+                "future_winner_target": float(sleeve_policy.get("future_winner_target", 0.0)) * scale,
+                "early_scout_target": float(sleeve_policy.get("early_scout_target", 0.0)) * scale,
+                "invested_share": invested_share_override,
+                "cash_target": capped_cash,
+            }
     pool_n = min(len(month_df), max(int(target_n) * 3, int(target_n) + 18))
     pool = month_df.sort_values("portfolio_seed_score", ascending=False).head(pool_n).copy()
     invested_share = max(float(sleeve_policy.get("invested_share", 0.0)), 1e-8)
@@ -15619,7 +15732,7 @@ def build_target_portfolio(
             final_w,
             target_w,
             cfg,
-            regime_ctl.get("cash_target", 0.0),
+            sleeve_policy.get("cash_target", regime_ctl.get("cash_target", 0.0)),
         )
         final_w = {
             str(k): float(v)
@@ -15679,7 +15792,7 @@ def build_target_portfolio(
         "target_n": int(target_n),
         "selected_n": stock_selected_n,
         "weight_cap": float(name_caps.max()) if len(name_caps) else float(weight_cap),
-        "cash_target": float(regime_ctl.get("cash_target", 0.0)),
+        "cash_target": float(sleeve_policy.get("cash_target", regime_ctl.get("cash_target", 0.0))),
         "sector_caps": caps,
         "regime_controls": regime_ctl,
         "sleeve_policy": sleeve_policy,
@@ -16375,6 +16488,8 @@ def backtest_portfolio(
     target_n_override: Optional[int] = None,
     rebalance_interval_months_override: Optional[int] = None,
     adaptive_interval_policy_override: Optional[bool] = None,
+    sleeve_override: Optional[dict] = None,
+    cash_target_max: float = 1.0,
 ) -> BacktestResult:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -16461,6 +16576,8 @@ def backtest_portfolio(
                     prev_w=prev_w if prev_w else None,
                     apply_turnover=True,
                     target_n_override=target_n_override,
+                    sleeve_override=sleeve_override,
+                    cash_target_max=cash_target_max,
                 )
                 if not sel.empty and final_w:
                     current_portfolio = sel.copy()
@@ -16614,6 +16731,7 @@ def backtest_portfolio(
             current_portfolio = current_portfolio[
                 current_portfolio["ticker"].astype(str).isin(keep_tickers)
             ].copy()
+        sleeve_policy_snapshot = current_meta.get("sleeve_policy", {}) if isinstance(current_meta, dict) else {}
         ret_rows.append(
             {
                 "rebalance_date": dt,
@@ -16630,6 +16748,13 @@ def backtest_portfolio(
                 "target_n": int(current_meta.get("target_n", 0)),
                 "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                 "cash_target": float(current_meta.get("cash_target", 0.0)),
+                "regime_label": _live_label_for_month(mm),
+                "core_target": float(sleeve_policy_snapshot.get("core_compounder_target", np.nan)),
+                "future_target": float(sleeve_policy_snapshot.get("future_winner_target", np.nan)),
+                "early_target": float(sleeve_policy_snapshot.get("early_scout_target", np.nan)),
+                "cash_target_used": float(sleeve_policy_snapshot.get("cash_target", current_meta.get("cash_target", np.nan))),
+                "growth_signal": float(sleeve_policy_snapshot.get("growth_signal", np.nan)),
+                "risk_signal": float(sleeve_policy_snapshot.get("risk_signal", np.nan)),
             }
         )
 
@@ -20292,6 +20417,17 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             if bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)) and selected_sleeve_cap_policy:
                 cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
                 log(f"[INFO] Applied champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', '?')}")
+                bt = backtest_portfolio(cfg, scored)
+                save_stage_flag(
+                    paths,
+                    "phase5_backtest",
+                    "completed",
+                    {
+                        "months": int(bt.metrics.get("months", 0)),
+                        "sleeve_cap_policy_applied": True,
+                        "sleeve_cap_policy_name": str(selected_sleeve_cap_policy.get("sleeve_cap_policy_name", "")),
+                    },
+                )
         except Exception as exc:
             log(f"[WARN] Sleeve cap policy comparison failed: {exc}")
     save_stage_flag(paths, "phase5c_sleeve_cap_policy", "completed", {"candidates": int(len(sleeve_cap_policy_compare))})

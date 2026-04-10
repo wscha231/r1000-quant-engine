@@ -313,7 +313,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - This does not magically create missing historical statements; it makes the missing-history risk measurable and prevents weak-history growth candidates from being treated as equally proven.
   - Intended next step after a fresh Colab run: inspect the new monthly/sleeve reports and decide whether a deeper SEC historical reconstruction job is worth the runtime.
 
-### 20:30 KST - cagr-coverage-fix-time-based-lag
+### 14:54 KST - cagr-coverage-fix-time-based-lag
 
 - scope:
   - Historical CAGR coverage for sales/op_income/net_income/ocf/eps/fcf metrics.
@@ -370,8 +370,6 @@ All entries must be written in English. Entries must be predictable and machine-
   - `compare_sleeve_policy_per_regime()` runs 12 full backtests; adds meaningful runtime. Disabled by default (`run_sleeve_regime_comparison=False`).
   - Cash is held as low as possible (default 2% max) so results reflect full-investment sleeve exposure, not cash drag.
   - Per-regime metrics require sufficient months per regime; regimes with fewer than 3 months are skipped.
-
-## 2026-04-10
 
 ### 16:20 KST - full-codebase-review-fixes
 
@@ -504,3 +502,71 @@ All entries must be written in English. Entries must be predictable and machine-
   - `git diff --check` passed
 - risks_or_notes:
   - Entries written before this commit used the old format (no `symbols_added` / `breaking_changes` fields); agents should treat those as legacy-format and not expect those fields to be present
+
+### 21:30 KST - fix-github-integration-regressions
+
+- scope: Repair regressions introduced by cross-machine feature restoration and make the latest GitHub master runnable again.
+- files:
+  - `r1000_top30_institutional.py` - removed active duplicate function definitions, restored missing EngineConfig fields, repaired sleeve-regime backtest passthrough, and aligned champion-policy backtest behavior.
+  - `r1000_data_collector.py` - changed default companyfacts refresh cadence to 3 days for collector runtime defaults and CLI.
+  - `CLAUDE.md` - changed documented companyfacts refresh cadence to 3 days.
+  - `CHANGELOG.md` - removed the duplicate `2026-04-10` date header, normalized the misplaced CAGR fix timestamp, and recorded this fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `_legacy_unused_compute_portfolio_sleeve_columns()` - renamed inactive duplicate implementation so it no longer conflicts with the restored active implementation.
+  - `_legacy_unused_compute_portfolio_sleeve_policy()` - renamed inactive duplicate implementation so the active implementation is unambiguous.
+  - `_legacy_unused_build_target_portfolio()` - renamed inactive duplicate implementation; active `build_target_portfolio()` remains the single public implementation.
+  - `_legacy_unused_backtest_portfolio()` - renamed inactive duplicate implementation; active `backtest_portfolio()` remains the single public implementation.
+  - `_legacy_unused_build_latest_recommendations()` - renamed inactive duplicate implementation so latest scoring has one active definition.
+  - `_legacy_unused_fallback_latest_recommendations_from_scored()` - renamed inactive duplicate implementation so fallback latest scoring has one active definition.
+  - `_legacy_unused_bt_metrics_row()` - renamed inactive duplicate helper; comparison functions resolve to the active `_bt_metrics_row()`.
+  - `build_target_portfolio()` - added `sleeve_override` and `cash_target_max` parameters to the active implementation and made turnover cash acceleration/meta use the capped sleeve cash target.
+  - `backtest_portfolio()` - added `sleeve_override` and `cash_target_max` passthrough to the active implementation and restored monthly regime/sleeve target diagnostics.
+  - `validate_config()` - added validation for restored sleeve cap, scout floor, standalone sleeve, policy objective, and growth-history confidence config fields.
+  - `run_all()` - reruns the active backtest after applying the selected sleeve/cap champion so exported performance and latest portfolio use the same policy.
+- config_fields_added:
+  - `early_scout_growth_floor_weight: float = 0.08` - minimum scout sleeve exposure in supportive growth regimes.
+  - `early_scout_growth_floor_min_signal: float = 0.38` - growth signal threshold for the scout floor.
+  - `early_scout_growth_floor_max_risk: float = 0.55` - risk ceiling for the scout floor.
+  - `early_scout_candidate_floor_min_share: float = 0.01` - minimum candidate availability required for the scout floor.
+  - `future_winner_entry_weight_cap: float = 0.10` - new-entry cap for future-winner sleeve names.
+  - `future_winner_drift_weight_cap: float = 0.18` - drift cap for already-held future-winner names.
+  - `future_winner_hard_weight_cap: float = 0.24` - absolute future-winner name risk cap.
+  - `early_scout_entry_weight_cap: float = 0.05` - new-entry cap for early-scout names.
+  - `early_scout_drift_weight_cap: float = 0.10` - drift cap for already-held early-scout names.
+  - `early_scout_hard_weight_cap: float = 0.14` - absolute early-scout name risk cap.
+  - `sleeve_drift_headroom_pct: float = 0.35` - allowed drift headroom above previous weight for confirmed holdings.
+  - `early_scout_promotion_edge_max: float = 0.12` - max edge gap allowing early-scout promotion.
+  - `early_scout_promotion_confidence_max: float = 0.12` - max classification confidence allowing early-scout promotion.
+  - `early_scout_promotion_min_score: float = 0.70` - minimum promotion signal for early-scout to future-winner upgrade.
+  - `run_sleeve_cap_policy_comparison: bool = True` - enables sleeve/cap policy candidate comparison.
+  - `sleeve_cap_policy_apply_champion: bool = True` - applies the selected sleeve/cap policy to latest portfolio generation.
+  - `sleeve_cap_policy_max_candidates: int = 9` - limits sleeve/cap policy candidates evaluated per run.
+  - `sleeve_cap_policy_objective_excess_weight: float = 1.0` - objective weight for excess CAGR.
+  - `sleeve_cap_policy_objective_sharpe_weight: float = 1.0` - objective weight for Sharpe.
+  - `sleeve_cap_policy_objective_sortino_weight: float = 0.50` - objective weight for Sortino.
+  - `sleeve_cap_policy_objective_drawdown_weight: float = 0.80` - objective penalty for max drawdown.
+  - `sleeve_cap_policy_objective_turnover_weight: float = 0.20` - objective penalty for turnover.
+  - `sleeve_cap_policy_objective_concentration_weight: float = 0.35` - objective penalty for concentration.
+  - `sleeve_cap_policy_objective_cash_drag_weight: float = 0.25` - objective penalty for average cash.
+  - `run_standalone_sleeve_backtest_comparison: bool = True` - enables standalone sleeve top-N comparison.
+  - `standalone_sleeve_top_n: int = 7` - default top-N for standalone sleeve diagnostics.
+  - `standalone_sleeve_rebalance_intervals: list[int] = [1, 3]` - rebalance intervals used by standalone sleeve diagnostics.
+  - `run_historical_data_quality_reports: bool = True` - enables historical data quality reports.
+  - `growth_history_confidence_penalty_weight: float = 0.18` - penalty weight for weak growth-sleeve data confidence.
+  - `growth_history_confidence_min_for_full_sleeve: float = 0.35` - confidence floor for full growth-sleeve score contribution.
+- breaking_changes:
+  - none
+- outputs:
+  - `monthly_returns` rows keep `regime_label`, `core_target`, `future_target`, `early_target`, `cash_target_used`, `growth_signal`, and `risk_signal` when sleeve-regime comparison is enabled.
+  - `run_summary.json` and exported metrics now reflect the champion sleeve/cap policy when champion application is enabled.
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse via PowerShell `ConvertFrom-Json` passed.
+  - Duplicate public function definition scan returned no duplicate names.
+  - EngineConfig required field scan returned no missing restored config fields.
+  - Local Python runtime was not installed, so `py -3 -m py_compile r1000_top30_institutional.py r1000_data_collector.py` could not run.
+- risks_or_notes:
+  - The inactive legacy duplicate bodies are retained under `_legacy_unused_*` names for now instead of being physically deleted, minimizing merge risk while removing public-name collisions.
+  - A later cleanup can delete those legacy bodies after one clean Colab run confirms behavior.
