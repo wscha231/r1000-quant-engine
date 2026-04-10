@@ -12852,6 +12852,8 @@ def build_target_portfolio(
     prev_w: Optional[dict[str, float]] = None,
     apply_turnover: bool = True,
     target_n_override: Optional[int] = None,
+    sleeve_override: Optional[dict] = None,
+    cash_target_max: float = 1.0,
 ) -> tuple[pd.DataFrame, dict[str, float], dict[str, Any]]:
     if month_df.empty:
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
@@ -12882,6 +12884,38 @@ def build_target_portfolio(
         min_dynamic_names = int(getattr(cfg, "min_dynamic_port_names", cfg.min_port_names))
         target_n = int(max(min_dynamic_names, min(cfg.top_n, target_n + int(round(regime_ctl["target_n_adjustment"])))))
     sleeve_policy = compute_portfolio_sleeve_policy(cfg, month_df, regime_ctl.get("cash_target", 0.0))
+    if sleeve_override is not None or cash_target_max < 1.0:
+        raw_cash = float(sleeve_policy.get("cash_target", 0.0))
+        capped_cash = float(np.clip(min(raw_cash, cash_target_max), 0.0, 1.0))
+        invested_share = max(0.0, 1.0 - capped_cash)
+        if sleeve_override is not None:
+            so = sleeve_override
+            total_frac = max(
+                float(so.get("core", 0.0)) + float(so.get("future", 0.0)) + float(so.get("early", 0.0)),
+                1e-8,
+            )
+            core_frac = float(so.get("core", 0.0)) / total_frac
+            future_frac = float(so.get("future", 0.0)) / total_frac
+            early_frac = float(so.get("early", 0.0)) / total_frac
+            sleeve_policy = {
+                **sleeve_policy,
+                "core_compounder_target": core_frac * invested_share,
+                "future_winner_target": future_frac * invested_share,
+                "early_scout_target": early_frac * invested_share,
+                "invested_share": invested_share,
+                "cash_target": capped_cash,
+            }
+        else:
+            old_invested = max(float(sleeve_policy.get("invested_share", max(1.0 - raw_cash, 0.0))), 1e-8)
+            scale = invested_share / old_invested
+            sleeve_policy = {
+                **sleeve_policy,
+                "core_compounder_target": float(sleeve_policy.get("core_compounder_target", 0.0)) * scale,
+                "future_winner_target": float(sleeve_policy.get("future_winner_target", 0.0)) * scale,
+                "early_scout_target": float(sleeve_policy.get("early_scout_target", 0.0)) * scale,
+                "invested_share": invested_share,
+                "cash_target": capped_cash,
+            }
     pool_n = min(len(month_df), max(int(target_n) * 3, int(target_n) + 18))
     pool = month_df.sort_values("portfolio_seed_score", ascending=False).head(pool_n).copy()
     invested_share = max(float(sleeve_policy.get("invested_share", 0.0)), 1e-8)
@@ -13678,6 +13712,8 @@ def backtest_portfolio(
     target_n_override: Optional[int] = None,
     rebalance_interval_months_override: Optional[int] = None,
     adaptive_interval_policy_override: Optional[bool] = None,
+    sleeve_override: Optional[dict] = None,
+    cash_target_max: float = 1.0,
 ) -> BacktestResult:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -13764,6 +13800,8 @@ def backtest_portfolio(
                     prev_w=prev_w if prev_w else None,
                     apply_turnover=True,
                     target_n_override=target_n_override,
+                    sleeve_override=sleeve_override,
+                    cash_target_max=cash_target_max,
                 )
                 if not sel.empty and final_w:
                     current_portfolio = sel.copy()
@@ -13871,6 +13909,8 @@ def backtest_portfolio(
             # Clear stopped_out set at rebalance (allow re-entry if signals improve)
             if rebalance_action in ("rebalance", "initial_rebalance"):
                 stopped_out_tickers.clear()
+        _sp = current_meta.get("sleeve_policy", {})
+        _rl_s = mm["live_event_alert_label"].dropna().astype(str).mode() if (not mm.empty and "live_event_alert_label" in mm.columns) else pd.Series(dtype=object)
         ret_rows.append(
             {
                 "rebalance_date": dt,
@@ -13887,6 +13927,13 @@ def backtest_portfolio(
                 "target_n": int(current_meta.get("target_n", 0)),
                 "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                 "cash_target": float(current_meta.get("cash_target", 0.0)),
+                "regime_label": str(_rl_s.iloc[0]) if not _rl_s.empty else "balanced",
+                "core_target": float(_sp.get("core_compounder_target", np.nan)),
+                "future_target": float(_sp.get("future_winner_target", np.nan)),
+                "early_target": float(_sp.get("early_scout_target", np.nan)),
+                "cash_target_used": float(_sp.get("cash_target", np.nan)),
+                "growth_signal": float(_sp.get("growth_signal", np.nan)),
+                "risk_signal": float(_sp.get("risk_signal", np.nan)),
             }
         )
 
@@ -14436,6 +14483,99 @@ def compare_rebalance_interval_backtests(
             cfg_obj, portfolio_mode="dynamic", policy_mode="fixed_interval",
             rebalance_interval_months=int(interval)))
     return pd.DataFrame(rows).sort_values("rebalance_interval_months").reset_index(drop=True)
+
+
+_SLEEVE_POLICY_CANDIDATES: list[dict] = [
+    {"label": "core_only",           "core": 1.00, "future": 0.00, "early": 0.00},
+    {"label": "core_85_fut_15",      "core": 0.85, "future": 0.15, "early": 0.00},
+    {"label": "core_80_fut_15_es_5", "core": 0.80, "future": 0.15, "early": 0.05},
+    {"label": "core_75_fut_20_es_5", "core": 0.75, "future": 0.20, "early": 0.05},
+    {"label": "bal_70_25_5",         "core": 0.70, "future": 0.25, "early": 0.05},
+    {"label": "bal_70_20_10",        "core": 0.70, "future": 0.20, "early": 0.10},
+    {"label": "growth_65_25_10",     "core": 0.65, "future": 0.25, "early": 0.10},
+    {"label": "growth_60_30_10",     "core": 0.60, "future": 0.30, "early": 0.10},
+    {"label": "growth_55_35_10",     "core": 0.55, "future": 0.35, "early": 0.10},
+    {"label": "growth_50_40_10",     "core": 0.50, "future": 0.40, "early": 0.10},
+    {"label": "aggr_60_25_15",       "core": 0.60, "future": 0.25, "early": 0.15},
+    {"label": "aggr_55_30_15",       "core": 0.55, "future": 0.30, "early": 0.15},
+]
+
+
+def compare_sleeve_policy_per_regime(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    candidates: Optional[list[dict]] = None,
+    cash_target_max: float = 0.02,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run each sleeve policy candidate against OOS backtest and break results down by market regime.
+
+    Returns (grid_df, best_per_regime_df).
+    - grid_df: one row per (policy_label, regime_label) with CAGR, Sharpe, max_dd, months.
+      An extra row with regime_label='ALL' covers the full backtest period.
+    - best_per_regime_df: one row per regime showing the highest-Sharpe policy.
+    """
+    cfg_obj = to_cfg(cfg)
+    if candidates is None:
+        candidates = _SLEEVE_POLICY_CANDIDATES
+
+    rows: list[dict] = []
+    for cand in candidates:
+        lbl = str(cand.get("label", "unknown"))
+        so = {
+            "core": float(cand.get("core", 0.70)),
+            "future": float(cand.get("future", 0.20)),
+            "early": float(cand.get("early", 0.10)),
+        }
+        log(f"  sleeve_policy_per_regime: policy={lbl} cash_max={cash_target_max:.2%} ...")
+        try:
+            bt = backtest_portfolio(cfg_obj, signals, sleeve_override=so, cash_target_max=cash_target_max)
+        except Exception as exc:
+            log(f"  sleeve_policy_per_regime: backtest failed for {lbl}: {exc}")
+            continue
+        mr = bt.monthly_returns
+        if mr.empty or "net_return" not in mr.columns:
+            continue
+
+        def _regime_row(label: str, ret_s: pd.Series, bench_s: Optional[pd.Series] = None) -> dict:
+            m = performance_metrics(ret_s.reset_index(drop=True), bench_s.reset_index(drop=True) if bench_s is not None else None)
+            return {
+                "policy_label": lbl,
+                "core_frac": so["core"],
+                "future_frac": so["future"],
+                "early_frac": so["early"],
+                "cash_target_max": cash_target_max,
+                "regime_label": label,
+                "months": len(ret_s),
+                "cagr": m.get("cagr", np.nan),
+                "sharpe": m.get("sharpe", np.nan),
+                "sortino": m.get("sortino", np.nan),
+                "max_dd": m.get("max_dd", np.nan),
+                "vol_ann": m.get("vol_ann", np.nan),
+                "ir": m.get("ir", np.nan),
+            }
+
+        bench_col = mr["bench_return"] if "bench_return" in mr.columns else None
+        rows.append(_regime_row("ALL", mr["net_return"], bench_col))
+        if "regime_label" in mr.columns:
+            for regime, grp in mr.groupby("regime_label"):
+                if len(grp) < 3:
+                    continue
+                bench_grp = grp["bench_return"] if "bench_return" in grp.columns else None
+                rows.append(_regime_row(str(regime), grp["net_return"], bench_grp))
+
+    grid_df = pd.DataFrame(rows)
+    if grid_df.empty:
+        return grid_df, pd.DataFrame()
+    grid_df = grid_df.sort_values(["regime_label", "sharpe"], ascending=[True, False]).reset_index(drop=True)
+
+    best_rows: list[dict] = []
+    for regime, grp in grid_df.groupby("regime_label"):
+        valid = grp.dropna(subset=["sharpe"])
+        if valid.empty:
+            continue
+        best_rows.append(valid.sort_values("sharpe", ascending=False).iloc[0].to_dict())
+    best_df = pd.DataFrame(best_rows).sort_values("regime_label").reset_index(drop=True) if best_rows else pd.DataFrame()
+    return grid_df, best_df
 
 
 def compare_backtest_window_years(
@@ -15799,6 +15939,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_size_compare_path = paths["reports"] / "portfolio_size_comparison.csv"
     rebalance_interval_compare_path = paths["reports"] / "rebalance_interval_comparison.csv"
     backtest_window_compare_path = paths["reports"] / "backtest_window_comparison.csv"
+    sleeve_regime_grid_path = paths["reports"] / "sleeve_policy_per_regime_grid.csv"
+    sleeve_regime_best_path = paths["reports"] / "sleeve_policy_per_regime_best.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -15885,6 +16027,29 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     else:
         backtest_window_compare = pd.DataFrame()
         _safe_unlink(backtest_window_compare_path)
+
+    run_sleeve_regime_compare = bool(getattr(cfg, "run_sleeve_regime_comparison", cfg.run_comparison_backtests))
+    sleeve_regime_cash_max = float(getattr(cfg, "sleeve_regime_comparison_cash_max", 0.02))
+    if run_sleeve_regime_compare:
+        log("Phase 5: running sleeve policy per-regime comparison ...")
+        sleeve_regime_grid, sleeve_regime_best = compare_sleeve_policy_per_regime(
+            cfg,
+            scored,
+            cash_target_max=sleeve_regime_cash_max,
+        )
+        if not sleeve_regime_grid.empty:
+            sleeve_regime_grid.to_csv(sleeve_regime_grid_path, index=False)
+        else:
+            _safe_unlink(sleeve_regime_grid_path)
+        if not sleeve_regime_best.empty:
+            sleeve_regime_best.to_csv(sleeve_regime_best_path, index=False)
+        else:
+            _safe_unlink(sleeve_regime_best_path)
+    else:
+        sleeve_regime_grid = pd.DataFrame()
+        sleeve_regime_best = pd.DataFrame()
+        _safe_unlink(sleeve_regime_grid_path)
+        _safe_unlink(sleeve_regime_best_path)
 
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
@@ -16239,6 +16404,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["rebalance_interval_comparison.csv"] = str(rebalance_interval_compare_path)
     if run_backtest_window_compare:
         output_files["backtest_window_comparison.csv"] = str(backtest_window_compare_path)
+    if run_sleeve_regime_compare and not sleeve_regime_grid.empty:
+        output_files["sleeve_policy_per_regime_grid.csv"] = str(sleeve_regime_grid_path)
+        output_files["sleeve_policy_per_regime_best.csv"] = str(sleeve_regime_best_path)
 
     summary = {
         "run_ts": now_ts(),
@@ -16385,6 +16553,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["rebalance_interval_comparison"] = str(rebalance_interval_compare_path)
     if run_backtest_window_compare:
         result_outputs["backtest_window_comparison"] = str(backtest_window_compare_path)
+    if run_sleeve_regime_compare and not sleeve_regime_best.empty:
+        result_outputs["sleeve_policy_per_regime_grid"] = str(sleeve_regime_grid_path)
+        result_outputs["sleeve_policy_per_regime_best"] = str(sleeve_regime_best_path)
     return result_outputs
 
 
@@ -16419,6 +16590,12 @@ def show_output_table_previews(output_paths: dict[str, str]) -> None:
         ("Partial Data Watchlist", "partial_data_watchlist_latest", 30, None),
         ("Top 30", "top30_latest", 30, None),
         ("Portfolio", "portfolio_latest", 30, None),
+        (
+            "Sleeve Policy Best-per-Regime",
+            "sleeve_policy_per_regime_best",
+            20,
+            ["regime_label", "policy_label", "core_frac", "future_frac", "early_frac", "months", "cagr", "sharpe", "max_dd"],
+        ),
         ("Research Only Top30", "research_only_top30_latest", 30, None),
         ("Research Only Portfolio", "research_only_portfolio_latest", 30, None),
         (

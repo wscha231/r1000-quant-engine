@@ -301,3 +301,32 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - For annual filers CAGR values will change: previously always NaN, now they get a legitimate value.  This is a correctness fix, not a signal change.
   - 5y CAGR still uses the old row-shift path for now (target_q=20 with tol=2 still works for quarterly filers; annual filer 5y CAGR requires 5 years of data which may still be sparse).
   - `_cagr_best` uses the deepest available horizon (3y > 2y > 1y); shorter-horizon CAGR for young companies is a softer signal but better than zero contribution.
+
+### KST - sleeve-regime-optimizer
+
+- scope:
+  - Portfolio sleeve allocation optimization per market regime.
+- files:
+  - `r1000_top30_institutional.py`
+  - `CHANGELOG.md`
+- behavior:
+  - Added `sleeve_override` and `cash_target_max` parameters to `build_target_portfolio()` so callers can fix sleeve fractions (core/future/early) and cap cash allocation independently of the adaptive policy engine.
+  - When `sleeve_override` is provided the adaptive `compute_portfolio_sleeve_policy()` result is still used for `growth_signal`/`risk_signal` tracking, but all allocation fractions are replaced with the caller-supplied values scaled to `(1 - capped_cash)`.
+  - When only `cash_target_max` is provided (no sleeve override) the regime cash signal is capped at that max and invested share rescaled proportionally.
+  - Added `sleeve_override` and `cash_target_max` passthrough to `backtest_portfolio()`.
+  - Added `regime_label`, `core_target`, `future_target`, `early_target`, `cash_target_used`, `growth_signal`, `risk_signal` fields to every row of `backtest_portfolio()` monthly_returns output.
+  - Added module-level `_SLEEVE_POLICY_CANDIDATES` (12 sleeve combos from core-only to 55/30/15 aggressive).
+  - Added `compare_sleeve_policy_per_regime()`: runs each candidate combo through a full backtest, breaks monthly returns by regime, computes CAGR/Sharpe/max_dd/IR per (policy, regime), returns (grid_df, best_per_regime_df).
+  - Wired `compare_sleeve_policy_per_regime()` into `run_default_pipeline()` behind `run_sleeve_regime_comparison` config flag (defaults to `run_comparison_backtests`); cash_max controlled by `sleeve_regime_comparison_cash_max` (default 0.02 = 2%).
+  - Added `sleeve_policy_per_regime_best` to `show_output_table_previews` display list.
+- outputs:
+  - `outputs/reports/sleeve_policy_per_regime_grid.csv` — all policies × all regimes metrics
+  - `outputs/reports/sleeve_policy_per_regime_best.csv` — best policy per regime by Sharpe
+  - `monthly_returns` DataFrame gains: `regime_label`, `core_target`, `future_target`, `early_target`, `cash_target_used`, `growth_signal`, `risk_signal`
+- validation:
+  - `git diff --check` passed.
+  - Local Python runtime not available; no local `py_compile` check.
+- risks_or_notes:
+  - `compare_sleeve_policy_per_regime()` runs 12 full backtests; adds meaningful runtime when `run_comparison_backtests=True`. Disable with `run_sleeve_regime_comparison=False`.
+  - Cash is held as low as possible (default 2% max) so results reflect full-investment sleeve exposure, not cash drag.
+  - Per-regime metrics require sufficient months per regime; regimes with fewer than 3 months are skipped.
