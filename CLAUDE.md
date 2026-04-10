@@ -4,7 +4,7 @@
 Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과수익 목표.
 
 ## Key Files
-- `r1000_top30_institutional.py` — 메인 엔진 (~15,000+ lines)
+- `r1000_top30_institutional.py` — 메인 엔진 (~20,400+ lines)
 - `r1000_data_collector.py` — 데이터 수집 + 검증 파이프라인
 
 ## Environments
@@ -18,9 +18,8 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 ## Pipeline Execution Order (Colab)
 1. `%pip install` dependencies
 2. Drive mount + sys.path setup
-3. `validate_config` monkey-patch (cash_weight_max fix)
-4. `collector_lean_full_run_cfg()` → `run_data_collection(cfg)`
-5. `run_default_pipeline(cfg)` → `run_full_validation_suite(cfg)`
+3. `collector_lean_full_run_cfg()` → `run_data_collection(cfg)`
+4. `run_default_pipeline(cfg)` → `run_full_validation_suite(cfg)`
 
 ## Config Presets
 - `collector_full_run_cfg()` — 전체 신규 실행
@@ -45,6 +44,13 @@ cfg["companyfacts_refresh_days"] = 7        # SEC 데이터 갱신 주기
 ## API Keys
 - Alpha Vantage: 환경변수 `ALPHA_VANTAGE_API_KEY`
 - SEC EDGAR: User-Agent 필요 (email)
+
+## Changelog Writing Rules
+- Write all CHANGELOG entries in **English only** — no Korean.
+- Always include a real `HH:MM KST` timestamp. Never write `### KST -` without a time.
+- Always include `symbols_added`, `symbols_changed`, `config_fields_added`, `breaking_changes` fields — use `none` when not applicable.
+- List function/class names explicitly in `symbols_added`/`symbols_changed`, not prose descriptions.
+- See the "Agent Update Contract" at the top of `CHANGELOG.md` for the full required format.
 
 ## Result Analysis
 백테스트 결과에서 확인할 핵심 지표:

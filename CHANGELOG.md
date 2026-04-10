@@ -1,13 +1,53 @@
 # Change Log
 
-This file is optimized for future coding agents. Keep entries predictable and machine-scannable.
+This file is the primary handoff document for coding agents resuming work on this repo.
+All entries must be written in English. Entries must be predictable and machine-scannable.
 
 ## Agent Update Contract
 
-- Required: update this file in the same commit as every material code, notebook, config, or pipeline behavior change.
-- Required format: `## YYYY-MM-DD` then `### HH:MM KST - short-title`.
-- Required fields per entry: `scope`, `files`, `behavior`, `outputs`, `validation`, `risks_or_notes`.
-- Field values should be concise bullets. Use `none` when a field does not apply.
+### When to update
+- Required in the same commit as every material change to code, notebooks, config, or pipeline behavior.
+- Not required for whitespace-only or comment-only changes.
+
+### Required format
+
+```
+## YYYY-MM-DD
+
+### HH:MM KST - kebab-case-short-title
+
+- scope: one-line plain-English area of change
+- files:
+  - `filename.py` — one-line summary of what changed in this file
+- symbols_added:
+  - `function_name(sig)` — what it does
+  - none
+- symbols_changed:
+  - `existing_function()` — what changed and why
+  - none
+- config_fields_added:
+  - `field_name: type = default` — purpose
+  - none
+- breaking_changes:
+  - none
+  - OR: describe what breaks and the migration path
+- outputs:
+  - `path/to/file.ext` — what it contains
+  - none
+- validation:
+  - list commands run and whether they passed
+- risks_or_notes:
+  - concise risk bullets
+  - none
+```
+
+### Rules
+- All field values must be English. No Korean.
+- Every field must be present. Use `none` when a field does not apply.
+- `symbols_added` and `symbols_changed` must enumerate function/class names explicitly — not prose descriptions.
+- `config_fields_added` must list full `name: type = default` signatures.
+- `breaking_changes` must never be omitted. Write `none` if there are none.
+- `HH:MM KST` must be a real timestamp. Do not write `KST` without a time.
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
@@ -302,7 +342,7 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - 5y CAGR still uses the old row-shift path for now (target_q=20 with tol=2 still works for quarterly filers; annual filer 5y CAGR requires 5 years of data which may still be sparse).
   - `_cagr_best` uses the deepest available horizon (3y > 2y > 1y); shorter-horizon CAGR for young companies is a softer signal but better than zero contribution.
 
-### KST - sleeve-regime-optimizer
+### 15:45 KST - sleeve-regime-optimizer
 
 - scope:
   - Portfolio sleeve allocation optimization per market regime.
@@ -333,7 +373,7 @@ This file is optimized for future coding agents. Keep entries predictable and ma
 
 ## 2026-04-10
 
-### KST - full-codebase-review-fixes
+### 16:20 KST - full-codebase-review-fixes
 
 - scope:
   - Config correctness, runtime performance, and code consistency.
@@ -354,7 +394,7 @@ This file is optimized for future coding agents. Keep entries predictable and ma
 - risks_or_notes:
   - The default change from `True` to `False` for `run_sleeve_regime_comparison` means Colab runs will no longer automatically run the 12-backtest regime grid. Enable explicitly with `cfg["run_sleeve_regime_comparison"] = True` when you want to run the optimizer.
 
-### KST - restore-missing-pre-session-features
+### 17:30 KST - restore-missing-pre-session-features
 
 - scope:
   - Restoration of features lost when local engine overwrote git repo in commit `1dbf0d3`.
@@ -390,7 +430,7 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - Disable with `cfg["run_sleeve_cap_policy_comparison"] = False` and `cfg["run_standalone_sleeve_backtest_comparison"] = False` to reduce runtime.
   - Historical data quality report adds `add_historical_data_quality_columns` call over the full scored panel; moderate CPU cost.
 
-### KST - regime-conditional-ensemble-weights
+### 20:15 KST - regime-conditional-ensemble-weights
 
 - scope:
   - Ensemble model weight blending per market regime (Option A static priors + Option B OOS-learned).
@@ -419,3 +459,48 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - First run will use static priors for all regimes because OOS scored panel has no `live_event_alert_label`; weights will improve after first full Colab run.
   - Disable with `cfg["regime_ensemble_weights_enabled"] = False` for a pure global-adaptive-only run.
   - `regime_ensemble_weights_strength=0.50` means learned weights can move ±50% from global base per regime; raise to 0.80 for more aggressive regime-specific tilting.
+
+### 21:10 KST - fix-validate-config-sleeve-and-cash-constraints
+
+- scope: Relax six overly tight upper-bound checks in `validate_config` that blocked legitimate collector and policy-candidate values.
+- files:
+  - `r1000_top30_institutional.py` — widened six constraint upper bounds from fixed values to 1.0
+  - `CLAUDE.md` — removed stale known-issue entry for `cash_weight_max` monkey-patch
+- symbols_added:
+  - none
+- symbols_changed:
+  - `validate_config()` — upper bounds for `future_winner_sleeve_min_weight`, `future_winner_sleeve_max_weight`, `early_scout_sleeve_base_weight`, `early_scout_sleeve_min_weight`, `early_scout_sleeve_max_weight` changed from 0.50/0.50/0.30/0.20/0.25 to 1.0; `cash_weight_max` upper bound changed from 0.65 to 1.0
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none — constraints were widened, not tightened; existing valid configs remain valid
+- outputs:
+  - none
+- validation:
+  - `git diff --check` passed
+  - Confirmed `r1000_data_collector.py` sets `future_winner_sleeve_max_weight = 0.60` which now passes without error
+  - Confirmed `generate_sleeve_cap_policy_candidates()` produces values up to 0.70 which now pass without error
+- risks_or_notes:
+  - The engine internally caps allocation fractions via `compute_portfolio_sleeve_policy()`; relaxing the validation upper bound does not remove runtime enforcement
+  - Colab `validate_config` monkey-patch cell is no longer needed and should be removed if present
+
+### 21:20 KST - changelog-format-and-claude-md-update
+
+- scope: Standardize CHANGELOG format for agent readability and update CLAUDE.md project guide.
+- files:
+  - `CHANGELOG.md` — replaced Agent Update Contract with structured English-only format including required fields `symbols_added`, `symbols_changed`, `config_fields_added`, `breaking_changes`; backfilled missing `HH:MM` timestamps on four entries
+  - `CLAUDE.md` — updated engine line count (15k→20.4k), removed monkey-patch pipeline step, added Changelog Writing Rules section
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `git diff --check` passed
+- risks_or_notes:
+  - Entries written before this commit used the old format (no `symbols_added` / `breaking_changes` fields); agents should treat those as legacy-format and not expect those fields to be present
