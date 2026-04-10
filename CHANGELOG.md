@@ -1,74 +1,152 @@
 # Change Log
 
-This file is a rolling update log. Keep appending new entries here by date and time.
+This file is optimized for future coding agents. Keep entries predictable and machine-scannable.
 
-## Update Rule
+## Agent Update Contract
 
-- Every material code, notebook, configuration, or pipeline behavior change must be recorded here before commit.
-- Keep the existing format: `## YYYY-MM-DD`, then `### HH:MM KST`, then concise bullet points.
-- Each entry should state what changed, why it changed, and any validation limitation if relevant.
-- When pushing to GitHub, include the changelog update in the same commit as the code change.
+- Required: update this file in the same commit as every material code, notebook, config, or pipeline behavior change.
+- Required format: `## YYYY-MM-DD` then `### HH:MM KST - short-title`.
+- Required fields per entry: `scope`, `files`, `behavior`, `outputs`, `validation`, `risks_or_notes`.
+- Field values should be concise bullets. Use `none` when a field does not apply.
+- Do not place free-floating sections between dated entries.
+- Keep newest entries under the correct date, appended chronologically.
 
 ## 2026-04-09
 
-### 19:21 KST
+### 19:21 KST - harden-colab-collector-start
 
-- Hardened the Colab collector execution path so the run starts more reliably from the project location.
-- Goal: reduce path-related failures before the main collection and training flow begins.
+- scope:
+  - Colab execution bootstrap.
+- files:
+  - `colab_run.ipynb`
+- behavior:
+  - Hardened the collector execution path so runs start from the intended project location.
+- outputs:
+  - none
+- validation:
+  - not recorded
+- risks_or_notes:
+  - Goal was to reduce path-related failures before collection/training begins.
 
-### 22:05 KST
+### 22:05 KST - robust-companyfacts-zip-updater
 
-- Added a Colab updater cell that downloads `companyfacts.zip` from the SEC bulk archive endpoint.
-- The updater now uses a SEC-compatible `User-Agent`, retry and backoff, temp-file replacement, ZIP integrity checks, and a minimum-size guard before replacing the existing file.
-- Download target is Google Drive project storage: `/content/drive/MyDrive/r1000_top30_institutional/companyfacts.zip`.
+- scope:
+  - Colab SEC companyfacts bulk archive refresh.
+- files:
+  - `colab_run.ipynb`
+- behavior:
+  - Added a Colab updater cell that downloads `companyfacts.zip` from the SEC bulk archive endpoint.
+  - Added SEC-compatible `User-Agent`, retry/backoff, temp-file replacement, ZIP integrity checks, and minimum-size guard.
+- outputs:
+  - `/content/drive/MyDrive/r1000_top30_institutional/companyfacts.zip`
+- validation:
+  - ZIP integrity and minimum-size checks are performed before replacement.
+- risks_or_notes:
+  - SEC network availability and rate behavior can still affect runtime.
 
-### 22:44 KST
+### 22:44 KST - companyfacts-refresh-threshold-three-days
 
-- Changed the automatic `companyfacts.zip` refresh threshold from 7 days to 3 days.
-- Goal: keep SEC fundamentals fresh without forcing a download every run.
+- scope:
+  - Colab SEC companyfacts refresh cadence.
+- files:
+  - `colab_run.ipynb`
+- behavior:
+  - Changed automatic `companyfacts.zip` refresh threshold from 7 days to 3 days.
+- outputs:
+  - none
+- validation:
+  - not recorded
+- risks_or_notes:
+  - Goal is fresher SEC fundamentals without forcing a download every run.
 
 ## 2026-04-10
 
-### 07:58 KST
+### 07:58 KST - sleeve-promotion-and-drift-caps
 
-- Added promotion logic so names initially classified as `early_scout` can be upgraded to `future_winner` when confirmation is already strong enough.
-- Promotion now considers fundamental confirmation, market confirmation, statement history depth, benchmark relative strength, Minervini momentum state, and breakout setup quality.
-- Reworked sleeve-specific name caps to separate new entry cap, drift cap for already-held winners, and hard absolute risk cap.
-- Applied the new cap logic separately for `future_winner` and `early_scout` so speculative new entries stay controlled while strong held names can expand more naturally.
-- Updated the monthly backtest state so positions drift with realized monthly returns between rebalances instead of reusing only the previous target weights.
-- Added sleeve diagnostics to exported outputs:
+- scope:
+  - Portfolio sleeve classification, cap behavior, and monthly backtest state.
+- files:
+  - `r1000_top30_institutional.py`
+  - `colab_run.ipynb`
+- behavior:
+  - Added promotion logic so names initially classified as `early_scout` can upgrade to `future_winner`.
+  - Promotion considers fundamental confirmation, market confirmation, statement history depth, benchmark relative strength, Minervini momentum state, and breakout setup quality.
+  - Reworked sleeve-specific name caps into entry cap, drift cap for already-held winners, and hard absolute risk cap.
+  - Applied separate cap logic for `future_winner` and `early_scout`.
+  - Updated monthly backtest state so positions drift with realized monthly returns between rebalances.
+  - Fixed a follow-up bug where `future_winner` drift caps could bypass stricter active caps already applied to the same name.
+- outputs:
   - `portfolio_sleeve_label_raw`
   - `portfolio_sleeve_promotion_signal`
   - `portfolio_sleeve_promoted`
   - `portfolio_prev_weight`
   - `portfolio_existing_holding`
   - `portfolio_name_cap`
-- Fixed a follow-up bug where `future_winner` drift caps could bypass stricter active caps already applied to the same name.
+- validation:
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+  - Intended validation path: fresh Colab rerun producing updated `portfolio_latest.csv`, `top30_latest.csv`, and sleeve backtest outputs.
+- risks_or_notes:
+  - Expected effect: better separation between speculative entries and proven winners.
+  - Expected effect: less premature trimming of names that have already worked.
+  - Expected effect: more realistic portfolio weight evolution in backtests.
 
-## Expected Effect
+### 09:35 KST - oos-sleeve-cap-policy-optimizer
 
-- Better separation between speculative entries and proven winners.
-- Less premature trimming of names that have already worked.
-- More realistic portfolio weight evolution in backtests.
-- Easier CSV-based diagnosis of sleeve assignment, promotion, previous weight, and effective cap behavior.
-
-## Validation Note
-
-- Local Python runtime was not available in this desktop environment, so no local `py_compile` check was run here.
-- The intended validation path remains a fresh Colab rerun producing updated `portfolio_latest.csv`, `top30_latest.csv`, and sleeve backtest outputs.
-
-### 09:35 KST
-
-- Added OOS sleeve/cap policy optimization so sleeve mix and name caps are no longer set only by fixed intuition.
-- The engine now backtests multiple policies ranging from defensive drawdown control to aggressive early-scout bull-market exposure.
-- The champion policy is selected by a utility objective that rewards excess CAGR and risk-adjusted return while penalizing max drawdown, turnover, concentration, and cash drag.
-- When enabled, the champion policy is applied to the active backtest and latest portfolio generation.
-- New outputs:
+- scope:
+  - Portfolio sleeve mix and name-cap policy optimization.
+- files:
+  - `r1000_top30_institutional.py`
+  - `r1000_data_collector.py`
+  - `colab_run.ipynb`
+  - `CHANGELOG.md`
+- behavior:
+  - Added OOS sleeve/cap policy optimization so sleeve mix and name caps are no longer set only by fixed intuition.
+  - Added candidate policies ranging from defensive drawdown control to aggressive early-scout bull-market exposure.
+  - Champion policy is selected by an objective that rewards excess CAGR and risk-adjusted return while penalizing max drawdown, turnover, concentration, and cash drag.
+  - When enabled, the champion policy is applied to the active backtest and latest portfolio generation.
+  - Validation and Colab output now display the selected sleeve/cap champion policy.
+- outputs:
   - `outputs/reports/sleeve_cap_policy_comparison.csv`
   - `outputs/reports/sleeve_cap_policy_champion_latest.json`
-- Colab and validation output now display the selected sleeve/cap champion policy.
+  - `run_summary.json` field: `champion_sleeve_cap_policy`
+  - `weights_latest.json` field: `champion_sleeve_cap_policy`
+  - `full_validation_suite.json` field: `sleeve_cap_policy_optimization_snapshot`
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+- risks_or_notes:
+  - Adds extra backtest runtime because multiple policy candidates are evaluated.
+  - Objective weights are configurable and may need calibration after first fresh Colab run.
 
-### 10:04 KST
+### 10:04 KST - changelog-update-rule
 
-- Formalized the changelog discipline for this repository.
-- Future material changes must update this file using the existing date/time KST section format before being committed and pushed to GitHub.
+- scope:
+  - Repository maintenance rules.
+- files:
+  - `CHANGELOG.md`
+- behavior:
+  - Formalized the requirement that future material changes update the changelog before commit/push.
+- outputs:
+  - none
+- validation:
+  - `git diff --check` passed.
+- risks_or_notes:
+  - This entry was superseded by the later agent-readable changelog format update.
+
+### 10:08 KST - agent-readable-changelog-format
+
+- scope:
+  - Repository maintenance rules and agent handoff quality.
+- files:
+  - `CHANGELOG.md`
+- behavior:
+  - Converted the changelog into a fixed-field, agent-readable format.
+  - Added required fields: `scope`, `files`, `behavior`, `outputs`, `validation`, `risks_or_notes`.
+  - Moved free-floating expected-effect and validation notes into the relevant dated entry.
+- outputs:
+  - none
+- validation:
+  - `git diff --check` passed.
+- risks_or_notes:
+  - Future agents should update this file in the same structured format, not prose-only notes.
