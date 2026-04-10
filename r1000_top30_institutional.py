@@ -15580,6 +15580,7 @@ def compare_sleeve_cap_policy_backtests(
     raw_candidates = list(candidates) if candidates is not None else generate_sleeve_cap_policy_candidates(cfg_obj)
     max_candidates = max(int(getattr(cfg_obj, "sleeve_cap_policy_max_candidates", len(raw_candidates))), 1)
     rows: list[dict[str, Any]] = []
+    backtests_by_policy: dict[str, BacktestResult] = {}
     for idx, policy in enumerate(raw_candidates[:max_candidates], start=1):
         name = str(policy.get("sleeve_cap_policy_name", f"candidate_{idx}"))
         updates = {field: policy[field] for field in SLEEVE_CAP_POLICY_FIELDS if field in policy}
@@ -15595,6 +15596,7 @@ def compare_sleeve_cap_policy_backtests(
             bt = backtest_portfolio(policy_cfg, signals)
             row.update(_bt_metrics_row(bt, policy_cfg, portfolio_mode="dynamic", policy_mode="sleeve_cap_policy"))
             row.update(holdings_concentration_metrics(bt.holdings))
+            backtests_by_policy[name] = bt
             row["policy_status"] = "ok"
             row["policy_error"] = ""
             row["sleeve_cap_policy_objective"] = sleeve_cap_policy_objective(row, cfg_obj)
@@ -15611,6 +15613,7 @@ def compare_sleeve_cap_policy_backtests(
         columns=["_status_sort"]
     )
     out["sleeve_cap_policy_rank"] = np.arange(1, len(out) + 1)
+    out.attrs["backtests_by_policy"] = backtests_by_policy
     return out.reset_index(drop=True)
 
 
@@ -15673,11 +15676,12 @@ def compare_rebalance_interval_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
     intervals: Optional[Iterable[int]] = None,
+    active_backtest: Optional[BacktestResult] = None,
 ) -> pd.DataFrame:
     cfg_obj = to_cfg(cfg)
     candidates = intervals if intervals is not None else cfg_obj.rebalance_interval_comparison_months
     clean_intervals = sorted({int(x) for x in candidates if int(x) >= 1})
-    bt_adaptive = backtest_portfolio(cfg_obj, signals)
+    bt_adaptive = active_backtest if active_backtest is not None else backtest_portfolio(cfg_obj, signals)
     rows = [_bt_metrics_row(bt_adaptive, cfg_obj, portfolio_mode="dynamic", policy_mode="adaptive")]
     for interval in clean_intervals:
         rows.append(_bt_metrics_row(
@@ -17297,6 +17301,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             cfg,
             scored,
             cfg.rebalance_interval_comparison_months,
+            active_backtest=bt,
         )
         rebalance_interval_compare.to_csv(rebalance_interval_compare_path, index=False)
     else:
@@ -18136,6 +18141,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     sleeve_cap_policy_compare = pd.DataFrame()
     selected_sleeve_cap_policy: dict[str, Any] = {}
     policy_cfg = cfg
+    bt: Optional[BacktestResult] = None
     if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)):
         log("Phase 4b: optimizing sleeve/cap policy by OOS backtest candidates ...")
         sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
@@ -18143,9 +18149,13 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         if selected_sleeve_cap_policy and bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)):
             policy_cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
             validate_config(policy_cfg)
+            policy_name = str(selected_sleeve_cap_policy.get("sleeve_cap_policy_name", ""))
+            candidate_backtests = sleeve_cap_policy_compare.attrs.get("backtests_by_policy", {})
+            if isinstance(candidate_backtests, dict):
+                bt = candidate_backtests.get(policy_name)
             log(
                 "Phase 4b: applying sleeve/cap champion "
-                f"{selected_sleeve_cap_policy.get('sleeve_cap_policy_name')} "
+                f"{policy_name} "
                 f"(objective={safe_float(selected_sleeve_cap_policy.get('sleeve_cap_policy_objective'), np.nan):.4f})."
             )
         elif selected_sleeve_cap_policy:
@@ -18153,7 +18163,10 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
                 "Phase 4b: sleeve/cap champion identified but not applied "
                 f"({selected_sleeve_cap_policy.get('sleeve_cap_policy_name')})."
             )
-    bt = backtest_portfolio(policy_cfg, scored)
+    if bt is None:
+        bt = backtest_portfolio(policy_cfg, scored)
+    else:
+        log("Phase 5: reusing champion sleeve/cap backtest result for active policy.")
     save_stage_flag(paths, "phase5_backtest", "completed", {"months": int(bt.metrics.get("months", 0))})
 
     try:

@@ -150,3 +150,22 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - `git diff --check` passed.
 - risks_or_notes:
   - Future agents should update this file in the same structured format, not prose-only notes.
+
+### 10:19 KST - reuse-duplicate-backtests
+
+- scope:
+  - Runtime reduction for portfolio policy evaluation and export comparisons.
+- files:
+  - `r1000_top30_institutional.py`
+  - `CHANGELOG.md`
+- behavior:
+  - Reused the winning sleeve/cap candidate `BacktestResult` instead of rerunning the same champion policy in Phase 5.
+  - Reused the active adaptive backtest when building `rebalance_interval_comparison.csv` instead of recomputing that same adaptive row.
+- outputs:
+  - no schema change
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+- risks_or_notes:
+  - Expected to save two full monthly portfolio backtest passes per run when sleeve/cap optimization and rebalance interval comparison are enabled.
+  - Does not reduce model training time or data collection time.
