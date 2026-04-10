@@ -2,6 +2,13 @@
 
 This file is a rolling update log. Keep appending new entries here by date and time.
 
+## Update Rule
+
+- Every material code, notebook, configuration, or pipeline behavior change must be recorded here before commit.
+- Keep the existing format: `## YYYY-MM-DD`, then `### HH:MM KST`, then concise bullet points.
+- Each entry should state what changed, why it changed, and any validation limitation if relevant.
+- When pushing to GitHub, include the changelog update in the same commit as the code change.
+
 ## 2026-04-09
 
 ### 19:21 KST
@@ -60,3 +67,8 @@ This file is a rolling update log. Keep appending new entries here by date and t
   - `outputs/reports/sleeve_cap_policy_comparison.csv`
   - `outputs/reports/sleeve_cap_policy_champion_latest.json`
 - Colab and validation output now display the selected sleeve/cap champion policy.
+
+### 10:04 KST
+
+- Formalized the changelog discipline for this repository.
+- Future material changes must update this file using the existing date/time KST section format before being committed and pushed to GitHub.
