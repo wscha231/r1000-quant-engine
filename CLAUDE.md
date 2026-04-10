@@ -13,8 +13,6 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 - **Python**: `py -3` (Windows에서 `python`/`python3`은 App Store redirect되므로 사용 금지)
 
 ## Known Issues
-- `cash_weight_max` validation: 엔진은 0.60 허용하지만 validate_config은 0.50 제한
-  - Colab에서 validate_config 패치 셀을 항상 먼저 실행할 것
 - Alpha Vantage 무료 키: 일일 25콜 제한, `alpha_vantage_free_tier_mode=True`
 
 ## Pipeline Execution Order (Colab)

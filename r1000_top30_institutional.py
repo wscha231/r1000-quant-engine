@@ -3750,18 +3750,18 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("core_compounder_sleeve_base_weight must be between 0 and 1.")
     if not (0.0 <= cfg.future_winner_sleeve_base_weight <= 1.0):
         raise ValueError("future_winner_sleeve_base_weight must be between 0 and 1.")
-    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 0.50):
-        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 0.50.")
-    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 0.50):
-        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 0.50.")
+    if not (0.0 <= cfg.future_winner_sleeve_min_weight <= 1.0):
+        raise ValueError("future_winner_sleeve_min_weight must be between 0 and 1.")
+    if not (0.0 <= cfg.future_winner_sleeve_max_weight <= 1.0):
+        raise ValueError("future_winner_sleeve_max_weight must be between 0 and 1.")
     if cfg.future_winner_sleeve_min_weight > cfg.future_winner_sleeve_max_weight:
         raise ValueError("future_winner_sleeve_min_weight cannot exceed future_winner_sleeve_max_weight.")
-    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 0.30):
-        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 0.30.")
-    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 0.20):
-        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 0.20.")
-    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 0.25):
-        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.25.")
+    if not (0.0 <= cfg.early_scout_sleeve_base_weight <= 1.0):
+        raise ValueError("early_scout_sleeve_base_weight must be between 0 and 1.")
+    if not (0.0 <= cfg.early_scout_sleeve_min_weight <= 1.0):
+        raise ValueError("early_scout_sleeve_min_weight must be between 0 and 1.")
+    if not (0.0 <= cfg.early_scout_sleeve_max_weight <= 1.0):
+        raise ValueError("early_scout_sleeve_max_weight must be between 0 and 1.")
     if cfg.early_scout_sleeve_min_weight > cfg.early_scout_sleeve_max_weight:
         raise ValueError("early_scout_sleeve_min_weight cannot exceed early_scout_sleeve_max_weight.")
     if (
@@ -3802,8 +3802,8 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("portfolio_fundamental_utility_boost must be >= 0.")
     if cfg.strategy_blueprint_weight < 0:
         raise ValueError("strategy_blueprint_weight must be >= 0.")
-    if not 0.0 <= cfg.cash_weight_max <= 0.65:
-        raise ValueError("cash_weight_max must be between 0 and 0.65.")
+    if not 0.0 <= cfg.cash_weight_max <= 1.0:
+        raise ValueError("cash_weight_max must be between 0 and 1.0.")
     if cfg.trade_cost_bps_per_side < 0 or cfg.roundtrip_cost_bps < 0:
         raise ValueError("trade cost settings must be >= 0.")
     if cfg.starting_capital_usd <= 0:
