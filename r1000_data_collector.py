@@ -50,6 +50,9 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("run_portfolio_size_comparison", True)
     cfg.setdefault("run_rebalance_interval_comparison", True)
     cfg.setdefault("run_backtest_window_comparison", True)
+    cfg.setdefault("run_standalone_sleeve_backtest_comparison", True)
+    cfg.setdefault("standalone_sleeve_top_n", 7)
+    cfg.setdefault("standalone_sleeve_rebalance_intervals", [1, 3])
     cfg.setdefault("show_output_previews_after_run", False)
     cfg.setdefault("cash_target_growth_cap", 0.03)
     cfg.setdefault("cash_target_balanced_cap", 0.05)
@@ -375,6 +378,7 @@ def run_full_validation_suite(
         "rebalance_interval_comparison": paths["reports"] / "rebalance_interval_comparison.csv",
         "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
         "sleeve_cap_policy_champion_latest": paths["reports"] / "sleeve_cap_policy_champion_latest.json",
+        "portfolio_sleeve_top7_standalone_comparison": paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv",
         "market_adaptation_latest": paths["reports"] / "market_adaptation_latest.json",
         "macro_regime_latest": paths["feature_store"] / "macro_regime_latest.parquet",
         "latest_recommendations": paths["feature_store"] / "latest_recommendations.parquet",
@@ -397,6 +401,7 @@ def run_full_validation_suite(
     rebalance_interval_comp = _safe_read_csv(outputs["rebalance_interval_comparison"])
     sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
     sleeve_cap_policy_champion = _safe_read_json(outputs["sleeve_cap_policy_champion_latest"])
+    standalone_sleeve_comp = _safe_read_csv(outputs["portfolio_sleeve_top7_standalone_comparison"])
     market_adaptation = _safe_read_json(outputs["market_adaptation_latest"])
     macro_regime = _safe_read_parquet(outputs["macro_regime_latest"])
     latest_recommendations = _safe_read_parquet(outputs["latest_recommendations"])
@@ -600,6 +605,57 @@ def run_full_validation_suite(
                 num = safe_float(v)
                 best_sleeve_cap_policy_row[k] = float(num) if pd.notna(num) else str(v)
 
+    def _jsonable_row(row: pd.Series) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for k, v in row.to_dict().items():
+            if pd.isna(v):
+                out[k] = None
+                continue
+            num = safe_float(v)
+            out[k] = float(num) if pd.notna(num) else str(v)
+        return out
+
+    standalone_sleeve_snapshot: dict[str, Any] = {
+        "top_n": int(safe_float(run_summary.get("standalone_sleeve_top_n", 7)) or 7),
+        "rows": [],
+        "best_by_sleeve": {},
+        "adaptive_three_sleeve": None,
+    }
+    if not standalone_sleeve_comp.empty:
+        standalone_sleeve_snapshot["rows"] = [
+            _jsonable_row(row)
+            for _, row in standalone_sleeve_comp.iterrows()
+        ]
+        if "portfolio_mode" in standalone_sleeve_comp.columns:
+            adaptive_rows = standalone_sleeve_comp[
+                standalone_sleeve_comp["portfolio_mode"].astype(str).eq("adaptive_three_sleeve")
+            ]
+            if not adaptive_rows.empty:
+                standalone_sleeve_snapshot["adaptive_three_sleeve"] = _jsonable_row(adaptive_rows.iloc[0])
+        if {"sleeve_test", "strategy_cagr"}.issubset(standalone_sleeve_comp.columns):
+            standalone_rows = standalone_sleeve_comp.copy()
+            if "portfolio_mode" in standalone_rows.columns:
+                standalone_rows = standalone_rows[
+                    standalone_rows["portfolio_mode"].astype(str).eq("standalone_sleeve_topn")
+                ].copy()
+            standalone_rows["strategy_cagr_sort"] = pd.to_numeric(
+                standalone_rows["strategy_cagr"],
+                errors="coerce",
+            ).fillna(-1e18)
+            sharpe_source = (
+                standalone_rows["sharpe"]
+                if "sharpe" in standalone_rows.columns
+                else pd.Series(float("nan"), index=standalone_rows.index)
+            )
+            standalone_rows["sharpe_sort"] = pd.to_numeric(
+                sharpe_source,
+                errors="coerce",
+            ).fillna(-1e18)
+            for sleeve, grp in standalone_rows.groupby("sleeve_test", sort=True):
+                ranked = grp.sort_values(["strategy_cagr_sort", "sharpe_sort"], ascending=False)
+                if not ranked.empty:
+                    standalone_sleeve_snapshot["best_by_sleeve"][str(sleeve)] = _jsonable_row(ranked.iloc[0])
+
     latest_fg_nonzero_share = 0.0
     latest_fg_abs_mean = 0.0
     if not latest_recommendations.empty and "score_fear_greed_satellite" in latest_recommendations.columns:
@@ -686,6 +742,7 @@ def run_full_validation_suite(
             "applied": bool(run_summary.get("sleeve_cap_policy_applied", False)),
             "candidate_count": int(len(sleeve_cap_policy_comp)),
         },
+        "standalone_sleeve_topn_backtest_snapshot": standalone_sleeve_snapshot,
         "coverage": {
             "macro_scored_latest": _coverage_map(scored_latest, macro_cols),
             "macro_feature_store_latest": _coverage_map(latest_recommendations, macro_cols + fear_greed_cols),
@@ -922,6 +979,22 @@ def parse_args() -> argparse.Namespace:
         default=9,
         help="Maximum sleeve/cap policy candidates to backtest.",
     )
+    parser.add_argument(
+        "--disable-standalone-sleeve-backtest-comparison",
+        action="store_true",
+        help="Disable standalone core/future/early top-N sleeve backtest comparison.",
+    )
+    parser.add_argument(
+        "--standalone-sleeve-top-n",
+        type=int,
+        default=7,
+        help="Number of names in each standalone sleeve backtest portfolio.",
+    )
+    parser.add_argument(
+        "--standalone-sleeve-rebalance-intervals",
+        default="1,3",
+        help="Comma-separated rebalance intervals for standalone sleeve backtests.",
+    )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
         "--force-full-fund-panel-rebuild",
@@ -970,6 +1043,13 @@ def main() -> None:
     cfg["run_sleeve_cap_policy_comparison"] = not bool(args.disable_sleeve_cap_policy_comparison)
     cfg["sleeve_cap_policy_apply_champion"] = not bool(args.disable_sleeve_cap_policy_champion)
     cfg["sleeve_cap_policy_max_candidates"] = int(args.sleeve_cap_policy_max_candidates)
+    cfg["run_standalone_sleeve_backtest_comparison"] = not bool(args.disable_standalone_sleeve_backtest_comparison)
+    cfg["standalone_sleeve_top_n"] = int(args.standalone_sleeve_top_n)
+    cfg["standalone_sleeve_rebalance_intervals"] = [
+        int(x.strip())
+        for x in str(args.standalone_sleeve_rebalance_intervals).split(",")
+        if x.strip()
+    ]
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 

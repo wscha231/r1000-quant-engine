@@ -1001,6 +1001,9 @@ class EngineConfig:
     run_portfolio_size_comparison: bool = True
     run_rebalance_interval_comparison: bool = True
     run_backtest_window_comparison: bool = True
+    run_standalone_sleeve_backtest_comparison: bool = True
+    standalone_sleeve_top_n: int = 7
+    standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -4203,6 +4206,12 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("rebalance_interval_comparison_months must not be empty.")
     if any(int(x) < 1 for x in cfg.rebalance_interval_comparison_months):
         raise ValueError("rebalance_interval_comparison_months values must be >= 1.")
+    if int(cfg.standalone_sleeve_top_n) < 1:
+        raise ValueError("standalone_sleeve_top_n must be >= 1.")
+    if not cfg.standalone_sleeve_rebalance_intervals:
+        raise ValueError("standalone_sleeve_rebalance_intervals must not be empty.")
+    if any(int(x) < 1 for x in cfg.standalone_sleeve_rebalance_intervals):
+        raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
     if int(cfg.alert_review_days) < 1:
         raise ValueError("alert_review_days must be >= 1.")
     if not 0.0 <= cfg.min_live_estimate_coverage <= 1.0:
@@ -15774,6 +15783,396 @@ def compare_rebalance_interval_backtests(
     return pd.DataFrame(rows).sort_values("rebalance_interval_months").reset_index(drop=True)
 
 
+SLEEVE_STANDALONE_LABELS: tuple[str, ...] = ("core_compounder", "future_winner", "early_scout")
+SLEEVE_STANDALONE_ROLE_MAP: dict[str, str] = {
+    "core_compounder": "core_compounder",
+    "future_winner": "multi_bagger",
+    "early_scout": "early_scout",
+}
+SLEEVE_STANDALONE_ENGINE_COL: dict[str, str] = {
+    "core_compounder": "portfolio_core_compounder_engine_score",
+    "future_winner": "portfolio_future_winner_engine_score",
+    "early_scout": "portfolio_early_scout_engine_score",
+}
+
+
+def prepare_standalone_sleeve_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.DataFrame:
+    d = frame.copy()
+    if d.empty:
+        return d
+    if "score" not in d.columns:
+        if "score_total" in d.columns:
+            d["score"] = pd.to_numeric(d["score_total"], errors="coerce").fillna(0.0)
+        else:
+            d["score"] = pd.Series(0.0, index=d.index, dtype=float)
+    if "selection_confirmation_score" not in d.columns:
+        d = compute_benchmark_beating_focus_overlay(d, cfg)
+    if "minervini_momentum_alive_score" not in d.columns:
+        d = compute_minervini_momentum_overlay(d)
+    d = compute_portfolio_sleeve_columns(d, cfg)
+    return d
+
+
+def select_standalone_sleeve_topn(
+    cfg: EngineConfig,
+    month_df: pd.DataFrame,
+    sleeve_label: str,
+    top_n: int,
+) -> pd.DataFrame:
+    if month_df.empty or int(top_n) <= 0:
+        return month_df.iloc[0:0].copy()
+    if sleeve_label not in SLEEVE_STANDALONE_LABELS:
+        raise ValueError(f"Unknown standalone sleeve label: {sleeve_label}")
+    engine_col = SLEEVE_STANDALONE_ENGINE_COL[sleeve_label]
+    d = prepare_standalone_sleeve_frame(cfg, month_df)
+    if d.empty:
+        return d
+    labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
+    raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
+    d["sleeve_standalone_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "score"),
+            1.25 * numeric_series_or_default(d, engine_col, 0.0),
+            0.35 * cross_sectional_robust_z(d, "relative_strength_composite"),
+            0.30 * numeric_series_or_default(d, "minervini_momentum_alive_score", 0.0),
+            0.25 * numeric_series_or_default(d, "breakout_setup_quality_score", 0.0),
+            -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    selected_parts: list[pd.DataFrame] = []
+    selected_tickers: set[str] = set()
+
+    def _take(mask: pd.Series, source: str, limit: int) -> None:
+        nonlocal selected_tickers
+        if limit <= 0:
+            return
+        mask = mask.reindex(d.index).fillna(False).astype(bool)
+        pool = d.loc[mask].copy()
+        if pool.empty:
+            return
+        if selected_tickers and "ticker" in pool.columns:
+            pool = pool[~pool["ticker"].astype(str).isin(selected_tickers)].copy()
+        if pool.empty:
+            return
+        pool = pool.sort_values(["sleeve_standalone_score", engine_col, "score"], ascending=False)
+        pool = dedupe_same_company_rows(pool, score_col="sleeve_standalone_score").head(limit).copy()
+        if pool.empty:
+            return
+        pool["sleeve_standalone_selection_source"] = source
+        selected_parts.append(pool)
+        if "ticker" in pool.columns:
+            selected_tickers.update(pool["ticker"].astype(str).tolist())
+
+    _take(labels.eq(sleeve_label), "final_label", int(top_n))
+    remaining = int(top_n) - sum(len(x) for x in selected_parts)
+    if remaining > 0:
+        _take(raw_labels.eq(sleeve_label), "raw_label_fallback", remaining)
+    remaining = int(top_n) - sum(len(x) for x in selected_parts)
+    if remaining > 0:
+        engine_series = numeric_series_or_default(d, engine_col, 0.0)
+        engine_cut = float(engine_series.quantile(0.70)) if len(engine_series) else 0.0
+        _take(engine_series >= engine_cut, "engine_score_fallback", remaining)
+    if not selected_parts:
+        return d.iloc[0:0].copy()
+    out = pd.concat(selected_parts, ignore_index=False)
+    out = dedupe_same_company_rows(out, score_col="sleeve_standalone_score").head(int(top_n)).copy()
+    out["portfolio_sleeve_label"] = sleeve_label
+    out["portfolio_sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label)
+    return out
+
+
+def backtest_standalone_sleeve_topn(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    sleeve_label: str,
+    top_n: int = 7,
+    rebalance_interval_months: int = 1,
+) -> BacktestResult:
+    cfg_obj = to_cfg(cfg)
+    paths = get_paths(cfg_obj)
+    top_n = max(int(top_n), 1)
+    interval_months = max(int(rebalance_interval_months), 1)
+    d = signals.copy()
+    if "score" not in d.columns:
+        if "score_total" in d.columns:
+            d["score"] = pd.to_numeric(d["score_total"], errors="coerce").fillna(0.0)
+        else:
+            d["score"] = 0.0
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d = d.dropna(subset=["rebalance_date"]).sort_values(["rebalance_date", "score"], ascending=[True, False]).reset_index(drop=True)
+    months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
+    if len(months) < 2:
+        raise RuntimeError("Need at least two months of OOS signals for standalone sleeve backtest.")
+
+    cost_candidates = [
+        safe_float(getattr(cfg_obj, "roundtrip_cost_bps", np.nan)),
+        2.0 * safe_float(getattr(cfg_obj, "trade_cost_bps_per_side", 0.0)),
+    ]
+    cost_candidates = [float(x) for x in cost_candidates if np.isfinite(x)]
+    effective_roundtrip_cost_bps = float(max(cost_candidates)) if cost_candidates else 0.0
+    starting_capital_usd = float(max(safe_float(getattr(cfg_obj, "starting_capital_usd", 100000.0)), 1.0))
+
+    current_w: dict[str, float] = {}
+    current_portfolio = pd.DataFrame()
+    next_scheduled_dt = pd.NaT
+    rebalance_dates_taken: list[pd.Timestamp] = []
+    holdings_rows: list[dict[str, Any]] = []
+    ret_rows: list[dict[str, Any]] = []
+
+    def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
+        return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
+
+    for i in range(len(months) - 1):
+        dt = pd.Timestamp(months[i])
+        next_dt = pd.Timestamp(months[i + 1])
+        mm = d[d["rebalance_date"] == dt].copy()
+        rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+        turn = 0.0
+        cost = 0.0
+        rebalance_action = "scheduled_hold"
+
+        if rebalance_due:
+            prev_w = current_w.copy()
+            sel = select_standalone_sleeve_topn(cfg_obj, mm, sleeve_label=sleeve_label, top_n=top_n)
+            if not sel.empty:
+                tickers = sel["ticker"].astype(str).tolist()
+                equal_weight = 1.0 / max(len(tickers), 1)
+                current_w = {str(t): float(equal_weight) for t in tickers}
+                current_portfolio = sel.copy()
+            else:
+                current_w = {CASH_PROXY_TICKER: 1.0}
+                current_portfolio = pd.DataFrame()
+            turn = turnover(prev_w, current_w)
+            cost = turn * (effective_roundtrip_cost_bps / 10000.0)
+            rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
+            rebalance_dates_taken.append(dt)
+            next_scheduled_dt = next_rebalance_date_for_interval(dt, interval_months=interval_months)
+
+        if not current_w:
+            current_w = {CASH_PROXY_TICKER: 1.0}
+
+        holdings_source = current_portfolio if not current_portfolio.empty else mm
+        month_holding_row_indices: list[int] = []
+        for tkr, ww in current_w.items():
+            row = holdings_source[holdings_source["ticker"].astype(str).eq(str(tkr))] if "ticker" in holdings_source.columns else pd.DataFrame()
+            month_holding_row_indices.append(len(holdings_rows))
+            holdings_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": tkr,
+                    "Name": row["Name"].iloc[0] if not row.empty and "Name" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else ""),
+                    "sector": row["sector"].iloc[0] if not row.empty and "sector" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else "Unknown"),
+                    "weight": float(ww),
+                    "raw_score": float(row["score"].iloc[0]) if not row.empty and "score" in row.columns else np.nan,
+                    "portfolio_sleeve_label": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else sleeve_label,
+                    "portfolio_sleeve_role": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label),
+                    "sleeve_standalone_score": float(row["sleeve_standalone_score"].iloc[0]) if not row.empty and "sleeve_standalone_score" in row.columns else np.nan,
+                    "sleeve_standalone_selection_source": str(row["sleeve_standalone_selection_source"].iloc[0]) if not row.empty and "sleeve_standalone_selection_source" in row.columns else "",
+                    "period_forward_return": np.nan,
+                    "weighted_forward_return": np.nan,
+                    "target_n": int(top_n),
+                    "rebalance_action": rebalance_action,
+                    "active_rebalance_interval_months": int(interval_months),
+                    "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                }
+            )
+
+        month_ret = 0.0
+        missing = 0
+        ticker_month_returns: dict[str, float] = {}
+        for tkr, ww in current_w.items():
+            ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
+            if ri is None:
+                missing += 1
+                continue
+            month_ret += float(ww) * float(ri)
+            ticker_month_returns[str(tkr)] = float(ri)
+        for row_idx in month_holding_row_indices:
+            held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
+            held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
+            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+        net_ret = month_ret - cost
+        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        if current_w:
+            total_w = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
+            if total_w > 0 and abs(total_w - 1.0) > 1e-8:
+                current_w = {str(k): float(v / total_w) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
+        ret_rows.append(
+            {
+                "rebalance_date": dt,
+                "next_rebalance_date": next_dt,
+                "gross_return": float(month_ret),
+                "cost": float(cost),
+                "net_return": float(net_ret),
+                "turnover": float(turn),
+                "missing_tickers": int(missing),
+                "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
+                "rebalance_action": rebalance_action,
+                "active_rebalance_interval_months": int(interval_months),
+                "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                "target_n": int(top_n),
+                "portfolio_sleeve_label": str(sleeve_label),
+                "portfolio_sleeve_role": SLEEVE_STANDALONE_ROLE_MAP.get(sleeve_label, sleeve_label),
+            }
+        )
+
+    ret_df = pd.DataFrame(ret_rows)
+    if ret_df.empty:
+        raise RuntimeError("Standalone sleeve backtest produced no monthly returns.")
+    ret_df["rebalance_date"] = pd.to_datetime(ret_df["rebalance_date"])
+    ret_df = ret_df.sort_values("rebalance_date")
+    ret_df["equity"] = (1.0 + ret_df["net_return"]).cumprod()
+    ret_df["equity_value_usd"] = starting_capital_usd * ret_df["equity"]
+    benchmark_close = load_benchmark_price_series(cfg_obj, paths)
+    bench = []
+    if not benchmark_close.empty:
+        for r in ret_df.itertuples(index=False):
+            rr = return_series_between_dates(
+                benchmark_close,
+                r.rebalance_date + pd.Timedelta(days=1),
+                r.next_rebalance_date + pd.Timedelta(days=1),
+            )
+            bench.append(rr if rr is not None else np.nan)
+    else:
+        bench = [np.nan] * len(ret_df)
+    ret_df["bench_return"] = bench
+    metrics = performance_metrics(ret_df["net_return"], benchmark=ret_df["bench_return"])
+    metrics["avg_turnover_monthly"] = float(ret_df["turnover"].mean())
+    metrics["avg_cash_weight"] = float(ret_df["cash_weight"].mean()) if "cash_weight" in ret_df.columns else 0.0
+    metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
+    metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
+    metrics["months"] = int(len(ret_df))
+    metrics["target_n_override"] = int(top_n)
+    metrics["rebalance_interval_months"] = int(interval_months)
+    rebalance_intervals = (
+        [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
+        if len(rebalance_dates_taken) >= 2
+        else []
+    )
+    metrics["avg_rebalance_interval_months"] = float(np.mean(rebalance_intervals)) if rebalance_intervals else float(interval_months)
+    metrics["adaptive_rebalance_policy"] = False
+    metrics["rebalance_count"] = int(len(rebalance_dates_taken))
+    metrics["rebalanced_month_ratio"] = float(len(rebalance_dates_taken) / max(len(ret_df), 1))
+    metrics["benchmark_source"] = benchmark_history_source_label(cfg_obj)
+    metrics["starting_capital_usd"] = starting_capital_usd
+    if ret_df["bench_return"].notna().any():
+        bench_eq = (1.0 + ret_df["bench_return"].fillna(0.0)).cumprod()
+        ret_df["benchmark_equity"] = bench_eq
+        ret_df["benchmark_value_usd"] = starting_capital_usd * bench_eq
+        years = max(len(ret_df), 1) / 12.0
+        metrics["benchmark_cagr"] = float(bench_eq.iloc[-1] ** (1.0 / years) - 1.0) if years > 0 else np.nan
+        metrics["excess_cagr"] = float(metrics.get("cagr", np.nan) - metrics.get("benchmark_cagr", np.nan))
+        metrics["beat_month_ratio"] = float((ret_df["net_return"] > ret_df["bench_return"]).mean())
+        metrics["benchmark_ending_capital_usd"] = float(ret_df["benchmark_value_usd"].iloc[-1])
+    else:
+        metrics["benchmark_cagr"] = np.nan
+        metrics["excess_cagr"] = np.nan
+        metrics["beat_month_ratio"] = np.nan
+        ret_df["benchmark_equity"] = np.nan
+        ret_df["benchmark_value_usd"] = np.nan
+        metrics["benchmark_ending_capital_usd"] = np.nan
+    metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
+    holdings_df = pd.DataFrame(holdings_rows)
+    if not holdings_df.empty:
+        stock_names = holdings_df[
+            holdings_df["ticker"].astype(str).str.upper() != CASH_PROXY_TICKER
+        ].groupby("rebalance_date")["ticker"].nunique()
+        metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
+    else:
+        metrics["avg_stock_names"] = 0.0
+    equity_df = ret_df[
+        [
+            "rebalance_date",
+            "equity",
+            "equity_value_usd",
+            "benchmark_equity",
+            "benchmark_value_usd",
+            "net_return",
+            "bench_return",
+        ]
+    ].copy()
+    return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
+
+
+def compare_standalone_sleeve_topn_backtests(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    top_n: Optional[int] = None,
+    intervals: Optional[Iterable[int]] = None,
+    active_backtest: Optional[BacktestResult] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    cfg_obj = to_cfg(cfg)
+    test_top_n = int(top_n if top_n is not None else getattr(cfg_obj, "standalone_sleeve_top_n", 7))
+    candidates = intervals if intervals is not None else getattr(cfg_obj, "standalone_sleeve_rebalance_intervals", [1, 3])
+    clean_intervals = sorted({int(x) for x in candidates if int(x) >= 1})
+    rows: list[dict[str, Any]] = []
+    monthly_frames: list[pd.DataFrame] = []
+    holdings_frames: list[pd.DataFrame] = []
+    log(
+        f"Phase 5c: standalone sleeve top{test_top_n} backtests "
+        f"(sleeves={','.join(SLEEVE_STANDALONE_LABELS)}, intervals={clean_intervals}) ..."
+    )
+    for sleeve in SLEEVE_STANDALONE_LABELS:
+        for interval in clean_intervals:
+            bt = backtest_standalone_sleeve_topn(
+                cfg_obj,
+                signals,
+                sleeve_label=sleeve,
+                top_n=test_top_n,
+                rebalance_interval_months=int(interval),
+            )
+            rows.append(
+                _bt_metrics_row(
+                    bt,
+                    cfg_obj,
+                    portfolio_mode="standalone_sleeve_topn",
+                    policy_mode="fixed_interval",
+                    sleeve_test=str(sleeve),
+                    sleeve_role=SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve),
+                    target_stock_names=int(test_top_n),
+                    weighting_mode="equal_weight",
+                    rebalance_interval_months=int(interval),
+                )
+            )
+            m = bt.monthly_returns.copy()
+            m["sleeve_test"] = str(sleeve)
+            m["sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve)
+            m["target_stock_names"] = int(test_top_n)
+            m["policy_mode"] = "fixed_interval"
+            monthly_frames.append(m)
+            h = bt.holdings.copy()
+            h["sleeve_test"] = str(sleeve)
+            h["sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve)
+            h["target_stock_names"] = int(test_top_n)
+            h["policy_mode"] = "fixed_interval"
+            holdings_frames.append(h)
+    if active_backtest is not None:
+        rows.append(
+            _bt_metrics_row(
+                active_backtest,
+                cfg_obj,
+                portfolio_mode="adaptive_three_sleeve",
+                policy_mode="adaptive",
+                sleeve_test="adaptive_three_sleeve",
+                sleeve_role="adaptive_three_sleeve",
+                target_stock_names=int(round(float(active_backtest.metrics.get("avg_stock_names", 0.0)))),
+                weighting_mode="dynamic_score_invvol_caps",
+            )
+        )
+    compare = pd.DataFrame(rows)
+    if not compare.empty:
+        compare = compare.sort_values(
+            ["portfolio_mode", "sleeve_test", "rebalance_interval_months"],
+            ascending=[True, True, True],
+        ).reset_index(drop=True)
+    monthly = pd.concat(monthly_frames, ignore_index=True) if monthly_frames else pd.DataFrame()
+    holdings = pd.concat(holdings_frames, ignore_index=True) if holdings_frames else pd.DataFrame()
+    return compare, monthly, holdings
+
+
 def compare_backtest_window_years(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -17308,6 +17707,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     sleeve_cap_policy_champion_path = paths["reports"] / "sleeve_cap_policy_champion_latest.json"
     sleeve_backtest_monthly_path = paths["reports"] / "portfolio_sleeve_backtest_monthly.csv"
     sleeve_backtest_compare_path = paths["reports"] / "portfolio_sleeve_backtest_comparison.csv"
+    standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
+    standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
+    standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -17377,6 +17779,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     run_backtest_window_compare = bool(
         getattr(cfg, "run_backtest_window_comparison", cfg.run_comparison_backtests)
     )
+    run_standalone_sleeve_compare = bool(
+        getattr(cfg, "run_standalone_sleeve_backtest_comparison", cfg.run_comparison_backtests)
+    )
     if run_portfolio_size_compare:
         portfolio_size_compare = compare_portfolio_size_backtests(cfg, scored, cfg.portfolio_size_comparison_sizes)
         portfolio_size_compare.to_csv(portfolio_size_compare_path, index=False)
@@ -17404,6 +17809,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     else:
         backtest_window_compare = pd.DataFrame()
         _safe_unlink(backtest_window_compare_path)
+    if run_standalone_sleeve_compare:
+        standalone_sleeve_compare, standalone_sleeve_monthly, standalone_sleeve_holdings = (
+            compare_standalone_sleeve_topn_backtests(
+                cfg,
+                scored,
+                top_n=int(getattr(cfg, "standalone_sleeve_top_n", 7)),
+                intervals=getattr(cfg, "standalone_sleeve_rebalance_intervals", [1, 3]),
+                active_backtest=bt,
+            )
+        )
+        standalone_sleeve_compare.to_csv(standalone_sleeve_compare_path, index=False)
+        standalone_sleeve_monthly.to_csv(standalone_sleeve_monthly_path, index=False)
+        standalone_sleeve_holdings.to_csv(standalone_sleeve_holdings_path, index=False)
+    else:
+        standalone_sleeve_compare = pd.DataFrame()
+        standalone_sleeve_monthly = pd.DataFrame()
+        standalone_sleeve_holdings = pd.DataFrame()
+        _safe_unlink(standalone_sleeve_compare_path)
+        _safe_unlink(standalone_sleeve_monthly_path)
+        _safe_unlink(standalone_sleeve_holdings_path)
 
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
@@ -17813,6 +18238,33 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             )
     else:
         perf_md.append("  - unavailable")
+    perf_md.append("- Standalone sleeve top-N backtest comparison:")
+    if not standalone_sleeve_compare.empty:
+        display_cols = [
+            "sleeve_test",
+            "rebalance_interval_months",
+            "strategy_cagr",
+            "benchmark_cagr",
+            "excess_cagr",
+            "sharpe",
+            "max_dd",
+            "avg_stock_names",
+        ]
+        for r in standalone_sleeve_compare[standalone_sleeve_compare["portfolio_mode"].eq("standalone_sleeve_topn")][display_cols].itertuples(index=False):
+            perf_md.append(
+                f"  - {r.sleeve_test} top{int(round(float(r.avg_stock_names)))} / {int(r.rebalance_interval_months)}m: "
+                f"CAGR={float(r.strategy_cagr):.4f}, benchmark={float(r.benchmark_cagr):.4f}, "
+                f"excess={float(r.excess_cagr):.4f}, Sharpe={float(r.sharpe):.3f}, MaxDD={float(r.max_dd):.4f}"
+            )
+        adaptive_rows = standalone_sleeve_compare[standalone_sleeve_compare["portfolio_mode"].eq("adaptive_three_sleeve")]
+        for r in adaptive_rows.itertuples(index=False):
+            perf_md.append(
+                f"  - adaptive_three_sleeve/adaptive: CAGR={float(r.strategy_cagr):.4f}, "
+                f"benchmark={float(r.benchmark_cagr):.4f}, excess={float(r.excess_cagr):.4f}, "
+                f"Sharpe={float(r.sharpe):.3f}, MaxDD={float(r.max_dd):.4f}"
+            )
+    else:
+        perf_md.append("  - unavailable")
     (paths["reports"] / "oos_performance.md").write_text("\n".join(perf_md), encoding="utf-8")
 
     output_files = {
@@ -17825,6 +18277,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "equity_curve.csv": str(equity_path),
         "portfolio_sleeve_backtest_monthly.csv": str(sleeve_backtest_monthly_path),
         "portfolio_sleeve_backtest_comparison.csv": str(sleeve_backtest_compare_path),
+        "portfolio_sleeve_top7_standalone_comparison.csv": str(standalone_sleeve_compare_path),
+        "portfolio_sleeve_top7_standalone_monthly.csv": str(standalone_sleeve_monthly_path),
+        "portfolio_sleeve_top7_standalone_holdings.csv": str(standalone_sleeve_holdings_path),
         "sleeve_cap_policy_comparison.csv": str(sleeve_cap_policy_compare_path),
         "sleeve_cap_policy_champion_latest.json": str(sleeve_cap_policy_champion_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
@@ -17900,6 +18355,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not sleeve_bt_compare.empty
             else []
         ),
+        "standalone_sleeve_topn_backtest_comparison": (
+            standalone_sleeve_compare.replace({np.nan: None}).to_dict(orient="records")
+            if not standalone_sleeve_compare.empty
+            else []
+        ),
+        "standalone_sleeve_top_n": int(getattr(cfg, "standalone_sleeve_top_n", 7)),
+        "standalone_sleeve_rebalance_intervals": [
+            int(x) for x in getattr(cfg, "standalone_sleeve_rebalance_intervals", [1, 3])
+        ],
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "actual_data_coverage": actual_data_coverage,
@@ -17971,6 +18435,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_portfolio_size_comparison": run_portfolio_size_compare,
         "run_rebalance_interval_comparison": run_rebalance_interval_compare,
         "run_backtest_window_comparison": run_backtest_window_compare,
+        "run_standalone_sleeve_backtest_comparison": run_standalone_sleeve_compare,
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
@@ -18029,6 +18494,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["rebalance_interval_comparison"] = str(rebalance_interval_compare_path)
     if run_backtest_window_compare:
         result_outputs["backtest_window_comparison"] = str(backtest_window_compare_path)
+    if run_standalone_sleeve_compare:
+        result_outputs["portfolio_sleeve_top7_standalone_comparison"] = str(standalone_sleeve_compare_path)
+        result_outputs["portfolio_sleeve_top7_standalone_monthly"] = str(standalone_sleeve_monthly_path)
+        result_outputs["portfolio_sleeve_top7_standalone_holdings"] = str(standalone_sleeve_holdings_path)
     return result_outputs
 
 

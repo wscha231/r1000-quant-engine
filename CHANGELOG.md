@@ -196,3 +196,32 @@ This file is optimized for future coding agents. Keep entries predictable and ma
 - risks_or_notes:
   - Expected effect: latest portfolio should include at least a small `early_scout` allocation in non-risk-off growth regimes.
   - Risk: more growth exposure can increase drawdown and volatility; compare next run against `sleeve_cap_policy_comparison.csv`.
+
+### 13:34 KST - standalone-sleeve-top7-backtests
+
+- scope:
+  - OOS sleeve attribution and portfolio selection diagnostics.
+- files:
+  - `r1000_top30_institutional.py`
+  - `r1000_data_collector.py`
+  - `colab_run.ipynb`
+  - `CHANGELOG.md`
+- behavior:
+  - Added independent equal-weight top-N backtests for `core_compounder`, `future_winner`, and `early_scout` sleeves.
+  - Default standalone test is top 7 names with fixed 1-month and 3-month rebalance intervals.
+  - Added an `adaptive_three_sleeve` comparison row using the active dynamic portfolio plus adaptive rebalance policy.
+  - Sleeve-only tests select primarily by final sleeve label, then raw sleeve label, then sleeve engine score fallback so sparse historical sleeve months remain measurable.
+  - Colab result display now shows the standalone sleeve comparison table.
+- outputs:
+  - `outputs/reports/portfolio_sleeve_top7_standalone_comparison.csv`
+  - `outputs/reports/portfolio_sleeve_top7_standalone_monthly.csv`
+  - `outputs/reports/portfolio_sleeve_top7_standalone_holdings.csv`
+  - `run_summary.json` field: `standalone_sleeve_topn_backtest_comparison`
+  - `full_validation_suite.json` field: `standalone_sleeve_topn_backtest_snapshot`
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+- risks_or_notes:
+  - This is a selection-quality diagnostic, not the live portfolio itself.
+  - Equal weighting intentionally isolates sleeve selection from dynamic sizing/cash/cap rules.
