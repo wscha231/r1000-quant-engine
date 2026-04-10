@@ -169,3 +169,30 @@ This file is optimized for future coding agents. Keep entries predictable and ma
 - risks_or_notes:
   - Expected to save two full monthly portfolio backtest passes per run when sleeve/cap optimization and rebalance interval comparison are enabled.
   - Does not reduce model training time or data collection time.
+
+### 13:19 KST - preserve-early-scout-growth-sleeve
+
+- scope:
+  - Portfolio sleeve allocation, early-scout classification, and Colab defaults.
+- files:
+  - `r1000_top30_institutional.py`
+  - `r1000_data_collector.py`
+  - `colab_run.ipynb`
+  - `CHANGELOG.md`
+- behavior:
+  - Raised default `early_scout` base/max sleeve weights from `0.05/0.15` to `0.08/0.20`.
+  - Added an `early_scout` growth-floor rule that preserves scout exposure when growth signal is positive, risk signal is below the configured ceiling, and early candidates exist.
+  - Reduced automatic `early_scout` to `future_winner` promotion by requiring stronger edge/confirmation before promotion.
+  - Updated the defensive policy candidate so even drawdown-control mode can keep a small active scout sleeve instead of forcing `early_scout` to zero.
+  - Added `early_scout_candidate_share` to portfolio exports and Colab display columns.
+- outputs:
+  - `portfolio_latest.csv` column: `early_scout_candidate_share`
+  - `top30_latest.csv` column: `early_scout_candidate_share`
+  - `sleeve_cap_policy_comparison.csv` columns for the new early-scout floor config fields
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+- risks_or_notes:
+  - Expected effect: latest portfolio should include at least a small `early_scout` allocation in non-risk-off growth regimes.
+  - Risk: more growth exposure can increase drawdown and volatility; compare next run against `sleeve_cap_policy_comparison.csv`.

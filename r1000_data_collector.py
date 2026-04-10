@@ -58,9 +58,13 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("future_winner_sleeve_base_weight", 0.35)
     cfg.setdefault("future_winner_sleeve_min_weight", 0.05)
     cfg.setdefault("future_winner_sleeve_max_weight", 0.60)
-    cfg.setdefault("early_scout_sleeve_base_weight", 0.05)
+    cfg.setdefault("early_scout_sleeve_base_weight", 0.08)
     cfg.setdefault("early_scout_sleeve_min_weight", 0.00)
-    cfg.setdefault("early_scout_sleeve_max_weight", 0.15)
+    cfg.setdefault("early_scout_sleeve_max_weight", 0.20)
+    cfg.setdefault("early_scout_growth_floor_weight", 0.08)
+    cfg.setdefault("early_scout_growth_floor_min_signal", 0.38)
+    cfg.setdefault("early_scout_growth_floor_max_risk", 0.55)
+    cfg.setdefault("early_scout_candidate_floor_min_share", 0.01)
     cfg.setdefault("run_sleeve_cap_policy_comparison", True)
     cfg.setdefault("sleeve_cap_policy_apply_champion", True)
     cfg.setdefault("sleeve_cap_policy_max_candidates", 9)
@@ -85,9 +89,13 @@ def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["future_winner_sleeve_base_weight"] = 0.35
     cfg["future_winner_sleeve_min_weight"] = 0.05
     cfg["future_winner_sleeve_max_weight"] = 0.60
-    cfg["early_scout_sleeve_base_weight"] = 0.05
+    cfg["early_scout_sleeve_base_weight"] = 0.08
     cfg["early_scout_sleeve_min_weight"] = 0.00
-    cfg["early_scout_sleeve_max_weight"] = 0.15
+    cfg["early_scout_sleeve_max_weight"] = 0.20
+    cfg["early_scout_growth_floor_weight"] = 0.08
+    cfg["early_scout_growth_floor_min_signal"] = 0.38
+    cfg["early_scout_growth_floor_max_risk"] = 0.55
+    cfg["early_scout_candidate_floor_min_share"] = 0.01
     cfg["run_sleeve_cap_policy_comparison"] = True
     cfg["sleeve_cap_policy_apply_champion"] = True
     cfg["sleeve_cap_policy_max_candidates"] = 9
@@ -859,7 +867,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early-scout-sleeve-base-weight",
         type=float,
-        default=0.05,
+        default=0.08,
         help="Base portfolio weight for the early scout sleeve.",
     )
     parser.add_argument(
@@ -871,8 +879,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early-scout-sleeve-max-weight",
         type=float,
-        default=0.15,
+        default=0.20,
         help="Maximum early scout sleeve weight.",
+    )
+    parser.add_argument(
+        "--early-scout-growth-floor-weight",
+        type=float,
+        default=0.08,
+        help="Minimum scout sleeve target to preserve in non-risk-off growth regimes when candidates exist.",
+    )
+    parser.add_argument(
+        "--early-scout-growth-floor-min-signal",
+        type=float,
+        default=0.38,
+        help="Growth signal threshold for activating the early scout floor.",
+    )
+    parser.add_argument(
+        "--early-scout-growth-floor-max-risk",
+        type=float,
+        default=0.55,
+        help="Risk signal ceiling for activating the early scout floor.",
+    )
+    parser.add_argument(
+        "--early-scout-candidate-floor-min-share",
+        type=float,
+        default=0.01,
+        help="Minimum early scout candidate share needed before applying the growth floor.",
     )
     parser.add_argument(
         "--disable-sleeve-cap-policy-comparison",
@@ -931,6 +963,10 @@ def main() -> None:
     cfg["early_scout_sleeve_base_weight"] = float(args.early_scout_sleeve_base_weight)
     cfg["early_scout_sleeve_min_weight"] = float(args.early_scout_sleeve_min_weight)
     cfg["early_scout_sleeve_max_weight"] = float(args.early_scout_sleeve_max_weight)
+    cfg["early_scout_growth_floor_weight"] = float(args.early_scout_growth_floor_weight)
+    cfg["early_scout_growth_floor_min_signal"] = float(args.early_scout_growth_floor_min_signal)
+    cfg["early_scout_growth_floor_max_risk"] = float(args.early_scout_growth_floor_max_risk)
+    cfg["early_scout_candidate_floor_min_share"] = float(args.early_scout_candidate_floor_min_share)
     cfg["run_sleeve_cap_policy_comparison"] = not bool(args.disable_sleeve_cap_policy_comparison)
     cfg["sleeve_cap_policy_apply_champion"] = not bool(args.disable_sleeve_cap_policy_champion)
     cfg["sleeve_cap_policy_max_candidates"] = int(args.sleeve_cap_policy_max_candidates)

@@ -967,9 +967,13 @@ class EngineConfig:
     future_winner_sleeve_base_weight: float = 0.35
     future_winner_sleeve_min_weight: float = 0.05
     future_winner_sleeve_max_weight: float = 0.60
-    early_scout_sleeve_base_weight: float = 0.05
+    early_scout_sleeve_base_weight: float = 0.08
     early_scout_sleeve_min_weight: float = 0.00
-    early_scout_sleeve_max_weight: float = 0.15
+    early_scout_sleeve_max_weight: float = 0.20
+    early_scout_growth_floor_weight: float = 0.08
+    early_scout_growth_floor_min_signal: float = 0.38
+    early_scout_growth_floor_max_risk: float = 0.55
+    early_scout_candidate_floor_min_share: float = 0.01
     future_winner_entry_weight_cap: float = 0.10
     future_winner_drift_weight_cap: float = 0.18
     future_winner_hard_weight_cap: float = 0.24
@@ -977,9 +981,9 @@ class EngineConfig:
     early_scout_drift_weight_cap: float = 0.10
     early_scout_hard_weight_cap: float = 0.14
     sleeve_drift_headroom_pct: float = 0.35
-    early_scout_promotion_edge_max: float = 0.20
-    early_scout_promotion_confidence_max: float = 0.18
-    early_scout_promotion_min_score: float = 0.55
+    early_scout_promotion_edge_max: float = 0.12
+    early_scout_promotion_confidence_max: float = 0.12
+    early_scout_promotion_min_score: float = 0.70
     run_sleeve_cap_policy_comparison: bool = True
     sleeve_cap_policy_apply_champion: bool = True
     sleeve_cap_policy_max_candidates: int = 9
@@ -4108,6 +4112,14 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("early_scout_sleeve_max_weight must be between 0 and 0.45.")
     if cfg.early_scout_sleeve_min_weight > cfg.early_scout_sleeve_max_weight:
         raise ValueError("early_scout_sleeve_min_weight cannot exceed early_scout_sleeve_max_weight.")
+    if not (0.0 <= cfg.early_scout_growth_floor_weight <= 0.25):
+        raise ValueError("early_scout_growth_floor_weight must be between 0 and 0.25.")
+    if not (0.0 <= cfg.early_scout_growth_floor_min_signal <= 1.0):
+        raise ValueError("early_scout_growth_floor_min_signal must be between 0 and 1.")
+    if not (0.0 <= cfg.early_scout_growth_floor_max_risk <= 1.0):
+        raise ValueError("early_scout_growth_floor_max_risk must be between 0 and 1.")
+    if not (0.0 <= cfg.early_scout_candidate_floor_min_share <= 1.0):
+        raise ValueError("early_scout_candidate_floor_min_share must be between 0 and 1.")
     if not (0.0 < cfg.future_winner_entry_weight_cap <= cfg.future_winner_hard_weight_cap <= 0.50):
         raise ValueError("future_winner entry/drift/hard caps must satisfy 0 < entry <= hard <= 0.50.")
     if not (cfg.future_winner_entry_weight_cap <= cfg.future_winner_drift_weight_cap <= cfg.future_winner_hard_weight_cap):
@@ -13267,7 +13279,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Keep early_scout for names where the early/inflection engine is clearly
     # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
     weak_early_edge = sleeve_label == "early_scout"
-    weak_early_edge &= (early_edge < 0.20) | (sleeve_matrix[:, 2] < 0.65)
+    weak_early_edge &= (early_edge < 0.12) | (sleeve_matrix[:, 2] < 0.50)
     sleeve_label = np.where(
         weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
         "future_winner",
@@ -13308,15 +13320,20 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         ],
         d.index,
     ).fillna(0.0)
+    mature_history_confirmed = (
+        (history_depth >= 0.75)
+        & (fundamental_confirmation >= 0.55)
+        & (market_confirmation >= 0.55)
+    )
     mature_early_mask = (
         pd.Series(sleeve_label, index=d.index, dtype=object).astype(str).eq("early_scout")
         & (
-            (early_edge <= float(getattr(cfg, "early_scout_promotion_edge_max", 0.20)))
-            | (sleeve_confidence <= float(getattr(cfg, "early_scout_promotion_confidence_max", 0.18)))
+            (early_edge <= float(getattr(cfg, "early_scout_promotion_edge_max", 0.12)))
+            | (sleeve_confidence <= float(getattr(cfg, "early_scout_promotion_confidence_max", 0.12)))
         )
         & (
-            (promotion_signal >= float(getattr(cfg, "early_scout_promotion_min_score", 0.55)))
-            | (history_depth >= 0.60)
+            (promotion_signal >= float(getattr(cfg, "early_scout_promotion_min_score", 0.70)))
+            | mature_history_confirmed
         )
     )
     sleeve_label = np.where(mature_early_mask.to_numpy(dtype=bool), "future_winner", sleeve_label)
@@ -13358,6 +13375,7 @@ def compute_portfolio_sleeve_policy(
             "risk_signal": 0.0,
             "future_winner_regime_strength": 0.0,
             "early_scout_regime_strength": 0.0,
+            "early_scout_candidate_share": 0.0,
         }
 
     base_core = float(getattr(cfg, "core_compounder_sleeve_base_weight", 0.55))
@@ -13411,6 +13429,18 @@ def compute_portfolio_sleeve_policy(
             0.25 * defensive_rotation,
         ),
     )
+    early_candidate_share = 0.0
+    if not d.empty:
+        for label_col in ["portfolio_sleeve_label_raw", "portfolio_sleeve_label"]:
+            if label_col in d.columns:
+                labels = d[label_col].astype(str)
+                early_candidate_share = max(early_candidate_share, float(labels.eq("early_scout").mean()))
+        if "portfolio_early_scout_engine_score" in d.columns:
+            early_engine = pd.to_numeric(d["portfolio_early_scout_engine_score"], errors="coerce")
+            valid_early_engine = early_engine.dropna()
+            if not valid_early_engine.empty:
+                early_engine_cut = max(0.35, float(valid_early_engine.quantile(0.80)))
+                early_candidate_share = max(early_candidate_share, float((early_engine >= early_engine_cut).mean()))
 
     future_target = future_base
     future_target += 0.15 * np.clip((growth_signal - 0.42) / 0.58, 0.0, 1.0)
@@ -13425,6 +13455,37 @@ def compute_portfolio_sleeve_policy(
     early_target += 0.04 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
     early_target -= 0.14 * np.clip((risk_signal - 0.24) / 0.76, 0.0, 1.0)
     early_target -= 0.10 * np.clip((liquidity_drain - 0.33) / 0.67, 0.0, 1.0)
+
+    early_floor_weight = float(getattr(cfg, "early_scout_growth_floor_weight", 0.0))
+    early_floor_min_signal = float(getattr(cfg, "early_scout_growth_floor_min_signal", 0.38))
+    early_floor_max_risk = float(getattr(cfg, "early_scout_growth_floor_max_risk", 0.55))
+    early_floor_min_share = max(float(getattr(cfg, "early_scout_candidate_floor_min_share", 0.01)), 1e-8)
+    if (
+        early_floor_weight > 0.0
+        and early_candidate_share >= early_floor_min_share
+        and growth_signal >= early_floor_min_signal
+        and risk_signal < early_floor_max_risk
+    ):
+        growth_floor_factor = float(np.clip((growth_signal - early_floor_min_signal) / 0.22, 0.65, 1.0))
+        risk_floor_discount = float(
+            1.0
+            - 0.35
+            * np.clip(
+                (risk_signal - 0.25) / max(early_floor_max_risk - 0.25, 1e-8),
+                0.0,
+                1.0,
+            )
+        )
+        candidate_floor_factor = float(np.clip(early_candidate_share / max(early_floor_min_share, 1e-8), 0.0, 1.0))
+        early_growth_floor = early_floor_weight * growth_floor_factor * risk_floor_discount * candidate_floor_factor
+        early_target = max(
+            early_target,
+            min(
+                early_growth_floor,
+                float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)),
+                invested_share,
+            ),
+        )
 
     strong_future_regime = (
         growth_signal >= 0.72
@@ -13494,7 +13555,10 @@ def compute_portfolio_sleeve_policy(
         "growth_signal": float(growth_signal),
         "risk_signal": float(risk_signal),
         "future_winner_regime_strength": float(1.0 if strong_future_regime else max(0.0, growth_signal - risk_signal)),
-        "early_scout_regime_strength": float(1.0 if strong_early_regime else max(0.0, growth_thrust - risk_signal)),
+        "early_scout_regime_strength": float(
+            1.0 if strong_early_regime else max(0.0, growth_thrust - risk_signal, early_candidate_share * 0.25)
+        ),
+        "early_scout_candidate_share": float(early_candidate_share),
     }
 
 
@@ -13988,6 +14052,7 @@ def build_target_portfolio(
         final_df["early_scout_regime_strength"] = float(
             sleeve_policy.get("early_scout_regime_strength", 0.0)
         )
+        final_df["early_scout_candidate_share"] = float(sleeve_policy.get("early_scout_candidate_share", 0.0))
     final_df = final_df.sort_values("weight", ascending=False).reset_index(drop=True) if not final_df.empty else final_df
     stock_selected_n = int((final_df.get("ticker", pd.Series(dtype=object)).astype(str).str.upper() != CASH_PROXY_TICKER).sum()) if not final_df.empty else 0
     meta = {
@@ -15302,6 +15367,10 @@ SLEEVE_CAP_POLICY_FIELDS: tuple[str, ...] = (
     "early_scout_sleeve_base_weight",
     "early_scout_sleeve_min_weight",
     "early_scout_sleeve_max_weight",
+    "early_scout_growth_floor_weight",
+    "early_scout_growth_floor_min_signal",
+    "early_scout_growth_floor_max_risk",
+    "early_scout_candidate_floor_min_share",
     "future_winner_entry_weight_cap",
     "future_winner_drift_weight_cap",
     "future_winner_hard_weight_cap",
@@ -15350,15 +15419,18 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             future_winner_sleeve_base_weight=0.12,
             future_winner_sleeve_min_weight=0.00,
             future_winner_sleeve_max_weight=0.25,
-            early_scout_sleeve_base_weight=0.00,
+            early_scout_sleeve_base_weight=0.04,
             early_scout_sleeve_min_weight=0.00,
-            early_scout_sleeve_max_weight=0.05,
+            early_scout_sleeve_max_weight=0.12,
+            early_scout_growth_floor_weight=0.07,
+            early_scout_growth_floor_min_signal=0.38,
+            early_scout_growth_floor_max_risk=0.55,
             future_winner_entry_weight_cap=0.07,
             future_winner_drift_weight_cap=0.12,
             future_winner_hard_weight_cap=0.18,
-            early_scout_entry_weight_cap=0.03,
-            early_scout_drift_weight_cap=0.05,
-            early_scout_hard_weight_cap=0.08,
+            early_scout_entry_weight_cap=0.04,
+            early_scout_drift_weight_cap=0.08,
+            early_scout_hard_weight_cap=0.12,
             stock_weight_max=0.12,
             stock_weight_max_high_conviction=0.25,
             cash_target_growth_cap=0.03,
@@ -15376,6 +15448,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.05,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.12,
+            early_scout_growth_floor_weight=0.07,
             future_winner_entry_weight_cap=0.09,
             future_winner_drift_weight_cap=0.16,
             future_winner_hard_weight_cap=0.24,
@@ -15396,6 +15469,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.12,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.22,
+            early_scout_growth_floor_weight=0.10,
             future_winner_entry_weight_cap=0.12,
             future_winner_drift_weight_cap=0.22,
             future_winner_hard_weight_cap=0.32,
@@ -15416,6 +15490,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.15,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.25,
+            early_scout_growth_floor_weight=0.12,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.30,
             future_winner_hard_weight_cap=0.42,
@@ -15436,6 +15511,9 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.35,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.40,
+            early_scout_growth_floor_weight=0.18,
+            early_scout_growth_floor_min_signal=0.34,
+            early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.14,
             future_winner_drift_weight_cap=0.28,
             future_winner_hard_weight_cap=0.40,
@@ -15457,6 +15535,9 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.40,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.45,
+            early_scout_growth_floor_weight=0.20,
+            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_max_risk=0.45,
             future_winner_entry_weight_cap=0.16,
             future_winner_drift_weight_cap=0.32,
             future_winner_hard_weight_cap=0.45,
@@ -15478,6 +15559,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.10,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.20,
+            early_scout_growth_floor_weight=0.10,
             future_winner_entry_weight_cap=0.18,
             future_winner_drift_weight_cap=0.36,
             future_winner_hard_weight_cap=0.50,
@@ -15499,6 +15581,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_base_weight=0.08,
             early_scout_sleeve_min_weight=0.00,
             early_scout_sleeve_max_weight=0.18,
+            early_scout_growth_floor_weight=0.09,
             future_winner_entry_weight_cap=0.11,
             future_winner_drift_weight_cap=0.22,
             future_winner_hard_weight_cap=0.34,
@@ -16979,8 +17062,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "profitability_inflection_score",
             "dominant_archetype_label",
             "archetype_alignment_score",
+            "portfolio_sleeve_label_raw",
             "portfolio_sleeve_label",
             "portfolio_sleeve_confidence",
+            "portfolio_sleeve_promotion_signal",
+            "portfolio_sleeve_promoted",
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
@@ -16992,6 +17078,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "sleeve_risk_signal",
             "future_winner_regime_strength",
             "early_scout_regime_strength",
+            "early_scout_candidate_share",
             "future_winner_scout_score",
             "long_hold_compounder_score",
             "score_future_winner_model",
