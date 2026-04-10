@@ -548,9 +548,16 @@ def run_full_validation_suite(
             fixed_ranked = ranked[ranked["policy_mode"].astype(str).eq("fixed_interval")].copy()
             if not fixed_ranked.empty:
                 ranked = fixed_ranked
-        ranked["ir_sort"] = pd.to_numeric(ranked.get("ir"), errors="coerce").fillna(-1e18)
-        ranked["excess_sort"] = pd.to_numeric(ranked.get("excess_cagr"), errors="coerce").fillna(-1e18)
-        ranked["cagr_sort"] = pd.to_numeric(ranked.get("strategy_cagr"), errors="coerce").fillna(-1e18)
+        ir_source = ranked["ir"] if "ir" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
+        excess_source = (
+            ranked["excess_cagr"] if "excess_cagr" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
+        )
+        cagr_source = (
+            ranked["strategy_cagr"] if "strategy_cagr" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
+        )
+        ranked["ir_sort"] = pd.to_numeric(ir_source, errors="coerce").fillna(-1e18)
+        ranked["excess_sort"] = pd.to_numeric(excess_source, errors="coerce").fillna(-1e18)
+        ranked["cagr_sort"] = pd.to_numeric(cagr_source, errors="coerce").fillna(-1e18)
         ranked = ranked.sort_values(
             ["ir_sort", "excess_sort", "cagr_sort", "rebalance_interval_months"],
             ascending=[False, False, False, True],
@@ -615,8 +622,10 @@ def run_full_validation_suite(
             out[k] = float(num) if pd.notna(num) else str(v)
         return out
 
+    standalone_top_n_value = safe_float(run_summary.get("standalone_sleeve_top_n", 7))
+    standalone_top_n = int(standalone_top_n_value) if pd.notna(standalone_top_n_value) and standalone_top_n_value >= 1 else 7
     standalone_sleeve_snapshot: dict[str, Any] = {
-        "top_n": int(safe_float(run_summary.get("standalone_sleeve_top_n", 7)) or 7),
+        "top_n": int(standalone_top_n),
         "rows": [],
         "best_by_sleeve": {},
         "adaptive_three_sleeve": None,

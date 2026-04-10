@@ -225,3 +225,22 @@ This file is optimized for future coding agents. Keep entries predictable and ma
 - risks_or_notes:
   - This is a selection-quality diagnostic, not the live portfolio itself.
   - Equal weighting intentionally isolates sleeve selection from dynamic sizing/cash/cap rules.
+
+### 13:42 KST - validation-summary-guards
+
+- scope:
+  - Validation report robustness.
+- files:
+  - `r1000_data_collector.py`
+  - `CHANGELOG.md`
+- behavior:
+  - Added safe fallback series when optional rebalance comparison metrics are absent.
+  - Guarded standalone sleeve top-N parsing so invalid or missing values fall back to `7` instead of raising during validation summary generation.
+- outputs:
+  - no schema change
+- validation:
+  - `git diff --check` passed.
+  - `colab_run.ipynb` JSON parse check passed.
+  - Local Python runtime was not available, so no local `py_compile` check was run.
+- risks_or_notes:
+  - Defensive-only patch; no portfolio selection behavior change.
