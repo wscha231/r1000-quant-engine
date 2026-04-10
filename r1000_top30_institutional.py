@@ -870,6 +870,9 @@ class EngineConfig:
     ensemble_linear_weight: float = 0.20
     ensemble_cat_weight: float = 0.45
     ensemble_rank_weight: float = 0.35
+    regime_ensemble_weights_enabled: bool = True
+    regime_ensemble_weights_min_months: int = 6
+    regime_ensemble_weights_strength: float = 0.50
     cat_reg_iterations: int = 350
     cat_cls_iterations: int = 350
     cat_rank_iterations: int = 250
@@ -11160,6 +11163,7 @@ class ModelBundle:
     ranking_metrics: dict[str, float] = field(default_factory=dict)
     adaptive_ensemble_weights: dict[str, float] = field(default_factory=dict)
     adaptive_ensemble_diagnostics: dict[str, Any] = field(default_factory=dict)
+    regime_ensemble_weights: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 def load_model_bundle_json(paths: dict[str, Path]) -> Optional[ModelBundle]:
@@ -11558,6 +11562,19 @@ def evaluate_ranking_quality(scored: pd.DataFrame, score_col: str = "score", tar
     }
 
 
+# Regime-conditional ensemble weight priors (Option A: intuition-based defaults).
+# Ridge is more robust in stress regimes; CatBoost dominates in trending growth markets.
+# These are used as priors and blended with OOS-learned weights when data is available.
+REGIME_ENSEMBLE_WEIGHT_PRIORS: dict[str, dict[str, float]] = {
+    "balanced":           {"linear": 0.20, "catboost": 0.45, "ranker": 0.35},
+    "growth_reentry":     {"linear": 0.15, "catboost": 0.52, "ranker": 0.33},
+    "stagflation":        {"linear": 0.30, "catboost": 0.38, "ranker": 0.32},
+    "war_oil_rate_shock": {"linear": 0.35, "catboost": 0.35, "ranker": 0.30},
+    "carry_unwind":       {"linear": 0.32, "catboost": 0.38, "ranker": 0.30},
+    "systemic_crisis":    {"linear": 0.40, "catboost": 0.32, "ranker": 0.28},
+}
+
+
 def normalized_ensemble_weights_from_cfg(cfg: EngineConfig) -> dict[str, float]:
     raw = {
         "linear": max(float(cfg.ensemble_linear_weight), 0.0),
@@ -11566,6 +11583,142 @@ def normalized_ensemble_weights_from_cfg(cfg: EngineConfig) -> dict[str, float]:
     }
     total = sum(raw.values()) or 1.0
     return {k: float(v / total) for k, v in raw.items()}
+
+
+def compute_regime_conditional_ensemble_weights(
+    history: pd.DataFrame,
+    cfg: EngineConfig,
+    as_of_date: Optional[Any] = None,
+) -> dict[str, dict[str, float]]:
+    """Compute per-regime ensemble weights from OOS history (Option B).
+
+    For each known regime label:
+    - Filters OOS months matching that regime
+    - Computes exponentially-weighted IC quality per model component
+    - Blends with REGIME_ENSEMBLE_WEIGHT_PRIORS (Option A) when OOS months are sparse
+    - Falls back to global REGIME_ENSEMBLE_WEIGHT_PRIORS when data is insufficient
+
+    Returns dict[regime_label, {"linear": w, "catboost": w, "ranker": w}].
+    """
+    if not bool(getattr(cfg, "regime_ensemble_weights_enabled", True)):
+        return {}
+
+    base_weights = normalized_ensemble_weights_from_cfg(cfg)
+    min_months = max(int(getattr(cfg, "regime_ensemble_weights_min_months", 6)), 1)
+    strength = float(np.clip(getattr(cfg, "regime_ensemble_weights_strength", 0.50), 0.0, 1.0))
+    ic_mix = float(np.clip(getattr(cfg, "adaptive_ensemble_rank_ic_weight", 0.70), 0.0, 1.0))
+    half_life = max(float(getattr(cfg, "adaptive_ensemble_recent_half_life_months", 4.0)), 0.25)
+    temp = max(float(getattr(cfg, "adaptive_ensemble_temperature", 4.0)), 0.1)
+    floor_w = float(np.clip(getattr(cfg, "adaptive_ensemble_floor_weight", 0.10), 0.0, 0.95))
+
+    if history is None or history.empty or "rebalance_date" not in history.columns:
+        return {}
+
+    d = history.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d = d.dropna(subset=["rebalance_date"])
+    if as_of_date is not None:
+        cutoff = pd.to_datetime(as_of_date, errors="coerce")
+        if pd.notna(cutoff):
+            d = d[d["rebalance_date"] < cutoff]
+    if d.empty or "y_blend" not in d.columns:
+        return {}
+
+    # Determine regime label column (same as backtest_portfolio output)
+    regime_col = None
+    for cand in ("live_event_alert_label", "event_regime_label", "regime_label"):
+        if cand in d.columns:
+            regime_col = cand
+            break
+    if regime_col is None:
+        return {}
+
+    component_cols = {"linear": "score_linear", "catboost": "score_cat", "ranker": "score_ranker"}
+    known_regimes = list(REGIME_ENSEMBLE_WEIGHT_PRIORS.keys())
+    result: dict[str, dict[str, float]] = {}
+
+    for regime in known_regimes:
+        prior = REGIME_ENSEMBLE_WEIGHT_PRIORS[regime]
+        # Normalize prior
+        prior_total = sum(prior.values()) or 1.0
+        prior_norm = {k: float(v / prior_total) for k, v in prior.items()}
+
+        regime_data = d[d[regime_col].astype(str) == regime]
+        months = sorted(regime_data["rebalance_date"].dropna().unique().tolist())
+
+        if len(months) < min_months:
+            # Not enough regime history — use prior blended toward global base
+            blend = 0.40  # light prior when data absent
+            blended = {
+                k: blend * prior_norm.get(k, base_weights[k]) + (1.0 - blend) * base_weights[k]
+                for k in base_weights
+            }
+            total = sum(blended.values()) or 1.0
+            result[regime] = {k: float(v / total) for k, v in blended.items()}
+            continue
+
+        # Compute exponentially-decayed IC quality per component for this regime
+        quality_map: dict[str, float] = {}
+        for name, col in component_cols.items():
+            if col not in regime_data.columns:
+                quality_map[name] = np.nan
+                continue
+            monthly_scores: list[float] = []
+            monthly_wts: list[float] = []
+            for age, month in enumerate(reversed(months)):
+                g = regime_data[regime_data["rebalance_date"] == pd.Timestamp(month)].copy()
+                g = g.dropna(subset=["y_blend", col])
+                if len(g) < 10:
+                    continue
+                rank_ic = g[col].corr(g["y_blend"], method="spearman")
+                y_true = pd.to_numeric(g["y_blend"], errors="coerce").fillna(0.0).values
+                y_score = pd.to_numeric(g[col], errors="coerce").fillna(0.0).values
+                top_n = min(max(10, int(getattr(cfg, "rank_eval_top_k", 30))), len(g))
+                order = np.argsort(-y_score)[:top_n]
+                ideal = np.argsort(-y_true)[:top_n]
+                precision = float(len(set(order.tolist()) & set(ideal.tolist())) / max(top_n, 1))
+                component_quality = (
+                    ic_mix * float(np.nan_to_num(rank_ic, nan=0.0))
+                    + (1.0 - ic_mix) * float(np.nan_to_num((precision - 0.5) * 2.0, nan=0.0))
+                )
+                monthly_scores.append(component_quality)
+                monthly_wts.append(float(0.5 ** (age / half_life)))
+            if monthly_scores and sum(monthly_wts) > 0:
+                quality_map[name] = float(np.average(monthly_scores, weights=monthly_wts))
+            else:
+                quality_map[name] = np.nan
+
+        usable = {k: v for k, v in quality_map.items() if pd.notna(v)}
+        if len(usable) < 2:
+            # Fall back to prior
+            result[regime] = prior_norm.copy()
+            continue
+
+        # Softmax over quality scores
+        quality_vals = pd.Series(usable, dtype=float)
+        shifted = quality_vals - float(quality_vals.max())
+        adaptive = np.exp(temp * shifted)
+        adaptive = adaptive.clip(lower=floor_w)
+        adaptive = adaptive / adaptive.sum()
+
+        # Blend: OOS learned ← strength → global base, then blend with prior
+        learned: dict[str, float] = {}
+        for name in base_weights:
+            a_w = float(adaptive.get(name, base_weights[name]))
+            learned[name] = (1.0 - strength) * base_weights[name] + strength * a_w
+        learned_total = sum(learned.values()) or 1.0
+        learned = {k: float(v / learned_total) for k, v in learned.items()}
+
+        # Final: blend OOS-learned with prior (prior anchors when OOS regime months are few)
+        prior_weight = float(np.exp(-0.3 * max(len(months) - min_months, 0)))
+        final = {
+            k: prior_weight * prior_norm.get(k, learned[k]) + (1.0 - prior_weight) * learned[k]
+            for k in base_weights
+        }
+        final_total = sum(final.values()) or 1.0
+        result[regime] = {k: float(v / final_total) for k, v in final.items()}
+
+    return result
 
 
 def compute_adaptive_ensemble_state(
@@ -11670,15 +11823,53 @@ def compute_adaptive_ensemble_state(
     return state
 
 
-def apply_adaptive_ensemble_state(df: pd.DataFrame, state: Optional[dict[str, Any]]) -> pd.DataFrame:
+def apply_adaptive_ensemble_state(
+    df: pd.DataFrame,
+    state: Optional[dict[str, Any]],
+    regime_weights: Optional[dict[str, dict[str, float]]] = None,
+) -> pd.DataFrame:
+    """Apply ensemble weights to df.
+
+    When `regime_weights` is provided, weights are applied per-row based on the
+    regime label in `live_event_alert_label` (falling back to global `state["weights"]`).
+    This enables regime-conditional model blending (Option A+B dynamic ensemble).
+    """
     d = df.copy()
-    weights = ((state or {}).get("weights") or {}) if state is not None else {}
+    global_weights = ((state or {}).get("weights") or {}) if state is not None else {}
     active = bool((state or {}).get("active", False)) if state is not None else False
     history_months = int((state or {}).get("history_months", 0) or 0) if state is not None else 0
     quality = ((state or {}).get("quality") or {}) if state is not None else {}
-    d["ensemble_weight_linear"] = float(weights.get("linear", 0.0))
-    d["ensemble_weight_catboost"] = float(weights.get("catboost", 0.0))
-    d["ensemble_weight_ranker"] = float(weights.get("ranker", 0.0))
+
+    if regime_weights:
+        # Determine per-row regime label
+        regime_col = None
+        for cand in ("live_event_alert_label", "event_regime_label"):
+            if cand in d.columns:
+                regime_col = cand
+                break
+        if regime_col is not None:
+            labels = d[regime_col].astype(str).fillna("balanced")
+            d["ensemble_weight_linear"] = labels.map(
+                lambda r: float(regime_weights.get(r, global_weights).get("linear", global_weights.get("linear", 0.0)))
+            )
+            d["ensemble_weight_catboost"] = labels.map(
+                lambda r: float(regime_weights.get(r, global_weights).get("catboost", global_weights.get("catboost", 0.0)))
+            )
+            d["ensemble_weight_ranker"] = labels.map(
+                lambda r: float(regime_weights.get(r, global_weights).get("ranker", global_weights.get("ranker", 0.0)))
+            )
+            d["regime_ensemble_active"] = True
+        else:
+            d["ensemble_weight_linear"] = float(global_weights.get("linear", 0.0))
+            d["ensemble_weight_catboost"] = float(global_weights.get("catboost", 0.0))
+            d["ensemble_weight_ranker"] = float(global_weights.get("ranker", 0.0))
+            d["regime_ensemble_active"] = False
+    else:
+        d["ensemble_weight_linear"] = float(global_weights.get("linear", 0.0))
+        d["ensemble_weight_catboost"] = float(global_weights.get("catboost", 0.0))
+        d["ensemble_weight_ranker"] = float(global_weights.get("ranker", 0.0))
+        d["regime_ensemble_active"] = False
+
     d["adaptive_ensemble_active"] = bool(active)
     d["adaptive_ensemble_history_months"] = int(history_months)
     d["adaptive_quality_linear"] = float(np.nan_to_num(quality.get("linear"), nan=0.0))
@@ -12069,7 +12260,12 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         )
         adaptive_history = pd.concat(oos_rows, ignore_index=True) if oos_rows else pd.DataFrame()
         adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=test_dt)
-        tmp = apply_adaptive_ensemble_state(tmp, adaptive_state)
+        month_regime_weights = (
+            compute_regime_conditional_ensemble_weights(adaptive_history, cfg, as_of_date=test_dt)
+            if bool(getattr(cfg, "regime_ensemble_weights_enabled", True)) and not adaptive_history.empty
+            else None
+        )
+        tmp = apply_adaptive_ensemble_state(tmp, adaptive_state, regime_weights=month_regime_weights)
         tmp = add_total_score_columns(tmp, cfg, include_satellite=True)
         tmp = apply_focus_score_overlay(tmp, cfg)
         oos_rows.append(tmp)
@@ -12112,6 +12308,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         )
     ranking_metrics = evaluate_ranking_quality(scored, score_col="score", target_col="y_blend", k=cfg.rank_eval_top_k)
     adaptive_state_latest = compute_adaptive_ensemble_state(scored, cfg)
+    regime_ens_weights = compute_regime_conditional_ensemble_weights(scored, cfg)
 
     coef = np.nanmean(np.vstack(lin_coef_acc), axis=0) if lin_coef_acc else np.zeros(len(model_features))
     coef_map = {f: float(c) for f, c in zip(model_features, coef.tolist())}
@@ -12160,6 +12357,10 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
                 str(k): float(np.nan_to_num(v, nan=0.0))
                 for k, v in dict(adaptive_state_latest.get("quality", {})).items()
             },
+        },
+        regime_ensemble_weights={
+            regime: {k: float(v) for k, v in w.items()}
+            for regime, w in (regime_ens_weights or {}).items()
         },
     )
     (paths["models"] / "model_bundle_latest.json").write_text(json.dumps(asdict(bundle), indent=2))
@@ -14193,7 +14394,8 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
                 "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
                 "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
             }
-        latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state)
+        _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
+        latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
         latest_df = add_total_score_columns(
             latest_df,
             cfg,
@@ -14324,7 +14526,8 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
             "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
         }
-    latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state)
+    _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
+    latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
     latest_df = add_total_score_columns(
         latest_df,
         cfg,
@@ -16702,7 +16905,8 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
                 "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
                 "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
             }
-        latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state)
+        _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
+        latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
         latest_df = add_total_score_columns(
             latest_df,
             cfg,
@@ -16833,7 +17037,8 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
             "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
         }
-    latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state)
+    _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
+    latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
     latest_df = add_total_score_columns(
         latest_df,
         cfg,
@@ -19541,6 +19746,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "adaptive_ensemble_weights": dict(getattr(model_bundle, "adaptive_ensemble_weights", {}) or {}),
         "adaptive_ensemble_active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
         "adaptive_ensemble_history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
+        "regime_ensemble_weights": {
+            regime: {k: round(float(v), 4) for k, v in w.items()}
+            for regime, w in (dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {})).items()
+        },
         "rebalance_interval_months": int(bt.metrics.get("rebalance_interval_months", getattr(cfg, "rebalance_interval_months", 1))),
         "adaptive_rebalance_policy": bool(bt.metrics.get("adaptive_rebalance_policy", False)),
         "avg_rebalance_interval_months": float(bt.metrics.get("avg_rebalance_interval_months", np.nan)),

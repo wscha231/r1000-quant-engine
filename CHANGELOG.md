@@ -389,3 +389,33 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - Engine file grew from 16,830 to ~20,195 lines. Runtime will be longer because sleeve cap policy comparison (9 candidates) and standalone sleeve comparison (3 sleeves × 2 intervals) run by default.
   - Disable with `cfg["run_sleeve_cap_policy_comparison"] = False` and `cfg["run_standalone_sleeve_backtest_comparison"] = False` to reduce runtime.
   - Historical data quality report adds `add_historical_data_quality_columns` call over the full scored panel; moderate CPU cost.
+
+### KST - regime-conditional-ensemble-weights
+
+- scope:
+  - Ensemble model weight blending per market regime (Option A static priors + Option B OOS-learned).
+- files:
+  - `r1000_top30_institutional.py`
+  - `CHANGELOG.md`
+- behavior:
+  - Added `REGIME_ENSEMBLE_WEIGHT_PRIORS` constant — intuition-based static weights per regime (Ridge favored in crisis/shock, CatBoost favored in growth/reentry).
+  - Added `compute_regime_conditional_ensemble_weights()` — computes per-regime model IC/quality from OOS scored panel; blends with static priors (prior weight decays as OOS regime months accumulate); falls back to priors when OOS data insufficient.
+  - Extended `apply_adaptive_ensemble_state()` with optional `regime_weights` parameter — when provided, writes per-row regime-specific weights by detecting `live_event_alert_label` column; falls back to global adaptive weights when regime column absent.
+  - Added `regime_ensemble_weights: dict[str, dict[str, float]]` field to `ModelBundle` — stored in `model_bundle_latest.json` after each walk-forward training run.
+  - Wired `compute_regime_conditional_ensemble_weights()` into `train_walkforward()` — computed from full OOS scored panel after walk-forward, stored in ModelBundle.
+  - Updated per-month walk-forward scoring loop to call `compute_regime_conditional_ensemble_weights()` incrementally (same OOS embargo discipline as adaptive ensemble).
+  - Updated all 4 `apply_adaptive_ensemble_state()` call sites in `build_latest_recommendations()` and fallback scoring to pass `regime_weights` from ModelBundle.
+  - Added 3 new EngineConfig fields: `regime_ensemble_weights_enabled` (bool, default True), `regime_ensemble_weights_min_months` (int, default 6), `regime_ensemble_weights_strength` (float, default 0.50).
+  - Added `regime_ensemble_weights` dict to `run_summary.json` output.
+- outputs:
+  - `model_bundle_latest.json` field: `regime_ensemble_weights` (dict of regime → {linear, catboost, ranker})
+  - `run_summary.json` field: `regime_ensemble_weights`
+  - Scored panel columns: `ensemble_weight_linear`, `ensemble_weight_catboost`, `ensemble_weight_ranker` now vary per row by regime; new `regime_ensemble_active` bool column
+- validation:
+  - grep confirms all symbols present in engine.
+  - Local Python runtime not available; no local `py_compile` check.
+- risks_or_notes:
+  - `compute_regime_conditional_ensemble_weights()` adds CPU overhead proportional to (n_regimes × n_months_per_regime). For 6 regimes and 96 months of OOS data, overhead is modest.
+  - First run will use static priors for all regimes because OOS scored panel has no `live_event_alert_label`; weights will improve after first full Colab run.
+  - Disable with `cfg["regime_ensemble_weights_enabled"] = False` for a pure global-adaptive-only run.
+  - `regime_ensemble_weights_strength=0.50` means learned weights can move ±50% from global base per regime; raise to 0.80 for more aggressive regime-specific tilting.
