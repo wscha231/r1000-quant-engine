@@ -353,3 +353,39 @@ This file is optimized for future coding agents. Keep entries predictable and ma
   - No behavioral changes to sleeve selection, backtest, or data pipeline — fixes only.
 - risks_or_notes:
   - The default change from `True` to `False` for `run_sleeve_regime_comparison` means Colab runs will no longer automatically run the 12-backtest regime grid. Enable explicitly with `cfg["run_sleeve_regime_comparison"] = True` when you want to run the optimizer.
+
+### KST - restore-missing-pre-session-features
+
+- scope:
+  - Restoration of features lost when local engine overwrote git repo in commit `1dbf0d3`.
+- files:
+  - `r1000_top30_institutional.py`
+  - `colab_run.ipynb`
+  - `CHANGELOG.md`
+- behavior:
+  - Restored `add_historical_data_quality_columns()` and `build_historical_data_quality_report_frames()` functions (~1,384 + 1,085 lines) with full PIT-safe historical data quality diagnostics.
+  - Restored `SLEEVE_CAP_POLICY_FIELDS` tuple (24 fields), `clone_cfg_with_updates()`, `generate_sleeve_cap_policy_candidates()`, `sleeve_cap_policy_objective()`, `compare_sleeve_cap_policy_backtests()`, `choose_sleeve_cap_policy()`, `apply_sleeve_cap_policy_to_cfg()`.
+  - Restored `SLEEVE_STANDALONE_LABELS/ROLE_MAP/ENGINE_COL` constants and `prepare_standalone_sleeve_frame()`, `select_standalone_sleeve_topn()`, `backtest_standalone_sleeve_topn()`, `compare_standalone_sleeve_topn_backtests()`.
+  - Added missing EngineConfig fields: `early_scout_growth_floor_*`, `early_scout_candidate_floor_min_share`, `future_winner_entry/drift/hard_weight_cap`, `early_scout_entry/drift/hard_weight_cap`, `sleeve_drift_headroom_pct`, `early_scout_promotion_*`, `run_sleeve_cap_policy_comparison`, all `sleeve_cap_policy_objective_*` weights, `run_standalone_sleeve_backtest_comparison`, `standalone_sleeve_top_n`, `standalone_sleeve_rebalance_intervals`, `run_historical_data_quality_reports`, `growth_history_confidence_penalty_weight`, `growth_history_confidence_min_for_full_sleeve`.
+  - Updated `run_all()` to call Phase 5c (sleeve cap policy), Phase 5d (standalone sleeve comparison), and pass results to `export_outputs()`.
+  - Updated `export_outputs()` to accept and write all new comparison artifacts (CSVs + JSON) and include their paths in `result_outputs` and `run_summary.json`.
+  - Updated `colab_run.ipynb` Cell 6 to load and display `sleeve_policy_per_regime_best.csv` and `sleeve_policy_per_regime_grid.csv` pivot table.
+- outputs:
+  - `outputs/reports/sleeve_cap_policy_comparison.csv`
+  - `outputs/reports/sleeve_cap_policy_champion_latest.json`
+  - `outputs/reports/portfolio_sleeve_top7_standalone_comparison.csv`
+  - `outputs/reports/portfolio_sleeve_top7_standalone_monthly.csv`
+  - `outputs/reports/portfolio_sleeve_top7_standalone_holdings.csv`
+  - `outputs/reports/historical_data_quality_by_month.csv`
+  - `outputs/reports/historical_data_quality_by_sleeve.csv`
+  - `outputs/reports/historical_data_quality_latest.csv`
+  - `run_summary.json` fields: `champion_sleeve_cap_policy`, `sleeve_cap_policy_optimization_snapshot`, `run_sleeve_cap_policy_comparison`, `run_standalone_sleeve_backtest_comparison`, `run_historical_data_quality_reports`
+- validation:
+  - `ast.parse` syntax check passed (20,195 lines, up from 16,830).
+  - All restored function names confirmed present via grep.
+  - `colab_run.ipynb` JSON is valid Jupyter notebook format.
+  - Local Python runtime not available; no local `py_compile` check.
+- risks_or_notes:
+  - Engine file grew from 16,830 to ~20,195 lines. Runtime will be longer because sleeve cap policy comparison (9 candidates) and standalone sleeve comparison (3 sleeves × 2 intervals) run by default.
+  - Disable with `cfg["run_sleeve_cap_policy_comparison"] = False` and `cfg["run_standalone_sleeve_backtest_comparison"] = False` to reduce runtime.
+  - Historical data quality report adds `add_historical_data_quality_columns` call over the full scored panel; moderate CPU cost.
