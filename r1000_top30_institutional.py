@@ -8628,6 +8628,152 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
     return d
 
 
+def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        return d
+
+    price_above_ma50 = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma150 = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma200 = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma50_above_ma150 = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    ma150_above_ma200 = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma200_slope_positive = (numeric_series_or_default(d, "ma200_slope_1m", 0.0) > 0.0).astype(float)
+    ma_order_score = row_mean(
+        [
+            price_above_ma50,
+            price_above_ma150,
+            price_above_ma200,
+            ma50_above_ma150,
+            ma150_above_ma200,
+            ma200_slope_positive,
+        ],
+        d.index,
+    ).fillna(0.0)
+    near_high = numeric_series_or_default(d, "near_52w_high_pct", -1.0)
+    near_high_score = ((near_high + 0.30) / 0.30).clip(lower=0.0, upper=1.0).fillna(0.0)
+    trend_template_score = row_mean(
+        [
+            numeric_series_or_default(d, "trend_template_full", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "trend_template_relaxed", 0.0).clip(lower=0.0, upper=1.0),
+            ma_order_score,
+            near_high_score,
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    absolute_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "mom_3m"),
+            cross_sectional_robust_z(d, "mom_6m"),
+            cross_sectional_robust_z(d, "mom_12m"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    relative_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "rs_benchmark_3m"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "rs_benchmark_12m"),
+            0.80 * cross_sectional_robust_z(d, "relative_strength_composite"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volume_breakout = row_mean(
+        [
+            0.80 * cross_sectional_robust_z(d, "breakout_volume_z"),
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            0.50 * cross_sectional_robust_z(d, "obv_trend"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volatility_setup = row_mean(
+        [
+            cross_sectional_robust_z(d, "volume_dryup_20d"),
+            cross_sectional_robust_z(d, "volatility_contraction_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    positive_rs_consistency = row_mean(
+        [
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_12m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", np.nan)
+    rsi_not_extended = (1.0 - ((rsi14 - 82.0) / 10.0).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    bb_pb = numeric_series_or_default(d, "bb_pb", np.nan)
+    bollinger_not_extended = (1.0 - ((bb_pb - 1.05) / 0.25).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    breakout_follow_through = row_mean(
+        [
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "breakout_volume_z", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "obv_trend", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    broken_trend = row_mean(
+        [
+            (price_above_ma50 <= 0.0).astype(float),
+            (price_above_ma150 <= 0.0).astype(float),
+            (price_above_ma200 <= 0.0).astype(float),
+            (ma150_above_ma200 <= 0.0).astype(float),
+            numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "mom_3m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) < 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    atr_high_penalty = cross_sectional_robust_z(d, "atr14_pct").clip(lower=0.0).fillna(0.0)
+    setup_quality_raw = row_mean(
+        [
+            1.15 * trend_template_score,
+            1.00 * positive_rs_consistency,
+            0.85 * near_high_score,
+            0.70 * breakout_follow_through,
+            0.55 * robust_z(volatility_setup).fillna(0.0).clip(lower=-1.0, upper=2.0),
+            0.50 * rsi_not_extended,
+            0.45 * bollinger_not_extended,
+        ],
+        d.index,
+    ).fillna(0.0)
+    setup_quality_score = (setup_quality_raw - 0.55 * broken_trend - 0.18 * atr_high_penalty).clip(
+        lower=-2.0,
+        upper=2.5,
+    )
+    minervini_raw = (
+        0.33 * robust_z(trend_template_score).fillna(0.0)
+        + 0.23 * relative_momentum
+        + 0.15 * absolute_momentum
+        + 0.14 * robust_z(setup_quality_score).fillna(0.0)
+        + 0.09 * volume_breakout
+        + 0.06 * volatility_setup
+    )
+    d["minervini_trend_template_score"] = trend_template_score.clip(lower=0.0, upper=1.0)
+    d["momentum_alive_relative_score"] = relative_momentum
+    d["momentum_alive_absolute_score"] = absolute_momentum
+    d["momentum_alive_volume_score"] = volume_breakout
+    d["broken_momentum_penalty"] = broken_trend.clip(lower=0.0, upper=1.0)
+    d["breakout_setup_quality_score"] = setup_quality_score
+    d["minervini_momentum_alive_score"] = (minervini_raw - 0.65 * d["broken_momentum_penalty"]).clip(
+        lower=-4.0,
+        upper=4.0,
+    )
+    d["minervini_trend_pass"] = (
+        (d["minervini_trend_template_score"] >= 0.75)
+        & (near_high >= -0.30)
+        & (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0)
+    ).astype(float)
+    return d
+
+
 def apply_focus_score_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
     d = df.copy()
     d["score_focus_bonus"] = 0.0

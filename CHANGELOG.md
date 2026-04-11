@@ -570,3 +570,27 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - The inactive legacy duplicate bodies are retained under `_legacy_unused_*` names for now instead of being physically deleted, minimizing merge risk while removing public-name collisions.
   - A later cleanup can delete those legacy bodies after one clean Colab run confirms behavior.
+
+## 2026-04-11
+
+### 00:05 KST - restore-minervini-momentum-overlay
+
+- scope: Restore the missing Minervini-style momentum overlay function so Phase 5 portfolio construction can run again.
+- files:
+  - `r1000_top30_institutional.py` - restored `compute_minervini_momentum_overlay()` used by focus overlay, sleeve scoring, and portfolio construction.
+  - `CHANGELOG.md` - recorded the missing-function runtime fix.
+- symbols_added:
+  - `compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame` - rebuilds trend-template, breakout-quality, broken-trend penalty, and momentum-alive signals from existing technical features.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `Select-String` confirmed call sites existed while no active definition remained before the patch.
+  - Restored the implementation from prior repo history (`git show 8e7e5e12a857571ef025e7a14387838f9f25174d:r1000_top30_institutional.py`).
+- risks_or_notes:
+  - Colab must rerun the GitHub sync cell before rerunning the pipeline so the notebook imports the restored function from `master`.
