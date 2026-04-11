@@ -639,3 +639,25 @@ All entries must be written in English. Entries must be predictable and machine-
   - Restored the constant block from prior repo history and aligned the list contents with the currently emitted columns in `add_historical_data_quality_columns()`.
 - risks_or_notes:
   - Colab must rerun the GitHub sync cell before rerunning the resume pipeline cell so the notebook imports the restored constants from `master`.
+
+### 22:33 KST - normalize-export-artifact-frames
+
+- scope: Fix Phase 6 export so the phase5-only Colab resume path can pass DataFrame artifacts directly without hitting pandas truth-value errors.
+- files:
+  - `r1000_top30_institutional.py` - added a small export-local artifact-frame normalizer and removed `or {}` truthiness checks for DataFrame-valued export inputs.
+  - `CHANGELOG.md` - recorded the export runtime fix for the current Colab resume failure.
+- symbols_added:
+  - `_artifact_frame(name: str)` - normalizes optional export artifacts into copied DataFrames without evaluating pandas objects in boolean context.
+- symbols_changed:
+  - `export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any])` - now accepts prebuilt DataFrame artifacts from sleeve/cap and standalone backtest comparisons without raising `ValueError`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `Select-String -Path 'C:\Users\Andrew Cha\Documents\codex\.tmp_r1000_github_update_sec\r1000_top30_institutional.py' -Pattern 'pd\.DataFrame\(artifacts\.get\('` confirmed the ambiguous-truthiness pattern only existed in `export_outputs()`.
+  - Reviewed the failing Colab traceback and matched it to `export_outputs()` line `19293`, where a DataFrame entered the `or {}` expression.
+- risks_or_notes:
+  - Colab still needs a fresh GitHub sync before rerunning the Phase 5-only resume cell; otherwise the notebook will keep importing the pre-fix export function.

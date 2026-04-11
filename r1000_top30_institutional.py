@@ -19283,6 +19283,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     model_features = model_feature_columns(cfg)
     log("Phase 6: exporting outputs ...")
 
+    def _artifact_frame(name: str) -> pd.DataFrame:
+        value = artifacts.get(name)
+        if value is None:
+            return pd.DataFrame()
+        if isinstance(value, pd.DataFrame):
+            return value.copy()
+        return pd.DataFrame(value).copy()
+
     scored = artifacts["scored"].copy()
     bt: BacktestResult = artifacts["backtest"]
     model_bundle: ModelBundle = artifacts["model_bundle"]
@@ -19290,11 +19298,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     current_portfolio = artifacts.get("latest_portfolio")
     research_only_portfolio_artifact = artifacts.get("research_only_portfolio")
     acceptance_checks = artifacts.get("acceptance_checks", {})
-    sleeve_cap_policy_compare = pd.DataFrame(artifacts.get("sleeve_cap_policy_compare") or {}).copy()
+    sleeve_cap_policy_compare = _artifact_frame("sleeve_cap_policy_compare")
     selected_sleeve_cap_policy = dict(artifacts.get("selected_sleeve_cap_policy") or {})
-    standalone_sleeve_compare = pd.DataFrame(artifacts.get("standalone_sleeve_compare") or {}).copy()
-    standalone_sleeve_monthly = pd.DataFrame(artifacts.get("standalone_sleeve_monthly") or {}).copy()
-    standalone_sleeve_holdings = pd.DataFrame(artifacts.get("standalone_sleeve_holdings") or {}).copy()
+    standalone_sleeve_compare = _artifact_frame("standalone_sleeve_compare")
+    standalone_sleeve_monthly = _artifact_frame("standalone_sleeve_monthly")
+    standalone_sleeve_holdings = _artifact_frame("standalone_sleeve_holdings")
 
     if current_scored is None or current_scored.empty:
         latest_dt = pd.to_datetime(scored["rebalance_date"], errors="coerce").max()
