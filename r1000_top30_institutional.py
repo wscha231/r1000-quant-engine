@@ -994,18 +994,20 @@ class EngineConfig:
     run_portfolio_size_comparison: bool = True
     run_rebalance_interval_comparison: bool = True
     run_backtest_window_comparison: bool = True
-    run_sleeve_regime_comparison: bool = False
+    run_sleeve_regime_comparison: bool = True
     sleeve_regime_comparison_cash_max: float = 0.02
+    sleeve_regime_apply_champion: bool = True
+    regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
     run_sleeve_cap_policy_comparison: bool = True
     sleeve_cap_policy_apply_champion: bool = True
     sleeve_cap_policy_max_candidates: int = 9
-    sleeve_cap_policy_objective_excess_weight: float = 1.0
+    sleeve_cap_policy_objective_excess_weight: float = 1.15
     sleeve_cap_policy_objective_sharpe_weight: float = 1.0
     sleeve_cap_policy_objective_sortino_weight: float = 0.50
-    sleeve_cap_policy_objective_drawdown_weight: float = 0.80
+    sleeve_cap_policy_objective_drawdown_weight: float = 0.65
     sleeve_cap_policy_objective_turnover_weight: float = 0.20
-    sleeve_cap_policy_objective_concentration_weight: float = 0.35
-    sleeve_cap_policy_objective_cash_drag_weight: float = 0.25
+    sleeve_cap_policy_objective_concentration_weight: float = 0.25
+    sleeve_cap_policy_objective_cash_drag_weight: float = 0.15
     run_standalone_sleeve_backtest_comparison: bool = True
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
@@ -15353,18 +15355,18 @@ def compute_portfolio_sleeve_policy(
                 early_candidate_share = max(early_candidate_share, float((early_engine >= early_engine_cut).mean()))
 
     future_target = future_base
-    future_target += 0.15 * np.clip((growth_signal - 0.42) / 0.58, 0.0, 1.0)
-    future_target += 0.08 * np.clip((breadth_regime - 0.58) / 0.22, 0.0, 1.0)
-    future_target += 0.05 * np.clip((sector_participation - 0.40) / 0.20, 0.0, 1.0)
-    future_target -= 0.14 * np.clip((risk_signal - 0.28) / 0.72, 0.0, 1.0)
-    future_target -= 0.08 * np.clip((liquidity_drain - 0.35) / 0.65, 0.0, 1.0)
+    future_target += 0.20 * np.clip((growth_signal - 0.36) / 0.64, 0.0, 1.0)
+    future_target += 0.10 * np.clip((breadth_regime - 0.54) / 0.26, 0.0, 1.0)
+    future_target += 0.06 * np.clip((sector_participation - 0.38) / 0.22, 0.0, 1.0)
+    future_target -= 0.12 * np.clip((risk_signal - 0.34) / 0.66, 0.0, 1.0)
+    future_target -= 0.06 * np.clip((liquidity_drain - 0.40) / 0.60, 0.0, 1.0)
     early_target = early_base
-    early_target += 0.05 * np.clip((growth_signal - 0.52) / 0.48, 0.0, 1.0)
-    early_target += 0.06 * np.clip((growth_thrust - 0.46) / 0.54, 0.0, 1.0)
-    early_target += 0.04 * np.clip((breadth_regime - 0.60) / 0.20, 0.0, 1.0)
-    early_target += 0.04 * np.clip((sector_participation - 0.42) / 0.18, 0.0, 1.0)
-    early_target -= 0.14 * np.clip((risk_signal - 0.24) / 0.76, 0.0, 1.0)
-    early_target -= 0.10 * np.clip((liquidity_drain - 0.33) / 0.67, 0.0, 1.0)
+    early_target += 0.08 * np.clip((growth_signal - 0.44) / 0.56, 0.0, 1.0)
+    early_target += 0.10 * np.clip((growth_thrust - 0.34) / 0.66, 0.0, 1.0)
+    early_target += 0.06 * np.clip((breadth_regime - 0.54) / 0.26, 0.0, 1.0)
+    early_target += 0.06 * np.clip((sector_participation - 0.38) / 0.22, 0.0, 1.0)
+    early_target -= 0.12 * np.clip((risk_signal - 0.30) / 0.70, 0.0, 1.0)
+    early_target -= 0.08 * np.clip((liquidity_drain - 0.36) / 0.64, 0.0, 1.0)
 
     early_floor_weight = float(getattr(cfg, "early_scout_growth_floor_weight", 0.0))
     early_floor_min_signal = float(getattr(cfg, "early_scout_growth_floor_min_signal", 0.38))
@@ -15398,26 +15400,26 @@ def compute_portfolio_sleeve_policy(
         )
 
     strong_future_regime = (
-        growth_signal >= 0.72
-        and breadth_regime >= 0.60
-        and sector_participation >= 0.42
-        and risk_signal <= 0.40
-        and liquidity_drain <= 0.45
+        growth_signal >= 0.62
+        and breadth_regime >= 0.56
+        and sector_participation >= 0.40
+        and risk_signal <= 0.45
+        and liquidity_drain <= 0.50
     )
     strong_early_regime = (
-        growth_signal >= 0.78
-        and growth_thrust >= 0.62
-        and breadth_regime >= 0.62
-        and sector_participation >= 0.45
-        and risk_signal <= 0.35
-        and liquidity_drain <= 0.35
+        growth_signal >= 0.66
+        and growth_thrust >= 0.48
+        and breadth_regime >= 0.56
+        and sector_participation >= 0.40
+        and risk_signal <= 0.42
+        and liquidity_drain <= 0.42
     )
     if strong_future_regime:
         future_target = max(
             future_target,
             min(
                 float(getattr(cfg, "future_winner_sleeve_max_weight", 0.60)),
-                0.40 + 0.20 * np.clip((growth_signal - 0.72) / 0.28, 0.0, 1.0),
+                0.45 + 0.18 * np.clip((growth_signal - 0.62) / 0.38, 0.0, 1.0),
             ),
         )
     if strong_early_regime:
@@ -15425,7 +15427,9 @@ def compute_portfolio_sleeve_policy(
             early_target,
             min(
                 float(getattr(cfg, "early_scout_sleeve_max_weight", 0.15)),
-                0.08 + 0.07 * np.clip((growth_thrust - 0.62) / 0.38, 0.0, 1.0),
+                0.14
+                + 0.12 * np.clip((growth_thrust - 0.48) / 0.52, 0.0, 1.0)
+                + 0.06 * np.clip((growth_signal - 0.66) / 0.34, 0.0, 1.0),
             ),
         )
     if risk_signal >= 0.70:
@@ -15573,6 +15577,10 @@ def build_target_portfolio(
 
     caps = compute_dynamic_sector_caps(cfg, month_df)
     regime_ctl = compute_regime_portfolio_controls(cfg, month_df)
+    effective_sleeve_override = sleeve_override
+    regime_sleeve_meta: dict[str, Any] = {}
+    if effective_sleeve_override is None:
+        effective_sleeve_override, regime_sleeve_meta = resolve_regime_conditioned_sleeve_override(cfg, month_df)
     if target_n_override is not None:
         target_n = int(max(1, min(len(month_df), int(target_n_override))))
     else:
@@ -15580,20 +15588,20 @@ def build_target_portfolio(
         min_dynamic_names = int(getattr(cfg, "min_dynamic_port_names", cfg.min_port_names))
         target_n = int(max(min_dynamic_names, min(cfg.top_n, target_n + int(round(regime_ctl["target_n_adjustment"])))))
     sleeve_policy = compute_portfolio_sleeve_policy(cfg, month_df, regime_ctl.get("cash_target", 0.0))
-    if sleeve_override is not None or cash_target_max < 1.0:
+    if effective_sleeve_override is not None or cash_target_max < 1.0:
         raw_cash = float(sleeve_policy.get("cash_target", 0.0))
         capped_cash = float(np.clip(min(raw_cash, float(cash_target_max)), 0.0, 1.0))
         invested_share_override = max(0.0, 1.0 - capped_cash)
-        if sleeve_override is not None:
+        if effective_sleeve_override is not None:
             total_frac = max(
-                float(sleeve_override.get("core", 0.0))
-                + float(sleeve_override.get("future", 0.0))
-                + float(sleeve_override.get("early", 0.0)),
+                float(effective_sleeve_override.get("core", 0.0))
+                + float(effective_sleeve_override.get("future", 0.0))
+                + float(effective_sleeve_override.get("early", 0.0)),
                 1e-8,
             )
-            core_frac = float(sleeve_override.get("core", 0.0)) / total_frac
-            future_frac = float(sleeve_override.get("future", 0.0)) / total_frac
-            early_frac = float(sleeve_override.get("early", 0.0)) / total_frac
+            core_frac = float(effective_sleeve_override.get("core", 0.0)) / total_frac
+            future_frac = float(effective_sleeve_override.get("future", 0.0)) / total_frac
+            early_frac = float(effective_sleeve_override.get("early", 0.0)) / total_frac
             sleeve_policy = {
                 **sleeve_policy,
                 "core_compounder_target": core_frac * invested_share_override,
@@ -15602,6 +15610,14 @@ def build_target_portfolio(
                 "invested_share": invested_share_override,
                 "cash_target": capped_cash,
             }
+            if regime_sleeve_meta:
+                sleeve_policy.update(
+                    {
+                        "applied_regime_sleeve_policy_label": str(regime_sleeve_meta.get("policy_label", "") or ""),
+                        "applied_regime_sleeve_live_label": str(regime_sleeve_meta.get("live_regime_label", "") or ""),
+                        "applied_regime_sleeve_source_label": str(regime_sleeve_meta.get("selected_regime_label", "") or ""),
+                    }
+                )
         else:
             old_invested = max(float(sleeve_policy.get("invested_share", max(1.0 - raw_cash, 0.0))), 1e-8)
             scale = invested_share_override / old_invested
@@ -16010,6 +16026,15 @@ def build_target_portfolio(
             sleeve_policy.get("early_scout_regime_strength", 0.0)
         )
         final_df["early_scout_candidate_share"] = float(sleeve_policy.get("early_scout_candidate_share", 0.0))
+        final_df["applied_regime_sleeve_policy_label"] = str(
+            sleeve_policy.get("applied_regime_sleeve_policy_label", "")
+        )
+        final_df["applied_regime_sleeve_live_label"] = str(
+            sleeve_policy.get("applied_regime_sleeve_live_label", "")
+        )
+        final_df["applied_regime_sleeve_source_label"] = str(
+            sleeve_policy.get("applied_regime_sleeve_source_label", "")
+        )
     final_df = final_df.sort_values("weight", ascending=False).reset_index(drop=True) if not final_df.empty else final_df
     stock_selected_n = int((final_df.get("ticker", pd.Series(dtype=object)).astype(str).str.upper() != CASH_PROXY_TICKER).sum()) if not final_df.empty else 0
     meta = {
@@ -16020,6 +16045,7 @@ def build_target_portfolio(
         "sector_caps": caps,
         "regime_controls": regime_ctl,
         "sleeve_policy": sleeve_policy,
+        "regime_conditioned_sleeve_policy": regime_sleeve_meta,
         "sleeve_target_weights": {str(k): float(v) for k, v in sleeve_targets.items()},
         "sleeve_selected_counts": {
             str(k): int(v)
@@ -17838,7 +17864,38 @@ def compare_sleeve_cap_policy_backtests(
     )
     out["sleeve_cap_policy_rank"] = np.arange(1, len(out) + 1)
     out.attrs["backtests_by_policy"] = backtests_by_policy
-    return out.reset_index(drop=True)
+    if bool(getattr(cfg_obj, "run_sleeve_regime_comparison", True)) or bool(
+        getattr(cfg_obj, "sleeve_regime_apply_champion", True)
+    ):
+        ok = out[out["policy_status"].astype(str).eq("ok")].copy()
+        if not ok.empty:
+            champion_row = ok.sort_values("sleeve_cap_policy_objective", ascending=False).iloc[0].to_dict()
+            champion_cfg = apply_sleeve_cap_policy_to_cfg(cfg_obj, champion_row)
+            regime_cash_max = float(getattr(champion_cfg, "sleeve_regime_comparison_cash_max", 0.02))
+            regime_grid, regime_best = compare_sleeve_policy_per_regime(
+                champion_cfg,
+                signals,
+                cash_target_max=regime_cash_max,
+            )
+            regime_map = build_regime_conditioned_sleeve_map(regime_best)
+            live_label = resolve_frame_regime_label(
+                signals.loc[
+                    pd.to_datetime(signals.get("rebalance_date"), errors="coerce")
+                    == pd.to_datetime(signals.get("rebalance_date"), errors="coerce").max()
+                ].copy()
+                if isinstance(signals, pd.DataFrame) and "rebalance_date" in signals.columns
+                else signals,
+                default="balanced",
+            )
+            live_regime_policy = dict(regime_map.get(live_label) or regime_map.get("balanced") or regime_map.get("ALL") or {})
+            out.attrs["sleeve_regime_grid"] = regime_grid
+            out.attrs["sleeve_regime_best"] = regime_best
+            out.attrs["regime_conditioned_sleeve_map"] = regime_map
+            out.attrs["live_regime_label"] = live_label
+            out.attrs["live_regime_policy"] = live_regime_policy
+    result = out.reset_index(drop=True)
+    result.attrs = dict(out.attrs)
+    return result
 
 
 def _clean_json_scalar(value: Any) -> Any:
@@ -17857,6 +17914,102 @@ def _clean_json_scalar(value: Any) -> Any:
     return value
 
 
+SLEEVE_REGIME_LABEL_COLUMNS: tuple[str, ...] = ("live_event_alert_label", "event_regime_label", "regime_label")
+
+
+def resolve_frame_regime_label(frame: Optional[pd.DataFrame], default: str = "balanced") -> str:
+    d = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    if d.empty:
+        return str(default)
+    for cand in SLEEVE_REGIME_LABEL_COLUMNS:
+        if cand not in d.columns:
+            continue
+        mode = d[cand].dropna().astype(str).str.strip().replace("", np.nan).dropna().mode()
+        if not mode.empty:
+            return str(mode.iloc[0])
+    return str(default)
+
+
+def build_regime_conditioned_sleeve_map(best_df: Optional[pd.DataFrame]) -> dict[str, dict[str, Any]]:
+    if best_df is None or best_df.empty:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for _, row in best_df.iterrows():
+        label = str(row.get("regime_label", "") or "").strip()
+        if not label:
+            continue
+        core = max(safe_float(row.get("core_frac"), 0.0), 0.0)
+        future = max(safe_float(row.get("future_frac"), 0.0), 0.0)
+        early = max(safe_float(row.get("early_frac"), 0.0), 0.0)
+        total = core + future + early
+        if total <= 1e-8:
+            continue
+        out[label] = {
+            "core": float(core / total),
+            "future": float(future / total),
+            "early": float(early / total),
+            "policy_label": str(row.get("policy_label", "") or ""),
+            "source_regime": label,
+            "months": int(safe_float(row.get("months"), 0.0)),
+            "regime_policy_objective": float(safe_float(row.get("regime_policy_objective"), np.nan)),
+            "cagr": float(safe_float(row.get("cagr"), np.nan)),
+            "sharpe": float(safe_float(row.get("sharpe"), np.nan)),
+            "max_dd": float(safe_float(row.get("max_dd"), np.nan)),
+        }
+    return out
+
+
+def resolve_regime_conditioned_sleeve_override(
+    cfg: dict | EngineConfig,
+    month_df: Optional[pd.DataFrame],
+) -> tuple[Optional[dict[str, float]], dict[str, Any]]:
+    cfg_obj = to_cfg(cfg)
+    if not bool(getattr(cfg_obj, "sleeve_regime_apply_champion", True)):
+        return None, {}
+    raw_map = dict(getattr(cfg_obj, "regime_conditioned_sleeve_map", {}) or {})
+    if not raw_map:
+        return None, {}
+    live_label = resolve_frame_regime_label(month_df, default="balanced")
+    selected = raw_map.get(live_label) or raw_map.get("balanced") or raw_map.get("ALL")
+    if not isinstance(selected, dict):
+        return None, {"live_regime_label": live_label}
+    core = max(safe_float(selected.get("core"), 0.0), 0.0)
+    future = max(safe_float(selected.get("future"), 0.0), 0.0)
+    early = max(safe_float(selected.get("early"), 0.0), 0.0)
+    total = core + future + early
+    if total <= 1e-8:
+        return None, {"live_regime_label": live_label}
+    override = {
+        "core": float(core / total),
+        "future": float(future / total),
+        "early": float(early / total),
+    }
+    meta = {
+        "live_regime_label": live_label,
+        "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
+        "policy_label": str(selected.get("policy_label", "") or ""),
+        "months": int(safe_float(selected.get("months"), 0.0)),
+    }
+    return override, meta
+
+
+def sleeve_regime_policy_objective(row: dict[str, Any]) -> float:
+    cagr = safe_float(row.get("cagr"), np.nan)
+    sharpe = safe_float(row.get("sharpe"), 0.0)
+    sortino = safe_float(row.get("sortino"), 0.0)
+    ir = safe_float(row.get("ir"), 0.0)
+    max_dd = min(safe_float(row.get("max_dd"), 0.0), 0.0)
+    if not np.isfinite(cagr):
+        cagr = 0.0
+    return float(
+        1.35 * float(cagr)
+        + 0.05 * float(sharpe)
+        + 0.02 * float(sortino)
+        + 0.02 * float(ir)
+        - 0.35 * abs(float(max_dd))
+    )
+
+
 def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
     if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
         return {}
@@ -17866,6 +18019,15 @@ def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str
     if "sleeve_cap_policy_objective" in ok.columns:
         ok = ok.sort_values("sleeve_cap_policy_objective", ascending=False)
     best = ok.iloc[0].to_dict()
+    regime_map = dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {})
+    if regime_map:
+        best["regime_conditioned_sleeve_map"] = regime_map
+        best["live_regime_label"] = str((policy_compare.attrs or {}).get("live_regime_label", "balanced"))
+        live_regime_policy = dict((policy_compare.attrs or {}).get("live_regime_policy", {}) or {})
+        if live_regime_policy:
+            best["live_regime_sleeve_policy"] = {
+                str(k): _clean_json_scalar(v) for k, v in live_regime_policy.items()
+            }
     return {str(k): _clean_json_scalar(v) for k, v in best.items() if not str(k).startswith("_")}
 
 
@@ -17875,6 +18037,8 @@ def apply_sleeve_cap_policy_to_cfg(cfg: dict | EngineConfig, selected_policy: di
         for field in SLEEVE_CAP_POLICY_FIELDS
         if field in selected_policy and selected_policy[field] is not None
     }
+    if "regime_conditioned_sleeve_map" in selected_policy and selected_policy["regime_conditioned_sleeve_map"] is not None:
+        updates["regime_conditioned_sleeve_map"] = dict(selected_policy["regime_conditioned_sleeve_map"] or {})
     return clone_cfg_with_updates(cfg, updates)
 
 
@@ -18284,6 +18448,11 @@ _SLEEVE_POLICY_CANDIDATES: list[dict] = [
     {"label": "growth_50_40_10",     "core": 0.50, "future": 0.40, "early": 0.10},
     {"label": "aggr_60_25_15",       "core": 0.60, "future": 0.25, "early": 0.15},
     {"label": "aggr_55_30_15",       "core": 0.55, "future": 0.30, "early": 0.15},
+    {"label": "aggr_50_25_25",       "core": 0.50, "future": 0.25, "early": 0.25},
+    {"label": "aggr_45_25_30",       "core": 0.45, "future": 0.25, "early": 0.30},
+    {"label": "aggr_40_20_40",       "core": 0.40, "future": 0.20, "early": 0.40},
+    {"label": "aggr_35_25_40",       "core": 0.35, "future": 0.25, "early": 0.40},
+    {"label": "aggr_30_20_50",       "core": 0.30, "future": 0.20, "early": 0.50},
 ]
 
 
@@ -18324,7 +18493,7 @@ def compare_sleeve_policy_per_regime(
 
         def _regime_row(label: str, ret_s: pd.Series, bench_s: Optional[pd.Series] = None) -> dict:
             m = performance_metrics(ret_s.reset_index(drop=True), bench_s.reset_index(drop=True) if bench_s is not None else None)
-            return {
+            row = {
                 "policy_label": lbl,
                 "core_frac": so["core"],
                 "future_frac": so["future"],
@@ -18339,6 +18508,8 @@ def compare_sleeve_policy_per_regime(
                 "vol_ann": m.get("vol_ann", np.nan),
                 "ir": m.get("ir", np.nan),
             }
+            row["regime_policy_objective"] = sleeve_regime_policy_objective(row)
+            return row
 
         bench_col = mr["bench_return"] if "bench_return" in mr.columns else None
         rows.append(_regime_row("ALL", mr["net_return"], bench_col))
@@ -18352,14 +18523,14 @@ def compare_sleeve_policy_per_regime(
     grid_df = pd.DataFrame(rows)
     if grid_df.empty:
         return grid_df, pd.DataFrame()
-    grid_df = grid_df.sort_values(["regime_label", "sharpe"], ascending=[True, False]).reset_index(drop=True)
+    grid_df = grid_df.sort_values(["regime_label", "regime_policy_objective", "sharpe"], ascending=[True, False, False]).reset_index(drop=True)
 
     best_rows: list[dict] = []
     for regime, grp in grid_df.groupby("regime_label"):
-        valid = grp.dropna(subset=["sharpe"])
+        valid = grp.dropna(subset=["regime_policy_objective"])
         if valid.empty:
             continue
-        best_rows.append(valid.sort_values("sharpe", ascending=False).iloc[0].to_dict())
+        best_rows.append(valid.sort_values(["regime_policy_objective", "sharpe"], ascending=[False, False]).iloc[0].to_dict())
     best_df = pd.DataFrame(best_rows).sort_values("regime_label").reset_index(drop=True) if best_rows else pd.DataFrame()
     return grid_df, best_df
 
@@ -19298,8 +19469,20 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     current_portfolio = artifacts.get("latest_portfolio")
     research_only_portfolio_artifact = artifacts.get("research_only_portfolio")
     acceptance_checks = artifacts.get("acceptance_checks", {})
+    raw_sleeve_cap_policy_compare = artifacts.get("sleeve_cap_policy_compare")
     sleeve_cap_policy_compare = _artifact_frame("sleeve_cap_policy_compare")
     selected_sleeve_cap_policy = dict(artifacts.get("selected_sleeve_cap_policy") or {})
+    sleeve_regime_grid = _artifact_frame("sleeve_regime_grid")
+    sleeve_regime_best = _artifact_frame("sleeve_regime_best")
+    if isinstance(raw_sleeve_cap_policy_compare, pd.DataFrame):
+        if sleeve_regime_grid.empty:
+            attr_grid = raw_sleeve_cap_policy_compare.attrs.get("sleeve_regime_grid")
+            if isinstance(attr_grid, pd.DataFrame) and not attr_grid.empty:
+                sleeve_regime_grid = attr_grid.copy()
+        if sleeve_regime_best.empty:
+            attr_best = raw_sleeve_cap_policy_compare.attrs.get("sleeve_regime_best")
+            if isinstance(attr_best, pd.DataFrame) and not attr_best.empty:
+                sleeve_regime_best = attr_best.copy()
     standalone_sleeve_compare = _artifact_frame("standalone_sleeve_compare")
     standalone_sleeve_monthly = _artifact_frame("standalone_sleeve_monthly")
     standalone_sleeve_holdings = _artifact_frame("standalone_sleeve_holdings")
@@ -19684,6 +19867,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "atr14_pct",
             "event_regime_label",
             "live_event_alert_label",
+            "applied_regime_sleeve_policy_label",
+            "applied_regime_sleeve_live_label",
+            "applied_regime_sleeve_source_label",
             "backtest_usable",
             "research_only_backtest",
             "research_only_output",
@@ -19830,12 +20016,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     run_sleeve_regime_compare = bool(getattr(cfg, "run_sleeve_regime_comparison", False))
     sleeve_regime_cash_max = float(getattr(cfg, "sleeve_regime_comparison_cash_max", 0.02))
     if run_sleeve_regime_compare:
-        log("Phase 5: running sleeve policy per-regime comparison ...")
-        sleeve_regime_grid, sleeve_regime_best = compare_sleeve_policy_per_regime(
-            cfg,
-            scored,
-            cash_target_max=sleeve_regime_cash_max,
-        )
+        if sleeve_regime_grid.empty and sleeve_regime_best.empty:
+            log("Phase 5: running sleeve policy per-regime comparison ...")
+            sleeve_regime_grid, sleeve_regime_best = compare_sleeve_policy_per_regime(
+                cfg,
+                scored,
+                cash_target_max=sleeve_regime_cash_max,
+            )
         if not sleeve_regime_grid.empty:
             sleeve_regime_grid.to_csv(sleeve_regime_grid_path, index=False)
         else:
@@ -20007,6 +20194,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         values = pd.to_numeric(portfolio_latest[column], errors="coerce").dropna()
         return float(values.max()) if not values.empty else float(default)
 
+    def _portfolio_first_text(column: str, default: str = "") -> str:
+        if portfolio_latest.empty or column not in portfolio_latest.columns:
+            return str(default)
+        values = portfolio_latest[column].dropna().astype(str).str.strip()
+        values = values[values != ""]
+        return str(values.iloc[0]) if not values.empty else str(default)
+
     def _portfolio_sleeve_weight_map(frame: pd.DataFrame) -> dict[str, float]:
         if frame.empty or "ticker" not in frame.columns or "weight" not in frame.columns:
             return {}
@@ -20094,6 +20288,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
         "sleeve_risk_signal": _portfolio_first_numeric("sleeve_risk_signal", default=0.0),
+        "applied_regime_sleeve_policy_label": _portfolio_first_text("applied_regime_sleeve_policy_label"),
+        "applied_regime_sleeve_live_label": _portfolio_first_text("applied_regime_sleeve_live_label"),
+        "applied_regime_sleeve_source_label": _portfolio_first_text("applied_regime_sleeve_source_label"),
         "prev_holdings_applied": bool(
             portfolio_latest.get("prev_holdings_applied", pd.Series(dtype=bool)).fillna(False).astype(bool).any()
         )
@@ -20354,10 +20551,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_backtest_window_comparison": run_backtest_window_compare,
         "run_sleeve_regime_comparison": run_sleeve_regime_compare,
         "sleeve_regime_comparison_cash_max": sleeve_regime_cash_max,
+        "applied_regime_sleeve_policy_label": _portfolio_first_text("applied_regime_sleeve_policy_label"),
+        "applied_regime_sleeve_live_label": _portfolio_first_text("applied_regime_sleeve_live_label"),
+        "applied_regime_sleeve_source_label": _portfolio_first_text("applied_regime_sleeve_source_label"),
         "run_sleeve_cap_policy_comparison": bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)),
         "run_standalone_sleeve_backtest_comparison": run_standalone_sleeve_compare,
         "run_historical_data_quality_reports": bool(getattr(cfg, "run_historical_data_quality_reports", True)),
         "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
+        "regime_conditioned_sleeve_map": dict(getattr(cfg, "regime_conditioned_sleeve_map", {}) or {}),
         "sleeve_cap_policy_optimization_snapshot": (
             sleeve_cap_policy_compare.head(5).to_dict(orient="records")
             if not sleeve_cap_policy_compare.empty

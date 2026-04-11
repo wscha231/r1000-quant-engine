@@ -661,3 +661,44 @@ All entries must be written in English. Entries must be predictable and machine-
   - Reviewed the failing Colab traceback and matched it to `export_outputs()` line `19293`, where a DataFrame entered the `or {}` expression.
 - risks_or_notes:
   - Colab still needs a fresh GitHub sync before rerunning the Phase 5-only resume cell; otherwise the notebook will keep importing the pre-fix export function.
+
+## 2026-04-12
+
+### 00:20 KST - apply-regime-conditioned-sleeve-rotation
+
+- scope:
+  - Sleeve allocation logic, regime-conditioned policy selection, and export visibility for live sleeve decisions.
+- files:
+  - `r1000_top30_institutional.py` - enabled regime-conditioned sleeve comparison by default, added live regime sleeve-map application, expanded aggressive early-scout candidates, and surfaced the applied regime sleeve policy in exported outputs.
+  - `CHANGELOG.md` - recorded the sleeve rotation change and its validation limits.
+- symbols_added:
+  - `resolve_frame_regime_label(frame: Optional[pd.DataFrame], default: str = "balanced")` - resolves the active regime label from live alert or regime columns.
+  - `build_regime_conditioned_sleeve_map(best_df: Optional[pd.DataFrame])` - converts per-regime sleeve winners into a reusable live sleeve override map.
+  - `resolve_regime_conditioned_sleeve_override(cfg: dict | EngineConfig, month_df: Optional[pd.DataFrame])` - chooses the active sleeve override for the current market regime.
+  - `sleeve_regime_policy_objective(row: dict[str, Any])` - scores per-regime sleeve candidates with a CAGR-forward composite instead of Sharpe-only ranking.
+- symbols_changed:
+  - `EngineConfig` - defaults now enable sleeve-regime comparison, persist a regime-conditioned sleeve map, and slightly reduce the defensive bias in the sleeve-cap objective weights.
+  - `compute_portfolio_sleeve_policy(cfg: EngineConfig, month_df: pd.DataFrame, cash_target: float)` - reacts earlier to growth regimes and raises future/early sleeve targets sooner when breadth and participation improve.
+  - `build_target_portfolio(cfg: EngineConfig, month_df: pd.DataFrame, prev_w: Optional[dict[str, float]] = None, apply_turnover: bool = True, target_n_override: Optional[int] = None, sleeve_override: Optional[dict] = None, cash_target_max: float = 1.0)` - now applies the selected regime-conditioned sleeve override automatically when available.
+  - `compare_sleeve_cap_policy_backtests(cfg: dict | EngineConfig, signals: pd.DataFrame, candidates: Optional[Iterable[dict[str, Any]]] = None)` - now computes the champion policy's per-regime sleeve winners and attaches the live regime map to the comparison output.
+  - `choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame])` - now carries the regime-conditioned sleeve map and current live regime selection into the chosen policy payload.
+  - `apply_sleeve_cap_policy_to_cfg(cfg: dict | EngineConfig, selected_policy: dict[str, Any])` - now persists the regime-conditioned sleeve map in the active config.
+  - `compare_sleeve_policy_per_regime(cfg: dict | EngineConfig, signals: pd.DataFrame, candidates: Optional[list[dict]] = None, cash_target_max: float = 0.02)` - now ranks regime winners with a CAGR-forward regime objective and includes more aggressive early-heavy candidates.
+  - `export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any])` - now reuses precomputed sleeve-regime artifacts and exports the applied regime sleeve policy labels in `weights_latest.json` and `run_summary.json`.
+- config_fields_added:
+  - `sleeve_regime_apply_champion: bool = True` - enables automatic application of the live regime-conditioned sleeve map.
+  - `regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = {}` - stores the selected per-regime sleeve allocation map for backtest and live portfolio construction.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/sleeve_policy_per_regime_grid.csv` - now contains `regime_policy_objective` and includes more aggressive early-scout sleeve candidates.
+  - `outputs/reports/sleeve_policy_per_regime_best.csv` - now records regime winners chosen by the CAGR-forward regime objective.
+  - `outputs/weights_latest.json` - now includes the applied regime sleeve policy label and live/source regime labels.
+  - `outputs/run_summary.json` - now includes the applied regime sleeve policy labels and the full `regime_conditioned_sleeve_map`.
+- validation:
+  - `git diff --check` passed.
+  - Manual diff review confirmed the new regime-conditioned sleeve map is attached in `compare_sleeve_cap_policy_backtests()` and consumed in `build_target_portfolio()`.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - Enabling `run_sleeve_regime_comparison` by default increases Phase 5 runtime because the pipeline now computes the regime sleeve grid unless artifacts are already present.
+  - The new regime-conditioned sleeve map is derived from fixed sleeve mixes, so future tuning may still be needed if name-cap settings remain too restrictive in aggressive growth regimes.
