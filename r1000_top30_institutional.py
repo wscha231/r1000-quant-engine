@@ -937,6 +937,9 @@ class EngineConfig:
     run_historical_data_quality_reports: bool = True
     growth_history_confidence_penalty_weight: float = 0.18
     growth_history_confidence_min_for_full_sleeve: float = 0.35
+    minervini_future_engine_weight: float = 0.65
+    minervini_portfolio_seed_weight: float = 0.40
+    minervini_broken_trend_penalty_weight: float = 0.50
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55

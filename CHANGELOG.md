@@ -594,3 +594,28 @@ All entries must be written in English. Entries must be predictable and machine-
   - Restored the implementation from prior repo history (`git show 8e7e5e12a857571ef025e7a14387838f9f25174d:r1000_top30_institutional.py`).
 - risks_or_notes:
   - Colab must rerun the GitHub sync cell before rerunning the pipeline so the notebook imports the restored function from `master`.
+
+## 2026-04-11
+
+### 14:30 KST - fix-missing-minervini-engineconfig-fields
+
+- scope: Add three missing EngineConfig fields referenced in compute_portfolio_sleeve_columns and build_target_portfolio but absent from the dataclass, causing AttributeError at runtime.
+- files:
+  - `r1000_top30_institutional.py` — added three fields to EngineConfig after growth_history_confidence_min_for_full_sleeve
+- symbols_added:
+  - none
+- symbols_changed:
+  - `EngineConfig` — added `minervini_future_engine_weight: float = 0.65`, `minervini_portfolio_seed_weight: float = 0.40`, `minervini_broken_trend_penalty_weight: float = 0.50`
+- config_fields_added:
+  - `minervini_future_engine_weight: float = 0.65` — weight applied to Minervini momentum signal in early_scout engine score computation
+  - `minervini_portfolio_seed_weight: float = 0.40` — weight applied to Minervini alive score in portfolio seed utility
+  - `minervini_broken_trend_penalty_weight: float = 0.50` — penalty weight applied to broken momentum in portfolio scoring
+- breaking_changes:
+  - none — these fields had no prior default; adding them to the dataclass with sensible defaults is backward compatible
+- outputs:
+  - none
+- validation:
+  - Confirmed all three field names appear in `compute_portfolio_sleeve_columns` (line ~14992) and `build_target_portfolio` (line ~15491) as `cfg.field_name` or `EngineConfig.field_name` references
+  - `git diff --check` passed
+- risks_or_notes:
+  - Default values (0.65, 0.40, 0.50) match the hardcoded logic present in the pre-restoration engine version; adjust after first Colab run if signal contribution needs tuning
