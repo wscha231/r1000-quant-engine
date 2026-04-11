@@ -806,6 +806,81 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "fund_history_quarters_available",
 ]
 
+HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS = [
+    "revenues_ttm",
+    "gross_profit_ttm",
+    "op_income_ttm",
+    "net_income_ttm",
+    "ocf_ttm",
+    "fcf_ttm",
+]
+
+HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS = [
+    "sales_growth_yoy",
+    "op_income_growth_yoy",
+    "net_income_growth_yoy",
+    "ocf_growth_yoy",
+    "fcf_growth_yoy",
+    "eps_growth_yoy",
+    "roe_trend_4q",
+    "margin_trend_4q",
+    "rev_growth_accel_4q",
+]
+
+HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS = [
+    "sales_cagr_3y",
+    "sales_cagr_5y",
+    "op_income_cagr_3y",
+    "op_income_cagr_5y",
+    "net_income_cagr_3y",
+    "net_income_cagr_5y",
+    "ocf_cagr_3y",
+    "ocf_cagr_5y",
+    "fcf_cagr_3y",
+    "fcf_cagr_5y",
+    "eps_cagr_3y",
+    "eps_cagr_5y",
+]
+
+HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS = [
+    "return_on_equity_effective",
+    "roa_proxy",
+    "asset_turnover_ttm",
+    "capital_efficiency_score",
+    "sector_adjusted_quality_score",
+    "accruals_to_assets",
+    "debt_to_equity",
+    "gross_margins",
+    "operating_margins",
+]
+
+HISTORICAL_FUNDAMENTAL_HISTORY_COLUMNS = list(
+    dict.fromkeys(
+        HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS
+        + HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS
+        + ["fund_history_quarters_available"]
+    )
+)
+
+FORWARD_RETURN_COVERAGE_COLUMNS = ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m"]
+
+HISTORICAL_DATA_QUALITY_COLUMNS = [
+    "fundamental_history_level_coverage",
+    "fundamental_history_change_coverage",
+    "fundamental_history_cagr_coverage",
+    "fundamental_history_quality_coverage",
+    "fundamental_history_depth_3y_score",
+    "fundamental_history_depth_5y_score",
+    "fundamental_history_coverage_score",
+    "growth_sleeve_technical_confirmation_score",
+    "growth_sleeve_data_confidence",
+    "growth_sleeve_sparse_history_penalty",
+    "data_history_quality_label",
+    "forward_return_coverage_score",
+]
+
 CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
     "revenues_ttm",
     "op_income_ttm",

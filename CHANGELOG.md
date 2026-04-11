@@ -595,8 +595,6 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Colab must rerun the GitHub sync cell before rerunning the pipeline so the notebook imports the restored function from `master`.
 
-## 2026-04-11
-
 ### 14:30 KST - fix-missing-minervini-engineconfig-fields
 
 - scope: Add three missing EngineConfig fields referenced in compute_portfolio_sleeve_columns and build_target_portfolio but absent from the dataclass, causing AttributeError at runtime.
@@ -619,3 +617,25 @@ All entries must be written in English. Entries must be predictable and machine-
   - `git diff --check` passed
 - risks_or_notes:
   - Default values (0.65, 0.40, 0.50) match the hardcoded logic present in the pre-restoration engine version; adjust after first Colab run if signal contribution needs tuning
+
+### 22:09 KST - restore-historical-data-quality-constants
+
+- scope: Restore the historical data quality constant blocks referenced by growth-sleeve diagnostics after a partial cross-machine merge left only the consumers in place.
+- files:
+  - `r1000_top30_institutional.py` - restored the historical fundamental coverage column groups, forward-return coverage list, and `HISTORICAL_DATA_QUALITY_COLUMNS`.
+  - `CHANGELOG.md` - merged duplicate `2026-04-11` date sections and recorded this runtime fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `git grep -n "HISTORICAL_DATA_QUALITY_COLUMNS" $(git rev-list --max-count=40 HEAD) -- r1000_top30_institutional.py` showed the constant existed in older history (`8e7e5e12`) but was absent from current `master`.
+  - Restored the constant block from prior repo history and aligned the list contents with the currently emitted columns in `add_historical_data_quality_columns()`.
+- risks_or_notes:
+  - Colab must rerun the GitHub sync cell before rerunning the resume pipeline cell so the notebook imports the restored constants from `master`.
