@@ -702,3 +702,31 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Enabling `run_sleeve_regime_comparison` by default increases Phase 5 runtime because the pipeline now computes the regime sleeve grid unless artifacts are already present.
   - The new regime-conditioned sleeve map is derived from fixed sleeve mixes, so future tuning may still be needed if name-cap settings remain too restrictive in aggressive growth regimes.
+
+### 00:39 KST - export-latest-standalone-sleeve-holdings
+
+- scope:
+  - Latest output exports for per-sleeve stock lists and weights.
+- files:
+  - `r1000_top30_institutional.py` - added a latest standalone sleeve holdings builder and exported the current `core`, `future`, and `early` sleeve stock lists with equal weights and best-interval metadata.
+  - `CHANGELOG.md` - recorded the new latest standalone sleeve export outputs.
+- symbols_added:
+  - `build_latest_standalone_sleeve_holdings(cfg: dict | EngineConfig, latest_frame: pd.DataFrame, standalone_compare: Optional[pd.DataFrame] = None, current_portfolio: Optional[pd.DataFrame] = None, top_n: Optional[int] = None)` - builds the latest current stock list and equal weights for each standalone sleeve using the latest scored snapshot.
+- symbols_changed:
+  - `export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any])` - now writes consolidated and per-sleeve latest standalone holdings CSVs plus a sleeve summary CSV and exposes them in `output_paths`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/latest_sleeve_standalone_holdings.csv` - latest combined sleeve stock list with per-sleeve equal weights and current mixed-portfolio overlap columns.
+  - `outputs/core_compounder_latest_standalone.csv` - latest `core_compounder` standalone holdings and weights.
+  - `outputs/future_winner_latest_standalone.csv` - latest `future_winner` standalone holdings and weights.
+  - `outputs/early_scout_latest_standalone.csv` - latest `early_scout` standalone holdings and weights.
+  - `outputs/reports/latest_sleeve_standalone_summary.csv` - one-row-per-sleeve summary with selected count, best interval, and standalone backtest metrics.
+- validation:
+  - `git diff --check` passed.
+  - Manual review confirmed the new files are attached to both `output_files` and returned `output_paths`.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - The exported latest sleeve weights are equal-weight standalone sleeves, matching the standalone backtest methodology rather than the mixed live portfolio allocator.

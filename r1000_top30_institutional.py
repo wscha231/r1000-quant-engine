@@ -18435,6 +18435,119 @@ def compare_standalone_sleeve_topn_backtests(
 
 
 
+def build_latest_standalone_sleeve_holdings(
+    cfg: dict | EngineConfig,
+    latest_frame: pd.DataFrame,
+    standalone_compare: Optional[pd.DataFrame] = None,
+    current_portfolio: Optional[pd.DataFrame] = None,
+    top_n: Optional[int] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    cfg_obj = to_cfg(cfg)
+    d = latest_frame.copy() if isinstance(latest_frame, pd.DataFrame) else pd.DataFrame()
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    latest_dt = d["rebalance_date"].max()
+    d = d[d["rebalance_date"] == latest_dt].copy()
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    portfolio_weight_map: dict[str, float] = {}
+    if isinstance(current_portfolio, pd.DataFrame) and not current_portfolio.empty and {"ticker", "weight"}.issubset(current_portfolio.columns):
+        portfolio_weight_map = {
+            normalize_ticker(tkr): float(w)
+            for tkr, w in current_portfolio[["ticker", "weight"]].itertuples(index=False)
+            if normalize_ticker(tkr)
+        }
+
+    compare_df = standalone_compare.copy() if isinstance(standalone_compare, pd.DataFrame) else pd.DataFrame()
+    if not compare_df.empty and "portfolio_mode" in compare_df.columns:
+        compare_df = compare_df[compare_df["portfolio_mode"].astype(str).eq("standalone_sleeve_topn")].copy()
+    test_top_n = int(top_n if top_n is not None else getattr(cfg_obj, "standalone_sleeve_top_n", 7))
+    selected_frames: list[pd.DataFrame] = []
+    summary_rows: list[dict[str, Any]] = []
+
+    for sleeve in SLEEVE_STANDALONE_LABELS:
+        sleeve_compare = compare_df[
+            compare_df.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq(str(sleeve))
+        ].copy() if not compare_df.empty else pd.DataFrame()
+        best_interval = int(getattr(cfg_obj, "rebalance_interval_months", 1))
+        best_cagr = np.nan
+        best_sharpe = np.nan
+        best_max_dd = np.nan
+        if not sleeve_compare.empty:
+            ranked = sleeve_compare.sort_values(
+                ["strategy_cagr", "sharpe", "rebalance_interval_months"],
+                ascending=[False, False, True],
+            ).reset_index(drop=True)
+            best = ranked.iloc[0]
+            best_interval = int(
+                pd.to_numeric(
+                    pd.Series([best.get("rebalance_interval_months", best_interval)]),
+                    errors="coerce",
+                ).fillna(best_interval).iloc[0]
+            )
+            best_cagr = safe_float(best.get("strategy_cagr"), np.nan)
+            best_sharpe = safe_float(best.get("sharpe"), np.nan)
+            best_max_dd = safe_float(best.get("max_dd"), np.nan)
+
+        selected = select_standalone_sleeve_topn(cfg_obj, d, sleeve_label=sleeve, top_n=test_top_n)
+        if selected.empty:
+            summary_rows.append(
+                {
+                    "sleeve_test": str(sleeve),
+                    "sleeve_role": SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve),
+                    "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+                    "target_stock_names": int(test_top_n),
+                    "selected_names": 0,
+                    "weighting_mode": "equal_weight",
+                    "recommended_rebalance_interval_months": int(best_interval),
+                    "strategy_cagr": float(best_cagr) if pd.notna(best_cagr) else np.nan,
+                    "sharpe": float(best_sharpe) if pd.notna(best_sharpe) else np.nan,
+                    "max_dd": float(best_max_dd) if pd.notna(best_max_dd) else np.nan,
+                }
+            )
+            continue
+
+        selected = selected.sort_values(["sleeve_standalone_score", "score"], ascending=[False, False]).reset_index(drop=True).copy()
+        selected["rank"] = np.arange(1, len(selected) + 1)
+        selected["standalone_weight"] = 1.0 / max(len(selected), 1)
+        selected["weight"] = selected["standalone_weight"]
+        selected["weighting_mode"] = "equal_weight"
+        selected["target_stock_names"] = int(test_top_n)
+        selected["recommended_rebalance_interval_months"] = int(best_interval)
+        selected["standalone_strategy_cagr"] = float(best_cagr) if pd.notna(best_cagr) else np.nan
+        selected["standalone_strategy_sharpe"] = float(best_sharpe) if pd.notna(best_sharpe) else np.nan
+        selected["standalone_strategy_max_dd"] = float(best_max_dd) if pd.notna(best_max_dd) else np.nan
+        selected["current_portfolio_weight"] = (
+            selected.get("ticker", pd.Series(dtype=object))
+            .astype(str)
+            .map(lambda x: portfolio_weight_map.get(normalize_ticker(x), 0.0))
+            .fillna(0.0)
+        )
+        selected["current_portfolio_selected"] = pd.to_numeric(selected["current_portfolio_weight"], errors="coerce").fillna(0.0) > 1e-10
+        selected_frames.append(selected)
+
+        summary_rows.append(
+            {
+                "sleeve_test": str(sleeve),
+                "sleeve_role": SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve),
+                "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+                "target_stock_names": int(test_top_n),
+                "selected_names": int(len(selected)),
+                "weighting_mode": "equal_weight",
+                "recommended_rebalance_interval_months": int(best_interval),
+                "strategy_cagr": float(best_cagr) if pd.notna(best_cagr) else np.nan,
+                "sharpe": float(best_sharpe) if pd.notna(best_sharpe) else np.nan,
+                "max_dd": float(best_max_dd) if pd.notna(best_max_dd) else np.nan,
+            }
+        )
+
+    holdings = pd.concat(selected_frames, ignore_index=True) if selected_frames else pd.DataFrame()
+    summary = pd.DataFrame(summary_rows)
+    return holdings, summary
+
+
 _SLEEVE_POLICY_CANDIDATES: list[dict] = [
     {"label": "core_only",           "core": 1.00, "future": 0.00, "early": 0.00},
     {"label": "core_85_fut_15",      "core": 0.85, "future": 0.15, "early": 0.00},
@@ -19938,6 +20051,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     macro_regime_path = paths["feature_store"] / "macro_regime_latest.parquet"
     explain_path = paths["out"] / "top30_explain_latest.csv"
     research_explain_path = paths["out"] / "research_only_top30_explain_latest.csv"
+    latest_sleeve_standalone_holdings_path = paths["out"] / "latest_sleeve_standalone_holdings.csv"
+    latest_sleeve_standalone_summary_path = paths["reports"] / "latest_sleeve_standalone_summary.csv"
+    latest_core_standalone_path = paths["out"] / "core_compounder_latest_standalone.csv"
+    latest_future_standalone_path = paths["out"] / "future_winner_latest_standalone.csv"
+    latest_early_standalone_path = paths["out"] / "early_scout_latest_standalone.csv"
 
     def _safe_unlink(path: Path) -> None:
         try:
@@ -19963,6 +20081,33 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             research_portfolio_path,
         ]:
             _safe_unlink(path)
+
+    latest_standalone_sleeve_holdings, latest_standalone_sleeve_summary = build_latest_standalone_sleeve_holdings(
+        cfg,
+        scored_latest,
+        standalone_compare=standalone_sleeve_compare,
+        current_portfolio=portfolio_latest,
+    )
+    if not latest_standalone_sleeve_holdings.empty:
+        latest_standalone_sleeve_holdings.to_csv(latest_sleeve_standalone_holdings_path, index=False)
+        latest_standalone_sleeve_holdings[
+            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("core_compounder")
+        ].to_csv(latest_core_standalone_path, index=False)
+        latest_standalone_sleeve_holdings[
+            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("future_winner")
+        ].to_csv(latest_future_standalone_path, index=False)
+        latest_standalone_sleeve_holdings[
+            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("early_scout")
+        ].to_csv(latest_early_standalone_path, index=False)
+    else:
+        _safe_unlink(latest_sleeve_standalone_holdings_path)
+        _safe_unlink(latest_core_standalone_path)
+        _safe_unlink(latest_future_standalone_path)
+        _safe_unlink(latest_early_standalone_path)
+    if not latest_standalone_sleeve_summary.empty:
+        latest_standalone_sleeve_summary.to_csv(latest_sleeve_standalone_summary_path, index=False)
+    else:
+        _safe_unlink(latest_sleeve_standalone_summary_path)
 
     # Persist live weights only after the rebalance policy recommendation is resolved.
     benchmark_compare = {
@@ -20459,6 +20604,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_sleeve_regime_compare and not sleeve_regime_grid.empty:
         output_files["sleeve_policy_per_regime_grid.csv"] = str(sleeve_regime_grid_path)
         output_files["sleeve_policy_per_regime_best.csv"] = str(sleeve_regime_best_path)
+    if not latest_standalone_sleeve_holdings.empty:
+        output_files["latest_sleeve_standalone_holdings.csv"] = str(latest_sleeve_standalone_holdings_path)
+        output_files["core_compounder_latest_standalone.csv"] = str(latest_core_standalone_path)
+        output_files["future_winner_latest_standalone.csv"] = str(latest_future_standalone_path)
+        output_files["early_scout_latest_standalone.csv"] = str(latest_early_standalone_path)
+    if not latest_standalone_sleeve_summary.empty:
+        output_files["latest_sleeve_standalone_summary.csv"] = str(latest_sleeve_standalone_summary_path)
 
     summary = {
         "run_ts": now_ts(),
@@ -20564,6 +20716,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not sleeve_cap_policy_compare.empty
             else []
         ),
+        "latest_sleeve_standalone_summary": (
+            latest_standalone_sleeve_summary.to_dict(orient="records")
+            if not latest_standalone_sleeve_summary.empty
+            else []
+        ),
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
@@ -20623,6 +20780,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_sleeve_regime_compare and not sleeve_regime_best.empty:
         result_outputs["sleeve_policy_per_regime_grid"] = str(sleeve_regime_grid_path)
         result_outputs["sleeve_policy_per_regime_best"] = str(sleeve_regime_best_path)
+    if not latest_standalone_sleeve_holdings.empty:
+        result_outputs["latest_sleeve_standalone_holdings"] = str(latest_sleeve_standalone_holdings_path)
+        result_outputs["core_compounder_latest_standalone"] = str(latest_core_standalone_path)
+        result_outputs["future_winner_latest_standalone"] = str(latest_future_standalone_path)
+        result_outputs["early_scout_latest_standalone"] = str(latest_early_standalone_path)
+    if not latest_standalone_sleeve_summary.empty:
+        result_outputs["latest_sleeve_standalone_summary"] = str(latest_sleeve_standalone_summary_path)
     if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)) and not sleeve_cap_policy_compare.empty:
         result_outputs["sleeve_cap_policy_comparison"] = str(sleeve_cap_policy_compare_path)
         result_outputs["sleeve_cap_policy_champion_latest"] = str(sleeve_cap_policy_champion_path)
