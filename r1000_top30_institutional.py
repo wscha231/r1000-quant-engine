@@ -1000,11 +1000,15 @@ class EngineConfig:
     early_scout_drift_weight_cap: float = 0.10
     early_scout_hard_weight_cap: float = 0.14
     sleeve_drift_headroom_pct: float = 0.35
-    early_scout_promotion_edge_max: float = 0.12
-    early_scout_promotion_confidence_max: float = 0.12
-    early_scout_promotion_min_score: float = 0.70
+    early_scout_promotion_edge_max: float = 0.08
+    early_scout_promotion_confidence_max: float = 0.10
+    early_scout_promotion_min_score: float = 0.78
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
+    sleeve_specific_rebalance_enabled: bool = True
+    core_compounder_rebalance_interval_months: int = 1
+    future_winner_rebalance_interval_months: int = 3
+    early_scout_rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
     run_comparison_backtests: bool = True
     run_portfolio_size_comparison: bool = True
@@ -1147,6 +1151,14 @@ class EngineConfig:
     partial_scout_min_fields: int = 2
     partial_scout_confirmation_min: float = 0.55
     partial_scout_score_floor: float = 2.25
+    future_winner_min_fundamental_fields_required: int = 3
+    future_winner_confirmation_min: float = 0.42
+    future_winner_fundamental_presence_min: float = 0.32
+    future_winner_fundamental_reliability_min: float = 0.36
+    early_scout_min_fundamental_fields_required: int = 2
+    early_scout_confirmation_min: float = 0.34
+    early_scout_fundamental_presence_min: float = 0.18
+    early_scout_fundamental_reliability_min: float = 0.24
     stock_weight_max_sector_adjusted: float = 0.08
     stock_weight_max_partial_scout: float = 0.04
     partial_scout_total_weight_cap: float = 0.10
@@ -1154,6 +1166,8 @@ class EngineConfig:
     speculative_weight_max: float = 0.04
     speculative_total_weight_max: float = 0.15
     speculative_min_rs_composite: float = 0.0
+    run_engine_diagnostics_report: bool = True
+    engine_diagnostics_top_n: int = 7
     universe_change_warn_count: int = 10
     use_macro_regime_features: bool = True
     optimizer_regime_sensitivity: float = 0.35
@@ -3122,11 +3136,90 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
             & (partial_confirmation >= float(cfg.partial_scout_confirmation_min))
             & (score_series >= partial_score_floor)
         )
+    future_confirmation = row_mean(
+        [
+            (numeric_series_or_default(d, "event_reaction_score", 0.0) > 0.05).astype(float),
+            (numeric_series_or_default(d, "dynamic_leader_score", 0.0) > 0.05).astype(float),
+            (numeric_series_or_default(d, "leader_emergence_score", 0.0) > 0.05).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "sales_growth_yoy", np.nan) > 0.0).astype(float),
+            (
+                numeric_series_or_default(d, "fundamental_presence_score", 0.0)
+                >= float(getattr(cfg, "future_winner_fundamental_presence_min", 0.32))
+            ).astype(float),
+            (
+                numeric_series_or_default(d, "fundamental_reliability_score", 0.0)
+                >= float(getattr(cfg, "future_winner_fundamental_reliability_min", 0.36))
+            ).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    early_confirmation = row_mean(
+        [
+            (numeric_series_or_default(d, "event_reaction_score", 0.0) > 0.05).astype(float),
+            (numeric_series_or_default(d, "growth_onset_composite", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "profitability_inflection_score", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "technical_blueprint_score", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "breakout_setup_quality_score", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+            (
+                numeric_series_or_default(d, "fundamental_presence_score", 0.0)
+                >= float(getattr(cfg, "early_scout_fundamental_presence_min", 0.18))
+            ).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    future_relaxed_pass = (
+        ~full_pass
+        & ~sector_adjusted_pass
+        & (
+            d["core_fundamental_fields_present"]
+            >= int(getattr(cfg, "future_winner_min_fundamental_fields_required", 3))
+        )
+        & (
+            numeric_series_or_default(d, "fundamental_presence_score", 0.0)
+            >= float(getattr(cfg, "future_winner_fundamental_presence_min", 0.32))
+        )
+        & (
+            numeric_series_or_default(d, "fundamental_reliability_score", 0.0)
+            >= float(getattr(cfg, "future_winner_fundamental_reliability_min", 0.36))
+        )
+        & (
+            future_confirmation
+            >= float(getattr(cfg, "future_winner_confirmation_min", 0.42))
+        )
+    )
+    early_relaxed_pass = (
+        ~full_pass
+        & ~sector_adjusted_pass
+        & (
+            d["core_fundamental_fields_present"]
+            >= int(getattr(cfg, "early_scout_min_fundamental_fields_required", 2))
+        )
+        & (
+            numeric_series_or_default(d, "fundamental_presence_score", 0.0)
+            >= float(getattr(cfg, "early_scout_fundamental_presence_min", 0.18))
+        )
+        & (
+            numeric_series_or_default(d, "fundamental_reliability_score", 0.0)
+            >= float(getattr(cfg, "early_scout_fundamental_reliability_min", 0.24))
+        )
+        & (
+            early_confirmation
+            >= float(getattr(cfg, "early_scout_confirmation_min", 0.34))
+        )
+    )
 
     d["sector_adjusted_fields_present"] = sector_adjusted_fields_present.astype(int)
     d["partial_scout_confirmation_score"] = partial_confirmation
+    d["future_winner_confirmation_score"] = future_confirmation
+    d["early_scout_confirmation_score"] = early_confirmation
     d["sector_adjusted_fundamental_pass"] = sector_adjusted_pass
     d["partial_scout_fundamental_pass"] = partial_scout_pass
+    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass
+    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass
     d["fundamental_lane_label"] = "insufficient"
     d.loc[partial_scout_pass, "fundamental_lane_label"] = "partial_scout"
     d.loc[sector_adjusted_pass, "fundamental_lane_label"] = "sector_adjusted"
@@ -3155,8 +3248,111 @@ def apply_core_fundamental_minimum_filter(
             f"{context}: core fundamental minimum filter kept={kept}, removed={removed}, "
             f"required_fields>={int(cfg.min_core_fundamental_fields_required)}, "
             f"lanes={lane_summary}"
-        )
+    )
     return d[keep_mask].copy()
+
+
+def annotate_portfolio_candidate_gate(
+    df: pd.DataFrame,
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    d = add_core_fundamental_minimum_flags(df, cfg)
+    if d.empty:
+        return d
+    sleeve_label = d.get(
+        "portfolio_sleeve_label",
+        d.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=d.index, dtype=object)),
+    ).fillna("core_compounder").astype(str)
+    gate_keep = pd.Series(False, index=d.index, dtype=bool)
+    gate_keep = gate_keep | (
+        sleeve_label.eq("core_compounder")
+        & d["core_fundamental_minimum_pass"].fillna(False).astype(bool)
+    )
+    gate_keep = gate_keep | (
+        sleeve_label.eq("future_winner")
+        & d["future_winner_fundamental_pass"].fillna(False).astype(bool)
+    )
+    gate_keep = gate_keep | (
+        sleeve_label.eq("early_scout")
+        & d["early_scout_fundamental_pass"].fillna(False).astype(bool)
+    )
+    d["portfolio_candidate_minimum_pass"] = gate_keep
+    d["portfolio_candidate_gate_label"] = "rejected"
+    d.loc[
+        sleeve_label.eq("core_compounder") & gate_keep,
+        "portfolio_candidate_gate_label",
+    ] = "core_strict"
+    d.loc[
+        sleeve_label.eq("future_winner") & gate_keep,
+        "portfolio_candidate_gate_label",
+    ] = "future_relaxed"
+    d.loc[
+        sleeve_label.eq("early_scout") & gate_keep,
+        "portfolio_candidate_gate_label",
+    ] = "early_relaxed"
+    return d
+
+
+def apply_portfolio_candidate_gate_filter(
+    df: pd.DataFrame,
+    cfg: EngineConfig,
+    context: str,
+) -> pd.DataFrame:
+    d = annotate_portfolio_candidate_gate(df, cfg)
+    if d.empty:
+        return d
+    sleeve_label = d.get(
+        "portfolio_sleeve_label",
+        d.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=d.index, dtype=object)),
+    ).fillna("core_compounder").astype(str)
+    gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    removed = int((~gate_keep).sum())
+    kept = int(gate_keep.sum())
+    if removed > 0:
+        gate_summary = {
+            str(k): int(v)
+            for k, v in d.loc[gate_keep, "portfolio_candidate_gate_label"].astype(str).value_counts().items()
+        }
+        sleeve_summary = {
+            str(k): int(v)
+            for k, v in sleeve_label.loc[gate_keep].astype(str).value_counts().items()
+        }
+        log(
+            f"{context}: sleeve-aware gate kept={kept}, removed={removed}, "
+            f"gate_modes={gate_summary}, sleeves={sleeve_summary}"
+        )
+    return d[gate_keep].copy()
+
+
+def apply_latest_ranking_eligibility(
+    df: pd.DataFrame,
+    cfg: EngineConfig,
+    context: str,
+) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        d["ranking_eligible"] = False
+        return d
+    if "portfolio_sleeve_label" not in d.columns:
+        d = compute_portfolio_sleeve_columns(d, cfg)
+    d = annotate_portfolio_candidate_gate(d, cfg)
+    d["ranking_eligible"] = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    eligible_count = int(d["ranking_eligible"].sum())
+    ineligible_count = int(len(d) - eligible_count)
+    if ineligible_count > 0:
+        gate_summary = {
+            str(k): int(v)
+            for k, v in d.loc[d["ranking_eligible"], "portfolio_candidate_gate_label"].astype(str).value_counts().items()
+        }
+        sleeve_summary = {
+            str(k): int(v)
+            for k, v in d.loc[d["ranking_eligible"], "portfolio_sleeve_label"].fillna("core_compounder").astype(str).value_counts().items()
+        }
+        log(
+            f"{context}: ranking eligibility kept={eligible_count}, removed={ineligible_count}, "
+            f"gate_modes={gate_summary}, sleeves={sleeve_summary}"
+        )
+    return d
 
 
 def add_total_score_columns(
@@ -3971,6 +4167,13 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("portfolio_size_comparison_sizes values must be >= 1.")
     if int(cfg.rebalance_interval_months) < 1:
         raise ValueError("rebalance_interval_months must be >= 1.")
+    for name in [
+        "core_compounder_rebalance_interval_months",
+        "future_winner_rebalance_interval_months",
+        "early_scout_rebalance_interval_months",
+    ]:
+        if int(getattr(cfg, name)) < 1:
+            raise ValueError(f"{name} must be >= 1.")
     if not cfg.rebalance_interval_comparison_months:
         raise ValueError("rebalance_interval_comparison_months must not be empty.")
     if any(int(x) < 1 for x in cfg.rebalance_interval_comparison_months):
@@ -4010,6 +4213,20 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("partial_scout_confirmation_min must be between 0 and 1.")
     if cfg.partial_scout_score_floor < 0:
         raise ValueError("partial_scout_score_floor must be >= 0.")
+    if cfg.future_winner_min_fundamental_fields_required < 1:
+        raise ValueError("future_winner_min_fundamental_fields_required must be >= 1.")
+    if cfg.early_scout_min_fundamental_fields_required < 1:
+        raise ValueError("early_scout_min_fundamental_fields_required must be >= 1.")
+    for name in [
+        "future_winner_confirmation_min",
+        "future_winner_fundamental_presence_min",
+        "future_winner_fundamental_reliability_min",
+        "early_scout_confirmation_min",
+        "early_scout_fundamental_presence_min",
+        "early_scout_fundamental_reliability_min",
+    ]:
+        if not (0.0 <= float(getattr(cfg, name)) <= 1.0):
+            raise ValueError(f"{name} must be between 0 and 1.")
     if cfg.stock_weight_max_sector_adjusted <= 0 or cfg.stock_weight_max_partial_scout <= 0:
         raise ValueError("sector-adjusted and partial-scout stock caps must be > 0.")
     if not (0.0 <= cfg.partial_scout_total_weight_cap <= 1.0):
@@ -4034,6 +4251,8 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("focus_target_n and focus_riskoff_target_n must be >= 1.")
     if cfg.focus_target_n > cfg.top_n or cfg.focus_riskoff_target_n > cfg.top_n:
         raise ValueError("focus portfolio sizes cannot exceed top_n.")
+    if int(cfg.engine_diagnostics_top_n) < 1:
+        raise ValueError("engine_diagnostics_top_n must be >= 1.")
     if cfg.adaptive_rebalance_growth_months < 1 or cfg.adaptive_rebalance_balanced_months < 1 or cfg.adaptive_rebalance_riskoff_months < 1:
         raise ValueError("adaptive rebalance month settings must be >= 1.")
     if cfg.adaptive_rebalance_distance_penalty < 0:
@@ -14250,6 +14469,19 @@ def _legacy_unused_backtest_portfolio(
     )
     if rebalance_interval_months_override is not None:
         adaptive_interval_policy = False
+    sleeve_specific_rebalance_enabled = bool(getattr(cfg, "sleeve_specific_rebalance_enabled", True))
+    sleeve_specific_rebalance_enabled = sleeve_specific_rebalance_enabled and rebalance_interval_months_override is None
+    sleeve_interval_map = (
+        resolve_sleeve_rebalance_interval_map(cfg)
+        if sleeve_specific_rebalance_enabled
+        else {
+            "core_compounder": int(fixed_interval_months),
+            "future_winner": int(fixed_interval_months),
+            "early_scout": int(fixed_interval_months),
+        }
+    )
+    if sleeve_specific_rebalance_enabled:
+        adaptive_interval_policy = False
     months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
     if len(months) < 2:
         raise RuntimeError("Need at least two months of OOS signals for backtest.")
@@ -14271,6 +14503,7 @@ def _legacy_unused_backtest_portfolio(
 
     current_w: dict[str, float] = {}
     current_portfolio = pd.DataFrame()
+    current_sleeve_map: dict[str, str] = {}
     current_meta: dict[str, Any] = {
         "target_n": 0,
         "weight_cap": float(cfg.stock_weight_max),
@@ -14278,7 +14511,12 @@ def _legacy_unused_backtest_portfolio(
     }
     active_interval_months = int(fixed_interval_months)
     next_scheduled_dt = pd.NaT
+    next_scheduled_dt_by_sleeve = {
+        sleeve: pd.NaT
+        for sleeve in sleeve_interval_map.keys()
+    }
     rebalance_dates_taken: list[pd.Timestamp] = []
+    sleeve_rebalance_counts = {sleeve: 0 for sleeve in sleeve_interval_map.keys()}
     holdings_rows = []
     ret_rows = []
     # Stop-loss tracking for speculative positions
@@ -14299,7 +14537,19 @@ def _legacy_unused_backtest_portfolio(
         dt = pd.Timestamp(months[i])
         next_dt = pd.Timestamp(months[i + 1])
         mm = d[d["rebalance_date"] == dt].copy()
-        rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+        if sleeve_specific_rebalance_enabled:
+            if not current_w:
+                due_sleeves = list(sleeve_interval_map.keys())
+            else:
+                due_sleeves = [
+                    sleeve
+                    for sleeve, sched_dt in next_scheduled_dt_by_sleeve.items()
+                    if pd.isna(sched_dt) or (dt >= pd.Timestamp(sched_dt))
+                ]
+            rebalance_due = bool(due_sleeves)
+        else:
+            due_sleeves = list(sleeve_interval_map.keys())
+            rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
         turn = 0.0
         cost = 0.0
         rebalance_action = "scheduled_hold"
@@ -14317,18 +14567,69 @@ def _legacy_unused_backtest_portfolio(
                     cash_target_max=cash_target_max,
                 )
                 if not sel.empty and final_w:
-                    current_portfolio = sel.copy()
-                    current_w = {
+                    current_meta = {
+                        **meta,
+                        "sleeve_rebalance_interval_map": {k: int(v) for k, v in sleeve_interval_map.items()},
+                        "due_sleeves": [str(x) for x in due_sleeves],
+                    }
+                    clean_target_w = {
                         str(k): float(v)
                         for k, v in final_w.items()
                         if pd.notna(v) and float(v) > 1e-10
                     }
-                    current_meta = meta
+                    if sleeve_specific_rebalance_enabled and prev_w and len(due_sleeves) < len(sleeve_interval_map):
+                        current_portfolio, current_w, current_sleeve_map = merge_partial_sleeve_rebalance_state(
+                            mm,
+                            current_w,
+                            current_sleeve_map,
+                            sel.copy(),
+                            clean_target_w,
+                            due_sleeves,
+                            cfg,
+                            interval_map=sleeve_interval_map,
+                        )
+                        rebalance_action = f"partial_rebalance:{','.join(sorted(due_sleeves))}"
+                    else:
+                        current_portfolio = apply_sleeve_rebalance_interval_columns(
+                            sel.copy(),
+                            cfg,
+                            interval_map=sleeve_interval_map,
+                        )
+                        current_w = clean_target_w
+                        current_sleeve_map = _current_sleeve_map_from_portfolio(current_portfolio)
+                        rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
                     turn = turnover(prev_w, current_w)
                     cost = turn * (effective_roundtrip_cost_bps / 10000.0)
-                    rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
                     rebalance_dates_taken.append(dt)
-                    if adaptive_interval_policy:
+                    if sleeve_specific_rebalance_enabled:
+                        for sleeve in due_sleeves:
+                            next_scheduled_dt_by_sleeve[sleeve] = next_rebalance_date_for_interval(
+                                dt,
+                                interval_months=int(sleeve_interval_map.get(sleeve, fixed_interval_months)),
+                            )
+                            sleeve_rebalance_counts[sleeve] = int(sleeve_rebalance_counts.get(sleeve, 0)) + 1
+                        scheduled_values = [
+                            pd.Timestamp(x)
+                            for x in next_scheduled_dt_by_sleeve.values()
+                            if pd.notna(x)
+                        ]
+                        next_scheduled_dt = min(scheduled_values) if scheduled_values else pd.NaT
+                        active_interval_months = int(
+                            max(
+                                round(
+                                    float(
+                                        np.mean(
+                                            [
+                                                float(sleeve_interval_map.get(sleeve, fixed_interval_months))
+                                                for sleeve in due_sleeves
+                                            ]
+                                        )
+                                    )
+                                ),
+                                1,
+                            )
+                        )
+                    elif adaptive_interval_policy:
                         policy = infer_rebalance_interval_policy(
                             cfg,
                             mm,
@@ -14644,18 +14945,6 @@ def _legacy_unused_build_latest_recommendations(cfg: dict | EngineConfig, featur
     if int(coverage_mask.sum()) >= min_keep:
         latest_df = latest_df[coverage_mask].copy()
     latest_df = add_core_fundamental_minimum_flags(latest_df, cfg)
-    latest_df["ranking_eligible"] = latest_df["core_fundamental_minimum_pass"].fillna(False).astype(bool)
-    eligible_count = int(latest_df["ranking_eligible"].sum())
-    if eligible_count < int(cfg.min_port_names):
-        raise RuntimeError(
-            "Latest recommendation set does not have enough full-fundamental names after screening. "
-            f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
-        )
-    if eligible_count < int(cfg.top_n):
-        log(
-            "[WARN] Full-fundamental latest ranking has fewer names than requested top_n. "
-            f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
-        )
 
     adaptive_history = pd.DataFrame()
     scored_oos_path = paths["feature_store"] / "scored_oos_latest.parquet"
@@ -14732,6 +15021,20 @@ def _legacy_unused_build_latest_recommendations(cfg: dict | EngineConfig, featur
         )
         latest_df = apply_focus_score_overlay(latest_df, cfg)
         latest_df = apply_latest_sentiment_satellite_overlay(latest_df, cfg)
+        latest_df = compute_portfolio_sleeve_columns(latest_df, cfg)
+        latest_df = apply_latest_ranking_eligibility(latest_df, cfg, context="Phase 5b latest ranking")
+        eligible_count = int(latest_df["ranking_eligible"].sum())
+        if eligible_count < int(cfg.min_port_names):
+            raise RuntimeError(
+                "Latest recommendation set does not have enough sleeve-qualified names after screening. "
+                f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
+            )
+        if eligible_count < int(cfg.top_n):
+            log(
+                "[WARN] Latest ranking has fewer sleeve-qualified names than requested top_n. "
+                f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
+            )
+        latest_df = apply_sleeve_rebalance_interval_columns(latest_df, cfg)
         latest_df["score_rank"] = latest_df["score"].rank(method="first", ascending=False)
         latest_df = latest_df.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
         latest_df.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
@@ -14864,6 +15167,20 @@ def _legacy_unused_build_latest_recommendations(cfg: dict | EngineConfig, featur
     )
     latest_df = apply_focus_score_overlay(latest_df, cfg)
     latest_df = apply_latest_sentiment_satellite_overlay(latest_df, cfg)
+    latest_df = compute_portfolio_sleeve_columns(latest_df, cfg)
+    latest_df = apply_latest_ranking_eligibility(latest_df, cfg, context="Phase 5b latest ranking")
+    eligible_count = int(latest_df["ranking_eligible"].sum())
+    if eligible_count < int(cfg.min_port_names):
+        raise RuntimeError(
+            "Latest recommendation set does not have enough sleeve-qualified names after screening. "
+            f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
+        )
+    if eligible_count < int(cfg.top_n):
+        log(
+            "[WARN] Latest ranking has fewer sleeve-qualified names than requested top_n. "
+            f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
+        )
+    latest_df = apply_sleeve_rebalance_interval_columns(latest_df, cfg)
     latest_df["score_rank"] = latest_df["score"].rank(method="first", ascending=False)
     latest_df = latest_df.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
     latest_df.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
@@ -14923,8 +15240,13 @@ def _legacy_unused_fallback_latest_recommendations_from_scored(
         else:
             scored_latest["score"] = 0.0
     scored_latest["score"] = pd.to_numeric(scored_latest["score"], errors="coerce").fillna(0.0)
-    if "ranking_eligible" not in scored_latest.columns:
-        scored_latest["ranking_eligible"] = scored_latest["core_fundamental_minimum_pass"].fillna(False).astype(bool)
+    scored_latest = compute_portfolio_sleeve_columns(scored_latest, cfg)
+    scored_latest = apply_latest_ranking_eligibility(
+        scored_latest,
+        cfg,
+        context="Phase 5b fallback latest ranking",
+    )
+    scored_latest = apply_sleeve_rebalance_interval_columns(scored_latest, cfg)
     scored_latest = scored_latest.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
     scored_latest.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
     if reason is not None:
@@ -14954,6 +15276,11 @@ def _legacy_unused_bt_metrics_row(bt, cfg_obj: EngineConfig, **extra) -> dict[st
         "avg_cash_weight": float(m.get("avg_cash_weight", 0.0)),
         "avg_stock_names": float(m.get("avg_stock_names", 0.0)),
         "rebalance_interval_months": int(m.get("rebalance_interval_months", getattr(cfg_obj, "rebalance_interval_months", 1))),
+        "sleeve_specific_rebalance_enabled": bool(m.get("sleeve_specific_rebalance_enabled", False)),
+        "sleeve_rebalance_interval_map": json.dumps(
+            {str(k): int(v) for k, v in dict(m.get("sleeve_rebalance_interval_map", {}) or {}).items()},
+            sort_keys=True,
+        ),
         "trade_cost_bps_per_side": float(m.get("trade_cost_bps_per_side", np.nan)),
         "starting_capital_usd": float(m.get("starting_capital_usd", np.nan)),
         "ending_capital_usd": float(m.get("ending_capital_usd", np.nan)),
@@ -15215,7 +15542,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Keep early_scout for names where the early/inflection engine is clearly
     # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
     weak_early_edge = sleeve_label == "early_scout"
-    weak_early_edge &= (early_edge < 0.12) | (sleeve_matrix[:, 2] < 0.50)
+    weak_early_edge &= (early_edge < 0.08) | (sleeve_matrix[:, 2] < 0.40)
     sleeve_label = np.where(
         weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
         "future_winner",
@@ -15261,16 +15588,24 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         & (fundamental_confirmation >= 0.55)
         & (market_confirmation >= 0.55)
     )
+    promotion_ready = (
+        (promotion_signal >= float(getattr(cfg, "early_scout_promotion_min_score", 0.78)))
+        & (
+            mature_history_confirmed
+            | (
+                (history_depth >= 0.85)
+                & (fundamental_confirmation >= 0.60)
+                & (market_confirmation >= 0.60)
+            )
+        )
+    )
     mature_early_mask = (
         pd.Series(sleeve_label, index=d.index, dtype=object).astype(str).eq("early_scout")
         & (
-            (early_edge <= float(getattr(cfg, "early_scout_promotion_edge_max", 0.12)))
-            | (sleeve_confidence <= float(getattr(cfg, "early_scout_promotion_confidence_max", 0.12)))
+            (early_edge <= float(getattr(cfg, "early_scout_promotion_edge_max", 0.08)))
+            | (sleeve_confidence <= float(getattr(cfg, "early_scout_promotion_confidence_max", 0.10)))
         )
-        & (
-            (promotion_signal >= float(getattr(cfg, "early_scout_promotion_min_score", 0.70)))
-            | mature_history_confirmed
-        )
+        & promotion_ready
     )
     sleeve_label = np.where(mature_early_mask.to_numpy(dtype=bool), "future_winner", sleeve_label)
     d["portfolio_sleeve_label_raw"] = pd.Series(sleeve_label_raw, index=d.index, dtype=object)
@@ -15585,19 +15920,19 @@ def build_target_portfolio(
     if month_df.empty:
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
 
-    month_df = apply_core_fundamental_minimum_filter(
-        month_df,
-        cfg,
-        context="Portfolio candidate set",
-    )
-    if month_df.empty:
-        return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
     if "selection_confirmation_score" not in month_df.columns:
         month_df = compute_benchmark_beating_focus_overlay(month_df, cfg)
     if "minervini_momentum_alive_score" not in month_df.columns:
         month_df = compute_minervini_momentum_overlay(month_df)
     month_df = apply_hold_policy_overlay(month_df, prev_w, cfg)
     month_df = compute_portfolio_sleeve_columns(month_df, cfg)
+    month_df = apply_portfolio_candidate_gate_filter(
+        month_df,
+        cfg,
+        context="Portfolio candidate set",
+    )
+    if month_df.empty:
+        return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
     month_df["portfolio_seed_score"] = (
         numeric_series_or_default(month_df, "score", 0.0)
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
@@ -16474,6 +16809,103 @@ def sleeve_backtest_returns_from_holdings(holdings: pd.DataFrame) -> tuple[pd.Da
     return monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True), summary.reset_index(drop=True)
 
 
+def build_engine_diagnostics_report_frames(
+    cfg: EngineConfig,
+    scored: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    hist = scored.copy() if scored is not None else pd.DataFrame()
+    if hist.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    if "rebalance_date" not in hist.columns:
+        return pd.DataFrame(), pd.DataFrame()
+    hist["rebalance_date"] = pd.to_datetime(hist["rebalance_date"], errors="coerce")
+    hist = hist[hist["rebalance_date"].notna()].copy()
+    if hist.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    hist = add_core_fundamental_minimum_flags(hist, cfg)
+    hist = compute_portfolio_sleeve_columns(hist, cfg)
+    hist = annotate_portfolio_candidate_gate(hist, cfg)
+    top_n = max(int(getattr(cfg, "engine_diagnostics_top_n", 7)), 1)
+    score_col_map = {
+        "core_compounder": "portfolio_core_compounder_engine_score",
+        "future_winner": "portfolio_future_winner_engine_score",
+        "early_scout": "portfolio_early_scout_engine_score",
+    }
+    sleeve_labels = ["core_compounder", "future_winner", "early_scout"]
+    monthly_rows: list[dict[str, Any]] = []
+    for dt, grp in hist.groupby("rebalance_date", sort=True):
+        raw_labels = grp.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=grp.index, dtype=object)).fillna("core_compounder").astype(str)
+        final_labels = grp.get("portfolio_sleeve_label", pd.Series("core_compounder", index=grp.index, dtype=object)).fillna("core_compounder").astype(str)
+        gate_pass = grp.get("portfolio_candidate_minimum_pass", pd.Series(False, index=grp.index, dtype=bool)).fillna(False).astype(bool)
+        for sleeve in sleeve_labels:
+            raw_mask = raw_labels.eq(sleeve)
+            final_mask = final_labels.eq(sleeve)
+            gated = grp.loc[final_mask & gate_pass].copy()
+            score_col = score_col_map.get(sleeve, "score")
+            sort_cols = [c for c in [score_col, "score"] if c in gated.columns]
+            if sort_cols:
+                gated = gated.sort_values(sort_cols, ascending=[False] * len(sort_cols))
+            top = gated.head(top_n).copy()
+            top_r_1m = pd.to_numeric(top.get("r_1m", pd.Series(dtype=float)), errors="coerce")
+            top_r_3m = pd.to_numeric(top.get("r_3m", pd.Series(dtype=float)), errors="coerce")
+            monthly_rows.append(
+                {
+                    "rebalance_date": pd.Timestamp(dt),
+                    "portfolio_sleeve_label": sleeve,
+                    "raw_label_count": int(raw_mask.sum()),
+                    "final_label_count": int(final_mask.sum()),
+                    "gate_pass_count": int((final_mask & gate_pass).sum()),
+                    "promoted_in_count": int((~raw_mask & final_mask).sum()),
+                    "promoted_out_count": int((raw_mask & ~final_mask).sum()),
+                    "topn_selected_count": int(len(top)),
+                    "topn_avg_r_1m": float(top_r_1m.mean()) if top_r_1m.notna().any() else np.nan,
+                    "topn_win_rate_1m": float((top_r_1m > 0).mean()) if top_r_1m.notna().any() else np.nan,
+                    "topn_loss_rate_1m": float((top_r_1m < 0).mean()) if top_r_1m.notna().any() else np.nan,
+                    "topn_worst_r_1m": float(top_r_1m.min()) if top_r_1m.notna().any() else np.nan,
+                    "topn_avg_r_3m": float(top_r_3m.mean()) if top_r_3m.notna().any() else np.nan,
+                    "topn_win_rate_3m": float((top_r_3m > 0).mean()) if top_r_3m.notna().any() else np.nan,
+                    "topn_engine_score_mean": float(pd.to_numeric(top.get(score_col, pd.Series(dtype=float)), errors="coerce").mean()) if not top.empty and score_col in top.columns else np.nan,
+                    "topn_score_mean": float(pd.to_numeric(top.get("score", pd.Series(dtype=float)), errors="coerce").mean()) if not top.empty and "score" in top.columns else np.nan,
+                }
+            )
+    monthly = pd.DataFrame(monthly_rows)
+    if monthly.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    summary_rows: list[dict[str, Any]] = []
+    for sleeve, grp in monthly.groupby("portfolio_sleeve_label", sort=True):
+        r1 = pd.Series(pd.to_numeric(grp["topn_avg_r_1m"], errors="coerce").to_numpy(dtype=float), index=pd.to_datetime(grp["rebalance_date"]))
+        r1 = r1.dropna()
+        metrics = performance_metrics(r1)
+        summary_rows.append(
+            {
+                "portfolio_sleeve_label": str(sleeve),
+                "months": int(len(grp)),
+                "empty_month_ratio": float(grp["topn_selected_count"].eq(0).mean()),
+                "avg_raw_label_count": float(pd.to_numeric(grp["raw_label_count"], errors="coerce").mean()),
+                "avg_final_label_count": float(pd.to_numeric(grp["final_label_count"], errors="coerce").mean()),
+                "avg_gate_pass_count": float(pd.to_numeric(grp["gate_pass_count"], errors="coerce").mean()),
+                "avg_promoted_in_count": float(pd.to_numeric(grp["promoted_in_count"], errors="coerce").mean()),
+                "avg_promoted_out_count": float(pd.to_numeric(grp["promoted_out_count"], errors="coerce").mean()),
+                "avg_topn_selected_count": float(pd.to_numeric(grp["topn_selected_count"], errors="coerce").mean()),
+                "topn_avg_r_1m": float(pd.to_numeric(grp["topn_avg_r_1m"], errors="coerce").mean()),
+                "topn_avg_r_3m": float(pd.to_numeric(grp["topn_avg_r_3m"], errors="coerce").mean()),
+                "topn_win_rate_1m": float(pd.to_numeric(grp["topn_win_rate_1m"], errors="coerce").mean()),
+                "topn_loss_rate_1m": float(pd.to_numeric(grp["topn_loss_rate_1m"], errors="coerce").mean()),
+                "topn_cagr_1m": float(metrics.get("cagr", np.nan)),
+                "topn_sharpe_1m": float(metrics.get("sharpe", np.nan)),
+                "topn_sortino_1m": float(metrics.get("sortino", np.nan)),
+                "topn_max_dd_1m": float(metrics.get("max_dd", np.nan)),
+                "latest_raw_label_count": int(pd.to_numeric(grp["raw_label_count"], errors="coerce").iloc[-1]),
+                "latest_final_label_count": int(pd.to_numeric(grp["final_label_count"], errors="coerce").iloc[-1]),
+                "latest_gate_pass_count": int(pd.to_numeric(grp["gate_pass_count"], errors="coerce").iloc[-1]),
+                "latest_topn_selected_count": int(pd.to_numeric(grp["topn_selected_count"], errors="coerce").iloc[-1]),
+            }
+        )
+    summary = pd.DataFrame(summary_rows).sort_values("topn_cagr_1m", ascending=False).reset_index(drop=True)
+    monthly = monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True)
+    return monthly, summary
+
+
 
 
 def build_historical_data_quality_report_frames(
@@ -16785,6 +17217,127 @@ def run_acceptance_checks(
     return checks
 
 
+def resolve_sleeve_rebalance_interval_map(cfg: EngineConfig) -> dict[str, int]:
+    base_interval = max(int(getattr(cfg, "rebalance_interval_months", 1)), 1)
+    return {
+        "core_compounder": max(
+            int(getattr(cfg, "core_compounder_rebalance_interval_months", base_interval)),
+            1,
+        ),
+        "future_winner": max(
+            int(getattr(cfg, "future_winner_rebalance_interval_months", base_interval)),
+            1,
+        ),
+        "early_scout": max(
+            int(getattr(cfg, "early_scout_rebalance_interval_months", base_interval)),
+            1,
+        ),
+    }
+
+
+def apply_sleeve_rebalance_interval_columns(
+    frame: pd.DataFrame,
+    cfg: EngineConfig,
+    interval_map: Optional[dict[str, int]] = None,
+) -> pd.DataFrame:
+    out = frame.copy()
+    if out.empty:
+        return out
+    interval_map = interval_map or resolve_sleeve_rebalance_interval_map(cfg)
+    sleeve_label = out.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=out.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    out["sleeve_rebalance_interval_months"] = sleeve_label.map(
+        lambda x: int(interval_map.get(str(x), max(int(getattr(cfg, "rebalance_interval_months", 1)), 1)))
+    ).fillna(max(int(getattr(cfg, "rebalance_interval_months", 1)), 1)).astype(int)
+    return out
+
+
+def _current_sleeve_map_from_portfolio(portfolio: pd.DataFrame) -> dict[str, str]:
+    if portfolio is None or portfolio.empty or "ticker" not in portfolio.columns:
+        return {}
+    labels = portfolio.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=portfolio.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    return {
+        normalize_ticker(tkr): str(lbl)
+        for tkr, lbl in zip(portfolio["ticker"].astype(str), labels)
+        if normalize_ticker(tkr) and normalize_ticker(tkr) != CASH_PROXY_TICKER
+    }
+
+
+def merge_partial_sleeve_rebalance_state(
+    month_df: pd.DataFrame,
+    current_w: dict[str, float],
+    current_sleeve_map: dict[str, str],
+    target_portfolio: pd.DataFrame,
+    target_w: dict[str, float],
+    due_sleeves: Iterable[str],
+    cfg: EngineConfig,
+    interval_map: Optional[dict[str, int]] = None,
+) -> tuple[pd.DataFrame, dict[str, float], dict[str, str]]:
+    due_set = {str(x) for x in due_sleeves}
+    interval_map = interval_map or resolve_sleeve_rebalance_interval_map(cfg)
+    target_sleeve_map = _current_sleeve_map_from_portfolio(target_portfolio)
+    preserved_weights = {
+        str(tkr): float(weight)
+        for tkr, weight in current_w.items()
+        if str(tkr).upper() != CASH_PROXY_TICKER
+        and current_sleeve_map.get(normalize_ticker(tkr), "core_compounder") not in due_set
+        and normalize_ticker(tkr) not in target_sleeve_map
+    }
+    due_target_weights = {
+        str(tkr): float(weight)
+        for tkr, weight in target_w.items()
+        if str(tkr).upper() != CASH_PROXY_TICKER
+        and target_sleeve_map.get(normalize_ticker(tkr), "core_compounder") in due_set
+    }
+    preserved_total = float(sum(preserved_weights.values()))
+    target_cash = float(target_w.get(CASH_PROXY_TICKER, 0.0))
+    due_target_total = float(sum(due_target_weights.values())) + max(target_cash, 0.0)
+    remaining_weight = max(0.0, 1.0 - preserved_total)
+    combined_weights = preserved_weights.copy()
+    if due_target_total > 1e-10 and remaining_weight > 1e-10:
+        scale = remaining_weight / due_target_total
+        for tkr, weight in due_target_weights.items():
+            combined_weights[str(tkr)] = float(weight * scale)
+        cash_weight = float(max(target_cash, 0.0) * scale)
+    else:
+        cash_weight = float(remaining_weight)
+    if cash_weight > 1e-10:
+        combined_weights[CASH_PROXY_TICKER] = cash_weight
+    total_weight = float(sum(combined_weights.values()))
+    if total_weight > 0 and abs(total_weight - 1.0) > 1e-8:
+        combined_weights = {
+            str(k): float(v / total_weight)
+            for k, v in combined_weights.items()
+            if pd.notna(v) and float(v) > 1e-10
+        }
+
+    combined_sleeve_map = {
+        normalize_ticker(tkr): sleeve
+        for tkr, sleeve in current_sleeve_map.items()
+        if normalize_ticker(tkr) and normalize_ticker(tkr) not in target_sleeve_map
+    }
+    for tkr, sleeve in target_sleeve_map.items():
+        if str(sleeve) in due_set:
+            combined_sleeve_map[normalize_ticker(tkr)] = str(sleeve)
+
+    combined_portfolio = materialize_weight_frame(month_df, combined_weights)
+    if not combined_portfolio.empty:
+        ticker_norm = combined_portfolio.get("ticker", pd.Series(dtype=object)).astype(str).map(normalize_ticker)
+        combined_portfolio["portfolio_sleeve_label"] = ticker_norm.map(
+            lambda x: combined_sleeve_map.get(x, "cash" if str(x).upper() == CASH_PROXY_TICKER else "core_compounder")
+        )
+        combined_portfolio["portfolio_sleeve_role"] = combined_portfolio["portfolio_sleeve_label"].map(
+            lambda x: "cash" if str(x) == "cash" else SLEEVE_STANDALONE_ROLE_MAP.get(str(x), str(x))
+        )
+        combined_portfolio = apply_sleeve_rebalance_interval_columns(combined_portfolio, cfg, interval_map=interval_map)
+    return combined_portfolio, combined_weights, combined_sleeve_map
+
+
 def backtest_portfolio(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -16816,6 +17369,19 @@ def backtest_portfolio(
     )
     if rebalance_interval_months_override is not None:
         adaptive_interval_policy = False
+    sleeve_specific_rebalance_enabled = bool(getattr(cfg, "sleeve_specific_rebalance_enabled", True))
+    sleeve_specific_rebalance_enabled = sleeve_specific_rebalance_enabled and rebalance_interval_months_override is None
+    sleeve_interval_map = (
+        resolve_sleeve_rebalance_interval_map(cfg)
+        if sleeve_specific_rebalance_enabled
+        else {
+            "core_compounder": int(fixed_interval_months),
+            "future_winner": int(fixed_interval_months),
+            "early_scout": int(fixed_interval_months),
+        }
+    )
+    if sleeve_specific_rebalance_enabled:
+        adaptive_interval_policy = False
     months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
     if len(months) < 2:
         raise RuntimeError("Need at least two months of OOS signals for backtest.")
@@ -16837,6 +17403,7 @@ def backtest_portfolio(
 
     current_w: dict[str, float] = {}
     current_portfolio = pd.DataFrame()
+    current_sleeve_map: dict[str, str] = {}
     current_meta: dict[str, Any] = {
         "target_n": 0,
         "weight_cap": float(cfg.stock_weight_max),
@@ -16844,7 +17411,12 @@ def backtest_portfolio(
     }
     active_interval_months = int(fixed_interval_months)
     next_scheduled_dt = pd.NaT
+    next_scheduled_dt_by_sleeve = {
+        sleeve: pd.NaT
+        for sleeve in sleeve_interval_map.keys()
+    }
     rebalance_dates_taken: list[pd.Timestamp] = []
+    sleeve_rebalance_counts = {sleeve: 0 for sleeve in sleeve_interval_map.keys()}
     holdings_rows = []
     ret_rows = []
     # Stop-loss tracking for speculative positions
@@ -16865,7 +17437,19 @@ def backtest_portfolio(
         dt = pd.Timestamp(months[i])
         next_dt = pd.Timestamp(months[i + 1])
         mm = d[d["rebalance_date"] == dt].copy()
-        rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+        if sleeve_specific_rebalance_enabled:
+            if not current_w:
+                due_sleeves = list(sleeve_interval_map.keys())
+            else:
+                due_sleeves = [
+                    sleeve
+                    for sleeve, sched_dt in next_scheduled_dt_by_sleeve.items()
+                    if pd.isna(sched_dt) or (dt >= pd.Timestamp(sched_dt))
+                ]
+            rebalance_due = bool(due_sleeves)
+        else:
+            due_sleeves = list(sleeve_interval_map.keys())
+            rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
         turn = 0.0
         cost = 0.0
         rebalance_action = "scheduled_hold"
@@ -16883,18 +17467,69 @@ def backtest_portfolio(
                     cash_target_max=cash_target_max,
                 )
                 if not sel.empty and final_w:
-                    current_portfolio = sel.copy()
-                    current_w = {
+                    current_meta = {
+                        **meta,
+                        "sleeve_rebalance_interval_map": {k: int(v) for k, v in sleeve_interval_map.items()},
+                        "due_sleeves": [str(x) for x in due_sleeves],
+                    }
+                    clean_target_w = {
                         str(k): float(v)
                         for k, v in final_w.items()
                         if pd.notna(v) and float(v) > 1e-10
                     }
-                    current_meta = meta
+                    if sleeve_specific_rebalance_enabled and prev_w and len(due_sleeves) < len(sleeve_interval_map):
+                        current_portfolio, current_w, current_sleeve_map = merge_partial_sleeve_rebalance_state(
+                            mm,
+                            current_w,
+                            current_sleeve_map,
+                            sel.copy(),
+                            clean_target_w,
+                            due_sleeves,
+                            cfg,
+                            interval_map=sleeve_interval_map,
+                        )
+                        rebalance_action = f"partial_rebalance:{','.join(sorted(due_sleeves))}"
+                    else:
+                        current_portfolio = apply_sleeve_rebalance_interval_columns(
+                            sel.copy(),
+                            cfg,
+                            interval_map=sleeve_interval_map,
+                        )
+                        current_w = clean_target_w
+                        current_sleeve_map = _current_sleeve_map_from_portfolio(current_portfolio)
+                        rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
                     turn = turnover(prev_w, current_w)
                     cost = turn * (effective_roundtrip_cost_bps / 10000.0)
-                    rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
                     rebalance_dates_taken.append(dt)
-                    if adaptive_interval_policy:
+                    if sleeve_specific_rebalance_enabled:
+                        for sleeve in due_sleeves:
+                            next_scheduled_dt_by_sleeve[sleeve] = next_rebalance_date_for_interval(
+                                dt,
+                                interval_months=int(sleeve_interval_map.get(sleeve, fixed_interval_months)),
+                            )
+                            sleeve_rebalance_counts[sleeve] = int(sleeve_rebalance_counts.get(sleeve, 0)) + 1
+                        scheduled_values = [
+                            pd.Timestamp(x)
+                            for x in next_scheduled_dt_by_sleeve.values()
+                            if pd.notna(x)
+                        ]
+                        next_scheduled_dt = min(scheduled_values) if scheduled_values else pd.NaT
+                        active_interval_months = int(
+                            max(
+                                round(
+                                    float(
+                                        np.mean(
+                                            [
+                                                float(sleeve_interval_map.get(sleeve, fixed_interval_months))
+                                                for sleeve in due_sleeves
+                                            ]
+                                        )
+                                    )
+                                ),
+                                1,
+                            )
+                        )
+                    elif adaptive_interval_policy:
                         policy = infer_rebalance_interval_policy(
                             cfg,
                             mm,
@@ -16904,10 +17539,10 @@ def backtest_portfolio(
                         active_interval_months = int(policy.get("target_interval_months", fixed_interval_months))
                     else:
                         active_interval_months = int(fixed_interval_months)
-                    next_scheduled_dt = next_rebalance_date_for_interval(
-                        dt,
-                        interval_months=active_interval_months,
-                    )
+                        next_scheduled_dt = next_rebalance_date_for_interval(
+                            dt,
+                            interval_months=active_interval_months,
+                        )
                 else:
                     rebalance_action = "hold_after_empty_rebalance" if current_w else "skip_empty_rebalance"
             else:
@@ -16918,6 +17553,7 @@ def backtest_portfolio(
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
+        due_sleeves_value = ",".join(sorted({str(x) for x in due_sleeves})) if rebalance_due and due_sleeves else ""
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"] == tkr]
             if str(tkr).upper() == CASH_PROXY_TICKER:
@@ -16963,7 +17599,13 @@ def backtest_portfolio(
                     "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                     "cash_target": float(current_meta.get("cash_target", 0.0)),
                     "rebalance_action": rebalance_action,
+                    "due_sleeves": due_sleeves_value,
                     "active_rebalance_interval_months": int(active_interval_months),
+                    "sleeve_rebalance_interval_months": int(
+                        row["sleeve_rebalance_interval_months"].iloc[0]
+                    ) if not row.empty and "sleeve_rebalance_interval_months" in row.columns else int(
+                        sleeve_interval_map.get(sleeve_label_value, active_interval_months)
+                    ),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
                 }
             )
@@ -17019,7 +17661,7 @@ def backtest_portfolio(
                 if tkr not in current_w:
                     del speculative_cum_ret[tkr]
             # Clear stopped_out set at rebalance (allow re-entry if signals improve)
-            if rebalance_action in ("rebalance", "initial_rebalance"):
+            if rebalance_action in ("rebalance", "initial_rebalance") or str(rebalance_action).startswith("partial_rebalance:"):
                 stopped_out_tickers.clear()
         if current_w:
             current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
@@ -17046,8 +17688,14 @@ def backtest_portfolio(
                 "missing_tickers": missing,
                 "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
                 "rebalance_action": rebalance_action,
+                "due_sleeves": due_sleeves_value,
                 "active_rebalance_interval_months": int(active_interval_months),
                 "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                "sleeve_specific_rebalance_enabled": bool(sleeve_specific_rebalance_enabled),
+                "sleeve_rebalance_interval_map": json.dumps(
+                    {str(k): int(v) for k, v in sleeve_interval_map.items()},
+                    sort_keys=True,
+                ),
                 "target_n": int(current_meta.get("target_n", 0)),
                 "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                 "cash_target": float(current_meta.get("cash_target", 0.0)),
@@ -17096,9 +17744,20 @@ def backtest_portfolio(
         else []
     )
     avg_interval = float(np.mean(rebalance_intervals)) if rebalance_intervals else float(active_interval_months)
-    metrics["rebalance_interval_months"] = int(fixed_interval_months if not adaptive_interval_policy else max(int(round(avg_interval)), 1))
+    metrics["rebalance_interval_months"] = int(
+        max(int(round(avg_interval)), 1)
+        if (adaptive_interval_policy or sleeve_specific_rebalance_enabled)
+        else int(fixed_interval_months)
+    )
     metrics["avg_rebalance_interval_months"] = float(avg_interval)
     metrics["adaptive_rebalance_policy"] = bool(adaptive_interval_policy)
+    metrics["sleeve_specific_rebalance_enabled"] = bool(sleeve_specific_rebalance_enabled)
+    metrics["sleeve_rebalance_interval_map"] = {
+        str(k): int(v) for k, v in sleeve_interval_map.items()
+    }
+    metrics["sleeve_rebalance_counts"] = {
+        str(k): int(v) for k, v in sleeve_rebalance_counts.items()
+    }
     metrics["rebalance_count"] = int(len(rebalance_dates_taken))
     metrics["rebalanced_month_ratio"] = float(len(rebalance_dates_taken) / max(len(ret_df), 1))
     metrics["benchmark_source"] = benchmark_history_source_label(cfg)
@@ -17255,18 +17914,6 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     if int(coverage_mask.sum()) >= min_keep:
         latest_df = latest_df[coverage_mask].copy()
     latest_df = add_core_fundamental_minimum_flags(latest_df, cfg)
-    latest_df["ranking_eligible"] = latest_df["core_fundamental_minimum_pass"].fillna(False).astype(bool)
-    eligible_count = int(latest_df["ranking_eligible"].sum())
-    if eligible_count < int(cfg.min_port_names):
-        raise RuntimeError(
-            "Latest recommendation set does not have enough full-fundamental names after screening. "
-            f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
-        )
-    if eligible_count < int(cfg.top_n):
-        log(
-            "[WARN] Full-fundamental latest ranking has fewer names than requested top_n. "
-            f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
-        )
 
     adaptive_history = pd.DataFrame()
     scored_oos_path = paths["feature_store"] / "scored_oos_latest.parquet"
@@ -17343,6 +17990,20 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         )
         latest_df = apply_focus_score_overlay(latest_df, cfg)
         latest_df = apply_latest_sentiment_satellite_overlay(latest_df, cfg)
+        latest_df = compute_portfolio_sleeve_columns(latest_df, cfg)
+        latest_df = apply_latest_ranking_eligibility(latest_df, cfg, context="Phase 5b latest ranking")
+        eligible_count = int(latest_df["ranking_eligible"].sum())
+        if eligible_count < int(cfg.min_port_names):
+            raise RuntimeError(
+                "Latest recommendation set does not have enough sleeve-qualified names after screening. "
+                f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
+            )
+        if eligible_count < int(cfg.top_n):
+            log(
+                "[WARN] Latest ranking has fewer sleeve-qualified names than requested top_n. "
+                f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
+            )
+        latest_df = apply_sleeve_rebalance_interval_columns(latest_df, cfg)
         latest_df["score_rank"] = latest_df["score"].rank(method="first", ascending=False)
         latest_df = latest_df.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
         latest_df.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
@@ -17475,6 +18136,20 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     )
     latest_df = apply_focus_score_overlay(latest_df, cfg)
     latest_df = apply_latest_sentiment_satellite_overlay(latest_df, cfg)
+    latest_df = compute_portfolio_sleeve_columns(latest_df, cfg)
+    latest_df = apply_latest_ranking_eligibility(latest_df, cfg, context="Phase 5b latest ranking")
+    eligible_count = int(latest_df["ranking_eligible"].sum())
+    if eligible_count < int(cfg.min_port_names):
+        raise RuntimeError(
+            "Latest recommendation set does not have enough sleeve-qualified names after screening. "
+            f"eligible={eligible_count}, required={int(cfg.min_port_names)}"
+        )
+    if eligible_count < int(cfg.top_n):
+        log(
+            "[WARN] Latest ranking has fewer sleeve-qualified names than requested top_n. "
+            f"eligible={eligible_count}, top_n={int(cfg.top_n)}"
+        )
+    latest_df = apply_sleeve_rebalance_interval_columns(latest_df, cfg)
     latest_df["score_rank"] = latest_df["score"].rank(method="first", ascending=False)
     latest_df = latest_df.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
     latest_df.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
@@ -17534,8 +18209,13 @@ def fallback_latest_recommendations_from_scored(
         else:
             scored_latest["score"] = 0.0
     scored_latest["score"] = pd.to_numeric(scored_latest["score"], errors="coerce").fillna(0.0)
-    if "ranking_eligible" not in scored_latest.columns:
-        scored_latest["ranking_eligible"] = scored_latest["core_fundamental_minimum_pass"].fillna(False).astype(bool)
+    scored_latest = compute_portfolio_sleeve_columns(scored_latest, cfg)
+    scored_latest = apply_latest_ranking_eligibility(
+        scored_latest,
+        cfg,
+        context="Phase 5b fallback latest ranking",
+    )
+    scored_latest = apply_sleeve_rebalance_interval_columns(scored_latest, cfg)
     scored_latest = scored_latest.sort_values(["ranking_eligible", "score"], ascending=[False, False]).reset_index(drop=True)
     scored_latest.to_parquet(paths["feature_store"] / "latest_recommendations.parquet", index=False)
     if reason is not None:
@@ -19369,6 +20049,7 @@ def build_latest_portfolio(cfg: dict | EngineConfig, latest_recommendations: pd.
             hold_portfolio["active_rebalance_interval_months"] = int(prev_interval_months)
             hold_portfolio["scheduled_rebalance_due"] = False
             hold_portfolio["next_scheduled_rebalance_date"] = str(pd.Timestamp(prev_sched_dt).date())
+            hold_portfolio = apply_sleeve_rebalance_interval_columns(hold_portfolio, cfg)
             hold_portfolio = hold_portfolio.sort_values("weight", ascending=False).reset_index(drop=True)
             hold_portfolio.insert(0, "rank", np.arange(1, len(hold_portfolio) + 1))
             return hold_portfolio
@@ -19577,6 +20258,7 @@ def build_latest_portfolio(cfg: dict | EngineConfig, latest_recommendations: pd.
     portfolio["rebalance_action"] = "full_rebalance"
     portfolio["active_rebalance_interval_months"] = int(prev_interval_months if prev_holdings_applied else max(cfg.rebalance_interval_months, 1))
     portfolio["scheduled_rebalance_due"] = True
+    portfolio = apply_sleeve_rebalance_interval_columns(portfolio, cfg)
     portfolio = portfolio.sort_values("weight", ascending=False).reset_index(drop=True)
     portfolio.insert(0, "rank", np.arange(1, len(portfolio) + 1))
     return portfolio
@@ -19855,9 +20537,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         apply_statement_repair=True,
         add_fundamental_flags=True,
     )
-    scored_latest = compute_portfolio_sleeve_columns(scored_latest)
-    if "ranking_eligible" not in scored_latest.columns:
-        scored_latest["ranking_eligible"] = scored_latest["core_fundamental_minimum_pass"].fillna(False).astype(bool)
+    scored_latest = compute_portfolio_sleeve_columns(scored_latest, cfg)
+    scored_latest = apply_latest_ranking_eligibility(
+        scored_latest,
+        cfg,
+        context="Phase 6 latest export ranking",
+    )
+    scored_latest = apply_sleeve_rebalance_interval_columns(scored_latest, cfg)
     full_rank = scored_latest[scored_latest["ranking_eligible"].fillna(False)].copy()
     partial_watchlist = scored_latest[~scored_latest["ranking_eligible"].fillna(False)].copy()
     full_rank = full_rank.sort_values("score", ascending=False).reset_index(drop=True)
@@ -19996,6 +20682,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             out.get("raw_score"), errors="coerce"
         ).isna().all():
             out["raw_score"] = pd.to_numeric(out.get("score"), errors="coerce")
+        out = apply_sleeve_rebalance_interval_columns(out, cfg)
         return out.sort_values("weight", ascending=False).copy()
 
     def _annotate_output_frame(frame: pd.DataFrame, *, research_only_output: bool) -> pd.DataFrame:
@@ -20210,7 +20897,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "prev_holdings_applied",
             "prev_holdings_count",
             "rebalance_action",
+            "due_sleeves",
             "active_rebalance_interval_months",
+            "sleeve_rebalance_interval_months",
             "scheduled_rebalance_due",
             "recommended_rebalance_interval_months",
             "next_scheduled_rebalance_date",
@@ -20296,6 +20985,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     latest_core_standalone_path = paths["out"] / "core_compounder_latest_standalone.csv"
     latest_future_standalone_path = paths["out"] / "future_winner_latest_standalone.csv"
     latest_early_standalone_path = paths["out"] / "early_scout_latest_standalone.csv"
+    engine_diagnostics_monthly_path = paths["reports"] / "engine_diagnostics_by_month.csv"
+    engine_diagnostics_summary_path = paths["reports"] / "engine_diagnostics_summary.csv"
 
     def _safe_unlink(path: Path) -> None:
         try:
@@ -20522,6 +21213,21 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(historical_quality_sleeve_path)
         _safe_unlink(historical_quality_latest_path)
 
+    engine_diagnostics_monthly = pd.DataFrame()
+    engine_diagnostics_summary = pd.DataFrame()
+    if bool(getattr(cfg, "run_engine_diagnostics_report", True)):
+        try:
+            engine_diagnostics_monthly, engine_diagnostics_summary = build_engine_diagnostics_report_frames(cfg, scored)
+            engine_diagnostics_monthly.to_csv(engine_diagnostics_monthly_path, index=False)
+            engine_diagnostics_summary.to_csv(engine_diagnostics_summary_path, index=False)
+        except Exception as exc:
+            log(f"[WARN] Engine diagnostics report failed: {exc}")
+            _safe_unlink(engine_diagnostics_monthly_path)
+            _safe_unlink(engine_diagnostics_summary_path)
+    else:
+        _safe_unlink(engine_diagnostics_monthly_path)
+        _safe_unlink(engine_diagnostics_summary_path)
+
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
             bt.holdings.groupby(["rebalance_date", "sector"])["weight"].sum().reset_index()
@@ -20717,6 +21423,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         },
         "sleeve_actual_weights": portfolio_sleeve_actual_weights,
         "sleeve_selected_counts": portfolio_sleeve_selected_counts,
+        "sleeve_specific_rebalance_enabled": bool(bt.metrics.get("sleeve_specific_rebalance_enabled", False)),
+        "sleeve_rebalance_interval_map": dict(bt.metrics.get("sleeve_rebalance_interval_map", {}) or {}),
+        "sleeve_rebalance_counts": {
+            str(k): int(v)
+            for k, v in dict(bt.metrics.get("sleeve_rebalance_counts", {}) or {}).items()
+        },
         "future_winner_regime_strength": _portfolio_first_numeric("future_winner_regime_strength", default=0.0),
         "early_scout_regime_strength": _portfolio_first_numeric("early_scout_regime_strength", default=0.0),
         "sleeve_growth_signal": _portfolio_first_numeric("sleeve_growth_signal", default=0.0),
@@ -20904,6 +21616,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["early_scout_latest_standalone.csv"] = str(latest_early_standalone_path)
     if not latest_standalone_sleeve_summary.empty:
         output_files["latest_sleeve_standalone_summary.csv"] = str(latest_sleeve_standalone_summary_path)
+    if not engine_diagnostics_monthly.empty:
+        output_files["engine_diagnostics_by_month.csv"] = str(engine_diagnostics_monthly_path)
+    if not engine_diagnostics_summary.empty:
+        output_files["engine_diagnostics_summary.csv"] = str(engine_diagnostics_summary_path)
 
     summary = {
         "run_ts": now_ts(),
@@ -20927,6 +21643,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         ) if not portfolio_latest.empty else 0.0,
         "portfolio_sleeve_actual_weights": portfolio_sleeve_actual_weights,
         "portfolio_sleeve_selected_counts": portfolio_sleeve_selected_counts,
+        "sleeve_specific_rebalance_enabled": bool(bt.metrics.get("sleeve_specific_rebalance_enabled", False)),
+        "sleeve_rebalance_interval_map": dict(bt.metrics.get("sleeve_rebalance_interval_map", {}) or {}),
+        "sleeve_rebalance_counts": {
+            str(k): int(v)
+            for k, v in dict(bt.metrics.get("sleeve_rebalance_counts", {}) or {}).items()
+        },
         "portfolio_sleeve_target_weights": {
             "core_compounder": _portfolio_first_numeric("sleeve_target_core_compounder_weight", default=0.0),
             "future_winner": _portfolio_first_numeric("sleeve_target_future_winner_weight", default=0.0),
@@ -21018,6 +21740,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not latest_standalone_sleeve_summary.empty
             else []
         ),
+        "engine_diagnostics_summary": (
+            engine_diagnostics_summary.to_dict(orient="records")
+            if not engine_diagnostics_summary.empty
+            else []
+        ),
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
@@ -21086,6 +21813,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["early_scout_latest_standalone"] = str(latest_early_standalone_path)
     if not latest_standalone_sleeve_summary.empty:
         result_outputs["latest_sleeve_standalone_summary"] = str(latest_sleeve_standalone_summary_path)
+    if not engine_diagnostics_monthly.empty:
+        result_outputs["engine_diagnostics_by_month"] = str(engine_diagnostics_monthly_path)
+    if not engine_diagnostics_summary.empty:
+        result_outputs["engine_diagnostics_summary"] = str(engine_diagnostics_summary_path)
     if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)) and not sleeve_cap_policy_compare.empty:
         result_outputs["sleeve_cap_policy_comparison"] = str(sleeve_cap_policy_compare_path)
         result_outputs["sleeve_cap_policy_champion_latest"] = str(sleeve_cap_policy_champion_path)

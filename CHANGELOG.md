@@ -794,3 +794,35 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation:
   - `git diff --check` passed with only line-ending warnings.
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+
+### 11:05 KST - sleeve-aware-gates-and-model-specific-rebalance
+
+- scope:
+  - Split live/latest gating by sleeve, add sleeve-specific rebalance cadence support to the active backtest/export path, and emit engine diagnostics that show whether each sleeve is being filtered out or actually producing strong top-N forward returns.
+- files:
+  - `r1000_top30_institutional.py` - added sleeve-aware latest-ranking eligibility, relaxed non-core gates for `future_winner` / `early_scout`, propagated sleeve-specific rebalance intervals through backtest/latest/export outputs, and added engine diagnostics report generation.
+- symbols_added:
+  - `annotate_portfolio_candidate_gate(df: pd.DataFrame, cfg: EngineConfig)` - annotates sleeve-specific gate pass/fail state without dropping rows.
+  - `apply_latest_ranking_eligibility(df: pd.DataFrame, cfg: EngineConfig, context: str)` - computes sleeve-aware `ranking_eligible` flags for latest/fallback/export paths.
+  - `build_engine_diagnostics_report_frames(cfg: EngineConfig, scored: pd.DataFrame)` - returns monthly and summary diagnostics for raw-label counts, final-label counts, gate pass counts, and top-N forward-return quality by sleeve.
+- symbols_changed:
+  - `apply_portfolio_candidate_gate_filter(...)` - now reuses the shared gate annotation logic so filtering and latest-ranking eligibility cannot drift apart.
+  - `backtest_portfolio(...)` - now records due sleeves, per-row sleeve rebalance intervals, sleeve-specific rebalance metadata, and partial-rebalance resets for speculative stop-loss state.
+  - `build_latest_recommendations(...)` - now applies sleeve-aware ranking eligibility only after total scores and sleeve labels are computed, instead of forcing a core-only gate first.
+  - `fallback_latest_recommendations_from_scored(...)` - now rebuilds sleeve-aware ranking eligibility and sleeve interval metadata before sorting/exporting fallback latest recommendations.
+  - `build_latest_portfolio(...)` - now carries `sleeve_rebalance_interval_months` into both scheduled-hold and full-rebalance live portfolio outputs.
+  - `_bt_metrics_row(...)` - now includes sleeve-specific rebalance cadence metadata for comparison exports.
+  - `export_outputs(...)` - now uses the shared latest-ranking gate, exports sleeve rebalance cadence metadata consistently, and writes engine diagnostics CSVs plus summary payloads.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/engine_diagnostics_by_month.csv` - monthly sleeve diagnostics covering raw/final label counts, gate pass counts, and top-N forward-return behavior.
+  - `outputs/reports/engine_diagnostics_summary.csv` - per-sleeve summary of selection emptiness, top-N CAGR/Sharpe/MaxDD, and gate-pressure statistics.
+- validation:
+  - `git diff --check` passed with only line-ending warnings.
+  - Manual code review confirmed the active later definitions now use sleeve-aware latest gating and export the new rebalance/diagnostic fields.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - The next-run scheduler is still a single overall recommendation; sleeve-specific cadence now affects backtest/live holdings metadata and partial-rebalance execution, but not a separate per-sleeve cron schedule.
