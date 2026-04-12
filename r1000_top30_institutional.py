@@ -15429,13 +15429,23 @@ def compute_portfolio_sleeve_policy(
             ),
         )
     if strong_early_regime:
+        future_target = max(
+            future_target,
+            min(
+                float(getattr(cfg, "future_winner_sleeve_max_weight", 0.70)),
+                invested_share * 0.40,
+            ),
+        )
         early_target = max(
             early_target,
             min(
                 float(getattr(cfg, "early_scout_sleeve_max_weight", 0.28)),
-                0.18
-                + 0.16 * np.clip((growth_thrust - 0.38) / 0.62, 0.0, 1.0)
-                + 0.08 * np.clip((growth_signal - 0.58) / 0.42, 0.0, 1.0),
+                max(
+                    invested_share * 0.50,
+                    0.18
+                    + 0.16 * np.clip((growth_thrust - 0.38) / 0.62, 0.0, 1.0)
+                    + 0.08 * np.clip((growth_signal - 0.58) / 0.42, 0.0, 1.0),
+                ),
             ),
         )
     if risk_signal >= 0.70:
@@ -17721,19 +17731,19 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             core_compounder_sleeve_base_weight=0.10,
             future_winner_sleeve_base_weight=0.40,
             future_winner_sleeve_min_weight=0.08,
-            future_winner_sleeve_max_weight=0.62,
-            early_scout_sleeve_base_weight=0.42,
+            future_winner_sleeve_max_weight=0.65,
+            early_scout_sleeve_base_weight=0.50,
             early_scout_sleeve_min_weight=0.05,
-            early_scout_sleeve_max_weight=0.48,
+            early_scout_sleeve_max_weight=0.55,
             early_scout_growth_floor_weight=0.20,
             early_scout_growth_floor_min_signal=0.32,
             early_scout_growth_floor_max_risk=0.45,
             future_winner_entry_weight_cap=0.16,
             future_winner_drift_weight_cap=0.32,
             future_winner_hard_weight_cap=0.45,
-            early_scout_entry_weight_cap=0.09,
-            early_scout_drift_weight_cap=0.20,
-            early_scout_hard_weight_cap=0.34,
+            early_scout_entry_weight_cap=0.10,
+            early_scout_drift_weight_cap=0.22,
+            early_scout_hard_weight_cap=0.36,
             sleeve_drift_headroom_pct=0.65,
             stock_weight_max=0.22,
             stock_weight_max_high_conviction=0.50,
@@ -18585,7 +18595,7 @@ _SLEEVE_POLICY_CANDIDATES: list[dict] = [
     {"label": "aggr_30_35_35",       "core": 0.30, "future": 0.35, "early": 0.35},
     {"label": "aggr_25_35_40",       "core": 0.25, "future": 0.35, "early": 0.40},
     {"label": "aggr_20_40_40",       "core": 0.20, "future": 0.40, "early": 0.40},
-    {"label": "aggr_15_35_50",       "core": 0.15, "future": 0.35, "early": 0.50},
+    {"label": "aggr_10_40_50",       "core": 0.10, "future": 0.40, "early": 0.50},
 ]
 
 

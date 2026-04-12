@@ -750,3 +750,17 @@ All entries must be written in English. Entries must be predictable and machine-
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
 - risks_or_notes:
   - Existing Colab cells that manually override `early_scout_sleeve_*` values can still mute part of this change; remove or update those overrides if you want the notebook run to match the new defaults.
+
+### 01:12 KST - strong-growth-10-40-50
+
+- scope:
+  - Push the strongest growth regime closer to a `core 10 / future 40 / early 50` sleeve mix.
+- files:
+  - `r1000_top30_institutional.py` - raised the strong-growth live sleeve floors so the allocator can force `future` toward 40% and `early` toward 50% of invested capital when the growth regime is strong enough, and updated the most aggressive regime candidates to match that mix more directly.
+- symbols_changed:
+  - `compute_portfolio_sleeve_policy(cfg: EngineConfig, month_df: pd.DataFrame, cash_target: float)` - `strong_early_regime` now also floors `future` near 40% of invested share and `early` near 50% of invested share before residual capital falls back to `core`.
+  - `_SLEEVE_POLICY_CANDIDATES` - replaced the previous `15/35/50` aggressive candidate with a `10/40/50` candidate.
+  - `_sleeve_cap_policy_candidates()` - `early_scout_very_bull` now starts from a `10/40/50` base and allows a larger early-scout cap.
+- validation:
+  - Manual code review confirmed the live strong-growth branch now carries an explicit `10/40/50` floor on invested sleeve share.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
