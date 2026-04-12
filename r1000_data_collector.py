@@ -60,16 +60,16 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("cash_target_growth_cap", 0.03)
     cfg.setdefault("cash_target_balanced_cap", 0.05)
     cfg.setdefault("cash_target_mild_risk_cap", 0.10)
-    cfg.setdefault("core_compounder_sleeve_base_weight", 0.55)
-    cfg.setdefault("future_winner_sleeve_base_weight", 0.35)
-    cfg.setdefault("future_winner_sleeve_min_weight", 0.05)
-    cfg.setdefault("future_winner_sleeve_max_weight", 0.60)
-    cfg.setdefault("early_scout_sleeve_base_weight", 0.08)
-    cfg.setdefault("early_scout_sleeve_min_weight", 0.00)
-    cfg.setdefault("early_scout_sleeve_max_weight", 0.20)
-    cfg.setdefault("early_scout_growth_floor_weight", 0.08)
-    cfg.setdefault("early_scout_growth_floor_min_signal", 0.38)
-    cfg.setdefault("early_scout_growth_floor_max_risk", 0.55)
+    cfg.setdefault("core_compounder_sleeve_base_weight", 0.28)
+    cfg.setdefault("future_winner_sleeve_base_weight", 0.52)
+    cfg.setdefault("future_winner_sleeve_min_weight", 0.10)
+    cfg.setdefault("future_winner_sleeve_max_weight", 0.70)
+    cfg.setdefault("early_scout_sleeve_base_weight", 0.12)
+    cfg.setdefault("early_scout_sleeve_min_weight", 0.02)
+    cfg.setdefault("early_scout_sleeve_max_weight", 0.28)
+    cfg.setdefault("early_scout_growth_floor_weight", 0.12)
+    cfg.setdefault("early_scout_growth_floor_min_signal", 0.34)
+    cfg.setdefault("early_scout_growth_floor_max_risk", 0.60)
     cfg.setdefault("early_scout_candidate_floor_min_share", 0.01)
     cfg.setdefault("run_sleeve_cap_policy_comparison", True)
     cfg.setdefault("sleeve_cap_policy_apply_champion", True)
@@ -91,16 +91,16 @@ def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg["cash_target_growth_cap"] = 0.03
     cfg["cash_target_balanced_cap"] = 0.05
     cfg["cash_target_mild_risk_cap"] = 0.10
-    cfg["core_compounder_sleeve_base_weight"] = 0.55
-    cfg["future_winner_sleeve_base_weight"] = 0.35
-    cfg["future_winner_sleeve_min_weight"] = 0.05
-    cfg["future_winner_sleeve_max_weight"] = 0.60
-    cfg["early_scout_sleeve_base_weight"] = 0.08
-    cfg["early_scout_sleeve_min_weight"] = 0.00
-    cfg["early_scout_sleeve_max_weight"] = 0.20
-    cfg["early_scout_growth_floor_weight"] = 0.08
-    cfg["early_scout_growth_floor_min_signal"] = 0.38
-    cfg["early_scout_growth_floor_max_risk"] = 0.55
+    cfg["core_compounder_sleeve_base_weight"] = 0.28
+    cfg["future_winner_sleeve_base_weight"] = 0.52
+    cfg["future_winner_sleeve_min_weight"] = 0.10
+    cfg["future_winner_sleeve_max_weight"] = 0.70
+    cfg["early_scout_sleeve_base_weight"] = 0.12
+    cfg["early_scout_sleeve_min_weight"] = 0.02
+    cfg["early_scout_sleeve_max_weight"] = 0.28
+    cfg["early_scout_growth_floor_weight"] = 0.12
+    cfg["early_scout_growth_floor_min_signal"] = 0.34
+    cfg["early_scout_growth_floor_max_risk"] = 0.60
     cfg["early_scout_candidate_floor_min_share"] = 0.01
     cfg["run_sleeve_cap_policy_comparison"] = True
     cfg["sleeve_cap_policy_apply_champion"] = True

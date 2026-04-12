@@ -730,3 +730,23 @@ All entries must be written in English. Entries must be predictable and machine-
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
 - risks_or_notes:
   - The exported latest sleeve weights are equal-weight standalone sleeves, matching the standalone backtest methodology rather than the mixed live portfolio allocator.
+
+### 00:58 KST - lower-core-raise-growth-sleeves
+
+- scope:
+  - Lower core sleeve weight and slot concentration across market regimes while expanding future-winner and early-scout participation.
+- files:
+  - `r1000_top30_institutional.py` - lowered default/live core sleeve weights, raised future/early targets and caps, reduced the growth-regime trigger thresholds, increased the minimum exploratory slot allocation, and capped core slot share in the live target portfolio builder.
+  - `r1000_data_collector.py` - updated notebook and Colab runtime defaults to start from the same lower-core, higher future/early sleeve mix.
+- symbols_changed:
+  - `EngineConfig` - default sleeve base weights and growth-floor settings now start from a much lower `core` share and higher `future`/`early` share.
+  - `compute_portfolio_sleeve_policy(cfg: EngineConfig, month_df: pd.DataFrame, cash_target: float)` - now cuts the fallback core sleeve materially, reacts sooner to constructive growth conditions, and retains more future/early exposure even in middling regimes.
+  - `build_target_portfolio(cfg: EngineConfig, month_df: pd.DataFrame, prev_w: Optional[dict[str, float]] = None, apply_turnover: bool = True, target_n_override: Optional[int] = None, sleeve_override: Optional[dict] = None, cash_target_max: float = 1.0)` - now uses ceiling-based future/early slot sizing, higher minimum exploratory slot counts, and an explicit cap on how many slots `core` can occupy.
+  - `_SLEEVE_POLICY_CANDIDATES` - replaced several core-heavy regime candidates with lower-core, higher future/early policy mixes.
+  - `_sleeve_cap_policy_candidates()` - candidate sleeve-cap policy presets now bias materially less toward `core` and more toward `future_winner` / `early_scout`.
+- validation:
+  - `git diff --check` passed with only line-ending warnings.
+  - Manual code review confirmed the live portfolio-construction path reflects the lower-core slot and weight logic.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - Existing Colab cells that manually override `early_scout_sleeve_*` values can still mute part of this change; remove or update those overrides if you want the notebook run to match the new defaults.
