@@ -13759,6 +13759,55 @@ def _legacy_unused_build_target_portfolio(
             early_sel = early_sel.copy()
             early_sel["portfolio_sleeve_label"] = "early_scout"
 
+    # If early-scout cannot fill its target seats, hand the deficit to future-winner
+    # before falling back to the generic pool.
+    early_shortfall_n = max(0, int(early_target_n) - int(len(early_sel)))
+    if early_shortfall_n > 0:
+        supplemental_future_pool = pool.copy()
+        selected_tickers: set[str] = set()
+        for frame in [core_sel, future_sel, early_sel]:
+            if not frame.empty and "ticker" in frame.columns:
+                selected_tickers.update(frame["ticker"].astype(str).tolist())
+        if selected_tickers and "ticker" in supplemental_future_pool.columns:
+            supplemental_future_pool = supplemental_future_pool[
+                ~supplemental_future_pool["ticker"].astype(str).isin(selected_tickers)
+            ].copy()
+        if not supplemental_future_pool.empty:
+            supplemental_future_pool = _prepare_sleeve_pool(
+                supplemental_future_pool,
+                (
+                    sleeve_labels.reindex(supplemental_future_pool.index).fillna("").eq("future_winner")
+                    | future_fallback_from_early.reindex(supplemental_future_pool.index).fillna(False).astype(bool)
+                ),
+                early_shortfall_n,
+                "portfolio_future_winner_engine_score",
+            )
+            if not supplemental_future_pool.empty:
+                supplemental_future_pool["portfolio_seed_score"] = row_mean(
+                    [
+                        numeric_series_or_default(supplemental_future_pool, "portfolio_seed_score", 0.0),
+                        1.05 * numeric_series_or_default(
+                            supplemental_future_pool, "portfolio_future_winner_engine_score", 0.0
+                        ),
+                    ],
+                    supplemental_future_pool.index,
+                ).fillna(0.0)
+                supplemental_future_sel = select_topn_with_sector_limits(
+                    cfg,
+                    supplemental_future_pool,
+                    caps,
+                    target_n=early_shortfall_n,
+                )
+                if not supplemental_future_sel.empty:
+                    supplemental_future_sel = supplemental_future_sel.copy()
+                    supplemental_future_sel["portfolio_sleeve_label"] = "future_winner"
+                    future_sel = (
+                        pd.concat([future_sel, supplemental_future_sel], ignore_index=True)
+                        if not future_sel.empty
+                        else supplemental_future_sel
+                    )
+                    future_sel = dedupe_same_company_rows(future_sel, score_col="portfolio_seed_score")
+
     if not core_sel.empty:
         core_sel = core_sel.copy()
         core_sel["portfolio_sleeve_label"] = core_sel.get(
@@ -13873,14 +13922,22 @@ def _legacy_unused_build_target_portfolio(
     if "portfolio_sleeve_label" not in sel.columns:
         sel["portfolio_sleeve_label"] = "core_compounder"
     sel["portfolio_sleeve_label"] = sel["portfolio_sleeve_label"].fillna("core_compounder").astype(str)
+    sleeve_counts = sel["portfolio_sleeve_label"].value_counts().to_dict()
     sleeve_totals = sel.groupby("portfolio_sleeve_label")["weight"].sum().to_dict()
     if sleeve_totals:
+        actual_early_n = int(sleeve_counts.get("early_scout", 0))
+        if early_target_n > 0 and actual_early_n < early_target_n:
+            early_shortfall_share = float(sleeve_targets.get("early_scout", 0.0)) * float(
+                max(early_target_n - actual_early_n, 0)
+            ) / float(max(early_target_n, 1))
+            sleeve_targets["early_scout"] = max(0.0, float(sleeve_targets.get("early_scout", 0.0)) - early_shortfall_share)
+            sleeve_targets["future_winner"] = float(sleeve_targets.get("future_winner", 0.0)) + early_shortfall_share
+        if sleeve_totals.get("early_scout", 0.0) <= 1e-10:
+            sleeve_targets["future_winner"] += sleeve_targets.get("early_scout", 0.0)
+            sleeve_targets["early_scout"] = 0.0
         if sleeve_totals.get("future_winner", 0.0) <= 1e-10:
             sleeve_targets["core_compounder"] += sleeve_targets.get("future_winner", 0.0)
             sleeve_targets["future_winner"] = 0.0
-        if sleeve_totals.get("early_scout", 0.0) <= 1e-10:
-            sleeve_targets["core_compounder"] += sleeve_targets.get("early_scout", 0.0)
-            sleeve_targets["early_scout"] = 0.0
         if sleeve_totals.get("core_compounder", 0.0) <= 1e-10:
             sleeve_targets["future_winner"] += sleeve_targets.get("core_compounder", 0.0) + sleeve_targets.get("early_scout", 0.0)
             sleeve_targets["core_compounder"] = 0.0
@@ -16146,6 +16203,55 @@ def build_target_portfolio(
             early_sel = early_sel.copy()
             early_sel["portfolio_sleeve_label"] = "early_scout"
 
+    # If early-scout cannot fill its target seats, hand the deficit to future-winner
+    # before falling back to the generic pool.
+    early_shortfall_n = max(0, int(early_target_n) - int(len(early_sel)))
+    if early_shortfall_n > 0:
+        supplemental_future_pool = pool.copy()
+        selected_tickers: set[str] = set()
+        for frame in [core_sel, future_sel, early_sel]:
+            if not frame.empty and "ticker" in frame.columns:
+                selected_tickers.update(frame["ticker"].astype(str).tolist())
+        if selected_tickers and "ticker" in supplemental_future_pool.columns:
+            supplemental_future_pool = supplemental_future_pool[
+                ~supplemental_future_pool["ticker"].astype(str).isin(selected_tickers)
+            ].copy()
+        if not supplemental_future_pool.empty:
+            supplemental_future_pool = _prepare_sleeve_pool(
+                supplemental_future_pool,
+                (
+                    sleeve_labels.reindex(supplemental_future_pool.index).fillna("").eq("future_winner")
+                    | future_fallback_from_early.reindex(supplemental_future_pool.index).fillna(False).astype(bool)
+                ),
+                early_shortfall_n,
+                "portfolio_future_winner_engine_score",
+            )
+            if not supplemental_future_pool.empty:
+                supplemental_future_pool["portfolio_seed_score"] = row_mean(
+                    [
+                        numeric_series_or_default(supplemental_future_pool, "portfolio_seed_score", 0.0),
+                        1.05 * numeric_series_or_default(
+                            supplemental_future_pool, "portfolio_future_winner_engine_score", 0.0
+                        ),
+                    ],
+                    supplemental_future_pool.index,
+                ).fillna(0.0)
+                supplemental_future_sel = select_topn_with_sector_limits(
+                    cfg,
+                    supplemental_future_pool,
+                    caps,
+                    target_n=early_shortfall_n,
+                )
+                if not supplemental_future_sel.empty:
+                    supplemental_future_sel = supplemental_future_sel.copy()
+                    supplemental_future_sel["portfolio_sleeve_label"] = "future_winner"
+                    future_sel = (
+                        pd.concat([future_sel, supplemental_future_sel], ignore_index=True)
+                        if not future_sel.empty
+                        else supplemental_future_sel
+                    )
+                    future_sel = dedupe_same_company_rows(future_sel, score_col="portfolio_seed_score")
+
     if not core_sel.empty:
         core_sel = core_sel.copy()
         core_sel["portfolio_sleeve_label"] = core_sel.get(
@@ -16269,14 +16375,22 @@ def build_target_portfolio(
     if "portfolio_sleeve_label" not in sel.columns:
         sel["portfolio_sleeve_label"] = "core_compounder"
     sel["portfolio_sleeve_label"] = sel["portfolio_sleeve_label"].fillna("core_compounder").astype(str)
+    sleeve_counts = sel["portfolio_sleeve_label"].value_counts().to_dict()
     sleeve_totals = sel.groupby("portfolio_sleeve_label")["weight"].sum().to_dict()
     if sleeve_totals:
+        actual_early_n = int(sleeve_counts.get("early_scout", 0))
+        if early_target_n > 0 and actual_early_n < early_target_n:
+            early_shortfall_share = float(sleeve_targets.get("early_scout", 0.0)) * float(
+                max(early_target_n - actual_early_n, 0)
+            ) / float(max(early_target_n, 1))
+            sleeve_targets["early_scout"] = max(0.0, float(sleeve_targets.get("early_scout", 0.0)) - early_shortfall_share)
+            sleeve_targets["future_winner"] = float(sleeve_targets.get("future_winner", 0.0)) + early_shortfall_share
+        if sleeve_totals.get("early_scout", 0.0) <= 1e-10:
+            sleeve_targets["future_winner"] += sleeve_targets.get("early_scout", 0.0)
+            sleeve_targets["early_scout"] = 0.0
         if sleeve_totals.get("future_winner", 0.0) <= 1e-10:
             sleeve_targets["core_compounder"] += sleeve_targets.get("future_winner", 0.0)
             sleeve_targets["future_winner"] = 0.0
-        if sleeve_totals.get("early_scout", 0.0) <= 1e-10:
-            sleeve_targets["core_compounder"] += sleeve_targets.get("early_scout", 0.0)
-            sleeve_targets["early_scout"] = 0.0
         if sleeve_totals.get("core_compounder", 0.0) <= 1e-10:
             sleeve_targets["future_winner"] += sleeve_targets.get("core_compounder", 0.0) + sleeve_targets.get("early_scout", 0.0)
             sleeve_targets["core_compounder"] = 0.0
