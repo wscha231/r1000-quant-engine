@@ -764,3 +764,13 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation:
   - Manual code review confirmed the live strong-growth branch now carries an explicit `10/40/50` floor on invested sleeve share.
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+
+### 01:20 KST - growth-balanced-25-45-30
+
+- scope:
+  - Make the `growth_balanced` policy materially less core-heavy and align the regime grid with the same growth mix.
+- files:
+  - `r1000_top30_institutional.py` - changed `growth_balanced` to a `25 / 45 / 30` base, raised its future/early caps so the policy can actually reach those weights, and replaced the old `growth_35_40_25` regime candidate with `growth_25_45_30`.
+- validation:
+  - Manual code review confirmed the updated `growth_balanced` base weights no longer conflict with its sleeve max caps.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
