@@ -774,3 +774,23 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation:
   - Manual code review confirmed the updated `growth_balanced` base weights no longer conflict with its sleeve max caps.
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+
+### 01:33 KST - compare-manual-vs-learned-regime-maps
+
+- scope:
+  - Add a direct backtest comparison between a forced manual regime sleeve map and the learned regime-conditioned sleeve map.
+- files:
+  - `r1000_top30_institutional.py` - added a default manual regime sleeve map, a learned-vs-manual regime-map backtest comparator, and export wiring for the comparison CSV and summary payloads.
+- symbols_added:
+  - `default_manual_regime_conditioned_sleeve_map()` - provides the baseline forced sleeve mix by regime label for comparison.
+  - `normalize_regime_conditioned_sleeve_map(regime_map, fallback_source=...)` - cleans and normalizes learned/manual sleeve maps into a common schema.
+  - `compare_regime_conditioned_sleeve_map_methods(cfg, signals, learned_regime_map=..., manual_regime_map=..., cash_target_max=...)` - runs backtests for both regime-map methods and returns side-by-side metrics plus the live selected mix.
+- symbols_changed:
+  - `EngineConfig` - now carries `manual_regime_conditioned_sleeve_map` and `run_regime_map_method_comparison`.
+  - `compare_sleeve_cap_policy_backtests(...)` - now computes and attaches the manual-vs-learned regime-map comparison after building the learned regime map from the champion sleeve-cap policy.
+  - `export_outputs(...)` - now writes `outputs/reports/regime_sleeve_map_method_comparison.csv` and includes the comparison rows in `weights_latest.json` / `run_summary.json`.
+- outputs:
+  - `outputs/reports/regime_sleeve_map_method_comparison.csv` - side-by-side full-backtest metrics for the learned regime map versus the forced manual regime map.
+- validation:
+  - `git diff --check` passed with only line-ending warnings.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.

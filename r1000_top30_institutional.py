@@ -54,6 +54,22 @@ SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IG
 _COMPANYFACTS_BULK_MEMBER_MAP_CACHE: dict[str, dict[str, str]] = {}
 _CATBOOST_COMPONENTS_CACHE: Optional[dict[str, Any]] = None
 
+
+def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
+    return {
+        "ALL": {"core": 0.35, "future": 0.40, "early": 0.25, "policy_label": "manual_all_35_40_25"},
+        "balanced": {"core": 0.45, "future": 0.35, "early": 0.20, "policy_label": "manual_balanced_45_35_20"},
+        "growth_reentry": {"core": 0.25, "future": 0.45, "early": 0.30, "policy_label": "manual_growth_balanced_25_45_30"},
+        "growth_reentry_alert": {"core": 0.25, "future": 0.45, "early": 0.30, "policy_label": "manual_growth_balanced_25_45_30"},
+        "systemic_crisis": {"core": 0.60, "future": 0.25, "early": 0.15, "policy_label": "manual_systemic_60_25_15"},
+        "carry_unwind": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_carry_55_30_15"},
+        "war_oil_rate_shock": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_war_55_30_15"},
+        "stagflation": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_stagflation_55_30_15"},
+        "systemic_alert": {"core": 0.60, "future": 0.25, "early": 0.15, "policy_label": "manual_systemic_alert_60_25_15"},
+        "war_oil_rate_alert": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_war_alert_55_30_15"},
+        "risk_off_alert": {"core": 0.50, "future": 0.30, "early": 0.20, "policy_label": "manual_riskoff_50_30_20"},
+    }
+
 YF_OVERRIDES = {
     "BRKB": "BRK-B",
     "BRKA": "BRK-A",
@@ -998,6 +1014,8 @@ class EngineConfig:
     sleeve_regime_comparison_cash_max: float = 0.02
     sleeve_regime_apply_champion: bool = True
     regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
+    manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
+    run_regime_map_method_comparison: bool = True
     run_sleeve_cap_policy_comparison: bool = True
     sleeve_cap_policy_apply_champion: bool = True
     sleeve_cap_policy_max_candidates: int = 9
@@ -17913,6 +17931,21 @@ def compare_sleeve_cap_policy_backtests(
                 cash_target_max=regime_cash_max,
             )
             regime_map = build_regime_conditioned_sleeve_map(regime_best)
+            manual_regime_map = normalize_regime_conditioned_sleeve_map(
+                getattr(champion_cfg, "manual_regime_conditioned_sleeve_map", {}) or default_manual_regime_conditioned_sleeve_map(),
+                fallback_source="manual",
+            )
+            regime_method_compare = (
+                compare_regime_conditioned_sleeve_map_methods(
+                    champion_cfg,
+                    signals,
+                    learned_regime_map=regime_map,
+                    manual_regime_map=manual_regime_map,
+                    cash_target_max=regime_cash_max,
+                )
+                if bool(getattr(champion_cfg, "run_regime_map_method_comparison", True))
+                else pd.DataFrame()
+            )
             live_label = resolve_frame_regime_label(
                 signals.loc[
                     pd.to_datetime(signals.get("rebalance_date"), errors="coerce")
@@ -17926,6 +17959,8 @@ def compare_sleeve_cap_policy_backtests(
             out.attrs["sleeve_regime_grid"] = regime_grid
             out.attrs["sleeve_regime_best"] = regime_best
             out.attrs["regime_conditioned_sleeve_map"] = regime_map
+            out.attrs["manual_regime_conditioned_sleeve_map"] = manual_regime_map
+            out.attrs["regime_sleeve_method_compare"] = regime_method_compare
             out.attrs["live_regime_label"] = live_label
             out.attrs["live_regime_policy"] = live_regime_policy
     result = out.reset_index(drop=True)
@@ -17992,6 +18027,170 @@ def build_regime_conditioned_sleeve_map(best_df: Optional[pd.DataFrame]) -> dict
             "max_dd": float(safe_float(row.get("max_dd"), np.nan)),
         }
     return out
+
+
+def normalize_regime_conditioned_sleeve_map(
+    regime_map: Optional[dict[str, Any]],
+    *,
+    fallback_source: str = "",
+) -> dict[str, dict[str, Any]]:
+    raw_map = dict(regime_map or {})
+    out: dict[str, dict[str, Any]] = {}
+    for raw_label, raw_payload in raw_map.items():
+        label = str(raw_label or "").strip()
+        if not label or not isinstance(raw_payload, dict):
+            continue
+        core = max(safe_float(raw_payload.get("core"), 0.0), 0.0)
+        future = max(safe_float(raw_payload.get("future"), 0.0), 0.0)
+        early = max(safe_float(raw_payload.get("early"), 0.0), 0.0)
+        total = core + future + early
+        if total <= 1e-8:
+            continue
+        out[label] = {
+            "core": float(core / total),
+            "future": float(future / total),
+            "early": float(early / total),
+            "policy_label": str(raw_payload.get("policy_label", "") or f"{fallback_source}_{label}").strip("_"),
+            "source_regime": str(raw_payload.get("source_regime", label) or label),
+            "months": int(safe_float(raw_payload.get("months"), 0.0)),
+            "regime_policy_objective": float(safe_float(raw_payload.get("regime_policy_objective"), np.nan)),
+            "cagr": float(safe_float(raw_payload.get("cagr"), np.nan)),
+            "sharpe": float(safe_float(raw_payload.get("sharpe"), np.nan)),
+            "max_dd": float(safe_float(raw_payload.get("max_dd"), np.nan)),
+        }
+    return out
+
+
+def compare_regime_conditioned_sleeve_map_methods(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    *,
+    learned_regime_map: Optional[dict[str, Any]] = None,
+    manual_regime_map: Optional[dict[str, Any]] = None,
+    cash_target_max: float = 0.02,
+) -> pd.DataFrame:
+    cfg_obj = to_cfg(cfg)
+    latest_frame = (
+        signals.loc[
+            pd.to_datetime(signals.get("rebalance_date"), errors="coerce")
+            == pd.to_datetime(signals.get("rebalance_date"), errors="coerce").max()
+        ].copy()
+        if isinstance(signals, pd.DataFrame) and "rebalance_date" in signals.columns
+        else pd.DataFrame()
+    )
+    live_label = resolve_frame_regime_label(latest_frame, default="balanced")
+    candidates = [
+        ("learned_regime_map", normalize_regime_conditioned_sleeve_map(learned_regime_map, fallback_source="learned")),
+        (
+            "manual_forced_regime_map",
+            normalize_regime_conditioned_sleeve_map(
+                manual_regime_map or getattr(cfg_obj, "manual_regime_conditioned_sleeve_map", {}) or {},
+                fallback_source="manual",
+            ),
+        ),
+    ]
+    rows: list[dict[str, Any]] = []
+    for method_label, regime_map in candidates:
+        if not regime_map:
+            continue
+        selected = dict(regime_map.get(live_label) or regime_map.get("balanced") or regime_map.get("ALL") or {})
+        policy_cfg = clone_cfg_with_updates(
+            cfg_obj,
+            {
+                "regime_conditioned_sleeve_map": regime_map,
+                "sleeve_regime_apply_champion": True,
+            },
+        )
+        try:
+            bt = backtest_portfolio(policy_cfg, signals, cash_target_max=cash_target_max)
+            metrics = dict(bt.metrics or {})
+            row = {
+                "method_label": method_label,
+                "comparison_status": "ok",
+                "comparison_error": "",
+                "live_regime_label": live_label,
+                "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
+                "live_policy_label": str(selected.get("policy_label", "") or ""),
+                "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
+                "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
+                "live_early_frac": float(safe_float(selected.get("early"), np.nan)),
+                "map_size": int(len(regime_map)),
+                "cagr": float(safe_float(metrics.get("cagr"), np.nan)),
+                "benchmark_cagr": float(safe_float(metrics.get("benchmark_cagr"), np.nan)),
+                "excess_cagr": float(safe_float(metrics.get("excess_cagr"), np.nan)),
+                "sharpe": float(safe_float(metrics.get("sharpe"), np.nan)),
+                "sortino": float(safe_float(metrics.get("sortino"), np.nan)),
+                "max_dd": float(safe_float(metrics.get("max_dd"), np.nan)),
+                "ir": float(safe_float(metrics.get("ir"), np.nan)),
+                "avg_turnover_monthly": float(safe_float(metrics.get("avg_turnover_monthly"), np.nan)),
+                "avg_cash_weight": float(safe_float(metrics.get("avg_cash_weight"), np.nan)),
+                "avg_stock_names": float(safe_float(metrics.get("avg_stock_names"), np.nan)),
+                "rebalance_count": int(safe_float(metrics.get("rebalance_count"), 0.0)),
+                "rebalanced_month_ratio": float(safe_float(metrics.get("rebalanced_month_ratio"), np.nan)),
+                "months": int(safe_float(metrics.get("months"), 0.0)),
+                "ending_capital_usd": float(safe_float(metrics.get("ending_capital_usd"), np.nan)),
+                "regime_map_json": json.dumps(
+                    {
+                        str(k): {
+                            "core": round(float(v.get("core", 0.0)), 4),
+                            "future": round(float(v.get("future", 0.0)), 4),
+                            "early": round(float(v.get("early", 0.0)), 4),
+                            "policy_label": str(v.get("policy_label", "") or ""),
+                        }
+                        for k, v in regime_map.items()
+                    },
+                    sort_keys=True,
+                ),
+            }
+            row["comparison_objective"] = sleeve_regime_policy_objective(row)
+        except Exception as exc:
+            row = {
+                "method_label": method_label,
+                "comparison_status": "error",
+                "comparison_error": str(exc),
+                "live_regime_label": live_label,
+                "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
+                "live_policy_label": str(selected.get("policy_label", "") or ""),
+                "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
+                "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
+                "live_early_frac": float(safe_float(selected.get("early"), np.nan)),
+                "map_size": int(len(regime_map)),
+                "cagr": np.nan,
+                "benchmark_cagr": np.nan,
+                "excess_cagr": np.nan,
+                "sharpe": np.nan,
+                "sortino": np.nan,
+                "max_dd": np.nan,
+                "ir": np.nan,
+                "avg_turnover_monthly": np.nan,
+                "avg_cash_weight": np.nan,
+                "avg_stock_names": np.nan,
+                "rebalance_count": 0,
+                "rebalanced_month_ratio": np.nan,
+                "months": 0,
+                "ending_capital_usd": np.nan,
+                "comparison_objective": -np.inf,
+                "regime_map_json": json.dumps(
+                    {
+                        str(k): {
+                            "core": round(float(v.get("core", 0.0)), 4),
+                            "future": round(float(v.get("future", 0.0)), 4),
+                            "early": round(float(v.get("early", 0.0)), 4),
+                            "policy_label": str(v.get("policy_label", "") or ""),
+                        }
+                        for k, v in regime_map.items()
+                    },
+                    sort_keys=True,
+                ),
+            }
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    out["_status_sort"] = np.where(out["comparison_status"].astype(str).eq("ok"), 0, 1)
+    out = out.sort_values(["_status_sort", "comparison_objective", "cagr"], ascending=[True, False, False]).drop(columns=["_status_sort"])
+    out["comparison_rank"] = np.arange(1, len(out) + 1)
+    return out.reset_index(drop=True)
 
 
 def resolve_regime_conditioned_sleeve_override(
@@ -19617,6 +19816,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     selected_sleeve_cap_policy = dict(artifacts.get("selected_sleeve_cap_policy") or {})
     sleeve_regime_grid = _artifact_frame("sleeve_regime_grid")
     sleeve_regime_best = _artifact_frame("sleeve_regime_best")
+    regime_sleeve_method_compare = _artifact_frame("regime_sleeve_method_compare")
+    manual_regime_conditioned_sleeve_map = dict(artifacts.get("manual_regime_conditioned_sleeve_map") or {})
     if isinstance(raw_sleeve_cap_policy_compare, pd.DataFrame):
         if sleeve_regime_grid.empty:
             attr_grid = raw_sleeve_cap_policy_compare.attrs.get("sleeve_regime_grid")
@@ -19626,6 +19827,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             attr_best = raw_sleeve_cap_policy_compare.attrs.get("sleeve_regime_best")
             if isinstance(attr_best, pd.DataFrame) and not attr_best.empty:
                 sleeve_regime_best = attr_best.copy()
+        if regime_sleeve_method_compare.empty:
+            attr_method_compare = raw_sleeve_cap_policy_compare.attrs.get("regime_sleeve_method_compare")
+            if isinstance(attr_method_compare, pd.DataFrame) and not attr_method_compare.empty:
+                regime_sleeve_method_compare = attr_method_compare.copy()
+        if not manual_regime_conditioned_sleeve_map:
+            manual_regime_conditioned_sleeve_map = dict(
+                raw_sleeve_cap_policy_compare.attrs.get("manual_regime_conditioned_sleeve_map", {}) or {}
+            )
     standalone_sleeve_compare = _artifact_frame("standalone_sleeve_compare")
     standalone_sleeve_monthly = _artifact_frame("standalone_sleeve_monthly")
     standalone_sleeve_holdings = _artifact_frame("standalone_sleeve_holdings")
@@ -20069,6 +20278,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     backtest_window_compare_path = paths["reports"] / "backtest_window_comparison.csv"
     sleeve_regime_grid_path = paths["reports"] / "sleeve_policy_per_regime_grid.csv"
     sleeve_regime_best_path = paths["reports"] / "sleeve_policy_per_regime_best.csv"
+    regime_sleeve_method_compare_path = paths["reports"] / "regime_sleeve_map_method_comparison.csv"
     fund_panel_flow_path = paths["reports"] / "fund_panel_recent4q_flow_coverage.csv"
     fund_join_diag_path = paths["reports"] / "fundamental_join_latest_diagnostics.csv"
     fund_collection_audit_path = paths["reports"] / "fundamental_collection_audit.json"
@@ -20211,6 +20421,54 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         sleeve_regime_best = pd.DataFrame()
         _safe_unlink(sleeve_regime_grid_path)
         _safe_unlink(sleeve_regime_best_path)
+    run_regime_map_method_compare = bool(getattr(cfg, "run_regime_map_method_comparison", True))
+    if run_regime_map_method_compare:
+        if regime_sleeve_method_compare.empty:
+            learned_map_for_compare = normalize_regime_conditioned_sleeve_map(
+                dict(getattr(cfg, "regime_conditioned_sleeve_map", {}) or {}),
+                fallback_source="learned",
+            )
+            manual_map_for_compare = normalize_regime_conditioned_sleeve_map(
+                manual_regime_conditioned_sleeve_map or getattr(cfg, "manual_regime_conditioned_sleeve_map", {}) or default_manual_regime_conditioned_sleeve_map(),
+                fallback_source="manual",
+            )
+            if learned_map_for_compare and manual_map_for_compare:
+                log("Phase 5: running manual vs learned regime sleeve map comparison ...")
+                regime_sleeve_method_compare = compare_regime_conditioned_sleeve_map_methods(
+                    cfg,
+                    scored,
+                    learned_regime_map=learned_map_for_compare,
+                    manual_regime_map=manual_map_for_compare,
+                    cash_target_max=sleeve_regime_cash_max,
+                )
+        if not regime_sleeve_method_compare.empty:
+            regime_sleeve_method_compare.to_csv(regime_sleeve_method_compare_path, index=False)
+        else:
+            _safe_unlink(regime_sleeve_method_compare_path)
+    else:
+        regime_sleeve_method_compare = pd.DataFrame()
+        _safe_unlink(regime_sleeve_method_compare_path)
+
+    regime_sleeve_method_best = (
+        {str(k): _clean_json_scalar(v) for k, v in regime_sleeve_method_compare.iloc[0].to_dict().items()}
+        if not regime_sleeve_method_compare.empty
+        else {}
+    )
+    regime_sleeve_method_records = (
+        [{str(k): _clean_json_scalar(v) for k, v in row.items()} for row in regime_sleeve_method_compare.to_dict(orient="records")]
+        if not regime_sleeve_method_compare.empty
+        else []
+    )
+
+    def _regime_method_snapshot(method_label: str) -> dict[str, Any]:
+        if regime_sleeve_method_compare.empty or "method_label" not in regime_sleeve_method_compare.columns:
+            return {}
+        hit = regime_sleeve_method_compare[
+            regime_sleeve_method_compare["method_label"].astype(str).eq(str(method_label))
+        ]
+        if hit.empty:
+            return {}
+        return {str(k): _clean_json_scalar(v) for k, v in hit.iloc[0].to_dict().items()}
 
     # Write sleeve cap policy comparison results (computed in run_all Phase 5c)
     sleeve_cap_policy_compare_path = paths["reports"] / "sleeve_cap_policy_comparison.csv"
@@ -20466,6 +20724,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "applied_regime_sleeve_policy_label": _portfolio_first_text("applied_regime_sleeve_policy_label"),
         "applied_regime_sleeve_live_label": _portfolio_first_text("applied_regime_sleeve_live_label"),
         "applied_regime_sleeve_source_label": _portfolio_first_text("applied_regime_sleeve_source_label"),
+        "regime_sleeve_method_best": regime_sleeve_method_best,
+        "learned_regime_sleeve_method": _regime_method_snapshot("learned_regime_map"),
+        "manual_regime_sleeve_method": _regime_method_snapshot("manual_forced_regime_map"),
         "prev_holdings_applied": bool(
             portfolio_latest.get("prev_holdings_applied", pd.Series(dtype=bool)).fillna(False).astype(bool).any()
         )
@@ -20634,6 +20895,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_sleeve_regime_compare and not sleeve_regime_grid.empty:
         output_files["sleeve_policy_per_regime_grid.csv"] = str(sleeve_regime_grid_path)
         output_files["sleeve_policy_per_regime_best.csv"] = str(sleeve_regime_best_path)
+    if run_regime_map_method_compare and not regime_sleeve_method_compare.empty:
+        output_files["regime_sleeve_map_method_comparison.csv"] = str(regime_sleeve_method_compare_path)
     if not latest_standalone_sleeve_holdings.empty:
         output_files["latest_sleeve_standalone_holdings.csv"] = str(latest_sleeve_standalone_holdings_path)
         output_files["core_compounder_latest_standalone.csv"] = str(latest_core_standalone_path)
@@ -20732,6 +20995,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_rebalance_interval_comparison": run_rebalance_interval_compare,
         "run_backtest_window_comparison": run_backtest_window_compare,
         "run_sleeve_regime_comparison": run_sleeve_regime_compare,
+        "run_regime_map_method_comparison": run_regime_map_method_compare,
         "sleeve_regime_comparison_cash_max": sleeve_regime_cash_max,
         "applied_regime_sleeve_policy_label": _portfolio_first_text("applied_regime_sleeve_policy_label"),
         "applied_regime_sleeve_live_label": _portfolio_first_text("applied_regime_sleeve_live_label"),
@@ -20741,6 +21005,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_historical_data_quality_reports": bool(getattr(cfg, "run_historical_data_quality_reports", True)),
         "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
         "regime_conditioned_sleeve_map": dict(getattr(cfg, "regime_conditioned_sleeve_map", {}) or {}),
+        "manual_regime_conditioned_sleeve_map": manual_regime_conditioned_sleeve_map,
+        "regime_sleeve_map_method_comparison": regime_sleeve_method_records,
+        "regime_sleeve_map_method_best": regime_sleeve_method_best,
         "sleeve_cap_policy_optimization_snapshot": (
             sleeve_cap_policy_compare.head(5).to_dict(orient="records")
             if not sleeve_cap_policy_compare.empty
@@ -20810,6 +21077,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     if run_sleeve_regime_compare and not sleeve_regime_best.empty:
         result_outputs["sleeve_policy_per_regime_grid"] = str(sleeve_regime_grid_path)
         result_outputs["sleeve_policy_per_regime_best"] = str(sleeve_regime_best_path)
+    if run_regime_map_method_compare and not regime_sleeve_method_compare.empty:
+        result_outputs["regime_sleeve_map_method_comparison"] = str(regime_sleeve_method_compare_path)
     if not latest_standalone_sleeve_holdings.empty:
         result_outputs["latest_sleeve_standalone_holdings"] = str(latest_sleeve_standalone_holdings_path)
         result_outputs["core_compounder_latest_standalone"] = str(latest_core_standalone_path)
