@@ -795,6 +795,29 @@ All entries must be written in English. Entries must be predictable and machine-
   - `git diff --check` passed with only line-ending warnings.
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
 
+### 03:25 KST - fix-standalone-sleeve-export-index-alignment
+
+- scope:
+  - Standalone sleeve latest-export stability.
+- files:
+  - `r1000_top30_institutional.py` - aligned sleeve-specific boolean filtering for latest standalone sleeve holdings so export slices cannot fail on misaligned indexes.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `build_latest_standalone_sleeve_holdings(cfg: dict | EngineConfig, latest_frame: pd.DataFrame, standalone_compare: Optional[pd.DataFrame] = None, current_portfolio: Optional[pd.DataFrame] = None, top_n: Optional[int] = None)` - now applies sleeve filters with index-aligned masks before building standalone latest holdings.
+  - `export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any])` - now consumes the corrected standalone sleeve subsets without boolean-index alignment failures.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - Reviewed the failing standalone export path and matched it to boolean-mask reuse across differently indexed frames.
+  - Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - Fresh notebook runtimes still need a Git sync before rerunning standalone sleeve export cells.
+
 ### 11:05 KST - sleeve-aware-gates-and-model-specific-rebalance
 
 - scope:
@@ -827,4 +850,45 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - The next-run scheduler is still a single overall recommendation; sleeve-specific cadence now affects backtest/live holdings metadata and partial-rebalance execution, but not a separate per-sleeve cron schedule.
 
-- 2026-04-12 03:25 KST - fix standalone sleeve export boolean index alignment in export_outputs/build_latest_standalone_sleeve_holdings
+### 21:54 KST - adaptive-four-sleeve-growth-tilt
+
+- scope:
+  - Apply the winning regime-map method to live sleeve selection, reduce `core` in the active defaults, increase `future_winner` / `early_scout` participation, preserve explicit `cash` in regime overrides, and add a cash-aware adaptive four-sleeve comparison model.
+- files:
+  - `r1000_top30_institutional.py` - applied the regime-map method winner in the chosen sleeve policy, retuned sleeve defaults and early-label transitions, added cash-aware regime-map handling, added aggressive `future`/`early` sleeve-cap candidates, added the adaptive four-sleeve comparison flow, and exported the new comparison artifacts.
+- symbols_added:
+  - `generate_ai_four_sleeve_policy_candidates(cfg: dict | EngineConfig)` - builds cash-aware `core` / `future` / `early` / `cash` sleeve candidates for adaptive comparison.
+  - `compare_ai_four_sleeve_adaptive_model(cfg: dict | EngineConfig, signals: pd.DataFrame, active_backtest: Optional[BacktestResult] = None)` - evaluates the adaptive four-sleeve regime model against the active baseline and returns comparison/export artifacts.
+- symbols_changed:
+  - `EngineConfig` - default sleeve weights, caps, rebalance cadence, and growth-floor settings now start from a lower `core` share, higher `future_winner` / `early_scout` share, and enable the adaptive four-sleeve comparison by default.
+  - `compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None)` - now penalizes sparse early-history less aggressively, keeps marginal `early_scout` names longer, and requires stronger confirmation before auto-promoting mature early names into `future_winner`.
+  - `default_manual_regime_conditioned_sleeve_map()` - now includes explicit `cash` sleeve fractions for each manual regime.
+  - `normalize_regime_conditioned_sleeve_map(regime_map, fallback_source=...)` - now preserves and normalizes explicit `cash` fractions alongside `core` / `future` / `early`.
+  - `resolve_regime_conditioned_sleeve_override(cfg: dict | EngineConfig, month_df: Optional[pd.DataFrame])` - now returns explicit `cash` from the selected regime override.
+  - `build_target_portfolio(cfg: EngineConfig, month_df: pd.DataFrame, prev_w: Optional[dict[str, float]] = None, apply_turnover: bool = True, target_n_override: Optional[int] = None, sleeve_override: Optional[dict] = None, cash_target_max: float = 1.0)` - now respects explicit regime-map `cash` instead of immediately compressing it back to the generic cash cap.
+  - `choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame])` - now applies the winning manual-vs-learned regime-map method instead of always carrying the learned map forward.
+  - `compare_regime_conditioned_sleeve_map_methods(cfg, signals, learned_regime_map=..., manual_regime_map=..., cash_target_max=...)` - now emits a stable `cash` / `live_cash_frac` schema in both normal and fallback comparison rows.
+  - `compare_sleeve_policy_per_regime(cfg: dict | EngineConfig, signals: pd.DataFrame, candidates: Optional[list[dict]] = None, cash_target_max: float = 0.02)` - now accepts cash-aware candidates and exports `cash_frac` in the regime grid.
+  - `export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any])` - now writes the adaptive four-sleeve comparison files and includes the new comparison payloads in exported summaries.
+  - `run_all(cfg: Optional[dict | EngineConfig] = None)` - now executes Phase 5e to compare the adaptive four-sleeve model after the existing sleeve/cap and standalone sleeve comparisons.
+- config_fields_added:
+  - `run_ai_four_sleeve_comparison: bool = True` - enables the cash-aware adaptive four-sleeve comparison flow.
+  - `ai_four_sleeve_max_candidates: int = 12` - caps how many adaptive four-sleeve candidate policies are evaluated per run.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/ai_four_sleeve_adaptive_comparison.csv` - side-by-side metrics for the active baseline versus the adaptive `core` / `future` / `early` / `cash` regime model.
+  - `outputs/reports/ai_four_sleeve_adaptive_regime_grid.csv` - full per-regime candidate grid including explicit `cash_frac`.
+  - `outputs/reports/ai_four_sleeve_adaptive_regime_best.csv` - best adaptive candidate per regime.
+  - `outputs/reports/ai_four_sleeve_adaptive_selected_map.json` - selected adaptive four-sleeve regime map used for the comparison backtest.
+  - `outputs/weights_latest.json` - now carries `ai_four_sleeve_adaptive_best` and `ai_four_sleeve_adaptive_selected_map` when the comparison runs.
+  - `outputs/run_summary.json` - now includes the adaptive four-sleeve comparison snapshot and selected regime map.
+- validation:
+  - `git diff --check` passed.
+  - User Colab import validation passed after registering the module in `sys.modules`; `EngineConfig` reported `core=0.16`, `future=0.56`, `early=0.20`, `future_rebalance_interval_months=2`, and `run_ai_four_sleeve_comparison=True`.
+  - Manual code review confirmed that explicit regime-map `cash` survives normalization/resolution and is consumed by `build_target_portfolio()`.
+  - Local Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - The more aggressive default sleeve mix is likely to increase turnover and runtime relative to the older core-heavy defaults.
+  - `run_default_pipeline()` will still rebuild earlier stages when the config fingerprint changes; use the Phase 5-only path if you only want to compare portfolio policies against existing feature/scored artifacts.
+  - Colab cells that call `spec.loader.exec_module(engine)` without first registering the module in `sys.modules` will still fail under Python 3.12 dataclass import rules.
