@@ -826,3 +826,5 @@ All entries must be written in English. Entries must be predictable and machine-
   - Python compile/import validation was not run in this environment because no Python interpreter is installed.
 - risks_or_notes:
   - The next-run scheduler is still a single overall recommendation; sleeve-specific cadence now affects backtest/live holdings metadata and partial-rebalance execution, but not a separate per-sleeve cron schedule.
+
+- 2026-04-12 03:25 KST - fix standalone sleeve export boolean index alignment in export_outputs/build_latest_standalone_sleeve_holdings

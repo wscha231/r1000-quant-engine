@@ -19382,9 +19382,12 @@ def build_latest_standalone_sleeve_holdings(
     summary_rows: list[dict[str, Any]] = []
 
     for sleeve in SLEEVE_STANDALONE_LABELS:
-        sleeve_compare = compare_df[
-            compare_df.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq(str(sleeve))
-        ].copy() if not compare_df.empty else pd.DataFrame()
+        if not compare_df.empty and "sleeve_test" in compare_df.columns:
+            sleeve_compare = compare_df.loc[
+                compare_df["sleeve_test"].fillna("").astype(str).eq(str(sleeve))
+            ].copy()
+        else:
+            sleeve_compare = pd.DataFrame()
         best_interval = int(getattr(cfg_obj, "rebalance_interval_months", 1))
         best_cagr = np.nan
         best_sharpe = np.nan
@@ -21021,15 +21024,21 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     )
     if not latest_standalone_sleeve_holdings.empty:
         latest_standalone_sleeve_holdings.to_csv(latest_sleeve_standalone_holdings_path, index=False)
-        latest_standalone_sleeve_holdings[
-            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("core_compounder")
-        ].to_csv(latest_core_standalone_path, index=False)
-        latest_standalone_sleeve_holdings[
-            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("future_winner")
-        ].to_csv(latest_future_standalone_path, index=False)
-        latest_standalone_sleeve_holdings[
-            latest_standalone_sleeve_holdings.get("sleeve_test", pd.Series(dtype=object)).astype(str).eq("early_scout")
-        ].to_csv(latest_early_standalone_path, index=False)
+        if "sleeve_test" in latest_standalone_sleeve_holdings.columns:
+            sleeve_test = latest_standalone_sleeve_holdings["sleeve_test"].fillna("").astype(str)
+            latest_standalone_sleeve_holdings.loc[
+                sleeve_test.eq("core_compounder")
+            ].to_csv(latest_core_standalone_path, index=False)
+            latest_standalone_sleeve_holdings.loc[
+                sleeve_test.eq("future_winner")
+            ].to_csv(latest_future_standalone_path, index=False)
+            latest_standalone_sleeve_holdings.loc[
+                sleeve_test.eq("early_scout")
+            ].to_csv(latest_early_standalone_path, index=False)
+        else:
+            pd.DataFrame().to_csv(latest_core_standalone_path, index=False)
+            pd.DataFrame().to_csv(latest_future_standalone_path, index=False)
+            pd.DataFrame().to_csv(latest_early_standalone_path, index=False)
     else:
         _safe_unlink(latest_sleeve_standalone_holdings_path)
         _safe_unlink(latest_core_standalone_path)
