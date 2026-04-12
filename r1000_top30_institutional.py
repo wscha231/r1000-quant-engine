@@ -57,17 +57,17 @@ _CATBOOST_COMPONENTS_CACHE: Optional[dict[str, Any]] = None
 
 def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
     return {
-        "ALL": {"core": 0.35, "future": 0.40, "early": 0.25, "policy_label": "manual_all_35_40_25"},
-        "balanced": {"core": 0.45, "future": 0.35, "early": 0.20, "policy_label": "manual_balanced_45_35_20"},
-        "growth_reentry": {"core": 0.25, "future": 0.45, "early": 0.30, "policy_label": "manual_growth_balanced_25_45_30"},
-        "growth_reentry_alert": {"core": 0.25, "future": 0.45, "early": 0.30, "policy_label": "manual_growth_balanced_25_45_30"},
-        "systemic_crisis": {"core": 0.60, "future": 0.25, "early": 0.15, "policy_label": "manual_systemic_60_25_15"},
-        "carry_unwind": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_carry_55_30_15"},
-        "war_oil_rate_shock": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_war_55_30_15"},
-        "stagflation": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_stagflation_55_30_15"},
-        "systemic_alert": {"core": 0.60, "future": 0.25, "early": 0.15, "policy_label": "manual_systemic_alert_60_25_15"},
-        "war_oil_rate_alert": {"core": 0.55, "future": 0.30, "early": 0.15, "policy_label": "manual_war_alert_55_30_15"},
-        "risk_off_alert": {"core": 0.50, "future": 0.30, "early": 0.20, "policy_label": "manual_riskoff_50_30_20"},
+        "ALL": {"core": 0.22, "future": 0.46, "early": 0.24, "cash": 0.08, "policy_label": "manual_all_22_46_24_cash8"},
+        "balanced": {"core": 0.24, "future": 0.44, "early": 0.24, "cash": 0.08, "policy_label": "manual_balanced_24_44_24_cash8"},
+        "growth_reentry": {"core": 0.16, "future": 0.46, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_16_46_30_cash8"},
+        "growth_reentry_alert": {"core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_alert_14_48_30_cash8"},
+        "systemic_crisis": {"core": 0.18, "future": 0.24, "early": 0.08, "cash": 0.50, "policy_label": "manual_systemic_18_24_08_cash50"},
+        "carry_unwind": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_carry_22_34_14_cash30"},
+        "war_oil_rate_shock": {"core": 0.24, "future": 0.32, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_24_32_14_cash30"},
+        "stagflation": {"core": 0.24, "future": 0.34, "early": 0.12, "cash": 0.30, "policy_label": "manual_stagflation_24_34_12_cash30"},
+        "systemic_alert": {"core": 0.20, "future": 0.30, "early": 0.10, "cash": 0.40, "policy_label": "manual_systemic_alert_20_30_10_cash40"},
+        "war_oil_rate_alert": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_alert_22_34_14_cash30"},
+        "risk_off_alert": {"core": 0.18, "future": 0.36, "early": 0.18, "cash": 0.28, "policy_label": "manual_riskoff_18_36_18_cash28"},
     }
 
 YF_OVERRIDES = {
@@ -980,34 +980,34 @@ class EngineConfig:
     cash_buffer_enabled: bool = True
     cash_weight_max: float = 0.60
     cash_target_growth_cap: float = 0.03
-    cash_target_balanced_cap: float = 0.05
-    cash_target_mild_risk_cap: float = 0.10
-    core_compounder_sleeve_base_weight: float = 0.28
-    future_winner_sleeve_base_weight: float = 0.52
-    future_winner_sleeve_min_weight: float = 0.10
-    future_winner_sleeve_max_weight: float = 0.70
-    early_scout_sleeve_base_weight: float = 0.12
-    early_scout_sleeve_min_weight: float = 0.02
-    early_scout_sleeve_max_weight: float = 0.28
-    early_scout_growth_floor_weight: float = 0.12
+    cash_target_balanced_cap: float = 0.06
+    cash_target_mild_risk_cap: float = 0.12
+    core_compounder_sleeve_base_weight: float = 0.16
+    future_winner_sleeve_base_weight: float = 0.56
+    future_winner_sleeve_min_weight: float = 0.12
+    future_winner_sleeve_max_weight: float = 0.74
+    early_scout_sleeve_base_weight: float = 0.20
+    early_scout_sleeve_min_weight: float = 0.04
+    early_scout_sleeve_max_weight: float = 0.36
+    early_scout_growth_floor_weight: float = 0.18
     early_scout_growth_floor_min_signal: float = 0.34
     early_scout_growth_floor_max_risk: float = 0.60
     early_scout_candidate_floor_min_share: float = 0.01
-    future_winner_entry_weight_cap: float = 0.10
-    future_winner_drift_weight_cap: float = 0.18
-    future_winner_hard_weight_cap: float = 0.24
-    early_scout_entry_weight_cap: float = 0.05
-    early_scout_drift_weight_cap: float = 0.10
-    early_scout_hard_weight_cap: float = 0.14
+    future_winner_entry_weight_cap: float = 0.12
+    future_winner_drift_weight_cap: float = 0.22
+    future_winner_hard_weight_cap: float = 0.32
+    early_scout_entry_weight_cap: float = 0.06
+    early_scout_drift_weight_cap: float = 0.12
+    early_scout_hard_weight_cap: float = 0.18
     sleeve_drift_headroom_pct: float = 0.35
-    early_scout_promotion_edge_max: float = 0.08
-    early_scout_promotion_confidence_max: float = 0.10
-    early_scout_promotion_min_score: float = 0.78
+    early_scout_promotion_edge_max: float = 0.04
+    early_scout_promotion_confidence_max: float = 0.06
+    early_scout_promotion_min_score: float = 0.84
     portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
     rebalance_interval_months: int = 1
     sleeve_specific_rebalance_enabled: bool = True
     core_compounder_rebalance_interval_months: int = 1
-    future_winner_rebalance_interval_months: int = 3
+    future_winner_rebalance_interval_months: int = 2
     early_scout_rebalance_interval_months: int = 1
     rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
     run_comparison_backtests: bool = True
@@ -1021,6 +1021,8 @@ class EngineConfig:
     manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
     run_regime_map_method_comparison: bool = True
     run_sleeve_cap_policy_comparison: bool = True
+    run_ai_four_sleeve_comparison: bool = True
+    ai_four_sleeve_max_candidates: int = 12
     sleeve_cap_policy_apply_champion: bool = True
     sleeve_cap_policy_max_candidates: int = 9
     sleeve_cap_policy_objective_excess_weight: float = 1.15
@@ -13612,7 +13614,14 @@ def _legacy_unused_build_target_portfolio(
     sleeve_policy = compute_portfolio_sleeve_policy(cfg, month_df, regime_ctl.get("cash_target", 0.0))
     if sleeve_override is not None or cash_target_max < 1.0:
         raw_cash = float(sleeve_policy.get("cash_target", 0.0))
-        capped_cash = float(np.clip(min(raw_cash, cash_target_max), 0.0, 1.0))
+        explicit_cash = safe_float(sleeve_override.get("cash"), np.nan) if isinstance(sleeve_override, dict) else np.nan
+        capped_cash = float(
+            np.clip(
+                explicit_cash if np.isfinite(explicit_cash) else min(raw_cash, cash_target_max),
+                0.0,
+                1.0,
+            )
+        )
         invested_share = max(0.0, 1.0 - capped_cash)
         if sleeve_override is not None:
             so = sleeve_override
@@ -15575,8 +15584,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         dtype=float,
     ).clip(lower=0.0, upper=1.0)
     future_score = future_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
-    early_score = early_score - (0.80 * growth_history_penalty_weight * sparse_history_penalty)
-    early_score = early_score - 0.30 * np.clip(history_depth - 0.55, 0.0, 1.0)
+    early_score = early_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
+    early_score = early_score - 0.18 * np.clip(history_depth - 0.65, 0.0, 1.0)
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
     d["portfolio_future_winner_engine_score"] = winsorize(future_score, 0.01).clip(-6.0, 6.0)
@@ -15599,7 +15608,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Keep early_scout for names where the early/inflection engine is clearly
     # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
     weak_early_edge = sleeve_label == "early_scout"
-    weak_early_edge &= (early_edge < 0.08) | (sleeve_matrix[:, 2] < 0.40)
+    weak_early_edge &= (early_edge < 0.03) | (sleeve_matrix[:, 2] < 0.25)
     sleeve_label = np.where(
         weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
         "future_winner",
@@ -16016,7 +16025,18 @@ def build_target_portfolio(
     sleeve_policy = compute_portfolio_sleeve_policy(cfg, month_df, regime_ctl.get("cash_target", 0.0))
     if effective_sleeve_override is not None or cash_target_max < 1.0:
         raw_cash = float(sleeve_policy.get("cash_target", 0.0))
-        capped_cash = float(np.clip(min(raw_cash, float(cash_target_max)), 0.0, 1.0))
+        explicit_cash = (
+            safe_float(effective_sleeve_override.get("cash"), np.nan)
+            if isinstance(effective_sleeve_override, dict)
+            else np.nan
+        )
+        capped_cash = float(
+            np.clip(
+                explicit_cash if np.isfinite(explicit_cash) else min(raw_cash, float(cash_target_max)),
+                0.0,
+                1.0,
+            )
+        )
         invested_share_override = max(0.0, 1.0 - capped_cash)
         if effective_sleeve_override is not None:
             total_frac = max(
@@ -18514,6 +18534,30 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             min_dynamic_port_names=10,
         ),
         candidate(
+            "future_early_barbell",
+            "Reduce core materially and let future plus early share most of the invested risk budget.",
+            core_compounder_sleeve_base_weight=0.10,
+            future_winner_sleeve_base_weight=0.52,
+            future_winner_sleeve_min_weight=0.14,
+            future_winner_sleeve_max_weight=0.76,
+            early_scout_sleeve_base_weight=0.28,
+            early_scout_sleeve_min_weight=0.06,
+            early_scout_sleeve_max_weight=0.42,
+            early_scout_growth_floor_weight=0.18,
+            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_max_risk=0.55,
+            future_winner_entry_weight_cap=0.15,
+            future_winner_drift_weight_cap=0.28,
+            future_winner_hard_weight_cap=0.40,
+            early_scout_entry_weight_cap=0.08,
+            early_scout_drift_weight_cap=0.18,
+            early_scout_hard_weight_cap=0.28,
+            sleeve_drift_headroom_pct=0.55,
+            stock_weight_max=0.20,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=9,
+        ),
+        candidate(
             "early_scout_bull",
             "Bull-market needle-finding policy; early scout can expand materially only when regime confirms.",
             core_compounder_sleeve_base_weight=0.15,
@@ -18536,6 +18580,30 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max=0.20,
             stock_weight_max_high_conviction=0.50,
             min_dynamic_port_names=9,
+        ),
+        candidate(
+            "future_early_supercycle",
+            "Most aggressive diversified growth mix short of a pure scout portfolio.",
+            core_compounder_sleeve_base_weight=0.08,
+            future_winner_sleeve_base_weight=0.47,
+            future_winner_sleeve_min_weight=0.12,
+            future_winner_sleeve_max_weight=0.72,
+            early_scout_sleeve_base_weight=0.35,
+            early_scout_sleeve_min_weight=0.08,
+            early_scout_sleeve_max_weight=0.48,
+            early_scout_growth_floor_weight=0.22,
+            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_max_risk=0.48,
+            future_winner_entry_weight_cap=0.15,
+            future_winner_drift_weight_cap=0.30,
+            future_winner_hard_weight_cap=0.42,
+            early_scout_entry_weight_cap=0.09,
+            early_scout_drift_weight_cap=0.20,
+            early_scout_hard_weight_cap=0.32,
+            sleeve_drift_headroom_pct=0.65,
+            stock_weight_max=0.22,
+            stock_weight_max_high_conviction=0.50,
+            min_dynamic_port_names=8,
         ),
         candidate(
             "early_scout_very_bull",
@@ -18805,6 +18873,7 @@ def build_regime_conditioned_sleeve_map(best_df: Optional[pd.DataFrame]) -> dict
         core = max(safe_float(row.get("core_frac"), 0.0), 0.0)
         future = max(safe_float(row.get("future_frac"), 0.0), 0.0)
         early = max(safe_float(row.get("early_frac"), 0.0), 0.0)
+        cash = float(np.clip(safe_float(row.get("cash_frac"), 0.0), 0.0, 1.0))
         total = core + future + early
         if total <= 1e-8:
             continue
@@ -18812,6 +18881,7 @@ def build_regime_conditioned_sleeve_map(best_df: Optional[pd.DataFrame]) -> dict
             "core": float(core / total),
             "future": float(future / total),
             "early": float(early / total),
+            "cash": cash,
             "policy_label": str(row.get("policy_label", "") or ""),
             "source_regime": label,
             "months": int(safe_float(row.get("months"), 0.0)),
@@ -18837,6 +18907,7 @@ def normalize_regime_conditioned_sleeve_map(
         core = max(safe_float(raw_payload.get("core"), 0.0), 0.0)
         future = max(safe_float(raw_payload.get("future"), 0.0), 0.0)
         early = max(safe_float(raw_payload.get("early"), 0.0), 0.0)
+        cash = float(np.clip(safe_float(raw_payload.get("cash"), 0.0), 0.0, 1.0))
         total = core + future + early
         if total <= 1e-8:
             continue
@@ -18844,6 +18915,7 @@ def normalize_regime_conditioned_sleeve_map(
             "core": float(core / total),
             "future": float(future / total),
             "early": float(early / total),
+            "cash": cash,
             "policy_label": str(raw_payload.get("policy_label", "") or f"{fallback_source}_{label}").strip("_"),
             "source_regime": str(raw_payload.get("source_regime", label) or label),
             "months": int(safe_float(raw_payload.get("months"), 0.0)),
@@ -18908,6 +18980,7 @@ def compare_regime_conditioned_sleeve_map_methods(
                 "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
                 "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
                 "live_early_frac": float(safe_float(selected.get("early"), np.nan)),
+                "live_cash_frac": float(np.clip(safe_float(selected.get("cash"), 0.0), 0.0, 1.0)),
                 "map_size": int(len(regime_map)),
                 "cagr": float(safe_float(metrics.get("cagr"), np.nan)),
                 "benchmark_cagr": float(safe_float(metrics.get("benchmark_cagr"), np.nan)),
@@ -18929,6 +19002,7 @@ def compare_regime_conditioned_sleeve_map_methods(
                             "core": round(float(v.get("core", 0.0)), 4),
                             "future": round(float(v.get("future", 0.0)), 4),
                             "early": round(float(v.get("early", 0.0)), 4),
+                            "cash": round(float(v.get("cash", 0.0)), 4),
                             "policy_label": str(v.get("policy_label", "") or ""),
                         }
                         for k, v in regime_map.items()
@@ -18948,6 +19022,7 @@ def compare_regime_conditioned_sleeve_map_methods(
                 "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
                 "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
                 "live_early_frac": float(safe_float(selected.get("early"), np.nan)),
+                "live_cash_frac": float(np.clip(safe_float(selected.get("cash"), 0.0), 0.0, 1.0)),
                 "map_size": int(len(regime_map)),
                 "cagr": np.nan,
                 "benchmark_cagr": np.nan,
@@ -18970,6 +19045,7 @@ def compare_regime_conditioned_sleeve_map_methods(
                             "core": round(float(v.get("core", 0.0)), 4),
                             "future": round(float(v.get("future", 0.0)), 4),
                             "early": round(float(v.get("early", 0.0)), 4),
+                            "cash": round(float(v.get("cash", 0.0)), 4),
                             "policy_label": str(v.get("policy_label", "") or ""),
                         }
                         for k, v in regime_map.items()
@@ -19004,6 +19080,7 @@ def resolve_regime_conditioned_sleeve_override(
     core = max(safe_float(selected.get("core"), 0.0), 0.0)
     future = max(safe_float(selected.get("future"), 0.0), 0.0)
     early = max(safe_float(selected.get("early"), 0.0), 0.0)
+    cash = float(np.clip(safe_float(selected.get("cash"), 0.0), 0.0, 1.0))
     total = core + future + early
     if total <= 1e-8:
         return None, {"live_regime_label": live_label}
@@ -19011,12 +19088,14 @@ def resolve_regime_conditioned_sleeve_override(
         "core": float(core / total),
         "future": float(future / total),
         "early": float(early / total),
+        "cash": cash,
     }
     meta = {
         "live_regime_label": live_label,
         "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
         "policy_label": str(selected.get("policy_label", "") or ""),
         "months": int(safe_float(selected.get("months"), 0.0)),
+        "cash": cash,
     }
     return override, meta
 
@@ -19047,15 +19126,57 @@ def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str
     if "sleeve_cap_policy_objective" in ok.columns:
         ok = ok.sort_values("sleeve_cap_policy_objective", ascending=False)
     best = ok.iloc[0].to_dict()
-    regime_map = dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {})
-    if regime_map:
-        best["regime_conditioned_sleeve_map"] = regime_map
-        best["live_regime_label"] = str((policy_compare.attrs or {}).get("live_regime_label", "balanced"))
-        live_regime_policy = dict((policy_compare.attrs or {}).get("live_regime_policy", {}) or {})
+    learned_regime_map = normalize_regime_conditioned_sleeve_map(
+        dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {}),
+        fallback_source="learned",
+    )
+    manual_regime_map = normalize_regime_conditioned_sleeve_map(
+        dict((policy_compare.attrs or {}).get("manual_regime_conditioned_sleeve_map", {}) or {}),
+        fallback_source="manual",
+    )
+    regime_method_compare = (policy_compare.attrs or {}).get("regime_sleeve_method_compare")
+    chosen_method_label = "learned_regime_map" if learned_regime_map else ""
+    best_method_row: dict[str, Any] = {}
+    if isinstance(regime_method_compare, pd.DataFrame) and not regime_method_compare.empty:
+        best_method_row = regime_method_compare.iloc[0].to_dict()
+        chosen_method_label = str(best_method_row.get("method_label", "") or chosen_method_label)
+    chosen_regime_map = learned_regime_map
+    if chosen_method_label == "manual_forced_regime_map" and manual_regime_map:
+        chosen_regime_map = manual_regime_map
+    elif not chosen_regime_map and manual_regime_map:
+        chosen_regime_map = manual_regime_map
+    if chosen_regime_map:
+        best["regime_conditioned_sleeve_map"] = chosen_regime_map
+        live_label = str(
+            best_method_row.get(
+                "live_regime_label",
+                (policy_compare.attrs or {}).get("live_regime_label", "balanced"),
+            )
+            or "balanced"
+        )
+        best["live_regime_label"] = live_label
+        live_regime_policy = dict(
+            chosen_regime_map.get(live_label)
+            or chosen_regime_map.get("balanced")
+            or chosen_regime_map.get("ALL")
+            or {}
+        )
         if live_regime_policy:
             best["live_regime_sleeve_policy"] = {
                 str(k): _clean_json_scalar(v) for k, v in live_regime_policy.items()
             }
+    if chosen_method_label:
+        best["regime_sleeve_map_method"] = chosen_method_label
+    if best_method_row:
+        for field in [
+            "comparison_rank",
+            "comparison_objective",
+            "comparison_status",
+            "live_policy_label",
+            "selected_regime_label",
+        ]:
+            if field in best_method_row and best_method_row[field] is not None:
+                best[f"regime_sleeve_map_{field}"] = _clean_json_scalar(best_method_row[field])
     return {str(k): _clean_json_scalar(v) for k, v in best.items() if not str(k).startswith("_")}
 
 
@@ -19595,6 +19716,26 @@ _SLEEVE_POLICY_CANDIDATES: list[dict] = [
 ]
 
 
+def generate_ai_four_sleeve_policy_candidates(cfg: dict | EngineConfig) -> list[dict[str, Any]]:
+    cfg_obj = to_cfg(cfg)
+    candidates = [
+        {"label": "ai_bal_24_42_22_cash12", "core": 0.24, "future": 0.42, "early": 0.22, "cash": 0.12},
+        {"label": "ai_bal_20_46_22_cash12", "core": 0.20, "future": 0.46, "early": 0.22, "cash": 0.12},
+        {"label": "ai_growth_16_48_26_cash10", "core": 0.16, "future": 0.48, "early": 0.26, "cash": 0.10},
+        {"label": "ai_growth_14_48_30_cash08", "core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08},
+        {"label": "ai_growth_10_52_28_cash10", "core": 0.10, "future": 0.52, "early": 0.28, "cash": 0.10},
+        {"label": "ai_barbell_12_42_32_cash14", "core": 0.12, "future": 0.42, "early": 0.32, "cash": 0.14},
+        {"label": "ai_barbell_08_46_32_cash14", "core": 0.08, "future": 0.46, "early": 0.32, "cash": 0.14},
+        {"label": "ai_early_08_42_38_cash12", "core": 0.08, "future": 0.42, "early": 0.38, "cash": 0.12},
+        {"label": "ai_hot_06_52_34_cash08", "core": 0.06, "future": 0.52, "early": 0.34, "cash": 0.08},
+        {"label": "ai_reentry_12_44_34_cash10", "core": 0.12, "future": 0.44, "early": 0.34, "cash": 0.10},
+        {"label": "ai_risk_12_36_22_cash30", "core": 0.12, "future": 0.36, "early": 0.22, "cash": 0.30},
+        {"label": "ai_risk_10_40_18_cash32", "core": 0.10, "future": 0.40, "early": 0.18, "cash": 0.32},
+    ]
+    max_candidates = max(int(getattr(cfg_obj, "ai_four_sleeve_max_candidates", len(candidates))), 1)
+    return candidates[:max_candidates]
+
+
 def compare_sleeve_policy_per_regime(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -19615,14 +19756,30 @@ def compare_sleeve_policy_per_regime(
     rows: list[dict] = []
     for cand in candidates:
         lbl = str(cand.get("label", "unknown"))
+        raw_cash = safe_float(cand.get("cash"), np.nan)
         so = {
             "core": float(cand.get("core", 0.70)),
             "future": float(cand.get("future", 0.20)),
             "early": float(cand.get("early", 0.10)),
         }
-        log(f"  sleeve_policy_per_regime: policy={lbl} cash_max={cash_target_max:.2%} ...")
+        cash_frac = float(
+            np.clip(
+                raw_cash if np.isfinite(raw_cash) else max(0.0, 1.0 - sum(so.values())),
+                0.0,
+                1.0,
+            )
+        )
+        if cash_frac > 0.0:
+            so["cash"] = cash_frac
+        effective_cash_target_max = max(float(cash_target_max), cash_frac)
+        log(f"  sleeve_policy_per_regime: policy={lbl} cash_max={effective_cash_target_max:.2%} ...")
         try:
-            bt = backtest_portfolio(cfg_obj, signals, sleeve_override=so, cash_target_max=cash_target_max)
+            bt = backtest_portfolio(
+                cfg_obj,
+                signals,
+                sleeve_override=so,
+                cash_target_max=effective_cash_target_max,
+            )
         except Exception as exc:
             log(f"  sleeve_policy_per_regime: backtest failed for {lbl}: {exc}")
             continue
@@ -19637,7 +19794,8 @@ def compare_sleeve_policy_per_regime(
                 "core_frac": so["core"],
                 "future_frac": so["future"],
                 "early_frac": so["early"],
-                "cash_target_max": cash_target_max,
+                "cash_frac": cash_frac,
+                "cash_target_max": effective_cash_target_max,
                 "regime_label": label,
                 "months": len(ret_s),
                 "cagr": m.get("cagr", np.nan),
@@ -19672,6 +19830,84 @@ def compare_sleeve_policy_per_regime(
         best_rows.append(valid.sort_values(["regime_policy_objective", "sharpe"], ascending=[False, False]).iloc[0].to_dict())
     best_df = pd.DataFrame(best_rows).sort_values("regime_label").reset_index(drop=True) if best_rows else pd.DataFrame()
     return grid_df, best_df
+
+
+def compare_ai_four_sleeve_adaptive_model(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    *,
+    active_backtest: Optional[BacktestResult] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any], Optional[BacktestResult]]:
+    cfg_obj = to_cfg(cfg)
+    candidates = generate_ai_four_sleeve_policy_candidates(cfg_obj)
+    if not candidates:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, None
+    regime_cash_max = max(float(getattr(cfg_obj, "sleeve_regime_comparison_cash_max", 0.02)), 0.08)
+    grid_df, best_df = compare_sleeve_policy_per_regime(
+        cfg_obj,
+        signals,
+        candidates=candidates,
+        cash_target_max=regime_cash_max,
+    )
+    if grid_df.empty or best_df.empty:
+        return pd.DataFrame(), grid_df, best_df, {}, None
+
+    selected_map = build_regime_conditioned_sleeve_map(best_df)
+    adaptive_cfg = clone_cfg_with_updates(
+        cfg_obj,
+        {
+            "regime_conditioned_sleeve_map": selected_map,
+            "sleeve_regime_apply_champion": True,
+        },
+    )
+    adaptive_bt = backtest_portfolio(adaptive_cfg, signals, cash_target_max=regime_cash_max)
+    baseline_bt = active_backtest if active_backtest is not None else backtest_portfolio(cfg_obj, signals)
+
+    rows: list[dict[str, Any]] = []
+    for model_label, bt_obj, model_cfg, selected_regime_map in [
+        ("current_dynamic_baseline", baseline_bt, cfg_obj, {}),
+        ("ai_four_sleeve_adaptive", adaptive_bt, adaptive_cfg, selected_map),
+    ]:
+        row = {
+            "model_label": model_label,
+            "candidate_count": int(len(candidates)) if model_label == "ai_four_sleeve_adaptive" else 0,
+            "regime_map_size": int(len(selected_regime_map)) if selected_regime_map else 0,
+        }
+        row.update(_bt_metrics_row(bt_obj, model_cfg, portfolio_mode="dynamic", policy_mode=model_label))
+        row.update(holdings_concentration_metrics(bt_obj.holdings))
+        row["comparison_objective"] = sleeve_cap_policy_objective(
+            {
+                "strategy_cagr": row.get("strategy_cagr", np.nan),
+                "benchmark_cagr": row.get("benchmark_cagr", np.nan),
+                "excess_cagr": row.get("excess_cagr", np.nan),
+                "sharpe": row.get("sharpe", np.nan),
+                "sortino": row.get("sortino", np.nan),
+                "max_dd": row.get("max_dd", np.nan),
+                "avg_turnover_monthly": row.get("avg_turnover_monthly", np.nan),
+                "avg_cash_weight": row.get("avg_cash_weight", np.nan),
+                "avg_top_name_weight": row.get("avg_top_name_weight", np.nan),
+                "avg_hhi": row.get("avg_hhi", np.nan),
+            },
+            cfg_obj,
+        )
+        if model_label == "ai_four_sleeve_adaptive":
+            row["selected_regime_map_json"] = json.dumps(
+                {
+                    str(k): {
+                        "core": round(float(v.get("core", 0.0)), 4),
+                        "future": round(float(v.get("future", 0.0)), 4),
+                        "early": round(float(v.get("early", 0.0)), 4),
+                        "cash": round(float(v.get("cash", 0.0)), 4),
+                        "policy_label": str(v.get("policy_label", "") or ""),
+                    }
+                    for k, v in selected_regime_map.items()
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        rows.append(row)
+    comparison_df = pd.DataFrame(rows).sort_values("comparison_objective", ascending=False).reset_index(drop=True)
+    return comparison_df, grid_df, best_df, selected_map, adaptive_bt
 
 
 def compare_backtest_window_years(
@@ -20637,6 +20873,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare = _artifact_frame("standalone_sleeve_compare")
     standalone_sleeve_monthly = _artifact_frame("standalone_sleeve_monthly")
     standalone_sleeve_holdings = _artifact_frame("standalone_sleeve_holdings")
+    ai_four_sleeve_compare = _artifact_frame("ai_four_sleeve_compare")
+    ai_four_sleeve_regime_grid = _artifact_frame("ai_four_sleeve_regime_grid")
+    ai_four_sleeve_regime_best = _artifact_frame("ai_four_sleeve_regime_best")
+    ai_four_sleeve_selected_map = dict(artifacts.get("ai_four_sleeve_selected_map") or {})
 
     if current_scored is None or current_scored.empty:
         latest_dt = pd.to_datetime(scored["rebalance_date"], errors="coerce").max()
@@ -21104,6 +21344,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     latest_early_standalone_path = paths["out"] / "early_scout_latest_standalone.csv"
     engine_diagnostics_monthly_path = paths["reports"] / "engine_diagnostics_by_month.csv"
     engine_diagnostics_summary_path = paths["reports"] / "engine_diagnostics_summary.csv"
+    ai_four_sleeve_compare_path = paths["reports"] / "ai_four_sleeve_adaptive_comparison.csv"
+    ai_four_sleeve_regime_grid_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_grid.csv"
+    ai_four_sleeve_regime_best_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_best.csv"
+    ai_four_sleeve_selected_map_path = paths["reports"] / "ai_four_sleeve_adaptive_selected_map.json"
 
     def _safe_unlink(path: Path) -> None:
         try:
@@ -21309,6 +21553,16 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(standalone_sleeve_compare_path)
         _safe_unlink(standalone_sleeve_monthly_path)
         _safe_unlink(standalone_sleeve_holdings_path)
+    if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
+        ai_four_sleeve_compare.to_csv(ai_four_sleeve_compare_path, index=False)
+        ai_four_sleeve_regime_grid.to_csv(ai_four_sleeve_regime_grid_path, index=False)
+        ai_four_sleeve_regime_best.to_csv(ai_four_sleeve_regime_best_path, index=False)
+        ai_four_sleeve_selected_map_path.write_text(json.dumps(ai_four_sleeve_selected_map, indent=2), encoding="utf-8")
+    else:
+        _safe_unlink(ai_four_sleeve_compare_path)
+        _safe_unlink(ai_four_sleeve_regime_grid_path)
+        _safe_unlink(ai_four_sleeve_regime_best_path)
+        _safe_unlink(ai_four_sleeve_selected_map_path)
 
     # Historical data quality reports (computed here since scored_latest is available)
     historical_quality_monthly_path = paths["reports"] / "historical_data_quality_by_month.csv"
@@ -21743,6 +21997,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["engine_diagnostics_by_month.csv"] = str(engine_diagnostics_monthly_path)
     if not engine_diagnostics_summary.empty:
         output_files["engine_diagnostics_summary.csv"] = str(engine_diagnostics_summary_path)
+    if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
+        output_files["ai_four_sleeve_adaptive_comparison.csv"] = str(ai_four_sleeve_compare_path)
+        output_files["ai_four_sleeve_adaptive_regime_grid.csv"] = str(ai_four_sleeve_regime_grid_path)
+        output_files["ai_four_sleeve_adaptive_regime_best.csv"] = str(ai_four_sleeve_regime_best_path)
+        output_files["ai_four_sleeve_adaptive_selected_map.json"] = str(ai_four_sleeve_selected_map_path)
 
     summary = {
         "run_ts": now_ts(),
@@ -21847,8 +22106,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "applied_regime_sleeve_source_label": _portfolio_first_text("applied_regime_sleeve_source_label"),
         "run_sleeve_cap_policy_comparison": bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)),
         "run_standalone_sleeve_backtest_comparison": run_standalone_sleeve_compare,
+        "run_ai_four_sleeve_comparison": bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)),
         "run_historical_data_quality_reports": bool(getattr(cfg, "run_historical_data_quality_reports", True)),
         "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
+        "ai_four_sleeve_adaptive_best": (
+            ai_four_sleeve_compare.head(3).to_dict(orient="records")
+            if not ai_four_sleeve_compare.empty
+            else []
+        ),
+        "ai_four_sleeve_adaptive_selected_map": ai_four_sleeve_selected_map,
         "regime_conditioned_sleeve_map": dict(getattr(cfg, "regime_conditioned_sleeve_map", {}) or {}),
         "manual_regime_conditioned_sleeve_map": manual_regime_conditioned_sleeve_map,
         "regime_sleeve_map_method_comparison": regime_sleeve_method_records,
@@ -21947,10 +22213,17 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["portfolio_sleeve_top7_standalone_comparison"] = str(standalone_sleeve_compare_path)
         result_outputs["portfolio_sleeve_top7_standalone_monthly"] = str(standalone_sleeve_monthly_path)
         result_outputs["portfolio_sleeve_top7_standalone_holdings"] = str(standalone_sleeve_holdings_path)
+    if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
+        result_outputs["ai_four_sleeve_adaptive_comparison"] = str(ai_four_sleeve_compare_path)
+        result_outputs["ai_four_sleeve_adaptive_regime_grid"] = str(ai_four_sleeve_regime_grid_path)
+        result_outputs["ai_four_sleeve_adaptive_regime_best"] = str(ai_four_sleeve_regime_best_path)
+        result_outputs["ai_four_sleeve_adaptive_selected_map"] = str(ai_four_sleeve_selected_map_path)
     if bool(getattr(cfg, "run_historical_data_quality_reports", True)) and not historical_quality_monthly.empty:
         result_outputs["historical_data_quality_by_month"] = str(historical_quality_monthly_path)
         result_outputs["historical_data_quality_by_sleeve"] = str(historical_quality_sleeve_path)
         result_outputs["historical_data_quality_latest"] = str(historical_quality_latest_path)
+    result_outputs.update(output_files)
+    result_outputs["run_summary.json"] = str(summary_path)
     return result_outputs
 
 
@@ -22202,6 +22475,24 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             log(f"[WARN] Standalone sleeve comparison failed: {exc}")
     save_stage_flag(paths, "phase5d_standalone_sleeve", "completed", {"rows": int(len(standalone_sleeve_compare))})
 
+    ai_four_sleeve_compare = pd.DataFrame()
+    ai_four_sleeve_regime_grid = pd.DataFrame()
+    ai_four_sleeve_regime_best = pd.DataFrame()
+    ai_four_sleeve_selected_map: dict[str, Any] = {}
+    if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)):
+        log("Phase 5e: running adaptive 4-sleeve (core/future/early/cash) comparison ...")
+        try:
+            (
+                ai_four_sleeve_compare,
+                ai_four_sleeve_regime_grid,
+                ai_four_sleeve_regime_best,
+                ai_four_sleeve_selected_map,
+                _,
+            ) = compare_ai_four_sleeve_adaptive_model(cfg, scored, active_backtest=bt)
+        except Exception as exc:
+            log(f"[WARN] Adaptive 4-sleeve comparison failed: {exc}")
+    save_stage_flag(paths, "phase5e_ai_four_sleeve", "completed", {"rows": int(len(ai_four_sleeve_compare))})
+
     try:
         latest_recommendations = build_latest_recommendations(cfg, feature_store)
     except Exception as exc:
@@ -22260,6 +22551,10 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             "standalone_sleeve_compare": standalone_sleeve_compare,
             "standalone_sleeve_monthly": standalone_sleeve_monthly,
             "standalone_sleeve_holdings": standalone_sleeve_holdings,
+            "ai_four_sleeve_compare": ai_four_sleeve_compare,
+            "ai_four_sleeve_regime_grid": ai_four_sleeve_regime_grid,
+            "ai_four_sleeve_regime_best": ai_four_sleeve_regime_best,
+            "ai_four_sleeve_selected_map": ai_four_sleeve_selected_map,
         },
     )
     save_stage_flag(paths, "phase6_export", "completed", output_paths)
