@@ -1109,13 +1109,13 @@ class EngineConfig:
     cash_buffer_enabled: bool = True
     cash_weight_max: float = 0.60
     cash_target_growth_cap: float = 0.03
-    cash_target_balanced_cap: float = 0.06
-    cash_target_mild_risk_cap: float = 0.12
-    core_compounder_sleeve_base_weight: float = 0.16
-    future_winner_sleeve_base_weight: float = 0.56
+    cash_target_balanced_cap: float = 0.04
+    cash_target_mild_risk_cap: float = 0.08
+    core_compounder_sleeve_base_weight: float = 0.12
+    future_winner_sleeve_base_weight: float = 0.58
     future_winner_sleeve_min_weight: float = 0.12
     future_winner_sleeve_max_weight: float = 0.74
-    early_scout_sleeve_base_weight: float = 0.20
+    early_scout_sleeve_base_weight: float = 0.22
     early_scout_sleeve_min_weight: float = 0.04
     early_scout_sleeve_max_weight: float = 0.36
     early_scout_growth_floor_weight: float = 0.18
@@ -14180,6 +14180,24 @@ def _legacy_unused_build_target_portfolio(
     invested_share = max(float(sleeve_policy.get("invested_share", 0.0)), 1e-8)
     future_target_share = float(sleeve_policy.get("future_winner_target", 0.0))
     early_target_share = float(sleeve_policy.get("early_scout_target", 0.0))
+    growth_mix_target = float(np.clip(future_target_share + early_target_share, 0.0, 1.0))
+    pool_sleeve_labels = pool.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=pool.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    pool_fill_boost = pd.Series(0.0, index=pool.index, dtype=float)
+    pool_fill_boost.loc[pool_sleeve_labels.eq("future_winner")] = 0.08 + 0.10 * growth_mix_target
+    pool_fill_boost.loc[pool_sleeve_labels.eq("early_scout")] = 0.10 + 0.14 * growth_mix_target
+    pool["portfolio_fill_priority"] = (
+        numeric_series_or_default(pool, "portfolio_seed_score", 0.0)
+        + (0.16 + 0.14 * growth_mix_target)
+        * numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
+        + (0.22 + 0.18 * growth_mix_target)
+        * numeric_series_or_default(pool, "portfolio_early_scout_engine_score", 0.0)
+        + 0.14 * numeric_series_or_default(pool, "sage_composite_score", 0.0)
+        + 0.10 * numeric_series_or_default(pool, "sage_g_score", 0.0)
+        + pool_fill_boost
+    )
     future_target_n = int(np.ceil(target_n * future_target_share / invested_share)) if target_n > 0 else 0
     if future_target_share >= 0.15 and target_n >= 8:
         future_target_n = max(future_target_n, 2)
@@ -14221,16 +14239,22 @@ def _legacy_unused_build_target_portfolio(
         preferred_mask = preferred_mask.reindex(base_pool.index).fillna(False).astype(bool)
         preferred = base_pool.loc[preferred_mask].copy()
         preferred = preferred.sort_values(
-            [engine_col, "portfolio_seed_score"],
+            [engine_col, "portfolio_fill_priority", "portfolio_seed_score"],
             ascending=False,
-        ) if engine_col in preferred.columns else preferred.sort_values("portfolio_seed_score", ascending=False)
+        ) if engine_col in preferred.columns else preferred.sort_values(
+            ["portfolio_fill_priority", "portfolio_seed_score"],
+            ascending=False,
+        )
         if len(preferred) >= target_count:
             return preferred
         remainder = base_pool.loc[~preferred_mask].copy()
         remainder = remainder.sort_values(
-            [engine_col, "portfolio_seed_score"],
+            [engine_col, "portfolio_fill_priority", "portfolio_seed_score"],
             ascending=False,
-        ) if engine_col in remainder.columns else remainder.sort_values("portfolio_seed_score", ascending=False)
+        ) if engine_col in remainder.columns else remainder.sort_values(
+            ["portfolio_fill_priority", "portfolio_seed_score"],
+            ascending=False,
+        )
         needed = max(target_count - len(preferred), 0)
         if needed <= 0 or remainder.empty:
             return preferred
@@ -14362,6 +14386,15 @@ def _legacy_unused_build_target_portfolio(
             fill_pool = fill_pool[~fill_pool["ticker"].astype(str).isin(sel["ticker"].astype(str))].copy()
         fill_needed = max(0, target_n - len(sel))
         if fill_needed > 0 and not fill_pool.empty:
+            if growth_mix_target >= 0.35:
+                fill_pool = fill_pool.copy()
+                fill_pool["portfolio_seed_score"] = row_mean(
+                    [
+                        numeric_series_or_default(fill_pool, "portfolio_seed_score", 0.0),
+                        1.10 * numeric_series_or_default(fill_pool, "portfolio_fill_priority", 0.0),
+                    ],
+                    fill_pool.index,
+                ).fillna(0.0)
             fill_sel = select_topn_with_sector_limits(cfg, fill_pool, caps, target_n=fill_needed)
             if not fill_sel.empty:
                 fill_sel = fill_sel.copy()
@@ -14555,7 +14588,10 @@ def _legacy_unused_build_target_portfolio(
         sel = sel.drop(columns="_sleeve_factor", errors="ignore")
 
     target_w = dict_from_weights(sel)
-    target_w = apply_cash_buffer_to_weights(target_w, regime_ctl.get("cash_target", 0.0))
+    target_w = apply_cash_buffer_to_weights(
+        target_w,
+        sleeve_policy.get("cash_target", regime_ctl.get("cash_target", 0.0)),
+    )
     partial_scout_total_cap = float(getattr(cfg, "partial_scout_total_weight_cap", 0.0))
     if partial_scout_total_cap > 0:
         partial_tickers = sel.loc[partial_scout_mask, "ticker"].astype(str).tolist()
@@ -16214,6 +16250,16 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     sleeve_label = sleeve_labels[top_idx]
     core_or_future_max = np.maximum(sleeve_matrix[:, 0], sleeve_matrix[:, 1])
     early_edge = sleeve_matrix[:, 2] - core_or_future_max
+    growth_tilt = row_mean(
+        [
+            0.35 * sage_g_rank,
+            0.25 * sage_composite_rank,
+            0.20 * cross_sectional_robust_z(d, "anticipatory_growth_score"),
+            0.20 * cross_sectional_robust_z(d, "growth_onset_composite"),
+            0.15 * cross_sectional_robust_z(d, "leader_emergence_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
     # Keep early_scout for names where the early/inflection engine is clearly
     # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
     weak_early_edge = sleeve_label == "early_scout"
@@ -16239,7 +16285,28 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         "future_winner",
         sleeve_label,
     )
-    sleeve_label = np.where(low_gap & ~dominant_archetype.eq("emerging_growth"), "core_compounder", sleeve_label)
+    growth_lean_future = (
+        low_gap
+        & ~dominant_archetype.eq("emerging_growth").to_numpy(dtype=bool)
+        & (growth_tilt.to_numpy(dtype=float) >= 0.18)
+        & (sleeve_matrix[:, 1] >= (sleeve_matrix[:, 0] - 0.18))
+    )
+    growth_lean_early = (
+        low_gap
+        & ~dominant_archetype.eq("emerging_growth").to_numpy(dtype=bool)
+        & (growth_tilt.to_numpy(dtype=float) >= 0.28)
+        & (sleeve_matrix[:, 2] >= (sleeve_matrix[:, 0] - 0.14))
+        & (early_edge >= -0.10)
+    )
+    sleeve_label = np.where(growth_lean_early, "early_scout", sleeve_label)
+    sleeve_label = np.where(growth_lean_future & ~growth_lean_early, "future_winner", sleeve_label)
+    sleeve_label = np.where(
+        low_gap
+        & ~dominant_archetype.eq("emerging_growth").to_numpy(dtype=bool)
+        & ~(growth_lean_future | growth_lean_early),
+        "core_compounder",
+        sleeve_label,
+    )
     sleeve_label_raw = sleeve_label.copy()
     fundamental_confirmation = numeric_series_or_default(
         d, "selection_fundamental_confirmation_score", 0.0
@@ -16693,6 +16760,24 @@ def build_target_portfolio(
     invested_share = max(float(sleeve_policy.get("invested_share", 0.0)), 1e-8)
     future_target_share = float(sleeve_policy.get("future_winner_target", 0.0))
     early_target_share = float(sleeve_policy.get("early_scout_target", 0.0))
+    growth_mix_target = float(np.clip(future_target_share + early_target_share, 0.0, 1.0))
+    pool_sleeve_labels = pool.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=pool.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    pool_fill_boost = pd.Series(0.0, index=pool.index, dtype=float)
+    pool_fill_boost.loc[pool_sleeve_labels.eq("future_winner")] = 0.08 + 0.10 * growth_mix_target
+    pool_fill_boost.loc[pool_sleeve_labels.eq("early_scout")] = 0.10 + 0.14 * growth_mix_target
+    pool["portfolio_fill_priority"] = (
+        numeric_series_or_default(pool, "portfolio_seed_score", 0.0)
+        + (0.16 + 0.14 * growth_mix_target)
+        * numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
+        + (0.22 + 0.18 * growth_mix_target)
+        * numeric_series_or_default(pool, "portfolio_early_scout_engine_score", 0.0)
+        + 0.14 * numeric_series_or_default(pool, "sage_composite_score", 0.0)
+        + 0.10 * numeric_series_or_default(pool, "sage_g_score", 0.0)
+        + pool_fill_boost
+    )
     future_target_n = int(np.ceil(target_n * future_target_share / invested_share)) if target_n > 0 else 0
     if future_target_share >= 0.15 and target_n >= 8:
         future_target_n = max(future_target_n, 2)
@@ -16738,16 +16823,22 @@ def build_target_portfolio(
         preferred_mask = preferred_mask.reindex(base_pool.index).fillna(False).astype(bool)
         preferred = base_pool.loc[preferred_mask].copy()
         preferred = preferred.sort_values(
-            [engine_col, "portfolio_seed_score"],
+            [engine_col, "portfolio_fill_priority", "portfolio_seed_score"],
             ascending=False,
-        ) if engine_col in preferred.columns else preferred.sort_values("portfolio_seed_score", ascending=False)
+        ) if engine_col in preferred.columns else preferred.sort_values(
+            ["portfolio_fill_priority", "portfolio_seed_score"],
+            ascending=False,
+        )
         if len(preferred) >= target_count:
             return preferred
         remainder = base_pool.loc[~preferred_mask].copy()
         remainder = remainder.sort_values(
-            [engine_col, "portfolio_seed_score"],
+            [engine_col, "portfolio_fill_priority", "portfolio_seed_score"],
             ascending=False,
-        ) if engine_col in remainder.columns else remainder.sort_values("portfolio_seed_score", ascending=False)
+        ) if engine_col in remainder.columns else remainder.sort_values(
+            ["portfolio_fill_priority", "portfolio_seed_score"],
+            ascending=False,
+        )
         needed = max(target_count - len(preferred), 0)
         if needed <= 0 or remainder.empty:
             return preferred
@@ -16763,11 +16854,13 @@ def build_target_portfolio(
         early_target_n = 2
         core_target_n = max(1, target_n - future_target_n - early_target_n)
     if target_n >= 8:
-        max_core_ratio = 0.50
+        max_core_ratio = 0.40
         if early_target_share >= 0.10:
-            max_core_ratio = 0.45
+            max_core_ratio = 0.35
         if (future_target_share + early_target_share) >= 0.45:
-            max_core_ratio = 0.40
+            max_core_ratio = 0.32
+        if (future_target_share + early_target_share) >= 0.60:
+            max_core_ratio = 0.25
         max_core_target_n = max(1, int(np.floor(target_n * max_core_ratio)))
         while core_target_n > max_core_target_n and (future_target_n + early_target_n) < target_n:
             if early_target_share >= max(0.08, 0.70 * future_target_share):
@@ -16906,6 +16999,15 @@ def build_target_portfolio(
             fill_pool = fill_pool[~fill_pool["ticker"].astype(str).isin(sel["ticker"].astype(str))].copy()
         fill_needed = max(0, target_n - len(sel))
         if fill_needed > 0 and not fill_pool.empty:
+            if growth_mix_target >= 0.35:
+                fill_pool = fill_pool.copy()
+                fill_pool["portfolio_seed_score"] = row_mean(
+                    [
+                        numeric_series_or_default(fill_pool, "portfolio_seed_score", 0.0),
+                        1.10 * numeric_series_or_default(fill_pool, "portfolio_fill_priority", 0.0),
+                    ],
+                    fill_pool.index,
+                ).fillna(0.0)
             fill_sel = select_topn_with_sector_limits(cfg, fill_pool, caps, target_n=fill_needed)
             if not fill_sel.empty:
                 fill_sel = fill_sel.copy()
@@ -17095,7 +17197,10 @@ def build_target_portfolio(
         sel = apply_sector_weight_caps(sel, caps, cfg.cap_base_weight, single_name_cap=name_caps)
 
     target_w = dict_from_weights(sel)
-    target_w = apply_cash_buffer_to_weights(target_w, regime_ctl.get("cash_target", 0.0))
+    target_w = apply_cash_buffer_to_weights(
+        target_w,
+        sleeve_policy.get("cash_target", regime_ctl.get("cash_target", 0.0)),
+    )
     partial_scout_total_cap = float(getattr(cfg, "partial_scout_total_weight_cap", 0.0))
     if partial_scout_total_cap > 0:
         partial_tickers = sel.loc[partial_scout_mask, "ticker"].astype(str).tolist()

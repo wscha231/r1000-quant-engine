@@ -973,6 +973,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - The notebook JSON changed substantially because the newer local runbook has a different cell layout and markdown text, not because of binary corruption.
 
 
+### 14:21 KST - reduce-core-cash-bias-in-live-portfolio-construction
+
+- scope:
+  - Reduce the tendency for the live portfolio builder to collapse back into `core_compounder` plus cash even when growth sleeves have strong targets.
+- files:
+  - `r1000_top30_institutional.py` -> lowered default non-crisis cash caps, shifted base sleeve weights further toward `future_winner` / `early_scout`, relaxed low-gap sleeve fallback logic for growth names, added growth-aware fill priority in portfolio construction, and fixed final cash application to honor the sleeve-adjusted cash target.
+- symbols_changed:
+  - `EngineConfig.cash_target_balanced_cap` -> `0.06` to `0.04`.
+  - `EngineConfig.cash_target_mild_risk_cap` -> `0.12` to `0.08`.
+  - `EngineConfig.core_compounder_sleeve_base_weight` -> `0.16` to `0.12`.
+  - `EngineConfig.future_winner_sleeve_base_weight` -> `0.56` to `0.58`.
+  - `EngineConfig.early_scout_sleeve_base_weight` -> `0.20` to `0.22`.
+  - `compute_portfolio_sleeve_columns()` -> added `growth_tilt` plus `growth_lean_future` / `growth_lean_early` so ambiguous growth names no longer default straight back to `core_compounder` on small engine-score gaps.
+  - `build_target_portfolio()` -> added `growth_mix_target` and `portfolio_fill_priority` so supplemental sleeve selection and generic fill use growth-aware ordering instead of plain seed-score fallback.
+  - `build_target_portfolio()` -> tightened `max_core_ratio` in growth-heavy target mixes so the seat allocator does not let `core_compounder` dominate exploratory sleeves.
+  - `build_target_portfolio()` -> final `apply_cash_buffer_to_weights()` now uses `sleeve_policy["cash_target"]` rather than reusing `regime_ctl["cash_target"]`, fixing a bug where cash could be re-inflated after sleeve overrides and target rescaling.
+- breaking_changes:
+  - none
+- outputs:
+  - Live and backtest portfolio construction should allocate fewer seats to `core_compounder` in growth-favorable states and preserve more `future_winner` / `early_scout` exposure through the final fill stage.
+- validation:
+  - `python -m py_compile r1000_top30_institutional.py` passed after the change.
+  - Active call sites for `build_target_portfolio()`, `compute_portfolio_sleeve_columns()`, and `apply_cash_buffer_to_weights()` were re-read to confirm the new growth-priority path is on the non-legacy code path.
+- risks_or_notes:
+  - This makes the engine more aggressive in balanced-to-growth regimes; expected effects are higher growth-sleeve utilization, lower idle cash, and potentially higher turnover / concentration.
+  - Crisis / high-risk caps are unchanged; the patch only reduces unnecessary conservatism outside confirmed risk-off conditions.
+
+
 ### 17:30 KST - sage-sector-adaptive-growth-engine
 
 - scope:
