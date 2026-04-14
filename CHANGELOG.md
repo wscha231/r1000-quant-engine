@@ -1062,3 +1062,24 @@ All entries must be written in English. Entries must be predictable and machine-
   - Readback confirmed the active `build_target_portfolio()` path is untouched while the duplicated legacy block is removed.
 - risks_or_notes:
   - The duplicated block lived only inside a `_legacy_unused_*` function, so this is mainly a maintainability fix and guard against future accidental reuse.
+
+
+### 23:59 KST - pit-leakage-hardening-followup
+
+- scope:
+  - Tighten point-in-time hygiene for intermediate monthly artifacts, broaden acceptance leakage checks to the actual model input set, and remove a redundant pre-guard valuation pass from feature-store assembly.
+- files:
+  - `r1000_top30_institutional.py` -> guarded `universe_monthly` before artifact/report writes, widened leakage auditing from `cfg.features` to `model_feature_columns(cfg)`, and removed the extra pre-guard `compute_valuation_columns()` call in `build_feature_store()`.
+- symbols_changed:
+  - `build_universe_monthly()` -> now applies `apply_latest_only_signal_guard()` before stage coverage, diagnostics, and `universe_monthly_latest.parquet` export so historical rows do not retain latest-only live signals in the saved intermediate artifact.
+  - `build_feature_store()` -> no longer runs `compute_valuation_columns()` on the raw universe before the latest-only guard; valuation features are now computed only after PIT cleanup.
+  - `run_acceptance_checks()` -> leakage audit now inspects `model_feature_columns(cfg)` instead of only `cfg.features`, so derived/pillar model inputs are covered by the forward-feature ban list.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/universe_monthly_latest.parquet` and `outputs/reports/universe_monthly_coverage.csv` are now PIT-clean with respect to latest-only live signal columns for historical rows.
+  - `acceptance_checks["feature_leakage_columns"]` now reflects the full active model feature set rather than only the base feature list.
+- validation:
+  - `python -m py_compile H:\\codex\\r1000_top30_institutional.py H:\\codex\\r1000_data_collector.py` passed after the change.
+- risks_or_notes:
+  - This is pipeline-hygiene hardening, not a change to the intended live/latest recommendation logic; the latest rebalance-date rows still retain live-only signals as before.

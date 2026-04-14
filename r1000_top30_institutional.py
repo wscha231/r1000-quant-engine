@@ -11507,6 +11507,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     monthly = merge_macro_regime_features(cfg, paths, monthly)
     monthly = merge_benchmark_relative_features(cfg, paths, monthly)
     monthly = merge_live_event_alert_features(cfg, paths, monthly)
+    monthly = apply_latest_only_signal_guard(monthly)
     write_stage_coverage_report(
         paths,
         "universe_monthly",
@@ -12034,7 +12035,6 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     log("Phase 3: building feature store ...")
 
     universe = build_universe_monthly(cfg)
-    universe = compute_valuation_columns(universe, cfg)
     write_fundamental_join_diagnostics(paths, universe)
     if "rebalance_date" not in universe.columns and "Date" in universe.columns:
         universe = universe.rename(columns={"Date": "rebalance_date"})
@@ -14991,9 +14991,10 @@ def _legacy_unused_run_acceptance_checks(
     exact_banned = {"r_1m", "r_3m", "r_6m"}
     prefix_banned = ("earn_post_", "future_")
     allowed_forward_named_features = {"future_winner_scout_score"}
+    active_feature_columns = model_feature_columns(cfg)
     leakage_cols = [
         c
-        for c in cfg.features
+        for c in active_feature_columns
         if c not in allowed_forward_named_features
         and ((c in exact_banned) or any(c.startswith(pref) for pref in prefix_banned))
     ]
@@ -17955,9 +17956,10 @@ def run_acceptance_checks(
     exact_banned = {"r_1m", "r_3m", "r_6m"}
     prefix_banned = ("earn_post_", "future_")
     allowed_forward_named_features = {"future_winner_scout_score"}
+    active_feature_columns = model_feature_columns(cfg)
     leakage_cols = [
         c
-        for c in cfg.features
+        for c in active_feature_columns
         if c not in allowed_forward_named_features
         and ((c in exact_banned) or any(c.startswith(pref) for pref in prefix_banned))
     ]
