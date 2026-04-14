@@ -325,6 +325,10 @@ def run_full_validation_suite(
         "live_fundamental_coverage_latest": paths["out"] / "live_fundamental_coverage_latest.csv",
         "portfolio_size_comparison": paths["reports"] / "portfolio_size_comparison.csv",
         "rebalance_interval_comparison": paths["reports"] / "rebalance_interval_comparison.csv",
+        "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
+        "portfolio_sleeve_top7_standalone_comparison": paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv",
+        "historical_data_quality_latest": paths["reports"] / "historical_data_quality_latest.csv",
+        "historical_data_quality_by_sleeve": paths["reports"] / "historical_data_quality_by_sleeve.csv",
         "market_adaptation_latest": paths["reports"] / "market_adaptation_latest.json",
         "macro_regime_latest": paths["feature_store"] / "macro_regime_latest.parquet",
         "latest_recommendations": paths["feature_store"] / "latest_recommendations.parquet",
@@ -345,6 +349,10 @@ def run_full_validation_suite(
     live_cov = _safe_read_csv(outputs["live_fundamental_coverage_latest"])
     portfolio_size_comp = _safe_read_csv(outputs["portfolio_size_comparison"])
     rebalance_interval_comp = _safe_read_csv(outputs["rebalance_interval_comparison"])
+    sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
+    standalone_sleeve_comp = _safe_read_csv(outputs["portfolio_sleeve_top7_standalone_comparison"])
+    historical_quality_latest = _safe_read_csv(outputs["historical_data_quality_latest"])
+    historical_quality_by_sleeve = _safe_read_csv(outputs["historical_data_quality_by_sleeve"])
     market_adaptation = _safe_read_json(outputs["market_adaptation_latest"])
     macro_regime = _safe_read_parquet(outputs["macro_regime_latest"])
     latest_recommendations = _safe_read_parquet(outputs["latest_recommendations"])
@@ -741,6 +749,31 @@ def run_full_validation_suite(
         "rebalance_interval_comparison_snapshot": {
             "best_interval": best_rebalance_row,
             "adaptive_policy_row": adaptive_rebalance_row,
+        },
+        "sleeve_cap_policy_snapshot": {
+            "rows": int(len(sleeve_cap_policy_comp)),
+            "best_row": (
+                sleeve_cap_policy_comp.iloc[0].to_dict()
+                if not sleeve_cap_policy_comp.empty
+                else None
+            ),
+        },
+        "standalone_sleeve_snapshot": {
+            "rows": int(len(standalone_sleeve_comp)),
+            "top_rows": (
+                standalone_sleeve_comp.head(5).to_dict(orient="records")
+                if not standalone_sleeve_comp.empty
+                else []
+            ),
+        },
+        "historical_data_quality_snapshot": {
+            "latest_rows": int(len(historical_quality_latest)),
+            "sleeve_rows": int(len(historical_quality_by_sleeve)),
+            "latest_preview": (
+                historical_quality_latest.head(5).to_dict(orient="records")
+                if not historical_quality_latest.empty
+                else []
+            ),
         },
         "market_adaptation_snapshot": {
             "macro_style_tilt_label": market_adaptation.get("macro_style_tilt_label"),

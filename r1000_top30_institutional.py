@@ -14437,24 +14437,6 @@ def _legacy_unused_build_target_portfolio(
         sleeve_score_rank.loc[early_alpha_mask] = cross_sectional_robust_z(
             sel.loc[early_alpha_mask], "portfolio_early_scout_engine_score"
         ).reindex(sel.index).fillna(0.0).loc[early_alpha_mask]
-    seed_score_rank = cross_sectional_robust_z(sel, "portfolio_seed_score")
-    sage_score_rank = cross_sectional_robust_z(sel, "sage_composite_score")
-    sage_g_rank = cross_sectional_robust_z(sel, "sage_g_score")
-    sage_q_rank = cross_sectional_robust_z(sel, "sage_q_score")
-    sleeve_score_rank = pd.Series(0.0, index=sel.index, dtype=float)
-    sleeve_label_for_alpha = sel.get(
-        "portfolio_sleeve_label",
-        pd.Series("core_compounder", index=sel.index, dtype=object),
-    ).fillna("core_compounder").astype(str)
-    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("core_compounder")] = cross_sectional_robust_z(
-        sel.loc[sleeve_label_for_alpha.eq("core_compounder")], "portfolio_core_compounder_engine_score"
-    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("core_compounder")]
-    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("future_winner")] = cross_sectional_robust_z(
-        sel.loc[sleeve_label_for_alpha.eq("future_winner")], "portfolio_future_winner_engine_score"
-    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("future_winner")]
-    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("early_scout")] = cross_sectional_robust_z(
-        sel.loc[sleeve_label_for_alpha.eq("early_scout")], "portfolio_early_scout_engine_score"
-    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("early_scout")]
     turnover_cost = pd.Series(np.zeros(len(sel)), index=sel.index, dtype=float)
     if prev_w:
         turnover_cost = (~sel["ticker"].isin(prev_w.keys())).astype(float)
