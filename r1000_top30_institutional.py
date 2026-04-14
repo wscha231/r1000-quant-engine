@@ -198,7 +198,6 @@ FSDS_TAG_ALIASES = {
     "equity": [
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-        "LiabilitiesAndStockholdersEquity",
     ],
     "inventory": [
         "InventoryNet",
@@ -1202,7 +1201,7 @@ class EngineConfig:
 
     risk_penalty_scale: float = 0.65
     weight_score_power: float = 1.20
-    weight_invvol_power: float = 0.20
+    weight_invvol_power: float = 0.12
     optimizer_risk_aversion: float = 0.90
     optimizer_turnover_penalty: float = 0.30
     optimizer_liquidity_reward: float = 0.20
@@ -2741,7 +2740,29 @@ def cross_sectional_robust_z_by_sector(df: pd.DataFrame, col: str, sector_col: s
 def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
     """Classify each row into one of 8 SAGE sectors using SAGE_SECTOR_MAP keyword matching.
     Returns a Series with values like 'Software', 'Semiconductor', 'Banking', etc."""
-    sector_labels = normalized_sector_labels(df)
+    label_cols = [
+        "industry",
+        "subindustry",
+        "gics_sub_industry",
+        "industry_group",
+        "industry_sector",
+        "gics_sector",
+        "sector",
+    ]
+    available_label_cols = [c for c in label_cols if c in df.columns]
+    if available_label_cols:
+        sector_labels = (
+            df[available_label_cols]
+            .fillna("")
+            .astype(str)
+            .agg(" ".join, axis=1)
+            .str.upper()
+            .str.replace("&", " AND ", regex=False)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+    else:
+        sector_labels = normalized_sector_labels(df)
     result = pd.Series("General", index=df.index, dtype=str)
     for sage_name, keywords in SAGE_SECTOR_MAP:
         if sage_name == "General":
@@ -14359,6 +14380,48 @@ def _legacy_unused_build_target_portfolio(
     if "selection_confirmation_score" not in sel.columns:
         sel = compute_benchmark_beating_focus_overlay(sel, cfg)
     utility_score = cross_sectional_robust_z(sel, "score")
+    seed_score_rank = cross_sectional_robust_z(sel, "portfolio_seed_score")
+    sage_score_rank = cross_sectional_robust_z(sel, "sage_composite_score")
+    sage_g_rank = cross_sectional_robust_z(sel, "sage_g_score")
+    sage_q_rank = cross_sectional_robust_z(sel, "sage_q_score")
+    sleeve_score_rank = pd.Series(0.0, index=sel.index, dtype=float)
+    sleeve_label_for_alpha = sel.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=sel.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    core_alpha_mask = sleeve_label_for_alpha.eq("core_compounder")
+    future_alpha_mask = sleeve_label_for_alpha.eq("future_winner")
+    early_alpha_mask = sleeve_label_for_alpha.eq("early_scout")
+    if bool(core_alpha_mask.any()):
+        sleeve_score_rank.loc[core_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[core_alpha_mask], "portfolio_core_compounder_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[core_alpha_mask]
+    if bool(future_alpha_mask.any()):
+        sleeve_score_rank.loc[future_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[future_alpha_mask], "portfolio_future_winner_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[future_alpha_mask]
+    if bool(early_alpha_mask.any()):
+        sleeve_score_rank.loc[early_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[early_alpha_mask], "portfolio_early_scout_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[early_alpha_mask]
+    seed_score_rank = cross_sectional_robust_z(sel, "portfolio_seed_score")
+    sage_score_rank = cross_sectional_robust_z(sel, "sage_composite_score")
+    sage_g_rank = cross_sectional_robust_z(sel, "sage_g_score")
+    sage_q_rank = cross_sectional_robust_z(sel, "sage_q_score")
+    sleeve_score_rank = pd.Series(0.0, index=sel.index, dtype=float)
+    sleeve_label_for_alpha = sel.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=sel.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("core_compounder")] = cross_sectional_robust_z(
+        sel.loc[sleeve_label_for_alpha.eq("core_compounder")], "portfolio_core_compounder_engine_score"
+    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("core_compounder")]
+    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("future_winner")] = cross_sectional_robust_z(
+        sel.loc[sleeve_label_for_alpha.eq("future_winner")], "portfolio_future_winner_engine_score"
+    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("future_winner")]
+    sleeve_score_rank.loc[sleeve_label_for_alpha.eq("early_scout")] = cross_sectional_robust_z(
+        sel.loc[sleeve_label_for_alpha.eq("early_scout")], "portfolio_early_scout_engine_score"
+    ).reindex(sel.index).fillna(0.0).loc[sleeve_label_for_alpha.eq("early_scout")]
     turnover_cost = pd.Series(np.zeros(len(sel)), index=sel.index, dtype=float)
     if prev_w:
         turnover_cost = (~sel["ticker"].isin(prev_w.keys())).astype(float)
@@ -14378,12 +14441,36 @@ def _legacy_unused_build_target_portfolio(
     sel["portfolio_regime_rotation_boost"] = 0.0
     sel["portfolio_midterm_boost"] = 0.0
     sel["portfolio_growth_penalty"] = 0.0
-    sel["portfolio_alpha"] = utility_score.fillna(0.0)
+    sleeve_offense_boost = pd.Series(0.0, index=sel.index, dtype=float)
+    sleeve_offense_boost.loc[sleeve_label_for_alpha.eq("core_compounder")] = (
+        0.06 * sage_q_rank.loc[sleeve_label_for_alpha.eq("core_compounder")]
+        + 0.04 * sage_score_rank.loc[sleeve_label_for_alpha.eq("core_compounder")]
+    )
+    sleeve_offense_boost.loc[sleeve_label_for_alpha.eq("future_winner")] = (
+        0.12 * sage_score_rank.loc[sleeve_label_for_alpha.eq("future_winner")]
+        + 0.08 * sage_g_rank.loc[sleeve_label_for_alpha.eq("future_winner")]
+    )
+    sleeve_offense_boost.loc[sleeve_label_for_alpha.eq("early_scout")] = (
+        0.18 * sage_score_rank.loc[sleeve_label_for_alpha.eq("early_scout")]
+        + 0.10 * sage_g_rank.loc[sleeve_label_for_alpha.eq("early_scout")]
+    )
+    sel["portfolio_alpha"] = (
+        0.42 * utility_score.fillna(0.0)
+        + 0.28 * seed_score_rank.fillna(0.0)
+        + 0.20 * sleeve_score_rank.fillna(0.0)
+        + 0.10 * sage_score_rank.fillna(0.0)
+    )
+    sel["portfolio_sage_boost"] = sleeve_offense_boost
     sel["portfolio_risk_cost"] = 0.0
     sel["portfolio_event_stress_cost"] = 0.0
     sel["portfolio_turnover_cost"] = 0.0
     sel["portfolio_liquidity_reward"] = 0.0
-    sel["portfolio_utility"] = sel["portfolio_alpha"] + sel["portfolio_existing_hold_bonus"]
+    sel["portfolio_utility"] = (
+        sel["portfolio_alpha"]
+        + sel["portfolio_sage_boost"]
+        + 0.08 * confirmation
+        + sel["portfolio_existing_hold_bonus"]
+    )
 
     score_component = pd.to_numeric(sel["portfolio_utility"], errors="coerce").fillna(0.0)
     score_component = score_component - float(np.nanmedian(score_component.values))
@@ -14395,7 +14482,10 @@ def _legacy_unused_build_target_portfolio(
     join_status = sel.get("fund_join_status", pd.Series("", index=sel.index, dtype=str)).astype(str)
     inv_vol = 1.0 / pd.to_numeric(sel["vol_252d"], errors="coerce").replace(0, np.nan)
     inv_vol = inv_vol.fillna(inv_vol.median() if inv_vol.notna().any() else 1.0)
-    vol_component = np.power(inv_vol, max(cfg.weight_invvol_power, 0.0))
+    sleeve_vol_scale = pd.Series(1.0, index=sel.index, dtype=float)
+    sleeve_vol_scale.loc[sleeve_label_for_alpha.eq("future_winner")] = 0.55
+    sleeve_vol_scale.loc[sleeve_label_for_alpha.eq("early_scout")] = 0.25
+    vol_component = np.power(inv_vol, max(cfg.weight_invvol_power, 0.0) * sleeve_vol_scale)
     raw_w = raw_w * vol_component
     if not np.isfinite(raw_w).all() or raw_w.sum() <= 0:
         raw_w = inv_vol.copy()
@@ -16013,6 +16103,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         index=d.index,
         dtype=float,
     )
+    sage_composite_rank = cross_sectional_robust_z(d, "sage_composite_score")
+    sage_g_rank = cross_sectional_robust_z(d, "sage_g_score")
+    sage_v_rank = cross_sectional_robust_z(d, "sage_v_score")
+    sage_q_rank = cross_sectional_robust_z(d, "sage_q_score")
+    sage_c_rank = cross_sectional_robust_z(d, "sage_c_score")
     core_score = row_mean(
         [
             1.05 * cross_sectional_robust_z(d, "long_hold_compounder_score"),
@@ -16025,6 +16120,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.25 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
             0.35 * cross_sectional_robust_z(d, "pricing_power_score"),
             0.30 * cross_sectional_robust_z(d, "margin_stability_8q"),
+            0.22 * sage_q_rank,
+            0.12 * sage_v_rank,
+            0.08 * sage_c_rank,
         ],
         d.index,
     ).fillna(0.0)
@@ -16047,6 +16145,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.35 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
             minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
             0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
+            0.36 * sage_composite_rank,
+            0.18 * sage_g_rank,
+            0.12 * sage_c_rank,
+            0.10 * sage_v_rank,
             -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
@@ -16066,9 +16168,13 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
             0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
             0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
+            0.48 * sage_composite_rank,
+            0.28 * sage_g_rank,
+            0.18 * sage_c_rank,
+            0.12 * sage_v_rank,
             -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
-            -0.35 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
-            -0.25 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
+            -0.20 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
+            -0.15 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
         ],
         d.index,
     ).fillna(0.0)
@@ -16111,7 +16217,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Keep early_scout for names where the early/inflection engine is clearly
     # dominant. Mature cyclicals can otherwise be stranded in a tiny scout sleeve.
     weak_early_edge = sleeve_label == "early_scout"
-    weak_early_edge &= (early_edge < 0.03) | (sleeve_matrix[:, 2] < 0.25)
+    weak_early_edge &= (early_edge < -0.02) | (sleeve_matrix[:, 2] < 0.18)
     sleeve_label = np.where(
         weak_early_edge & (sleeve_matrix[:, 1] >= sleeve_matrix[:, 0]),
         "future_winner",
@@ -16122,7 +16228,7 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         "core_compounder",
         sleeve_label,
     )
-    low_gap = (top_val - second_val) < 0.10
+    low_gap = (top_val - second_val) < 0.06
     sleeve_label = np.where(
         low_gap & dominant_archetype.eq("emerging_growth") & (sleeve_matrix[:, 2] >= sleeve_matrix[:, 1]),
         "early_scout",
@@ -16508,6 +16614,10 @@ def build_target_portfolio(
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
         + 0.55 * numeric_series_or_default(month_df, "fundamental_turnaround_acceleration_score", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "cashflow_inflection_under_loss_score", 0.0)
+        + 0.28 * numeric_series_or_default(month_df, "sage_composite_score", 0.0)
+        + 0.12 * numeric_series_or_default(month_df, "sage_g_score", 0.0)
+        + 0.10 * numeric_series_or_default(month_df, "portfolio_future_winner_engine_score", 0.0)
+        + 0.08 * numeric_series_or_default(month_df, "portfolio_early_scout_engine_score", 0.0)
         + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
         + 0.25 * numeric_series_or_default(month_df, "breakout_setup_quality_score", 0.0)
         - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
@@ -16814,6 +16924,30 @@ def build_target_portfolio(
     if "selection_confirmation_score" not in sel.columns:
         sel = compute_benchmark_beating_focus_overlay(sel, cfg)
     utility_score = cross_sectional_robust_z(sel, "score")
+    seed_score_rank = cross_sectional_robust_z(sel, "portfolio_seed_score")
+    sage_score_rank = cross_sectional_robust_z(sel, "sage_composite_score")
+    sage_g_rank = cross_sectional_robust_z(sel, "sage_g_score")
+    sage_q_rank = cross_sectional_robust_z(sel, "sage_q_score")
+    sleeve_score_rank = pd.Series(0.0, index=sel.index, dtype=float)
+    sleeve_label_for_alpha = sel.get(
+        "portfolio_sleeve_label",
+        pd.Series("core_compounder", index=sel.index, dtype=object),
+    ).fillna("core_compounder").astype(str)
+    core_alpha_mask = sleeve_label_for_alpha.eq("core_compounder")
+    future_alpha_mask = sleeve_label_for_alpha.eq("future_winner")
+    early_alpha_mask = sleeve_label_for_alpha.eq("early_scout")
+    if bool(core_alpha_mask.any()):
+        sleeve_score_rank.loc[core_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[core_alpha_mask], "portfolio_core_compounder_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[core_alpha_mask]
+    if bool(future_alpha_mask.any()):
+        sleeve_score_rank.loc[future_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[future_alpha_mask], "portfolio_future_winner_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[future_alpha_mask]
+    if bool(early_alpha_mask.any()):
+        sleeve_score_rank.loc[early_alpha_mask] = cross_sectional_robust_z(
+            sel.loc[early_alpha_mask], "portfolio_early_scout_engine_score"
+        ).reindex(sel.index).fillna(0.0).loc[early_alpha_mask]
     turnover_cost = pd.Series(np.zeros(len(sel)), index=sel.index, dtype=float)
     if prev_w:
         turnover_cost = (~sel["ticker"].isin(prev_w.keys())).astype(float)
@@ -16833,12 +16967,36 @@ def build_target_portfolio(
     sel["portfolio_regime_rotation_boost"] = 0.0
     sel["portfolio_midterm_boost"] = 0.0
     sel["portfolio_growth_penalty"] = 0.0
-    sel["portfolio_alpha"] = utility_score.fillna(0.0)
+    sleeve_offense_boost = pd.Series(0.0, index=sel.index, dtype=float)
+    sleeve_offense_boost.loc[core_alpha_mask] = (
+        0.06 * sage_q_rank.loc[core_alpha_mask]
+        + 0.04 * sage_score_rank.loc[core_alpha_mask]
+    )
+    sleeve_offense_boost.loc[future_alpha_mask] = (
+        0.12 * sage_score_rank.loc[future_alpha_mask]
+        + 0.08 * sage_g_rank.loc[future_alpha_mask]
+    )
+    sleeve_offense_boost.loc[early_alpha_mask] = (
+        0.18 * sage_score_rank.loc[early_alpha_mask]
+        + 0.10 * sage_g_rank.loc[early_alpha_mask]
+    )
+    sel["portfolio_alpha"] = (
+        0.42 * utility_score.fillna(0.0)
+        + 0.28 * seed_score_rank.fillna(0.0)
+        + 0.20 * sleeve_score_rank.fillna(0.0)
+        + 0.10 * sage_score_rank.fillna(0.0)
+    )
+    sel["portfolio_sage_boost"] = sleeve_offense_boost
     sel["portfolio_risk_cost"] = 0.0
     sel["portfolio_event_stress_cost"] = 0.0
     sel["portfolio_turnover_cost"] = 0.0
     sel["portfolio_liquidity_reward"] = 0.0
-    sel["portfolio_utility"] = sel["portfolio_alpha"] + sel["portfolio_existing_hold_bonus"]
+    sel["portfolio_utility"] = (
+        sel["portfolio_alpha"]
+        + sel["portfolio_sage_boost"]
+        + 0.08 * confirmation
+        + sel["portfolio_existing_hold_bonus"]
+    )
 
     score_component = pd.to_numeric(sel["portfolio_utility"], errors="coerce").fillna(0.0)
     score_component = score_component - float(np.nanmedian(score_component.values))
@@ -16850,7 +17008,10 @@ def build_target_portfolio(
     join_status = sel.get("fund_join_status", pd.Series("", index=sel.index, dtype=str)).astype(str)
     inv_vol = 1.0 / pd.to_numeric(sel["vol_252d"], errors="coerce").replace(0, np.nan)
     inv_vol = inv_vol.fillna(inv_vol.median() if inv_vol.notna().any() else 1.0)
-    vol_component = np.power(inv_vol, max(cfg.weight_invvol_power, 0.0))
+    sleeve_vol_scale = pd.Series(1.0, index=sel.index, dtype=float)
+    sleeve_vol_scale.loc[future_alpha_mask] = 0.55
+    sleeve_vol_scale.loc[early_alpha_mask] = 0.25
+    vol_component = np.power(inv_vol, max(cfg.weight_invvol_power, 0.0) * sleeve_vol_scale)
     raw_w = raw_w * vol_component
     if not np.isfinite(raw_w).all() or raw_w.sum() <= 0:
         raw_w = inv_vol.copy()
@@ -21000,7 +21161,13 @@ def build_latest_portfolio(cfg: dict | EngineConfig, latest_recommendations: pd.
         else:
             cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.10), 0.12)
         latest["portfolio_seed_overheat_penalty"] = 0.0
-        latest["portfolio_seed_score"] = pd.to_numeric(latest["score"], errors="coerce").fillna(0.0)
+        latest["portfolio_seed_score"] = (
+            pd.to_numeric(latest["score"], errors="coerce").fillna(0.0)
+            + 0.28 * numeric_series_or_default(latest, "sage_composite_score", 0.0)
+            + 0.12 * numeric_series_or_default(latest, "sage_g_score", 0.0)
+            + 0.10 * numeric_series_or_default(latest, "portfolio_future_winner_engine_score", 0.0)
+            + 0.08 * numeric_series_or_default(latest, "portfolio_early_scout_engine_score", 0.0)
+        )
         candidate_n = max(int(cfg.top_n) * 2, int(focus_n) + 12)
         latest = latest.sort_values(["portfolio_seed_score", "score"], ascending=[False, False]).head(candidate_n).copy()
 
@@ -21423,6 +21590,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_pre_focus_total",
             "score_base_model",
             "score_model_core",
+            "portfolio_seed_score",
+            "portfolio_alpha",
+            "portfolio_sage_boost",
+            "portfolio_utility",
             "score_strategy_blueprint",
             "ensemble_weight_linear",
             "ensemble_weight_catboost",
@@ -21452,6 +21623,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_future_winner_model",
             "pred_future_winner_ret",
             "pred_future_winner_p",
+            "sage_sector",
+            "sage_composite_score",
+            "sage_g_score",
+            "sage_v_score",
+            "sage_q_score",
+            "sage_c_score",
             "fundamental_lane_label",
             "sector_adjusted_fields_present",
             "partial_scout_confirmation_score",
@@ -21646,6 +21823,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "score_model_core",
             "score_total",
             "score_focus_bonus",
+            "portfolio_seed_score",
+            "portfolio_alpha",
+            "portfolio_sage_boost",
+            "portfolio_utility",
             "ensemble_weight_linear",
             "ensemble_weight_catboost",
             "ensemble_weight_ranker",
@@ -21663,6 +21844,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
+            "sage_sector",
+            "sage_composite_score",
+            "sage_g_score",
+            "sage_v_score",
+            "sage_q_score",
+            "sage_c_score",
             "sleeve_target_core_compounder_weight",
             "sleeve_target_future_winner_weight",
             "sleeve_target_early_scout_weight",
@@ -22216,6 +22403,22 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         values = values[values != ""]
         return str(values.iloc[0]) if not values.empty else str(default)
 
+    def _frame_mean_numeric(frame: pd.DataFrame, column: str, default: float = np.nan) -> float:
+        if frame.empty or column not in frame.columns:
+            return float(default)
+        values = pd.to_numeric(frame[column], errors="coerce").dropna()
+        return float(values.mean()) if not values.empty else float(default)
+
+    def _frame_mode_text(frame: pd.DataFrame, column: str, default: str = "") -> str:
+        if frame.empty or column not in frame.columns:
+            return str(default)
+        values = frame[column].dropna().astype(str).str.strip()
+        values = values[values != ""]
+        if values.empty:
+            return str(default)
+        mode = values.mode()
+        return str(mode.iloc[0]) if not mode.empty else str(default)
+
     def _portfolio_sleeve_weight_map(frame: pd.DataFrame) -> dict[str, float]:
         if frame.empty or "ticker" not in frame.columns or "weight" not in frame.columns:
             return {}
@@ -22251,6 +22454,25 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "early_scout": int(count_map.get("early_scout", 0) or 0),
         }
 
+    def _frame_sage_by_sleeve(frame: pd.DataFrame) -> dict[str, float]:
+        if frame.empty or "portfolio_sleeve_label" not in frame.columns or "sage_composite_score" not in frame.columns:
+            return {}
+        stock_only = frame[
+            frame.get("ticker", pd.Series(dtype=object)).astype(str).str.upper().ne(CASH_PROXY_TICKER)
+        ].copy()
+        if stock_only.empty:
+            return {}
+        grouped = (
+            stock_only.assign(
+                portfolio_sleeve_label=stock_only["portfolio_sleeve_label"].fillna("core_compounder").astype(str),
+                sage_composite_score=pd.to_numeric(stock_only["sage_composite_score"], errors="coerce"),
+            )
+            .dropna(subset=["sage_composite_score"])
+            .groupby("portfolio_sleeve_label")["sage_composite_score"]
+            .mean()
+        )
+        return {str(k): float(v) for k, v in grouped.items()}
+
     portfolio_sleeve_actual_weights = _complete_sleeve_weight_map(_portfolio_sleeve_weight_map(portfolio_latest))
     portfolio_sleeve_selected_counts = _complete_sleeve_count_map(
         {
@@ -22267,6 +22489,20 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if not portfolio_latest.empty and "portfolio_sleeve_label" in portfolio_latest.columns
         else {}
     )
+    sage_snapshot = {
+        "top30_mean_sage_composite_score": _frame_mean_numeric(top30, "sage_composite_score", default=np.nan),
+        "portfolio_mean_sage_composite_score": _frame_mean_numeric(
+            portfolio_latest,
+            "sage_composite_score",
+            default=np.nan,
+        ),
+        "portfolio_mean_sage_g_score": _frame_mean_numeric(portfolio_latest, "sage_g_score", default=np.nan),
+        "portfolio_mean_sage_v_score": _frame_mean_numeric(portfolio_latest, "sage_v_score", default=np.nan),
+        "portfolio_mean_sage_q_score": _frame_mean_numeric(portfolio_latest, "sage_q_score", default=np.nan),
+        "portfolio_mean_sage_c_score": _frame_mean_numeric(portfolio_latest, "sage_c_score", default=np.nan),
+        "portfolio_sage_sector_mode": _frame_mode_text(portfolio_latest, "sage_sector", default=""),
+        "portfolio_sage_by_sleeve": _frame_sage_by_sleeve(portfolio_latest),
+    }
 
     weights_payload = {
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
@@ -22356,6 +22592,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         ),
         "strict_live_backtest_alignment": bool(cfg.strict_live_backtest_alignment),
         "ops_min_realized_coverage": float(cfg.ops_min_realized_coverage),
+        "sage_snapshot": sage_snapshot,
         "event_regime_label": (
             portfolio_latest.get("event_regime_label", pd.Series(dtype=object)).dropna().astype(str).mode().iloc[0]
             if not portfolio_latest.empty
@@ -22524,6 +22761,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         ) if not portfolio_latest.empty else 0.0,
         "portfolio_sleeve_actual_weights": portfolio_sleeve_actual_weights,
         "portfolio_sleeve_selected_counts": portfolio_sleeve_selected_counts,
+        "sage_snapshot": sage_snapshot,
         "sleeve_specific_rebalance_enabled": bool(bt.metrics.get("sleeve_specific_rebalance_enabled", False)),
         "sleeve_rebalance_interval_map": dict(bt.metrics.get("sleeve_rebalance_interval_map", {}) or {}),
         "sleeve_rebalance_counts": {

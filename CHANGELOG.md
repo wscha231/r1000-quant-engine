@@ -962,3 +962,29 @@ All entries must be written in English. Entries must be predictable and machine-
   - Software and Semiconductor share the "Information Technology" GICS sector string; SAGE_SECTOR_MAP keyword scan distinguishes them by checking "SEMICONDUCTOR"/"MICROELECTRONIC" first. If the industry field is unavailable, both may collapse into the Software bucket until a richer industry string is collected.
   - val_residual_* features require at least 3 names per (rebalance_date, sage_sector) group; sparse sectors fall back to a zero residual with no error.
   - Proxy-safe derived metrics (sbc_to_revenue via shares_yoy proxy, rd_intensity via margin gap proxy, roic_approx via liabilities proxy, interest_coverage via liabilities proxy) are intentionally conservative; signal quality will improve after sbc / rd_expense / interest_expense / equity tags are backfilled from companyfacts.zip on the next full Colab run.
+
+### 13:22 KST - sage-portfolio-integration-and-export-observability
+
+- scope:
+  - Move SAGE from a mostly model-level feature into the live portfolio selection/weighting path and expose the resulting influence in final outputs.
+- files:
+  - `r1000_top30_institutional.py` -> strengthened SAGE impact in candidate seeding, preserved the earlier sleeve/weight integration, and exported SAGE diagnostics to `portfolio_latest.csv`, `top30_latest.csv`, `weights_latest.json`, and `run_summary.json`.
+- symbols_changed:
+  - `build_target_portfolio()` -> `portfolio_seed_score` now includes `sage_composite_score`, `sage_g_score`, and growth-sleeve engine scores before the candidate pool is cut, so future/early names are less likely to be filtered out before portfolio construction.
+  - `build_latest_portfolio()` -> live-policy candidate seeding now mirrors the same SAGE-aware seed logic.
+  - `export_outputs()` -> operational views now include `portfolio_seed_score`, `portfolio_alpha`, `portfolio_sage_boost`, `portfolio_utility`, `sage_sector`, `sage_composite_score`, `sage_g_score`, `sage_v_score`, `sage_q_score`, `sage_c_score`.
+  - `weights_latest.json` / `run_summary.json` payloads -> added `sage_snapshot` containing top30 mean SAGE, portfolio mean SAGE by axis, dominant portfolio SAGE sector, and mean SAGE by sleeve.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_latest.csv` now exposes the direct portfolio-construction path: model/focus score, seed score, SAGE boost, portfolio utility, sleeve label, and SAGE axes.
+  - `outputs/top30_latest.csv` now exposes SAGE columns alongside portfolio selection columns.
+  - `outputs/weights_latest.json` now contains a compact `sage_snapshot` for fast post-run verification.
+  - `outputs/run_summary.json` now contains the same `sage_snapshot` for summary-level inspection.
+- validation:
+  - Grep confirmed new SAGE-aware seed terms in both `build_target_portfolio()` and `build_latest_portfolio()`.
+  - Grep confirmed `portfolio_alpha`, `portfolio_sage_boost`, SAGE columns, and `sage_snapshot` are included in export paths.
+  - Local Python compile/import validation was not run in this environment because no Python interpreter is installed.
+- risks_or_notes:
+  - This change intentionally makes the engine more offensive; early/future sleeves should surface more often, but turnover and concentration can rise in growth-friendly regimes.
+  - SAGE is still hybrid: actual `sbc`/`rd_expense`/`interest_expense` data quality improves only after a fresh collector run populates the expanded tags.
