@@ -892,3 +892,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - The more aggressive default sleeve mix is likely to increase turnover and runtime relative to the older core-heavy defaults.
   - `run_default_pipeline()` will still rebuild earlier stages when the config fingerprint changes; use the Phase 5-only path if you only want to compare portfolio policies against existing feature/scored artifacts.
   - Colab cells that call `spec.loader.exec_module(engine)` without first registering the module in `sys.modules` will still fail under Python 3.12 dataclass import rules.
+
+## 2026-04-14
+
+### 17:30 KST - sage-sector-adaptive-growth-engine
+
+- scope:
+  - Replace the flat Rule-of-40 metric with a sector-adaptive G/V/Q/C scoring framework (SAGE) covering all 8 sector buckets in the Russell 1000 universe.
+- files:
+  - `r1000_top30_institutional.py` — added SAGE constants, 8 new FSDS tags + aliases, 9 proxy-safe derived metrics, 3 SAGE scoring functions, sector-gated z-score utility, and wired compute_sage_scores into compute_valuation_columns.
+- symbols_added:
+  - `SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]]` — 8-bucket sector classifier keyed on GICS keyword matching (Semiconductor, Software, MedTech, Banking, Industrial, Consumer, Energy, General).
+  - `cross_sectional_robust_z_by_sector(df: pd.DataFrame, col: str, sector_col: str = "sage_sector") -> pd.Series` — sector-gated robust z-score; falls back to universe-wide when group size < 5.
+  - `compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series` — assigns each row a SAGE sector label via GICS keyword scan with General fallback.
+  - `_sage_ols_residual(y: pd.Series, X: pd.DataFrame) -> pd.Series` — numpy lstsq OLS; returns zero series on degenerate input.
+  - `compute_valuation_residuals(d: pd.DataFrame) -> pd.DataFrame` — per-(rebalance_date, sage_sector) OLS regression; adds val_residual_ep, val_residual_sp, val_residual_fcfy.
+  - `compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame` — adds sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score (formula: 0.35G + 0.25V + 0.25Q + 0.15C).
+- symbols_changed:
+  - `FSDS_TAGS` — added sbc, rd_expense, interest_expense, equity, inventory, long_term_debt, current_liabilities, cash.
+  - `FSDS_TAG_ALIASES` — added aliases for all 8 new tags.
+  - `BAL_TAGS` — added equity, inventory, long_term_debt, current_liabilities, cash.
+  - `FLOW_TAGS` — added sbc, rd_expense, interest_expense.
+  - `YF_QUARTERLY_COL_MAP` — added 28 yfinance field name mappings for new tags.
+  - `carry_cols` — added fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
+  - `COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS` — added 16 SAGE metric columns.
+  - `DEFAULT_FEATURES` — added 15 SAGE columns including sage_composite_score.
+  - `recompute_fund_panel_derived_columns()` — added 9 proxy-safe derived SAGE metrics with fallback proxies when new FSDS tags not yet collected.
+  - `compute_valuation_columns()` — injected d = compute_sage_scores(d) after sector_adjusted_quality_score block.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none — all new metrics have proxy fallbacks; existing data pipelines run unchanged until next companyfacts.zip pull.
+- outputs:
+  - Scored panel gains: sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score, fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
+- validation:
+  - All 6 SAGE function/constant names confirmed present via grep after implementation.
+  - sage_composite_score confirmed in DEFAULT_FEATURES and COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS.
+  - SAGE_SECTOR_MAP confirmed at line 1031; compute_sage_scores call site confirmed at line 11934.
+  - Local Python compile not run (no interpreter in environment).
+- risks_or_notes:
+  - Software and Semiconductor share the "Information Technology" GICS sector string; SAGE_SECTOR_MAP keyword scan distinguishes them by checking "SEMICONDUCTOR"/"MICROELECTRONIC" first. If the industry field is unavailable, both may collapse into the Software bucket until a richer industry string is collected.
+  - val_residual_* features require at least 3 names per (rebalance_date, sage_sector) group; sparse sectors fall back to a zero residual with no error.
+  - Proxy-safe derived metrics (sbc_to_revenue via shares_yoy proxy, rd_intensity via margin gap proxy, roic_approx via liabilities proxy, interest_coverage via liabilities proxy) are intentionally conservative; signal quality will improve after sbc / rd_expense / interest_expense / equity tags are backfilled from companyfacts.zip on the next full Colab run.

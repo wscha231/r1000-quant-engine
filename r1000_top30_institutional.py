@@ -114,6 +114,15 @@ FSDS_TAGS = {
     "ocf": "NetCashProvidedByUsedInOperatingActivities",
     "capex": "PaymentsToAcquirePropertyPlantAndEquipment",
     "shares": "CommonStockSharesOutstanding",
+    # SAGE additions — collected from companyfacts.zip (already present in bulk archive)
+    "sbc": "ShareBasedCompensation",
+    "rd_expense": "ResearchAndDevelopmentExpense",
+    "interest_expense": "InterestExpense",
+    "equity": "StockholdersEquity",
+    "inventory": "InventoryNet",
+    "long_term_debt": "LongTermDebt",
+    "current_liabilities": "LiabilitiesCurrent",
+    "cash": "CashAndCashEquivalentsAtCarryingValue",
 }
 
 FSDS_TAG_ALIASES = {
@@ -170,6 +179,46 @@ FSDS_TAG_ALIASES = {
         "CapitalExpendituresIncurredButNotYetPaidAcquisitions",
     ],
     "shares": ["CommonStockSharesOutstanding", "EntityCommonStockSharesOutstanding"],
+    "sbc": [
+        "ShareBasedCompensation",
+        "AllocatedShareBasedCompensationExpense",
+        "EmployeeBenefitsAndShareBasedCompensation",
+    ],
+    "rd_expense": [
+        "ResearchAndDevelopmentExpense",
+        "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
+        "ResearchAndDevelopmentExpenseNet",
+    ],
+    "interest_expense": [
+        "InterestExpense",
+        "InterestExpenseDebt",
+        "InterestAndDebtExpense",
+        "InterestExpenseNet",
+    ],
+    "equity": [
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        "LiabilitiesAndStockholdersEquity",
+    ],
+    "inventory": [
+        "InventoryNet",
+        "Inventories",
+        "InventoryFinishedGoodsAndWorkInProcess",
+    ],
+    "long_term_debt": [
+        "LongTermDebt",
+        "LongTermDebtNoncurrent",
+        "LongTermDebtAndCapitalLeaseObligations",
+    ],
+    "current_liabilities": [
+        "LiabilitiesCurrent",
+        "LiabilitiesCurrentOther",
+    ],
+    "cash": [
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashCashEquivalentsAndShortTermInvestments",
+        "CashAndCashEquivalents",
+    ],
 }
 
 FSDS_TAG_CANON = {
@@ -178,7 +227,11 @@ FSDS_TAG_CANON = {
     for alias in aliases
 }
 
-BAL_TAGS = {FSDS_TAGS["assets"], FSDS_TAGS["liabilities"], FSDS_TAGS["shares"]}
+BAL_TAGS = {
+    FSDS_TAGS["assets"], FSDS_TAGS["liabilities"], FSDS_TAGS["shares"],
+    FSDS_TAGS["equity"], FSDS_TAGS["inventory"], FSDS_TAGS["long_term_debt"],
+    FSDS_TAGS["current_liabilities"], FSDS_TAGS["cash"],
+}
 FLOW_TAGS = {
     FSDS_TAGS["revenues"],
     FSDS_TAGS["cost_of_revenue"],
@@ -187,6 +240,9 @@ FLOW_TAGS = {
     FSDS_TAGS["net_income"],
     FSDS_TAGS["ocf"],
     FSDS_TAGS["capex"],
+    FSDS_TAGS["sbc"],
+    FSDS_TAGS["rd_expense"],
+    FSDS_TAGS["interest_expense"],
 }
 NEEDED_TAGS = set(FSDS_TAG_CANON.keys())
 
@@ -216,6 +272,34 @@ YF_QUARTERLY_COL_MAP = {
     "OperatingCashFlow": "ocf",
     "Capital Expenditure": "capex",
     "CapitalExpenditure": "capex",
+    # SAGE additions — yfinance field names for new SEC tags
+    "Stock Based Compensation": "sbc",
+    "StockBasedCompensation": "sbc",
+    "Share Based Compensation": "sbc",
+    "ShareBasedCompensation": "sbc",
+    "Research And Development": "rd_expense",
+    "ResearchAndDevelopment": "rd_expense",
+    "Research Development": "rd_expense",
+    "ResearchDevelopment": "rd_expense",
+    "Interest Expense": "interest_expense",
+    "InterestExpense": "interest_expense",
+    "Interest Expense Non Operating": "interest_expense",
+    "Stockholders Equity": "equity",
+    "StockholdersEquity": "equity",
+    "Total Equity Gross Minority Interest": "equity",
+    "TotalEquityGrossMinorityInterest": "equity",
+    "Inventory": "inventory",
+    "Inventories": "inventory",
+    "Long Term Debt": "long_term_debt",
+    "LongTermDebt": "long_term_debt",
+    "Long Term Debt And Capital Lease Obligation": "long_term_debt",
+    "LongTermDebtAndCapitalLeaseObligation": "long_term_debt",
+    "Current Liabilities": "current_liabilities",
+    "CurrentLiabilities": "current_liabilities",
+    "Cash And Cash Equivalents": "cash",
+    "CashAndCashEquivalents": "cash",
+    "Cash Cash Equivalents And Short Term Investments": "cash",
+    "CashCashEquivalentsAndShortTermInvestments": "cash",
 }
 
 ACCEPTED_SEC_FORMS = {
@@ -561,6 +645,22 @@ DEFAULT_FEATURES = [
     "technical_blueprint_score",
     "macro_hedge_score",
     "strategy_blueprint_score",
+    # SAGE: Sector-Adaptive Growth Engine
+    "sage_composite_score",
+    "sage_g_score",
+    "sage_v_score",
+    "sage_q_score",
+    "sage_c_score",
+    "rule_of_40",
+    "fcf_margin",
+    "net_margin",
+    "gross_margin_ttm",
+    "roic_approx",
+    "sbc_to_revenue",
+    "dilution_penalty",
+    "val_residual_ep",
+    "val_residual_sp",
+    "val_residual_fcfy",
 ] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
@@ -820,6 +920,22 @@ COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS = [
     "fcf_growth_yoy",
     "fcf_cagr_1y", "fcf_cagr_2y", "fcf_cagr_3y", "fcf_cagr_5y", "fcf_cagr_best",
     "fund_history_quarters_available",
+    # SAGE metrics
+    "fcf_margin",
+    "net_margin",
+    "gross_margin_ttm",
+    "rule_of_40",
+    "sbc_to_revenue",
+    "rd_intensity",
+    "roic_approx",
+    "interest_coverage",
+    "dilution_penalty",
+    "sage_composite_score",
+    "sage_g_score",
+    "sage_v_score",
+    "sage_q_score",
+    "sage_c_score",
+    "sage_sector",
 ]
 
 HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS = [
@@ -908,6 +1024,20 @@ CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
 SECTOR_GATE_FINANCIAL_KEYWORDS = ("FINANCIAL",)
 SECTOR_GATE_REAL_ASSET_KEYWORDS = ("REAL ESTATE", "UTILITY")
 SECTOR_GATE_RESOURCE_KEYWORDS = ("ENERGY", "MATERIAL")
+
+# SAGE: Sector-Adaptive Growth Engine — 8-bucket sector classification.
+# Matched against normalized (uppercased) sector labels from the universe.
+# Priority order matters: first match wins (most specific listed first).
+SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]] = [
+    ("Semiconductor", ("SEMICONDUCTOR", "MICROELECTRONIC")),
+    ("Software",      ("INFORMATION TECHNOLOGY", "SOFTWARE", "INTERNET", "COMMUNICATION SERVICES", "TECH")),
+    ("MedTech",       ("HEALTH CARE", "HEALTHCARE", "MEDICAL", "DIAGNOSTIC", "BIOTECH", "PHARMACEUTICAL", "LIFE SCIENCE")),
+    ("Banking",       ("FINANCIAL", "BANK", "CAPITAL MARKET", "ASSET MANAGEMENT", "BROKERAGE", "INSURANCE")),
+    ("Industrial",    ("INDUSTRIAL", "AEROSPACE", "DEFENSE", "ELECTRICAL", "AUTOMATION", "MACHINERY")),
+    ("Consumer",      ("CONSUMER", "RETAIL", "APPAREL", "RESTAURANT", "HOTEL", "LEISURE", "FOOD", "BEVERAGE", "HOUSEHOLD")),
+    ("Energy",        ("ENERGY", "OIL", "GAS", "COAL", "MINING", "METAL", "CHEMICAL", "MATERIAL", "REAL ESTATE", "UTILITY")),
+    ("General",       ()),   # catch-all — always last
+]
 
 
 @dataclass
@@ -2548,6 +2678,44 @@ def cross_sectional_robust_z(df: pd.DataFrame, col: str) -> pd.Series:
         .reindex(df.index)
         .fillna(0.0)
     )
+
+
+def cross_sectional_robust_z_by_sector(df: pd.DataFrame, col: str, sector_col: str = "sage_sector") -> pd.Series:
+    """Sector-gated robust z-score: standardizes col within each (rebalance_date, sage_sector) group.
+    Falls back to universe-wide cross_sectional_robust_z when sage_sector is absent or a group is too small."""
+    if col not in df.columns:
+        return pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
+    if sector_col not in df.columns or "rebalance_date" not in df.columns:
+        return cross_sectional_robust_z(df, col)
+    result = pd.Series(np.nan, index=df.index, dtype=float)
+    for (rd, sc), grp in df.groupby(["rebalance_date", sector_col], group_keys=False):
+        vals = pd.to_numeric(grp[col], errors="coerce")
+        if vals.notna().sum() >= 5:
+            result.loc[grp.index] = robust_z(vals).fillna(0.0)
+        else:
+            result.loc[grp.index] = 0.0
+    # Fill any gaps with universe-wide z-score
+    gap_mask = result.isna()
+    if gap_mask.any():
+        result.loc[gap_mask] = cross_sectional_robust_z(df, col).loc[gap_mask]
+    return result.fillna(0.0)
+
+
+def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
+    """Classify each row into one of 8 SAGE sectors using SAGE_SECTOR_MAP keyword matching.
+    Returns a Series with values like 'Software', 'Semiconductor', 'Banking', etc."""
+    sector_labels = normalized_sector_labels(df)
+    result = pd.Series("General", index=df.index, dtype=str)
+    for sage_name, keywords in SAGE_SECTOR_MAP:
+        if sage_name == "General":
+            break  # catch-all — skip, already initialized to "General"
+        if not keywords:
+            continue
+        mask = sector_keyword_mask(sector_labels, keywords)
+        # Only assign where not yet classified (first match wins)
+        unclassified = result == "General"
+        result.loc[mask & unclassified] = sage_name
+    return result
 
 
 def numeric_series_or_default(df: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
@@ -10051,6 +10219,74 @@ def recompute_fund_panel_derived_columns(
             d["roe_trend_4q"] = d.groupby("cik")["roe_proxy"].diff(4)
         d["debt_to_equity_delta_4q"] = d.groupby("cik")["debt_to_equity"].diff(4)
 
+    # --- SAGE derived metrics (proxy-safe: fallback to approximations when new tags absent) ---
+    rev_ttm = pd.to_numeric(d.get("revenues_ttm"), errors="coerce").replace(0, np.nan)
+    fcf_col = pd.to_numeric(d.get("fcf_ttm"), errors="coerce")
+    op_inc_col = pd.to_numeric(d.get("op_income_ttm"), errors="coerce")
+    net_inc_col = pd.to_numeric(d.get("net_income_ttm"), errors="coerce")
+    gp_col = pd.to_numeric(d.get("gross_profit_ttm"), errors="coerce")
+    assets_col = pd.to_numeric(d.get("assets"), errors="coerce").replace(0, np.nan)
+    liab_col = pd.to_numeric(d.get("liabilities"), errors="coerce").replace(0, np.nan)
+    shares_yoy_col = pd.to_numeric(d.get("shares_yoy"), errors="coerce")
+
+    if rev_ttm is not None and rev_ttm.notna().any():
+        if fcf_col is not None and fcf_col.notna().any():
+            d["fcf_margin"] = (fcf_col / rev_ttm).clip(-1.0, 1.0)
+        if net_inc_col is not None and net_inc_col.notna().any():
+            d["net_margin"] = (net_inc_col / rev_ttm).clip(-1.0, 1.0)
+        if gp_col is not None and gp_col.notna().any():
+            d["gross_margin_ttm"] = (gp_col / rev_ttm).clip(0.0, 1.0)
+        if op_inc_col is not None and op_inc_col.notna().any():
+            d["op_margin_calc_ttm"] = (op_inc_col / rev_ttm).clip(-1.0, 1.0)
+
+        # Rule of 40 = revenue_growth + FCF margin (SAGE Software core signal)
+        rev_growth = pd.to_numeric(d.get("revenue_growth_final", d.get("sales_growth_yoy")), errors="coerce")
+        if rev_growth is not None and "fcf_margin" in d.columns:
+            d["rule_of_40"] = (rev_growth + d["fcf_margin"]).clip(-0.5, 1.5)
+
+        # SBC proxy: actual if available, else dilution-based approximation
+        if "sbc" in d.columns and pd.to_numeric(d["sbc"], errors="coerce").notna().any():
+            sbc_ttm = d.groupby("cik")["sbc"].transform(lambda s: s.rolling(4, min_periods=1).sum())
+            d["sbc_to_revenue"] = (sbc_ttm / rev_ttm).clip(0.0, 0.50)
+        elif shares_yoy_col is not None and shares_yoy_col.notna().any():
+            d["sbc_to_revenue"] = (shares_yoy_col.clip(0.0, 0.40) * 0.70).fillna(0.0)
+        else:
+            d["sbc_to_revenue"] = 0.0
+
+        # R&D intensity: actual if available, else gross_margin - op_margin proxy
+        if "rd_expense" in d.columns and pd.to_numeric(d["rd_expense"], errors="coerce").notna().any():
+            rd_ttm = d.groupby("cik")["rd_expense"].transform(lambda s: s.rolling(4, min_periods=1).sum())
+            d["rd_intensity"] = (rd_ttm / rev_ttm).clip(0.0, 0.80)
+        elif "gross_margin_ttm" in d.columns and "op_margin_calc_ttm" in d.columns:
+            d["rd_intensity"] = (d["gross_margin_ttm"] - d["op_margin_calc_ttm"]).clip(0.0, 0.80)
+        else:
+            d["rd_intensity"] = np.nan
+
+    # ROIC approximation: NOPAT / Invested Capital proxy
+    if assets_col is not None and liab_col is not None and op_inc_col is not None:
+        if "current_liabilities" in d.columns and pd.to_numeric(d["current_liabilities"], errors="coerce").notna().any():
+            curr_liab = pd.to_numeric(d["current_liabilities"], errors="coerce").replace(0, np.nan)
+        else:
+            curr_liab = (liab_col * 0.30)
+        invested_capital = (assets_col - curr_liab).replace(0, np.nan)
+        nopat = op_inc_col * 0.79
+        d["roic_approx"] = (nopat / invested_capital).clip(-0.50, 1.00)
+        d["roic_approx"] = d.groupby("cik")["roic_approx"].transform(lambda s: s.ffill(limit=4))
+
+    # Interest coverage proxy
+    if op_inc_col is not None:
+        if "interest_expense" in d.columns and pd.to_numeric(d["interest_expense"], errors="coerce").notna().any():
+            int_exp_ttm = d.groupby("cik")["interest_expense"].transform(lambda s: s.rolling(4, min_periods=1).sum())
+            int_exp_ttm = pd.to_numeric(int_exp_ttm, errors="coerce").replace(0, np.nan).abs()
+            d["interest_coverage"] = (op_inc_col / int_exp_ttm).clip(-5.0, 30.0)
+        elif liab_col is not None:
+            est_int = (liab_col * 0.04).replace(0, np.nan)
+            d["interest_coverage"] = (op_inc_col / est_int).clip(-5.0, 30.0)
+
+    # Dilution penalty
+    if shares_yoy_col is not None and shares_yoy_col.notna().any():
+        d["dilution_penalty"] = shares_yoy_col.clip(-0.05, 0.30)
+
     ttm_ready_cols = ["revenues_ttm", "net_income_ttm", "op_margin_ttm"]
     carry_cols = [
         "revenues_ttm",
@@ -10108,6 +10344,16 @@ def recompute_fund_panel_derived_columns(
         "fcf_cagr_5y",
         "fcf_cagr_best",
         "fund_history_quarters_available",
+        # SAGE derived metrics
+        "fcf_margin",
+        "net_margin",
+        "gross_margin_ttm",
+        "rule_of_40",
+        "sbc_to_revenue",
+        "rd_intensity",
+        "roic_approx",
+        "interest_coverage",
+        "dilution_penalty",
     ]
     for c in set(ttm_ready_cols + carry_cols):
         if c not in d.columns:
@@ -11244,6 +11490,222 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     return monthly
 
 
+def _sage_ols_residual(
+    y: pd.Series,
+    X: pd.DataFrame,
+) -> pd.Series:
+    """OLS residual: actual - predicted. Returns zeros on degenerate input."""
+    try:
+        y_arr = y.to_numpy(dtype=float)
+        X_arr = np.column_stack([np.ones(len(X))] + [X[c].to_numpy(dtype=float) for c in X.columns])
+        valid = np.isfinite(y_arr) & np.all(np.isfinite(X_arr), axis=1)
+        if valid.sum() < max(len(X.columns) + 2, 10):
+            return pd.Series(0.0, index=y.index)
+        coef, *_ = np.linalg.lstsq(X_arr[valid], y_arr[valid], rcond=None)
+        pred = X_arr @ coef
+        resid = y_arr - pred
+        out = pd.Series(resid, index=y.index, dtype=float)
+        out.loc[~valid] = 0.0
+        return out
+    except Exception:
+        return pd.Series(0.0, index=y.index)
+
+
+def compute_valuation_residuals(d: pd.DataFrame) -> pd.DataFrame:
+    """Compute sector-relative valuation residuals per rebalance_date × sage_sector group.
+    Residual < 0 → cheaper than peers given fundamentals; > 0 → more expensive.
+    Adds columns: val_residual_ep, val_residual_sp, val_residual_fcfy."""
+    if "sage_sector" not in d.columns or "rebalance_date" not in d.columns:
+        for c in ("val_residual_ep", "val_residual_sp", "val_residual_fcfy"):
+            d[c] = 0.0
+        return d
+
+    residual_ep = pd.Series(np.nan, index=d.index, dtype=float)
+    residual_sp = pd.Series(np.nan, index=d.index, dtype=float)
+    residual_fcfy = pd.Series(np.nan, index=d.index, dtype=float)
+
+    regressors_base = ["sales_cagr_best", "fcf_margin", "gross_margin_ttm", "net_margin"]
+    quality_regs = ["roic_approx", "op_margin_ttm", "return_on_equity_effective"]
+
+    for (rd, sc), grp in d.groupby(["rebalance_date", "sage_sector"], group_keys=False):
+        if len(grp) < 8:
+            residual_ep.loc[grp.index] = 0.0
+            residual_sp.loc[grp.index] = 0.0
+            residual_fcfy.loc[grp.index] = 0.0
+            continue
+
+        available_regs = [c for c in regressors_base + quality_regs if c in grp.columns]
+        if not available_regs:
+            residual_ep.loc[grp.index] = 0.0
+            residual_sp.loc[grp.index] = 0.0
+            residual_fcfy.loc[grp.index] = 0.0
+            continue
+
+        X_raw = grp[available_regs].copy()
+        for c in available_regs:
+            col_vals = pd.to_numeric(X_raw[c], errors="coerce")
+            lo, hi = col_vals.quantile(0.05), col_vals.quantile(0.95)
+            X_raw[c] = col_vals.clip(lo, hi).fillna(col_vals.median())
+
+        if "ep_ttm" in grp.columns:
+            y_ep = pd.to_numeric(grp["ep_ttm"], errors="coerce")
+            residual_ep.loc[grp.index] = _sage_ols_residual(y_ep, X_raw)
+        else:
+            residual_ep.loc[grp.index] = 0.0
+
+        if "sp_ttm" in grp.columns:
+            y_sp = pd.to_numeric(grp["sp_ttm"], errors="coerce")
+            residual_sp.loc[grp.index] = _sage_ols_residual(y_sp, X_raw)
+        else:
+            residual_sp.loc[grp.index] = 0.0
+
+        if "fcfy_ttm" in grp.columns:
+            y_fcfy = pd.to_numeric(grp["fcfy_ttm"], errors="coerce")
+            residual_fcfy.loc[grp.index] = _sage_ols_residual(y_fcfy, X_raw)
+        else:
+            residual_fcfy.loc[grp.index] = 0.0
+
+    d["val_residual_ep"] = residual_ep.fillna(0.0)
+    d["val_residual_sp"] = residual_sp.fillna(0.0)
+    d["val_residual_fcfy"] = residual_fcfy.fillna(0.0)
+    return d
+
+
+def compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame:
+    """Compute SAGE (Sector-Adaptive Growth Engine) composite score.
+
+    Adds columns:
+      sage_sector        — 8-bucket sector label
+      sage_g_score       — Growth axis (sector-gated z-score blend)
+      sage_v_score       — Valuation axis (residual-based)
+      sage_q_score       — Quality axis (FCF, ROIC, SBC, dilution)
+      sage_c_score       — Confirmation axis (momentum + revisions)
+      sage_composite_score — 0.35G + 0.25V + 0.25Q + 0.15C
+    """
+    if d.empty:
+        for c in ("sage_sector", "sage_g_score", "sage_v_score", "sage_q_score", "sage_c_score", "sage_composite_score"):
+            d[c] = 0.0
+        return d
+
+    d["sage_sector"] = compute_sage_sector_labels(d)
+    d = compute_valuation_residuals(d)
+
+    def _sz(col: str) -> pd.Series:
+        return cross_sectional_robust_z_by_sector(d, col, "sage_sector")
+
+    def _uz(col: str) -> pd.Series:
+        return cross_sectional_robust_z(d, col)
+
+    def _w_mean(*pairs) -> pd.Series:
+        total = pd.Series(0.0, index=d.index)
+        weight_sum = pd.Series(0.0, index=d.index)
+        for w, s in pairs:
+            valid = pd.to_numeric(s, errors="coerce").notna()
+            total += w * pd.to_numeric(s, errors="coerce").fillna(0.0)
+            weight_sum += w * valid.astype(float)
+        return (total / weight_sum.replace(0, np.nan)).fillna(0.0)
+
+    sector = d["sage_sector"]
+    sw_mask  = sector.isin(["Software", "Semiconductor"])
+    med_mask = sector == "MedTech"
+    fin_mask = sector == "Banking"
+    ene_mask = sector == "Energy"
+
+    # Growth axis
+    g_growth_universal = _w_mean(
+        (0.40, _sz("sales_cagr_best")),
+        (0.30, _sz("revenue_growth_final")),
+        (0.20, _sz("eps_cagr_best")),
+        (0.10, _sz("ocf_cagr_best")),
+    )
+    g_sw = _w_mean(
+        (0.40, _sz("rule_of_40")),
+        (0.35, _sz("sales_cagr_best")),
+        (0.25, _sz("eps_cagr_best")),
+    )
+    g_med = _w_mean(
+        (0.55, _sz("sales_cagr_best")),
+        (0.25, _sz("revenue_growth_final")),
+        (0.20, _sz("eps_cagr_best")),
+    )
+    g_fin = _w_mean(
+        (0.45, _sz("return_on_equity_effective")),
+        (0.35, _sz("sales_cagr_best")),
+        (0.20, _sz("eps_cagr_best")),
+    )
+    g_ene = _w_mean(
+        (0.40, _sz("ocf_cagr_best")),
+        (0.35, _sz("sales_cagr_best")),
+        (0.25, _sz("eps_cagr_best")),
+    )
+    g_base = g_growth_universal.copy()
+    g_base.loc[sw_mask]  = g_sw.loc[sw_mask]
+    g_base.loc[med_mask] = g_med.loc[med_mask]
+    g_base.loc[fin_mask] = g_fin.loc[fin_mask]
+    g_base.loc[ene_mask] = g_ene.loc[ene_mask]
+    d["sage_g_score"] = g_base.fillna(0.0)
+
+    # Valuation axis
+    v_base = _w_mean(
+        (0.40, _sz("val_residual_ep")),
+        (0.35, _sz("val_residual_sp")),
+        (0.25, _sz("val_residual_fcfy")),
+    )
+    v_direct = _w_mean(
+        (0.35, _uz("fcfy_ttm")),
+        (0.35, _uz("ep_ttm")),
+        (0.30, -_uz("forward_pe_final")),
+    )
+    v_score = v_base.copy()
+    v_score.loc[fin_mask | ene_mask] = (
+        0.40 * v_base.loc[fin_mask | ene_mask] + 0.60 * v_direct.loc[fin_mask | ene_mask]
+    )
+    d["sage_v_score"] = v_score.fillna(0.0)
+
+    # Quality axis
+    q_base = _w_mean(
+        (0.30, _sz("fcf_margin")),
+        (0.25, _sz("gross_margin_ttm")),
+        (0.20, _sz("roic_approx")),
+        (-0.15, _sz("sbc_to_revenue")),
+        (-0.10, _sz("dilution_penalty")),
+    )
+    q_fin = _w_mean(
+        (0.50, _sz("return_on_equity_effective")),
+        (0.30, _sz("roa_proxy")),
+        (0.20, -_sz("debt_to_equity")),
+    )
+    q_ene = _w_mean(
+        (0.40, _sz("roic_approx")),
+        (0.35, _sz("fcf_margin")),
+        (0.25, _sz("op_margin_ttm")),
+    )
+    q_score = q_base.copy()
+    q_score.loc[fin_mask] = q_fin.loc[fin_mask]
+    q_score.loc[ene_mask] = q_ene.loc[ene_mask]
+    d["sage_q_score"] = q_score.fillna(0.0)
+
+    # Confirmation axis
+    c_score = _w_mean(
+        (0.35, _uz("mom_6m")),
+        (0.20, _uz("mom_3m")),
+        (0.20, _uz("rs_sector_6m")),
+        (0.15, _uz("revision_score")),
+        (0.10, _uz("earn_gap_1d")),
+    )
+    d["sage_c_score"] = c_score.fillna(0.0)
+
+    # Composite
+    d["sage_composite_score"] = (
+        0.35 * d["sage_g_score"]
+        + 0.25 * d["sage_v_score"]
+        + 0.25 * d["sage_q_score"]
+        + 0.15 * d["sage_c_score"]
+    ).fillna(0.0)
+
+    return d
+
+
 def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
     d["mktcap"] = pd.to_numeric(d["mktcap"], errors="coerce")
@@ -11467,6 +11929,10 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     d.loc[finance_mask, "sector_adjusted_quality_score"] = financial_quality.loc[finance_mask]
     d.loc[real_asset_mask, "sector_adjusted_quality_score"] = real_asset_quality.loc[real_asset_mask]
     d.loc[resource_mask, "sector_adjusted_quality_score"] = resource_quality.loc[resource_mask]
+
+    # --- SAGE: Sector-Adaptive Growth Engine scores ---
+    d = compute_sage_scores(d)
+
     value_score = row_mean(
         [
             cross_sectional_robust_z(d, "ep_ttm"),
