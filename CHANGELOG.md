@@ -893,6 +893,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - `run_default_pipeline()` will still rebuild earlier stages when the config fingerprint changes; use the Phase 5-only path if you only want to compare portfolio policies against existing feature/scored artifacts.
   - Colab cells that call `spec.loader.exec_module(engine)` without first registering the module in `sys.modules` will still fail under Python 3.12 dataclass import rules.
 
+### 22:00 KST - fast-mode-and-runtime-reduction
+
+- scope:
+  - Phase 4 walk-forward training and Phase 5 backtest suite runtime reduction.
+- files:
+  - `r1000_top30_institutional.py` — added fast_mode EngineConfig field, apply_fast_mode() function, reduced default comparison candidate counts, trimmed _SLEEVE_POLICY_CANDIDATES from 12 to 8.
+- symbols_added:
+  - `apply_fast_mode(cfg: EngineConfig) -> EngineConfig` — applies Phase 4+5 override settings when cfg.fast_mode is True; called at the top of run_all() after validate_config().
+- symbols_changed:
+  - `EngineConfig` — added fast_mode: bool = False; lowered sleeve_cap_policy_max_candidates default from 9 to 6; lowered ai_four_sleeve_max_candidates default from 12 to 8.
+  - `run_all()` — calls apply_fast_mode(cfg) immediately after validate_config(cfg).
+  - `_SLEEVE_POLICY_CANDIDATES` — reduced from 12 to 8 entries; removed def_55_30_15, bal_45_35_20, aggr_30_35_35, aggr_20_40_40 (near-duplicates of retained entries).
+- config_fields_added:
+  - `fast_mode: bool = False` — when True, apply_fast_mode() cuts total Phase 4+5 runtime by ~60%; sets ranking_enabled=False, cat iterations 200/200/150, retrain_freq=6m, disables regime-per-regime/AI-four-sleeve/regime-map-method/standalone-sleeve comparisons, caps sleeve-cap candidates to 3.
+- breaking_changes:
+  - none — fast_mode defaults to False; all existing Colab runs are unaffected unless opt-in.
+- outputs:
+  - none
+- validation:
+  - grep confirmed fast_mode field at line 1381, apply_fast_mode() at line 1384, cfg = apply_fast_mode(cfg) call at line 22850.
+  - sleeve_cap_policy_max_candidates default confirmed as 6, ai_four_sleeve_max_candidates confirmed as 8.
+  - _SLEEVE_POLICY_CANDIDATES confirmed as 8 entries.
+  - Local Python compile not run (no interpreter in environment).
+- risks_or_notes:
+  - fast_mode=True halves the walk-forward retrain frequency (6m vs 3m), which may slightly reduce model adaptation quality in fast-changing regimes; disable with cfg["fast_mode"]=False for full-quality production runs.
+  - ranking_enabled=False in fast_mode removes the CatBoostRanker model; the ensemble falls back to regressor+classifier blend only.
+  - Default sleeve_cap_policy_max_candidates=6 and ai_four_sleeve_max_candidates=8 apply to all runs regardless of fast_mode; saves ~5 backtests per full run compared to previous defaults (9/12).
+
 ## 2026-04-14
 
 ### 17:30 KST - sage-sector-adaptive-growth-engine

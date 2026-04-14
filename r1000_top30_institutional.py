@@ -1152,9 +1152,9 @@ class EngineConfig:
     run_regime_map_method_comparison: bool = True
     run_sleeve_cap_policy_comparison: bool = True
     run_ai_four_sleeve_comparison: bool = True
-    ai_four_sleeve_max_candidates: int = 12
+    ai_four_sleeve_max_candidates: int = 8
     sleeve_cap_policy_apply_champion: bool = True
-    sleeve_cap_policy_max_candidates: int = 9
+    sleeve_cap_policy_max_candidates: int = 6
     sleeve_cap_policy_objective_excess_weight: float = 1.15
     sleeve_cap_policy_objective_sharpe_weight: float = 1.0
     sleeve_cap_policy_objective_sortino_weight: float = 0.50
@@ -1377,6 +1377,43 @@ class EngineConfig:
     yf_quarterly_cache_enabled: bool = True
     yf_quarterly_refresh_days: int = 7
     yf_quarterly_max_tickers_per_run: int = 1000
+    # --------------- fast mode ---------------
+    fast_mode: bool = False  # set True to cut Phase 4+5 runtime by ~60%
+
+
+def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
+    """Apply runtime-reduction overrides when cfg.fast_mode is True.
+
+    Phase 4 savings:
+      - CatBoost iterations cut ~40%: reg 350→200, cls 350→200, rank 250→150
+      - ranking_enabled disabled: ~30% faster per retrain cycle
+      - retrain frequency halved: 3m→6m  (fewer training windows)
+
+    Phase 5 savings:
+      - regime-per-regime comparison disabled (-12 backtests)
+      - AI four-sleeve comparison disabled (-13 backtests)
+      - regime-map-method comparison disabled (-2 backtests)
+      - standalone sleeve comparison disabled (-6 backtests)
+      - sleeve-cap policy candidates reduced to 3 (-3 backtests vs default 6)
+    Net: ~5 backtests instead of ~44.  Estimated runtime: ~1.5h vs ~8h.
+    """
+    if not cfg.fast_mode:
+        return cfg
+    # Phase 4 — model complexity
+    cfg.cat_reg_iterations = 200
+    cfg.cat_cls_iterations = 200
+    cfg.cat_rank_iterations = 150
+    cfg.ranking_enabled = False
+    cfg.walkforward_retrain_frequency_months = 6
+    cfg.cat_validation_months = 4
+    # Phase 5 — comparison suites
+    cfg.run_sleeve_regime_comparison = False
+    cfg.run_ai_four_sleeve_comparison = False
+    cfg.run_regime_map_method_comparison = False
+    cfg.run_standalone_sleeve_backtest_comparison = False
+    cfg.sleeve_cap_policy_max_candidates = 3
+    log("[fast_mode] ON — Phase 4+5 overrides applied. ~5 backtests, retrain every 6m.")
+    return cfg
 
 
 def now_ts() -> str:
@@ -20169,15 +20206,11 @@ def build_latest_standalone_sleeve_holdings(
 _SLEEVE_POLICY_CANDIDATES: list[dict] = [
     {"label": "core_only",           "core": 1.00, "future": 0.00, "early": 0.00},
     {"label": "def_60_25_15",        "core": 0.60, "future": 0.25, "early": 0.15},
-    {"label": "def_55_30_15",        "core": 0.55, "future": 0.30, "early": 0.15},
     {"label": "bal_50_30_20",        "core": 0.50, "future": 0.30, "early": 0.20},
-    {"label": "bal_45_35_20",        "core": 0.45, "future": 0.35, "early": 0.20},
     {"label": "growth_40_40_20",     "core": 0.40, "future": 0.40, "early": 0.20},
     {"label": "growth_25_45_30",     "core": 0.25, "future": 0.45, "early": 0.30},
     {"label": "aggr_35_30_35",       "core": 0.35, "future": 0.30, "early": 0.35},
-    {"label": "aggr_30_35_35",       "core": 0.30, "future": 0.35, "early": 0.35},
     {"label": "aggr_25_35_40",       "core": 0.25, "future": 0.35, "early": 0.40},
-    {"label": "aggr_20_40_40",       "core": 0.20, "future": 0.40, "early": 0.40},
     {"label": "aggr_10_40_50",       "core": 0.10, "future": 0.40, "early": 0.50},
 ]
 
@@ -22814,6 +22847,7 @@ def show_output_table_previews(output_paths: dict[str, str]) -> None:
 def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     cfg = to_cfg(cfg)
     validate_config(cfg)
+    cfg = apply_fast_mode(cfg)
     mount_drive_if_colab()
     paths = get_paths(cfg)
     flags = load_stage_flags(paths)
