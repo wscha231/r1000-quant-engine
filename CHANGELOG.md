@@ -988,3 +988,25 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This change intentionally makes the engine more offensive; early/future sleeves should surface more often, but turnover and concentration can rise in growth-friendly regimes.
   - SAGE is still hybrid: actual `sbc`/`rd_expense`/`interest_expense` data quality improves only after a fresh collector run populates the expanded tags.
+
+### 13:25 KST - collector-and-colab-sync-to-growth-defaults
+
+- scope:
+  - Sync the GitHub worktree with the newer local collector/runtime helper and Colab notebook so the notebook path matches the current aggressive sleeve defaults and runtime wiring.
+- files:
+  - `r1000_data_collector.py` -> synced to the newer local version that inherits notebook/runtime defaults from `DEFAULT_CFG`, exposes `fast_mode`, and keeps validation focused on current SAGE/runtime snapshots.
+  - `colab_run.ipynb` -> synced to the newer local notebook runbook that fetches/reset-to-origin before execution and matches the current collector/pipeline flow.
+- symbols_changed:
+  - `_apply_notebook_runtime_defaults()` -> now pulls sleeve/cash/fast-mode defaults from `DEFAULT_CFG` instead of older hard-coded conservative values.
+  - `collector_lean_full_run_cfg()` -> remains the recommended first-run path, but now inherits the current growth-tilted engine defaults consistently.
+  - `run_full_validation_suite()` -> synced with the newer compact snapshot layout used by the current local workflow.
+- breaking_changes:
+  - none
+- outputs:
+  - Colab notebook and collector defaults are now aligned with the main engine's current sleeve weights and runtime behavior.
+- validation:
+  - File hashes for `r1000_data_collector.py` and `colab_run.ipynb` now match the newer local source files used during development.
+  - `git diff --stat` shows only the intended collector/notebook sync plus this changelog entry.
+- risks_or_notes:
+  - The synced collector removes some older explicit notebook helper wiring in favor of inheriting from `DEFAULT_CFG`; this is intentional so future engine-default changes do not drift from Colab.
+  - The notebook JSON changed substantially because the newer local runbook has a different cell layout and markdown text, not because of binary corruption.

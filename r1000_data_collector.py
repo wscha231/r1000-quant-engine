@@ -50,64 +50,18 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("run_portfolio_size_comparison", True)
     cfg.setdefault("run_rebalance_interval_comparison", True)
     cfg.setdefault("run_backtest_window_comparison", True)
-    cfg.setdefault("run_standalone_sleeve_backtest_comparison", True)
-    cfg.setdefault("standalone_sleeve_top_n", 7)
-    cfg.setdefault("standalone_sleeve_rebalance_intervals", [1, 3])
-    cfg.setdefault("run_historical_data_quality_reports", True)
-    cfg.setdefault("growth_history_confidence_penalty_weight", 0.18)
-    cfg.setdefault("growth_history_confidence_min_for_full_sleeve", 0.35)
     cfg.setdefault("show_output_previews_after_run", False)
-    cfg.setdefault("cash_target_growth_cap", 0.03)
-    cfg.setdefault("cash_target_balanced_cap", 0.05)
-    cfg.setdefault("cash_target_mild_risk_cap", 0.10)
-    cfg.setdefault("core_compounder_sleeve_base_weight", 0.28)
-    cfg.setdefault("future_winner_sleeve_base_weight", 0.52)
-    cfg.setdefault("future_winner_sleeve_min_weight", 0.10)
-    cfg.setdefault("future_winner_sleeve_max_weight", 0.70)
-    cfg.setdefault("early_scout_sleeve_base_weight", 0.12)
-    cfg.setdefault("early_scout_sleeve_min_weight", 0.02)
-    cfg.setdefault("early_scout_sleeve_max_weight", 0.28)
-    cfg.setdefault("early_scout_growth_floor_weight", 0.12)
-    cfg.setdefault("early_scout_growth_floor_min_signal", 0.34)
-    cfg.setdefault("early_scout_growth_floor_max_risk", 0.60)
-    cfg.setdefault("early_scout_candidate_floor_min_share", 0.01)
-    cfg.setdefault("run_sleeve_cap_policy_comparison", True)
-    cfg.setdefault("sleeve_cap_policy_apply_champion", True)
-    cfg.setdefault("sleeve_cap_policy_max_candidates", 9)
-    return cfg
-
-
-def apply_colab_free_runtime_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Recommended free-source Colab settings for the full collector -> engine run."""
-    cfg["sec_user_agent"] = "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
-    cfg["fred_api_key"] = "8d92fb5a5de226657d912fe0284dfc00"
-    cfg["macro_refresh_days"] = 0
-    cfg["live_refresh_days"] = 1
-    cfg["companyfacts_refresh_days"] = 3
-    cfg["alpha_vantage_free_refresh_tickers"] = 0
-    cfg["alpha_vantage_free_statement_repair_tickers"] = 0
-    cfg["alpha_vantage_free_statement_refresh_days"] = 7
-    cfg["macro_slow_release_lag_months"] = 1
-    cfg["cash_target_growth_cap"] = 0.03
-    cfg["cash_target_balanced_cap"] = 0.05
-    cfg["cash_target_mild_risk_cap"] = 0.10
-    cfg["core_compounder_sleeve_base_weight"] = 0.28
-    cfg["future_winner_sleeve_base_weight"] = 0.52
-    cfg["future_winner_sleeve_min_weight"] = 0.10
-    cfg["future_winner_sleeve_max_weight"] = 0.70
-    cfg["early_scout_sleeve_base_weight"] = 0.12
-    cfg["early_scout_sleeve_min_weight"] = 0.02
-    cfg["early_scout_sleeve_max_weight"] = 0.28
-    cfg["early_scout_growth_floor_weight"] = 0.12
-    cfg["early_scout_growth_floor_min_signal"] = 0.34
-    cfg["early_scout_growth_floor_max_risk"] = 0.60
-    cfg["early_scout_candidate_floor_min_share"] = 0.01
-    cfg["run_sleeve_cap_policy_comparison"] = True
-    cfg["sleeve_cap_policy_apply_champion"] = True
-    cfg["sleeve_cap_policy_max_candidates"] = 9
-    cfg["run_historical_data_quality_reports"] = True
-    cfg["growth_history_confidence_penalty_weight"] = 0.18
-    cfg["growth_history_confidence_min_for_full_sleeve"] = 0.35
+    cfg.setdefault("fast_mode", bool(DEFAULT_CFG.get("fast_mode", False)))
+    cfg.setdefault("cash_target_growth_cap", float(DEFAULT_CFG.get("cash_target_growth_cap", 0.03)))
+    cfg.setdefault("cash_target_balanced_cap", float(DEFAULT_CFG.get("cash_target_balanced_cap", 0.06)))
+    cfg.setdefault("cash_target_mild_risk_cap", float(DEFAULT_CFG.get("cash_target_mild_risk_cap", 0.12)))
+    cfg.setdefault("core_compounder_sleeve_base_weight", float(DEFAULT_CFG.get("core_compounder_sleeve_base_weight", 0.16)))
+    cfg.setdefault("future_winner_sleeve_base_weight", float(DEFAULT_CFG.get("future_winner_sleeve_base_weight", 0.56)))
+    cfg.setdefault("future_winner_sleeve_min_weight", float(DEFAULT_CFG.get("future_winner_sleeve_min_weight", 0.12)))
+    cfg.setdefault("future_winner_sleeve_max_weight", float(DEFAULT_CFG.get("future_winner_sleeve_max_weight", 0.74)))
+    cfg.setdefault("early_scout_sleeve_base_weight", float(DEFAULT_CFG.get("early_scout_sleeve_base_weight", 0.20)))
+    cfg.setdefault("early_scout_sleeve_min_weight", float(DEFAULT_CFG.get("early_scout_sleeve_min_weight", 0.04)))
+    cfg.setdefault("early_scout_sleeve_max_weight", float(DEFAULT_CFG.get("early_scout_sleeve_max_weight", 0.36)))
     return cfg
 
 
@@ -130,17 +84,6 @@ def collector_lean_full_run_cfg(base_dir: Optional[str] = None, end_date: Option
     cfg["export_extended_outputs"] = False
     cfg["export_explain_outputs"] = False
     return _apply_notebook_runtime_defaults(cfg)
-
-
-def collector_colab_full_run_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
-    """Full first-run config used by colab_run.ipynb.
-
-    The notebook should keep these choices in one place instead of repeating a long
-    list of overrides in multiple cells.
-    """
-    return apply_colab_free_runtime_overrides(
-        collector_lean_full_run_cfg(base_dir=base_dir, end_date=end_date)
-    )
 
 
 def collector_reuse_step2_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
@@ -382,12 +325,6 @@ def run_full_validation_suite(
         "live_fundamental_coverage_latest": paths["out"] / "live_fundamental_coverage_latest.csv",
         "portfolio_size_comparison": paths["reports"] / "portfolio_size_comparison.csv",
         "rebalance_interval_comparison": paths["reports"] / "rebalance_interval_comparison.csv",
-        "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
-        "sleeve_cap_policy_champion_latest": paths["reports"] / "sleeve_cap_policy_champion_latest.json",
-        "portfolio_sleeve_top7_standalone_comparison": paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv",
-        "historical_data_quality_by_month": paths["reports"] / "historical_data_quality_by_month.csv",
-        "historical_data_quality_by_sleeve": paths["reports"] / "historical_data_quality_by_sleeve.csv",
-        "historical_data_quality_latest": paths["reports"] / "historical_data_quality_latest.csv",
         "market_adaptation_latest": paths["reports"] / "market_adaptation_latest.json",
         "macro_regime_latest": paths["feature_store"] / "macro_regime_latest.parquet",
         "latest_recommendations": paths["feature_store"] / "latest_recommendations.parquet",
@@ -408,12 +345,6 @@ def run_full_validation_suite(
     live_cov = _safe_read_csv(outputs["live_fundamental_coverage_latest"])
     portfolio_size_comp = _safe_read_csv(outputs["portfolio_size_comparison"])
     rebalance_interval_comp = _safe_read_csv(outputs["rebalance_interval_comparison"])
-    sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
-    sleeve_cap_policy_champion = _safe_read_json(outputs["sleeve_cap_policy_champion_latest"])
-    standalone_sleeve_comp = _safe_read_csv(outputs["portfolio_sleeve_top7_standalone_comparison"])
-    historical_quality_monthly = _safe_read_csv(outputs["historical_data_quality_by_month"])
-    historical_quality_sleeve = _safe_read_csv(outputs["historical_data_quality_by_sleeve"])
-    historical_quality_latest = _safe_read_csv(outputs["historical_data_quality_latest"])
     market_adaptation = _safe_read_json(outputs["market_adaptation_latest"])
     macro_regime = _safe_read_parquet(outputs["macro_regime_latest"])
     latest_recommendations = _safe_read_parquet(outputs["latest_recommendations"])
@@ -475,6 +406,21 @@ def run_full_validation_suite(
         "post_breakout_hold_score",
         "technical_blueprint_score",
     ]
+    sage_cols = [
+        "sage_composite_score",
+        "sage_g_score",
+        "sage_v_score",
+        "sage_q_score",
+        "sage_c_score",
+        "rule_of_40",
+        "fcf_margin",
+        "net_margin",
+        "roic_approx",
+        "sbc_to_revenue",
+        "rd_intensity",
+        "interest_coverage",
+        "dilution_penalty",
+    ]
 
     def _coverage_map(df: pd.DataFrame, cols: list[str]) -> dict[str, float]:
         return {c: _safe_ratio(df, c) for c in cols}
@@ -528,7 +474,6 @@ def run_full_validation_suite(
     dynamic_target_names = None
     fixed8_row: dict[str, Any] | None = None
     best_rebalance_row: dict[str, Any] | None = None
-    best_sleeve_cap_policy_row: dict[str, Any] | None = None
     if not portfolio_size_comp.empty and "portfolio_mode" in portfolio_size_comp.columns:
         dynamic_rows = portfolio_size_comp[portfolio_size_comp["portfolio_mode"].astype(str).eq("dynamic")]
         if not dynamic_rows.empty:
@@ -560,16 +505,9 @@ def run_full_validation_suite(
             fixed_ranked = ranked[ranked["policy_mode"].astype(str).eq("fixed_interval")].copy()
             if not fixed_ranked.empty:
                 ranked = fixed_ranked
-        ir_source = ranked["ir"] if "ir" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
-        excess_source = (
-            ranked["excess_cagr"] if "excess_cagr" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
-        )
-        cagr_source = (
-            ranked["strategy_cagr"] if "strategy_cagr" in ranked.columns else pd.Series(float("nan"), index=ranked.index)
-        )
-        ranked["ir_sort"] = pd.to_numeric(ir_source, errors="coerce").fillna(-1e18)
-        ranked["excess_sort"] = pd.to_numeric(excess_source, errors="coerce").fillna(-1e18)
-        ranked["cagr_sort"] = pd.to_numeric(cagr_source, errors="coerce").fillna(-1e18)
+        ranked["ir_sort"] = pd.to_numeric(ranked.get("ir"), errors="coerce").fillna(-1e18)
+        ranked["excess_sort"] = pd.to_numeric(ranked.get("excess_cagr"), errors="coerce").fillna(-1e18)
+        ranked["cagr_sort"] = pd.to_numeric(ranked.get("strategy_cagr"), errors="coerce").fillna(-1e18)
         ranked = ranked.sort_values(
             ["ir_sort", "excess_sort", "cagr_sort", "rebalance_interval_months"],
             ascending=[False, False, False, True],
@@ -593,128 +531,6 @@ def run_full_validation_suite(
                     continue
                 num = safe_float(v)
                 adaptive_rebalance_row[k] = float(num) if pd.notna(num) else str(v)
-
-    sleeve_cap_policy_summary = run_summary.get("champion_sleeve_cap_policy") or sleeve_cap_policy_champion
-    if isinstance(sleeve_cap_policy_summary, dict) and sleeve_cap_policy_summary:
-        best_sleeve_cap_policy_row = {}
-        for k, v in sleeve_cap_policy_summary.items():
-            if pd.isna(v):
-                best_sleeve_cap_policy_row[k] = None
-                continue
-            num = safe_float(v)
-            best_sleeve_cap_policy_row[k] = float(num) if pd.notna(num) else v
-    elif not sleeve_cap_policy_comp.empty and "sleeve_cap_policy_objective" in sleeve_cap_policy_comp.columns:
-        ranked_policy = sleeve_cap_policy_comp.copy()
-        if "policy_status" in ranked_policy.columns:
-            ranked_policy = ranked_policy[ranked_policy["policy_status"].astype(str).eq("ok")]
-        ranked_policy["sleeve_cap_policy_objective"] = pd.to_numeric(
-            ranked_policy["sleeve_cap_policy_objective"],
-            errors="coerce",
-        )
-        ranked_policy = ranked_policy.dropna(subset=["sleeve_cap_policy_objective"]).sort_values(
-            "sleeve_cap_policy_objective",
-            ascending=False,
-        )
-        if not ranked_policy.empty:
-            best_sleeve_cap_policy_row = {}
-            for k, v in ranked_policy.iloc[0].to_dict().items():
-                if pd.isna(v):
-                    best_sleeve_cap_policy_row[k] = None
-                    continue
-                num = safe_float(v)
-                best_sleeve_cap_policy_row[k] = float(num) if pd.notna(num) else str(v)
-
-    def _jsonable_row(row: pd.Series) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        for k, v in row.to_dict().items():
-            if pd.isna(v):
-                out[k] = None
-                continue
-            num = safe_float(v)
-            out[k] = float(num) if pd.notna(num) else str(v)
-        return out
-
-    standalone_top_n_value = safe_float(run_summary.get("standalone_sleeve_top_n", 7))
-    standalone_top_n = int(standalone_top_n_value) if pd.notna(standalone_top_n_value) and standalone_top_n_value >= 1 else 7
-    standalone_sleeve_snapshot: dict[str, Any] = {
-        "top_n": int(standalone_top_n),
-        "rows": [],
-        "best_by_sleeve": {},
-        "adaptive_three_sleeve": None,
-    }
-    if not standalone_sleeve_comp.empty:
-        standalone_sleeve_snapshot["rows"] = [
-            _jsonable_row(row)
-            for _, row in standalone_sleeve_comp.iterrows()
-        ]
-        if "portfolio_mode" in standalone_sleeve_comp.columns:
-            adaptive_rows = standalone_sleeve_comp[
-                standalone_sleeve_comp["portfolio_mode"].astype(str).eq("adaptive_three_sleeve")
-            ]
-            if not adaptive_rows.empty:
-                standalone_sleeve_snapshot["adaptive_three_sleeve"] = _jsonable_row(adaptive_rows.iloc[0])
-        if {"sleeve_test", "strategy_cagr"}.issubset(standalone_sleeve_comp.columns):
-            standalone_rows = standalone_sleeve_comp.copy()
-            if "portfolio_mode" in standalone_rows.columns:
-                standalone_rows = standalone_rows[
-                    standalone_rows["portfolio_mode"].astype(str).eq("standalone_sleeve_topn")
-                ].copy()
-            standalone_rows["strategy_cagr_sort"] = pd.to_numeric(
-                standalone_rows["strategy_cagr"],
-                errors="coerce",
-            ).fillna(-1e18)
-            sharpe_source = (
-                standalone_rows["sharpe"]
-                if "sharpe" in standalone_rows.columns
-                else pd.Series(float("nan"), index=standalone_rows.index)
-            )
-            standalone_rows["sharpe_sort"] = pd.to_numeric(
-                sharpe_source,
-                errors="coerce",
-            ).fillna(-1e18)
-            for sleeve, grp in standalone_rows.groupby("sleeve_test", sort=True):
-                ranked = grp.sort_values(["strategy_cagr_sort", "sharpe_sort"], ascending=False)
-                if not ranked.empty:
-                    standalone_sleeve_snapshot["best_by_sleeve"][str(sleeve)] = _jsonable_row(ranked.iloc[0])
-
-    historical_quality_snapshot: dict[str, Any] = {
-        "monthly_rows": int(len(historical_quality_monthly)),
-        "sleeve_rows": int(len(historical_quality_sleeve)),
-        "latest_rows": int(len(historical_quality_latest)),
-        "latest_summary": run_summary.get("historical_data_quality_latest", {}),
-        "latest_by_sleeve": [],
-        "monthly_tail": [],
-    }
-    if not historical_quality_sleeve.empty:
-        sleeve_view = historical_quality_sleeve.copy()
-        if "rebalance_date" in sleeve_view.columns:
-            sleeve_view["rebalance_date"] = pd.to_datetime(sleeve_view["rebalance_date"], errors="coerce")
-            latest_q_dt = sleeve_view["rebalance_date"].max()
-            if pd.notna(latest_q_dt):
-                sleeve_view = sleeve_view[sleeve_view["rebalance_date"].eq(latest_q_dt)]
-        cols = [
-            c
-            for c in [
-                "rebalance_date",
-                "portfolio_sleeve_label",
-                "rows",
-                "tickers",
-                "fundamental_history_coverage_score_mean",
-                "growth_sleeve_data_confidence_mean",
-                "growth_sleeve_sparse_history_penalty_mean",
-                "sales_cagr_3y_coverage",
-                "forward_return_coverage_score_mean",
-            ]
-            if c in sleeve_view.columns
-        ]
-        historical_quality_snapshot["latest_by_sleeve"] = [
-            _jsonable_row(row) for _, row in sleeve_view[cols].iterrows()
-        ] if cols else []
-    if not historical_quality_monthly.empty:
-        monthly_view = historical_quality_monthly.tail(6).copy()
-        historical_quality_snapshot["monthly_tail"] = [
-            _jsonable_row(row) for _, row in monthly_view.iterrows()
-        ]
 
     latest_fg_nonzero_share = 0.0
     latest_fg_abs_mean = 0.0
@@ -797,25 +613,21 @@ def run_full_validation_suite(
             "growth_signal": safe_float(run_summary.get("sleeve_growth_signal")),
             "risk_signal": safe_float(run_summary.get("sleeve_risk_signal")),
         },
-        "sleeve_cap_policy_optimization_snapshot": {
-            "champion": best_sleeve_cap_policy_row,
-            "applied": bool(run_summary.get("sleeve_cap_policy_applied", False)),
-            "candidate_count": int(len(sleeve_cap_policy_comp)),
-        },
-        "standalone_sleeve_topn_backtest_snapshot": standalone_sleeve_snapshot,
-        "historical_data_quality_snapshot": historical_quality_snapshot,
         "coverage": {
             "macro_scored_latest": _coverage_map(scored_latest, macro_cols),
             "macro_feature_store_latest": _coverage_map(latest_recommendations, macro_cols + fear_greed_cols),
             "macro_regime_latest": _coverage_map(macro_regime, macro_cols + fear_greed_cols),
             "macro_oos": _coverage_map(scored_oos_latest, macro_cols),
             "fundamental_scored_latest": _coverage_map(scored_latest, fundamental_cols),
+            "sage_scored_latest": _coverage_map(scored_latest, sage_cols),
+            "sage_oos": _coverage_map(scored_oos_latest, sage_cols),
             "ownership_scored_latest": _coverage_map(scored_latest, ownership_cols),
             "technical_scored_latest": _coverage_map(scored_latest, technical_cols),
         },
         "model_feature_checks": {
             "fear_greed_in_model_features": [c for c in fear_greed_cols if c in model_features],
             "macro_in_model_features": [c for c in macro_cols if c in model_features],
+            "sage_in_model_features": [c for c in sage_cols if c in model_features],
         },
         "p1_p2_p3_checks": {
             "p1_weight_model_simplified": bool(
@@ -851,7 +663,6 @@ def run_full_validation_suite(
                 safe_float(run_summary.get("ops_min_realized_coverage", getattr(cfg_obj, "ops_min_realized_coverage", 0.0))) >= 0.90
             ),
             "adaptive_policy_backtested": bool(run_summary.get("adaptive_rebalance_policy", False)),
-            "sleeve_cap_policy_optimized": bool(best_sleeve_cap_policy_row),
         },
         "latest_sentiment_overlay": {
             "fear_greed_live_overlay_weight": float(getattr(cfg_obj, "fear_greed_live_overlay_weight", 0.0)),
@@ -862,6 +673,53 @@ def run_full_validation_suite(
             "enabled": bool(getattr(cfg_obj, "adaptive_ensemble_enabled", False)),
             "weights": run_summary.get("adaptive_ensemble_weights", {}),
             "diagnostics": run_summary.get("adaptive_ensemble_diagnostics", {}),
+        },
+        "sage_snapshot": {
+            "sage_in_scored_latest": bool(not scored_latest.empty and "sage_composite_score" in scored_latest.columns),
+            "sage_in_oos": bool(not scored_oos_latest.empty and "sage_composite_score" in scored_oos_latest.columns),
+            "sage_sector_counts_latest": (
+                {
+                    str(k): int(v)
+                    for k, v in scored_latest.get("sage_sector", pd.Series(dtype=object))
+                    .fillna("General")
+                    .astype(str)
+                    .value_counts()
+                    .head(12)
+                    .items()
+                }
+                if not scored_latest.empty and "sage_sector" in scored_latest.columns
+                else {}
+            ),
+            "portfolio_sage_sector_counts": (
+                {
+                    str(k): int(v)
+                    for k, v in portfolio_latest.loc[
+                        portfolio_latest["ticker"].astype(str).str.upper().ne(CASH_PROXY_TICKER),
+                        "sage_sector",
+                    ]
+                    .fillna("General")
+                    .astype(str)
+                    .value_counts()
+                    .items()
+                }
+                if (
+                    not portfolio_latest.empty
+                    and "ticker" in portfolio_latest.columns
+                    and "sage_sector" in portfolio_latest.columns
+                )
+                else {}
+            ),
+            "mean_sage_composite_score_top30": (
+                float(pd.to_numeric(top30_latest["sage_composite_score"], errors="coerce").mean())
+                if not top30_latest.empty and "sage_composite_score" in top30_latest.columns
+                else 0.0
+            ),
+        },
+        "runtime_config_snapshot": {
+            "fast_mode": bool(getattr(cfg_obj, "fast_mode", False)),
+            "run_rebalance_interval_comparison": bool(getattr(cfg_obj, "run_rebalance_interval_comparison", False)),
+            "run_backtest_window_comparison": bool(getattr(cfg_obj, "run_backtest_window_comparison", False)),
+            "run_portfolio_size_comparison": bool(getattr(cfg_obj, "run_portfolio_size_comparison", False)),
         },
         "backtest_policy_snapshot": {
             "adaptive_rebalance_policy": bool(run_summary.get("adaptive_rebalance_policy", False)),
@@ -893,9 +751,6 @@ def run_full_validation_suite(
             "fundamental_coverage_rows": int(len(fundamental_cov)),
             "fundamental_comprehensive_rows": int(len(comprehensive_cov)),
             "live_fundamental_coverage_rows": int(len(live_cov)),
-            "historical_data_quality_monthly_rows": int(len(historical_quality_monthly)),
-            "historical_data_quality_sleeve_rows": int(len(historical_quality_sleeve)),
-            "historical_data_quality_latest_rows": int(len(historical_quality_latest)),
         },
     }
 
@@ -916,7 +771,7 @@ def parse_args() -> argparse.Namespace:
         help="Config preset tuned for default collection, full rebuild, lean rebuild, fast Step 2 reuse, or coverage debugging.",
     )
     parser.add_argument("--end-date", default="", help="Optional YYYY-MM-DD override for the pipeline end date.")
-    parser.add_argument("--companyfacts-refresh-days", type=int, default=3, help="SEC companyfacts cache freshness days.")
+    parser.add_argument("--companyfacts-refresh-days", type=int, default=0, help="SEC companyfacts cache freshness days.")
     parser.add_argument("--live-refresh-days", type=int, default=0, help="Live fundamentals cache freshness days.")
     parser.add_argument("--macro-refresh-days", type=int, default=0, help="Macro cache freshness days.")
     parser.add_argument(
@@ -944,137 +799,69 @@ def parse_args() -> argparse.Namespace:
         help="Lag in months for slow macro series like CPI/PPI/UNRATE/Sahm.",
     )
     parser.add_argument(
+        "--fast-mode",
+        action="store_true",
+        help="Reduce Phase 4/5 runtime by shrinking comparison grids and model retraining cost.",
+    )
+    parser.add_argument(
         "--cash-target-growth-cap",
         type=float,
-        default=0.03,
+        default=float(DEFAULT_CFG.get("cash_target_growth_cap", 0.03)),
         help="Growth regime cash target cap.",
     )
     parser.add_argument(
         "--cash-target-balanced-cap",
         type=float,
-        default=0.05,
+        default=float(DEFAULT_CFG.get("cash_target_balanced_cap", 0.06)),
         help="Balanced regime cash target cap.",
     )
     parser.add_argument(
         "--cash-target-mild-risk-cap",
         type=float,
-        default=0.10,
+        default=float(DEFAULT_CFG.get("cash_target_mild_risk_cap", 0.12)),
         help="Mild risk regime cash target cap.",
     )
     parser.add_argument(
         "--core-compounder-sleeve-base-weight",
         type=float,
-        default=0.55,
+        default=float(DEFAULT_CFG.get("core_compounder_sleeve_base_weight", 0.16)),
         help="Base portfolio weight for the core compounder sleeve.",
     )
     parser.add_argument(
         "--future-winner-sleeve-base-weight",
         type=float,
-        default=0.35,
+        default=float(DEFAULT_CFG.get("future_winner_sleeve_base_weight", 0.56)),
         help="Base portfolio weight for the future winner sleeve.",
     )
     parser.add_argument(
         "--future-winner-sleeve-min-weight",
         type=float,
-        default=0.05,
+        default=float(DEFAULT_CFG.get("future_winner_sleeve_min_weight", 0.12)),
         help="Minimum future winner sleeve weight.",
     )
     parser.add_argument(
         "--future-winner-sleeve-max-weight",
         type=float,
-        default=0.60,
+        default=float(DEFAULT_CFG.get("future_winner_sleeve_max_weight", 0.74)),
         help="Maximum future winner sleeve weight.",
     )
     parser.add_argument(
         "--early-scout-sleeve-base-weight",
         type=float,
-        default=0.08,
+        default=float(DEFAULT_CFG.get("early_scout_sleeve_base_weight", 0.20)),
         help="Base portfolio weight for the early scout sleeve.",
     )
     parser.add_argument(
         "--early-scout-sleeve-min-weight",
         type=float,
-        default=0.00,
+        default=float(DEFAULT_CFG.get("early_scout_sleeve_min_weight", 0.04)),
         help="Minimum early scout sleeve weight.",
     )
     parser.add_argument(
         "--early-scout-sleeve-max-weight",
         type=float,
-        default=0.20,
+        default=float(DEFAULT_CFG.get("early_scout_sleeve_max_weight", 0.36)),
         help="Maximum early scout sleeve weight.",
-    )
-    parser.add_argument(
-        "--early-scout-growth-floor-weight",
-        type=float,
-        default=0.08,
-        help="Minimum scout sleeve target to preserve in non-risk-off growth regimes when candidates exist.",
-    )
-    parser.add_argument(
-        "--early-scout-growth-floor-min-signal",
-        type=float,
-        default=0.38,
-        help="Growth signal threshold for activating the early scout floor.",
-    )
-    parser.add_argument(
-        "--early-scout-growth-floor-max-risk",
-        type=float,
-        default=0.55,
-        help="Risk signal ceiling for activating the early scout floor.",
-    )
-    parser.add_argument(
-        "--early-scout-candidate-floor-min-share",
-        type=float,
-        default=0.01,
-        help="Minimum early scout candidate share needed before applying the growth floor.",
-    )
-    parser.add_argument(
-        "--disable-sleeve-cap-policy-comparison",
-        action="store_true",
-        help="Disable OOS sleeve/cap policy candidate optimization.",
-    )
-    parser.add_argument(
-        "--disable-sleeve-cap-policy-champion",
-        action="store_true",
-        help="Identify but do not apply the sleeve/cap champion policy to the active run.",
-    )
-    parser.add_argument(
-        "--sleeve-cap-policy-max-candidates",
-        type=int,
-        default=9,
-        help="Maximum sleeve/cap policy candidates to backtest.",
-    )
-    parser.add_argument(
-        "--disable-standalone-sleeve-backtest-comparison",
-        action="store_true",
-        help="Disable standalone core/future/early top-N sleeve backtest comparison.",
-    )
-    parser.add_argument(
-        "--standalone-sleeve-top-n",
-        type=int,
-        default=7,
-        help="Number of names in each standalone sleeve backtest portfolio.",
-    )
-    parser.add_argument(
-        "--standalone-sleeve-rebalance-intervals",
-        default="1,3",
-        help="Comma-separated rebalance intervals for standalone sleeve backtests.",
-    )
-    parser.add_argument(
-        "--disable-historical-data-quality-reports",
-        action="store_true",
-        help="Disable historical financial/forward-return data quality report exports.",
-    )
-    parser.add_argument(
-        "--growth-history-confidence-penalty-weight",
-        type=float,
-        default=0.18,
-        help="Mild penalty weight for growth sleeves when both financial history and technical confirmation are sparse.",
-    )
-    parser.add_argument(
-        "--growth-history-confidence-min-for-full-sleeve",
-        type=float,
-        default=0.35,
-        help="Diagnostic threshold for treating growth sleeve data confidence as adequate.",
     )
     parser.add_argument("--max-live-refresh-tickers", type=int, default=1000, help="Max tickers for live refresh.")
     parser.add_argument(
@@ -1107,6 +894,7 @@ def main() -> None:
     cfg["alpha_vantage_free_statement_repair_tickers"] = int(args.alpha_vantage_free_statement_repair_tickers)
     cfg["alpha_vantage_free_statement_refresh_days"] = int(args.alpha_vantage_free_statement_refresh_days)
     cfg["macro_slow_release_lag_months"] = int(args.macro_slow_release_lag_months)
+    cfg["fast_mode"] = bool(args.fast_mode)
     cfg["cash_target_growth_cap"] = float(args.cash_target_growth_cap)
     cfg["cash_target_balanced_cap"] = float(args.cash_target_balanced_cap)
     cfg["cash_target_mild_risk_cap"] = float(args.cash_target_mild_risk_cap)
@@ -1117,25 +905,6 @@ def main() -> None:
     cfg["early_scout_sleeve_base_weight"] = float(args.early_scout_sleeve_base_weight)
     cfg["early_scout_sleeve_min_weight"] = float(args.early_scout_sleeve_min_weight)
     cfg["early_scout_sleeve_max_weight"] = float(args.early_scout_sleeve_max_weight)
-    cfg["early_scout_growth_floor_weight"] = float(args.early_scout_growth_floor_weight)
-    cfg["early_scout_growth_floor_min_signal"] = float(args.early_scout_growth_floor_min_signal)
-    cfg["early_scout_growth_floor_max_risk"] = float(args.early_scout_growth_floor_max_risk)
-    cfg["early_scout_candidate_floor_min_share"] = float(args.early_scout_candidate_floor_min_share)
-    cfg["run_sleeve_cap_policy_comparison"] = not bool(args.disable_sleeve_cap_policy_comparison)
-    cfg["sleeve_cap_policy_apply_champion"] = not bool(args.disable_sleeve_cap_policy_champion)
-    cfg["sleeve_cap_policy_max_candidates"] = int(args.sleeve_cap_policy_max_candidates)
-    cfg["run_standalone_sleeve_backtest_comparison"] = not bool(args.disable_standalone_sleeve_backtest_comparison)
-    cfg["standalone_sleeve_top_n"] = int(args.standalone_sleeve_top_n)
-    cfg["standalone_sleeve_rebalance_intervals"] = [
-        int(x.strip())
-        for x in str(args.standalone_sleeve_rebalance_intervals).split(",")
-        if x.strip()
-    ]
-    cfg["run_historical_data_quality_reports"] = not bool(args.disable_historical_data_quality_reports)
-    cfg["growth_history_confidence_penalty_weight"] = float(args.growth_history_confidence_penalty_weight)
-    cfg["growth_history_confidence_min_for_full_sleeve"] = float(
-        args.growth_history_confidence_min_for_full_sleeve
-    )
     cfg["max_live_refresh_tickers"] = int(args.max_live_refresh_tickers)
     cfg["force_full_fund_panel_rebuild"] = bool(args.force_full_fund_panel_rebuild)
 
