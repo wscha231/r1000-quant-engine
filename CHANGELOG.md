@@ -18,21 +18,21 @@ All entries must be written in English. Entries must be predictable and machine-
 
 - scope: one-line plain-English area of change
 - files:
-  - `filename.py` — one-line summary of what changed in this file
+  - `filename.py` ??one-line summary of what changed in this file
 - symbols_added:
-  - `function_name(sig)` — what it does
+  - `function_name(sig)` ??what it does
   - none
 - symbols_changed:
-  - `existing_function()` — what changed and why
+  - `existing_function()` ??what changed and why
   - none
 - config_fields_added:
-  - `field_name: type = default` — purpose
+  - `field_name: type = default` ??purpose
   - none
 - breaking_changes:
   - none
   - OR: describe what breaks and the migration path
 - outputs:
-  - `path/to/file.ext` — what it contains
+  - `path/to/file.ext` ??what it contains
   - none
 - validation:
   - list commands run and whether they passed
@@ -44,7 +44,7 @@ All entries must be written in English. Entries must be predictable and machine-
 ### Rules
 - All field values must be English. No Korean.
 - Every field must be present. Use `none` when a field does not apply.
-- `symbols_added` and `symbols_changed` must enumerate function/class names explicitly — not prose descriptions.
+- `symbols_added` and `symbols_changed` must enumerate function/class names explicitly ??not prose descriptions.
 - `config_fields_added` must list full `name: type = default` signatures.
 - `breaking_changes` must never be omitted. Write `none` if there are none.
 - `HH:MM KST` must be a real timestamp. Do not write `KST` without a time.
@@ -321,12 +321,12 @@ All entries must be written in English. Entries must be predictable and machine-
   - `r1000_top30_institutional.py`
   - `CHANGELOG.md`
 - behavior:
-  - Replaced row-count-based `shift(N)` in `_flexible_lag` with a calendar-time `merge_asof` approach per CIK.  The old shift(12) treated annual-only filers (20-F, 1 row/yr) as needing 12 years of history instead of 3, making sales_cagr_3y always NaN for them.  New approach finds the closest period within ±46 days of the target date regardless of filing cadence.
+  - Replaced row-count-based `shift(N)` in `_flexible_lag` with a calendar-time `merge_asof` approach per CIK.  The old shift(12) treated annual-only filers (20-F, 1 row/yr) as needing 12 years of history instead of 3, making sales_cagr_3y always NaN for them.  New approach finds the closest period within 짹46 days of the target date regardless of filing cadence.
   - Added 1-year and 2-year CAGR columns for all flow metrics: `sales_cagr_1y`, `sales_cagr_2y`, `op_income_cagr_1y`, `op_income_cagr_2y`, `net_income_cagr_1y`, `net_income_cagr_2y`, `ocf_cagr_1y`, `ocf_cagr_2y`, `eps_cagr_1y`, `eps_cagr_2y`, `fcf_cagr_1y`, `fcf_cagr_2y`.
   - Added `_cagr_best` fallback columns (3y preferred, then 2y, then 1y) for each metric: `sales_cagr_best`, `op_income_cagr_best`, `net_income_cagr_best`, `ocf_cagr_best`, `eps_cagr_best`, `fcf_cagr_best`.
   - Updated `growth_blueprint_score` to use `_cagr_best` instead of `_cagr_3y` so newer companies with < 3 years of history still contribute a proportional growth signal.
   - Updated `revenue_growth_final` and `earnings_growth_final` fallback chains to prefer `_cagr_best` before `_cagr_3y`.
-  - Increased `fsds_quarters_backfill` from 44 to 60 (11 → 15 years) for deeper first-run FSDS coverage.
+  - Increased `fsds_quarters_backfill` from 44 to 60 (11 ??15 years) for deeper first-run FSDS coverage.
   - All new columns added to `FUND_TTM_FALLBACK_COLUMNS`, `COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS`, `carry_cols`, and `asof_join_fundamentals` empty-panel fallback list.
 - outputs:
   - New panel columns: `*_cagr_1y`, `*_cagr_2y`, `*_cagr_best` for sales/op_income/net_income/ocf/eps/fcf.
@@ -360,8 +360,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - Wired `compare_sleeve_policy_per_regime()` into `run_default_pipeline()` behind `run_sleeve_regime_comparison` config flag (defaults to `run_comparison_backtests`); cash_max controlled by `sleeve_regime_comparison_cash_max` (default 0.02 = 2%).
   - Added `sleeve_policy_per_regime_best` to `show_output_table_previews` display list.
 - outputs:
-  - `outputs/reports/sleeve_policy_per_regime_grid.csv` — all policies × all regimes metrics
-  - `outputs/reports/sleeve_policy_per_regime_best.csv` — best policy per regime by Sharpe
+  - `outputs/reports/sleeve_policy_per_regime_grid.csv` ??all policies 횞 all regimes metrics
+  - `outputs/reports/sleeve_policy_per_regime_best.csv` ??best policy per regime by Sharpe
   - `monthly_returns` DataFrame gains: `regime_label`, `core_target`, `future_target`, `early_target`, `cash_target_used`, `growth_signal`, `risk_signal`
 - validation:
   - `git diff --check` passed.
@@ -388,7 +388,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation:
   - `git diff --check` passed.
   - Local Python runtime not available; no local `py_compile` check.
-  - No behavioral changes to sleeve selection, backtest, or data pipeline — fixes only.
+  - No behavioral changes to sleeve selection, backtest, or data pipeline ??fixes only.
 - risks_or_notes:
   - The default change from `True` to `False` for `run_sleeve_regime_comparison` means Colab runs will no longer automatically run the 12-backtest regime grid. Enable explicitly with `cfg["run_sleeve_regime_comparison"] = True` when you want to run the optimizer.
 
@@ -424,7 +424,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `colab_run.ipynb` JSON is valid Jupyter notebook format.
   - Local Python runtime not available; no local `py_compile` check.
 - risks_or_notes:
-  - Engine file grew from 16,830 to ~20,195 lines. Runtime will be longer because sleeve cap policy comparison (9 candidates) and standalone sleeve comparison (3 sleeves × 2 intervals) run by default.
+  - Engine file grew from 16,830 to ~20,195 lines. Runtime will be longer because sleeve cap policy comparison (9 candidates) and standalone sleeve comparison (3 sleeves 횞 2 intervals) run by default.
   - Disable with `cfg["run_sleeve_cap_policy_comparison"] = False` and `cfg["run_standalone_sleeve_backtest_comparison"] = False` to reduce runtime.
   - Historical data quality report adds `add_historical_data_quality_columns` call over the full scored panel; moderate CPU cost.
 
@@ -436,42 +436,42 @@ All entries must be written in English. Entries must be predictable and machine-
   - `r1000_top30_institutional.py`
   - `CHANGELOG.md`
 - behavior:
-  - Added `REGIME_ENSEMBLE_WEIGHT_PRIORS` constant — intuition-based static weights per regime (Ridge favored in crisis/shock, CatBoost favored in growth/reentry).
-  - Added `compute_regime_conditional_ensemble_weights()` — computes per-regime model IC/quality from OOS scored panel; blends with static priors (prior weight decays as OOS regime months accumulate); falls back to priors when OOS data insufficient.
-  - Extended `apply_adaptive_ensemble_state()` with optional `regime_weights` parameter — when provided, writes per-row regime-specific weights by detecting `live_event_alert_label` column; falls back to global adaptive weights when regime column absent.
-  - Added `regime_ensemble_weights: dict[str, dict[str, float]]` field to `ModelBundle` — stored in `model_bundle_latest.json` after each walk-forward training run.
-  - Wired `compute_regime_conditional_ensemble_weights()` into `train_walkforward()` — computed from full OOS scored panel after walk-forward, stored in ModelBundle.
+  - Added `REGIME_ENSEMBLE_WEIGHT_PRIORS` constant ??intuition-based static weights per regime (Ridge favored in crisis/shock, CatBoost favored in growth/reentry).
+  - Added `compute_regime_conditional_ensemble_weights()` ??computes per-regime model IC/quality from OOS scored panel; blends with static priors (prior weight decays as OOS regime months accumulate); falls back to priors when OOS data insufficient.
+  - Extended `apply_adaptive_ensemble_state()` with optional `regime_weights` parameter ??when provided, writes per-row regime-specific weights by detecting `live_event_alert_label` column; falls back to global adaptive weights when regime column absent.
+  - Added `regime_ensemble_weights: dict[str, dict[str, float]]` field to `ModelBundle` ??stored in `model_bundle_latest.json` after each walk-forward training run.
+  - Wired `compute_regime_conditional_ensemble_weights()` into `train_walkforward()` ??computed from full OOS scored panel after walk-forward, stored in ModelBundle.
   - Updated per-month walk-forward scoring loop to call `compute_regime_conditional_ensemble_weights()` incrementally (same OOS embargo discipline as adaptive ensemble).
   - Updated all 4 `apply_adaptive_ensemble_state()` call sites in `build_latest_recommendations()` and fallback scoring to pass `regime_weights` from ModelBundle.
   - Added 3 new EngineConfig fields: `regime_ensemble_weights_enabled` (bool, default True), `regime_ensemble_weights_min_months` (int, default 6), `regime_ensemble_weights_strength` (float, default 0.50).
   - Added `regime_ensemble_weights` dict to `run_summary.json` output.
 - outputs:
-  - `model_bundle_latest.json` field: `regime_ensemble_weights` (dict of regime → {linear, catboost, ranker})
+  - `model_bundle_latest.json` field: `regime_ensemble_weights` (dict of regime ??{linear, catboost, ranker})
   - `run_summary.json` field: `regime_ensemble_weights`
   - Scored panel columns: `ensemble_weight_linear`, `ensemble_weight_catboost`, `ensemble_weight_ranker` now vary per row by regime; new `regime_ensemble_active` bool column
 - validation:
   - grep confirms all symbols present in engine.
   - Local Python runtime not available; no local `py_compile` check.
 - risks_or_notes:
-  - `compute_regime_conditional_ensemble_weights()` adds CPU overhead proportional to (n_regimes × n_months_per_regime). For 6 regimes and 96 months of OOS data, overhead is modest.
+  - `compute_regime_conditional_ensemble_weights()` adds CPU overhead proportional to (n_regimes 횞 n_months_per_regime). For 6 regimes and 96 months of OOS data, overhead is modest.
   - First run will use static priors for all regimes because OOS scored panel has no `live_event_alert_label`; weights will improve after first full Colab run.
   - Disable with `cfg["regime_ensemble_weights_enabled"] = False` for a pure global-adaptive-only run.
-  - `regime_ensemble_weights_strength=0.50` means learned weights can move ±50% from global base per regime; raise to 0.80 for more aggressive regime-specific tilting.
+  - `regime_ensemble_weights_strength=0.50` means learned weights can move 짹50% from global base per regime; raise to 0.80 for more aggressive regime-specific tilting.
 
 ### 21:10 KST - fix-validate-config-sleeve-and-cash-constraints
 
 - scope: Relax six overly tight upper-bound checks in `validate_config` that blocked legitimate collector and policy-candidate values.
 - files:
-  - `r1000_top30_institutional.py` — widened six constraint upper bounds from fixed values to 1.0
-  - `CLAUDE.md` — removed stale known-issue entry for `cash_weight_max` monkey-patch
+  - `r1000_top30_institutional.py` ??widened six constraint upper bounds from fixed values to 1.0
+  - `CLAUDE.md` ??removed stale known-issue entry for `cash_weight_max` monkey-patch
 - symbols_added:
   - none
 - symbols_changed:
-  - `validate_config()` — upper bounds for `future_winner_sleeve_min_weight`, `future_winner_sleeve_max_weight`, `early_scout_sleeve_base_weight`, `early_scout_sleeve_min_weight`, `early_scout_sleeve_max_weight` changed from 0.50/0.50/0.30/0.20/0.25 to 1.0; `cash_weight_max` upper bound changed from 0.65 to 1.0
+  - `validate_config()` ??upper bounds for `future_winner_sleeve_min_weight`, `future_winner_sleeve_max_weight`, `early_scout_sleeve_base_weight`, `early_scout_sleeve_min_weight`, `early_scout_sleeve_max_weight` changed from 0.50/0.50/0.30/0.20/0.25 to 1.0; `cash_weight_max` upper bound changed from 0.65 to 1.0
 - config_fields_added:
   - none
 - breaking_changes:
-  - none — constraints were widened, not tightened; existing valid configs remain valid
+  - none ??constraints were widened, not tightened; existing valid configs remain valid
 - outputs:
   - none
 - validation:
@@ -486,8 +486,8 @@ All entries must be written in English. Entries must be predictable and machine-
 
 - scope: Standardize CHANGELOG format for agent readability and update CLAUDE.md project guide.
 - files:
-  - `CHANGELOG.md` — replaced Agent Update Contract with structured English-only format including required fields `symbols_added`, `symbols_changed`, `config_fields_added`, `breaking_changes`; backfilled missing `HH:MM` timestamps on four entries
-  - `CLAUDE.md` — updated engine line count (15k→20.4k), removed monkey-patch pipeline step, added Changelog Writing Rules section
+  - `CHANGELOG.md` ??replaced Agent Update Contract with structured English-only format including required fields `symbols_added`, `symbols_changed`, `config_fields_added`, `breaking_changes`; backfilled missing `HH:MM` timestamps on four entries
+  - `CLAUDE.md` ??updated engine line count (15k??0.4k), removed monkey-patch pipeline step, added Changelog Writing Rules section
 - symbols_added:
   - none
 - symbols_changed:
@@ -599,17 +599,17 @@ All entries must be written in English. Entries must be predictable and machine-
 
 - scope: Add three missing EngineConfig fields referenced in compute_portfolio_sleeve_columns and build_target_portfolio but absent from the dataclass, causing AttributeError at runtime.
 - files:
-  - `r1000_top30_institutional.py` — added three fields to EngineConfig after growth_history_confidence_min_for_full_sleeve
+  - `r1000_top30_institutional.py` ??added three fields to EngineConfig after growth_history_confidence_min_for_full_sleeve
 - symbols_added:
   - none
 - symbols_changed:
-  - `EngineConfig` — added `minervini_future_engine_weight: float = 0.65`, `minervini_portfolio_seed_weight: float = 0.40`, `minervini_broken_trend_penalty_weight: float = 0.50`
+  - `EngineConfig` ??added `minervini_future_engine_weight: float = 0.65`, `minervini_portfolio_seed_weight: float = 0.40`, `minervini_broken_trend_penalty_weight: float = 0.50`
 - config_fields_added:
-  - `minervini_future_engine_weight: float = 0.65` — weight applied to Minervini momentum signal in early_scout engine score computation
-  - `minervini_portfolio_seed_weight: float = 0.40` — weight applied to Minervini alive score in portfolio seed utility
-  - `minervini_broken_trend_penalty_weight: float = 0.50` — penalty weight applied to broken momentum in portfolio scoring
+  - `minervini_future_engine_weight: float = 0.65` ??weight applied to Minervini momentum signal in early_scout engine score computation
+  - `minervini_portfolio_seed_weight: float = 0.40` ??weight applied to Minervini alive score in portfolio seed utility
+  - `minervini_broken_trend_penalty_weight: float = 0.50` ??penalty weight applied to broken momentum in portfolio scoring
 - breaking_changes:
-  - none — these fields had no prior default; adding them to the dataclass with sensible defaults is backward compatible
+  - none ??these fields had no prior default; adding them to the dataclass with sensible defaults is backward compatible
 - outputs:
   - none
 - validation:
@@ -898,17 +898,17 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Phase 4 walk-forward training and Phase 5 backtest suite runtime reduction.
 - files:
-  - `r1000_top30_institutional.py` — added fast_mode EngineConfig field, apply_fast_mode() function, reduced default comparison candidate counts, trimmed _SLEEVE_POLICY_CANDIDATES from 12 to 8.
+  - `r1000_top30_institutional.py` ??added fast_mode EngineConfig field, apply_fast_mode() function, reduced default comparison candidate counts, trimmed _SLEEVE_POLICY_CANDIDATES from 12 to 8.
 - symbols_added:
-  - `apply_fast_mode(cfg: EngineConfig) -> EngineConfig` — applies Phase 4+5 override settings when cfg.fast_mode is True; called at the top of run_all() after validate_config().
+  - `apply_fast_mode(cfg: EngineConfig) -> EngineConfig` ??applies Phase 4+5 override settings when cfg.fast_mode is True; called at the top of run_all() after validate_config().
 - symbols_changed:
-  - `EngineConfig` — added fast_mode: bool = False; lowered sleeve_cap_policy_max_candidates default from 9 to 6; lowered ai_four_sleeve_max_candidates default from 12 to 8.
-  - `run_all()` — calls apply_fast_mode(cfg) immediately after validate_config(cfg).
-  - `_SLEEVE_POLICY_CANDIDATES` — reduced from 12 to 8 entries; removed def_55_30_15, bal_45_35_20, aggr_30_35_35, aggr_20_40_40 (near-duplicates of retained entries).
+  - `EngineConfig` ??added fast_mode: bool = False; lowered sleeve_cap_policy_max_candidates default from 9 to 6; lowered ai_four_sleeve_max_candidates default from 12 to 8.
+  - `run_all()` ??calls apply_fast_mode(cfg) immediately after validate_config(cfg).
+  - `_SLEEVE_POLICY_CANDIDATES` ??reduced from 12 to 8 entries; removed def_55_30_15, bal_45_35_20, aggr_30_35_35, aggr_20_40_40 (near-duplicates of retained entries).
 - config_fields_added:
-  - `fast_mode: bool = False` — when True, apply_fast_mode() cuts total Phase 4+5 runtime by ~60%; sets ranking_enabled=False, cat iterations 200/200/150, retrain_freq=6m, disables regime-per-regime/AI-four-sleeve/regime-map-method/standalone-sleeve comparisons, caps sleeve-cap candidates to 3.
+  - `fast_mode: bool = False` ??when True, apply_fast_mode() cuts total Phase 4+5 runtime by ~60%; sets ranking_enabled=False, cat iterations 200/200/150, retrain_freq=6m, disables regime-per-regime/AI-four-sleeve/regime-map-method/standalone-sleeve comparisons, caps sleeve-cap candidates to 3.
 - breaking_changes:
-  - none — fast_mode defaults to False; all existing Colab runs are unaffected unless opt-in.
+  - none ??fast_mode defaults to False; all existing Colab runs are unaffected unless opt-in.
 - outputs:
   - none
 - validation:
@@ -922,46 +922,6 @@ All entries must be written in English. Entries must be predictable and machine-
   - Default sleeve_cap_policy_max_candidates=6 and ai_four_sleeve_max_candidates=8 apply to all runs regardless of fast_mode; saves ~5 backtests per full run compared to previous defaults (9/12).
 
 ## 2026-04-14
-
-### 17:30 KST - sage-sector-adaptive-growth-engine
-
-- scope:
-  - Replace the flat Rule-of-40 metric with a sector-adaptive G/V/Q/C scoring framework (SAGE) covering all 8 sector buckets in the Russell 1000 universe.
-- files:
-  - `r1000_top30_institutional.py` — added SAGE constants, 8 new FSDS tags + aliases, 9 proxy-safe derived metrics, 3 SAGE scoring functions, sector-gated z-score utility, and wired compute_sage_scores into compute_valuation_columns.
-- symbols_added:
-  - `SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]]` — 8-bucket sector classifier keyed on GICS keyword matching (Semiconductor, Software, MedTech, Banking, Industrial, Consumer, Energy, General).
-  - `cross_sectional_robust_z_by_sector(df: pd.DataFrame, col: str, sector_col: str = "sage_sector") -> pd.Series` — sector-gated robust z-score; falls back to universe-wide when group size < 5.
-  - `compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series` — assigns each row a SAGE sector label via GICS keyword scan with General fallback.
-  - `_sage_ols_residual(y: pd.Series, X: pd.DataFrame) -> pd.Series` — numpy lstsq OLS; returns zero series on degenerate input.
-  - `compute_valuation_residuals(d: pd.DataFrame) -> pd.DataFrame` — per-(rebalance_date, sage_sector) OLS regression; adds val_residual_ep, val_residual_sp, val_residual_fcfy.
-  - `compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame` — adds sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score (formula: 0.35G + 0.25V + 0.25Q + 0.15C).
-- symbols_changed:
-  - `FSDS_TAGS` — added sbc, rd_expense, interest_expense, equity, inventory, long_term_debt, current_liabilities, cash.
-  - `FSDS_TAG_ALIASES` — added aliases for all 8 new tags.
-  - `BAL_TAGS` — added equity, inventory, long_term_debt, current_liabilities, cash.
-  - `FLOW_TAGS` — added sbc, rd_expense, interest_expense.
-  - `YF_QUARTERLY_COL_MAP` — added 28 yfinance field name mappings for new tags.
-  - `carry_cols` — added fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
-  - `COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS` — added 16 SAGE metric columns.
-  - `DEFAULT_FEATURES` — added 15 SAGE columns including sage_composite_score.
-  - `recompute_fund_panel_derived_columns()` — added 9 proxy-safe derived SAGE metrics with fallback proxies when new FSDS tags not yet collected.
-  - `compute_valuation_columns()` — injected d = compute_sage_scores(d) after sector_adjusted_quality_score block.
-- config_fields_added:
-  - none
-- breaking_changes:
-  - none — all new metrics have proxy fallbacks; existing data pipelines run unchanged until next companyfacts.zip pull.
-- outputs:
-  - Scored panel gains: sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score, fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
-- validation:
-  - All 6 SAGE function/constant names confirmed present via grep after implementation.
-  - sage_composite_score confirmed in DEFAULT_FEATURES and COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS.
-  - SAGE_SECTOR_MAP confirmed at line 1031; compute_sage_scores call site confirmed at line 11934.
-  - Local Python compile not run (no interpreter in environment).
-- risks_or_notes:
-  - Software and Semiconductor share the "Information Technology" GICS sector string; SAGE_SECTOR_MAP keyword scan distinguishes them by checking "SEMICONDUCTOR"/"MICROELECTRONIC" first. If the industry field is unavailable, both may collapse into the Software bucket until a richer industry string is collected.
-  - val_residual_* features require at least 3 names per (rebalance_date, sage_sector) group; sparse sectors fall back to a zero residual with no error.
-  - Proxy-safe derived metrics (sbc_to_revenue via shares_yoy proxy, rd_intensity via margin gap proxy, roic_approx via liabilities proxy, interest_coverage via liabilities proxy) are intentionally conservative; signal quality will improve after sbc / rd_expense / interest_expense / equity tags are backfilled from companyfacts.zip on the next full Colab run.
 
 ### 13:22 KST - sage-portfolio-integration-and-export-observability
 
@@ -989,6 +949,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - This change intentionally makes the engine more offensive; early/future sleeves should surface more often, but turnover and concentration can rise in growth-friendly regimes.
   - SAGE is still hybrid: actual `sbc`/`rd_expense`/`interest_expense` data quality improves only after a fresh collector run populates the expanded tags.
 
+
 ### 13:25 KST - collector-and-colab-sync-to-growth-defaults
 
 - scope:
@@ -1010,3 +971,44 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - The synced collector removes some older explicit notebook helper wiring in favor of inheriting from `DEFAULT_CFG`; this is intentional so future engine-default changes do not drift from Colab.
   - The notebook JSON changed substantially because the newer local runbook has a different cell layout and markdown text, not because of binary corruption.
+
+
+### 17:30 KST - sage-sector-adaptive-growth-engine
+
+- scope:
+  - Replace the flat Rule-of-40 metric with a sector-adaptive G/V/Q/C scoring framework (SAGE) covering all 8 sector buckets in the Russell 1000 universe.
+- files:
+  - `r1000_top30_institutional.py` ??added SAGE constants, 8 new FSDS tags + aliases, 9 proxy-safe derived metrics, 3 SAGE scoring functions, sector-gated z-score utility, and wired compute_sage_scores into compute_valuation_columns.
+- symbols_added:
+  - `SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]]` ??8-bucket sector classifier keyed on GICS keyword matching (Semiconductor, Software, MedTech, Banking, Industrial, Consumer, Energy, General).
+  - `cross_sectional_robust_z_by_sector(df: pd.DataFrame, col: str, sector_col: str = "sage_sector") -> pd.Series` ??sector-gated robust z-score; falls back to universe-wide when group size < 5.
+  - `compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series` ??assigns each row a SAGE sector label via GICS keyword scan with General fallback.
+  - `_sage_ols_residual(y: pd.Series, X: pd.DataFrame) -> pd.Series` ??numpy lstsq OLS; returns zero series on degenerate input.
+  - `compute_valuation_residuals(d: pd.DataFrame) -> pd.DataFrame` ??per-(rebalance_date, sage_sector) OLS regression; adds val_residual_ep, val_residual_sp, val_residual_fcfy.
+  - `compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame` ??adds sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score (formula: 0.35G + 0.25V + 0.25Q + 0.15C).
+- symbols_changed:
+  - `FSDS_TAGS` ??added sbc, rd_expense, interest_expense, equity, inventory, long_term_debt, current_liabilities, cash.
+  - `FSDS_TAG_ALIASES` ??added aliases for all 8 new tags.
+  - `BAL_TAGS` ??added equity, inventory, long_term_debt, current_liabilities, cash.
+  - `FLOW_TAGS` ??added sbc, rd_expense, interest_expense.
+  - `YF_QUARTERLY_COL_MAP` ??added 28 yfinance field name mappings for new tags.
+  - `carry_cols` ??added fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
+  - `COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS` ??added 16 SAGE metric columns.
+  - `DEFAULT_FEATURES` ??added 15 SAGE columns including sage_composite_score.
+  - `recompute_fund_panel_derived_columns()` ??added 9 proxy-safe derived SAGE metrics with fallback proxies when new FSDS tags not yet collected.
+  - `compute_valuation_columns()` ??injected d = compute_sage_scores(d) after sector_adjusted_quality_score block.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none ??all new metrics have proxy fallbacks; existing data pipelines run unchanged until next companyfacts.zip pull.
+- outputs:
+  - Scored panel gains: sage_sector, sage_g_score, sage_v_score, sage_q_score, sage_c_score, sage_composite_score, fcf_margin, net_margin, gross_margin_ttm, op_margin_calc_ttm, rule_of_40, sbc_to_revenue, rd_intensity, roic_approx, interest_coverage, dilution_penalty.
+- validation:
+  - All 6 SAGE function/constant names confirmed present via grep after implementation.
+  - sage_composite_score confirmed in DEFAULT_FEATURES and COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS.
+  - SAGE_SECTOR_MAP confirmed at line 1031; compute_sage_scores call site confirmed at line 11934.
+  - Local Python compile not run (no interpreter in environment).
+- risks_or_notes:
+  - Software and Semiconductor share the "Information Technology" GICS sector string; SAGE_SECTOR_MAP keyword scan distinguishes them by checking "SEMICONDUCTOR"/"MICROELECTRONIC" first. If the industry field is unavailable, both may collapse into the Software bucket until a richer industry string is collected.
+  - val_residual_* features require at least 3 names per (rebalance_date, sage_sector) group; sparse sectors fall back to a zero residual with no error.
+  - Proxy-safe derived metrics (sbc_to_revenue via shares_yoy proxy, rd_intensity via margin gap proxy, roic_approx via liabilities proxy, interest_coverage via liabilities proxy) are intentionally conservative; signal quality will improve after sbc / rd_expense / interest_expense / equity tags are backfilled from companyfacts.zip on the next full Colab run.
