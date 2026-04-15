@@ -1246,3 +1246,21 @@ All entries must be written in English. Entries must be predictable and machine-
   - State sync assumes the operator's recommended weights are followed. If the user diverges materially from the plan, they should manually edit live_portfolio_state.json before the next run.
   - Sleeve-specific thresholds: core_compounder gets wider loss tolerance (-15%, hold 42d), early_scout gets tighter (-10%, hold 14d), future_winner uses standard defaults (-12%, hold 21d).
   - ENGINE_REUSE_VERSION is NOT bumped because these changes only affect the post-backtest operator layer. Walk-forward cached artifacts remain valid and will be reused.
+
+### 16:42 KST - remove-operator-auto-state-sync-and-fix-sleeve-resolver
+
+- scope:
+  - Revert the operator's automatic live-state mutation during plan generation and tighten sleeve resolution so sleeve-aware thresholds only consume real label fields.
+- files:
+  - `r1000_operator.py` -> remove `save_live_portfolio_state` dependency and the `_sync_state_from_plan()` call/path, drop `portfolio_sleeve_promoted` from `_SLEEVE_LABEL_COLUMNS`, and stamp operator summaries with manual-apply metadata.
+- symbols_changed:
+  - `_SLEEVE_LABEL_COLUMNS` -> now only checks actual sleeve label columns (`portfolio_sleeve_label`, `sleeve_label`, `sleeve`).
+  - `build_live_operator_plan()` -> no longer mutates `live_portfolio_state.json`; now reports `state_sync_mode=manual_apply_required`.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ops/live_operator_summary.json` now explicitly states that the operator output is recommendation-only and does not auto-apply to live state.
+- validation:
+  - `python -m py_compile r1000_operator.py r1000_top30_institutional.py r1000_portfolio_state.py` passed in the GitHub working tree.
+- risks_or_notes:
+  - This restores the live portfolio state as the source of truth for actual holdings. A future explicit `apply` or broker reconciliation step can update state after real execution, but planning runs no longer do so implicitly.

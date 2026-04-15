@@ -14,7 +14,6 @@ from r1000_portfolio_state import (
     load_live_portfolio_state,
     positions_frame_from_state,
     resolve_live_state_paths,
-    save_live_portfolio_state,
 )
 
 OPERATOR_POLICY_VERSION = "2026-04-15-v1"
@@ -137,7 +136,6 @@ _SLEEVE_POLICIES: dict[str, dict[str, float]] = {
 
 _SLEEVE_LABEL_COLUMNS = [
     "portfolio_sleeve_label",
-    "portfolio_sleeve_promoted",
     "sleeve_label",
     "sleeve",
 ]
@@ -539,6 +537,8 @@ def build_live_operator_plan(
         "turnover_estimate": float(plan["weight_delta"].abs().sum() / 2.0) if not plan.empty else 0.0,
         "action_counts": {str(k): int(v) for k, v in plan["action"].value_counts().items()} if not plan.empty else {},
         "state_source": state_payload.get("state_source"),
+        "state_sync_mode": "manual_apply_required",
+        "state_sync_note": "Operator output is a recommendation only; live state is not auto-updated.",
     }
 
     ops_dir = state_paths["ops"]
@@ -556,80 +556,11 @@ def build_live_operator_plan(
             dedupe_subset=["generated_at_utc", "ticker"],
             sort_columns=["generated_at_utc", "decision_rank"],
         )
-    # Sync state so the next operator run starts from the correct baseline
-    _sync_state_from_plan(
-        base_dir_or_paths,
-        plan,
-        summary,
-        strategy_version=strategy_version,
-    )
     return plan, summary, {
         "live_operator_plan_latest.csv": str(plan_path),
         "live_operator_summary.json": str(summary_path),
         "live_operator_decision_history.parquet": str(history_path),
     }
-
-
-def _sync_state_from_plan(
-    base_dir_or_paths: str | Path | Mapping[str, Any],
-    plan: pd.DataFrame,
-    summary: dict[str, Any],
-    *,
-    strategy_version: str = "",
-) -> None:
-    """Sync live portfolio state with the operator plan's recommended weights.
-
-    After plan generation, updates the persistent state so the next operator run
-    starts from the correct weight baseline instead of stale bootstrap values.
-    Preserves entry_date and avg_cost for held positions; marks new entries with
-    the current rebalance date.
-    """
-    if plan.empty:
-        return
-    state = load_live_portfolio_state(base_dir_or_paths)
-    rebalance_date = str(summary.get("generated_at_utc", _now_utc_iso()))[:10]
-
-    existing_positions: dict[str, dict[str, Any]] = {}
-    for pos in state.get("positions") or []:
-        if isinstance(pos, dict) and pos.get("ticker"):
-            existing_positions[str(pos["ticker"]).upper()] = pos
-
-    new_positions: list[dict[str, Any]] = []
-    for _, row in plan.iterrows():
-        ticker = str(row.get("ticker", "")).upper()
-        if not ticker or ticker == CASH_PROXY_TICKER:
-            continue
-        rec_weight = _safe_float(row.get("recommended_weight"), default=0.0)
-        if rec_weight <= 1e-10:
-            continue
-        action = str(row.get("action", "hold"))
-        existing = existing_positions.get(ticker, {})
-        is_new = action in {"add", "add_intramonth"}
-        is_trade = action not in {
-            "hold", "hold_in_cycle", "hold_watch", "hold_locked", "hold_cash",
-            "hold_legacy", "watch", "watch_add",
-        }
-        new_positions.append({
-            "ticker": ticker,
-            "shares": existing.get("shares", np.nan),
-            "weight": float(rec_weight),
-            "target_weight": _safe_float(row.get("target_weight_model"), default=rec_weight),
-            "avg_cost": existing.get("avg_cost", np.nan),
-            "reference_price": _safe_float(row.get("reference_price"), default=np.nan),
-            "entry_date": rebalance_date if is_new else (existing.get("entry_date") or rebalance_date),
-            "last_trade_date": rebalance_date if is_trade else existing.get("last_trade_date", rebalance_date),
-            "manual_lock": existing.get("manual_lock", False),
-            "min_hold_until": existing.get("min_hold_until"),
-            "thesis_status": "active",
-            "source": "operator_sync",
-            "notes": f"Synced: {action}",
-        })
-
-    state["positions"] = new_positions
-    state["state_source"] = "operator_plan_sync"
-    state["strategy_version"] = str(strategy_version or state.get("strategy_version", ""))
-    state["as_of_date"] = rebalance_date
-    save_live_portfolio_state(base_dir_or_paths, state, snapshot_reason="operator_plan_sync")
 
 
 def refresh_live_operator_outputs(
