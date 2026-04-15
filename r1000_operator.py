@@ -14,6 +14,7 @@ from r1000_portfolio_state import (
     load_live_portfolio_state,
     positions_frame_from_state,
     resolve_live_state_paths,
+    save_live_portfolio_state,
 )
 
 OPERATOR_POLICY_VERSION = "2026-04-15-v1"
@@ -102,6 +103,61 @@ def _policy_defaults() -> dict[str, float]:
         "intramonth_exit_risk_threshold": 0.65,
         "intramonth_hold_support_floor": 0.52,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sleeve-specific operator policy thresholds
+# ---------------------------------------------------------------------------
+_SLEEVE_POLICIES: dict[str, dict[str, float]] = {
+    "core_compounder": {
+        "min_hold_days": 42.0,
+        "intramonth_exit_loss_threshold": -0.15,
+        "intramonth_exit_risk_threshold": 0.70,
+        "intramonth_hold_support_floor": 0.60,
+        "monthly_legacy_hold_rank_buffer": 50.0,
+        "monthly_legacy_keep_max_weight": 0.03,
+    },
+    "future_winner": {
+        "min_hold_days": 21.0,
+        "intramonth_exit_loss_threshold": -0.12,
+        "intramonth_exit_risk_threshold": 0.65,
+        "intramonth_hold_support_floor": 0.52,
+        "monthly_legacy_hold_rank_buffer": 45.0,
+        "monthly_legacy_keep_max_weight": 0.025,
+    },
+    "early_scout": {
+        "min_hold_days": 14.0,
+        "intramonth_exit_loss_threshold": -0.10,
+        "intramonth_exit_risk_threshold": 0.60,
+        "intramonth_hold_support_floor": 0.45,
+        "monthly_legacy_hold_rank_buffer": 35.0,
+        "monthly_legacy_keep_max_weight": 0.015,
+    },
+}
+
+_SLEEVE_LABEL_COLUMNS = [
+    "portfolio_sleeve_label",
+    "portfolio_sleeve_promoted",
+    "sleeve_label",
+    "sleeve",
+]
+
+
+def _resolve_sleeve(target_row: Any, top_row: Any) -> str:
+    """Resolve the sleeve label for a ticker from portfolio or top30 data."""
+    for source in [target_row, top_row]:
+        if source is None:
+            continue
+        for col in _SLEEVE_LABEL_COLUMNS:
+            val = source.get(col) if hasattr(source, "get") else getattr(source, col, None)
+            if val is not None and str(val).strip() not in {"", "nan", "None"}:
+                return str(val).strip()
+    return "core_compounder"
+
+
+def _sleeve_threshold(sleeve: str, key: str, defaults: dict[str, float]) -> float:
+    """Get a sleeve-specific threshold, falling back to base defaults."""
+    return float(_SLEEVE_POLICIES.get(sleeve, {}).get(key, defaults.get(key, 0.0)))
 
 
 def _days_between(start_value: Any, end_value: Any) -> float:
@@ -268,8 +324,6 @@ def build_live_operator_plan(
     intramonth_add_candidates: list[tuple[str, float]] = []
     cash_ticker = CASH_PROXY_TICKER
     min_trade = float(defaults["min_weight_trade_delta"])
-    min_hold_days = float(defaults["min_hold_days"])
-    legacy_keep_weight = float(defaults["monthly_legacy_keep_max_weight"])
 
     for ticker in universe_tickers:
         current_row = current_lookup.loc[ticker] if isinstance(current_lookup, pd.DataFrame) and not current_lookup.empty and ticker in current_lookup.index else None
@@ -277,6 +331,15 @@ def build_live_operator_plan(
         top_row = top_lookup.loc[ticker] if isinstance(top_lookup, pd.DataFrame) and not top_lookup.empty and ticker in top_lookup.index else None
         current_weight = float(current_map.get(ticker, 0.0))
         target_weight = float(target_map.get(ticker, 0.0))
+        # --- Sleeve-aware thresholds ---
+        sleeve = _resolve_sleeve(target_row, top_row)
+        s_min_hold = _sleeve_threshold(sleeve, "min_hold_days", defaults)
+        s_exit_loss = _sleeve_threshold(sleeve, "intramonth_exit_loss_threshold", defaults)
+        s_exit_risk_thr = _sleeve_threshold(sleeve, "intramonth_exit_risk_threshold", defaults)
+        s_support_floor = _sleeve_threshold(sleeve, "intramonth_hold_support_floor", defaults)
+        s_rank_buffer = _sleeve_threshold(sleeve, "monthly_legacy_hold_rank_buffer", defaults)
+        s_keep_weight = _sleeve_threshold(sleeve, "monthly_legacy_keep_max_weight", defaults)
+
         rank = _safe_float(top_row.get("rank") if top_row is not None else np.nan, default=np.nan)
         score = _safe_float(top_row.get("score") if top_row is not None else np.nan, default=np.nan)
         hold_support = _safe_float(
@@ -331,27 +394,27 @@ def build_live_operator_plan(
         elif current_weight > 0 and target_weight <= 0:
             if full_rebalance_due:
                 keep_allowed = (
-                    (np.isfinite(rank) and rank <= float(defaults["monthly_legacy_hold_rank_buffer"]))
-                    or (np.isfinite(hold_support) and hold_support >= max(float(defaults["intramonth_hold_support_floor"]), 0.58))
-                    or (np.isfinite(held_days) and held_days < min_hold_days)
+                    (np.isfinite(rank) and rank <= s_rank_buffer)
+                    or (np.isfinite(hold_support) and hold_support >= s_support_floor)
+                    or (np.isfinite(held_days) and held_days < s_min_hold)
                 )
                 if keep_allowed:
-                    recommended_weight = min(current_weight, legacy_keep_weight)
+                    recommended_weight = min(current_weight, s_keep_weight)
                     action = "trim_legacy" if recommended_weight < current_weight - min_trade else "hold_legacy"
-                    action_reason = "Monthly rebalance keeps a residual legacy weight instead of forcing a full exit."
+                    action_reason = f"Monthly rebalance keeps a residual legacy weight ({sleeve})."
                 else:
                     recommended_weight = 0.0
                     action = "exit"
-                    action_reason = "Monthly rebalance removes a name that is no longer in the target portfolio."
+                    action_reason = f"Monthly rebalance exits a name no longer in target ({sleeve})."
             else:
                 hard_exit = (
-                    (np.isfinite(unrealized_return) and unrealized_return <= float(defaults["intramonth_exit_loss_threshold"]))
-                    or (np.isfinite(exit_risk) and exit_risk >= float(defaults["intramonth_exit_risk_threshold"]))
+                    (np.isfinite(unrealized_return) and unrealized_return <= s_exit_loss)
+                    or (np.isfinite(exit_risk) and exit_risk >= s_exit_risk_thr)
                 )
-                if hard_exit and (not np.isfinite(held_days) or held_days >= min_hold_days):
+                if hard_exit and (not np.isfinite(held_days) or held_days >= s_min_hold):
                     recommended_weight = 0.0
                     action = "exit_intramonth"
-                    action_reason = "Intramonth risk exit triggered by loss or exit-risk deterioration."
+                    action_reason = f"Intramonth risk exit ({sleeve}: loss<={s_exit_loss:.0%} or risk>={s_exit_risk_thr:.0%})."
                 else:
                     action = "hold_watch"
                     action_reason = "Not in the current target, but still held until the next scheduled rebalance."
@@ -378,6 +441,7 @@ def build_live_operator_plan(
         rows.append(
             {
                 "ticker": ticker,
+                "sleeve_label": sleeve,
                 "current_weight": current_weight,
                 "target_weight_model": target_weight,
                 "recommended_weight": recommended_weight,
@@ -492,11 +556,80 @@ def build_live_operator_plan(
             dedupe_subset=["generated_at_utc", "ticker"],
             sort_columns=["generated_at_utc", "decision_rank"],
         )
+    # Sync state so the next operator run starts from the correct baseline
+    _sync_state_from_plan(
+        base_dir_or_paths,
+        plan,
+        summary,
+        strategy_version=strategy_version,
+    )
     return plan, summary, {
         "live_operator_plan_latest.csv": str(plan_path),
         "live_operator_summary.json": str(summary_path),
         "live_operator_decision_history.parquet": str(history_path),
     }
+
+
+def _sync_state_from_plan(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+    plan: pd.DataFrame,
+    summary: dict[str, Any],
+    *,
+    strategy_version: str = "",
+) -> None:
+    """Sync live portfolio state with the operator plan's recommended weights.
+
+    After plan generation, updates the persistent state so the next operator run
+    starts from the correct weight baseline instead of stale bootstrap values.
+    Preserves entry_date and avg_cost for held positions; marks new entries with
+    the current rebalance date.
+    """
+    if plan.empty:
+        return
+    state = load_live_portfolio_state(base_dir_or_paths)
+    rebalance_date = str(summary.get("generated_at_utc", _now_utc_iso()))[:10]
+
+    existing_positions: dict[str, dict[str, Any]] = {}
+    for pos in state.get("positions") or []:
+        if isinstance(pos, dict) and pos.get("ticker"):
+            existing_positions[str(pos["ticker"]).upper()] = pos
+
+    new_positions: list[dict[str, Any]] = []
+    for _, row in plan.iterrows():
+        ticker = str(row.get("ticker", "")).upper()
+        if not ticker or ticker == CASH_PROXY_TICKER:
+            continue
+        rec_weight = _safe_float(row.get("recommended_weight"), default=0.0)
+        if rec_weight <= 1e-10:
+            continue
+        action = str(row.get("action", "hold"))
+        existing = existing_positions.get(ticker, {})
+        is_new = action in {"add", "add_intramonth"}
+        is_trade = action not in {
+            "hold", "hold_in_cycle", "hold_watch", "hold_locked", "hold_cash",
+            "hold_legacy", "watch", "watch_add",
+        }
+        new_positions.append({
+            "ticker": ticker,
+            "shares": existing.get("shares", np.nan),
+            "weight": float(rec_weight),
+            "target_weight": _safe_float(row.get("target_weight_model"), default=rec_weight),
+            "avg_cost": existing.get("avg_cost", np.nan),
+            "reference_price": _safe_float(row.get("reference_price"), default=np.nan),
+            "entry_date": rebalance_date if is_new else (existing.get("entry_date") or rebalance_date),
+            "last_trade_date": rebalance_date if is_trade else existing.get("last_trade_date", rebalance_date),
+            "manual_lock": existing.get("manual_lock", False),
+            "min_hold_until": existing.get("min_hold_until"),
+            "thesis_status": "active",
+            "source": "operator_sync",
+            "notes": f"Synced: {action}",
+        })
+
+    state["positions"] = new_positions
+    state["state_source"] = "operator_plan_sync"
+    state["strategy_version"] = str(strategy_version or state.get("strategy_version", ""))
+    state["as_of_date"] = rebalance_date
+    save_live_portfolio_state(base_dir_or_paths, state, snapshot_reason="operator_plan_sync")
 
 
 def refresh_live_operator_outputs(

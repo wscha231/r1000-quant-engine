@@ -1215,3 +1215,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - local static validation pending final py_compile after sync to the GitHub working tree.
 - risks_or_notes:
   - This archives the latest generated outputs, not a git checkout of source files. Code rollback still uses Git commits; the archive provides the matching result bundle and manifest.
+
+### 16:05 KST - fix-breaker-duplicates-and-operator-sleeve-state-sync
+
+- scope:
+  - Remove duplicate circuit breaker code in backtest_portfolio, add sleeve-aware operator thresholds, and sync live portfolio state after each operator plan so the next run starts from the correct baseline.
+- files:
+  - `r1000_top30_institutional.py` -> removed duplicate initialization of running_equity/portfolio_peak/circuit_breaker_active/breaker_threshold/breaker_cash_target/breaker_recovery (6 lines) and duplicate inner functions _normalize_breaker_mix/_current_breaker_mix inside backtest_portfolio().
+  - `r1000_operator.py` -> added sleeve-aware policy thresholds per sleeve (core_compounder/future_winner/early_scout), sleeve label resolution from portfolio/top30 data, sleeve_label column in operator plan output, and _sync_state_from_plan() so live portfolio state is updated with recommended weights after each plan generation.
+- symbols_added:
+  - `_SLEEVE_POLICIES: dict[str, dict[str, float]]` -> per-sleeve operator thresholds for min_hold_days, exit loss/risk, support floor, legacy rank buffer, legacy keep weight.
+  - `_resolve_sleeve(target_row, top_row) -> str` -> resolves sleeve label from portfolio_latest or top30_latest columns.
+  - `_sleeve_threshold(sleeve, key, defaults) -> float` -> returns sleeve-specific threshold with base default fallback.
+  - `_sync_state_from_plan(base_dir_or_paths, plan, summary, strategy_version)` -> syncs live_portfolio_state.json with the operator plan's recommended weights after each run.
+- symbols_changed:
+  - `build_live_operator_plan()` -> now resolves sleeve label per ticker, applies sleeve-specific hold/exit/legacy thresholds instead of flat defaults, includes sleeve_label in plan output, and calls _sync_state_from_plan after saving the plan.
+  - `backtest_portfolio()` -> removed duplicate variable initialization (lines 15415-15420) and duplicate _normalize_breaker_mix/_current_breaker_mix definitions (lines 15475-15517).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ops/live_operator_plan_latest.csv` now includes `sleeve_label` column.
+  - `outputs/ops/live_portfolio_state.json` is now updated after each operator plan generation with recommended weights.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py` passed.
+  - Grep confirmed _normalize_breaker_mix and _current_breaker_mix each appear exactly once after duplicate removal.
+  - Grep confirmed breaker initialization variables appear exactly once after duplicate removal.
+- risks_or_notes:
+  - State sync assumes the operator's recommended weights are followed. If the user diverges materially from the plan, they should manually edit live_portfolio_state.json before the next run.
+  - Sleeve-specific thresholds: core_compounder gets wider loss tolerance (-15%, hold 42d), early_scout gets tighter (-10%, hold 14d), future_winner uses standard defaults (-12%, hold 21d).
+  - ENGINE_REUSE_VERSION is NOT bumped because these changes only affect the post-backtest operator layer. Walk-forward cached artifacts remain valid and will be reused.
