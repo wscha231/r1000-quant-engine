@@ -23038,6 +23038,22 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "portfolio_sage_by_sleeve": _frame_sage_by_sleeve(portfolio_latest),
     }
 
+    # Pre-refresh live state from the PREVIOUS weights before overwriting,
+    # so the operator compares old holdings vs new targets correctly.
+    try:
+        if weights_path.exists():
+            _old_weights = json.loads(weights_path.read_text(encoding="utf-8"))
+            if isinstance(_old_weights, dict) and _old_weights.get("holdings"):
+                from r1000_portfolio_state import ensure_live_portfolio_state as _ensure_state
+                _ensure_state(
+                    paths,
+                    weights_payload=_old_weights,
+                    strategy_version=ENGINE_REUSE_VERSION,
+                    force_refresh=True,
+                )
+    except Exception:
+        pass
+
     weights_payload = {
         "run_id": run_identity["run_id"],
         "run_ts": run_identity["run_ts"],

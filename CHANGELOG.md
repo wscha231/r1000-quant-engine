@@ -1264,3 +1264,32 @@ All entries must be written in English. Entries must be predictable and machine-
   - `python -m py_compile r1000_operator.py r1000_top30_institutional.py r1000_portfolio_state.py` passed in the GitHub working tree.
 - risks_or_notes:
   - This restores the live portfolio state as the source of truth for actual holdings. A future explicit `apply` or broker reconciliation step can update state after real execution, but planning runs no longer do so implicitly.
+
+### 17:15 KST - operational-improvements-state-monitoring-diff-manual
+
+- scope:
+  - Four operational improvements: state force-refresh from previous weights before new export, monitoring-only operator mode, archived run comparison, and manual holdings update tool.
+- files:
+  - `r1000_portfolio_state.py` -> added `force_refresh` parameter to `ensure_live_portfolio_state()` that re-bootstraps from weights while preserving entry_date/avg_cost for held tickers; added `apply_actual_holdings()` for manual broker/state updates.
+  - `r1000_operator.py` -> added `monitoring_only` parameter to `build_live_operator_plan()` and `refresh_live_operator_outputs()` that suppresses rebalance actions and only checks intramonth exit signals; added `compare_run_outputs()` that diffs two archived runs for holdings/weights/metrics/regime changes.
+  - `r1000_top30_institutional.py` -> in `export_outputs()`, reads the PREVIOUS `weights_latest.json` and force-refreshes live state before writing the new weights, so the operator always compares old holdings vs new targets correctly.
+- symbols_added:
+  - `apply_actual_holdings(base_dir_or_paths, holdings, as_of_date, strategy_version)` -> updates live state from a manual dict of {ticker: weight} or {ticker: {weight, avg_cost, shares}}.
+  - `compare_run_outputs(base_dir_or_paths, run_id_old, run_id_new)` -> loads two archived run manifests and returns added/removed tickers, weight deltas, metric changes, regime shift, and a summary_text string.
+- symbols_changed:
+  - `ensure_live_portfolio_state()` -> added `force_refresh: bool = False`; when True, re-bootstraps from weights_payload and preserves entry_date/avg_cost from previous positions.
+  - `build_live_operator_plan()` -> added `monitoring_only: bool = False`; when True, forces `full_rebalance_due = False` so only intramonth exit signals are checked.
+  - `refresh_live_operator_outputs()` -> passes `monitoring_only` through to `build_live_operator_plan`.
+  - `export_outputs()` -> reads old weights_latest.json and calls `ensure_live_portfolio_state(force_refresh=True)` before writing new weights.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ops/live_operator_summary.json` now includes `monitoring_only` field.
+- validation:
+  - `py -3 -m py_compile r1000_portfolio_state.py r1000_operator.py r1000_top30_institutional.py r1000_data_collector.py` passed.
+- risks_or_notes:
+  - The pre-export state refresh assumes the user executed the previous run's recommendations. If they diverged, `apply_actual_holdings()` should be called before the next pipeline run.
+  - `monitoring_only=True` still generates a full plan CSV but all actions default to hold/watch except intramonth exit signals.
+  - ENGINE_REUSE_VERSION is NOT bumped; walk-forward cache remains valid.

@@ -264,7 +264,14 @@ def build_live_operator_plan(
     run_ts: str = "",
     git_commit: str = "",
     config_fingerprint: str = "",
+    monitoring_only: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, str]]:
+    """Generate an operator plan comparing current state vs model targets.
+
+    When *monitoring_only* is True the plan suppresses all rebalance actions
+    and only flags intramonth exit signals.  Use this for daily/weekly
+    monitoring runs that should not trigger position changes.
+    """
     inputs = _load_inputs(base_dir_or_paths)
     state_paths = inputs["paths"]
     run_summary = inputs["run_summary"]
@@ -295,7 +302,7 @@ def build_live_operator_plan(
     }
     run_action = str(run_summary.get("rebalance_action") or "").strip()
     policy_due = bool(run_summary.get("policy_rebalance_due", True))
-    full_rebalance_due = policy_due or run_action in FULL_REBALANCE_ACTIONS
+    full_rebalance_due = (policy_due or run_action in FULL_REBALANCE_ACTIONS) and not monitoring_only
     defaults = _policy_defaults()
 
     current_lookup = (
@@ -537,6 +544,7 @@ def build_live_operator_plan(
         "turnover_estimate": float(plan["weight_delta"].abs().sum() / 2.0) if not plan.empty else 0.0,
         "action_counts": {str(k): int(v) for k, v in plan["action"].value_counts().items()} if not plan.empty else {},
         "state_source": state_payload.get("state_source"),
+        "monitoring_only": bool(monitoring_only),
         "state_sync_mode": "manual_apply_required",
         "state_sync_note": "Operator output is a recommendation only; live state is not auto-updated.",
     }
@@ -571,6 +579,7 @@ def refresh_live_operator_outputs(
     run_ts: str = "",
     git_commit: str = "",
     config_fingerprint: str = "",
+    monitoring_only: bool = False,
 ) -> dict[str, Any]:
     plan, summary, output_files = build_live_operator_plan(
         base_dir_or_paths,
@@ -579,9 +588,111 @@ def refresh_live_operator_outputs(
         run_ts=run_ts,
         git_commit=git_commit,
         config_fingerprint=config_fingerprint,
+        monitoring_only=monitoring_only,
     )
     return {
         "plan": plan,
         "summary": summary,
         "output_files": output_files,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Run comparison helper
+# ---------------------------------------------------------------------------
+
+def compare_run_outputs(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+    *,
+    run_id_old: Optional[str] = None,
+    run_id_new: Optional[str] = None,
+) -> dict[str, Any]:
+    """Compare two archived pipeline runs and report portfolio changes.
+
+    If *run_id_old* / *run_id_new* are omitted the two most recent
+    archived runs are used automatically.
+
+    Returns a dict with keys: ``added``, ``removed``, ``weight_changes``,
+    ``metric_changes``, ``regime_change``, and ``summary_text``.
+    """
+    state_paths = resolve_live_state_paths(base_dir_or_paths)
+    archive_root = state_paths["out"] / "archive"
+    if not archive_root.exists():
+        return {"error": "No archive directory found."}
+
+    run_dirs = sorted(
+        [d for d in archive_root.iterdir() if d.is_dir() and (d / "run_manifest.json").exists()],
+        key=lambda p: p.name,
+    )
+    if len(run_dirs) < 2 and not (run_id_old and run_id_new):
+        return {"error": f"Need at least 2 archived runs, found {len(run_dirs)}."}
+
+    def _find_run(run_id: Optional[str], candidates: list[Path], idx: int) -> Optional[Path]:
+        if run_id:
+            for d in candidates:
+                if run_id in d.name:
+                    return d
+            return None
+        return candidates[idx] if abs(idx) <= len(candidates) else None
+
+    old_dir = _find_run(run_id_old, run_dirs, -2)
+    new_dir = _find_run(run_id_new, run_dirs, -1)
+    if not old_dir or not new_dir:
+        return {"error": "Could not locate the requested run archives."}
+
+    old_manifest = _safe_read_json(old_dir / "run_manifest.json", {}) or {}
+    new_manifest = _safe_read_json(new_dir / "run_manifest.json", {}) or {}
+    old_weights = _safe_read_json(old_dir / "weights_latest.json", {}) or {}
+    new_weights = _safe_read_json(new_dir / "weights_latest.json", {}) or {}
+    old_metrics = _safe_read_json(old_dir / "backtest_metrics.json", {}) or {}
+    new_metrics = _safe_read_json(new_dir / "backtest_metrics.json", {}) or {}
+
+    old_holdings = {str(k).upper(): float(v) for k, v in (old_weights.get("holdings") or {}).items()}
+    new_holdings = {str(k).upper(): float(v) for k, v in (new_weights.get("holdings") or {}).items()}
+    all_tickers = sorted(set(old_holdings) | set(new_holdings))
+
+    added = {t: new_holdings[t] for t in all_tickers if t not in old_holdings and t in new_holdings}
+    removed = {t: old_holdings[t] for t in all_tickers if t in old_holdings and t not in new_holdings}
+    weight_changes: list[dict[str, Any]] = []
+    for t in all_tickers:
+        ow = old_holdings.get(t, 0.0)
+        nw = new_holdings.get(t, 0.0)
+        if abs(nw - ow) > 0.005:
+            weight_changes.append({"ticker": t, "old_weight": ow, "new_weight": nw, "delta": nw - ow})
+    weight_changes.sort(key=lambda r: abs(r["delta"]), reverse=True)
+
+    metric_keys = ["cagr", "excess_cagr", "ir", "sharpe", "max_dd", "avg_monthly_return", "beat_month_ratio"]
+    metric_changes: dict[str, dict[str, float]] = {}
+    for k in metric_keys:
+        ov = _safe_float(old_metrics.get(k), default=np.nan)
+        nv = _safe_float(new_metrics.get(k), default=np.nan)
+        if np.isfinite(ov) or np.isfinite(nv):
+            metric_changes[k] = {"old": ov, "new": nv, "delta": nv - ov if np.isfinite(ov) and np.isfinite(nv) else np.nan}
+
+    old_regime = str(old_weights.get("live_event_alert_label") or old_weights.get("event_regime_label") or "")
+    new_regime = str(new_weights.get("live_event_alert_label") or new_weights.get("event_regime_label") or "")
+
+    lines = [
+        f"Run comparison: {old_dir.name}  vs  {new_dir.name}",
+        f"Regime: {old_regime or '?'} -> {new_regime or '?'}",
+        f"Added ({len(added)}): {', '.join(f'{t} {w:.1%}' for t, w in added.items()) or 'none'}",
+        f"Removed ({len(removed)}): {', '.join(f'{t} {w:.1%}' for t, w in removed.items()) or 'none'}",
+    ]
+    if weight_changes:
+        lines.append(f"Weight changes ({len(weight_changes)}):")
+        for wc in weight_changes[:10]:
+            lines.append(f"  {wc['ticker']}: {wc['old_weight']:.1%} -> {wc['new_weight']:.1%} ({wc['delta']:+.1%})")
+    for k, mc in metric_changes.items():
+        delta_str = f"{mc['delta']:+.4f}" if np.isfinite(mc["delta"]) else "n/a"
+        lines.append(f"  {k}: {mc['old']:.4f} -> {mc['new']:.4f} ({delta_str})")
+
+    return {
+        "old_run_id": old_manifest.get("run_id", old_dir.name),
+        "new_run_id": new_manifest.get("run_id", new_dir.name),
+        "added": added,
+        "removed": removed,
+        "weight_changes": weight_changes,
+        "metric_changes": metric_changes,
+        "regime_change": {"old": old_regime, "new": new_regime},
+        "summary_text": "\n".join(lines),
     }

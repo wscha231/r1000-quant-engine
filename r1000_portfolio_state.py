@@ -265,17 +265,113 @@ def ensure_live_portfolio_state(
     weights_payload: Mapping[str, Any] | None = None,
     portfolio_latest: Optional[pd.DataFrame] = None,
     strategy_version: str = "",
+    force_refresh: bool = False,
 ) -> tuple[dict[str, Any], bool]:
+    """Bootstrap or refresh live portfolio state from weights_latest.json.
+
+    When *force_refresh* is True the state is re-bootstrapped even if
+    positions already exist, preserving entry_date and avg_cost from the
+    previous state for tickers that remain held.
+    """
     state = load_live_portfolio_state(base_dir_or_paths)
     positions = positions_frame_from_state(state)
-    if not positions.empty:
+    if not positions.empty and not force_refresh:
         return state, False
     boot = build_bootstrap_state_from_weights(
         weights_payload,
         portfolio_latest=portfolio_latest,
         strategy_version=strategy_version,
     )
-    if positions_frame_from_state(boot).empty:
+    boot_positions = positions_frame_from_state(boot)
+    if boot_positions.empty:
         return state, False
-    save_live_portfolio_state(base_dir_or_paths, boot, snapshot_reason="bootstrap_from_weights_latest")
+    # On force-refresh, carry over entry_date and avg_cost from old state
+    if force_refresh and not positions.empty:
+        old_lookup: dict[str, dict[str, Any]] = {}
+        for pos in state.get("positions") or []:
+            if isinstance(pos, dict) and pos.get("ticker"):
+                old_lookup[str(pos["ticker"]).upper()] = pos
+        refreshed: list[dict[str, Any]] = []
+        for pos in boot.get("positions") or []:
+            if not isinstance(pos, dict):
+                continue
+            ticker = str(pos.get("ticker", "")).upper()
+            old = old_lookup.get(ticker, {})
+            if old.get("entry_date"):
+                pos["entry_date"] = old["entry_date"]
+            if old.get("avg_cost") is not None:
+                try:
+                    if np.isfinite(float(old["avg_cost"])):
+                        pos["avg_cost"] = old["avg_cost"]
+                except Exception:
+                    pass
+            refreshed.append(pos)
+        boot["positions"] = refreshed
+    reason = "force_refresh_from_weights" if force_refresh else "bootstrap_from_weights_latest"
+    save_live_portfolio_state(base_dir_or_paths, boot, snapshot_reason=reason)
     return load_live_portfolio_state(base_dir_or_paths), True
+
+
+def apply_actual_holdings(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+    holdings: Mapping[str, Any],
+    *,
+    as_of_date: Optional[str] = None,
+    strategy_version: str = "",
+) -> dict[str, str]:
+    """Update live state with actual broker/manual holdings.
+
+    *holdings* is a dict mapping ticker to weight (float) or to a dict
+    with optional keys ``weight``, ``avg_cost``, ``shares``,
+    ``reference_price``.  Example::
+
+        apply_actual_holdings(paths, {
+            "NVDA": 0.14,
+            "GOOG": {"weight": 0.13, "avg_cost": 172.50, "shares": 45},
+        })
+    """
+    state = load_live_portfolio_state(base_dir_or_paths)
+    old_lookup: dict[str, dict[str, Any]] = {}
+    for pos in state.get("positions") or []:
+        if isinstance(pos, dict) and pos.get("ticker"):
+            old_lookup[str(pos["ticker"]).upper()] = pos
+
+    date_str = str(as_of_date or _now_utc_iso()[:10])
+    rows: list[dict[str, Any]] = []
+    for raw_ticker, raw_val in (holdings or {}).items():
+        ticker = _normalize_ticker(raw_ticker)
+        if not ticker:
+            continue
+        if isinstance(raw_val, Mapping):
+            weight = _safe_float(raw_val.get("weight"), default=0.0)
+            avg_cost = _safe_float(raw_val.get("avg_cost"), default=np.nan)
+            shares = _safe_float(raw_val.get("shares"), default=np.nan)
+            ref_price = _safe_float(raw_val.get("reference_price"), default=np.nan)
+        else:
+            weight = _safe_float(raw_val, default=0.0)
+            avg_cost = np.nan
+            shares = np.nan
+            ref_price = np.nan
+        if weight <= 1e-10:
+            continue
+        old = old_lookup.get(ticker, {})
+        rows.append({
+            "ticker": ticker,
+            "shares": shares if np.isfinite(shares) else old.get("shares", np.nan),
+            "weight": float(weight),
+            "target_weight": float(weight),
+            "avg_cost": avg_cost if np.isfinite(avg_cost) else old.get("avg_cost", np.nan),
+            "reference_price": ref_price if np.isfinite(ref_price) else old.get("reference_price", np.nan),
+            "entry_date": old.get("entry_date") or date_str,
+            "last_trade_date": date_str,
+            "manual_lock": old.get("manual_lock", False),
+            "min_hold_until": old.get("min_hold_until"),
+            "thesis_status": "active",
+            "source": "manual_actual",
+            "notes": f"Manual holdings update {date_str}",
+        })
+    state["positions"] = positions_frame_from_state({"positions": rows}).to_dict(orient="records")
+    state["state_source"] = "manual_actual"
+    state["strategy_version"] = str(strategy_version or state.get("strategy_version", ""))
+    state["as_of_date"] = date_str
+    return save_live_portfolio_state(base_dir_or_paths, state, snapshot_reason="manual_actual_holdings")
