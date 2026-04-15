@@ -1310,3 +1310,27 @@ All entries must be written in English. Entries must be predictable and machine-
   - The pre-export state refresh assumes the user executed the previous run's recommendations. If they diverged, `apply_actual_holdings()` should be called before the next pipeline run.
   - `monitoring_only=True` still generates a full plan CSV but all actions default to hold/watch except intramonth exit signals.
   - ENGINE_REUSE_VERSION is NOT bumped; walk-forward cache remains valid.
+
+### 18:05 KST - regime-guardrail-and-colab-catboost-parity
+
+- scope:
+  - Diagnose why the latest run improved drawdown but lost CAGR, then restore closer apples-to-apples parity with the prior stronger run.
+- files:
+  - `r1000_top30_institutional.py` -> added regime exploratory guardrails so learned regime sleeve maps cannot collapse `balanced` / `growth_reentry` states into overly defensive mixes with near-zero growth sleeves.
+  - `colab_run.ipynb` -> added a lightweight dependency bootstrap cell that installs `catboost` only when missing, so Colab runs do not silently degrade to linear-only models.
+- symbols_added:
+  - `REGIME_EXPLORATORY_GUARDRAILS` -> minimum future/early sleeve floors and max cash caps for balanced and growth reentry regimes.
+  - `apply_regime_policy_guardrails(live_label, selected_policy)` -> clamps defensive learned regime policies back into a minimally exploratory sleeve mix before applying them.
+- symbols_changed:
+  - `resolve_regime_conditioned_sleeve_override()` -> now applies guardrails after learned/manual regime policy selection and exports guardrail metadata (`guardrail_applied`, `guardrail_label`, `guardrail_reason`).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `weights_latest.json` / `run_summary.json` regime sleeve metadata will now reflect whether a guardrail was applied to the selected regime-conditioned sleeve policy.
+- validation:
+  - `python -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py` passed in the GitHub working tree.
+- risks_or_notes:
+  - This is intentionally a guardrail, not a full regime-policy rewrite. It prevents clearly over-defensive learned maps from dominating balanced/growth-reentry runs, but it does not guarantee a specific CAGR target.
+  - Colab users still need to rerun the main pipeline after pulling the updated notebook/repo so the installed `catboost` package is actually available in that runtime.

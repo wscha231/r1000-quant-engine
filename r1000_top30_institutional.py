@@ -20095,6 +20095,64 @@ def normalize_regime_conditioned_sleeve_map(
     return out
 
 
+REGIME_EXPLORATORY_GUARDRAILS: dict[str, dict[str, float]] = {
+    "balanced": {"future_min": 0.18, "early_min": 0.08, "cash_max": 0.10},
+    "growth_reentry": {"future_min": 0.24, "early_min": 0.12, "cash_max": 0.10},
+    "growth_reentry_alert": {"future_min": 0.28, "early_min": 0.16, "cash_max": 0.10},
+}
+
+
+def apply_regime_policy_guardrails(
+    live_label: Optional[str],
+    selected_policy: Optional[dict[str, Any]],
+) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
+    if not isinstance(selected_policy, dict):
+        return selected_policy, {"guardrail_applied": False}
+    normalized_live_label = str(live_label or "").strip() or "balanced"
+    source_label = str(selected_policy.get("source_regime", normalized_live_label) or normalized_live_label)
+    guard = REGIME_EXPLORATORY_GUARDRAILS.get(source_label) or REGIME_EXPLORATORY_GUARDRAILS.get(normalized_live_label)
+    if not isinstance(guard, dict):
+        return dict(selected_policy), {"guardrail_applied": False}
+
+    payload = dict(selected_policy)
+    core = max(safe_float(payload.get("core"), 0.0), 0.0)
+    future = max(safe_float(payload.get("future"), 0.0), 0.0)
+    early = max(safe_float(payload.get("early"), 0.0), 0.0)
+    cash = float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0))
+    original = {"core": core, "future": future, "early": early, "cash": cash}
+
+    future = max(future, float(guard.get("future_min", 0.0)))
+    early = max(early, float(guard.get("early_min", 0.0)))
+    cash = min(cash, float(guard.get("cash_max", 1.0)))
+    invested_share = max(1.0 - cash, 0.0)
+    exploratory_total = future + early
+    if exploratory_total > invested_share and exploratory_total > 1e-8:
+        scale = invested_share / exploratory_total
+        future *= scale
+        early *= scale
+        core = 0.0
+    else:
+        core = max(invested_share - future - early, 0.0)
+
+    updated = {
+        "core": float(core),
+        "future": float(future),
+        "early": float(early),
+        "cash": float(cash),
+    }
+    applied = any(abs(updated[k] - original[k]) > 1e-8 for k in updated)
+    if applied:
+        payload.update(updated)
+        raw_policy_label = str(payload.get("policy_label", "") or "")
+        if raw_policy_label and not raw_policy_label.endswith("_guardrailed"):
+            payload["policy_label"] = f"{raw_policy_label}_guardrailed"
+    return payload, {
+        "guardrail_applied": bool(applied),
+        "guardrail_label": source_label,
+        "guardrail_reason": "exploratory_floor" if applied else "",
+    }
+
+
 def build_regime_label_lookup_chain(label: Optional[str]) -> list[str]:
     raw_label = str(label or "").strip() or "balanced"
     candidates: list[str] = [raw_label]
@@ -20318,8 +20376,9 @@ def resolve_regime_conditioned_sleeve_override(
         learned_regime_map=raw_map,
         manual_regime_map=manual_map,
     )
+    selected, guardrail_meta = apply_regime_policy_guardrails(live_label, selected)
     if not isinstance(selected, dict):
-        return None, {"live_regime_label": live_label, **lookup_meta}
+        return None, {"live_regime_label": live_label, **lookup_meta, **guardrail_meta}
     core = max(safe_float(selected.get("core"), 0.0), 0.0)
     future = max(safe_float(selected.get("future"), 0.0), 0.0)
     early = max(safe_float(selected.get("early"), 0.0), 0.0)
@@ -20343,6 +20402,9 @@ def resolve_regime_conditioned_sleeve_override(
         "lookup_label": str(lookup_meta.get("lookup_label", "") or ""),
         "lookup_chain": lookup_meta.get("lookup_chain", []),
         "fallback_used": bool(lookup_meta.get("fallback_used", False)),
+        "guardrail_applied": bool(guardrail_meta.get("guardrail_applied", False)),
+        "guardrail_label": str(guardrail_meta.get("guardrail_label", "") or ""),
+        "guardrail_reason": str(guardrail_meta.get("guardrail_reason", "") or ""),
     }
     return override, meta
 
