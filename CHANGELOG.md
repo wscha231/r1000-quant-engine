@@ -1265,6 +1265,23 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This restores the live portfolio state as the source of truth for actual holdings. A future explicit `apply` or broker reconciliation step can update state after real execution, but planning runs no longer do so implicitly.
 
+### 17:12 KST - restore-active-breaker-state-in-backtest
+
+- scope:
+  - Fix the active `backtest_portfolio()` path after the monitoring/state-refresh refactor by restoring the circuit-breaker state initialization and helper closures that the monthly loop depends on.
+- files:
+  - `r1000_top30_institutional.py` -> restore `running_equity`, `portfolio_peak`, `circuit_breaker_active`, breaker thresholds, and the active-path `_normalize_breaker_mix()` / `_current_breaker_mix()` definitions inside `backtest_portfolio()`.
+- symbols_changed:
+  - `backtest_portfolio()` -> the active path now initializes breaker state before the monthly loop and can safely compute `drawdown_before_month`.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `python -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py` passed in the GitHub working tree.
+- risks_or_notes:
+  - The repeated helper names/counts now appear twice in the file because both the legacy unused backtest path and the active backtest path each define their own local closures. That is expected.
+
 ### 17:15 KST - operational-improvements-state-monitoring-diff-manual
 
 - scope:

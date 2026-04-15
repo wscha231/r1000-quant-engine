@@ -18635,6 +18635,12 @@ def backtest_portfolio(
     speculative_cum_ret: dict[str, float] = {}  # ticker -> cumulative return since entry
     stopped_out_tickers: set[str] = set()  # tickers stopped out this cycle
     stop_loss_pct = float(getattr(cfg, "speculative_stop_loss_pct", 0.25))
+    running_equity = 1.0
+    portfolio_peak = 1.0
+    circuit_breaker_active = False
+    breaker_threshold = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_threshold", 0.0), 0.0), 0.0))
+    breaker_cash_target = float(np.clip(safe_float(getattr(cfg, "drawdown_circuit_breaker_cash_target", 0.0), 0.0), 0.0, 1.0))
+    breaker_recovery = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_recovery", 0.0), 0.0), 0.0))
 
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
@@ -18644,6 +18650,50 @@ def backtest_portfolio(
 
     def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
         return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
+
+    def _normalize_breaker_mix(payload: Optional[dict[str, Any]]) -> Optional[dict[str, float]]:
+        if not isinstance(payload, dict):
+            return None
+        core = max(safe_float(payload.get("core"), payload.get("core_compounder", 0.0)), 0.0)
+        future = max(safe_float(payload.get("future"), payload.get("future_winner", 0.0)), 0.0)
+        early = max(safe_float(payload.get("early"), payload.get("early_scout", 0.0)), 0.0)
+        total = core + future + early
+        if total <= 1e-8:
+            return None
+        return {
+            "core": float(core / total),
+            "future": float(future / total),
+            "early": float(early / total),
+            "cash": float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0)),
+        }
+
+    def _current_breaker_mix() -> dict[str, float]:
+        base_payload = _normalize_breaker_mix(sleeve_override)
+        if base_payload is None and isinstance(current_meta, dict):
+            base_payload = _normalize_breaker_mix(current_meta.get("sleeve_target_weights"))
+        if base_payload is None and current_w:
+            sleeve_weights = {"core": 0.0, "future": 0.0, "early": 0.0}
+            for ticker, weight in current_w.items():
+                if str(ticker).upper() == CASH_PROXY_TICKER:
+                    continue
+                sleeve_label = str(current_sleeve_map.get(str(ticker), "core_compounder"))
+                if sleeve_label == "future_winner":
+                    sleeve_weights["future"] += float(weight)
+                elif sleeve_label == "early_scout":
+                    sleeve_weights["early"] += float(weight)
+                else:
+                    sleeve_weights["core"] += float(weight)
+            total = float(sum(sleeve_weights.values()))
+            if total > 1e-8:
+                base_payload = {
+                    "core": float(sleeve_weights["core"] / total),
+                    "future": float(sleeve_weights["future"] / total),
+                    "early": float(sleeve_weights["early"] / total),
+                    "cash": float(np.clip(current_w.get(CASH_PROXY_TICKER, 0.0), 0.0, 1.0)),
+                }
+        if base_payload is None:
+            base_payload = {"core": 0.60, "future": 0.25, "early": 0.15, "cash": 0.0}
+        return base_payload
 
     for i in range(len(months) - 1):
         dt = pd.Timestamp(months[i])
