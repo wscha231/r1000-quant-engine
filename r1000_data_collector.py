@@ -321,12 +321,16 @@ def run_full_validation_suite(
         "top20_latest": paths["out"] / "top20_latest.csv",
         "top30_latest": paths["out"] / "top30_latest.csv",
         "portfolio_latest": paths["out"] / "portfolio_latest.csv",
+        "concentrated_portfolio_latest": paths["out"] / "concentrated_portfolio_latest.csv",
+        "concentrated_backtest_metrics": paths["out"] / "concentrated_backtest_metrics.json",
+        "concentrated_operating_guide": paths["out"] / "concentrated_operating_guide.json",
         "run_summary": paths["out"] / "run_summary.json",
         "fundamental_coverage_latest": paths["out"] / "fundamental_coverage_latest.csv",
         "fundamental_comprehensive_coverage_latest": paths["out"] / "fundamental_comprehensive_coverage_latest.csv",
         "live_fundamental_coverage_latest": paths["out"] / "live_fundamental_coverage_latest.csv",
         "portfolio_size_comparison": paths["reports"] / "portfolio_size_comparison.csv",
         "rebalance_interval_comparison": paths["reports"] / "rebalance_interval_comparison.csv",
+        "concentrated_strategy_comparison": paths["reports"] / "concentrated_strategy_comparison.csv",
         "sleeve_cap_policy_comparison": paths["reports"] / "sleeve_cap_policy_comparison.csv",
         "portfolio_sleeve_top7_standalone_comparison": paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv",
         "historical_data_quality_latest": paths["reports"] / "historical_data_quality_latest.csv",
@@ -348,12 +352,16 @@ def run_full_validation_suite(
     top20_latest = _safe_read_csv(outputs["top20_latest"])
     top30_latest = _safe_read_csv(outputs["top30_latest"])
     portfolio_latest = _safe_read_csv(outputs["portfolio_latest"])
+    concentrated_portfolio_latest = _safe_read_csv(outputs["concentrated_portfolio_latest"])
+    concentrated_backtest_metrics = _safe_read_json(outputs["concentrated_backtest_metrics"])
+    concentrated_operating_guide = _safe_read_json(outputs["concentrated_operating_guide"])
     run_summary = _safe_read_json(outputs["run_summary"])
     fundamental_cov = _safe_read_csv(outputs["fundamental_coverage_latest"])
     comprehensive_cov = _safe_read_csv(outputs["fundamental_comprehensive_coverage_latest"])
     live_cov = _safe_read_csv(outputs["live_fundamental_coverage_latest"])
     portfolio_size_comp = _safe_read_csv(outputs["portfolio_size_comparison"])
     rebalance_interval_comp = _safe_read_csv(outputs["rebalance_interval_comparison"])
+    concentrated_strategy_comp = _safe_read_csv(outputs["concentrated_strategy_comparison"])
     sleeve_cap_policy_comp = _safe_read_csv(outputs["sleeve_cap_policy_comparison"])
     standalone_sleeve_comp = _safe_read_csv(outputs["portfolio_sleeve_top7_standalone_comparison"])
     historical_quality_latest = _safe_read_csv(outputs["historical_data_quality_latest"])
@@ -794,6 +802,22 @@ def run_full_validation_suite(
                 if not standalone_sleeve_comp.empty
                 else []
             ),
+        },
+        "concentrated_snapshot": {
+            "rows": int(len(concentrated_strategy_comp)),
+            "best_row": (
+                concentrated_strategy_comp.iloc[0].to_dict()
+                if not concentrated_strategy_comp.empty
+                else None
+            ),
+            "metrics": concentrated_backtest_metrics if isinstance(concentrated_backtest_metrics, dict) else {},
+            "latest_rows": int(len(concentrated_portfolio_latest)),
+            "latest_preview": (
+                concentrated_portfolio_latest.head(5).to_dict(orient="records")
+                if not concentrated_portfolio_latest.empty
+                else []
+            ),
+            "operating_guide": concentrated_operating_guide if isinstance(concentrated_operating_guide, dict) else {},
         },
         "historical_data_quality_snapshot": {
             "latest_rows": int(len(historical_quality_latest)),

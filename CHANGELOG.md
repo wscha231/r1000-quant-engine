@@ -1379,3 +1379,22 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a V1 concentrated layer. It does not yet maintain a separate live operator/state namespace; it exports a separate concentrated portfolio plus an operating guide and backtest comparison first.
   - The concentrated layer is intentionally biased toward `future_winner` / `early_scout` names and should be treated as a separate aggressive sleeve, not as a replacement for the main diversified portfolio.
+
+### 19:05 KST - concentrated-validation-and-colab-surface
+- scope:
+  - surfaced the concentrated-alpha outputs inside the validation suite and updated the Colab runbook so the concentrated portfolio artifacts are visible in the standard execution flow.
+- files:
+  - `r1000_data_collector.py` -> added concentrated output reads and a `concentrated_snapshot` block to `run_full_validation_suite()`.
+  - `colab_run.ipynb` -> updated the main validation print cell and the output inspection cell to show concentrated metrics, guide, latest concentrated holdings, and strategy comparison results.
+- symbols_changed:
+  - `run_full_validation_suite()` -> now reports concentrated comparison rows, best mode row, latest concentrated holdings preview, and concentrated operating guide metadata.
+- outputs:
+  - `reports/full_validation_suite.json` now includes `concentrated_snapshot`.
+  - the notebook output section now reads:
+    - `outputs/concentrated_backtest_metrics.json`
+    - `outputs/concentrated_operating_guide.json`
+    - `outputs/concentrated_portfolio_latest.csv`
+    - `outputs/reports/concentrated_strategy_comparison.csv`
+- validation:
+  - `python -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py r1000_data_collector.py` passed in the GitHub working tree.
+  - `python -c "import json, pathlib; json.loads(pathlib.Path('colab_run.ipynb').read_text(encoding='utf-8'))"` passed in the GitHub working tree.
