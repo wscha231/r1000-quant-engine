@@ -206,6 +206,10 @@ def build_live_operator_plan(
     base_dir_or_paths: str | Path | Mapping[str, Any],
     *,
     strategy_version: str = "",
+    run_id: str = "",
+    run_ts: str = "",
+    git_commit: str = "",
+    config_fingerprint: str = "",
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, str]]:
     inputs = _load_inputs(base_dir_or_paths)
     state_paths = inputs["paths"]
@@ -453,7 +457,12 @@ def build_live_operator_plan(
     summary = {
         "operator_policy_version": OPERATOR_POLICY_VERSION,
         "generated_at_utc": _now_utc_iso(),
+        "run_ts": str(run_ts or ""),
         "strategy_version": str(strategy_version or state_payload.get("strategy_version") or ""),
+        "engine_version": str(strategy_version or state_payload.get("strategy_version") or ""),
+        "run_id": str(run_id or ""),
+        "git_commit": str(git_commit or ""),
+        "config_fingerprint": str(config_fingerprint or ""),
         "bootstrapped_state": bool(bootstrapped),
         "rebalance_action": run_action,
         "policy_rebalance_due": bool(policy_due),
@@ -494,10 +503,18 @@ def refresh_live_operator_outputs(
     base_dir_or_paths: str | Path | Mapping[str, Any],
     *,
     strategy_version: str = "",
+    run_id: str = "",
+    run_ts: str = "",
+    git_commit: str = "",
+    config_fingerprint: str = "",
 ) -> dict[str, Any]:
     plan, summary, output_files = build_live_operator_plan(
         base_dir_or_paths,
         strategy_version=strategy_version,
+        run_id=run_id,
+        run_ts=run_ts,
+        git_commit=git_commit,
+        config_fingerprint=config_fingerprint,
     )
     return {
         "plan": plan,

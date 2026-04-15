@@ -21,6 +21,8 @@ import logging
 import math
 import os
 import re
+import shutil
+import subprocess
 import time
 import zipfile
 import hashlib
@@ -1612,9 +1614,121 @@ def safe_read_parquet_file(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def safe_run_token(value: Any, default: str = "na") -> str:
+    txt = str(value or "").strip()
+    if not txt:
+        txt = str(default)
+    txt = re.sub(r"[^A-Za-z0-9._-]+", "-", txt)
+    txt = txt.strip("-._")
+    return txt or str(default)
+
+
+def current_git_commit() -> str:
+    candidates = []
+    try:
+        candidates.append(Path.cwd())
+    except Exception:
+        pass
+    try:
+        candidates.append(Path(__file__).resolve().parent)
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for base in candidates:
+        for candidate in [base, *base.parents]:
+            txt = str(candidate)
+            if txt in seen:
+                continue
+            seen.add(txt)
+            try:
+                proc = subprocess.run(
+                    ["git", "-C", txt, "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5,
+                )
+            except Exception:
+                continue
+            if proc.returncode == 0:
+                sha = str(proc.stdout).strip()
+                if sha:
+                    return sha
+    return ""
+
+
+def build_run_identity(cfg: EngineConfig, *, scope: str = "run_archive") -> dict[str, str]:
+    run_ts = now_ts()
+    git_commit = current_git_commit()
+    engine_version = str(ENGINE_REUSE_VERSION)
+    config_fingerprint = reuse_fingerprint(cfg, scope)
+    run_id = "__".join(
+        [
+            safe_run_token(run_ts),
+            safe_run_token(git_commit[:7] if git_commit else "nogit"),
+            safe_run_token(engine_version),
+        ]
+    )
+    return {
+        "run_ts": run_ts,
+        "git_commit": git_commit,
+        "engine_version": engine_version,
+        "config_fingerprint": config_fingerprint,
+        "run_id": run_id,
+    }
+
+
+def archive_run_outputs(
+    paths: dict[str, Path],
+    *,
+    run_id: str,
+    manifest: Mapping[str, Any],
+    output_files: Mapping[str, Any],
+) -> dict[str, Any]:
+    archive_root = paths["out"] / "archive"
+    archive_dir = archive_root / safe_run_token(run_id)
+    safe_mkdir(archive_root)
+    safe_mkdir(archive_dir)
+
+    archived_files: dict[str, str] = {}
+    for key, raw_path in dict(output_files or {}).items():
+        if not raw_path:
+            continue
+        src = Path(str(raw_path))
+        if not src.exists() or src.is_dir():
+            continue
+        try:
+            rel = src.relative_to(paths["out"])
+            dst = archive_dir / rel
+        except Exception:
+            dst = archive_dir / "external" / src.name
+        safe_mkdir(dst.parent)
+        try:
+            shutil.copy2(src, dst)
+            archived_files[str(key)] = str(dst)
+        except Exception:
+            continue
+
+    manifest_payload = dict(manifest or {})
+    manifest_payload["archive_dir"] = str(archive_dir)
+    manifest_payload["archived_output_files"] = archived_files
+    manifest_path = archive_dir / "run_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+    latest_manifest_path = paths["out"] / "run_manifest.json"
+    latest_manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+    archived_files["run_manifest.json"] = str(manifest_path)
+    return {
+        "archive_dir": str(archive_dir),
+        "manifest_path": str(manifest_path),
+        "latest_manifest_path": str(latest_manifest_path),
+        "archived_output_files": archived_files,
+    }
+
+
 def get_paths(cfg: EngineConfig) -> dict[str, Path]:
     base = Path(cfg.base_dir)
     out = base / "outputs"
+    archive = out / "archive"
     ops = out / "ops"
     reports = out / "reports"
     baseline = base / "baseline"
@@ -1631,6 +1745,7 @@ def get_paths(cfg: EngineConfig) -> dict[str, Path]:
     for p in [
         base,
         out,
+        archive,
         ops,
         reports,
         baseline,
@@ -1649,6 +1764,7 @@ def get_paths(cfg: EngineConfig) -> dict[str, Path]:
     return {
         "base": base,
         "out": out,
+        "archive": archive,
         "ops": ops,
         "reports": reports,
         "baseline": baseline,
@@ -22501,6 +22617,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     ai_four_sleeve_regime_grid_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_grid.csv"
     ai_four_sleeve_regime_best_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_best.csv"
     ai_four_sleeve_selected_map_path = paths["reports"] / "ai_four_sleeve_adaptive_selected_map.json"
+    run_identity = build_run_identity(cfg)
 
     def _safe_unlink(path: Path) -> None:
         try:
@@ -22972,6 +23089,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     }
 
     weights_payload = {
+        "run_id": run_identity["run_id"],
+        "run_ts": run_identity["run_ts"],
+        "git_commit": run_identity["git_commit"],
+        "engine_version": run_identity["engine_version"],
+        "config_fingerprint": run_identity["config_fingerprint"],
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
         "holdings": {
             str(r.ticker): float(r.weight)
@@ -23209,7 +23331,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     operator_outputs: dict[str, Any] = {"plan": pd.DataFrame(), "summary": {}, "output_files": {}}
 
     summary = {
-        "run_ts": now_ts(),
+        "run_id": run_identity["run_id"],
+        "run_ts": run_identity["run_ts"],
+        "git_commit": run_identity["git_commit"],
+        "engine_version": run_identity["engine_version"],
+        "config_fingerprint": run_identity["config_fingerprint"],
         "base_dir": cfg.base_dir,
         "n_scored_latest": int(len(scored_latest)),
         "n_top30": int(len(top30)),
@@ -23354,6 +23480,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         operator_outputs = refresh_live_operator_outputs(
             paths,
             strategy_version=ENGINE_REUSE_VERSION,
+            run_id=run_identity["run_id"],
+            run_ts=run_identity["run_ts"],
+            git_commit=run_identity["git_commit"],
+            config_fingerprint=run_identity["config_fingerprint"],
         )
         output_files.update(dict(operator_outputs.get("output_files", {}) or {}))
         summary["operator_summary"] = dict(operator_outputs.get("summary", {}) or {})
@@ -23453,6 +23583,32 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["historical_data_quality_latest"] = str(historical_quality_latest_path)
     result_outputs.update(output_files)
     result_outputs["run_summary.json"] = str(summary_path)
+    manifest = {
+        "run_id": run_identity["run_id"],
+        "run_ts": run_identity["run_ts"],
+        "git_commit": run_identity["git_commit"],
+        "engine_version": run_identity["engine_version"],
+        "config_fingerprint": run_identity["config_fingerprint"],
+        "base_dir": cfg.base_dir,
+        "start_date": str(cfg.start_date),
+        "end_date": str(cfg.end_date),
+        "fast_mode": bool(getattr(cfg, "fast_mode", False)),
+        "reuse_existing_artifacts": bool(cfg.reuse_existing_artifacts),
+        "resume_partial_walkforward": bool(cfg.resume_partial_walkforward),
+        "output_files": {str(k): str(v) for k, v in result_outputs.items()},
+    }
+    archive_info = archive_run_outputs(
+        paths,
+        run_id=run_identity["run_id"],
+        manifest=manifest,
+        output_files=result_outputs,
+    )
+    result_outputs["run_manifest"] = str(archive_info["latest_manifest_path"])
+    result_outputs["archive_dir"] = str(archive_info["archive_dir"])
+    summary["run_manifest"] = str(archive_info["latest_manifest_path"])
+    summary["archive_dir"] = str(archive_info["archive_dir"])
+    summary["output_files"] = result_outputs
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return result_outputs
 
 

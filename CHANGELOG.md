@@ -1193,3 +1193,25 @@ All entries must be written in English. Entries must be predictable and machine-
   - local static validation pending final py_compile after sync to the GitHub working tree.
 - risks_or_notes:
   - These changes mainly speed up repeat runs. The very first full collector build can still be slow because the initial SEC/FSDS/yfinance supplement caches must exist before the incremental shortcuts can help.
+
+### 15:07 KST - add-run-archive-and-manifest
+
+- scope:
+  - Persist a versioned archive for each main pipeline run so outputs can be traced back to a specific code/config snapshot and restored later if a newer run regresses.
+- files:
+  - `r1000_top30_institutional.py` -> add git/run identity helpers, include run metadata in `weights_latest.json` and `run_summary.json`, write `outputs/run_manifest.json`, and archive the current output set into `outputs/archive/<run_id>/`.
+  - `r1000_operator.py` -> include run metadata (`run_id`, `run_ts`, `git_commit`, `config_fingerprint`, `engine_version`) in `live_operator_summary.json`.
+- symbols_changed:
+  - `safe_run_token()`, `current_git_commit()`, `build_run_identity()`, `archive_run_outputs()` -> new helpers for version-aware run metadata and archive export.
+  - `export_outputs()` -> now stamps weights/summary with run metadata, archives the latest outputs, and records `archive_dir` plus `run_manifest`.
+  - `build_live_operator_plan()` / `refresh_live_operator_outputs()` -> now accept and persist the run metadata passed in from the main pipeline.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/run_manifest.json`
+  - `outputs/archive/<run_id>/run_manifest.json`
+  - versioned archive copies of the latest output bundle under `outputs/archive/<run_id>/`
+- validation:
+  - local static validation pending final py_compile after sync to the GitHub working tree.
+- risks_or_notes:
+  - This archives the latest generated outputs, not a git checkout of source files. Code rollback still uses Git commits; the archive provides the matching result bundle and manifest.
