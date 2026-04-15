@@ -1153,3 +1153,20 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - The new circuit breaker is only implemented in `backtest_portfolio()` for now. The live/latest portfolio path still relies on regime-based cash control rather than a separate realized-equity breaker.
   - The legacy `_legacy_unused_backtest_portfolio()` path was kept in sync for future comparisons, but the active validation target remains the production `backtest_portfolio()` function.
+
+### 13:08 KST - harden-colab-drive-mount-retry
+
+- scope:
+  - Make the first Colab setup cell recover from common Drive mount failures instead of stopping immediately on `ValueError: mount failed`.
+- files:
+  - `colab_run.ipynb` -> replace the direct `drive.mount()` call with a small recovery helper that retries after `flush_and_unmount()`, `fusermount -u`, and a short delay, then raises a clearer instruction if the second mount still fails.
+- symbols_changed:
+  - `mount_drive_with_recovery()` -> new notebook helper for the setup cell.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - Notebook JSON updated and synced into the GitHub working tree.
+- risks_or_notes:
+  - This only hardens the notebook bootstrap path. If Google auth popups are blocked or the Colab runtime is in a bad state, the user may still need to restart the runtime and rerun the first cell.
