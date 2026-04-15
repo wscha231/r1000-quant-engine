@@ -1087,6 +1087,21 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-15
 
+### 12:29 KST - sync-colab-runbook-to-ops-layer
+
+- scope:
+  - Update the Colab runbook so it matches the new live state/operator workflow instead of the older conservative sleeve override flow.
+- files:
+  - `colab_run.ipynb` -> now defines shared runtime overrides once, reloads `r1000_portfolio_state` and `r1000_operator`, removes the old hard-coded sleeve/cash overrides, rebuilds pipeline config from fresh defaults, and surfaces `operator_snapshot`, `live_operator_summary.json`, `live_operator_plan_latest.csv`, and `live_portfolio_state.json` in the result review cells.
+- breaking_changes:
+  - none
+- outputs:
+  - The default Colab notebook now distinguishes model target outputs from operator/live-state outputs in the review section.
+- validation:
+  - Notebook JSON structure was rewritten and reloaded successfully after the update.
+- risks_or_notes:
+  - `FAST_MODE` remains `True` by default in the notebook for first-pass verification. For a final full run, set it to `False` before executing collector/pipeline cells.
+
 ### 12:14 KST - phase1-ops-layer-and-operator
 
 - scope:
