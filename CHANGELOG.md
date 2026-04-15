@@ -1170,3 +1170,26 @@ All entries must be written in English. Entries must be predictable and machine-
   - Notebook JSON updated and synced into the GitHub working tree.
 - risks_or_notes:
   - This only hardens the notebook bootstrap path. If Google auth popups are blocked or the Colab runtime is in a bad state, the user may still need to restart the runtime and rerun the first cell.
+
+### 14:18 KST - cut-collector-repeat-runtime
+
+- scope:
+  - Reduce repeat collector runtime and make `fast_mode` affect the collector path instead of only Phase 4/5.
+- files:
+  - `r1000_top30_institutional.py` -> add a poor-coverage-only refresh mode for the yfinance quarterly supplement, add a stale/missing CIK selector for incremental SEC/FSDS parsing, widen `fast_mode` so it also lightens collector refresh settings, and bump `ENGINE_REUSE_VERSION`.
+  - `r1000_data_collector.py` -> apply `apply_fast_mode()` inside `run_data_collection()` so notebook collector runs actually benefit from the fast-mode collector throttles.
+- symbols_changed:
+  - `ENGINE_REUSE_VERSION` -> bumped to `2026-04-15-phase1-ops-layer-perf1`.
+  - `EngineConfig.yf_quarterly_refresh_only_poor_coverage` -> new default flag so repeat runs do not re-fetch quarterly yfinance statements for already well-covered names.
+  - `apply_fast_mode()` -> now also raises live/statement refresh ages and lowers expensive collector caps.
+  - `select_fund_panel_refresh_ciks()` -> new incremental selector for stale or missing SEC/FSDS CIK refreshes.
+  - `load_or_update_fund_panel()` -> reuses the cached panel when there are no stale/missing CIKs instead of reparsing the full universe.
+  - `run_data_collection()` -> now routes the collector config through `apply_fast_mode()`.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - local static validation pending final py_compile after sync to the GitHub working tree.
+- risks_or_notes:
+  - These changes mainly speed up repeat runs. The very first full collector build can still be slow because the initial SEC/FSDS/yfinance supplement caches must exist before the incremental shortcuts can help.

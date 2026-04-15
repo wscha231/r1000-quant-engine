@@ -45,7 +45,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-15-phase1-ops-layer"
+ENGINE_REUSE_VERSION = "2026-04-15-phase1-ops-layer-perf1"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1389,6 +1389,7 @@ class EngineConfig:
     yf_quarterly_cache_enabled: bool = True
     yf_quarterly_refresh_days: int = 7
     yf_quarterly_max_tickers_per_run: int = 1000
+    yf_quarterly_refresh_only_poor_coverage: bool = True
     # --------------- conviction hold (hold winners longer) ---------------
     conviction_hold_cum_return_threshold: float = 0.25  # position must be up 25%+ (inferred from drift)
     conviction_hold_seed_bonus: float = 0.35            # extra seed bonus for conviction-hold names
@@ -1415,6 +1416,11 @@ class EngineConfig:
 def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     """Apply runtime-reduction overrides when cfg.fast_mode is True.
 
+    Phase 1/2 savings:
+      - live fundamentals refresh limited to the highest-liquidity subset
+      - slower-changing statement supplements refreshed less often
+      - yfinance quarterly supplement capped to a smaller stale subset
+
     Phase 4 savings:
       - CatBoost iterations cut ~40%: reg 350→200, cls 350→200, rank 250→150
       - ranking_enabled disabled: ~30% faster per retrain cycle
@@ -1430,6 +1436,12 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     """
     if not cfg.fast_mode:
         return cfg
+    # Phase 1/2 — collector I/O and supplement refresh
+    cfg.live_refresh_days = max(int(cfg.live_refresh_days), 2)
+    cfg.max_live_refresh_tickers = min(int(cfg.max_live_refresh_tickers), 400)
+    cfg.latest_statement_repair_refresh_days = max(int(cfg.latest_statement_repair_refresh_days), 14)
+    cfg.yf_quarterly_refresh_days = max(int(cfg.yf_quarterly_refresh_days), 14)
+    cfg.yf_quarterly_max_tickers_per_run = min(int(cfg.yf_quarterly_max_tickers_per_run), 120)
     # Phase 4 — model complexity
     cfg.cat_reg_iterations = 200
     cfg.cat_cls_iterations = 200
@@ -1443,7 +1455,7 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     cfg.run_regime_map_method_comparison = False
     cfg.run_standalone_sleeve_backtest_comparison = False
     cfg.sleeve_cap_policy_max_candidates = 3
-    log("[fast_mode] ON — Phase 4+5 overrides applied. ~5 backtests, retrain every 6m.")
+    log("[fast_mode] ON — lighter collector refresh + ~5 backtests, retrain every 6m.")
     return cfg
 
 
@@ -11144,7 +11156,11 @@ def build_yfinance_quarterly_panel(
         else:
             poor_coverage_tickers.append(ticker)
 
-    ordered_tickers = poor_coverage_tickers + ok_tickers
+    ordered_tickers = (
+        poor_coverage_tickers
+        if bool(getattr(cfg, "yf_quarterly_refresh_only_poor_coverage", True))
+        else poor_coverage_tickers + ok_tickers
+    )
 
     tickers_to_fetch = []
     for ticker in ordered_tickers:
@@ -11216,6 +11232,34 @@ def build_yfinance_quarterly_panel(
     )
 
 
+def select_fund_panel_refresh_ciks(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    base: pd.DataFrame,
+    cik_list: list[str],
+) -> list[str]:
+    """Refresh only the stale or missing CIK subset when cached coverage is already healthy."""
+    norm_ciks = normalize_cik_list(cik_list)
+    if not norm_ciks:
+        return []
+    if base is None or base.empty or "cik" not in base.columns:
+        return norm_ciks
+
+    base_ciks = set(normalize_cik_list(base.get("cik", pd.Series(dtype=str)).tolist()))
+    refresh_ciks: list[str] = []
+    refresh_days = max(int(cfg.companyfacts_refresh_days), 0)
+    for cik in norm_ciks:
+        if cik not in base_ciks:
+            refresh_ciks.append(cik)
+            continue
+        if refresh_days <= 0:
+            refresh_ciks.append(cik)
+            continue
+        if not is_cache_fresh(companyfacts_cache_file(paths, cik), refresh_days):
+            refresh_ciks.append(cik)
+    return refresh_ciks
+
+
 def load_or_update_fund_panel(
     cfg: EngineConfig,
     paths: dict[str, Path],
@@ -11247,14 +11291,26 @@ def load_or_update_fund_panel(
                 f"running repair refresh ({repair_quarters} quarters, "
                 f"{len(refresh_ciks)}/{len(cik_list)} ciks) instead of full rebuild."
             )
+    if not base.empty and pd.notna(base_cov) and base_cov >= 0.20 and not cfg.force_full_fund_panel_rebuild:
+        refresh_ciks = select_fund_panel_refresh_ciks(cfg, paths, base, cik_list)
+        if refresh_ciks:
+            log(
+                f"Fund panel incremental refresh: {len(refresh_ciks)}/{len(cik_list)} stale or missing CIKs "
+                "selected for SEC/FSDS parsing."
+            )
+        else:
+            log("Fund panel incremental refresh: reusing cached SEC/FSDS panel without broad reparsing.")
+
     q = cfg.fsds_quarters_each_run if not base.empty else cfg.fsds_quarters_backfill
     if not base.empty and pd.notna(base_cov) and base_cov < 0.20 and not cfg.force_full_fund_panel_rebuild:
         q = repair_quarters
-    companyfacts_panel = build_companyfacts_panel_for_ciks(cfg, paths, refresh_ciks)
-    fsds_panel = build_fund_panel_for_ciks(cfg, paths, refresh_ciks, q)
-    new_panel = combine_fund_panels(companyfacts_panel, fsds_panel)
+    companyfacts_panel = build_companyfacts_panel_for_ciks(cfg, paths, refresh_ciks) if refresh_ciks else pd.DataFrame()
+    fsds_panel = build_fund_panel_for_ciks(cfg, paths, refresh_ciks, q) if refresh_ciks else pd.DataFrame()
+    new_panel = combine_fund_panels(companyfacts_panel, fsds_panel) if (not companyfacts_panel.empty or not fsds_panel.empty) else pd.DataFrame()
     if base.empty:
         panel = new_panel
+    elif new_panel.empty:
+        panel = base.copy()
     else:
         panel = combine_fund_panels(new_panel, base)
     # yfinance quarterly supplement: fills gaps where SEC data is missing

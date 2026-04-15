@@ -11,6 +11,7 @@ import pandas as pd
 from r1000_top30_institutional import (
     CASH_PROXY_TICKER,
     DEFAULT_CFG,
+    apply_fast_mode,
     build_universe_monthly,
     get_paths,
     log,
@@ -193,6 +194,7 @@ def _invalidate_downstream_artifacts(paths: dict[str, Path]) -> list[str]:
 def run_data_collection(cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     cfg_obj = to_cfg(cfg or collector_default_cfg())
     validate_config(cfg_obj)
+    cfg_obj = apply_fast_mode(cfg_obj)
     mount_drive_if_colab()
     paths = get_paths(cfg_obj)
 
