@@ -1179,6 +1179,21 @@ class EngineConfig:
     run_standalone_sleeve_backtest_comparison: bool = True
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
+    run_concentrated_backtest_comparison: bool = True
+    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [1, 2, 3])
+    concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1])
+    concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all"])
+    concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
+    concentrated_min_confirmation: float = 0.45
+    concentrated_score_future_weight: float = 0.95
+    concentrated_score_early_weight: float = 1.05
+    concentrated_score_sage_weight: float = 0.45
+    concentrated_score_confirmation_weight: float = 0.40
+    concentrated_score_breakout_weight: float = 0.30
+    concentrated_score_momentum_weight: float = 0.35
+    concentrated_score_exit_risk_penalty: float = 0.40
+    concentrated_max_single_name_weight: float = 1.00
+    concentrated_monitoring_review_days: int = 7
     run_historical_data_quality_reports: bool = True
     growth_history_confidence_penalty_weight: float = 0.18
     growth_history_confidence_min_for_full_sleeve: float = 0.35
@@ -1456,6 +1471,10 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     cfg.run_ai_four_sleeve_comparison = False
     cfg.run_regime_map_method_comparison = False
     cfg.run_standalone_sleeve_backtest_comparison = False
+    cfg.run_concentrated_backtest_comparison = True
+    cfg.concentrated_top_n_candidates = [1, 2, 3]
+    cfg.concentrated_rebalance_intervals = [1]
+    cfg.concentrated_weighting_modes = ["conviction_curve"]
     cfg.sleeve_cap_policy_max_candidates = 3
     log("[fast_mode] ON — lighter collector refresh + ~5 backtests, retrain every 6m.")
     return cfg
@@ -4575,6 +4594,40 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("standalone_sleeve_rebalance_intervals must not be empty.")
     if any(int(x) < 1 for x in cfg.standalone_sleeve_rebalance_intervals):
         raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
+    if not cfg.concentrated_top_n_candidates:
+        raise ValueError("concentrated_top_n_candidates must not be empty.")
+    if any(int(x) < 1 or int(x) > 3 for x in cfg.concentrated_top_n_candidates):
+        raise ValueError("concentrated_top_n_candidates values must be between 1 and 3.")
+    if not cfg.concentrated_rebalance_intervals:
+        raise ValueError("concentrated_rebalance_intervals must not be empty.")
+    if any(int(x) < 1 for x in cfg.concentrated_rebalance_intervals):
+        raise ValueError("concentrated_rebalance_intervals values must be >= 1.")
+    if not cfg.concentrated_weighting_modes:
+        raise ValueError("concentrated_weighting_modes must not be empty.")
+    if any(str(x) not in {"conviction_curve", "winner_take_all", "score_power"} for x in cfg.concentrated_weighting_modes):
+        raise ValueError("concentrated_weighting_modes values must be one of conviction_curve, winner_take_all, score_power.")
+    if not cfg.concentrated_allowed_sleeves:
+        raise ValueError("concentrated_allowed_sleeves must not be empty.")
+    if any(str(x) not in {"future_winner", "early_scout", "core_compounder"} for x in cfg.concentrated_allowed_sleeves):
+        raise ValueError("concentrated_allowed_sleeves must be limited to core_compounder/future_winner/early_scout.")
+    for name in [
+        "concentrated_min_confirmation",
+        "concentrated_score_future_weight",
+        "concentrated_score_early_weight",
+        "concentrated_score_sage_weight",
+        "concentrated_score_confirmation_weight",
+        "concentrated_score_breakout_weight",
+        "concentrated_score_momentum_weight",
+        "concentrated_score_exit_risk_penalty",
+        "concentrated_max_single_name_weight",
+    ]:
+        val = float(getattr(cfg, name))
+        if val < 0:
+            raise ValueError(f"{name} must be >= 0.")
+    if cfg.concentrated_max_single_name_weight <= 0 or cfg.concentrated_max_single_name_weight > 1.0:
+        raise ValueError("concentrated_max_single_name_weight must be in (0, 1].")
+    if int(cfg.concentrated_monitoring_review_days) < 1:
+        raise ValueError("concentrated_monitoring_review_days must be >= 1.")
     for name in [
         "sleeve_cap_policy_objective_excess_weight",
         "sleeve_cap_policy_objective_sharpe_weight",
@@ -21009,6 +21062,515 @@ def build_latest_standalone_sleeve_holdings(
     return holdings, summary
 
 
+def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.DataFrame:
+    d = prepare_standalone_sleeve_frame(cfg, frame)
+    if d.empty:
+        return d
+    labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
+    raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
+    sleeve_bonus = labels.map(
+        {
+            "early_scout": 0.35,
+            "future_winner": 0.20,
+            "core_compounder": -0.15,
+        }
+    ).fillna(0.0)
+    d["concentrated_preferred_sleeve"] = labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    d["concentrated_preferred_sleeve_raw"] = raw_labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    d["concentrated_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "score"),
+            float(getattr(cfg, "concentrated_score_future_weight", 0.95))
+            * numeric_series_or_default(d, "portfolio_future_winner_engine_score", 0.0),
+            float(getattr(cfg, "concentrated_score_early_weight", 1.05))
+            * numeric_series_or_default(d, "portfolio_early_scout_engine_score", 0.0),
+            float(getattr(cfg, "concentrated_score_sage_weight", 0.45))
+            * numeric_series_or_default(d, "sage_composite_score", 0.0),
+            float(getattr(cfg, "concentrated_score_confirmation_weight", 0.40))
+            * numeric_series_or_default(d, "selection_confirmation_score", 0.0),
+            float(getattr(cfg, "concentrated_score_breakout_weight", 0.30))
+            * numeric_series_or_default(d, "breakout_setup_quality_score", 0.0),
+            float(getattr(cfg, "concentrated_score_momentum_weight", 0.35))
+            * cross_sectional_robust_z(d, "relative_strength_composite"),
+            0.25 * numeric_series_or_default(d, "score_future_winner_model", 0.0),
+            0.20 * numeric_series_or_default(d, "future_winner_scout_score", 0.0),
+            -float(getattr(cfg, "concentrated_score_exit_risk_penalty", 0.40))
+            * numeric_series_or_default(d, "portfolio_hold_policy_exit_risk", 0.0),
+            -0.20 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0) + pd.to_numeric(sleeve_bonus, errors="coerce").fillna(0.0)
+    return d
+
+
+def select_concentrated_portfolio_topk(
+    cfg: EngineConfig,
+    month_df: pd.DataFrame,
+    top_n: int,
+) -> pd.DataFrame:
+    if month_df.empty or int(top_n) <= 0:
+        return month_df.iloc[0:0].copy()
+    d = prepare_concentrated_frame(cfg, month_df)
+    if d.empty:
+        return d
+    top_n = max(1, min(int(top_n), 3))
+    min_confirmation = float(getattr(cfg, "concentrated_min_confirmation", 0.45))
+    selected_parts: list[pd.DataFrame] = []
+    selected_tickers: set[str] = set()
+
+    def _take(mask: pd.Series, source: str, limit: int) -> None:
+        nonlocal selected_tickers
+        if limit <= 0:
+            return
+        mask = mask.reindex(d.index).fillna(False).astype(bool)
+        pool = d.loc[mask].copy()
+        if pool.empty:
+            return
+        if selected_tickers and "ticker" in pool.columns:
+            pool = pool[~pool["ticker"].astype(str).isin(selected_tickers)].copy()
+        if pool.empty:
+            return
+        pool = pool.loc[
+            pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
+        ].copy()
+        if pool.empty:
+            return
+        pool = pool.sort_values(
+            ["concentrated_score", "selection_confirmation_score", "score"],
+            ascending=False,
+        )
+        pool = dedupe_same_company_rows(pool, score_col="concentrated_score").head(limit).copy()
+        if pool.empty:
+            return
+        pool["concentrated_selection_source"] = source
+        selected_parts.append(pool)
+        if "ticker" in pool.columns:
+            selected_tickers.update(pool["ticker"].astype(str).tolist())
+
+    _take(pd.Series(d["concentrated_preferred_sleeve"], index=d.index), "preferred_final_label", top_n)
+    remaining = top_n - sum(len(x) for x in selected_parts)
+    if remaining > 0:
+        _take(pd.Series(d["concentrated_preferred_sleeve_raw"], index=d.index), "preferred_raw_label", remaining)
+    remaining = top_n - sum(len(x) for x in selected_parts)
+    if remaining > 0:
+        score_cut = float(pd.to_numeric(d["concentrated_score"], errors="coerce").quantile(0.80)) if len(d) else 0.0
+        _take(pd.to_numeric(d["concentrated_score"], errors="coerce").fillna(0.0) >= score_cut, "score_fallback", remaining)
+    if not selected_parts:
+        return d.iloc[0:0].copy()
+    out = pd.concat(selected_parts, ignore_index=False)
+    out = dedupe_same_company_rows(out, score_col="concentrated_score").head(top_n).copy()
+    out["concentrated_target_n"] = int(top_n)
+    return out
+
+
+def concentrated_weight_map(
+    cfg: EngineConfig,
+    selected: pd.DataFrame,
+    weighting_mode: str,
+) -> dict[str, float]:
+    if selected.empty or "ticker" not in selected.columns:
+        return {}
+    mode = str(weighting_mode or "conviction_curve").strip() or "conviction_curve"
+    ranked = selected.sort_values(["concentrated_score", "score"], ascending=False).reset_index(drop=True).copy()
+    tickers = ranked["ticker"].astype(str).tolist()
+    n = len(tickers)
+    if n <= 0:
+        return {}
+    if mode == "winner_take_all":
+        weights = np.zeros(n, dtype=float)
+        weights[0] = 1.0
+    elif mode == "score_power":
+        raw = pd.to_numeric(ranked.get("concentrated_score"), errors="coerce").fillna(0.0)
+        shifted = (raw - float(raw.min()) + 0.25).clip(lower=1e-6)
+        weights = normalize_with_limits(
+            pd.Series(np.power(shifted.to_numpy(dtype=float), 2.0), index=ranked.index, dtype=float),
+            wmin=0.0,
+            wmax=float(getattr(cfg, "concentrated_max_single_name_weight", 1.0)),
+        ).to_numpy(dtype=float)
+    else:
+        curve = {
+            1: np.array([1.0], dtype=float),
+            2: np.array([0.70, 0.30], dtype=float),
+            3: np.array([0.50, 0.30, 0.20], dtype=float),
+        }
+        weights = curve.get(n, curve[3][:n]).astype(float)
+        weights = weights / max(float(weights.sum()), 1e-8)
+    out = {
+        str(t): float(w)
+        for t, w in zip(tickers, weights.tolist())
+        if pd.notna(w) and float(w) > 1e-10
+    }
+    total = float(sum(out.values()))
+    if total > 0:
+        out = {k: float(v / total) for k, v in out.items()}
+    return out
+
+
+def backtest_concentrated_portfolio(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    *,
+    top_n: int = 3,
+    rebalance_interval_months: int = 1,
+    weighting_mode: str = "conviction_curve",
+) -> BacktestResult:
+    cfg_obj = to_cfg(cfg)
+    paths = get_paths(cfg_obj)
+    top_n = max(1, min(int(top_n), 3))
+    interval_months = max(int(rebalance_interval_months), 1)
+    d = signals.copy()
+    if "score" not in d.columns:
+        if "score_total" in d.columns:
+            d["score"] = pd.to_numeric(d["score_total"], errors="coerce").fillna(0.0)
+        else:
+            d["score"] = 0.0
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d = d.dropna(subset=["rebalance_date"]).sort_values(["rebalance_date", "score"], ascending=[True, False]).reset_index(drop=True)
+    months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
+    if len(months) < 2:
+        raise RuntimeError("Need at least two months of OOS signals for concentrated backtest.")
+
+    cost_candidates = [
+        safe_float(getattr(cfg_obj, "roundtrip_cost_bps", np.nan)),
+        2.0 * safe_float(getattr(cfg_obj, "trade_cost_bps_per_side", 0.0)),
+    ]
+    cost_candidates = [float(x) for x in cost_candidates if np.isfinite(x)]
+    effective_roundtrip_cost_bps = float(max(cost_candidates)) if cost_candidates else 0.0
+    starting_capital_usd = float(max(safe_float(getattr(cfg_obj, "starting_capital_usd", 100000.0)), 1.0))
+
+    current_w: dict[str, float] = {}
+    current_portfolio = pd.DataFrame()
+    next_scheduled_dt = pd.NaT
+    rebalance_dates_taken: list[pd.Timestamp] = []
+    holdings_rows: list[dict[str, Any]] = []
+    ret_rows: list[dict[str, Any]] = []
+
+    def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
+        return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
+
+    for i in range(len(months) - 1):
+        dt = pd.Timestamp(months[i])
+        next_dt = pd.Timestamp(months[i + 1])
+        mm = d[d["rebalance_date"] == dt].copy()
+        rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+        turn = 0.0
+        cost = 0.0
+        rebalance_action = "scheduled_hold"
+
+        if rebalance_due:
+            prev_w = current_w.copy()
+            sel = select_concentrated_portfolio_topk(cfg_obj, mm, top_n=top_n)
+            if not sel.empty:
+                current_w = concentrated_weight_map(cfg_obj, sel, weighting_mode=weighting_mode)
+                current_portfolio = sel.copy()
+            else:
+                current_w = {CASH_PROXY_TICKER: 1.0}
+                current_portfolio = pd.DataFrame()
+            turn = turnover(prev_w, current_w)
+            cost = turn * (effective_roundtrip_cost_bps / 10000.0)
+            rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
+            rebalance_dates_taken.append(dt)
+            next_scheduled_dt = next_rebalance_date_for_interval(dt, interval_months=interval_months)
+
+        if not current_w:
+            current_w = {CASH_PROXY_TICKER: 1.0}
+
+        holdings_source = current_portfolio if not current_portfolio.empty else mm
+        month_holding_row_indices: list[int] = []
+        for tkr, ww in current_w.items():
+            row = holdings_source[holdings_source["ticker"].astype(str).eq(str(tkr))] if "ticker" in holdings_source.columns else pd.DataFrame()
+            month_holding_row_indices.append(len(holdings_rows))
+            holdings_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": tkr,
+                    "Name": row["Name"].iloc[0] if not row.empty and "Name" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else ""),
+                    "sector": row["sector"].iloc[0] if not row.empty and "sector" in row.columns else ("Cash" if str(tkr).upper() == CASH_PROXY_TICKER else "Unknown"),
+                    "weight": float(ww),
+                    "raw_score": float(row["score"].iloc[0]) if not row.empty and "score" in row.columns else np.nan,
+                    "concentrated_score": float(row["concentrated_score"].iloc[0]) if not row.empty and "concentrated_score" in row.columns else np.nan,
+                    "portfolio_sleeve_label": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else str(row["portfolio_sleeve_label"].iloc[0]) if not row.empty and "portfolio_sleeve_label" in row.columns else "unknown",
+                    "concentrated_selection_source": str(row["concentrated_selection_source"].iloc[0]) if not row.empty and "concentrated_selection_source" in row.columns else "",
+                    "period_forward_return": np.nan,
+                    "weighted_forward_return": np.nan,
+                    "target_n": int(top_n),
+                    "weighting_mode": str(weighting_mode),
+                    "rebalance_action": rebalance_action,
+                    "active_rebalance_interval_months": int(interval_months),
+                    "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                }
+            )
+
+        month_ret = 0.0
+        missing = 0
+        ticker_month_returns: dict[str, float] = {}
+        for tkr, ww in current_w.items():
+            ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
+            if ri is None:
+                missing += 1
+                continue
+            month_ret += float(ww) * float(ri)
+            ticker_month_returns[str(tkr)] = float(ri)
+        for row_idx in month_holding_row_indices:
+            held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
+            held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
+            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+        net_ret = month_ret - cost
+        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        if current_w:
+            total_w = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
+            if total_w > 0 and abs(total_w - 1.0) > 1e-8:
+                current_w = {str(k): float(v / total_w) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
+        ret_rows.append(
+            {
+                "rebalance_date": dt,
+                "next_rebalance_date": next_dt,
+                "gross_return": float(month_ret),
+                "cost": float(cost),
+                "net_return": float(net_ret),
+                "turnover": float(turn),
+                "missing_tickers": int(missing),
+                "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
+                "rebalance_action": rebalance_action,
+                "active_rebalance_interval_months": int(interval_months),
+                "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                "target_n": int(top_n),
+                "weighting_mode": str(weighting_mode),
+                "portfolio_mode": "concentrated_alpha",
+            }
+        )
+
+    ret_df = pd.DataFrame(ret_rows)
+    if ret_df.empty:
+        raise RuntimeError("Concentrated backtest produced no monthly returns.")
+    ret_df["rebalance_date"] = pd.to_datetime(ret_df["rebalance_date"])
+    ret_df = ret_df.sort_values("rebalance_date")
+    ret_df["equity"] = (1.0 + ret_df["net_return"]).cumprod()
+    ret_df["equity_value_usd"] = starting_capital_usd * ret_df["equity"]
+    benchmark_close = load_benchmark_price_series(cfg_obj, paths)
+    bench = []
+    if not benchmark_close.empty:
+        for r in ret_df.itertuples(index=False):
+            rr = return_series_between_dates(
+                benchmark_close,
+                r.rebalance_date + pd.Timedelta(days=1),
+                r.next_rebalance_date + pd.Timedelta(days=1),
+            )
+            bench.append(rr if rr is not None else np.nan)
+    else:
+        bench = [np.nan] * len(ret_df)
+    ret_df["bench_return"] = bench
+    metrics = performance_metrics(ret_df["net_return"], benchmark=ret_df["bench_return"])
+    metrics["portfolio_mode"] = "concentrated_alpha"
+    metrics["avg_turnover_monthly"] = float(ret_df["turnover"].mean())
+    metrics["avg_cash_weight"] = float(ret_df["cash_weight"].mean()) if "cash_weight" in ret_df.columns else 0.0
+    metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
+    metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
+    metrics["months"] = int(len(ret_df))
+    metrics["target_n_override"] = int(top_n)
+    metrics["weighting_mode"] = str(weighting_mode)
+    metrics["rebalance_interval_months"] = int(interval_months)
+    rebalance_intervals = (
+        [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
+        if len(rebalance_dates_taken) >= 2
+        else []
+    )
+    metrics["avg_rebalance_interval_months"] = float(np.mean(rebalance_intervals)) if rebalance_intervals else float(interval_months)
+    metrics["adaptive_rebalance_policy"] = False
+    metrics["rebalance_count"] = int(len(rebalance_dates_taken))
+    metrics["rebalanced_month_ratio"] = float(len(rebalance_dates_taken) / max(len(ret_df), 1))
+    metrics["benchmark_source"] = benchmark_history_source_label(cfg_obj)
+    metrics["starting_capital_usd"] = starting_capital_usd
+    if ret_df["bench_return"].notna().any():
+        bench_eq = (1.0 + ret_df["bench_return"].fillna(0.0)).cumprod()
+        ret_df["benchmark_equity"] = bench_eq
+        ret_df["benchmark_value_usd"] = starting_capital_usd * bench_eq
+        years = max(len(ret_df), 1) / 12.0
+        metrics["benchmark_cagr"] = float(bench_eq.iloc[-1] ** (1.0 / years) - 1.0) if years > 0 else np.nan
+        metrics["excess_cagr"] = float(metrics.get("cagr", np.nan) - metrics.get("benchmark_cagr", np.nan))
+        metrics["beat_month_ratio"] = float((ret_df["net_return"] > ret_df["bench_return"]).mean())
+        metrics["benchmark_ending_capital_usd"] = float(ret_df["benchmark_value_usd"].iloc[-1])
+    else:
+        metrics["benchmark_cagr"] = np.nan
+        metrics["excess_cagr"] = np.nan
+        metrics["beat_month_ratio"] = np.nan
+        ret_df["benchmark_equity"] = np.nan
+        ret_df["benchmark_value_usd"] = np.nan
+        metrics["benchmark_ending_capital_usd"] = np.nan
+    metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
+    holdings_df = pd.DataFrame(holdings_rows)
+    if not holdings_df.empty:
+        stock_names = holdings_df[
+            holdings_df["ticker"].astype(str).str.upper() != CASH_PROXY_TICKER
+        ].groupby("rebalance_date")["ticker"].nunique()
+        metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
+        metrics["max_top_name_weight"] = float(
+            holdings_df[holdings_df["ticker"].astype(str).str.upper() != CASH_PROXY_TICKER]
+            .groupby("rebalance_date")["weight"]
+            .max()
+            .max()
+        ) if not stock_names.empty else 0.0
+    else:
+        metrics["avg_stock_names"] = 0.0
+        metrics["max_top_name_weight"] = 0.0
+    equity_df = ret_df[
+        [
+            "rebalance_date",
+            "equity",
+            "equity_value_usd",
+            "benchmark_equity",
+            "benchmark_value_usd",
+            "net_return",
+            "bench_return",
+        ]
+    ].copy()
+    return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
+
+
+def concentrated_strategy_objective(row: Mapping[str, Any]) -> float:
+    cagr = safe_float(row.get("strategy_cagr"), np.nan)
+    sharpe = safe_float(row.get("sharpe"), 0.0)
+    max_dd = min(safe_float(row.get("max_dd"), 0.0), 0.0)
+    beat_ratio = safe_float(row.get("beat_month_ratio"), 0.0)
+    if not np.isfinite(cagr):
+        cagr = 0.0
+    return float(1.10 * cagr + 0.08 * sharpe + 0.04 * beat_ratio - 0.45 * abs(max_dd))
+
+
+def compare_concentrated_portfolio_backtests(
+    cfg: dict | EngineConfig,
+    signals: pd.DataFrame,
+    *,
+    top_n_candidates: Optional[Iterable[int]] = None,
+    intervals: Optional[Iterable[int]] = None,
+    weighting_modes: Optional[Iterable[str]] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    cfg_obj = to_cfg(cfg)
+    clean_top_n = sorted({max(1, min(int(x), 3)) for x in (top_n_candidates if top_n_candidates is not None else getattr(cfg_obj, "concentrated_top_n_candidates", [1, 2, 3]))})
+    clean_intervals = sorted({max(1, int(x)) for x in (intervals if intervals is not None else getattr(cfg_obj, "concentrated_rebalance_intervals", [1]))})
+    clean_modes = [str(x) for x in (weighting_modes if weighting_modes is not None else getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve", "winner_take_all"])) if str(x)]
+    rows: list[dict[str, Any]] = []
+    monthly_frames: list[pd.DataFrame] = []
+    holdings_frames: list[pd.DataFrame] = []
+    log(
+        f"Phase 5e: concentrated alpha backtests (top_n={clean_top_n}, intervals={clean_intervals}, modes={clean_modes}) ..."
+    )
+    for top_n in clean_top_n:
+        for interval in clean_intervals:
+            for mode in clean_modes:
+                bt = backtest_concentrated_portfolio(
+                    cfg_obj,
+                    signals,
+                    top_n=int(top_n),
+                    rebalance_interval_months=int(interval),
+                    weighting_mode=str(mode),
+                )
+                row = _bt_metrics_row(
+                    bt,
+                    cfg_obj,
+                    portfolio_mode="concentrated_alpha",
+                    policy_mode="fixed_interval",
+                    sleeve_test="future_early_concentrated",
+                    sleeve_role="concentrated_alpha",
+                    target_stock_names=int(top_n),
+                    weighting_mode=str(mode),
+                    rebalance_interval_months=int(interval),
+                )
+                row["comparison_objective"] = concentrated_strategy_objective(row)
+                rows.append(row)
+                m = bt.monthly_returns.copy()
+                m["target_stock_names"] = int(top_n)
+                m["weighting_mode"] = str(mode)
+                m["portfolio_mode"] = "concentrated_alpha"
+                monthly_frames.append(m)
+                h = bt.holdings.copy()
+                h["target_stock_names"] = int(top_n)
+                h["weighting_mode"] = str(mode)
+                h["portfolio_mode"] = "concentrated_alpha"
+                holdings_frames.append(h)
+    compare = pd.DataFrame(rows)
+    if not compare.empty:
+        compare = compare.sort_values(
+            ["comparison_objective", "strategy_cagr", "sharpe"],
+            ascending=[False, False, False],
+        ).reset_index(drop=True)
+    monthly = pd.concat(monthly_frames, ignore_index=True) if monthly_frames else pd.DataFrame()
+    holdings = pd.concat(holdings_frames, ignore_index=True) if holdings_frames else pd.DataFrame()
+    return compare, monthly, holdings
+
+
+def build_latest_concentrated_holdings(
+    cfg: dict | EngineConfig,
+    latest_frame: pd.DataFrame,
+    concentrated_compare: Optional[pd.DataFrame] = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    cfg_obj = to_cfg(cfg)
+    d = latest_frame.copy() if isinstance(latest_frame, pd.DataFrame) else pd.DataFrame()
+    if d.empty:
+        return pd.DataFrame(), {}
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    latest_dt = d["rebalance_date"].max()
+    d = d[d["rebalance_date"] == latest_dt].copy()
+    if d.empty:
+        return pd.DataFrame(), {}
+
+    compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
+    if not compare_df.empty and "portfolio_mode" in compare_df.columns:
+        compare_df = compare_df[compare_df["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+    top_n = int(max(1, min(3, safe_float(compare_df["target_stock_names"].iloc[0], 3.0)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(1, min(3, getattr(cfg_obj, "concentrated_top_n_candidates", [3])[0])))
+    weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
+    interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
+    best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
+
+    selected = select_concentrated_portfolio_topk(cfg_obj, d, top_n=top_n)
+    if selected.empty:
+        return pd.DataFrame(), {
+            "portfolio_mode": "concentrated_alpha",
+            "selected_names": 0,
+            "target_stock_names": int(top_n),
+            "weighting_mode": str(weighting_mode),
+            "recommended_rebalance_interval_months": int(interval),
+            "monitoring_review_days": int(getattr(cfg_obj, "concentrated_monitoring_review_days", 7)),
+        }
+    selected = selected.sort_values(["concentrated_score", "score"], ascending=[False, False]).reset_index(drop=True).copy()
+    weight_map = concentrated_weight_map(cfg_obj, selected, weighting_mode=weighting_mode)
+    selected["weight"] = selected["ticker"].astype(str).map(lambda x: weight_map.get(str(x), 0.0)).fillna(0.0)
+    selected = selected[selected["weight"] > 1e-10].copy()
+    selected = selected.sort_values("weight", ascending=False).reset_index(drop=True)
+    selected["rank"] = np.arange(1, len(selected) + 1)
+    selected["portfolio_mode"] = "concentrated_alpha"
+    selected["weighting_mode"] = str(weighting_mode)
+    selected["target_stock_names"] = int(top_n)
+    selected["recommended_rebalance_interval_months"] = int(interval)
+    selected["monitoring_review_days"] = int(getattr(cfg_obj, "concentrated_monitoring_review_days", 7))
+    selected["concentrated_strategy_cagr"] = float(safe_float(best_metrics.get("strategy_cagr"), np.nan))
+    selected["concentrated_strategy_sharpe"] = float(safe_float(best_metrics.get("sharpe"), np.nan))
+    selected["concentrated_strategy_max_dd"] = float(safe_float(best_metrics.get("max_dd"), np.nan))
+    selected["concentrated_strategy_objective"] = float(safe_float(best_metrics.get("comparison_objective"), np.nan))
+    summary = {
+        "portfolio_mode": "concentrated_alpha",
+        "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+        "selected_names": int(len(selected)),
+        "target_stock_names": int(top_n),
+        "weighting_mode": str(weighting_mode),
+        "recommended_rebalance_interval_months": int(interval),
+        "monitoring_review_days": int(getattr(cfg_obj, "concentrated_monitoring_review_days", 7)),
+        "strategy_cagr": float(safe_float(best_metrics.get("strategy_cagr"), np.nan)),
+        "sharpe": float(safe_float(best_metrics.get("sharpe"), np.nan)),
+        "max_dd": float(safe_float(best_metrics.get("max_dd"), np.nan)),
+        "comparison_objective": float(safe_float(best_metrics.get("comparison_objective"), np.nan)),
+        "operating_notes": [
+            "Run a full rebalance monthly.",
+            f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",
+            "Use concentrated holdings as a separate sleeve from the main portfolio.",
+            "Allow immediate review if exit risk spikes or breakout support fails.",
+        ],
+    }
+    return selected, summary
+
+
 _SLEEVE_POLICY_CANDIDATES: list[dict] = [
     {"label": "core_only",           "core": 1.00, "future": 0.00, "early": 0.00},
     {"label": "def_60_25_15",        "core": 0.60, "future": 0.25, "early": 0.15},
@@ -22184,6 +22746,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare = _artifact_frame("standalone_sleeve_compare")
     standalone_sleeve_monthly = _artifact_frame("standalone_sleeve_monthly")
     standalone_sleeve_holdings = _artifact_frame("standalone_sleeve_holdings")
+    concentrated_compare = _artifact_frame("concentrated_compare")
+    concentrated_monthly = _artifact_frame("concentrated_monthly")
+    concentrated_holdings = _artifact_frame("concentrated_holdings")
     ai_four_sleeve_compare = _artifact_frame("ai_four_sleeve_compare")
     ai_four_sleeve_regime_grid = _artifact_frame("ai_four_sleeve_regime_grid")
     ai_four_sleeve_regime_best = _artifact_frame("ai_four_sleeve_regime_best")
@@ -22639,6 +23204,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_path = paths["out"] / "top30_latest.csv"
     top20_path = paths["out"] / "top20_latest.csv"
     portfolio_path = paths["out"] / "portfolio_latest.csv"
+    concentrated_portfolio_path = paths["out"] / "concentrated_portfolio_latest.csv"
+    concentrated_top1_path = paths["out"] / "concentrated_top1_latest.csv"
     full_rank_path = paths["out"] / "full_fundamental_rank_latest.csv"
     partial_watchlist_path = paths["out"] / "partial_data_watchlist_latest.csv"
     research_top30_path = paths["out"] / "research_only_top30_latest.csv"
@@ -22646,6 +23213,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     scored_path = paths["out"] / "scored_latest.csv"
     weights_path = paths["out"] / "weights_latest.json"
     bt_metrics_path = paths["out"] / "backtest_metrics.json"
+    concentrated_metrics_path = paths["out"] / "concentrated_backtest_metrics.json"
+    concentrated_operating_guide_path = paths["out"] / "concentrated_operating_guide.json"
     equity_path = paths["out"] / "equity_curve.csv"
     summary_path = paths["out"] / "run_summary.json"
     ranking_path = paths["reports"] / "ranking_quality.json"
@@ -22738,6 +23307,42 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         latest_standalone_sleeve_summary.to_csv(latest_sleeve_standalone_summary_path, index=False)
     else:
         _safe_unlink(latest_sleeve_standalone_summary_path)
+
+    concentrated_latest_holdings, concentrated_latest_summary = build_latest_concentrated_holdings(
+        cfg,
+        scored_latest,
+        concentrated_compare=concentrated_compare,
+    )
+    if not concentrated_latest_holdings.empty:
+        concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
+        concentrated_top1_path.write_text(
+            concentrated_latest_holdings.head(1).to_csv(index=False),
+            encoding="utf-8",
+        )
+    else:
+        _safe_unlink(concentrated_portfolio_path)
+        _safe_unlink(concentrated_top1_path)
+    concentrated_metrics_payload = {
+        str(k): v
+        for k, v in dict(concentrated_latest_summary or {}).items()
+    }
+    concentrated_metrics_path.write_text(json.dumps(concentrated_metrics_payload, indent=2), encoding="utf-8")
+    concentrated_operating_guide_path.write_text(
+        json.dumps(
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "latest_summary": concentrated_metrics_payload,
+                "operating_principles": [
+                    "Use this as a separate high-conviction sleeve from the main diversified portfolio.",
+                    "Default cadence: monthly full rebalance.",
+                    f"Monitoring cadence: every {int(getattr(cfg, 'concentrated_monitoring_review_days', 7))} days.",
+                    "If top conviction materially changes, rotate within the concentrated sleeve rather than forcing changes into the main portfolio.",
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     # Persist live weights only after the rebalance policy recommendation is resolved.
     benchmark_compare = {
@@ -22876,6 +23481,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
     standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
     standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
+    concentrated_compare_path = paths["reports"] / "concentrated_strategy_comparison.csv"
+    concentrated_monthly_path = paths["reports"] / "concentrated_strategy_monthly.csv"
+    concentrated_holdings_path = paths["reports"] / "concentrated_strategy_holdings.csv"
     run_standalone_sleeve_compare = bool(getattr(cfg, "run_standalone_sleeve_backtest_comparison", True))
     if run_standalone_sleeve_compare and not standalone_sleeve_compare.empty:
         standalone_sleeve_compare.to_csv(standalone_sleeve_compare_path, index=False)
@@ -22885,6 +23493,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(standalone_sleeve_compare_path)
         _safe_unlink(standalone_sleeve_monthly_path)
         _safe_unlink(standalone_sleeve_holdings_path)
+    if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
+        concentrated_compare.to_csv(concentrated_compare_path, index=False)
+        concentrated_monthly.to_csv(concentrated_monthly_path, index=False)
+        concentrated_holdings.to_csv(concentrated_holdings_path, index=False)
+    else:
+        _safe_unlink(concentrated_compare_path)
+        _safe_unlink(concentrated_monthly_path)
+        _safe_unlink(concentrated_holdings_path)
     if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
         ai_four_sleeve_compare.to_csv(ai_four_sleeve_compare_path, index=False)
         ai_four_sleeve_regime_grid.to_csv(ai_four_sleeve_regime_grid_path, index=False)
@@ -23396,6 +24012,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["early_scout_latest_standalone.csv"] = str(latest_early_standalone_path)
     if not latest_standalone_sleeve_summary.empty:
         output_files["latest_sleeve_standalone_summary.csv"] = str(latest_sleeve_standalone_summary_path)
+    if not concentrated_latest_holdings.empty:
+        output_files["concentrated_portfolio_latest.csv"] = str(concentrated_portfolio_path)
+        output_files["concentrated_top1_latest.csv"] = str(concentrated_top1_path)
+    output_files["concentrated_backtest_metrics.json"] = str(concentrated_metrics_path)
+    output_files["concentrated_operating_guide.json"] = str(concentrated_operating_guide_path)
     if not engine_diagnostics_monthly.empty:
         output_files["engine_diagnostics_by_month.csv"] = str(engine_diagnostics_monthly_path)
     if not engine_diagnostics_summary.empty:
@@ -23516,6 +24137,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "applied_regime_sleeve_source_label": _portfolio_first_text("applied_regime_sleeve_source_label"),
         "run_sleeve_cap_policy_comparison": bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)),
         "run_standalone_sleeve_backtest_comparison": run_standalone_sleeve_compare,
+        "run_concentrated_backtest_comparison": bool(getattr(cfg, "run_concentrated_backtest_comparison", True)),
         "run_ai_four_sleeve_comparison": bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)),
         "run_historical_data_quality_reports": bool(getattr(cfg, "run_historical_data_quality_reports", True)),
         "champion_sleeve_cap_policy": selected_sleeve_cap_policy,
@@ -23539,6 +24161,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not latest_standalone_sleeve_summary.empty
             else []
         ),
+        "concentrated_summary": concentrated_metrics_payload,
         "engine_diagnostics_summary": (
             engine_diagnostics_summary.to_dict(orient="records")
             if not engine_diagnostics_summary.empty
@@ -23639,6 +24262,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["early_scout_latest_standalone"] = str(latest_early_standalone_path)
     if not latest_standalone_sleeve_summary.empty:
         result_outputs["latest_sleeve_standalone_summary"] = str(latest_sleeve_standalone_summary_path)
+    if not concentrated_latest_holdings.empty:
+        result_outputs["concentrated_portfolio_latest"] = str(concentrated_portfolio_path)
+        result_outputs["concentrated_top1_latest"] = str(concentrated_top1_path)
+    result_outputs["concentrated_backtest_metrics"] = str(concentrated_metrics_path)
+    result_outputs["concentrated_operating_guide"] = str(concentrated_operating_guide_path)
     if not engine_diagnostics_monthly.empty:
         result_outputs["engine_diagnostics_by_month"] = str(engine_diagnostics_monthly_path)
     if not engine_diagnostics_summary.empty:
@@ -23650,6 +24278,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["portfolio_sleeve_top7_standalone_comparison"] = str(standalone_sleeve_compare_path)
         result_outputs["portfolio_sleeve_top7_standalone_monthly"] = str(standalone_sleeve_monthly_path)
         result_outputs["portfolio_sleeve_top7_standalone_holdings"] = str(standalone_sleeve_holdings_path)
+    if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
+        result_outputs["concentrated_strategy_comparison"] = str(concentrated_compare_path)
+        result_outputs["concentrated_strategy_monthly"] = str(concentrated_monthly_path)
+        result_outputs["concentrated_strategy_holdings"] = str(concentrated_holdings_path)
     if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
         result_outputs["ai_four_sleeve_adaptive_comparison"] = str(ai_four_sleeve_compare_path)
         result_outputs["ai_four_sleeve_adaptive_regime_grid"] = str(ai_four_sleeve_regime_grid_path)
@@ -23939,6 +24571,25 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             log(f"[WARN] Standalone sleeve comparison failed: {exc}")
     save_stage_flag(paths, "phase5d_standalone_sleeve", "completed", {"rows": int(len(standalone_sleeve_compare))})
 
+    concentrated_compare = pd.DataFrame()
+    concentrated_monthly = pd.DataFrame()
+    concentrated_holdings = pd.DataFrame()
+    if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)):
+        log("Phase 5e: running concentrated alpha backtest comparisons ...")
+        try:
+            concentrated_compare, concentrated_monthly, concentrated_holdings = (
+                compare_concentrated_portfolio_backtests(
+                    cfg,
+                    scored,
+                    top_n_candidates=list(getattr(cfg, "concentrated_top_n_candidates", [1, 2, 3])),
+                    intervals=list(getattr(cfg, "concentrated_rebalance_intervals", [1])),
+                    weighting_modes=list(getattr(cfg, "concentrated_weighting_modes", ["conviction_curve", "winner_take_all"])),
+                )
+            )
+        except Exception as exc:
+            log(f"[WARN] Concentrated alpha comparison failed: {exc}")
+    save_stage_flag(paths, "phase5e_concentrated_alpha", "completed", {"rows": int(len(concentrated_compare))})
+
     ai_four_sleeve_compare = pd.DataFrame()
     ai_four_sleeve_regime_grid = pd.DataFrame()
     ai_four_sleeve_regime_best = pd.DataFrame()
@@ -24015,6 +24666,9 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
             "standalone_sleeve_compare": standalone_sleeve_compare,
             "standalone_sleeve_monthly": standalone_sleeve_monthly,
             "standalone_sleeve_holdings": standalone_sleeve_holdings,
+            "concentrated_compare": concentrated_compare,
+            "concentrated_monthly": concentrated_monthly,
+            "concentrated_holdings": concentrated_holdings,
             "ai_four_sleeve_compare": ai_four_sleeve_compare,
             "ai_four_sleeve_regime_grid": ai_four_sleeve_regime_grid,
             "ai_four_sleeve_regime_best": ai_four_sleeve_regime_best,

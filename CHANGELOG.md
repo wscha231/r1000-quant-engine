@@ -1334,3 +1334,48 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is intentionally a guardrail, not a full regime-policy rewrite. It prevents clearly over-defensive learned maps from dominating balanced/growth-reentry runs, but it does not guarantee a specific CAGR target.
   - Colab users still need to rerun the main pipeline after pulling the updated notebook/repo so the installed `catboost` package is actually available in that runtime.
+
+### 18:40 KST - concentrated-alpha-layer-v1
+
+- scope:
+  - Add a first concentrated-investment layer that reuses the existing scored panel and sleeve engines, but builds a separate high-conviction portfolio with 1-3 names and dedicated backtest/export outputs.
+- files:
+  - `r1000_top30_institutional.py` -> added concentrated-alpha config fields, selector, weighting logic, backtest comparison, latest concentrated holdings export, concentrated metrics JSON, and concentrated operating guide output.
+- symbols_added:
+  - `prepare_concentrated_frame(cfg, frame)` -> builds a concentrated candidate frame from the existing latest/scored universe using sleeve-aware and momentum/confirmation-aware signals.
+  - `select_concentrated_portfolio_topk(cfg, month_df, top_n)` -> selects 1-3 concentrated candidates with preference for `future_winner` and `early_scout`.
+  - `concentrated_weight_map(cfg, selected, weighting_mode)` -> supports `conviction_curve`, `winner_take_all`, and `score_power` weighting for concentrated sleeves.
+  - `backtest_concentrated_portfolio(cfg, signals, top_n, rebalance_interval_months, weighting_mode)` -> runs a separate concentrated portfolio backtest.
+  - `compare_concentrated_portfolio_backtests(cfg, signals, top_n_candidates, intervals, weighting_modes)` -> compares concentrated modes across 1-3 names.
+  - `build_latest_concentrated_holdings(cfg, latest_frame, concentrated_compare)` -> produces the latest concentrated portfolio recommendation and summary.
+  - `concentrated_strategy_objective(row)` -> CAGR-forward objective used to rank concentrated strategy candidates.
+- symbols_changed:
+  - `EngineConfig` -> now includes concentrated-alpha controls such as target name counts, weighting modes, sleeve focus, and monitoring cadence.
+  - `apply_fast_mode()` -> keeps concentrated comparison enabled but narrows it to lighter monthly checks.
+  - `export_outputs()` -> now exports concentrated latest holdings, concentrated metrics, operating guide, and concentrated comparison CSVs.
+  - `run_all()` -> adds a new concentrated comparison phase before export.
+- config_fields_added:
+  - `run_concentrated_backtest_comparison`
+  - `concentrated_top_n_candidates`
+  - `concentrated_rebalance_intervals`
+  - `concentrated_weighting_modes`
+  - `concentrated_allowed_sleeves`
+  - `concentrated_min_confirmation`
+  - `concentrated_score_*`
+  - `concentrated_max_single_name_weight`
+  - `concentrated_monitoring_review_days`
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_portfolio_latest.csv`
+  - `outputs/concentrated_top1_latest.csv`
+  - `outputs/concentrated_backtest_metrics.json`
+  - `outputs/concentrated_operating_guide.json`
+  - `outputs/reports/concentrated_strategy_comparison.csv`
+  - `outputs/reports/concentrated_strategy_monthly.csv`
+  - `outputs/reports/concentrated_strategy_holdings.csv`
+- validation:
+  - `python -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py r1000_data_collector.py` passed in the GitHub working tree.
+- risks_or_notes:
+  - This is a V1 concentrated layer. It does not yet maintain a separate live operator/state namespace; it exports a separate concentrated portfolio plus an operating guide and backtest comparison first.
+  - The concentrated layer is intentionally biased toward `future_winner` / `early_scout` names and should be treated as a separate aggressive sleeve, not as a replacement for the main diversified portfolio.
