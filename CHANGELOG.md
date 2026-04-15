@@ -1083,3 +1083,58 @@ All entries must be written in English. Entries must be predictable and machine-
   - `python -m py_compile H:\\codex\\r1000_top30_institutional.py H:\\codex\\r1000_data_collector.py` passed after the change.
 - risks_or_notes:
   - This is pipeline-hygiene hardening, not a change to the intended live/latest recommendation logic; the latest rebalance-date rows still retain live-only signals as before.
+
+
+## 2026-04-15
+
+### 12:14 KST - phase1-ops-layer-and-operator
+
+- scope:
+  - Add a dedicated live portfolio state layer plus an operator layer so the engine can keep monthly rebalance as the default while still making hold/add/reduce/exit decisions against existing positions instead of assuming a full reset on every run.
+- files:
+  - `r1000_portfolio_state.py` -> new state module that owns persistent live position storage, bootstraps the first state snapshot from `weights_latest.json`, writes `live_portfolio_state.json`, and keeps latest/history parquet snapshots for actual holdings state.
+  - `r1000_operator.py` -> new operator module that reads the persistent live state plus the latest target portfolio outputs, classifies each ticker into `hold`, `hold_locked`, `hold_watch`, `trim_legacy`, `exit`, `exit_intramonth`, `add`, or `add_intramonth`, estimates turnover, and writes a latest operator plan + decision history.
+  - `r1000_top30_institutional.py` -> bumped `ENGINE_REUSE_VERSION` to `2026-04-15-phase1-ops-layer` and now refreshes operator outputs at export time after `run_summary.json` is written so the operator always evaluates the current run artifacts.
+  - `r1000_data_collector.py` -> validation suite now reports the live operator/state snapshot, including state source, position count, operator policy version, full-rebalance flag, turnover estimate, and plan row count.
+- symbols_changed:
+  - `resolve_live_state_paths()`, `load_live_portfolio_state()`, `save_live_portfolio_state()`, `ensure_live_portfolio_state()` -> define the persistent live portfolio state contract and bootstrap behavior.
+  - `build_live_operator_plan()` and `refresh_live_operator_outputs()` -> define the new live operation layer that compares actual state vs current model targets and generates a trade decision plan without overwriting actual holdings.
+  - `export_outputs()` -> now writes the base run summary first, then refreshes operator outputs and rewrites `run_summary.json` with `operator_summary`.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ops/live_portfolio_state.json`
+  - `outputs/ops/live_portfolio_positions_latest.parquet`
+  - `outputs/ops/live_portfolio_state_history.parquet`
+  - `outputs/ops/live_operator_plan_latest.csv`
+  - `outputs/ops/live_operator_summary.json`
+  - `outputs/ops/live_operator_decision_history.parquet`
+- validation:
+  - `python -m py_compile H:\\codex\\r1000_top30_institutional.py H:\\codex\\r1000_data_collector.py H:\\codex\\r1000_portfolio_state.py H:\\codex\\r1000_operator.py` passed.
+  - `python -m py_compile H:\\codex\\tmp_r1000_quant_engine\\r1000_top30_institutional.py H:\\codex\\tmp_r1000_quant_engine\\r1000_data_collector.py H:\\codex\\tmp_r1000_quant_engine\\r1000_portfolio_state.py H:\\codex\\tmp_r1000_quant_engine\\r1000_operator.py` passed.
+- risks_or_notes:
+  - The first operator run bootstraps state from `weights_latest.json` if no live state exists, so `avg_cost` and true realized PnL remain unknown until the user or a future broker adapter fills them in.
+  - The operator recommends trades but does not auto-apply them back into the actual state file. This is intentional so the model target and actual holdings remain separate sources of truth.
+
+### 11:23 KST - phase1-regime-fallback-and-dd-breaker
+
+- scope:
+  - Start the `30% CAGR / -20s MDD` roadmap by hardening live regime sleeve selection and implementing the first active portfolio-level drawdown circuit breaker in backtest execution.
+- files:
+  - `r1000_top30_institutional.py` -> added a learned/manual regime-policy lookup chain with nearest-label fallbacks, wired that lookup into regime comparison metadata and live sleeve override resolution, bumped `ENGINE_REUSE_VERSION`, and implemented a portfolio drawdown circuit breaker inside the active `backtest_portfolio()` loop.
+- symbols_changed:
+  - `ENGINE_REUSE_VERSION` -> bumped to `2026-04-15-phase1-regime-dd` so downstream cache reuse is invalidated for the new regime / breaker behavior.
+  - `REGIME_LABEL_NEAREST_FALLBACKS`, `build_regime_label_lookup_chain()`, `resolve_regime_policy_selection()` -> centralize regime label fallback order as `learned exact -> manual exact -> nearest learned/manual -> balanced/ALL`.
+  - `compare_sleeve_cap_policy_backtests()` and `compare_regime_conditioned_sleeve_map_methods()` -> now expose the same fallback-aware live regime policy selection metadata used by the live portfolio path.
+  - `resolve_regime_conditioned_sleeve_override()` -> now falls back from learned champion maps to manual regime maps before dropping to generic labels, and exports lookup source / lookup label / fallback usage in metadata.
+  - `backtest_portfolio()` -> now tracks `running_equity`, computes drawdown before each rebalance, forces all sleeves due while breaker is active or just released, applies a breaker cash override using the current sleeve mix, and logs breaker state fields into monthly return rows.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/sleeve_cap_policy_champion_latest.json` and `full_validation_suite.json` will now reflect fallback-aware live regime policy metadata instead of a learned-map-only lookup.
+  - `outputs/returns_oos_monthly.csv` gains breaker diagnostics such as drawdown before/after month, breaker active flag, breaker event, and breaker cash target.
+- validation:
+  - `python -m py_compile H:\\codex\\r1000_top30_institutional.py` passed after the change.
+- risks_or_notes:
+  - The new circuit breaker is only implemented in `backtest_portfolio()` for now. The live/latest portfolio path still relies on regime-based cash control rather than a separate realized-equity breaker.
+  - The legacy `_legacy_unused_backtest_portfolio()` path was kept in sync for future comparisons, but the active validation target remains the production `backtest_portfolio()` function.

@@ -45,7 +45,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-02-liquidity"
+ENGINE_REUSE_VERSION = "2026-04-15-phase1-ops-layer"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -69,6 +69,19 @@ def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
         "war_oil_rate_alert": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_alert_22_34_14_cash30"},
         "risk_off_alert": {"core": 0.18, "future": 0.36, "early": 0.18, "cash": 0.28, "policy_label": "manual_riskoff_18_36_18_cash28"},
     }
+
+
+REGIME_LABEL_NEAREST_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "growth_reentry_alert": ("growth_reentry",),
+    "growth_reentry": ("growth_reentry_alert",),
+    "systemic_alert": ("systemic_crisis", "risk_off_alert"),
+    "systemic_crisis": ("systemic_alert", "risk_off_alert"),
+    "war_oil_rate_alert": ("war_oil_rate_shock", "risk_off_alert"),
+    "war_oil_rate_shock": ("war_oil_rate_alert", "risk_off_alert"),
+    "risk_off_alert": ("carry_unwind", "stagflation"),
+    "carry_unwind": ("risk_off_alert", "stagflation"),
+    "stagflation": ("risk_off_alert", "carry_unwind"),
+}
 
 YF_OVERRIDES = {
     "BRKB": "BRK-B",
@@ -1376,6 +1389,25 @@ class EngineConfig:
     yf_quarterly_cache_enabled: bool = True
     yf_quarterly_refresh_days: int = 7
     yf_quarterly_max_tickers_per_run: int = 1000
+    # --------------- conviction hold (hold winners longer) ---------------
+    conviction_hold_cum_return_threshold: float = 0.25  # position must be up 25%+ (inferred from drift)
+    conviction_hold_seed_bonus: float = 0.35            # extra seed bonus for conviction-hold names
+    conviction_hold_utility_bonus: float = 0.30         # extra utility bonus for conviction-hold names
+    conviction_hold_min_months: int = 2                 # minimum months held before conviction status
+    # --------------- winner scaling (add to winners, cut losers) ---------------
+    winner_scale_top_quartile_boost: float = 1.20       # multiply weight by 1.20 for top performers
+    winner_scale_bottom_quartile_cut: float = 0.70      # multiply weight by 0.70 for bottom performers
+    # --------------- revision acceleration ---------------
+    revision_seed_score_weight: float = 0.22            # revision_blueprint_score weight in seed_score
+    # --------------- valuation extreme penalty ---------------
+    valuation_extreme_pe_threshold: float = 80.0        # forward PE above this triggers penalty
+    valuation_extreme_penalty_weight: float = 0.20      # seed_score penalty for extreme valuation
+    # --------------- drawdown circuit breaker ---------------
+    drawdown_circuit_breaker_threshold: float = 0.20    # portfolio drawdown that triggers cash raise
+    drawdown_circuit_breaker_cash_target: float = 0.50  # force cash to 50% in drawdown
+    drawdown_circuit_breaker_recovery: float = 0.10     # drawdown recovers below this to exit breaker
+    # --------------- breakout entry gate ---------------
+    early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
     fast_mode: bool = False  # set True to cut Phase 4+5 runtime by ~60%
 
@@ -3389,7 +3421,8 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
             (numeric_series_or_default(d, "growth_onset_composite", 0.0) > 0.0).astype(float),
             (numeric_series_or_default(d, "profitability_inflection_score", 0.0) > 0.0).astype(float),
             (numeric_series_or_default(d, "technical_blueprint_score", 0.0) > 0.0).astype(float),
-            (numeric_series_or_default(d, "breakout_setup_quality_score", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "breakout_setup_quality_score", 0.0)
+             >= float(getattr(cfg, "early_scout_breakout_min_score", 0.15))).astype(float),
             (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
             (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
             (
@@ -15201,6 +15234,18 @@ def _legacy_unused_backtest_portfolio(
     speculative_cum_ret: dict[str, float] = {}  # ticker -> cumulative return since entry
     stopped_out_tickers: set[str] = set()  # tickers stopped out this cycle
     stop_loss_pct = float(getattr(cfg, "speculative_stop_loss_pct", 0.25))
+    running_equity = 1.0
+    portfolio_peak = 1.0
+    circuit_breaker_active = False
+    breaker_threshold = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_threshold", 0.0), 0.0), 0.0))
+    breaker_cash_target = float(np.clip(safe_float(getattr(cfg, "drawdown_circuit_breaker_cash_target", 0.0), 0.0), 0.0, 1.0))
+    breaker_recovery = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_recovery", 0.0), 0.0), 0.0))
+    running_equity = 1.0
+    portfolio_peak = 1.0
+    circuit_breaker_active = False
+    breaker_threshold = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_threshold", 0.0), 0.0), 0.0))
+    breaker_cash_target = float(np.clip(safe_float(getattr(cfg, "drawdown_circuit_breaker_cash_target", 0.0), 0.0), 0.0, 1.0))
+    breaker_recovery = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_recovery", 0.0), 0.0), 0.0))
 
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
@@ -15211,23 +15256,129 @@ def _legacy_unused_backtest_portfolio(
     def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
         return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
 
+    def _normalize_breaker_mix(payload: Optional[dict[str, Any]]) -> Optional[dict[str, float]]:
+        if not isinstance(payload, dict):
+            return None
+        core = max(safe_float(payload.get("core"), payload.get("core_compounder", 0.0)), 0.0)
+        future = max(safe_float(payload.get("future"), payload.get("future_winner", 0.0)), 0.0)
+        early = max(safe_float(payload.get("early"), payload.get("early_scout", 0.0)), 0.0)
+        total = core + future + early
+        if total <= 1e-8:
+            return None
+        return {
+            "core": float(core / total),
+            "future": float(future / total),
+            "early": float(early / total),
+            "cash": float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0)),
+        }
+
+    def _current_breaker_mix() -> dict[str, float]:
+        base_payload = _normalize_breaker_mix(sleeve_override)
+        if base_payload is None and isinstance(current_meta, dict):
+            base_payload = _normalize_breaker_mix(current_meta.get("sleeve_target_weights"))
+        if base_payload is None and current_w:
+            sleeve_weights = {"core": 0.0, "future": 0.0, "early": 0.0}
+            for ticker, weight in current_w.items():
+                if str(ticker).upper() == CASH_PROXY_TICKER:
+                    continue
+                sleeve_label = str(current_sleeve_map.get(str(ticker), "core_compounder"))
+                if sleeve_label == "future_winner":
+                    sleeve_weights["future"] += float(weight)
+                elif sleeve_label == "early_scout":
+                    sleeve_weights["early"] += float(weight)
+                else:
+                    sleeve_weights["core"] += float(weight)
+            base_payload = _normalize_breaker_mix(sleeve_weights)
+        if base_payload is None:
+            base_payload = _normalize_breaker_mix(
+                {
+                    "core": getattr(cfg, "core_compounder_sleeve_base_weight", 0.0),
+                    "future": getattr(cfg, "future_winner_sleeve_base_weight", 0.0),
+                    "early": getattr(cfg, "early_scout_sleeve_base_weight", 0.0),
+                }
+            ) or {"core": 1.0, "future": 0.0, "early": 0.0, "cash": 0.0}
+        base_payload["cash"] = max(float(base_payload.get("cash", 0.0)), breaker_cash_target)
+        return base_payload
+
+    def _normalize_breaker_mix(payload: Optional[dict[str, Any]]) -> Optional[dict[str, float]]:
+        if not isinstance(payload, dict):
+            return None
+        core = max(safe_float(payload.get("core"), payload.get("core_compounder", 0.0)), 0.0)
+        future = max(safe_float(payload.get("future"), payload.get("future_winner", 0.0)), 0.0)
+        early = max(safe_float(payload.get("early"), payload.get("early_scout", 0.0)), 0.0)
+        total = core + future + early
+        if total <= 1e-8:
+            return None
+        return {
+            "core": float(core / total),
+            "future": float(future / total),
+            "early": float(early / total),
+            "cash": float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0)),
+        }
+
+    def _current_breaker_mix() -> dict[str, float]:
+        base_payload = _normalize_breaker_mix(sleeve_override)
+        if base_payload is None and isinstance(current_meta, dict):
+            base_payload = _normalize_breaker_mix(current_meta.get("sleeve_target_weights"))
+        if base_payload is None and current_w:
+            sleeve_weights = {"core": 0.0, "future": 0.0, "early": 0.0}
+            for ticker, weight in current_w.items():
+                if str(ticker).upper() == CASH_PROXY_TICKER:
+                    continue
+                sleeve_label = str(current_sleeve_map.get(str(ticker), "core_compounder"))
+                if sleeve_label == "future_winner":
+                    sleeve_weights["future"] += float(weight)
+                elif sleeve_label == "early_scout":
+                    sleeve_weights["early"] += float(weight)
+                else:
+                    sleeve_weights["core"] += float(weight)
+            base_payload = _normalize_breaker_mix(sleeve_weights)
+        if base_payload is None:
+            base_payload = _normalize_breaker_mix(
+                {
+                    "core": getattr(cfg, "core_compounder_sleeve_base_weight", 0.0),
+                    "future": getattr(cfg, "future_winner_sleeve_base_weight", 0.0),
+                    "early": getattr(cfg, "early_scout_sleeve_base_weight", 0.0),
+                }
+            ) or {"core": 1.0, "future": 0.0, "early": 0.0, "cash": 0.0}
+        base_payload["cash"] = max(float(base_payload.get("cash", 0.0)), breaker_cash_target)
+        return base_payload
+
     for i in range(len(months) - 1):
         dt = pd.Timestamp(months[i])
         next_dt = pd.Timestamp(months[i + 1])
         mm = d[d["rebalance_date"] == dt].copy()
+        drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
+        breaker_event = ""
+        if breaker_threshold > 0:
+            if circuit_breaker_active and drawdown_before_month >= -breaker_recovery:
+                circuit_breaker_active = False
+                breaker_event = "recovered"
+            elif (not circuit_breaker_active) and drawdown_before_month <= -breaker_threshold:
+                circuit_breaker_active = True
+                breaker_event = "triggered"
+        force_breaker_rebalance = bool(current_w) and (circuit_breaker_active or breaker_event == "recovered")
+        breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
+        effective_cash_target_max = (
+            max(float(cash_target_max), breaker_cash_target) if circuit_breaker_active else float(cash_target_max)
+        )
         if sleeve_specific_rebalance_enabled:
-            if not current_w:
+            if force_breaker_rebalance:
                 due_sleeves = list(sleeve_interval_map.keys())
+                rebalance_due = True
+            elif not current_w:
+                due_sleeves = list(sleeve_interval_map.keys())
+                rebalance_due = True
             else:
                 due_sleeves = [
                     sleeve
                     for sleeve, sched_dt in next_scheduled_dt_by_sleeve.items()
                     if pd.isna(sched_dt) or (dt >= pd.Timestamp(sched_dt))
                 ]
-            rebalance_due = bool(due_sleeves)
+                rebalance_due = bool(due_sleeves)
         else:
             due_sleeves = list(sleeve_interval_map.keys())
-            rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+            rebalance_due = force_breaker_rebalance or (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
         turn = 0.0
         cost = 0.0
         rebalance_action = "scheduled_hold"
@@ -15241,14 +15392,17 @@ def _legacy_unused_backtest_portfolio(
                     prev_w=prev_w if prev_w else None,
                     apply_turnover=True,
                     target_n_override=target_n_override,
-                    sleeve_override=sleeve_override,
-                    cash_target_max=cash_target_max,
+                    sleeve_override=breaker_sleeve_override if breaker_sleeve_override is not None else sleeve_override,
+                    cash_target_max=effective_cash_target_max,
                 )
                 if not sel.empty and final_w:
                     current_meta = {
                         **meta,
                         "sleeve_rebalance_interval_map": {k: int(v) for k, v in sleeve_interval_map.items()},
                         "due_sleeves": [str(x) for x in due_sleeves],
+                        "drawdown_circuit_breaker_active": bool(circuit_breaker_active),
+                        "drawdown_circuit_breaker_event": breaker_event,
+                        "drawdown_before_rebalance": drawdown_before_month,
                     }
                     clean_target_w = {
                         str(k): float(v)
@@ -15276,6 +15430,10 @@ def _legacy_unused_backtest_portfolio(
                         current_w = clean_target_w
                         current_sleeve_map = _current_sleeve_map_from_portfolio(current_portfolio)
                         rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
+                    if circuit_breaker_active:
+                        rebalance_action = "circuit_breaker_rebalance"
+                    elif breaker_event == "recovered":
+                        rebalance_action = "circuit_breaker_release"
                     turn = turnover(prev_w, current_w)
                     cost = turn * (effective_roundtrip_cost_bps / 10000.0)
                     rebalance_dates_taken.append(dt)
@@ -16155,8 +16313,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.95 * cross_sectional_robust_z(d, "dynamic_leader_score"),
             0.90 * cross_sectional_robust_z(d, "leader_emergence_score"),
             0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.80 * cross_sectional_robust_z(d, "revision_blueprint_score"),
-            0.55 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
+            0.95 * cross_sectional_robust_z(d, "revision_blueprint_score"),
+            0.70 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
+            0.65 * cross_sectional_robust_z(d, "revision_score"),
             0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
             0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
             0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
@@ -16179,7 +16338,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             cross_sectional_robust_z(d, "leader_emergence_score"),
             0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
             0.80 * cross_sectional_robust_z(d, "technical_blueprint_score"),
-            0.70 * cross_sectional_robust_z(d, "revision_blueprint_score"),
+            0.95 * cross_sectional_robust_z(d, "revision_blueprint_score"),
+            0.70 * cross_sectional_robust_z(d, "revision_score"),
             0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
             0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
             0.55 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
@@ -16658,9 +16818,31 @@ def build_target_portfolio(
     )
     if month_df.empty:
         return pd.DataFrame(), {}, {"target_n": 0, "selected_n": 0, "weight_cap": cfg.stock_weight_max}
+    # ---- conviction hold: identify winners that should be held longer ----
+    conviction_hold_bonus = pd.Series(0.0, index=month_df.index, dtype=float)
+    if prev_w:
+        prev_tickers = set(prev_w.keys())
+        held_mask = month_df["ticker"].astype(str).isin(prev_tickers)
+        prev_weight_series = month_df["ticker"].astype(str).map(prev_w).fillna(0.0).astype(float)
+        # infer winner from weight drift: if current_weight >> original means stock appreciated
+        momentum_alive = numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0) > 0.3
+        rs_strong = numeric_series_or_default(month_df, "relative_strength_composite", 0.0) > 0.0
+        not_broken = numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0) < 0.3
+        substantial_position = prev_weight_series >= 0.02
+        conviction_mask = held_mask & momentum_alive & rs_strong & not_broken & substantial_position
+        conviction_hold_bonus.loc[conviction_mask] = float(cfg.conviction_hold_seed_bonus)
+
+    # ---- valuation extreme penalty: penalize >80x forward PE with negative FCF ----
+    fwd_pe = numeric_series_or_default(month_df, "forward_pe", np.nan)
+    fcf_margin_val = numeric_series_or_default(month_df, "fcf_margin", 0.0)
+    extreme_val_mask = (fwd_pe > float(cfg.valuation_extreme_pe_threshold)) & (fcf_margin_val < 0.0)
+    val_extreme_penalty = pd.Series(0.0, index=month_df.index, dtype=float)
+    val_extreme_penalty.loc[extreme_val_mask] = float(cfg.valuation_extreme_penalty_weight)
+
     month_df["portfolio_seed_score"] = (
         numeric_series_or_default(month_df, "score", 0.0)
         + numeric_series_or_default(month_df, "portfolio_hold_policy_seed_bonus", 0.0)
+        + conviction_hold_bonus
         + 0.35 * numeric_series_or_default(month_df, "crisis_sector_beneficiary_score", 0.0)
         + 0.55 * numeric_series_or_default(month_df, "fundamental_turnaround_acceleration_score", 0.0)
         + 0.35 * numeric_series_or_default(month_df, "cashflow_inflection_under_loss_score", 0.0)
@@ -16668,10 +16850,13 @@ def build_target_portfolio(
         + 0.12 * numeric_series_or_default(month_df, "sage_g_score", 0.0)
         + 0.10 * numeric_series_or_default(month_df, "portfolio_future_winner_engine_score", 0.0)
         + 0.08 * numeric_series_or_default(month_df, "portfolio_early_scout_engine_score", 0.0)
+        + float(cfg.revision_seed_score_weight) * numeric_series_or_default(month_df, "revision_blueprint_score", 0.0)
         + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
         + 0.25 * numeric_series_or_default(month_df, "breakout_setup_quality_score", 0.0)
         - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
+        - val_extreme_penalty
     )
+    month_df["conviction_hold_bonus"] = conviction_hold_bonus
 
     caps = compute_dynamic_sector_caps(cfg, month_df)
     regime_ctl = compute_regime_portfolio_controls(cfg, month_df)
@@ -17076,9 +17261,14 @@ def build_target_portfolio(
     sel["portfolio_event_stress_cost"] = 0.0
     sel["portfolio_turnover_cost"] = 0.0
     sel["portfolio_liquidity_reward"] = 0.0
+    # conviction hold utility bonus for names that are winning + held
+    conviction_util_bonus = numeric_series_or_default(sel, "conviction_hold_bonus", 0.0)
+    conviction_util_bonus = (conviction_util_bonus > 0).astype(float) * float(cfg.conviction_hold_utility_bonus)
+    sel["portfolio_conviction_hold_bonus"] = conviction_util_bonus
     sel["portfolio_utility"] = (
         sel["portfolio_alpha"]
         + sel["portfolio_sage_boost"]
+        + conviction_util_bonus
         + 0.08 * confirmation
         + sel["portfolio_existing_hold_bonus"]
     )
@@ -17089,6 +17279,19 @@ def build_target_portfolio(
     raw_w = pd.Series(raw_w, index=sel.index, dtype=float)
     if cfg.weight_score_power > 0:
         raw_w = np.power(raw_w, max(cfg.weight_score_power, 0.0))
+    # ---- winner scaling: boost top-quartile performers, cut bottom-quartile ----
+    if prev_w:
+        held_prev_w = sel["ticker"].astype(str).map(prev_w).fillna(0.0).astype(float)
+        held_mask_ws = held_prev_w > 0.005
+        if held_mask_ws.sum() >= 4:
+            held_scores = sel.loc[held_mask_ws, "portfolio_seed_score"]
+            q75 = float(held_scores.quantile(0.75))
+            q25 = float(held_scores.quantile(0.25))
+            top_q_mask = held_mask_ws & (sel["portfolio_seed_score"] >= q75)
+            bot_q_mask = held_mask_ws & (sel["portfolio_seed_score"] <= q25)
+            raw_w.loc[top_q_mask] = raw_w.loc[top_q_mask] * float(cfg.winner_scale_top_quartile_boost)
+            raw_w.loc[bot_q_mask] = raw_w.loc[bot_q_mask] * float(cfg.winner_scale_bottom_quartile_cut)
+            raw_w = raw_w / raw_w.sum()
     conviction_conf = np.maximum(fundamental_confirmation, 0.85 * market_confirmation)
     join_status = sel.get("fund_join_status", pd.Series("", index=sel.index, dtype=str)).astype(str)
     inv_vol = 1.0 / pd.to_numeric(sel["vol_252d"], errors="coerce").replace(0, np.nan)
@@ -18324,19 +18527,37 @@ def backtest_portfolio(
         dt = pd.Timestamp(months[i])
         next_dt = pd.Timestamp(months[i + 1])
         mm = d[d["rebalance_date"] == dt].copy()
+        drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
+        breaker_event = ""
+        if breaker_threshold > 0:
+            if circuit_breaker_active and drawdown_before_month >= -breaker_recovery:
+                circuit_breaker_active = False
+                breaker_event = "recovered"
+            elif (not circuit_breaker_active) and drawdown_before_month <= -breaker_threshold:
+                circuit_breaker_active = True
+                breaker_event = "triggered"
+        force_breaker_rebalance = bool(current_w) and (circuit_breaker_active or breaker_event == "recovered")
+        breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
+        effective_cash_target_max = (
+            max(float(cash_target_max), breaker_cash_target) if circuit_breaker_active else float(cash_target_max)
+        )
         if sleeve_specific_rebalance_enabled:
-            if not current_w:
+            if force_breaker_rebalance:
                 due_sleeves = list(sleeve_interval_map.keys())
+                rebalance_due = True
+            elif not current_w:
+                due_sleeves = list(sleeve_interval_map.keys())
+                rebalance_due = True
             else:
                 due_sleeves = [
                     sleeve
                     for sleeve, sched_dt in next_scheduled_dt_by_sleeve.items()
                     if pd.isna(sched_dt) or (dt >= pd.Timestamp(sched_dt))
                 ]
-            rebalance_due = bool(due_sleeves)
+                rebalance_due = bool(due_sleeves)
         else:
             due_sleeves = list(sleeve_interval_map.keys())
-            rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
+            rebalance_due = force_breaker_rebalance or (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
         turn = 0.0
         cost = 0.0
         rebalance_action = "scheduled_hold"
@@ -18350,14 +18571,17 @@ def backtest_portfolio(
                     prev_w=prev_w if prev_w else None,
                     apply_turnover=True,
                     target_n_override=target_n_override,
-                    sleeve_override=sleeve_override,
-                    cash_target_max=cash_target_max,
+                    sleeve_override=breaker_sleeve_override if breaker_sleeve_override is not None else sleeve_override,
+                    cash_target_max=effective_cash_target_max,
                 )
                 if not sel.empty and final_w:
                     current_meta = {
                         **meta,
                         "sleeve_rebalance_interval_map": {k: int(v) for k, v in sleeve_interval_map.items()},
                         "due_sleeves": [str(x) for x in due_sleeves],
+                        "drawdown_circuit_breaker_active": bool(circuit_breaker_active),
+                        "drawdown_circuit_breaker_event": breaker_event,
+                        "drawdown_before_rebalance": drawdown_before_month,
                     }
                     clean_target_w = {
                         str(k): float(v)
@@ -18385,6 +18609,10 @@ def backtest_portfolio(
                         current_w = clean_target_w
                         current_sleeve_map = _current_sleeve_map_from_portfolio(current_portfolio)
                         rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
+                    if circuit_breaker_active:
+                        rebalance_action = "circuit_breaker_rebalance"
+                    elif breaker_event == "recovered":
+                        rebalance_action = "circuit_breaker_release"
                     turn = turnover(prev_w, current_w)
                     cost = turn * (effective_roundtrip_cost_bps / 10000.0)
                     rebalance_dates_taken.append(dt)
@@ -18514,6 +18742,9 @@ def backtest_portfolio(
             held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
             holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
         net_ret = month_ret - cost
+        running_equity = running_equity * (1.0 + net_ret)
+        portfolio_peak = max(portfolio_peak, running_equity)
+        drawdown_after_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
@@ -18593,6 +18824,13 @@ def backtest_portfolio(
                 "cash_target_used": float(sleeve_policy_snapshot.get("cash_target", current_meta.get("cash_target", np.nan))),
                 "growth_signal": float(sleeve_policy_snapshot.get("growth_signal", np.nan)),
                 "risk_signal": float(sleeve_policy_snapshot.get("risk_signal", np.nan)),
+                "drawdown_before_month": drawdown_before_month,
+                "drawdown_after_month": drawdown_after_month,
+                "equity_after_month": running_equity,
+                "equity_peak": portfolio_peak,
+                "drawdown_circuit_breaker_active": bool(circuit_breaker_active),
+                "drawdown_circuit_breaker_event": breaker_event,
+                "drawdown_circuit_breaker_cash_target": float(breaker_cash_target if circuit_breaker_active else 0.0),
             }
         )
 
@@ -19570,14 +19808,19 @@ def compare_sleeve_cap_policy_backtests(
                 else signals,
                 default="balanced",
             )
-            live_regime_policy = dict(regime_map.get(live_label) or regime_map.get("balanced") or regime_map.get("ALL") or {})
+            live_regime_policy, live_regime_meta = resolve_regime_policy_selection(
+                live_label,
+                learned_regime_map=regime_map,
+                manual_regime_map=manual_regime_map,
+            )
             out.attrs["sleeve_regime_grid"] = regime_grid
             out.attrs["sleeve_regime_best"] = regime_best
             out.attrs["regime_conditioned_sleeve_map"] = regime_map
             out.attrs["manual_regime_conditioned_sleeve_map"] = manual_regime_map
             out.attrs["regime_sleeve_method_compare"] = regime_method_compare
             out.attrs["live_regime_label"] = live_label
-            out.attrs["live_regime_policy"] = live_regime_policy
+            out.attrs["live_regime_policy"] = dict(live_regime_policy or {})
+            out.attrs["live_regime_policy_meta"] = live_regime_meta
     result = out.reset_index(drop=True)
     result.attrs = dict(out.attrs)
     return result
@@ -19680,6 +19923,65 @@ def normalize_regime_conditioned_sleeve_map(
     return out
 
 
+def build_regime_label_lookup_chain(label: Optional[str]) -> list[str]:
+    raw_label = str(label or "").strip() or "balanced"
+    candidates: list[str] = [raw_label]
+    if raw_label.endswith("_alert"):
+        candidates.append(raw_label[: -len("_alert")])
+    if raw_label.endswith("_shock"):
+        candidates.append(raw_label.replace("_shock", "_alert"))
+    if raw_label.endswith("_crisis"):
+        candidates.append(raw_label.replace("_crisis", "_alert"))
+    candidates.extend(REGIME_LABEL_NEAREST_FALLBACKS.get(raw_label, ()))
+    candidates.extend(["balanced", "ALL"])
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = str(candidate or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out or ["balanced", "ALL"]
+
+
+def resolve_regime_policy_selection(
+    live_label: Optional[str],
+    *,
+    learned_regime_map: Optional[dict[str, Any]] = None,
+    manual_regime_map: Optional[dict[str, Any]] = None,
+) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
+    learned = normalize_regime_conditioned_sleeve_map(learned_regime_map, fallback_source="learned")
+    manual = normalize_regime_conditioned_sleeve_map(manual_regime_map, fallback_source="manual")
+    lookup_chain = build_regime_label_lookup_chain(live_label)
+    normalized_live_label = str(live_label or "").strip() or "balanced"
+    meta = {
+        "live_regime_label": normalized_live_label,
+        "lookup_chain": lookup_chain,
+        "lookup_source": "",
+        "lookup_label": "",
+        "fallback_used": False,
+    }
+    for lookup_label in lookup_chain:
+        for lookup_source, regime_map in (("learned", learned), ("manual", manual)):
+            if not regime_map:
+                continue
+            selected = regime_map.get(lookup_label)
+            if not isinstance(selected, dict):
+                continue
+            payload = dict(selected)
+            payload.setdefault("source_regime", lookup_label)
+            meta.update(
+                {
+                    "lookup_source": lookup_source,
+                    "lookup_label": lookup_label,
+                    "fallback_used": lookup_source != "learned" or lookup_label != normalized_live_label,
+                }
+            )
+            return payload, meta
+    return None, meta
+
+
 def compare_regime_conditioned_sleeve_map_methods(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -19712,7 +20014,12 @@ def compare_regime_conditioned_sleeve_map_methods(
     for method_label, regime_map in candidates:
         if not regime_map:
             continue
-        selected = dict(regime_map.get(live_label) or regime_map.get("balanced") or regime_map.get("ALL") or {})
+        selected, lookup_meta = resolve_regime_policy_selection(
+            live_label,
+            learned_regime_map=regime_map if method_label == "learned_regime_map" else None,
+            manual_regime_map=regime_map if method_label != "learned_regime_map" else None,
+        )
+        selected = dict(selected or {})
         policy_cfg = clone_cfg_with_updates(
             cfg_obj,
             {
@@ -19729,6 +20036,9 @@ def compare_regime_conditioned_sleeve_map_methods(
                 "comparison_error": "",
                 "live_regime_label": live_label,
                 "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
+                "lookup_source": str(lookup_meta.get("lookup_source", "") or ""),
+                "lookup_label": str(lookup_meta.get("lookup_label", "") or ""),
+                "fallback_used": bool(lookup_meta.get("fallback_used", False)),
                 "live_policy_label": str(selected.get("policy_label", "") or ""),
                 "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
                 "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
@@ -19771,6 +20081,9 @@ def compare_regime_conditioned_sleeve_map_methods(
                 "comparison_error": str(exc),
                 "live_regime_label": live_label,
                 "selected_regime_label": str(selected.get("source_regime", live_label) or live_label),
+                "lookup_source": str(lookup_meta.get("lookup_source", "") or ""),
+                "lookup_label": str(lookup_meta.get("lookup_label", "") or ""),
+                "fallback_used": bool(lookup_meta.get("fallback_used", False)),
                 "live_policy_label": str(selected.get("policy_label", "") or ""),
                 "live_core_frac": float(safe_float(selected.get("core"), np.nan)),
                 "live_future_frac": float(safe_float(selected.get("future"), np.nan)),
@@ -19824,19 +20137,24 @@ def resolve_regime_conditioned_sleeve_override(
     if not bool(getattr(cfg_obj, "sleeve_regime_apply_champion", True)):
         return None, {}
     raw_map = dict(getattr(cfg_obj, "regime_conditioned_sleeve_map", {}) or {})
-    if not raw_map:
+    manual_map = dict(getattr(cfg_obj, "manual_regime_conditioned_sleeve_map", {}) or default_manual_regime_conditioned_sleeve_map())
+    if not raw_map and not manual_map:
         return None, {}
     live_label = resolve_frame_regime_label(month_df, default="balanced")
-    selected = raw_map.get(live_label) or raw_map.get("balanced") or raw_map.get("ALL")
+    selected, lookup_meta = resolve_regime_policy_selection(
+        live_label,
+        learned_regime_map=raw_map,
+        manual_regime_map=manual_map,
+    )
     if not isinstance(selected, dict):
-        return None, {"live_regime_label": live_label}
+        return None, {"live_regime_label": live_label, **lookup_meta}
     core = max(safe_float(selected.get("core"), 0.0), 0.0)
     future = max(safe_float(selected.get("future"), 0.0), 0.0)
     early = max(safe_float(selected.get("early"), 0.0), 0.0)
     cash = float(np.clip(safe_float(selected.get("cash"), 0.0), 0.0, 1.0))
     total = core + future + early
     if total <= 1e-8:
-        return None, {"live_regime_label": live_label}
+        return None, {"live_regime_label": live_label, **lookup_meta}
     override = {
         "core": float(core / total),
         "future": float(future / total),
@@ -19849,6 +20167,10 @@ def resolve_regime_conditioned_sleeve_override(
         "policy_label": str(selected.get("policy_label", "") or ""),
         "months": int(safe_float(selected.get("months"), 0.0)),
         "cash": cash,
+        "lookup_source": str(lookup_meta.get("lookup_source", "") or ""),
+        "lookup_label": str(lookup_meta.get("lookup_label", "") or ""),
+        "lookup_chain": lookup_meta.get("lookup_chain", []),
+        "fallback_used": bool(lookup_meta.get("fallback_used", False)),
     }
     return override, meta
 
@@ -22828,6 +23150,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["ai_four_sleeve_adaptive_regime_best.csv"] = str(ai_four_sleeve_regime_best_path)
         output_files["ai_four_sleeve_adaptive_selected_map.json"] = str(ai_four_sleeve_selected_map_path)
 
+    operator_outputs: dict[str, Any] = {"plan": pd.DataFrame(), "summary": {}, "output_files": {}}
+
     summary = {
         "run_ts": now_ts(),
         "base_dir": cfg.base_dir,
@@ -22960,12 +23284,34 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not engine_diagnostics_summary.empty
             else []
         ),
+        "operator_summary": {},
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
         "acceptance_checks": acceptance_checks,
         "output_files": output_files,
     }
     summary_path.write_text(json.dumps(summary, indent=2))
+
+    try:
+        from r1000_operator import refresh_live_operator_outputs
+
+        operator_outputs = refresh_live_operator_outputs(
+            paths,
+            strategy_version=ENGINE_REUSE_VERSION,
+        )
+        output_files.update(dict(operator_outputs.get("output_files", {}) or {}))
+        summary["operator_summary"] = dict(operator_outputs.get("summary", {}) or {})
+        summary["output_files"] = output_files
+        summary_path.write_text(json.dumps(summary, indent=2))
+    except Exception as exc:
+        operator_outputs = {
+            "plan": pd.DataFrame(),
+            "summary": {"error": str(exc)},
+            "output_files": {},
+        }
+        summary["operator_summary"] = {"error": str(exc)}
+        summary_path.write_text(json.dumps(summary, indent=2))
+        log(f"[WARN] live operator output refresh failed: {exc}")
 
     result_outputs = {
         "top30_latest": str(top30_path),
@@ -22983,6 +23329,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "run_summary": str(summary_path),
     }
     result_outputs.update(ops_output_files)
+    result_outputs.update(dict(operator_outputs.get("output_files", {}) or {}))
     if bool(cfg.export_extended_outputs):
         result_outputs.update(
             {

@@ -337,6 +337,9 @@ def run_full_validation_suite(
         "portfolio_holdings_history": paths["ops"] / "portfolio_holdings_history.parquet",
         "top30_recommendation_history": paths["ops"] / "top30_recommendation_history.parquet",
         "portfolio_realized_performance": paths["ops"] / "portfolio_realized_performance.parquet",
+        "live_portfolio_state": paths["ops"] / "live_portfolio_state.json",
+        "live_operator_summary": paths["ops"] / "live_operator_summary.json",
+        "live_operator_plan": paths["ops"] / "live_operator_plan_latest.csv",
     }
 
     scored_latest = _safe_read_csv(outputs["scored_latest"])
@@ -361,6 +364,9 @@ def run_full_validation_suite(
     portfolio_holdings_history = _safe_read_parquet(outputs["portfolio_holdings_history"])
     top30_recommendation_history = _safe_read_parquet(outputs["top30_recommendation_history"])
     portfolio_realized_performance = _safe_read_parquet(outputs["portfolio_realized_performance"])
+    live_portfolio_state = _safe_read_json(outputs["live_portfolio_state"])
+    live_operator_summary = _safe_read_json(outputs["live_operator_summary"])
+    live_operator_plan = _safe_read_csv(outputs["live_operator_plan"])
 
     model_features = model_feature_columns(cfg_obj)
     macro_cols = [
@@ -742,6 +748,27 @@ def run_full_validation_suite(
             ),
         },
         "ops_tracking_snapshot": ops_snapshot,
+        "operator_snapshot": {
+            "state_source": live_portfolio_state.get("state_source") if isinstance(live_portfolio_state, dict) else None,
+            "state_position_count": (
+                int(len(live_portfolio_state.get("positions", [])))
+                if isinstance(live_portfolio_state, dict) and isinstance(live_portfolio_state.get("positions"), list)
+                else 0
+            ),
+            "operator_policy_version": live_operator_summary.get("operator_policy_version")
+            if isinstance(live_operator_summary, dict)
+            else None,
+            "full_rebalance_due": bool(live_operator_summary.get("full_rebalance_due", False))
+            if isinstance(live_operator_summary, dict)
+            else False,
+            "turnover_estimate": safe_float(live_operator_summary.get("turnover_estimate"))
+            if isinstance(live_operator_summary, dict)
+            else np.nan,
+            "plan_rows": int(len(live_operator_plan)),
+            "action_counts": live_operator_summary.get("action_counts", {})
+            if isinstance(live_operator_summary, dict)
+            else {},
+        },
         "portfolio_size_comparison_snapshot": {
             "dynamic_target_stock_names": dynamic_target_names,
             "fixed8": fixed8_row,
