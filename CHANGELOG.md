@@ -1742,3 +1742,39 @@ All entries must be written in English. Entries must be predictable and machine-
   - Default stays `sleeve_weight_renorm_enabled=False`. Env var `PHASE_PHASE3_RENORM_ENABLED` remains a functional opt-in escape hatch but no mainstream pipeline path will set it.
   - Followup idea (NOT scheduled): try `l1_target = N` (the term count) which would preserve legacy magnitude but still let us redistribute weight shares — that is a conceptually different experiment and should go behind its own toggle if we ever revisit it.
   - `ENGINE_REUSE_VERSION` stays at `"2026-04-16-phase2-keepcols-fix"` -- no schema change.
+
+### 07:30 KST - phase4-regime-conditional-sleeve-multipliers
+
+- scope:
+  - Phase 4 (PHASE_ROADMAP §2.4): add a regime-conditional multiplier layer on top of the three sleeve composite scores in `compute_portfolio_sleeve_columns`. The static factor tables in the legacy path give the same emphasis to every regime (balanced, growth_reentry, stagflation, systemic_crisis, carry_unwind, war_oil_rate_shock) even though the right emphasis differs by regime. Phase 4 multiplies the final per-sleeve composite by a regime-specific scalar so the same factor table can produce differentiated risk emphasis without re-weighting individual factors.
+  - Default OFF — infrastructure lands now but no main pipeline path touches sleeve scores until the user flips both the EngineConfig flag AND the env gate. This is the same dual-gate safety pattern as Phase 3; it also ensures the A/B comparison against the Phase 2 / Phase 3-hardened `8b10bf4` baseline is apples-to-apples.
+- files:
+  - `r1000_top30_institutional.py` -> new `SLEEVE_FACTOR_REGIME_MULTIPLIERS` / `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP` module constants, new helper `resolve_regime_sleeve_multipliers()`, Phase 4 dual-gate resolution and per-row regime-keyed multiplication block in `compute_portfolio_sleeve_columns`, four new diagnostic columns (`regime_sleeve_multiplier_core/future/early`, `regime_sleeve_weights_active`), empty-frame branch updated with the new schema.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `resolve_regime_sleeve_multipliers(regime_label: str, user_table: Optional[dict[str, dict[str, float]]] = None) -> dict[str, float]` -> three-tier lookup (user override -> built-in default -> identity) plus per-sleeve clamp to `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP`. Forward-compat: unknown regime labels return identity instead of raising.
+  - `SLEEVE_FACTOR_REGIME_MULTIPLIERS: dict[str, dict[str, float]]` -> built-in default multiplier table. growth_reentry {1.10, 1.30, 1.15}, balanced {1.00, 1.00, 1.00}, stagflation {0.85, 0.90, 1.15}, systemic_crisis {0.55, 0.70, 1.30}, carry_unwind {0.75, 0.80, 1.10}, war_oil_rate_shock {0.80, 0.85, 1.05}.
+  - `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP: tuple[float, float] = (0.40, 1.60)` -> belt-and-suspenders guard against bad user overrides.
+- symbols_changed:
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> resolves Phase 4 dual-gate (`cfg.regime_dynamic_sleeve_weights_enabled` AND env `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED`); when active, reads `event_regime_label` per row, builds a per-label multiplier lookup, applies core/future/early scalars to the composite scores AFTER Phase 3 composition AND penalty subtraction but BEFORE winsorize/clip; always writes the four Phase 4 diagnostic columns so downstream audits can verify toggle state. Empty-frame branch updated with the new columns. When toggle is off, the multiplier columns are 1.0 and the sleeve scores are byte-identical to the pre-Phase-4 path.
+- config_fields_added:
+  - `regime_dynamic_sleeve_weights_enabled: bool = False` -> dual-gate flag (combined with `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` env var) to activate per-regime sleeve multipliers.
+  - `regime_sleeve_multiplier_table: Optional[dict[str, dict[str, float]]] = None` -> per-regime override table; `None` means use the built-in default.
+- breaking_changes:
+  - none -> legacy path (toggle OFF) returns byte-identical sleeve scores to commit `28e41fe`. Diagnostic columns are additive; any consumer expecting them to be present will find 1.0 / 0.0 constants when Phase 4 is off.
+- outputs:
+  - `outputs/scored_latest.csv` -> four additional diagnostic columns: `regime_sleeve_multiplier_core`, `regime_sleeve_multiplier_future`, `regime_sleeve_multiplier_early` (all 1.0 when toggle off), `regime_sleeve_weights_active` (0.0 when off, 1.0 when on).
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - `ast.parse(...)` passed with 382 top-level defs (was 381 — new `resolve_regime_sleeve_multipliers` helper).
+  - Symbol spot-check: `resolve_regime_sleeve_multipliers`, `weighted_sleeve_composite`, `compute_portfolio_sleeve_columns`, `SLEEVE_FACTOR_REGIME_MULTIPLIERS`, `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP`, `regime_dynamic_sleeve_weights_enabled`, `regime_sleeve_multiplier_table` all present.
+  - Semantic A/B deferred to Colab QUICK_RESCORE per PHASE_ROADMAP §3. When ON leg runs, expected diagnostics:
+    - `regime_sleeve_weights_active` = 1.0 on every row.
+    - `regime_sleeve_multiplier_core` varies by regime label; `balanced` rows = 1.0 exactly, `systemic_crisis` rows = 0.55 etc.
+    - Sleeve scores differ from legacy by up to ~30% on rows whose regime label is not `balanced`.
+- risks_or_notes:
+  - Multiplier application happens AFTER Phase 3 composition (row_mean or L1-renorm per toggle) AND AFTER the `sparse_history_penalty` subtraction. This ordering preserves the "Phase 3 renorm was a no-op for Phase 4 A/B isolation" property: when Phase 3 is off, Phase 4 still sees the legacy row_mean composite as input, which is the baseline against which we want to measure Phase 4's marginal contribution.
+  - Winsorize + clip(-6, 6) is applied AFTER Phase 4 multiplication, which means large crisis multipliers (e.g. early 1.30 in systemic_crisis) can push more rows into the clip saturation range. This is expected and desirable — clipping prevents any single factor's crisis emphasis from dominating the sleeve ranking.
+  - The multiplier clamp `[0.40, 1.60]` is intentionally generous relative to the built-in table's actual range `[0.55, 1.30]`. This leaves room for user-supplied overrides to explore more aggressive regime differentiation without touching the core code.
+  - Unknown regime labels default to identity multipliers, so adding a new regime (e.g. future Phase 6 regime-smoothing introducing `confirmed_regime_label`) does NOT break Phase 4 — it just means the new label gets 1.0x treatment until someone adds it to the table.
+  - `ENGINE_REUSE_VERSION` is NOT bumped. Phase 4 is a portfolio-layer only change; feature_store schema is untouched. The 2026-04-16 Phase 2 FULL rebuild cache remains valid for Phase 4 QUICK_RESCORE A/B.

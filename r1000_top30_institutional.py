@@ -954,6 +954,51 @@ PHASE2_INDUSTRY_COLUMNS = [
     "industry_rotation_signal",
 ]
 
+
+# =====================================================================
+# Phase 4: regime-conditional sleeve multipliers (PHASE_ROADMAP §2.4).
+# =====================================================================
+# Maps a confirmed regime label -> per-sleeve multiplicative scalar that
+# is applied to the final `core_score` / `future_score` / `early_score`
+# inside `compute_portfolio_sleeve_columns` AFTER Phase 3 composition
+# and BEFORE the sparse-history penalty subtraction.
+#
+# Design rationale:
+#  - growth_reentry: lean into future_winner (1.30) and early_scout (1.15);
+#    core keeps a mild boost (1.10) because compounders still compound.
+#  - balanced: identity (1.00/1.00/1.00), i.e. legacy behaviour.
+#  - stagflation: tilt away from future_winner (growth multiples compress),
+#    preserve core defensive compounders lightly, rotate into early_scout
+#    (industry rotation, value inflections).
+#  - systemic_crisis: deep de-emphasis on core (0.55) — long-duration
+#    compounders de-rate hardest — and future_winner (0.70); early_scout
+#    gets the biggest boost (1.30) because value-inflection / turnaround
+#    scout signals dominate when the tide goes out.
+#  - carry_unwind: moderate de-risk across all sleeves, early benefits
+#    from macro vol mean reversion setups.
+#  - war_oil_rate_shock: less severe than systemic_crisis, mild
+#    de-risk; early_scout unchanged — rotation into energy / materials
+#    is captured through industry_rotation_signal.
+#
+# Any regime label NOT present here is treated as identity {1.0, 1.0, 1.0}
+# by `_resolve_regime_sleeve_multipliers` so forward-compatibility with
+# future regime labels is automatic.
+SLEEVE_FACTOR_REGIME_MULTIPLIERS: dict[str, dict[str, float]] = {
+    "growth_reentry":     {"core": 1.10, "future": 1.30, "early": 1.15},
+    "balanced":           {"core": 1.00, "future": 1.00, "early": 1.00},
+    "stagflation":        {"core": 0.85, "future": 0.90, "early": 1.15},
+    "systemic_crisis":    {"core": 0.55, "future": 0.70, "early": 1.30},
+    "carry_unwind":       {"core": 0.75, "future": 0.80, "early": 1.10},
+    "war_oil_rate_shock": {"core": 0.80, "future": 0.85, "early": 1.05},
+}
+# Per-sleeve [min, max] clamp applied to the multiplier after user
+# override merge. This is a belt-and-suspenders guard — if somebody
+# accidentally puts 10.0 or -5.0 into their custom table we don't want
+# the composite to explode. Treat [0.4, 1.6] as the sane operational
+# band; extreme regimes are already at 0.55 / 1.30 in the built-in map.
+SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP: tuple[float, float] = (0.40, 1.60)
+
+
 SATELLITE_ONLY_FEATURE_COLUMNS = [
     "forward_value_score",
     "revision_score",
@@ -1645,6 +1690,31 @@ class EngineConfig:
     # magnitude range as the legacy path.
     sleeve_weight_renorm_enabled: bool = False
     sleeve_weight_l1_target: float = 0.0
+    # ------------------------------------------------------------------
+    # Phase 4: regime-conditional dynamic sleeve weights (PHASE_ROADMAP §2.4).
+    # ------------------------------------------------------------------
+    # The sleeve composites in `compute_portfolio_sleeve_columns` today
+    # use static factor weights that are identical across every regime
+    # (balanced, growth_reentry, stagflation, systemic_crisis, ...). The
+    # right emphasis for `uptrend_continuation_score` in a risk-on bull
+    # market is however very different from the right emphasis in a
+    # systemic-crisis regime. Phase 4 multiplies the final per-sleeve
+    # composite by a regime-specific scalar (keyed on `event_regime_label`)
+    # so the same factor table can produce differentiated risk
+    # emphasis per regime without re-weighting individual factors.
+    #
+    # Both `regime_dynamic_sleeve_weights_enabled=True` AND the env var
+    # `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` (not 0/false/off/disabled)
+    # are required to flip on. Default OFF until A/B validates.
+    #
+    # `regime_sleeve_multiplier_table=None` means "use the built-in
+    # `SLEEVE_FACTOR_REGIME_MULTIPLIERS` default". Supply a dict of the
+    # same shape `{regime_label: {"core": float, "future": float,
+    # "early": float}}` to override only specific regimes; missing
+    # entries fall through to the built-in default (which is identity
+    # 1.0 for unknown regimes).
+    regime_dynamic_sleeve_weights_enabled: bool = False
+    regime_sleeve_multiplier_table: Optional[dict[str, dict[str, float]]] = None
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -6581,6 +6651,41 @@ def sleeve_weight_l1_norm(weight_pairs: list[tuple[float, pd.Series]]) -> float:
     much Phase 1+2 inflated the baseline L1.
     """
     return float(sum(abs(float(w)) for w, _ in weight_pairs if _ is not None))
+
+
+def resolve_regime_sleeve_multipliers(
+    regime_label: str,
+    user_table: Optional[dict[str, dict[str, float]]] = None,
+) -> dict[str, float]:
+    """Resolve Phase 4 per-sleeve multiplier for a given regime label.
+
+    Lookup precedence:
+      1. `user_table` (EngineConfig.regime_sleeve_multiplier_table override)
+      2. Built-in `SLEEVE_FACTOR_REGIME_MULTIPLIERS`
+      3. Identity {core=1.0, future=1.0, early=1.0} — forward-compat fallback
+         for unknown regime labels (so the engine never crashes on a new
+         regime that someone adds upstream without also updating this
+         table).
+
+    The returned dict is always clamped element-wise to
+    `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP` so a bad user override
+    can't explode the composite.
+    """
+    identity = {"core": 1.0, "future": 1.0, "early": 1.0}
+    label = (regime_label or "").strip()
+    if not label:
+        return dict(identity)
+    lo, hi = SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP
+    found: dict[str, float] = {}
+    if isinstance(user_table, dict) and label in user_table and isinstance(user_table[label], dict):
+        found = {str(k): float(v) for k, v in user_table[label].items() if v is not None}
+    elif label in SLEEVE_FACTOR_REGIME_MULTIPLIERS:
+        found = {k: float(v) for k, v in SLEEVE_FACTOR_REGIME_MULTIPLIERS[label].items()}
+    merged = dict(identity)
+    for k in identity.keys():
+        if k in found and np.isfinite(found[k]):
+            merged[k] = float(np.clip(found[k], lo, hi))
+    return merged
 
 
 def weighted_sleeve_composite(
@@ -17535,6 +17640,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "sleeve_weight_renorm_active",
             "sleeve_future_penalty_scale",
             "sleeve_early_penalty_scale",
+            # Phase 4 diagnostics — regime-conditional sleeve multipliers.
+            "regime_sleeve_multiplier_core",
+            "regime_sleeve_multiplier_future",
+            "regime_sleeve_multiplier_early",
+            "regime_sleeve_weights_active",
         ] + HISTORICAL_DATA_QUALITY_COLUMNS:
             d[c] = np.nan
         return d
@@ -17586,6 +17696,22 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         getattr(cfg, "sleeve_weight_l1_target", EngineConfig.sleeve_weight_l1_target)
         if cfg is not None
         else EngineConfig.sleeve_weight_l1_target
+    )
+
+    # -------------------------------------------------------------------
+    # Phase 4: regime-conditional sleeve multipliers (PHASE_ROADMAP §2.4).
+    # Dual-gate toggle (cfg + env), both must be on. Default OFF until
+    # A/B measurement validates positive CAGR+Sharpe contribution.
+    # -------------------------------------------------------------------
+    _phase4_cfg_on = (
+        bool(getattr(cfg, "regime_dynamic_sleeve_weights_enabled", False))
+        if cfg is not None
+        else False
+    )
+    _phase4_env_on = phase_is_enabled("phase4_regime_weights", default=False)
+    _phase4_regime_active = bool(_phase4_cfg_on and _phase4_env_on)
+    _phase4_user_table = (
+        getattr(cfg, "regime_sleeve_multiplier_table", None) if cfg is not None else None
     )
 
     core_weight_pairs: list[tuple[float, pd.Series]] = [
@@ -17775,6 +17901,43 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     )
     d["sleeve_future_penalty_scale"] = _future_penalty_scale
     d["sleeve_early_penalty_scale"] = _early_penalty_scale
+
+    # -------------------------------------------------------------------
+    # Phase 4: apply regime-conditional sleeve multipliers AFTER Phase 3
+    # composition + penalty subtraction and BEFORE winsorize/clip.
+    # Per-row regime label resolution via `event_regime_label` (falls back
+    # to `balanced` if the column is missing or NaN, which keeps
+    # multipliers at identity).
+    # When disabled the three diagnostic columns are written as 1.0 so
+    # downstream auditors can verify the toggle state at a glance.
+    # -------------------------------------------------------------------
+    if _phase4_regime_active:
+        regime_label_series = d.get(
+            "event_regime_label",
+            pd.Series("balanced", index=d.index, dtype=object),
+        )
+        regime_label_series = regime_label_series.fillna("balanced").astype(str)
+        # Build per-regime multiplier lookup once, apply via map() — much
+        # cheaper than per-row function calls over ~600 rows * 83 months.
+        unique_labels = sorted({str(x).strip() for x in regime_label_series.unique()})
+        lookup = {
+            lbl: resolve_regime_sleeve_multipliers(lbl, _phase4_user_table)
+            for lbl in unique_labels
+        }
+        core_mult = regime_label_series.map(lambda lbl: lookup.get(lbl, {}).get("core", 1.0)).astype(float)
+        future_mult = regime_label_series.map(lambda lbl: lookup.get(lbl, {}).get("future", 1.0)).astype(float)
+        early_mult = regime_label_series.map(lambda lbl: lookup.get(lbl, {}).get("early", 1.0)).astype(float)
+        core_score = core_score * core_mult
+        future_score = future_score * future_mult
+        early_score = early_score * early_mult
+        d["regime_sleeve_multiplier_core"] = core_mult.values
+        d["regime_sleeve_multiplier_future"] = future_mult.values
+        d["regime_sleeve_multiplier_early"] = early_mult.values
+    else:
+        d["regime_sleeve_multiplier_core"] = 1.0
+        d["regime_sleeve_multiplier_future"] = 1.0
+        d["regime_sleeve_multiplier_early"] = 1.0
+    d["regime_sleeve_weights_active"] = 1.0 if _phase4_regime_active else 0.0
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
     d["portfolio_future_winner_engine_score"] = winsorize(future_score, 0.01).clip(-6.0, 6.0)
