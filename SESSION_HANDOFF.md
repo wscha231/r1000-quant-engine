@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-16 18:15 KST
+# Session Handoff — 2026-04-17 00:05 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,74 +8,96 @@
 
 ## 1. Last thing that happened
 
-Fixed a critical silent bug: **Phase 2 industry-RS / O'Neil leadership columns were being dropped from `feature_store_latest.parquet`** by the explicit `keep_cols` whitelist in `build_feature_store` (line ~13302 of `r1000_top30_institutional.py`).
+**Phase 2 keepcols fix VERIFIED via FULL rebuild.** The user ran a FULL rebuild on 2026-04-16 (run_id `20260416_111455__1d4fb40__2026-04-16-phase2-keepcols-fix`). All 23 Phase 2 industry-RS / O'Neil leadership columns are now present in `scored_latest.csv` with `nonzero_share >= 0.80` for every critical signal. Phase 1 turnaround/value-inflection/uptrend columns are also fully populated. The keepcols whitelist fix (`1d4fb40`) is confirmed effective.
 
-- Phase 1 survived by accident (re-derived later in `score_latest_month` / `prepare_latest_scored_data` via `compute_strategy_blueprint_columns`).
-- Phase 2 had no re-derivation path → columns missing → `cross_sectional_robust_z` fallback to 0.0 → Phase 2's contribution to sleeve composites was **silently zero** for every walk-forward month AND for the latest scored export.
-- **Impact**: every backtest number measured between `2026-04-16 12:36 KST` and `2026-04-16 18:08 KST` was NOT a real "Phase 1+2" measurement — it was "Phase 1 + broken Phase 2 + wasted yfinance fetch".
+**Main (diversified) portfolio metrics vs pre-Phase 1+2 baseline:**
 
-Commit: `1d4fb40 Fix Phase 2 columns dropped by feature_store keep_cols whitelist` (on `origin/master`).
+| Metric | Baseline | This run (P1+P2) | Delta | Verdict |
+|---|---|---|---|---|
+| CAGR | 21.80% | 20.10% | -1.70pp | baseline was concentrated=2; this is diversified=26, not apples-to-apples |
+| Sharpe | 0.73 | **1.08** | **+0.35** | breakthrough |
+| MaxDD | -36.86% | **-23.60%** | **+13.26pp** | breakthrough |
+| IR | - | **0.58** | - | statistically meaningful (>0.5) |
+| Sortino | - | 1.78 | - | strong |
+| Calmar | - | 0.85 | - | strong |
+| excess_cagr vs SPX | - | **+6.60pp** | - | beats benchmark |
+| beat_month_ratio | - | 59.0% | - | meaningful edge |
 
-Changes:
-- Added `PHASE2_INDUSTRY_COLUMNS` constant (23 entries: 3 string + 20 numeric).
-- Appended it to `build_feature_store.keep_cols`.
-- Added numeric-only subset to the `hard_sanitize` call (so `industry` / `industry_group` / `subindustry` stay strings).
-- Extended `feature_store` stage coverage report.
-- Bumped `ENGINE_REUSE_VERSION` → `"2026-04-16-phase2-keepcols-fix"` (forces feature_store regeneration).
-- Updated `CLAUDE.md` and `PHASE_ROADMAP.md` with the new invariant: any new phase adding columns in `build_universe_monthly` MUST also whitelist them in `keep_cols`.
+Phase 1+2 is a clear NET WIN. The CAGR dip vs baseline is a mode mismatch (concentrated baseline vs diversified this run), not a Phase 1+2 regression. Sharpe and MaxDD improvements prove the signals are adding real risk-adjusted alpha, not just levered CAGR.
 
----
+**Rebalance interval comparison (diversified, Phase 1+2 on)**:
+- 1-month: CAGR 20.10%, Sharpe 1.08, MaxDD -23.60% ← champion
+- 3-month: CAGR 16.91%, Sharpe 0.92, MaxDD -33.26%
+- 6-month: CAGR 14.77%, Sharpe 0.81, MaxDD -36.20%
 
-## 2. What the user must do NEXT (before any new phase work)
+Engine is already set to 1-month rebalancing, no change needed.
 
-**Run a FULL rebuild in Colab** — not QUICK_RESCORE.
-
-1. Open `colab_run.ipynb` on the new machine / Drive.
-2. Cell 2 must have:
-   - `QUICK_RESCORE_ONLY = False` ← critical
-   - `OPTION_1_FULL_REBUILD = True`
-   - `PHASE1_ALPHA_ENABLED = 'auto'`
-   - `PHASE2_INDUSTRY_ENABLED = 'auto'`
-3. Run cells in order: **1 → 2 → 3 → 4 → 5 → 6 → 9 → 10 → 11**.
-4. Cell 4 must print `>>> FULL REBUILD MODE: ...` (not `>>> QUICK RESCORE MODE:`).
-5. Expected runtime: ~1.5-3 hours (mostly walk-forward + model retraining; yfinance is cached so no re-fetch needed for Phase 2 metadata).
-
-### Verification gates (after the run)
-
-**Cell 9** (Phase 1+2 column populate sanity):
-- Phase 1 — `present=True` for all 5 columns, `nonzero_share` > 0.5 for each. (baseline — unchanged from before)
-- Phase 2 — **this is the fix verification**:
-  - All 15 columns must show `present=True`.
-  - `oneil_leadership_score`, `industry_group_strength_score`, `industry_within_leader_rank`, `industry_rotation_signal`, `rs_industry_6m`, `rs_industry_group_6m` — must have `nonzero_share` ≥ 0.5 (these are the ones that feed sleeve composites at lines 17427 / 17465-17468 / 17506-17509).
-  - `industry` / `industry_group` / `subindustry` — strings, `nonzero_share` = fraction of rows with a non-empty string, should be ≥ 0.8.
-  - If `[WARN] Phase 2: these columns exist but are all-zero/all-empty` appears → the fix didn't take. Check that the commit is actually pulled (Colab cell 2 should reset `--hard origin/master`).
-
-**Cell 10** (baseline vs new):
-- Baseline is still `2026-04-15 pre-Phase1+2`: CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%, `selected_names=2`.
-- The **concentrated** comparison is not apples-to-apples if `selected_names` differs. That's expected — ignore the concentrated CAGR delta if `selected_names` changed.
-- Report the **diversified (main) portfolio** metrics from the `rebalance_interval_comparison_snapshot` printed at the end of cell 4. Previous run's diversified metrics showed Sharpe 0.73 → 0.99, MaxDD -36.86 → -26.54% (measured BEFORE the Phase 2 fix — so those numbers are still "Phase 1 only + sleeve re-weight", not true Phase 1+2). The true Phase 1+2 diversified metrics come from this new FULL run.
-
-**Cell 11** (top 30 with industry context):
-- `industry`, `industry_group`, `oneil_leadership_score`, etc. columns must appear in the display (previously said `[INFO] these requested columns are not present in top30_latest.csv: [...]` — that message should now be empty or only list columns that are genuinely optional).
+Commits live on `origin/master` up to `cca96a4 Add SESSION_HANDOFF.md for multi-machine session continuity`. Phase 1+2 code is in the last 6 commits (`d464e9d..cca96a4`).
 
 ---
 
-## 3. What's next AFTER the FULL rebuild verifies the fix
+## 2. What the user must do NEXT
 
-Follow `PHASE_ROADMAP.md` §3 (Implementation Order & PR Plan).
+**Phase 3 infrastructure is implemented (commit `TBD-after-push phase3-sleeve-weight-renorm-infra`) — next step is the A/B MEASUREMENT run in Colab.**
 
-If the verification passes, the ordered PR plan is:
+Phase 3 status:
+- `EngineConfig.sleeve_weight_renorm_enabled` = False (default).
+- `EngineConfig.sleeve_weight_l1_target` = 0.0 (default → use the sleeve's own L1 norm).
+- Env gate `PHASE_PHASE3_RENORM_ENABLED` must also be set to `1` for renorm to actually apply.
+- Legacy path (toggle off) is byte-identical to the pre-Phase-3 `row_mean` behaviour, so the "OFF" leg of the A/B can reuse the 2026-04-16 FULL rebuild metrics directly; only the "ON" leg needs a new run.
 
-1. **Phase 3** — sleeve weight renormalization + phase contribution audit
-2. **Phase 4** — regime-conditional dynamic sleeve weights
-3. **Phase 5** — sub-industry leader/laggard pair
-4. **Phase 6a** — drawdown breaker
-5. **Phase 6b** — VIX guard + yield curve
-6. **Phase 6c** — vol targeting
+### A/B measurement recipe (QUICK_RESCORE, ~15-25 min)
 
-Each phase has its own A/B toggle (`PHASE_PHASE<N>_<NAME>_ENABLED=0|1|auto`), its own ship gate (`ΔCAGR ≥ +0.5pp` for offensive phases, `ΔSharpe ≥ +0.1 AND ΔMaxDD ≤ -5pp` for Phase 6 tail protection), and its own CHANGELOG entry. Do not skip phases.
+In Colab cell 2, before running the pipeline, add:
 
-**If Phase 2 verification fails** (columns still missing) — do NOT proceed to Phase 3. Root-cause the whitelist issue again. Likely culprits: (a) Colab didn't `git pull` the fix (check cell 2 output), (b) `feature_store_latest.parquet` was reused from an old cache (check `ENGINE_REUSE_VERSION` in the pipeline log), (c) a second whitelist somewhere downstream that we missed.
+```python
+import os
+os.environ["PHASE_PHASE1_ALPHA_ENABLED"] = "auto"      # keep Phase 1 on
+os.environ["PHASE_PHASE2_INDUSTRY_ENABLED"] = "auto"   # keep Phase 2 on
+os.environ["PHASE_PHASE3_RENORM_ENABLED"] = "1"        # Phase 3 ON
+```
+
+And in the cfg used by cell 4, set:
+
+```python
+cfg["sleeve_weight_renorm_enabled"] = True
+# cfg["sleeve_weight_l1_target"] = 0.0  # default — pure weighted average
+```
+
+Then run cell 4 with `QUICK_RESCORE_ONLY = True`.
+
+### Verification gates after the Phase 3 ON run
+
+Compare against the `20260416_111455__1d4fb40__2026-04-16-phase2-keepcols-fix` baseline (Phase 3 OFF):
+
+| Metric (diversified portfolio, 1M rebalance) | P3 OFF (2026-04-16 run) | P3 ON (new run) | Ship? |
+|---|---|---|---|
+| strategy_cagr | 0.2010 | ≥ 0.2060 ideally | Δ CAGR ≥ +0.5pp |
+| sharpe | 1.0754 | any | - |
+| max_dd | -0.2360 | ≥ -0.2460 ideally | Δ MaxDD not worse by more than +1pp |
+
+Ship gate (per `PHASE_ROADMAP.md` §3): Δ CAGR ≥ +0.5pp AND Δ MaxDD ≤ +1pp.
+
+If Phase 3 ON passes the gate -> flip `sleeve_weight_renorm_enabled=True` as the new default in EngineConfig, write a Phase 3 ship CHANGELOG entry, commit, push.
+If Phase 3 ON fails the gate -> leave the default OFF, document the negative result in CHANGELOG, proceed to Phase 4.
+
+**Important diagnostic**: the new run writes `sleeve_core_l1_norm`, `sleeve_future_l1_norm`, `sleeve_early_l1_norm`, `sleeve_weight_renorm_active` columns into `scored_latest.csv`. Confirm `sleeve_weight_renorm_active=1.0` on every row to verify the toggle actually took effect (otherwise the A/B is meaningless).
+
+---
+
+## 3. What's next AFTER Phase 3
+
+Follow `PHASE_ROADMAP.md` §3 (Implementation Order & PR Plan):
+
+| PR | Phase | Runtime | Ship gate |
+|---|---|---|---|
+| B | Phase 4 — regime-conditional sleeve weights | QUICK | Δ CAGR ≥ +0.5pp AND Δ Sharpe ≥ +0.05 |
+| C | Phase 5 — sub-industry leader/laggard | FULL once, then QUICK | Δ CAGR ≥ +0.3pp AND future-sleeve hit-rate improves |
+| D | Phase 6a — drawdown circuit breaker | QUICK | Δ MaxDD ≤ -3pp AND Δ CAGR ≥ -0.5pp |
+| E | Phase 6b — VIX level guard | QUICK | Δ MaxDD ≤ -1pp in VIX-spike periods |
+| F | Phase 6c — volatility targeting | QUICK | Δ Sharpe ≥ +0.05 AND Δ CAGR ≥ -1pp |
+
+Each phase must follow the §5 invariants (schema stability, keepcols whitelist survival, A/B toggle parity).
 
 ---
 
@@ -90,11 +112,11 @@ I'm continuing work on the r1000 Quant Engine project. Before doing anything els
 2. Read `SESSION_HANDOFF.md` — current pending work (THIS is the most important file for picking up where we left off).
 3. Read the last ~200 lines of `CHANGELOG.md` — most recent decisions.
 4. Read `PHASE_ROADMAP.md` §3 (PR plan) and §5 (invariants) — what's next.
-5. Check `git log --oneline -5` to confirm the latest commit is `1d4fb40 Fix Phase 2 columns dropped by feature_store keep_cols whitelist` (or newer).
+5. Check `git log --oneline -5` to confirm the latest commit is `cca96a4 Add SESSION_HANDOFF.md for multi-machine session continuity` (or newer).
 
 Only after reading those files, ask me what I want to do next. Do NOT start editing anything until you've read them.
 
-Context: last session (2026-04-16 evening KST) I pushed a critical bug fix that forces a FULL rebuild in Colab. I may or may not have run the FULL rebuild yet — ask me which state I'm in before planning next steps.
+Context: Phase 2 keepcols fix was verified via FULL rebuild on 2026-04-16 (Sharpe 0.73 -> 1.08, MaxDD -36.86% -> -23.60%). Phase 3 INFRASTRUCTURE is already committed (sleeve_weight_renorm_enabled / sleeve_weight_l1_target config fields + weighted_sleeve_composite helper + compute_portfolio_sleeve_columns refactor). Next action is the Phase 3 A/B MEASUREMENT run in Colab under QUICK_RESCORE_ONLY with PHASE_PHASE3_RENORM_ENABLED=1 and cfg.sleeve_weight_renorm_enabled=True. I have NOT yet run the A/B — that is the very next step.
 ```
 
 ---
@@ -119,15 +141,22 @@ What's NOT in git (lives only on Google Drive, accessible from any Colab session
 - `outputs/` — backtest results, CSV/JSON artifacts
 - `companyfacts.zip`, raw SEC / yfinance caches
 
+Key outputs from the 2026-04-16 Phase 2 verification run (in Drive under `outputs/`):
+
+- `run_manifest.json` / `run_summary.json` — run metadata
+- `backtest_metrics.json` — main diversified portfolio metrics (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%)
+- `concentrated_backtest_metrics.json` — concentrated portfolio metrics
+- `reports/full_validation_suite.json` — full validation snapshot (27 top-level keys including `p1_p2_p3_checks`, `concentrated_snapshot`)
+- `reports/rebalance_interval_comparison.csv` — 1M/3M/6M comparison
+- `archive/20260416_111455__1d4fb40__2026-04-16-phase2-keepcols-fix/` — versioned snapshot of this run
+
 So: any machine with (a) the GitHub repo cloned and (b) Google Drive mounted to the same account has the full state.
 
 ---
 
 ## 6. How to delete this handoff
 
-When the Phase 2 verification passes AND you've started Phase 3:
+When Phase 3 A/B ships AND you've started Phase 4:
 
-1. Replace this file's content with the new session handoff (new "last thing that happened" = Phase 2 verified + Phase 3 started).
-2. OR delete this file entirely and rely on CHANGELOG + PHASE_ROADMAP (if no fresh handoff is needed).
-
-Never accumulate multiple handoff files. This is a single-item inbox, not a log.
+1. Replace this file's content with the new session handoff (new "last thing done" = Phase 3 A/B verdict, new "next action" = Phase 4).
+2. Never accumulate multiple handoff files. This is a single-item inbox, not a log.

@@ -1625,6 +1625,26 @@ class EngineConfig:
     minervini_future_engine_weight: float = 0.65
     minervini_portfolio_seed_weight: float = 0.40
     minervini_broken_trend_penalty_weight: float = 0.50
+    # ------------------------------------------------------------------
+    # Phase 3: sleeve weight renormalization (A/B gated)
+    # ------------------------------------------------------------------
+    # row_mean averages N sleeve-composite terms into sum/N, which means
+    # every time Phase 1 or Phase 2 added new terms the PRE-EXISTING
+    # factors lost effective weight (the /N denominator grew). When
+    # renorm is enabled the composites become a true weighted average
+    # sum(w_i * z_i) / L1 where L1 = sum(|w_i|), so each factor's
+    # relative contribution stays proportional to its own weight
+    # regardless of how many other phases added terms.
+    # Both `sleeve_weight_renorm_enabled=True` AND the env var
+    # `PHASE_PHASE3_RENORM_ENABLED` (not set to 0/false/off/disabled)
+    # are required to flip on. Default OFF until A/B validates.
+    # `sleeve_weight_l1_target=0.0` means "use the sleeve's own L1 norm"
+    # (pure weighted average). A positive value lets you target a
+    # specific L1 magnitude (e.g. match the pre-Phase-1+2 core L1 of
+    # ~7.32) so the downstream winsorize/clip(-6,+6) receives the same
+    # magnitude range as the legacy path.
+    sleeve_weight_renorm_enabled: bool = False
+    sleeve_weight_l1_target: float = 0.0
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -6550,6 +6570,65 @@ def row_mean(parts: list[pd.Series], index: pd.Index) -> pd.Series:
     if not clean:
         return pd.Series(np.nan, index=index, dtype=float)
     return pd.concat(clean, axis=1).mean(axis=1)
+
+
+def sleeve_weight_l1_norm(weight_pairs: list[tuple[float, pd.Series]]) -> float:
+    """Phase 3 diagnostic: absolute sum of weights for a sleeve composite.
+
+    This is the L1 norm the composite would be normalised by when
+    `sleeve_weight_renorm_enabled=True` and `sleeve_weight_l1_target=0.0`.
+    Emitted as a per-run scalar column so A/B comparisons can measure how
+    much Phase 1+2 inflated the baseline L1.
+    """
+    return float(sum(abs(float(w)) for w, _ in weight_pairs if _ is not None))
+
+
+def weighted_sleeve_composite(
+    weight_pairs: list[tuple[float, pd.Series]],
+    index: pd.Index,
+    *,
+    renorm_enabled: bool = False,
+    l1_target: float = 0.0,
+) -> pd.Series:
+    """Compute a sleeve composite score from (weight, z-score-series) pairs.
+
+    renorm_enabled=False (default) -> equivalent to
+        row_mean([w * s for w, s in pairs])
+    This matches the legacy pre-Phase-3 behaviour exactly, so flipping the
+    toggle off yields byte-identical sleeve scores.
+
+    renorm_enabled=True -> returns
+        sum(w_i * s_i) / L1
+    where L1 is `l1_target` when positive, otherwise the sleeve's own
+    absolute weight sum. This is a true weighted average: each factor's
+    contribution stays proportional to its own |w_i| regardless of how
+    many other terms exist in the composite. When `l1_target` matches
+    the pre-Phase-1+2 L1 the composite magnitude is preserved so the
+    downstream `winsorize(..).clip(-6,6)` receives the same range as
+    legacy.
+
+    NaN handling follows `row_mean` in the default path and fills with
+    zero in the renorm path (missing z-scores contribute nothing to the
+    weighted sum).
+    """
+    if not weight_pairs:
+        return pd.Series(0.0, index=index, dtype=float)
+    weighted_terms = [float(w) * s for w, s in weight_pairs if s is not None]
+    if not renorm_enabled:
+        return row_mean(weighted_terms, index).fillna(0.0)
+    stacked = pd.concat(
+        [
+            pd.to_numeric(t, errors="coerce").reindex(index).fillna(0.0)
+            for t in weighted_terms
+        ],
+        axis=1,
+    )
+    total = stacked.sum(axis=1)
+    l1_actual = sleeve_weight_l1_norm(weight_pairs)
+    denom = float(l1_target) if (l1_target and l1_target > 0.0) else l1_actual
+    if denom <= 1e-8:
+        return row_mean(weighted_terms, index).fillna(0.0)
+    return (total / denom).fillna(0.0)
 
 
 def to_naive_datetime_index(values: Any) -> pd.DatetimeIndex:
@@ -17423,6 +17502,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "portfolio_early_scout_engine_score",
             "portfolio_sleeve_label",
             "portfolio_sleeve_confidence",
+            # Phase 3 diagnostics — keep schema stable when the frame is empty.
+            "sleeve_core_l1_norm",
+            "sleeve_future_l1_norm",
+            "sleeve_early_l1_norm",
+            "sleeve_weight_renorm_active",
         ] + HISTORICAL_DATA_QUALITY_COLUMNS:
             d[c] = np.nan
         return d
@@ -17459,117 +17543,151 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     sage_v_rank = cross_sectional_robust_z(d, "sage_v_score")
     sage_q_rank = cross_sectional_robust_z(d, "sage_q_score")
     sage_c_rank = cross_sectional_robust_z(d, "sage_c_score")
-    core_score = row_mean(
-        [
-            1.05 * cross_sectional_robust_z(d, "long_hold_compounder_score"),
-            0.90 * cross_sectional_robust_z(d, "archetype_compounder_score"),
-            1.10 * cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
-            1.00 * cross_sectional_robust_z(d, "quality_trend_score"),
-            0.45 * cross_sectional_robust_z(d, "garp_score"),
-            0.95 * cross_sectional_robust_z(d, "actual_results_score"),
-            0.55 * cross_sectional_robust_z(d, "selection_confirmation_score"),
-            0.25 * cross_sectional_robust_z(d, "strategy_blueprint_score"),
-            0.35 * cross_sectional_robust_z(d, "pricing_power_score"),
-            0.30 * cross_sectional_robust_z(d, "margin_stability_8q"),
-            0.22 * sage_q_rank,
-            0.12 * sage_v_rank,
-            0.08 * sage_c_rank,
-            # Phase 1.4: Defend our existing winners — reward intact uptrends,
-            # penalise broken ones.  These signals matter most on the core
-            # sleeve where we want to avoid riding a name down through a real
-            # thesis break.
-            0.40 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
-            -0.45 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
-            # Phase 2.7: O'Neil leadership — only modest weight on core because
-            # core compounders are already long-cycle plays where industry
-            # leadership matters less than long-term moat quality.
-            0.25 * cross_sectional_robust_z(d, "oneil_leadership_score"),
-            0.10 * cross_sectional_robust_z(d, "industry_group_strength_score"),
-        ],
+
+    # -------------------------------------------------------------------
+    # Phase 3: resolve sleeve-weight renormalisation toggle once per call.
+    # Both the cfg field AND the env-var gate must be on; the env gate
+    # lets QUICK_RESCORE A/B runs flip Phase 3 without editing the cfg.
+    # -------------------------------------------------------------------
+    _phase3_cfg_on = bool(getattr(cfg, "sleeve_weight_renorm_enabled", False))
+    _phase3_env_on = phase_is_enabled("phase3_renorm", default=False)
+    _phase3_renorm_active = bool(_phase3_cfg_on and _phase3_env_on)
+    _phase3_l1_target = float(
+        getattr(cfg, "sleeve_weight_l1_target", EngineConfig.sleeve_weight_l1_target)
+    )
+
+    core_weight_pairs: list[tuple[float, pd.Series]] = [
+        (1.05, cross_sectional_robust_z(d, "long_hold_compounder_score")),
+        (0.90, cross_sectional_robust_z(d, "archetype_compounder_score")),
+        (1.10, cross_sectional_robust_z(d, "moat_quality_blueprint_score")),
+        (1.00, cross_sectional_robust_z(d, "quality_trend_score")),
+        (0.45, cross_sectional_robust_z(d, "garp_score")),
+        (0.95, cross_sectional_robust_z(d, "actual_results_score")),
+        (0.55, cross_sectional_robust_z(d, "selection_confirmation_score")),
+        (0.25, cross_sectional_robust_z(d, "strategy_blueprint_score")),
+        (0.35, cross_sectional_robust_z(d, "pricing_power_score")),
+        (0.30, cross_sectional_robust_z(d, "margin_stability_8q")),
+        (0.22, sage_q_rank),
+        (0.12, sage_v_rank),
+        (0.08, sage_c_rank),
+        # Phase 1.4: Defend our existing winners — reward intact uptrends,
+        # penalise broken ones.  These signals matter most on the core
+        # sleeve where we want to avoid riding a name down through a real
+        # thesis break.
+        (0.40, cross_sectional_robust_z(d, "uptrend_continuation_score")),
+        (-0.45, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
+        # Phase 2.7: O'Neil leadership — only modest weight on core because
+        # core compounders are already long-cycle plays where industry
+        # leadership matters less than long-term moat quality.
+        (0.25, cross_sectional_robust_z(d, "oneil_leadership_score")),
+        (0.10, cross_sectional_robust_z(d, "industry_group_strength_score")),
+    ]
+    core_score = weighted_sleeve_composite(
+        core_weight_pairs,
         d.index,
-    ).fillna(0.0)
-    future_score = row_mean(
-        [
-            1.10 * cross_sectional_robust_z(d, "future_winner_scout_score"),
-            0.95 * cross_sectional_robust_z(d, "pred_future_winner_ret"),
-            0.40 * cross_sectional_robust_z(d, "pred_future_winner_p"),
-            0.95 * cross_sectional_robust_z(d, "anticipatory_growth_score"),
-            0.70 * cross_sectional_robust_z(d, "archetype_emerging_growth_score"),
-            0.95 * cross_sectional_robust_z(d, "dynamic_leader_score"),
-            0.90 * cross_sectional_robust_z(d, "leader_emergence_score"),
-            0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.95 * cross_sectional_robust_z(d, "revision_blueprint_score"),
-            0.70 * cross_sectional_robust_z(d, "analyst_revision_trend_score"),
-            0.65 * cross_sectional_robust_z(d, "revision_score"),
-            0.60 * cross_sectional_robust_z(d, "target_upside_pct"),
-            0.55 * cross_sectional_robust_z(d, "revenue_growth_final"),
-            0.45 * cross_sectional_robust_z(d, "earnings_growth_final"),
-            0.50 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
-            0.35 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
-            minervini_future_engine_weight * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
-            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
-            0.36 * sage_composite_rank,
-            0.18 * sage_g_rank,
-            0.12 * sage_c_rank,
-            0.10 * sage_v_rank,
-            -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
-            # Phase 1.3 + 1.4: value-and-growth catch-up + uptrend defense.
-            0.45 * cross_sectional_robust_z(d, "value_inflection_score"),
-            0.30 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
-            -0.30 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
-            # Phase 2.7: industry leadership + group strength + rotation.
-            # Future-winner sleeve gets the highest weight on these because
-            # finding "the best name in the strongest group" is the core
-            # O'Neil/IBD playbook this sleeve tries to execute.
-            0.55 * cross_sectional_robust_z(d, "oneil_leadership_score"),
-            0.30 * cross_sectional_robust_z(d, "industry_group_strength_score"),
-            0.20 * cross_sectional_robust_z(d, "industry_within_leader_rank"),
-            0.25 * cross_sectional_robust_z(d, "rs_industry_6m"),
-            0.18 * cross_sectional_robust_z(d, "industry_rotation_signal"),
-        ],
+        renorm_enabled=_phase3_renorm_active,
+        l1_target=_phase3_l1_target,
+    )
+    future_weight_pairs: list[tuple[float, pd.Series]] = [
+        (1.10, cross_sectional_robust_z(d, "future_winner_scout_score")),
+        (0.95, cross_sectional_robust_z(d, "pred_future_winner_ret")),
+        (0.40, cross_sectional_robust_z(d, "pred_future_winner_p")),
+        (0.95, cross_sectional_robust_z(d, "anticipatory_growth_score")),
+        (0.70, cross_sectional_robust_z(d, "archetype_emerging_growth_score")),
+        (0.95, cross_sectional_robust_z(d, "dynamic_leader_score")),
+        (0.90, cross_sectional_robust_z(d, "leader_emergence_score")),
+        (0.90, cross_sectional_robust_z(d, "relative_strength_composite")),
+        (0.95, cross_sectional_robust_z(d, "revision_blueprint_score")),
+        (0.70, cross_sectional_robust_z(d, "analyst_revision_trend_score")),
+        (0.65, cross_sectional_robust_z(d, "revision_score")),
+        (0.60, cross_sectional_robust_z(d, "target_upside_pct")),
+        (0.55, cross_sectional_robust_z(d, "revenue_growth_final")),
+        (0.45, cross_sectional_robust_z(d, "earnings_growth_final")),
+        (0.50, cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")),
+        (0.35, cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")),
+        (minervini_future_engine_weight, cross_sectional_robust_z(d, "minervini_momentum_alive_score")),
+        (0.35, cross_sectional_robust_z(d, "breakout_setup_quality_score")),
+        (0.36, sage_composite_rank),
+        (0.18, sage_g_rank),
+        (0.12, sage_c_rank),
+        (0.10, sage_v_rank),
+        (-0.35, numeric_series_or_default(d, "broken_momentum_penalty", 0.0)),
+        # Phase 1.3 + 1.4: value-and-growth catch-up + uptrend defense.
+        (0.45, cross_sectional_robust_z(d, "value_inflection_score")),
+        (0.30, cross_sectional_robust_z(d, "uptrend_continuation_score")),
+        (-0.30, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
+        # Phase 2.7: industry leadership + group strength + rotation.
+        # Future-winner sleeve gets the highest weight on these because
+        # finding "the best name in the strongest group" is the core
+        # O'Neil/IBD playbook this sleeve tries to execute.
+        (0.55, cross_sectional_robust_z(d, "oneil_leadership_score")),
+        (0.30, cross_sectional_robust_z(d, "industry_group_strength_score")),
+        (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
+        (0.25, cross_sectional_robust_z(d, "rs_industry_6m")),
+        (0.18, cross_sectional_robust_z(d, "industry_rotation_signal")),
+    ]
+    future_score = weighted_sleeve_composite(
+        future_weight_pairs,
         d.index,
-    ).fillna(0.0)
-    early_score = row_mean(
-        [
-            cross_sectional_robust_z(d, "anticipatory_growth_score"),
-            cross_sectional_robust_z(d, "growth_onset_composite"),
-            cross_sectional_robust_z(d, "leader_emergence_score"),
-            0.90 * cross_sectional_robust_z(d, "relative_strength_composite"),
-            0.80 * cross_sectional_robust_z(d, "technical_blueprint_score"),
-            0.95 * cross_sectional_robust_z(d, "revision_blueprint_score"),
-            0.70 * cross_sectional_robust_z(d, "revision_score"),
-            0.60 * cross_sectional_robust_z(d, "event_reaction_score"),
-            0.60 * cross_sectional_robust_z(d, "profitability_inflection_score"),
-            0.55 * cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score"),
-            0.45 * cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score"),
-            0.40 * cross_sectional_robust_z(d, "dynamic_leader_score"),
-            0.35 * cross_sectional_robust_z(d, "minervini_momentum_alive_score"),
-            0.35 * cross_sectional_robust_z(d, "breakout_setup_quality_score"),
-            0.48 * sage_composite_rank,
-            0.28 * sage_g_rank,
-            0.18 * sage_c_rank,
-            0.12 * sage_v_rank,
-            -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
-            -0.20 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
-            -0.15 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
-            # Phase 1.3 + 1.4: bottom-fishing value/inflection setups deserve
-            # the highest weight on the early-scout sleeve, with breakdown
-            # penalty kept so we don't bottom-fish names that are actively
-            # collapsing rather than basing.
-            0.55 * cross_sectional_robust_z(d, "value_inflection_score"),
-            0.20 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
-            -0.25 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
-            # Phase 2.7: industry rotation gets the biggest weight on the
-            # early-scout sleeve — exactly the "buy the bottom-of-cycle
-            # industry that just turned up" mandate the user described.
-            0.45 * cross_sectional_robust_z(d, "industry_rotation_signal"),
-            0.35 * cross_sectional_robust_z(d, "oneil_leadership_score"),
-            0.25 * cross_sectional_robust_z(d, "industry_group_strength_score"),
-            0.20 * cross_sectional_robust_z(d, "industry_within_leader_rank"),
-            0.18 * cross_sectional_robust_z(d, "rs_industry_3m"),
-        ],
+        renorm_enabled=_phase3_renorm_active,
+        l1_target=_phase3_l1_target,
+    )
+    early_weight_pairs: list[tuple[float, pd.Series]] = [
+        (1.00, cross_sectional_robust_z(d, "anticipatory_growth_score")),
+        (1.00, cross_sectional_robust_z(d, "growth_onset_composite")),
+        (1.00, cross_sectional_robust_z(d, "leader_emergence_score")),
+        (0.90, cross_sectional_robust_z(d, "relative_strength_composite")),
+        (0.80, cross_sectional_robust_z(d, "technical_blueprint_score")),
+        (0.95, cross_sectional_robust_z(d, "revision_blueprint_score")),
+        (0.70, cross_sectional_robust_z(d, "revision_score")),
+        (0.60, cross_sectional_robust_z(d, "event_reaction_score")),
+        (0.60, cross_sectional_robust_z(d, "profitability_inflection_score")),
+        (0.55, cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")),
+        (0.45, cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")),
+        (0.40, cross_sectional_robust_z(d, "dynamic_leader_score")),
+        (0.35, cross_sectional_robust_z(d, "minervini_momentum_alive_score")),
+        (0.35, cross_sectional_robust_z(d, "breakout_setup_quality_score")),
+        (0.48, sage_composite_rank),
+        (0.28, sage_g_rank),
+        (0.18, sage_c_rank),
+        (0.12, sage_v_rank),
+        (-0.30, numeric_series_or_default(d, "broken_momentum_penalty", 0.0)),
+        (-0.20, cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0)),
+        (-0.15, cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0)),
+        # Phase 1.3 + 1.4: bottom-fishing value/inflection setups deserve
+        # the highest weight on the early-scout sleeve, with breakdown
+        # penalty kept so we don't bottom-fish names that are actively
+        # collapsing rather than basing.
+        (0.55, cross_sectional_robust_z(d, "value_inflection_score")),
+        (0.20, cross_sectional_robust_z(d, "uptrend_continuation_score")),
+        (-0.25, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
+        # Phase 2.7: industry rotation gets the biggest weight on the
+        # early-scout sleeve — exactly the "buy the bottom-of-cycle
+        # industry that just turned up" mandate the user described.
+        (0.45, cross_sectional_robust_z(d, "industry_rotation_signal")),
+        (0.35, cross_sectional_robust_z(d, "oneil_leadership_score")),
+        (0.25, cross_sectional_robust_z(d, "industry_group_strength_score")),
+        (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
+        (0.18, cross_sectional_robust_z(d, "rs_industry_3m")),
+    ]
+    early_score = weighted_sleeve_composite(
+        early_weight_pairs,
         d.index,
-    ).fillna(0.0)
+        renorm_enabled=_phase3_renorm_active,
+        l1_target=_phase3_l1_target,
+    )
+
+    # Phase 3 diagnostic: emit the pre-renorm L1 norm for each sleeve plus
+    # a scalar flag so reports/full_validation_suite.json can record whether
+    # Phase 3 was active during this run and how much Phase 1+2 inflated
+    # the baseline L1 vs the pre-Phase-1+2 reference (~7.32 for core).
+    _core_l1 = sleeve_weight_l1_norm(core_weight_pairs)
+    _future_l1 = sleeve_weight_l1_norm(future_weight_pairs)
+    _early_l1 = sleeve_weight_l1_norm(early_weight_pairs)
+    d["sleeve_core_l1_norm"] = _core_l1
+    d["sleeve_future_l1_norm"] = _future_l1
+    d["sleeve_early_l1_norm"] = _early_l1
+    d["sleeve_weight_renorm_active"] = 1.0 if _phase3_renorm_active else 0.0
     sparse_history_penalty = numeric_series_or_default(d, "growth_sleeve_sparse_history_penalty", 0.0).clip(
         lower=0.0,
         upper=1.0,

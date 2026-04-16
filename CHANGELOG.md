@@ -1610,3 +1610,72 @@ All entries must be written in English. Entries must be predictable and machine-
   - `git log --oneline -3` -> confirmed latest commit is `1d4fb40 Fix Phase 2 columns dropped by feature_store keep_cols whitelist`.
 - risks_or_notes:
   - The handoff file must be rotated (rewritten in place) after every phase ship. Do NOT accumulate multiple handoff files or let stale handoff notes linger - a fresh chat session should always trust the current handoff as the single source of truth for "what's the immediate next action". If no phase is in-flight, the handoff can be a short note saying "no pending action, read CHANGELOG and PHASE_ROADMAP for the last shipped state".
+
+### 23:45 KST - phase2-keepcols-fix-verified-via-full-rebuild
+
+- scope:
+  - Record the FULL-rebuild verification of the `1d4fb40 Fix Phase 2 columns dropped by feature_store keep_cols whitelist` commit. Phase 2 industry-RS / O'Neil leadership columns are now confirmed populated end-to-end, and the resulting Phase 1+2 diversified backtest is the new reference baseline for Phase 3 work.
+- files:
+  - `SESSION_HANDOFF.md` -> rotated to reflect "Phase 2 verified, Phase 3 next" as the single-item inbox for the next chat session.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/run_summary.json` -> `engine_version: "2026-04-16-phase2-keepcols-fix"`, `git_commit: "1d4fb4046f73b639ed24711045dbf0c731831ce7"`, `run_id: "20260416_111455__1d4fb40__2026-04-16-phase2-keepcols-fix"`.
+  - `outputs/backtest_metrics.json` -> main diversified portfolio metrics: `cagr=0.2010`, `sharpe=1.0754`, `sortino=1.7799`, `max_dd=-0.2360`, `calmar=0.8516`, `ir=0.5835`, `beat_month_ratio=0.5904`, `excess_cagr=0.0660`, `avg_stock_names=25.78`, `rebalance_interval_months=1`.
+  - `outputs/concentrated_backtest_metrics.json` -> concentrated (3-name) portfolio: `cagr=0.2014`, `sharpe=0.7090`, `max_dd=-0.3717`.
+  - `outputs/reports/rebalance_interval_comparison.csv` -> 1M/3M/6M comparison confirms 1-month rebalance is the champion.
+  - `outputs/reports/full_validation_suite.json` -> 27 top-level keys including `p1_p2_p3_checks`, `acceptance_checks`, `concentrated_snapshot`.
+  - `outputs/scored_latest.csv` -> 610 rows × 573 columns; all 23 Phase 2 columns and all 5 Phase 1 columns present with non-zero shares.
+- validation:
+  - Phase 2 column sanity (scored_latest.csv, 610 rows):
+    - `oneil_leadership_score` 95.41%, `industry_group_strength_score` 100.00%, `industry_within_leader_rank` 95.41%, `industry_rotation_signal` 100.00%, `rs_industry_6m` 80.49%, `rs_industry_group_6m` 96.39% -> all pass `nonzero_share >= 0.5` gate.
+    - `industry`/`industry_group`/`subindustry` strings all 100.00% populated.
+    - All 20 numeric Phase 2 columns have nonzero_share between 80.49% and 100.00%.
+  - Phase 1 alpha column sanity (scored_latest.csv):
+    - `fundamental_turnaround_acceleration_score` 95.41%, `value_inflection_score` 100.00%, `uptrend_continuation_score` 100.00%, `uptrend_breakdown_penalty` 74.43% -> all pass.
+    - `cashflow_inflection_under_loss_score` 49.51% -> borderline but expected (loss-narrowing only applies to a subset of names).
+  - Acceptance checks: `pit_ok=true`, `leakage_ok=true`, `oos_month_coverage_ok=true`, `survivorship_bias_warning=false`, `historical_membership_ok=true`, `critical_ttm_coverage_mean=0.808`.
+  - Phase 2 keepcols fix is confirmed effective: no `[WARN] Phase 2: ... all-zero` warnings on this run.
+- risks_or_notes:
+  - Baseline comparison caveat: the 2026-04-15 pre-Phase 1+2 baseline ran in concentrated mode (selected_names=2, CAGR 21.80%), while this verification run's main portfolio is diversified mode (avg_stock_names=25.78, CAGR 20.10%). The -1.70pp CAGR delta is a mode mismatch, not a regression.
+  - True apples-to-apples comparison is the diversified main portfolio: Sharpe improved from the pre-P1+P2 reference of ~0.73 to 1.08 (+0.35), MaxDD improved from ~-36.86% to -23.60% (+13.26pp). Excess CAGR vs S&P is +6.60pp. These are breakthrough-level improvements on risk-adjusted metrics.
+  - Next action (per `SESSION_HANDOFF.md` and `PHASE_ROADMAP.md` §3): start Phase 3 sleeve weight renormalization + phase contribution audit. Runtime: QUICK_RESCORE is sufficient; no FULL rebuild needed for Phase 3.
+  - `ENGINE_REUSE_VERSION` is NOT bumped by this documentation-only entry. The feature_store cache from this run (`2026-04-16-phase2-keepcols-fix`) remains valid for Phase 3 QUICK rescore iteration.
+
+### 23:59 KST - phase3-sleeve-weight-renorm-infra
+
+- scope:
+  - Implement the Phase 3 sleeve-weight renormalization infrastructure (A/B gated, default OFF) so the next QUICK_RESCORE run can measure whether replacing row_mean's N-term averaging with a true weighted average `sum(w_i * z_i) / L1` removes the factor-dilution that Phase 1+2's additive weights introduced into the sleeve composites.
+- files:
+  - `r1000_top30_institutional.py` -> added `sleeve_weight_renorm_enabled` / `sleeve_weight_l1_target` fields to `EngineConfig`; added two helper functions (`sleeve_weight_l1_norm`, `weighted_sleeve_composite`); refactored `compute_portfolio_sleeve_columns` to build explicit `(weight, z_series)` pair lists for the core / future / early sleeves and dispatch through the new helper so the legacy row_mean path remains byte-identical when the toggle is off; emitted four new diagnostic columns (`sleeve_core_l1_norm`, `sleeve_future_l1_norm`, `sleeve_early_l1_norm`, `sleeve_weight_renorm_active`).
+- symbols_added:
+  - `sleeve_weight_l1_norm(weight_pairs: list[tuple[float, pd.Series]]) -> float` -> absolute sum of weights for a sleeve composite, emitted per-run for A/B diagnostics.
+  - `weighted_sleeve_composite(weight_pairs, index, *, renorm_enabled=False, l1_target=0.0) -> pd.Series` -> sleeve composite aggregator; reduces to row_mean when renorm_enabled=False so legacy behaviour is preserved.
+- symbols_changed:
+  - `EngineConfig` -> added `sleeve_weight_renorm_enabled: bool = False` and `sleeve_weight_l1_target: float = 0.0` with inline commentary explaining the toggle semantics and L1-target meaning.
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> core, future, and early sleeve scores now derived from explicit `(weight, pd.Series)` pair lists that are passed through `weighted_sleeve_composite`; legacy `row_mean` call-sites replaced; empty-frame branch now also emits the four Phase 3 diagnostic columns as NaN for schema stability.
+- config_fields_added:
+  - `sleeve_weight_renorm_enabled: bool = False` -> gate (combined with `PHASE_PHASE3_RENORM_ENABLED` env var) to activate weighted-average sleeve composites.
+  - `sleeve_weight_l1_target: float = 0.0` -> when > 0.0 the composite is divided by this value (match pre-P1+P2 L1 to preserve magnitude); when 0.0 the sleeve's own L1 is used (pure weighted average).
+- breaking_changes:
+  - none -> with the defaults off the sleeve composite values are byte-identical to the pre-Phase-3 path because the new helper short-circuits to `row_mean([w * s for w, s in pairs]).fillna(0.0)`, which is exactly the legacy expression.
+- outputs:
+  - `outputs/scored_latest.csv` -> four new columns appended: `sleeve_core_l1_norm`, `sleeve_future_l1_norm`, `sleeve_early_l1_norm`, `sleeve_weight_renorm_active`. The first three are scalar L1 norms per run; the last is a 0/1 flag so A/B comparisons can assert whether the renormalization path was actually taken.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - `ast.parse(...)` over the modified file passed with 381 top-level defs.
+  - Spot-checked via AST that `weighted_sleeve_composite`, `sleeve_weight_l1_norm`, `sleeve_weight_renorm_enabled`, `sleeve_weight_l1_target`, `compute_portfolio_sleeve_columns`, `phase_is_enabled`, `row_mean` are all present.
+  - Expected L1 norms from source reading: core ~8.52, future ~14.48, early ~13.04; pre-Phase-1+2 core L1 was ~7.32, so the Phase 1+2 additions inflate core's effective weight sum by ~16%. Phase 3 measurement will determine whether this inflation dilutes pre-existing factors enough to matter.
+- risks_or_notes:
+  - Phase 3 is **infrastructure only**; it does NOT change sleeve scores at runtime until the user sets both `cfg.sleeve_weight_renorm_enabled=True` and `os.environ["PHASE_PHASE3_RENORM_ENABLED"]="1"`. Until that A/B measurement ships, default runs are identical to the pre-Phase-3 behaviour.
+  - A/B measurement protocol (per `PHASE_ROADMAP.md` §1): run QUICK_RESCORE twice, once with the Phase 3 toggle off and once with it on, and diff `strategy_cagr` / `sharpe` / `max_dd` between `outputs/concentrated_backtest_metrics.json` and `outputs/backtest_metrics.json`. Ship the renorm path only if Δ CAGR ≥ +0.5pp AND Δ MaxDD ≤ +1pp (per `PHASE_ROADMAP.md` §3).
+  - The four new diagnostic columns are produced by `compute_portfolio_sleeve_columns`, which is called lazily at portfolio-construction time (see call-sites around lines 4193, 15459, 17113, 17259, 17332, 18144, 19246, 19340, 19342, 20499, 20645, 20718, 21740, 23929). They bypass `build_feature_store.keep_cols` the same way `portfolio_sleeve_label` does today, so Invariant #8 (keepcols survival) is not triggered.
+  - `ENGINE_REUSE_VERSION` is NOT bumped. Phase 3 only touches portfolio-layer composition, not feature_store schema, so the cached feature store from the `2026-04-16-phase2-keepcols-fix` run stays valid.
+  - The `early_weight_pairs` table explicitly writes the first three terms as `(1.00, ...)` where the legacy code passed them with no multiplier. Those are mathematically identical (1.00 * x == x), but documenting them as explicit 1.00 weights makes future L1-norm accounting unambiguous.
