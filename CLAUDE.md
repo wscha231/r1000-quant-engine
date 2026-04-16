@@ -4,8 +4,13 @@
 Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과수익 목표.
 
 ## Key Files
-- `r1000_top30_institutional.py` — 메인 엔진 (~20,400+ lines)
+- `r1000_top30_institutional.py` — 메인 엔진 (~25,500+ lines)
 - `r1000_data_collector.py` — 데이터 수집 + 검증 파이프라인
+- `colab_run.ipynb` — Colab 실행 런북 (GitHub master pull → collector → pipeline → validation)
+
+## Current Engine Version
+- `ENGINE_REUSE_VERSION = "2026-04-16-phase1+2-turnaround-value-industry-rs"`
+- Cache invalidation: 버전 문자열이 바뀌면 `cache_*`/`feature_store` 아티팩트가 자동 재생성됨.
 
 ## Environments
 - **Local**: `C:\Users\Andrew Cha\Documents\codex`
@@ -59,3 +64,21 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - `max_dd` — 최대 낙폭
 - `beat_month_ratio` — 월간 승률
 - `acceptance_checks` — 전체 통과 여부
+
+## Phase 1+2 (2026-04-16) Alpha Columns to Check
+새로 추가된 시그널 컬럼 (sanity check 용):
+- Phase 1 (turnaround/value/uptrend):
+  - `fundamental_turnaround_acceleration_score`, `cashflow_inflection_under_loss_score`
+  - `value_inflection_score`
+  - `uptrend_continuation_score`, `uptrend_breakdown_penalty`
+- Phase 2 (industry RS / O'Neil leadership):
+  - `industry`, `industry_group`, `subindustry` (from yfinance)
+  - `rs_industry_{1,3,6,12}m`, `rs_industry_group_{1,3,6,12}m`
+  - `industry_breadth_above_ma200`, `industry_group_breadth_above_ma200`
+  - `industry_group_strength_score`, `industry_within_leader_rank`
+  - `oneil_leadership_score`, `industry_rotation_signal`
+
+## Phase 1+2 Baseline Comparison
+직전 baseline (`outputs/concentrated_backtest_metrics.json`, 2026-04-15 rebalance):
+- CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%
+- 새 실행 후 CAGR 개선 + MaxDD 유지/개선이 성공 기준.

@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-15-phase1-ops-layer-perf1"
+ENGINE_REUSE_VERSION = "2026-04-16-phase1+2-turnaround-value-industry-rs"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1053,6 +1053,352 @@ SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]] = [
     ("General",       ()),   # catch-all — always last
 ]
 
+# =====================================================================
+# Phase 2.2: yfinance industry → coarse GICS-style industry-group map
+# =====================================================================
+# yfinance's `info["industry"]` strings are far more granular than the GICS
+# Industry Groups (25 buckets) we want for cross-sectional industry-RS work.
+# This map takes the most common yfinance industry labels seen in the
+# Russell-1000 universe and folds them up to a stable 24-bucket taxonomy
+# (close to GICS Industry Group + a few aggregated leaf cases) so we can
+# compute meaningful within-group relative strength even when only ~10-30
+# names share the same group.  Anything not matched falls back to "Other".
+#
+# Match rule: case-insensitive substring search against the yfinance industry
+# string — first match in the list wins, so put more specific entries first.
+YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
+    # --- Technology Hardware & Semiconductors -------------------------
+    ("Semiconductors",                     ("SEMICONDUCTOR EQUIPMENT", "SEMICONDUCTOR", "MICROELECTRONIC")),
+    ("Tech Hardware & Storage",            ("COMPUTER HARDWARE", "ELECTRONIC COMPONENT", "ELECTRONIC EQUIPMENT", "DATA STORAGE", "SOLAR")),
+    # --- Software & Services ------------------------------------------
+    ("Software - Infrastructure",          ("SOFTWARE - INFRASTRUCTURE", "INFORMATION TECHNOLOGY SERVICES")),
+    ("Software - Application",             ("SOFTWARE - APPLICATION", "SOFTWARE—APPLICATION")),
+    ("Internet Content & Information",     ("INTERNET CONTENT", "INTERNET RETAIL")),
+    ("Communication Equipment",            ("COMMUNICATION EQUIPMENT", "TELECOM SERVICES", "TELECOMMUNICATIONS")),
+    # --- Healthcare ----------------------------------------------------
+    ("Biotechnology",                      ("BIOTECHNOLOGY", "GENETIC", "DRUG MANUFACTURERS - SPECIALTY")),
+    ("Pharmaceuticals",                    ("DRUG MANUFACTURERS", "PHARMACEUTICAL")),
+    ("Medical Devices",                    ("MEDICAL DEVICES", "MEDICAL INSTRUMENTS", "MEDICAL APPLIANCES")),
+    ("Diagnostics & Research",             ("DIAGNOSTICS", "MEDICAL CARE FACILITIES", "MEDICAL DISTRIBUTION", "HEALTH INFORMATION", "HEALTH PLANS", "HEALTHCARE PLANS")),
+    # --- Financials ----------------------------------------------------
+    ("Banks - Diversified",                ("BANKS - DIVERSIFIED", "BANKS—DIVERSIFIED", "BANK - DIVERSIFIED")),
+    ("Banks - Regional",                   ("BANKS - REGIONAL", "BANKS—REGIONAL", "BANK - REGIONAL", "REGIONAL BANK")),
+    ("Capital Markets",                    ("CAPITAL MARKETS", "ASSET MANAGEMENT", "FINANCIAL DATA", "FINANCIAL CONGLOMERATES")),
+    ("Insurance",                          ("INSURANCE", "REINSURANCE")),
+    ("Consumer Finance",                   ("CREDIT SERVICES", "MORTGAGE FINANCE", "FINANCIAL - CREDIT", "PAYMENT")),
+    # --- Consumer Discretionary ---------------------------------------
+    ("Auto Manufacturers & Parts",         ("AUTO MANUFACTURERS", "AUTO PARTS", "AUTO & TRUCK DEALERSHIPS", "RECREATIONAL VEHICLES")),
+    ("Apparel & Luxury",                   ("APPAREL", "FOOTWEAR", "LUXURY GOODS", "TEXTILE", "PACKAGING & CONTAINERS")),
+    ("Specialty Retail",                   ("SPECIALTY RETAIL", "DEPARTMENT STORES", "HOME IMPROVEMENT RETAIL", "AUTO PARTS RETAIL", "LEISURE")),
+    ("Hotels Restaurants & Leisure",       ("RESTAURANTS", "LODGING", "GAMBLING", "RESORTS")),
+    # --- Consumer Staples ---------------------------------------------
+    ("Food Beverage & Tobacco",            ("BEVERAGES", "PACKAGED FOODS", "TOBACCO", "FARM PRODUCTS", "CONFECTIONERS")),
+    ("Household & Personal Products",      ("HOUSEHOLD", "PERSONAL PRODUCTS", "PERSONAL SERVICES")),
+    ("Food & Staples Retailing",           ("DISCOUNT STORES", "GROCERY STORES", "FOOD DISTRIBUTION")),
+    # --- Industrials --------------------------------------------------
+    ("Aerospace & Defense",                ("AEROSPACE", "DEFENSE")),
+    ("Capital Goods - Machinery",          ("FARM & HEAVY CONSTRUCTION MACHINERY", "INDUSTRIAL DISTRIBUTION", "SPECIALTY INDUSTRIAL MACHINERY", "TOOLS & ACCESSORIES", "ELECTRICAL EQUIPMENT")),
+    ("Construction & Engineering",         ("ENGINEERING & CONSTRUCTION", "BUILDING PRODUCTS", "BUILDING MATERIALS", "INFRASTRUCTURE OPERATIONS")),
+    ("Transportation & Logistics",         ("AIRLINES", "RAILROAD", "TRUCKING", "MARINE SHIPPING", "INTEGRATED FREIGHT", "AIRPORTS")),
+    ("Commercial Services",                ("BUSINESS SERVICES", "STAFFING", "CONSULTING", "RENTAL", "WASTE MANAGEMENT", "SECURITY")),
+    # --- Energy & Materials -------------------------------------------
+    ("Oil Gas & Consumable Fuels",         ("OIL & GAS", "THERMAL COAL", "URANIUM", "GAS UTILITIES")),
+    ("Metals & Mining",                    ("GOLD", "SILVER", "COPPER", "STEEL", "ALUMINUM", "OTHER PRECIOUS METALS", "MINING")),
+    ("Chemicals",                          ("CHEMICALS", "AGRICULTURAL INPUTS")),
+    # --- Real Estate & Utilities --------------------------------------
+    ("Equity REITs",                       ("REIT", "REAL ESTATE")),
+    ("Utilities",                          ("UTILITIES", "WATER UTILITIES", "RENEWABLE UTILITIES", "INDEPENDENT POWER")),
+    # --- Catch-all -----------------------------------------------------
+    ("Other",                              ()),
+]
+
+
+def map_yf_industry_to_group(industry: Any) -> str:
+    """Fold a yfinance industry string into the coarse GICS-style bucket
+    used by `YF_INDUSTRY_TO_GICS_GROUP`.  Returns 'Other' on miss / NaN.
+    """
+    if industry is None:
+        return "Other"
+    s = str(industry).strip()
+    if not s or s.lower() in {"nan", "none"}:
+        return "Other"
+    upper = s.upper()
+    for label, keys in YF_INDUSTRY_TO_GICS_GROUP:
+        if not keys:
+            continue
+        for k in keys:
+            if k in upper:
+                return label
+    return "Other"
+
+
+def attach_industry_metadata(
+    monthly: pd.DataFrame,
+    industry_meta: pd.DataFrame,
+) -> pd.DataFrame:
+    """Merge the yfinance industry-metadata cache onto a monthly universe
+    frame and derive the engine-side `industry` and `industry_group` columns.
+
+    - `industry`         := preferred yfinance industry display, falling back
+                            to the raw industry key, then 'Unknown'.
+    - `industry_group`   := coarse GICS-style bucket from
+                            `YF_INDUSTRY_TO_GICS_GROUP`.
+    - `subindustry`      := alias of `industry` so downstream code that looks
+                            for either name (e.g. `compute_sage_sector_labels`)
+                            keeps working.
+    """
+    if monthly is None or monthly.empty:
+        return monthly
+    if industry_meta is None or industry_meta.empty:
+        out = monthly.copy()
+        for c in ("industry", "industry_group", "subindustry"):
+            if c not in out.columns:
+                out[c] = "Unknown"
+        return out
+    cols_keep = [c for c in ("ticker", "yf_industry", "yf_industry_disp", "yf_industry_key", "yf_sector", "yf_sector_key") if c in industry_meta.columns]
+    meta = industry_meta[cols_keep].copy().drop_duplicates("ticker", keep="last")
+    out = monthly.merge(meta, on="ticker", how="left")
+    if "industry" not in out.columns or out["industry"].isna().all():
+        out["industry"] = (
+            out.get("yf_industry_disp")
+            .fillna(out.get("yf_industry"))
+            .fillna(out.get("yf_industry_key"))
+            .fillna("Unknown")
+            .astype(str)
+        )
+    else:
+        out["industry"] = out["industry"].fillna(
+            out.get("yf_industry_disp")
+            .fillna(out.get("yf_industry"))
+            .fillna(out.get("yf_industry_key"))
+            .fillna("Unknown")
+        ).astype(str)
+    out["subindustry"] = out["industry"]
+    out["industry_group"] = out["industry"].map(map_yf_industry_to_group).fillna("Other").astype(str)
+    return out
+
+
+# =====================================================================
+# Phase 2.4: industry-level relative strength (O'Neil-style)
+# =====================================================================
+def _demean_within_group(
+    df: pd.DataFrame,
+    value_col: str,
+    group_cols: list[str],
+    out_col: str,
+    min_group_size: int = 4,
+) -> pd.DataFrame:
+    """Subtract the within-group mean from `value_col` and write to `out_col`.
+
+    Falls back to zero (rather than NaN) when the within-group sample is too
+    small to be informative — this avoids spurious extreme RS values for
+    micro-buckets like "Other" with two members.
+    """
+    if value_col not in df.columns:
+        df[out_col] = 0.0
+        return df
+    vals = pd.to_numeric(df[value_col], errors="coerce")
+    grp = df.groupby(group_cols, dropna=False)
+    means = grp[value_col].transform(lambda x: pd.to_numeric(x, errors="coerce").mean())
+    counts = grp[value_col].transform("count")
+    demeaned = (vals - means).where(counts >= int(min_group_size), 0.0)
+    df[out_col] = pd.to_numeric(demeaned, errors="coerce").fillna(0.0)
+    return df
+
+
+def _group_mean_to_row(
+    df: pd.DataFrame,
+    value_col: str,
+    group_cols: list[str],
+    out_col: str,
+) -> pd.DataFrame:
+    """Broadcast the within-group mean of `value_col` back to each row.  Useful
+    for top-down "industry momentum" signals (rotation, leadership)."""
+    if value_col not in df.columns:
+        df[out_col] = 0.0
+        return df
+    vals = pd.to_numeric(df[value_col], errors="coerce")
+    means = vals.groupby([df[c] for c in group_cols]).transform("mean")
+    df[out_col] = pd.to_numeric(means, errors="coerce").fillna(0.0)
+    return df
+
+
+def add_industry_relative_strength(monthly: pd.DataFrame) -> pd.DataFrame:
+    """Add industry- and industry-group-level relative-strength features.
+
+    Produces:
+      - `rs_industry_{1m,3m,6m,12m}`         : within-yfinance-industry RS
+      - `rs_industry_group_{1m,3m,6m,12m}`   : within-coarse-bucket RS
+      - `industry_mom_mean_{3m,6m,12m}`      : mean momentum of the industry
+      - `industry_group_mom_mean_{3m,6m,12m}`: mean momentum of the bucket
+      - `industry_breadth_above_ma200`       : fraction of industry above MA200
+      - `industry_group_breadth_above_ma200` : same for coarse bucket
+    """
+    if monthly is None or monthly.empty:
+        return monthly
+    if "rebalance_date" not in monthly.columns:
+        return monthly
+    out = monthly.copy()
+    if "industry" not in out.columns:
+        out["industry"] = "Unknown"
+    if "industry_group" not in out.columns:
+        out["industry_group"] = "Other"
+
+    horizon_cols = [
+        ("mom_1m", "rs_industry_1m", "rs_industry_group_1m"),
+        ("mom_3m", "rs_industry_3m", "rs_industry_group_3m"),
+        ("mom_6m", "rs_industry_6m", "rs_industry_group_6m"),
+        ("mom_12m", "rs_industry_12m", "rs_industry_group_12m"),
+    ]
+    for src, ind_col, grp_col in horizon_cols:
+        out = _demean_within_group(
+            out, src, ["rebalance_date", "industry"], ind_col, min_group_size=4
+        )
+        out = _demean_within_group(
+            out, src, ["rebalance_date", "industry_group"], grp_col, min_group_size=8
+        )
+
+    # Industry-level momentum means (top-down rotation signals).
+    for src, mean_col_ind, mean_col_grp in [
+        ("mom_3m", "industry_mom_mean_3m", "industry_group_mom_mean_3m"),
+        ("mom_6m", "industry_mom_mean_6m", "industry_group_mom_mean_6m"),
+        ("mom_12m", "industry_mom_mean_12m", "industry_group_mom_mean_12m"),
+    ]:
+        out = _group_mean_to_row(out, src, ["rebalance_date", "industry"], mean_col_ind)
+        out = _group_mean_to_row(out, src, ["rebalance_date", "industry_group"], mean_col_grp)
+
+    if "price_above_ma200" in out.columns:
+        out = _group_mean_to_row(
+            out,
+            "price_above_ma200",
+            ["rebalance_date", "industry"],
+            "industry_breadth_above_ma200",
+        )
+        out = _group_mean_to_row(
+            out,
+            "price_above_ma200",
+            ["rebalance_date", "industry_group"],
+            "industry_group_breadth_above_ma200",
+        )
+    else:
+        out["industry_breadth_above_ma200"] = 0.0
+        out["industry_group_breadth_above_ma200"] = 0.0
+    return out
+
+
+# =====================================================================
+# Phase 2.5: O'Neil leadership score (industry-leader rank * group strength)
+# =====================================================================
+def compute_oneil_leadership_score(monthly: pd.DataFrame) -> pd.DataFrame:
+    """O'Neil/IBD-style leadership score:
+        leadership = industry_group_strength * within_industry_leader_rank
+
+    The first factor captures the macro tailwind ("buy stocks in strong
+    groups"); the second captures the within-industry pecking order ("buy the
+    #1 or #2 name in that strong group").  Combining them surfaces the names
+    that benefit from both effects — semiconductor leaders during a chip
+    cycle, regional-bank leaders during a banking-stress recovery, etc.
+    """
+    if monthly is None or monthly.empty:
+        return monthly
+    if "rebalance_date" not in monthly.columns:
+        return monthly
+    out = monthly.copy()
+    if "industry" not in out.columns:
+        out["industry"] = "Unknown"
+    if "industry_group" not in out.columns:
+        out["industry_group"] = "Other"
+
+    # Group strength: combine medium-term industry-group momentum mean with
+    # breadth and our existing benchmark RS.
+    grp_mom = pd.to_numeric(out.get("industry_group_mom_mean_6m"), errors="coerce").fillna(0.0)
+    grp_breadth = pd.to_numeric(out.get("industry_group_breadth_above_ma200"), errors="coerce").fillna(0.0)
+    grp_strength = (grp_mom + 0.40 * grp_breadth)
+    grp_strength_z = grp_strength.groupby(out["rebalance_date"]).transform(
+        lambda x: (x - x.mean()) / (x.std(ddof=0) + 1e-8)
+    ).fillna(0.0)
+    out["industry_group_strength_score"] = grp_strength_z
+
+    # Within-industry leader rank: rank by mom_6m and rs_benchmark_6m.
+    def _rank_within(col: str) -> pd.Series:
+        if col not in out.columns:
+            return pd.Series(0.0, index=out.index, dtype=float)
+        s = pd.to_numeric(out[col], errors="coerce")
+        # rank(pct=True) returns [0..1]; we want leaders at +1 and laggards at -1.
+        ranks = s.groupby([out["rebalance_date"], out["industry"]]).rank(
+            pct=True, ascending=True, method="average"
+        )
+        return (ranks * 2.0 - 1.0).fillna(0.0)
+
+    leader_rank_mom = _rank_within("mom_6m")
+    leader_rank_rs = _rank_within("rs_benchmark_6m")
+    leader_rank_eps = _rank_within("eps_growth_yoy")
+    out["industry_within_leader_rank"] = (
+        0.40 * leader_rank_mom + 0.40 * leader_rank_rs + 0.20 * leader_rank_eps
+    ).fillna(0.0)
+
+    # Final O'Neil leadership score.  Multiplied form so a strong leader in
+    # a weak group is muted — exactly what O'Neil's CAN SLIM "L" leg
+    # demands.  We add a small additive floor so an exceptional within-group
+    # leader still shows up in a neutral-strength group.
+    multiplicative = grp_strength_z.clip(lower=-2.5, upper=2.5) * out["industry_within_leader_rank"]
+    additive_floor = 0.30 * out["industry_within_leader_rank"]
+    out["oneil_leadership_score"] = (multiplicative + additive_floor).clip(lower=-3.0, upper=3.0)
+    return out
+
+
+# =====================================================================
+# Phase 2.6: Industry rotation signal (rising-from-bottom industries)
+# =====================================================================
+def add_industry_rotation_signal(monthly: pd.DataFrame) -> pd.DataFrame:
+    """Industry-rotation signal: which industries are bottoming and now
+    accelerating.  Targets the user's "buy the bottom-out turnaround
+    industry" mandate by combining:
+      (a) `industry_group_mom_mean_3m` rising relative to the broader market;
+      (b) the change in 3m mean (i.e. industry-level acceleration);
+      (c) breadth turning back above 50%.
+    """
+    if monthly is None or monthly.empty:
+        return monthly
+    if "rebalance_date" not in monthly.columns or "industry_group" not in monthly.columns:
+        return monthly
+    out = monthly.copy()
+
+    # Universe-mean momentum at each rebalance — used as "the market".
+    market_mom_3m = pd.to_numeric(out.get("mom_3m"), errors="coerce").groupby(
+        out["rebalance_date"]
+    ).transform("mean").fillna(0.0)
+    market_mom_6m = pd.to_numeric(out.get("mom_6m"), errors="coerce").groupby(
+        out["rebalance_date"]
+    ).transform("mean").fillna(0.0)
+
+    grp_mom_3m = pd.to_numeric(out.get("industry_group_mom_mean_3m"), errors="coerce").fillna(0.0)
+    grp_mom_6m = pd.to_numeric(out.get("industry_group_mom_mean_6m"), errors="coerce").fillna(0.0)
+
+    # Industry beating the market on 3m but lagging on 6m → fresh rotation up.
+    rotation_3m_lead = (grp_mom_3m - market_mom_3m).clip(-0.50, 0.50)
+    catch_up_signal = ((grp_mom_3m > market_mom_3m) & (grp_mom_6m < market_mom_6m)).astype(float)
+
+    # Industry-level breadth recovering above 50%.
+    grp_breadth = pd.to_numeric(out.get("industry_group_breadth_above_ma200"), errors="coerce").fillna(0.0)
+    breadth_recovery = ((grp_breadth >= 0.50) & (grp_breadth <= 0.80)).astype(float)
+
+    # Industry acceleration: short-term mean momentum versus medium-term mean.
+    grp_accel = (grp_mom_3m - grp_mom_6m).clip(-0.50, 0.50)
+
+    rotation = (
+        0.40 * rotation_3m_lead
+        + 0.30 * grp_accel
+        + 0.20 * catch_up_signal
+        + 0.10 * breadth_recovery
+    )
+    # Standardise per rebalance so the signal is comparable to other z-scores.
+    rotation_z = rotation.groupby(out["rebalance_date"]).transform(
+        lambda x: (x - x.mean()) / (x.std(ddof=0) + 1e-8)
+    ).fillna(0.0)
+    out["industry_rotation_signal"] = rotation_z.clip(lower=-3.0, upper=3.0)
+    return out
+
 
 @dataclass
 class EngineConfig:
@@ -1258,6 +1604,9 @@ class EngineConfig:
     max_new_yf_info: int = 300
     live_refresh_days: int = 2
     max_live_refresh_tickers: int = 1000
+    # Phase 2: yfinance industry metadata refresh budget
+    industry_metadata_max_new_per_run: int = 250
+    industry_metadata_refresh_days: int = 60
     max_alpha_vantage_refresh_tickers: int = 60
     latest_statement_repair_enabled: bool = True
     latest_statement_repair_tickers: int = 60
@@ -8024,6 +8373,12 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
             "macro_hedge_score",
             "strategy_blueprint_score",
             "watchlist_quality_penalty",
+            # Phase 1 new alpha signals
+            "fundamental_turnaround_acceleration_score",
+            "cashflow_inflection_under_loss_score",
+            "value_inflection_score",
+            "uptrend_continuation_score",
+            "uptrend_breakdown_penalty",
         ]:
             d[c] = np.nan
         return d
@@ -8225,6 +8580,288 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         - 0.08 * deep_negative_margin_penalty
         - 0.08 * leverage_penalty
     ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.1+1.2: Turnaround / cash-flow inflection scores
+    # =====================================================================
+    # These scores hunt for the WDC/LITE-style setup the system was missing
+    # before: revenue still growing AND a real loss-to-profit transition (or
+    # loss-narrowing) on the operating-income / OCF / FCF / EBITDA lines, with
+    # leverage improving and accruals quality holding up.  We rely on the
+    # panel-level sign-flip and loss-narrowing features added in
+    # `add_fundamental_features` (op_income_sign_flip_pos, ocf_sign_flip_pos,
+    # fcf_sign_flip_pos, ni_sign_flip_pos, op_income_loss_narrowing_4q,
+    # ocf_loss_narrowing_4q, fcf_loss_narrowing_4q, ocf_under_loss_growth,
+    # fcf_under_loss_growth) which carry through the standard fundamental
+    # ffill pipeline.
+    op_inc_flip = numeric_series_or_default(d, "op_income_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    ocf_flip = numeric_series_or_default(d, "ocf_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    fcf_flip = numeric_series_or_default(d, "fcf_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    ni_flip = numeric_series_or_default(d, "ni_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    gp_flip = numeric_series_or_default(d, "gp_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    op_inc_narrowing = numeric_series_or_default(d, "op_income_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    fcf_narrowing = numeric_series_or_default(d, "fcf_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ocf_narrowing = numeric_series_or_default(d, "ocf_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ni_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ocf_under_loss = numeric_series_or_default(d, "ocf_under_loss_growth", 0.0).clip(0.0, 1.0)
+    fcf_under_loss = numeric_series_or_default(d, "fcf_under_loss_growth", 0.0).clip(0.0, 1.0)
+
+    sales_yoy_v = numeric_series_or_default(d, "sales_growth_yoy", 0.0).fillna(0.0)
+    rev_growth_pos = (sales_yoy_v > 0.0).astype(float)
+    rev_growth_strong = (sales_yoy_v > 0.10).astype(float)
+
+    # Gate sign-flips on the existence of revenue growth so we don't reward
+    # cost-cutting-only profitability swings (those are not turnarounds we
+    # want to ride).
+    op_flip_gated = op_inc_flip * rev_growth_pos
+    ocf_flip_gated = ocf_flip * rev_growth_pos
+    fcf_flip_gated = fcf_flip * rev_growth_pos
+    ni_flip_gated = ni_flip * rev_growth_pos
+    gp_flip_gated = gp_flip * rev_growth_pos
+
+    # === Fundamental turnaround acceleration score ===========================
+    # Captures: revenue acceleration + multi-line P&L loss-to-profit flip +
+    # narrowing losses + improving leverage + earnings revisions confirming.
+    revision_alpha = cross_sectional_robust_z(d, "revision_score").fillna(0.0)
+    margin_expansion_at_growth = cross_sectional_robust_z(d, "margin_expansion_at_growth").fillna(0.0)
+    deleveraging_alpha = (-cross_sectional_robust_z(d, "debt_to_equity_delta_4q")).fillna(0.0)
+    accruals_quality_alpha = cross_sectional_robust_z(d, "ocf_ni_quality_4q").fillna(0.0)
+
+    d["fundamental_turnaround_acceleration_score"] = (
+        0.18 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.13 * robust_z(op_flip_gated).fillna(0.0)
+        + 0.10 * robust_z(ni_flip_gated).fillna(0.0)
+        + 0.08 * robust_z(gp_flip_gated).fillna(0.0)
+        + 0.10 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.07 * robust_z(op_inc_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * robust_z(ni_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.06 * cross_sectional_robust_z(d, "growth_inflection_signal")
+        + 0.05 * margin_expansion_at_growth
+        + 0.05 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
+        + 0.04 * cross_sectional_robust_z(d, "roe_trend_4q")
+        + 0.05 * deleveraging_alpha
+        + 0.04 * accruals_quality_alpha
+        + 0.04 * revision_alpha
+        - 0.06 * deep_negative_margin_penalty
+        - 0.04 * leverage_penalty
+    ).fillna(0.0)
+
+    # === Cashflow inflection under loss score ================================
+    # OCF/FCF turning positive (or sharply improving) while net income is
+    # still negative — the classic Lynch/O'Neil "cash flow leads earnings"
+    # leading indicator of a turnaround.  Also rewards firms with high
+    # OCF/NI quality already running cash-positive while consensus still
+    # treats them as loss-makers.
+    ocf_quality_v = numeric_series_or_default(d, "ocf_ni_quality_4q", 0.0).fillna(0.0)
+    cashflow_quality_inflection = (
+        (ocf_quality_v > 1.0).astype(float) * ocf_quality_v.clip(0.0, 3.0)
+    )
+    fcf_pos_growing = (
+        (numeric_series_or_default(d, "fcf_ttm", 0.0) > 0.0).astype(float)
+        * rev_growth_strong
+    )
+    op_yoy_alpha = cross_sectional_robust_z(d, "op_income_growth_yoy").fillna(0.0)
+    ocf_yoy_alpha = cross_sectional_robust_z(d, "ocf_growth_yoy").fillna(0.0)
+    fcf_yoy_alpha = cross_sectional_robust_z(d, "fcf_growth_yoy").fillna(0.0)
+
+    d["cashflow_inflection_under_loss_score"] = (
+        0.18 * robust_z(ocf_under_loss).fillna(0.0)
+        + 0.16 * robust_z(fcf_under_loss).fillna(0.0)
+        + 0.10 * robust_z(ocf_flip_gated).fillna(0.0)
+        + 0.10 * robust_z(fcf_flip_gated).fillna(0.0)
+        + 0.08 * robust_z(fcf_pos_growing).fillna(0.0)
+        + 0.08 * accruals_quality_alpha
+        + 0.06 * robust_z(cashflow_quality_inflection).fillna(0.0)
+        + 0.05 * robust_z(ocf_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * robust_z(fcf_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * ocf_yoy_alpha
+        + 0.05 * fcf_yoy_alpha
+        + 0.04 * op_yoy_alpha
+        + 0.04 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        - 0.06 * leverage_penalty
+    ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.3: Value inflection score (cheap + growing + reversing)
+    # =====================================================================
+    # Targets the setup the user described: a stock whose PE is
+    # compressing because earnings/revenue are growing faster than the
+    # price (or the price has been beaten down), AND the chart has just
+    # started to reverse from oversold / Stage 1 base.  Hunts for the
+    # "expectations gap closing" trade — a value-and-growth combination
+    # that classic momentum-only models miss.
+    near_high = numeric_series_or_default(d, "near_52w_high_pct", 0.0)
+    dd_1y_v = numeric_series_or_default(d, "dd_1y", 0.0).clip(lower=0.0, upper=1.5)
+    mom_1m_v = numeric_series_or_default(d, "mom_1m", 0.0)
+    mom_3m_v = numeric_series_or_default(d, "mom_3m", 0.0)
+    mom_6m_v = numeric_series_or_default(d, "mom_6m", 0.0)
+    price_above_ma50_v = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(0.0, 1.0)
+    price_above_ma200_v = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(0.0, 1.0)
+    ma50_above_ma200_v = numeric_series_or_default(d, "ma50_above_ma200", 0.0).clip(0.0, 1.0)
+
+    eps_growth_yoy_v = numeric_series_or_default(d, "eps_growth_yoy", np.nan)
+    op_inc_growth_yoy_v = numeric_series_or_default(d, "op_income_growth_yoy", np.nan)
+    fcf_growth_yoy_v = numeric_series_or_default(d, "fcf_growth_yoy", np.nan)
+
+    # Cheapness: high earnings yield (low PE), low EV/EBITDA, low forward PE
+    cheapness = row_mean(
+        [
+            cross_sectional_robust_z(d, "ep_ttm"),
+            -cross_sectional_robust_z(d, "forward_pe_final"),
+            -cross_sectional_robust_z(d, "ev_to_ebitda_final"),
+            cross_sectional_robust_z(d, "fcfy_ttm"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    # Earnings catching up to price: positive growth on multiple lines
+    earnings_catchup = row_mean(
+        [
+            cross_sectional_robust_z(d, "eps_growth_yoy"),
+            cross_sectional_robust_z(d, "op_income_growth_yoy"),
+            cross_sectional_robust_z(d, "fcf_growth_yoy"),
+            cross_sectional_robust_z(d, "rev_growth_accel_4q"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    # Earnings-up-while-price-still-down (the heart of "PE shrinking"):
+    # any positive growth combined with currently being below 52w high.
+    fundamentals_growing = (
+        ((eps_growth_yoy_v > 0.0) | (op_inc_growth_yoy_v > 0.0) | (fcf_growth_yoy_v > 0.0)).astype(float)
+    )
+    price_beaten_down = (near_high < -0.15).astype(float)
+    pe_compression_setup = fundamentals_growing * price_beaten_down
+
+    # Reversal: oversold previously (deep dd) but now the most recent
+    # 1m / 3m momentum has flipped positive, ideally with the price
+    # reclaiming MA50.
+    oversold_recovery = (
+        (dd_1y_v > 0.20).astype(float)
+        * ((mom_1m_v > 0.0).astype(float) + (mom_3m_v > 0.0).astype(float))
+    ).clip(upper=2.0)
+    stage_one_to_two_transition = (
+        (price_above_ma200_v > 0.5).astype(float)
+        * (price_above_ma50_v > 0.5).astype(float)
+        * (ma50_above_ma200_v > 0.5).astype(float)
+        * (near_high < -0.10).astype(float)  # not yet at the high → early stage 2
+    )
+
+    # Quality / safety filters — avoid value traps with crumbling fundamentals.
+    not_deep_negative_margin = (
+        numeric_series_or_default(d, "op_margin_ttm", 0.0) > -0.05
+    ).astype(float)
+    not_high_leverage = (
+        numeric_series_or_default(d, "debt_to_equity", 0.0).clip(lower=0.0) < 3.0
+    ).astype(float)
+    quality_floor = (not_deep_negative_margin * not_high_leverage).clip(0.0, 1.0)
+
+    d["value_inflection_score"] = (
+        (
+            0.20 * cheapness
+            + 0.18 * earnings_catchup
+            + 0.12 * robust_z(pe_compression_setup).fillna(0.0)
+            + 0.10 * robust_z(oversold_recovery).fillna(0.0)
+            + 0.10 * robust_z(stage_one_to_two_transition).fillna(0.0)
+            + 0.08 * cross_sectional_robust_z(d, "ocf_ni_quality_4q")
+            + 0.06 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+            + 0.06 * cross_sectional_robust_z(d, "margin_trend_4q")
+            + 0.05 * cross_sectional_robust_z(d, "revision_score")
+            + 0.05 * cross_sectional_robust_z(d, "actual_results_score")
+            - 0.06 * deep_negative_margin_penalty
+            - 0.04 * leverage_penalty
+        )
+        * (0.30 + 0.70 * quality_floor)
+    ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.4: Uptrend continuation score + uptrend breakdown penalty
+    # =====================================================================
+    # User mandate: keep names that are at the 52w high with MAs aligned and
+    # earnings still beating; aggressively penalise those names the moment a
+    # leg of the thesis cracks (price loses MA50/MA200, earnings disappoint,
+    # revisions roll over).  This is the defensive-overlay for our existing
+    # winners.
+    above_ma20_v = numeric_series_or_default(d, "price_above_ma20", 0.0).clip(0.0, 1.0)
+    above_ma150_v = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(0.0, 1.0)
+    ma150_above_ma200_v = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(0.0, 1.0)
+    ma20_above_ma50_v = numeric_series_or_default(d, "ma20_above_ma50", 0.0).clip(0.0, 1.0)
+    ma50_above_ma150_v = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(0.0, 1.0)
+
+    actual_results_v = numeric_series_or_default(d, "actual_results_score", 0.0)
+    revision_score_v = numeric_series_or_default(d, "revision_score", 0.0)
+    earn_gap_v = numeric_series_or_default(d, "earn_gap_1d", 0.0)
+    rs_bench_3m_v = numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+    rs_bench_6m_v = numeric_series_or_default(d, "rs_benchmark_6m", 0.0)
+    death_cross_v = numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(0.0, 1.0)
+
+    full_trend_alignment = (
+        above_ma20_v
+        * ma20_above_ma50_v
+        * price_above_ma50_v
+        * ma50_above_ma150_v
+        * above_ma150_v
+        * ma150_above_ma200_v
+    ).clip(0.0, 1.0)
+
+    near_high_strong = ((near_high >= -0.10).astype(float)).clip(0.0, 1.0)
+    momentum_intact = (
+        (mom_3m_v > 0.0).astype(float)
+        + (mom_6m_v > 0.0).astype(float)
+        + (rs_bench_3m_v > 0.0).astype(float)
+        + (rs_bench_6m_v > 0.0).astype(float)
+    ) / 4.0
+    earnings_intact = (
+        (actual_results_v > 0.0).astype(float)
+        + (revision_score_v > 0.0).astype(float)
+        + (earn_gap_v > -0.02).astype(float)
+    ) / 3.0
+    fundamentals_compounding = (
+        ((sales_yoy_v > 0.05).astype(float))
+        * ((eps_growth_yoy_v > 0.0).fillna(False).astype(float))
+    )
+
+    d["uptrend_continuation_score"] = (
+        0.22 * robust_z(full_trend_alignment).fillna(0.0)
+        + 0.16 * robust_z(near_high_strong).fillna(0.0)
+        + 0.14 * robust_z(momentum_intact).fillna(0.0)
+        + 0.12 * robust_z(earnings_intact).fillna(0.0)
+        + 0.10 * robust_z(fundamentals_compounding).fillna(0.0)
+        + 0.08 * cross_sectional_robust_z(d, "rs_benchmark_6m")
+        + 0.06 * cross_sectional_robust_z(d, "minervini_momentum_alive_score")
+        + 0.06 * numeric_series_or_default(d, "trend_template_full", 0.0)
+        + 0.04 * cross_sectional_robust_z(d, "revision_score")
+    ).fillna(0.0)
+
+    # Uptrend breakdown penalty — fires when a previously-strong name cracks.
+    # Components: (a) was strong/near high (uses near_high relaxed) but now
+    # below MA50 or below MA200; (b) negative earnings event (gap-down or
+    # revision rolling over); (c) momentum has flipped negative.
+    was_strong = (near_high >= -0.20).astype(float)  # within 20% of 52w high
+    lost_ma50 = (price_above_ma50_v <= 0.0).astype(float)
+    lost_ma200 = (price_above_ma200_v <= 0.0).astype(float)
+    earnings_disappointment = (
+        ((earn_gap_v < -0.05).astype(float))
+        + ((actual_results_v < -0.5).astype(float))
+        + ((revision_score_v < -0.5).astype(float))
+    ).clip(upper=2.0) / 2.0
+    momentum_rollover = (
+        ((mom_3m_v < 0.0).astype(float))
+        + ((rs_bench_3m_v < 0.0).astype(float))
+        + ((mom_1m_v < -0.05).astype(float))
+    ).clip(upper=2.0) / 2.0
+
+    breakdown_components = row_mean(
+        [
+            was_strong * lost_ma50,
+            was_strong * lost_ma200,
+            earnings_disappointment,
+            momentum_rollover,
+            0.50 * death_cross_v,
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["uptrend_breakdown_penalty"] = breakdown_components.clip(lower=0.0, upper=1.5)
 
     anticipatory_market_confirmation = row_mean(
         [
@@ -9815,6 +10452,104 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
     return cache
 
 
+# =====================================================================
+# Phase 2.1: yfinance industry / sub-industry metadata cache
+# =====================================================================
+INDUSTRY_METADATA_COLUMNS = [
+    "ticker",
+    "yf_sector",
+    "yf_industry",
+    "yf_industry_disp",
+    "yf_sector_key",
+    "yf_industry_key",
+    "updated_at",
+]
+
+
+def load_industry_metadata_cache(paths: dict[str, Path]) -> pd.DataFrame:
+    p = paths["cache_misc"] / "yf_industry_metadata.parquet"
+    if not p.exists():
+        return pd.DataFrame(columns=INDUSTRY_METADATA_COLUMNS)
+    try:
+        df = pd.read_parquet(p)
+    except Exception:
+        return pd.DataFrame(columns=INDUSTRY_METADATA_COLUMNS)
+    for c in INDUSTRY_METADATA_COLUMNS:
+        if c not in df.columns:
+            df[c] = pd.Series(dtype=object)
+    return df
+
+
+def save_industry_metadata_cache(paths: dict[str, Path], df: pd.DataFrame) -> None:
+    p = paths["cache_misc"] / "yf_industry_metadata.parquet"
+    df.to_parquet(p, index=False)
+
+
+def fetch_ticker_industry_metadata(ticker: str) -> dict[str, Any]:
+    """Fetch yfinance industry / sub-industry metadata for a single ticker.
+
+    yfinance's `info` payload exposes `industry`, `industryDisp`, `industryKey`,
+    `sector`, and `sectorKey` for most US equities.  We capture all of them so
+    the engine can either use the raw yfinance taxonomy or fall back to the
+    coarser SAGE/GICS bucket map (`YF_INDUSTRY_TO_GICS_GROUP`) when needed.
+    """
+    record: dict[str, Any] = {
+        "ticker": ticker,
+        "yf_sector": None,
+        "yf_industry": None,
+        "yf_industry_disp": None,
+        "yf_sector_key": None,
+        "yf_industry_key": None,
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
+    try:
+        t = yf.Ticker(to_yf_symbol(ticker))
+        info = t.info or {}
+        record["yf_sector"] = info.get("sector") or None
+        record["yf_industry"] = info.get("industry") or None
+        record["yf_industry_disp"] = info.get("industryDisp") or info.get("industry") or None
+        record["yf_sector_key"] = info.get("sectorKey") or None
+        record["yf_industry_key"] = info.get("industryKey") or None
+    except Exception:
+        pass
+    return record
+
+
+def ensure_industry_metadata(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    tickers: list[str],
+    max_new: int = 500,
+    refresh_days: int = 60,
+) -> pd.DataFrame:
+    """Return a fresh industry-metadata table for `tickers`, refreshing yfinance
+    lookups for any ticker missing or older than `refresh_days`.  Cap each call
+    at `max_new` new fetches so a cold start does not blow through Yahoo's
+    rate limits in one shot.
+    """
+    cache = load_industry_metadata_cache(paths)
+    cache["updated_at"] = pd.to_datetime(cache.get("updated_at"), errors="coerce")
+    recent_cut = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=int(max(refresh_days, 1)))
+    fresh = cache[cache["updated_at"] >= recent_cut] if not cache.empty else pd.DataFrame()
+    have = set(fresh["ticker"].astype(str).tolist()) if not fresh.empty else set()
+    need = [t for t in tickers if str(t) not in have][: int(max(max_new, 0))]
+    if need:
+        rows: list[dict[str, Any]] = []
+        for i, t in enumerate(need, start=1):
+            rows.append(fetch_ticker_industry_metadata(t))
+            if i % 40 == 0:
+                time.sleep(1.0)
+        add = pd.DataFrame(rows)
+        cache = pd.concat([cache, add], ignore_index=True) if not cache.empty else add
+        cache = (
+            cache.sort_values("updated_at")
+            .drop_duplicates("ticker", keep="last")
+            .reset_index(drop=True)
+        )
+        save_industry_metadata_cache(paths, cache)
+    return cache
+
+
 def get_nyse_days(start_date: str, end_date: str) -> pd.DatetimeIndex:
     if mcal is not None:
         cal = mcal.get_calendar("NYSE")
@@ -10483,6 +11218,81 @@ def recompute_fund_panel_derived_columns(
         d["fcf_cagr_5y"] = _cagr_from_lag(d["fcf_ttm"], lag5, aq5)
         d["fcf_cagr_best"] = d["fcf_cagr_3y"].fillna(d["fcf_cagr_2y"]).fillna(d["fcf_cagr_1y"])
 
+    # --- Turnaround / loss-to-profit sign-flip + loss-narrowing features ---
+    # These detect the loss → profit transition (or loss-narrowing) using
+    # explicit lag-4 comparison at the panel level so we do not have to rely
+    # on NaN-heuristics downstream.  Each "sign_flip_pos" flag is 1 only when
+    # the latest TTM crossed from non-positive to strictly positive between the
+    # prior fiscal year and the current period.  The "loss_narrowing_rate" is
+    # the year-over-year improvement (units of underlying TTM scaled by abs of
+    # prior year value) when the firm is still loss-making but improving.
+    def _sign_flip_pos(series_name: str) -> pd.Series:
+        if series_name not in d.columns:
+            return pd.Series(0.0, index=d.index)
+        cur = pd.to_numeric(d[series_name], errors="coerce")
+        prev = d.groupby("cik")[series_name].shift(4)
+        prev_num = pd.to_numeric(prev, errors="coerce")
+        flip = ((cur > 0.0) & (prev_num <= 0.0) & prev_num.notna()).astype(float)
+        return flip.fillna(0.0)
+
+    def _loss_narrowing_rate(series_name: str) -> pd.Series:
+        if series_name not in d.columns:
+            return pd.Series(0.0, index=d.index)
+        cur = pd.to_numeric(d[series_name], errors="coerce")
+        prev = pd.to_numeric(d.groupby("cik")[series_name].shift(4), errors="coerce")
+        # Both negative; loss narrowing means cur > prev (less negative).
+        improvement = (cur - prev) / prev.abs().replace(0.0, np.nan)
+        mask_both_neg = (cur < 0.0) & (prev < 0.0)
+        out = improvement.where(mask_both_neg).clip(lower=-1.0, upper=2.0)
+        return out.fillna(0.0)
+
+    def _under_loss_growth(series_name: str, ni_name: str = "net_income_ttm") -> pd.Series:
+        """Magnitude of growth/inflection while net income is still negative."""
+        if series_name not in d.columns or ni_name not in d.columns:
+            return pd.Series(0.0, index=d.index)
+        cur = pd.to_numeric(d[series_name], errors="coerce")
+        prev = pd.to_numeric(d.groupby("cik")[series_name].shift(4), errors="coerce")
+        ni_cur = pd.to_numeric(d[ni_name], errors="coerce")
+        # Either turning positive while NI still negative, OR materially
+        # improving cash flow despite NI still negative.
+        score = pd.Series(0.0, index=d.index)
+        flip_mask = (cur > 0.0) & (prev <= 0.0) & prev.notna() & (ni_cur < 0.0)
+        score = score.where(~flip_mask, 1.0)
+        improving_mask = (cur > prev) & (cur < 0.0) & (prev < 0.0) & (ni_cur < 0.0)
+        improvement_norm = ((cur - prev) / prev.abs().replace(0.0, np.nan)).clip(0.0, 2.0)
+        score = score.where(~improving_mask, improvement_norm.fillna(0.0).clip(0.0, 1.0))
+        return score.fillna(0.0)
+
+    d["op_income_sign_flip_pos"] = _sign_flip_pos("op_income_ttm")
+    d["ocf_sign_flip_pos"] = _sign_flip_pos("ocf_ttm")
+    d["fcf_sign_flip_pos"] = _sign_flip_pos("fcf_ttm")
+    d["ni_sign_flip_pos"] = _sign_flip_pos("net_income_ttm")
+    d["gp_sign_flip_pos"] = _sign_flip_pos("gross_profit_ttm")
+
+    d["op_income_loss_narrowing_4q"] = _loss_narrowing_rate("op_income_ttm")
+    d["ocf_loss_narrowing_4q"] = _loss_narrowing_rate("ocf_ttm")
+    d["fcf_loss_narrowing_4q"] = _loss_narrowing_rate("fcf_ttm")
+    d["ni_loss_narrowing_4q"] = _loss_narrowing_rate("net_income_ttm")
+
+    d["ocf_under_loss_growth"] = _under_loss_growth("ocf_ttm", "net_income_ttm")
+    d["fcf_under_loss_growth"] = _under_loss_growth("fcf_ttm", "net_income_ttm")
+    d["op_income_under_loss_growth"] = _under_loss_growth("op_income_ttm", "net_income_ttm")
+
+    # Composite "any inflection" flag — handy for downstream binary gating.
+    d["any_profit_sign_flip_pos"] = (
+        pd.concat(
+            [
+                d["op_income_sign_flip_pos"],
+                d["ocf_sign_flip_pos"],
+                d["fcf_sign_flip_pos"],
+                d["ni_sign_flip_pos"],
+            ],
+            axis=1,
+        )
+        .max(axis=1)
+        .fillna(0.0)
+    )
+
     if "assets" in d.columns and "liabilities" in d.columns:
         equity = (d["assets"] - d["liabilities"]).replace(0, np.nan)
         d["debt_to_equity"] = d["liabilities"] / equity
@@ -10616,6 +11426,20 @@ def recompute_fund_panel_derived_columns(
         "fcf_cagr_5y",
         "fcf_cagr_best",
         "fund_history_quarters_available",
+        # Turnaround / loss-to-profit inflection panel features (Phase 1.1+1.2)
+        "op_income_sign_flip_pos",
+        "ocf_sign_flip_pos",
+        "fcf_sign_flip_pos",
+        "ni_sign_flip_pos",
+        "gp_sign_flip_pos",
+        "op_income_loss_narrowing_4q",
+        "ocf_loss_narrowing_4q",
+        "fcf_loss_narrowing_4q",
+        "ni_loss_narrowing_4q",
+        "ocf_under_loss_growth",
+        "fcf_under_loss_growth",
+        "op_income_under_loss_growth",
+        "any_profit_sign_flip_pos",
         # SAGE derived metrics
         "fcf_margin",
         "net_margin",
@@ -11743,6 +12567,22 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         if _rs_period in monthly.columns:
             monthly[_rs_col] = monthly.groupby(["rebalance_date", "sector"])[_rs_period].transform(lambda x: x - np.nanmean(x.values))
             monthly[_rs_col] = pd.to_numeric(monthly[_rs_col], errors="coerce").fillna(0.0)
+
+    # Phase 2.3: enrich the monthly frame with yfinance industry metadata so
+    # downstream features can compute industry-level relative strength and
+    # leadership.  Cache lives in `cache_misc/yf_industry_metadata.parquet`;
+    # we only refresh tickers older than `industry_metadata_refresh_days`.
+    industry_meta = ensure_industry_metadata(
+        cfg,
+        paths,
+        monthly["ticker"].dropna().astype(str).unique().tolist(),
+        max_new=int(getattr(cfg, "industry_metadata_max_new_per_run", 250)),
+        refresh_days=int(getattr(cfg, "industry_metadata_refresh_days", 60)),
+    )
+    monthly = attach_industry_metadata(monthly, industry_meta)
+    monthly = add_industry_relative_strength(monthly)
+    monthly = compute_oneil_leadership_score(monthly)
+    monthly = add_industry_rotation_signal(monthly)
     live_candidates = (
         monthly.sort_values(["rebalance_date", "dollar_vol_20d"], ascending=[False, False])["ticker"]
         .dropna()
@@ -16475,6 +17315,17 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.22 * sage_q_rank,
             0.12 * sage_v_rank,
             0.08 * sage_c_rank,
+            # Phase 1.4: Defend our existing winners — reward intact uptrends,
+            # penalise broken ones.  These signals matter most on the core
+            # sleeve where we want to avoid riding a name down through a real
+            # thesis break.
+            0.40 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
+            -0.45 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
+            # Phase 2.7: O'Neil leadership — only modest weight on core because
+            # core compounders are already long-cycle plays where industry
+            # leadership matters less than long-term moat quality.
+            0.25 * cross_sectional_robust_z(d, "oneil_leadership_score"),
+            0.10 * cross_sectional_robust_z(d, "industry_group_strength_score"),
         ],
         d.index,
     ).fillna(0.0)
@@ -16503,6 +17354,19 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             0.12 * sage_c_rank,
             0.10 * sage_v_rank,
             -0.35 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
+            # Phase 1.3 + 1.4: value-and-growth catch-up + uptrend defense.
+            0.45 * cross_sectional_robust_z(d, "value_inflection_score"),
+            0.30 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
+            -0.30 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
+            # Phase 2.7: industry leadership + group strength + rotation.
+            # Future-winner sleeve gets the highest weight on these because
+            # finding "the best name in the strongest group" is the core
+            # O'Neil/IBD playbook this sleeve tries to execute.
+            0.55 * cross_sectional_robust_z(d, "oneil_leadership_score"),
+            0.30 * cross_sectional_robust_z(d, "industry_group_strength_score"),
+            0.20 * cross_sectional_robust_z(d, "industry_within_leader_rank"),
+            0.25 * cross_sectional_robust_z(d, "rs_industry_6m"),
+            0.18 * cross_sectional_robust_z(d, "industry_rotation_signal"),
         ],
         d.index,
     ).fillna(0.0)
@@ -16529,6 +17393,21 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             -0.30 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
             -0.20 * cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0),
             -0.15 * cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0),
+            # Phase 1.3 + 1.4: bottom-fishing value/inflection setups deserve
+            # the highest weight on the early-scout sleeve, with breakdown
+            # penalty kept so we don't bottom-fish names that are actively
+            # collapsing rather than basing.
+            0.55 * cross_sectional_robust_z(d, "value_inflection_score"),
+            0.20 * cross_sectional_robust_z(d, "uptrend_continuation_score"),
+            -0.25 * numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0),
+            # Phase 2.7: industry rotation gets the biggest weight on the
+            # early-scout sleeve — exactly the "buy the bottom-of-cycle
+            # industry that just turned up" mandate the user described.
+            0.45 * cross_sectional_robust_z(d, "industry_rotation_signal"),
+            0.35 * cross_sectional_robust_z(d, "oneil_leadership_score"),
+            0.25 * cross_sectional_robust_z(d, "industry_group_strength_score"),
+            0.20 * cross_sectional_robust_z(d, "industry_within_leader_rank"),
+            0.18 * cross_sectional_robust_z(d, "rs_industry_3m"),
         ],
         d.index,
     ).fillna(0.0)

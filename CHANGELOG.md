@@ -1398,3 +1398,83 @@ All entries must be written in English. Entries must be predictable and machine-
 - validation:
   - `python -m py_compile r1000_top30_institutional.py r1000_operator.py r1000_portfolio_state.py r1000_data_collector.py` passed in the GitHub working tree.
   - `python -c "import json, pathlib; json.loads(pathlib.Path('colab_run.ipynb').read_text(encoding='utf-8'))"` passed in the GitHub working tree.
+
+## 2026-04-16
+
+### 12:27 KST - phase1-turnaround-value-uptrend-alpha
+
+- scope:
+  - Replaced placeholder turnaround/cashflow inflection scores with real implementations and added new value-inflection / uptrend-continuation / uptrend-breakdown signals so the engine can finally pick up loss-to-profit turnaround names (e.g. WDC/LITE-style 5x setups), value-and-growth catch-up names with PE compression, and defend its existing 52w-high winners while penalising trend breaks.
+- files:
+  - `r1000_top30_institutional.py` -> added panel-level sign-flip / loss-narrowing features in `add_fundamental_features`, added cross-sectional `fundamental_turnaround_acceleration_score`, `cashflow_inflection_under_loss_score`, `value_inflection_score`, `uptrend_continuation_score`, and `uptrend_breakdown_penalty` inside `compute_strategy_blueprint_columns`, and wired the new signals into `compute_portfolio_sleeve_columns` for core / future / early sleeves; bumped `ENGINE_REUSE_VERSION`.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `value_inflection_score (column)` -> cheap valuation + earnings catching up + price reversing from oversold / Stage 1->2 setup with quality floor gating
+  - `uptrend_continuation_score (column)` -> 52w-high + full MA-stack alignment + intact momentum + intact earnings + compounding fundamentals
+  - `uptrend_breakdown_penalty (column)` -> fires when previously-strong names lose MA50/MA200, gap down on earnings, see revisions roll over, or experience momentum rollover / death cross
+  - `op_income_sign_flip_pos / ocf_sign_flip_pos / fcf_sign_flip_pos / ni_sign_flip_pos / gp_sign_flip_pos (panel cols)` -> 0/1 flag for loss-to-profit transition versus 4q-prior period
+  - `op_income_loss_narrowing_4q / ocf_loss_narrowing_4q / fcf_loss_narrowing_4q / ni_loss_narrowing_4q (panel cols)` -> magnitude of loss reduction when both periods still negative
+  - `ocf_under_loss_growth / fcf_under_loss_growth / op_income_under_loss_growth (panel cols)` -> growth/inflection of cash-flow lines while net income still negative (Lynch/O'Neil leading indicator)
+  - `any_profit_sign_flip_pos (panel col)` -> max of all four primary sign-flip flags
+- symbols_changed:
+  - `add_fundamental_features()` -> added the panel-level sign-flip, loss-narrowing, and under-loss-growth helpers and registered the new columns in `carry_cols` so they propagate through the standard ffill -> monthly merge pipeline
+  - `compute_strategy_blueprint_columns()` -> implemented the previously-zero `fundamental_turnaround_acceleration_score` and `cashflow_inflection_under_loss_score` placeholders using the new panel features, and added the three new Phase 1 alpha signals listed above; also added the new score columns to the empty-frame initialiser
+  - `compute_portfolio_sleeve_columns()` -> wired `value_inflection_score`, `uptrend_continuation_score`, and `uptrend_breakdown_penalty` into core / future / early sleeve composites with role-appropriate weights (early = bottom-fishing emphasis, core = uptrend defence emphasis, future = balanced)
+  - `ENGINE_REUSE_VERSION` -> bumped to `2026-04-16-phase1-turnaround-value-uptrend-alpha`
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Cached artifacts from the previous `ENGINE_REUSE_VERSION` will be invalidated and recomputed on next run because the version string changed; this is by design so the new signals get populated.
+- outputs:
+  - none new. The next pipeline run will populate the new score columns inside the existing universe / sleeve parquet outputs.
+- validation:
+  - `py -3 -c "import ast; ast.parse(open('r1000_top30_institutional.py', encoding='utf-8').read())"` passed locally.
+- risks_or_notes:
+  - The new panel sign-flip features depend on having at least 4 quarters of TTM history per cik; firms with shorter history will simply receive zero credit on the turnaround scores rather than a noisy signal.
+  - `value_inflection_score` is gated by a `quality_floor` (op_margin > -5% and debt/equity < 3.0) to avoid value-trap loss-makers; this is intentional and not a configurable knob yet.
+  - Sleeve weight changes are additive only (no existing weights were reduced), so the relative importance of pre-existing signals such as `long_hold_compounder_score` will mechanically dilute slightly. Backtesting on the next run will tell us whether this needs renormalisation.
+  - This change is the Phase 1 half of the joint Phase 1+2 plan agreed with the user; Phase 2 (industry-level relative strength using yfinance industry metadata) is the next set of work and will be a separate changelog entry.
+
+### 12:36 KST - phase2-industry-relative-strength-and-leadership
+
+- scope:
+  - Brought the engine's relative-strength taxonomy down from sector-level (11 GICS sectors) to industry-level using yfinance industry metadata, then layered an O'Neil/IBD leadership score and a bottom-up industry rotation signal on top so the system can finally answer the user's "is semis strong → pick the best semi" question and find rotating-up groups.
+- files:
+  - `r1000_top30_institutional.py` -> added a yfinance industry-metadata cache (`yf_industry_metadata.parquet`) plus a coarse-grained `YF_INDUSTRY_TO_GICS_GROUP` bucket map; added cross-sectional industry RS, group-level momentum/breadth means, an O'Neil leadership score, and an industry rotation signal; wired the new signals through `build_universe_monthly` and into the core / future / early sleeve composites; bumped `ENGINE_REUSE_VERSION`.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `YF_INDUSTRY_TO_GICS_GROUP (constant)` -> ordered list of (bucket_label, substring_keys) folding ~150 yfinance industry strings into 24 stable GICS-style buckets
+  - `INDUSTRY_METADATA_COLUMNS (constant)` -> schema for the cached yfinance industry metadata table
+  - `map_yf_industry_to_group(industry)` -> case-insensitive substring match returning the coarse bucket
+  - `load_industry_metadata_cache(paths)` -> reads `cache_misc/yf_industry_metadata.parquet`
+  - `save_industry_metadata_cache(paths, df)` -> writes the same file atomically
+  - `fetch_ticker_industry_metadata(ticker)` -> single-ticker yfinance `info` lookup capturing `sector`, `industry`, `industryDisp`, `sectorKey`, `industryKey`
+  - `ensure_industry_metadata(cfg, paths, tickers, max_new=500, refresh_days=60)` -> batched cache top-up obeying refresh-day TTL and `industry_metadata_max_new_per_run` budget
+  - `attach_industry_metadata(monthly, industry_meta)` -> merges the metadata cache onto the monthly frame and derives `industry`, `subindustry`, `industry_group` columns
+  - `_demean_within_group(df, value_col, group_cols, out_col, min_group_size=4)` -> helper that subtracts the within-group mean while zero-ing micro-buckets
+  - `_group_mean_to_row(df, value_col, group_cols, out_col)` -> helper that broadcasts a group mean back to each row
+  - `add_industry_relative_strength(monthly)` -> writes `rs_industry_{1,3,6,12}m`, `rs_industry_group_{1,3,6,12}m`, `industry_mom_mean_{3,6,12}m`, `industry_group_mom_mean_{3,6,12}m`, `industry_breadth_above_ma200`, `industry_group_breadth_above_ma200`
+  - `compute_oneil_leadership_score(monthly)` -> writes `industry_group_strength_score`, `industry_within_leader_rank`, `oneil_leadership_score` (multiplicative leader-in-strong-group composite)
+  - `add_industry_rotation_signal(monthly)` -> writes `industry_rotation_signal` (z-scored composite of industry beating market on 3m, accelerating, with breadth recovering 50-80%)
+- symbols_changed:
+  - `EngineConfig` -> added `industry_metadata_max_new_per_run: int = 250` and `industry_metadata_refresh_days: int = 60`
+  - `build_universe_monthly()` -> after the existing `rs_sector_*` block, now calls `ensure_industry_metadata()`, `attach_industry_metadata()`, `add_industry_relative_strength()`, `compute_oneil_leadership_score()`, and `add_industry_rotation_signal()`
+  - `compute_portfolio_sleeve_columns()` -> added `oneil_leadership_score` / `industry_group_strength_score` to core (modest weights), added `oneil_leadership_score` + `industry_group_strength_score` + `industry_within_leader_rank` + `rs_industry_6m` + `industry_rotation_signal` to future (highest weights — this is the IBD playbook), and added `industry_rotation_signal` (largest weight) + leadership / strength / leader-rank / `rs_industry_3m` to early-scout (bottom-fishing rotating-up industries)
+  - `ENGINE_REUSE_VERSION` -> bumped to `2026-04-16-phase1+2-turnaround-value-industry-rs`
+- config_fields_added:
+  - `industry_metadata_max_new_per_run: int = 250` -> per-run cap on yfinance industry-info lookups (rate-limit budget)
+  - `industry_metadata_refresh_days: int = 60` -> TTL after which cached industry metadata is re-fetched
+- breaking_changes:
+  - none. Adds new columns and writes a new cache file but does not modify or remove anything existing. Cached engine artifacts are invalidated by the new `ENGINE_REUSE_VERSION`, which is intentional.
+- outputs:
+  - `cache_misc/yf_industry_metadata.parquet` -> new cache with one row per ticker storing yfinance sector/industry strings + last-update timestamp
+  - `feature_store/universe_monthly_latest.parquet` -> now includes `industry`, `industry_group`, `subindustry`, `rs_industry_*`, `rs_industry_group_*`, `industry_mom_mean_*`, `industry_group_mom_mean_*`, `industry_breadth_above_ma200`, `industry_group_breadth_above_ma200`, `industry_group_strength_score`, `industry_within_leader_rank`, `oneil_leadership_score`, `industry_rotation_signal`
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed locally.
+  - `py -3 -c "import r1000_top30_institutional as eng; ..."` import + symbol-presence check passed locally for all 10 new public symbols.
+  - Synthetic 48-row functional test (3 industries x 8 names x 2 dates) confirmed `add_industry_relative_strength`, `compute_oneil_leadership_score`, and `add_industry_rotation_signal` produce well-scaled, mean-zero outputs end-to-end.
+- risks_or_notes:
+  - Industry metadata depends on yfinance availability; the first full run after upgrading will fetch up to `industry_metadata_max_new_per_run=250` tickers and may take several minutes due to the embedded 1s-per-40-call backoff. Subsequent runs only refresh tickers older than `industry_metadata_refresh_days=60`.
+  - `YF_INDUSTRY_TO_GICS_GROUP` covers the most common yfinance industry strings seen in the Russell-1000 universe; truly exotic strings fall into `Other` and will receive zero industry-group RS rather than spurious values. The map should be reviewed quarterly as yfinance occasionally renames buckets.
+  - Sleeve weight additions are deliberately additive (no existing weights were reduced) to avoid silently regressing previously-working signals; this means the relative weight of pre-existing factors mechanically dilutes slightly. We expect the next walk-forward backtest to show whether the industry-leadership tilt outweighs that dilution; if not, weights will be renormalised in a follow-up.
+  - The new `rs_industry_*` and `rs_industry_group_*` columns set zero (not NaN) for micro-buckets below the `min_group_size` threshold — this is intentional to avoid spurious extreme z-scores but means a single-name-bucket name gets no industry RS credit at all.
