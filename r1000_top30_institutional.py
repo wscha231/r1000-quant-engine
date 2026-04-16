@@ -6597,38 +6597,64 @@ def weighted_sleeve_composite(
     This matches the legacy pre-Phase-3 behaviour exactly, so flipping the
     toggle off yields byte-identical sleeve scores.
 
-    renorm_enabled=True -> returns
-        sum(w_i * s_i) / L1
-    where L1 is `l1_target` when positive, otherwise the sleeve's own
-    absolute weight sum. This is a true weighted average: each factor's
-    contribution stays proportional to its own |w_i| regardless of how
-    many other terms exist in the composite. When `l1_target` matches
-    the pre-Phase-1+2 L1 the composite magnitude is preserved so the
-    downstream `winsorize(..).clip(-6,6)` receives the same range as
-    legacy.
+    renorm_enabled=True -> per-row weighted average
+        sum_valid(w_i * s_i) / L1_valid
+    where L1_valid is either `l1_target` when positive, or the sum of
+    |w_i| over the terms that are non-NaN on that specific row. Rows
+    with a NaN z-score for term i have both the numerator contribution
+    AND the denominator contribution skipped, matching `row_mean`'s
+    NaN-skipping semantics so the A/B measurement isolates the
+    "weighted-vs-equal" effect from NaN handling differences.
 
-    NaN handling follows `row_mean` in the default path and fills with
-    zero in the renorm path (missing z-scores contribute nothing to the
-    weighted sum).
+    L1 semantics with negative weights (penalties):
+        Dividing by sum(|w|) rather than sum(w) is intentional. Phase 3's
+        stated goal is that each factor's contribution stays proportional
+        to its own |w_i| / L1. A negative weight (penalty) still consumes
+        |w_i| of the L1 budget and contributes proportionally to the
+        numerator with the correct sign. Using sum(w) would shrink the
+        denominator when penalties are large, which paradoxically
+        strengthens the penalty's relative impact — the opposite of what
+        the "magnitude-preserving weighted average" semantics want.
+
+    Notes on downstream compatibility:
+        The renorm path typically produces a composite whose magnitude is
+        ~N/L1 times the legacy row_mean magnitude. For the sleeve tables
+        built in `compute_portfolio_sleeve_columns` this ratio is
+        ~2x. Downstream `winsorize(..).clip(-6,6)` handles this, but any
+        post-processing additive penalty (e.g. `sparse_history_penalty`)
+        calibrated to the legacy magnitude should be scaled by the same
+        ratio to keep its relative strength constant — see the
+        `compute_portfolio_sleeve_columns` penalty block for the
+        Phase-3-aware scaling.
     """
     if not weight_pairs:
         return pd.Series(0.0, index=index, dtype=float)
-    weighted_terms = [float(w) * s for w, s in weight_pairs if s is not None]
+    weighted_terms: list[pd.Series] = []
+    abs_weights: list[float] = []
+    for w, s in weight_pairs:
+        if s is None:
+            continue
+        weighted_terms.append(float(w) * s)
+        abs_weights.append(abs(float(w)))
+    if not weighted_terms:
+        return pd.Series(0.0, index=index, dtype=float)
     if not renorm_enabled:
         return row_mean(weighted_terms, index).fillna(0.0)
-    stacked = pd.concat(
-        [
-            pd.to_numeric(t, errors="coerce").reindex(index).fillna(0.0)
-            for t in weighted_terms
-        ],
+    # Renorm path: per-row NaN-aware weighted average.
+    term_df = pd.concat(
+        [pd.to_numeric(t, errors="coerce").reindex(index) for t in weighted_terms],
         axis=1,
     )
-    total = stacked.sum(axis=1)
-    l1_actual = sleeve_weight_l1_norm(weight_pairs)
-    denom = float(l1_target) if (l1_target and l1_target > 0.0) else l1_actual
-    if denom <= 1e-8:
-        return row_mean(weighted_terms, index).fillna(0.0)
-    return (total / denom).fillna(0.0)
+    abs_w_arr = np.asarray(abs_weights, dtype=float)
+    valid_mask = term_df.notna().to_numpy(dtype=float)  # (n_rows, n_terms)
+    if l1_target and l1_target > 0.0:
+        denom = np.full(len(index), float(l1_target), dtype=float)
+    else:
+        denom = valid_mask @ abs_w_arr  # per-row L1, excluding NaN terms
+    total = term_df.fillna(0.0).sum(axis=1).to_numpy(dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = np.where(denom > 1e-8, total / denom, 0.0)
+    return pd.Series(result, index=index, dtype=float).fillna(0.0)
 
 
 def to_naive_datetime_index(values: Any) -> pd.DatetimeIndex:
@@ -17507,6 +17533,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "sleeve_future_l1_norm",
             "sleeve_early_l1_norm",
             "sleeve_weight_renorm_active",
+            "sleeve_future_penalty_scale",
+            "sleeve_early_penalty_scale",
         ] + HISTORICAL_DATA_QUALITY_COLUMNS:
             d[c] = np.nan
         return d
@@ -17548,12 +17576,16 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Phase 3: resolve sleeve-weight renormalisation toggle once per call.
     # Both the cfg field AND the env-var gate must be on; the env gate
     # lets QUICK_RESCORE A/B runs flip Phase 3 without editing the cfg.
+    # Defensive handling when cfg is None so legacy call-sites don't
+    # accidentally crash.
     # -------------------------------------------------------------------
-    _phase3_cfg_on = bool(getattr(cfg, "sleeve_weight_renorm_enabled", False))
+    _phase3_cfg_on = bool(getattr(cfg, "sleeve_weight_renorm_enabled", False)) if cfg is not None else False
     _phase3_env_on = phase_is_enabled("phase3_renorm", default=False)
     _phase3_renorm_active = bool(_phase3_cfg_on and _phase3_env_on)
     _phase3_l1_target = float(
         getattr(cfg, "sleeve_weight_l1_target", EngineConfig.sleeve_weight_l1_target)
+        if cfg is not None
+        else EngineConfig.sleeve_weight_l1_target
     )
 
     core_weight_pairs: list[tuple[float, pd.Series]] = [
@@ -17702,9 +17734,47 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         index=d.index,
         dtype=float,
     ).clip(lower=0.0, upper=1.0)
-    future_score = future_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
-    early_score = early_score - (0.60 * growth_history_penalty_weight * sparse_history_penalty)
-    early_score = early_score - 0.18 * np.clip(history_depth - 0.65, 0.0, 1.0)
+    # Phase 3 magnitude-consistency: the additive penalties below were
+    # calibrated to the legacy row_mean magnitude (~sum/N). When
+    # renorm is active the composite magnitude is ~sum/L1, which is
+    # typically N/L1 larger (~2x for the current sleeve tables).
+    # Scale the penalty coefficients by the same N/L1 ratio per sleeve so
+    # the penalty's relative strength on the composite is preserved and
+    # the A/B measurement isolates just the weight-redistribution effect.
+    # When renorm is OFF `_future_penalty_scale` / `_early_penalty_scale`
+    # default to 1.0, preserving byte-identical legacy behaviour.
+    _future_penalty_scale = 1.0
+    _early_penalty_scale = 1.0
+    if _phase3_renorm_active:
+        _future_n = len(future_weight_pairs)
+        _early_n = len(early_weight_pairs)
+        if _phase3_l1_target and _phase3_l1_target > 0.0:
+            _future_denom = float(_phase3_l1_target)
+            _early_denom = float(_phase3_l1_target)
+        else:
+            _future_denom = _future_l1
+            _early_denom = _early_l1
+        if _future_denom > 1e-8:
+            _future_penalty_scale = float(_future_n) / _future_denom
+        if _early_denom > 1e-8:
+            _early_penalty_scale = float(_early_n) / _early_denom
+    future_score = future_score - (
+        _future_penalty_scale
+        * 0.60
+        * growth_history_penalty_weight
+        * sparse_history_penalty
+    )
+    early_score = early_score - (
+        _early_penalty_scale
+        * 0.60
+        * growth_history_penalty_weight
+        * sparse_history_penalty
+    )
+    early_score = early_score - (
+        _early_penalty_scale * 0.18 * np.clip(history_depth - 0.65, 0.0, 1.0)
+    )
+    d["sleeve_future_penalty_scale"] = _future_penalty_scale
+    d["sleeve_early_penalty_scale"] = _early_penalty_scale
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
     d["portfolio_future_winner_engine_score"] = winsorize(future_score, 0.01).clip(-6.0, 6.0)

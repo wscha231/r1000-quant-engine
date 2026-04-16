@@ -1679,3 +1679,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - The four new diagnostic columns are produced by `compute_portfolio_sleeve_columns`, which is called lazily at portfolio-construction time (see call-sites around lines 4193, 15459, 17113, 17259, 17332, 18144, 19246, 19340, 19342, 20499, 20645, 20718, 21740, 23929). They bypass `build_feature_store.keep_cols` the same way `portfolio_sleeve_label` does today, so Invariant #8 (keepcols survival) is not triggered.
   - `ENGINE_REUSE_VERSION` is NOT bumped. Phase 3 only touches portfolio-layer composition, not feature_store schema, so the cached feature store from the `2026-04-16-phase2-keepcols-fix` run stays valid.
   - The `early_weight_pairs` table explicitly writes the first three terms as `(1.00, ...)` where the legacy code passed them with no multiplier. Those are mathematically identical (1.00 * x == x), but documenting them as explicit 1.00 weights makes future L1-norm accounting unambiguous.
+
+### 01:10 KST - phase3-audit-hardening-nan-cfg-penalty-scaling
+
+- scope:
+  - Pre-A/B-run hardening of the Phase 3 sleeve weight renormalisation. An adversarial audit (Agent `Explore`) uncovered three correctness concerns that would have confounded the A/B measurement if run as-is: (a) the renorm path used `.fillna(0.0)` on NaN z-scores instead of the NaN-skipping semantics that `row_mean` applies in the legacy path, (b) `getattr(cfg, ...)` would crash if any legacy call-site passed `cfg=None`, (c) the `sparse_history_penalty` post-processing was calibrated to the legacy `row_mean` magnitude and would lose ~50% of its relative strength when Phase 3 renorm scaled the composite magnitude up by roughly `N/L1` (~2x). Fixed all three so the A/B isolates only the intended "weighted-vs-equal" effect.
+- files:
+  - `r1000_top30_institutional.py` -> hardened `weighted_sleeve_composite` to compute per-row L1 that excludes NaN terms in the renorm path (matching `row_mean`'s NaN-skipping semantics); added `cfg is not None` guards before `getattr` calls in `compute_portfolio_sleeve_columns`; scaled the `sparse_history_penalty` and `history_depth` penalties by the sleeve's `N/L1` ratio when renorm is active so the penalty's relative strength on the composite is preserved across the legacy and renorm paths; emitted two more diagnostic columns (`sleeve_future_penalty_scale`, `sleeve_early_penalty_scale`).
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none (the diagnostic columns `sleeve_future_penalty_scale` and `sleeve_early_penalty_scale` are pd.DataFrame columns, not Python symbols).
+- symbols_changed:
+  - `weighted_sleeve_composite(weight_pairs, index, *, renorm_enabled=False, l1_target=0.0) -> pd.Series` -> renorm branch now builds a per-row valid-mask and computes `denom = valid_mask @ abs_weights` so NaN terms are excluded from both the numerator AND denominator, matching `row_mean`'s semantics. Docstring extended to explain the NaN policy and the L1-vs-sum(w) design choice (negative penalty weights intentionally share the L1 budget so their relative influence is preserved).
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> added `cfg is not None` guards around the two `getattr(cfg, ...)` calls that resolve Phase 3 toggles and l1_target; computed per-sleeve `_future_penalty_scale` / `_early_penalty_scale` factors that are 1.0 when renorm is off (preserving byte-identical legacy behaviour) and `N / L1` when renorm is on (so penalties scale up with the composite magnitude); applied those scales to the `sparse_history_penalty` and `history_depth` penalty deductions; empty-frame branch now also initialises the two new diagnostic columns.
+- config_fields_added:
+  - none (the audit did not add new cfg fields).
+- breaking_changes:
+  - none -> when Phase 3 is off (cfg flag False OR env not set to 1), `_future_penalty_scale` and `_early_penalty_scale` both default to 1.0 and the composite helper short-circuits to `row_mean`, so all legacy code paths are byte-identical to the pre-audit commit `5b95e17`.
+- outputs:
+  - `outputs/scored_latest.csv` -> two additional diagnostic columns appended alongside the existing Phase 3 diagnostics: `sleeve_future_penalty_scale`, `sleeve_early_penalty_scale`. Both scalar-per-run (all rows share the same value since the scales depend only on the sleeve table shape, not on the specific row).
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - `ast.parse(...)` passed with 381 top-level defs (unchanged).
+  - AST symbol spot-check: `weighted_sleeve_composite`, `sleeve_weight_l1_norm`, `sleeve_weight_renorm_enabled`, `sleeve_weight_l1_target`, `compute_portfolio_sleeve_columns` all present.
+  - Semantic sanity checks deferred to the Colab A/B run (numpy not installed on the local Git environment). The three critical correctness properties that the Colab run should verify in `scored_latest.csv`:
+    - With `PHASE_PHASE3_RENORM_ENABLED=1`: `sleeve_weight_renorm_active=1.0` on every row.
+    - With renorm on: `sleeve_future_penalty_scale` and `sleeve_early_penalty_scale` are > 1.0 (expected ~2.0 given current sleeve tables).
+    - With renorm off (baseline A/B leg): all four penalty/l1 diagnostics retain their legacy scalar values (`sleeve_weight_renorm_active=0.0`, `sleeve_future_penalty_scale=1.0`, `sleeve_early_penalty_scale=1.0`).
+- risks_or_notes:
+  - The NaN-handling fix is mostly defensive. In the current call-graph every z-score series flowing into the sleeve composites is already `.fillna(0.0)`-terminated by `cross_sectional_robust_z` (line 3333-3343) or `numeric_series_or_default` (line 3406-3416), so the legacy A/B would not have produced NaN-handling divergence. The fix ensures future callers that pass raw NaN-bearing z-scores into `weighted_sleeve_composite` still get consistent semantics.
+  - The L1-vs-sum(w) choice is intentional. Penalties (e.g. `-0.45 * uptrend_breakdown_penalty` in core) have negative weight but positive `|w|`, which consumes `|w_i|` of the L1 budget the same way any positive factor does. Using `sum(w)` as the denominator would shrink the denominator when penalties are large, strengthening their relative impact — the opposite of a well-behaved weighted average. The docstring now documents this.
+  - The penalty-scale fix does NOT touch the `legacy byte-identical` property because `_future_penalty_scale` / `_early_penalty_scale` default to 1.0 when `_phase3_renorm_active` is False.
+  - One caveat remains for A/B interpretation: the composite itself has ~2x magnitude when renorm is on, so the downstream `winsorize(..).clip(-6,6)` may saturate a small fraction of rows it did not saturate in legacy. This is a real change in behaviour, not a bug — the whole point of Phase 3 is to redistribute weight mass, and saturation is one of the mechanisms by which the redistribution manifests in the final sleeve score. Monitor it via the diagnostic columns in `scored_latest.csv`; if it turns out to be a meaningful chunk of rows we can add a `core_compounder_engine_score` saturation-rate diagnostic in a follow-up.
+  - `ENGINE_REUSE_VERSION` is NOT bumped. Only portfolio-layer composition code is modified, feature_store schema is untouched.
