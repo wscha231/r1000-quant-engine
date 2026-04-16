@@ -2090,3 +2090,28 @@ All entries must be written in English. Entries must be predictable and machine-
   - Same dilution pattern could affect future Phase 7b/7c if their signals end up sparse. When adding any new weight pair, check `scored_latest.csv` for its `nonzero_share` and use the masking pattern if coverage is below ~20%.
   - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. Only portfolio-layer composition changed; feature_store cache is still valid.
   - Ship decision on Phase 5 itself is deferred until the QUICK_RESCORE confirms the CAGR recovery. If after the fix Phase 5 is still a net drag, Phase 5 ON by default should be flipped to OFF in a follow-up commit.
+
+### 12:30 KST - rotate-session-handoff-for-office-resume
+
+- scope:
+  - End-of-session rotation of `SESSION_HANDOFF.md` so the user can resume from a different machine (office PC) after the lunch break without losing context. The previous handoff was written before the 2026-04-17 FULL rebuild exposed the regression and before the `c4d50fd` fix — stale. This rewrite captures (a) the regression numbers and the root cause, (b) the exact Cell A / Cell 2 / Cell E Colab cells to paste to verify the fix, (c) a three-branch decision tree for what to do after the QUICK_RESCORE verdict, (d) the up-to-date Phase status table with cfg / env-var names / defaults / ship gates.
+- files:
+  - `SESSION_HANDOFF.md` -> full rewrite. §0 TL;DR paragraph. §1 commit timeline through `c4d50fd`. §2 Cell A (git-sync) + Cell 2 (QUICK_RESCORE toggles) + Cell E (recovery verdict) fully embedded as copy-pasteable code blocks. §3 decision tree for recovered / partial / still-broken verdicts. §4 bootstrap prompt for a fresh chat session. §6 phase-status-at-a-glance table with all 8 phase env-var names and defaults.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none (documentation only)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `SESSION_HANDOFF.md` (rewritten).
+- validation:
+  - `wc -l SESSION_HANDOFF.md` — the rewrite should be roughly 250 lines (up from 177).
+  - Manual inspection confirms the Cell E `baseline` constants match the 2026-04-16 FULL rebuild metrics and the decision-tree thresholds mirror the ones discussed in the morning chat session.
+- risks_or_notes:
+  - The handoff's §2 assumes the user opens `colab_run.ipynb` from Drive and pastes Cell A / Cell E as sidecar cells. The existing Cell 2 in the notebook is already current (has all 8 phase env toggles via commit `33ed065` + `914558f`); no notebook changes needed for the office session.
+  - If the QUICK_RESCORE takes more than 25 minutes, the Cell A Drive mount / git fetch likely failed silently. Cell A's `git log --oneline -3` output is the checkpoint — if HEAD is NOT `c4d50fd` or newer the fix isn't being used.
+  - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. The cached feature_store from the 2026-04-17 morning FULL rebuild is valid for this QUICK_RESCORE — the dilution fix is portfolio-layer only.
