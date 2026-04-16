@@ -1867,3 +1867,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - The recovery buffer is intentionally small (3%). Making it larger reduces oscillation risk further but can keep the breaker engaged longer after a real recovery, trading some CAGR for more MaxDD protection. 3% is the PROPOSAL default.
   - Escalation is monotonic (you can only step UP within a single monthly iteration); de-escalation happens in one jump after full recovery. This matches the PROPOSAL and mimics how a human risk manager runs a ladder.
   - `ENGINE_REUSE_VERSION` is NOT bumped here (Phase 5 bump already covers this commit).
+
+### 08:45 KST - phase6b-vix-level-hard-guard
+
+- scope:
+  - Phase 6b (PHASE_ROADMAP §2.6 + PROPOSAL_defensive_upgrades.md §Proposal 3): add an absolute-VIX-level cash-floor guard inside `compute_regime_portfolio_controls()`. When VIX crosses 22 / 28 / 35 / 45, the cash target is pushed UP to 10% / 25% / 40% / 55% respectively (via max(), composing defensively with the existing regime-based cash target). This catches fast VIX spikes that the 63-day z-score regime detection lags.
+  - Default ON. Dual-gate toggle: `cfg.vix_level_guard_enabled` AND `PHASE_PHASE6B_VIX_ENABLED` env var both default to True.
+- files:
+  - `r1000_top30_institutional.py` -> `EngineConfig`: added 9 new Phase 6b fields (`vix_level_guard_enabled`, `vix_level_tier{1..4}_threshold`, `vix_level_tier{1..4}_cash_floor`). `compute_regime_portfolio_controls()`: added VIX-guard block right before the final `cash_target = float(np.clip(cash_target, 0.0, cfg.cash_weight_max))` so the tier floor can lift `cash_target` up but the overall cfg.cash_weight_max cap still binds.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none (in-place changes to `compute_regime_portfolio_controls`).
+- symbols_changed:
+  - `compute_regime_portfolio_controls(cfg, panel)` -> after the existing regime-based cash-target resolution and before the final `np.clip`, the function now reads the per-row median VIX level via `_median_or_default("vix_level", np.nan)`, maps it through a 4-tier lookup (highest tier that matches wins), and lifts `cash_target` via `max()`. The function stays byte-identical to the pre-Phase-6b path when both gates are off.
+- config_fields_added:
+  - `vix_level_guard_enabled: bool = True`
+  - `vix_level_tier1_threshold: float = 22.0`
+  - `vix_level_tier1_cash_floor: float = 0.10`
+  - `vix_level_tier2_threshold: float = 28.0`
+  - `vix_level_tier2_cash_floor: float = 0.25`
+  - `vix_level_tier3_threshold: float = 35.0`
+  - `vix_level_tier3_cash_floor: float = 0.40`
+  - `vix_level_tier4_threshold: float = 45.0`
+  - `vix_level_tier4_cash_floor: float = 0.55`
+- breaking_changes:
+  - none -> when either gate is off the entire Phase 6b block is skipped and the legacy cash_target flows through untouched.
+- outputs:
+  - No new output columns. The VIX floor shows up indirectly as a lifted `cash_target` in `run_summary.json` / `backtest_metrics.json` / `equity_curve.csv`'s cash weight trajectory during VIX-spike months.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Semantic A/B deferred to Colab. Ship gate per PHASE_ROADMAP §3: Δ MaxDD ≤ -1pp in VIX-spike periods (2020-03, 2022-Q1, 2023-Q1 when rates spiked, etc).
+- risks_or_notes:
+  - Uses `_median_or_default("vix_level", np.nan)` which is a closure already defined inside `compute_regime_portfolio_controls`. `vix_level` has been available in the monthly panel since `build_macro_regime_table()` at line 7502 — no new data source needed.
+  - `cfg.cash_weight_max` still binds as the overall cap, so if a user has `cash_weight_max=0.40` and VIX goes to 50 (tier 4 floor = 0.55), the final `np.clip` would bring cash back down to 0.40. This is the correct precedence — the cfg ceiling is the user's hard constraint, the VIX floor is a defensive pressure.
+  - `ENGINE_REUSE_VERSION` NOT bumped. VIX level is already in the feature_store via `MACRO_REGIME_COLUMNS`; Phase 6b is a pure cash-target-construction change.

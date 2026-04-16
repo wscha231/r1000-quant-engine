@@ -2111,6 +2111,33 @@ class EngineConfig:
     drawdown_breaker_level_3_cash_floor: float = 0.60
     drawdown_breaker_level_3_scale: float = 0.40
     drawdown_breaker_recovery_buffer: float = 0.03      # require equity to overshoot trigger by 3% before stepping down
+    # ---------------
+    # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6 + PROPOSAL §3)
+    # ---------------
+    # VIX-level-triggered cash floor, applied inside
+    # `compute_regime_portfolio_controls()` right before the final
+    # `np.clip(cash_target, ...)`. Four tiers escalate the cash floor
+    # based on absolute VIX level:
+    #   VIX >= 22 -> cash >= 10%
+    #   VIX >= 28 -> cash >= 25%
+    #   VIX >= 35 -> cash >= 40%
+    #   VIX >= 45 -> cash >= 55%
+    # This catches fast VIX spikes that the 63-day z-score regime
+    # detection lags. Composes via max() with other cash-target
+    # controls (regime policy + Phase 6a breaker) so the MORE
+    # defensive floor always wins.
+    # Default ON per PHASE_ROADMAP §2.6. When toggled off the
+    # `vix_level_guard_enabled` flag or the env gate skips the
+    # VIX-floor step, leaving cash_target at the regime-policy value.
+    vix_level_guard_enabled: bool = True
+    vix_level_tier1_threshold: float = 22.0
+    vix_level_tier1_cash_floor: float = 0.10
+    vix_level_tier2_threshold: float = 28.0
+    vix_level_tier2_cash_floor: float = 0.25
+    vix_level_tier3_threshold: float = 35.0
+    vix_level_tier3_cash_floor: float = 0.40
+    vix_level_tier4_threshold: float = 45.0
+    vix_level_tier4_cash_floor: float = 0.55
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -10220,6 +10247,41 @@ def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame)
                 cash_target = min(cash_target, growth_cash_cap)
             elif live_stress < 0.40 and liquidity_drain < 0.50:
                 cash_target = min(cash_target, balanced_cash_cap)
+
+        # ---------------------------------------------------------
+        # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6).
+        # Applied BEFORE the final np.clip so the tier floor lifts
+        # cash_target up toward cfg.cash_weight_max but still honors
+        # the overall cash cap. Dual-gate: cfg flag AND env var.
+        # Composes with other cash controls via max().
+        # ---------------------------------------------------------
+        _p6b_cfg_on = bool(getattr(cfg, "vix_level_guard_enabled", False))
+        _p6b_env_on = phase_is_enabled("phase6b_vix", default=True)
+        if _p6b_cfg_on and _p6b_env_on:
+            vix_level_val = _median_or_default("vix_level", np.nan)
+            if np.isfinite(vix_level_val) and vix_level_val > 0:
+                # Tier lookup: start from the highest threshold and
+                # work down; first match wins. This naturally gives
+                # the most defensive floor when multiple tiers are met.
+                _p6b_floor = 0.0
+                t4_thr = float(getattr(cfg, "vix_level_tier4_threshold", 45.0))
+                t4_cash = float(getattr(cfg, "vix_level_tier4_cash_floor", 0.55))
+                t3_thr = float(getattr(cfg, "vix_level_tier3_threshold", 35.0))
+                t3_cash = float(getattr(cfg, "vix_level_tier3_cash_floor", 0.40))
+                t2_thr = float(getattr(cfg, "vix_level_tier2_threshold", 28.0))
+                t2_cash = float(getattr(cfg, "vix_level_tier2_cash_floor", 0.25))
+                t1_thr = float(getattr(cfg, "vix_level_tier1_threshold", 22.0))
+                t1_cash = float(getattr(cfg, "vix_level_tier1_cash_floor", 0.10))
+                if vix_level_val >= t4_thr:
+                    _p6b_floor = t4_cash
+                elif vix_level_val >= t3_thr:
+                    _p6b_floor = t3_cash
+                elif vix_level_val >= t2_thr:
+                    _p6b_floor = t2_cash
+                elif vix_level_val >= t1_thr:
+                    _p6b_floor = t1_cash
+                if _p6b_floor > 0.0:
+                    cash_target = max(cash_target, _p6b_floor)
 
         cash_target = float(np.clip(cash_target, 0.0, cfg.cash_weight_max))
     if cash_target >= 0.12:
