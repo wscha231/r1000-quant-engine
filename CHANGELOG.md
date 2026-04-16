@@ -1712,3 +1712,33 @@ All entries must be written in English. Entries must be predictable and machine-
   - The penalty-scale fix does NOT touch the `legacy byte-identical` property because `_future_penalty_scale` / `_early_penalty_scale` default to 1.0 when `_phase3_renorm_active` is False.
   - One caveat remains for A/B interpretation: the composite itself has ~2x magnitude when renorm is on, so the downstream `winsorize(..).clip(-6,6)` may saturate a small fraction of rows it did not saturate in legacy. This is a real change in behaviour, not a bug — the whole point of Phase 3 is to redistribute weight mass, and saturation is one of the mechanisms by which the redistribution manifests in the final sleeve score. Monitor it via the diagnostic columns in `scored_latest.csv`; if it turns out to be a meaningful chunk of rows we can add a `core_compounder_engine_score` saturation-rate diagnostic in a follow-up.
   - `ENGINE_REUSE_VERSION` is NOT bumped. Only portfolio-layer composition code is modified, feature_store schema is untouched.
+
+### 06:45 KST - phase3-ab-rejected-keep-off-default
+
+- scope:
+  - Record the Phase 3 sleeve-weight renormalisation A/B run and the decision to REJECT the renorm path. The implementation was correct and the toggle fired as designed, but the hypothesis ("row_mean's N-averaging dilutes factor contribution, so L1-normalisation should improve risk-adjusted performance") is falsified: Phase 3 ON worsens CAGR, Sharpe, AND MaxDD simultaneously. Keeping `sleeve_weight_renorm_enabled=False` as the default and preserving the toggle so the code stays available for future re-evaluation if the sleeve factor tables change materially.
+- files:
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/backtest_metrics.json` (Phase 3 ON leg) -> `cagr=0.1780`, `sharpe=0.9460`, `max_dd=-0.2818`, `ir=0.3990`, `excess_cagr=0.0431`, `beat_month_ratio=0.6024`.
+- validation:
+  - Diagnostic columns in `scored_latest.csv` confirmed the toggle fired: `sleeve_weight_renorm_active=1.0`, `sleeve_core_l1_norm=8.52`, `sleeve_future_l1_norm=16.24`, `sleeve_early_l1_norm=13.79`, `sleeve_future_penalty_scale=1.9089`, `sleeve_early_penalty_scale=2.1030`. Penalty scales match the expected `N/L1` ratios (future: 31/16.24≈1.91, early: 29/13.79≈2.10), confirming the penalty-magnitude hardening from `8b10bf4` is also working as designed.
+  - A/B comparison vs the 2026-04-16 FULL rebuild baseline (Phase 3 OFF leg reused directly from the earlier `backtest_metrics.json`):
+    - Δ CAGR:   -2.30pp (baseline 0.2010 -> ON 0.1780)
+    - Δ Sharpe: -0.1294 (baseline 1.0754 -> ON 0.9460)
+    - Δ MaxDD:  -4.58pp (baseline -0.2360 -> ON -0.2818, i.e. deeper drawdown)
+  - Against the `PHASE_ROADMAP.md` §3 ship gate for Phase 3 (`Δ CAGR ≥ +0.5pp AND Δ MaxDD ≤ +1pp`), both conditions fail badly. All three risk-adjusted axes regressed.
+- risks_or_notes:
+  - Why the hypothesis failed: `row_mean`'s N-averaging was providing natural regularisation — shrinking each factor's effective weight as more factors were added kept the composite magnitude bounded and limited the impact of any single factor (including penalties). L1-normalisation removes that shrinkage, roughly doubling composite magnitude. Downstream `winsorize(0.01).clip(-6,6)` then saturates a larger fraction of rows, and the penalty-scale compensation (which we correctly applied) amplifies the sparse-history penalty by ~2x. The net effect is that the renorm path puts more weight on outliers and penalties than the legacy path, which hurts diversification and risk-adjusted returns across the board.
+  - The implementation itself is correct; this is a negative result on the L1-normalisation design choice, not a bug. `weighted_sleeve_composite`, `sleeve_weight_l1_norm`, the three diagnostic columns, the penalty-scale factors, and the cfg+env dual-gate all work as designed. The infrastructure stays in the code for possible future re-evaluation.
+  - Default stays `sleeve_weight_renorm_enabled=False`. Env var `PHASE_PHASE3_RENORM_ENABLED` remains a functional opt-in escape hatch but no mainstream pipeline path will set it.
+  - Followup idea (NOT scheduled): try `l1_target = N` (the term count) which would preserve legacy magnitude but still let us redistribute weight shares — that is a conceptually different experiment and should go behind its own toggle if we ever revisit it.
+  - `ENGINE_REUSE_VERSION` stays at `"2026-04-16-phase2-keepcols-fix"` -- no schema change.
