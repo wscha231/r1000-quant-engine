@@ -1936,3 +1936,30 @@ All entries must be written in English. Entries must be predictable and machine-
   - Expressing vol targeting as a cash floor (instead of multiplicative non-cash scaling) loses one subtlety: the original proposal scales the non-cash BUCKET uniformly, preserving relative sleeve weights. The cash-floor approximation hands excess cash to the downstream sleeve re-normaliser which will reshape the sleeve mix based on the regime controller's target. In practice the distinction is minor at low vol-scale values (0.9+), and material only when vol_scale drops toward the 0.5 floor.
   - `recent_returns` is capped at `max(lookback, 12)` entries to prevent unbounded memory growth across long backtests. Not expected to bind because `lookback` defaults to 6.
   - Phase 6c's ENGINE_REUSE_VERSION is NOT bumped. All state is per-backtest-run and no feature_store schema changes.
+
+### 09:30 KST - phase456-glue-handoff-rotate-and-colab-toggles
+
+- scope:
+  - Meta / glue commit for the Phase 4/5/6 rollout. `SESSION_HANDOFF.md` gets a full rewrite reflecting the new state (Phase 3 rejected, Phase 4/5/6 all landed as separate commits, next action is one FULL rebuild in Colab). `colab_run.ipynb` Cell 2 is extended with `PHASE3_*` / `PHASE4_*` / `PHASE5_*` / `PHASE6A_*` / `PHASE6B_*` / `PHASE6C_*` env-var toggles so the user can flip any phase's A/B on/off directly in the notebook without editing Python.
+- files:
+  - `SESSION_HANDOFF.md` -> full rewrite. §1 timeline of the last 6 commits (Phase 3 rejection + Phase 4/5/6a/6b/6c additions) with default-state summary table. §2 gives the user exact Cell 2 toggles for the next FULL rebuild + a post-run verification checklist covering all 5 new phases. §3 documents the follow-up A/B matrix. §4 bootstrap prompt updated. §5 updated with the split Drive repo-dir / data-dir model.
+  - `colab_run.ipynb` -> Cell 2 toggle block rewritten. Now exposes 8 phase vars (`PHASE1_ALPHA_ENABLED` ... `PHASE6C_VOLTARGET_ENABLED`), each defaulting to `'auto'` (respect cfg default). Helper `_set_phase_env()` keeps the env-var export DRY. Prints out every env var's resolved state for run-log transparency.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none.
+- symbols_changed:
+  - `colab_run.ipynb` Cell 2 -> new 6 phase toggle variables and the env-var setter helper.
+- config_fields_added:
+  - none (the glue commit only surfaces the env vars for existing cfg flags added in the Phase 4/5/6a/6b/6c commits).
+- breaking_changes:
+  - none. All phase toggles default to `'auto'` = cfg default, so a user who pulls this commit without editing the notebook sees the same behaviour as the Phase 6c commit (`ee93fa0`).
+- outputs:
+  - `SESSION_HANDOFF.md` (rewritten).
+  - `colab_run.ipynb` (Cell 2 updated).
+- validation:
+  - `python -c "import json; nb=json.loads(open(r'colab_run.ipynb', encoding='utf-8').read()); assert all(k in ''.join(nb['cells'][2]['source']) for k in ['PHASE3_RENORM_ENABLED','PHASE4_REGIME_WEIGHTS','PHASE5_LEADER_LAGGARD','PHASE6A_BREAKER','PHASE6B_VIX','PHASE6C_VOLTARGET']); print('OK')"` passed.
+  - `py -3 -m py_compile r1000_top30_institutional.py` still passes (no engine code touched in this commit).
+- risks_or_notes:
+  - If Colab users have a locally-edited `colab_run.ipynb`, pulling origin will create a merge conflict. They should either `git stash` their local ipynb edits before pulling or resolve manually. All notebook edits on the main branch have been via git on this machine so no conflict should exist today.
+  - The `SESSION_HANDOFF.md` now promises that the next Colab run is a FULL rebuild. The user should confirm `QUICK_RESCORE_ONLY = False` in Cell 2 before running. The Phase 5 `ENGINE_REUSE_VERSION` bump already forces FULL rebuild via cache invalidation regardless, but the explicit Cell 2 setting is cleaner.
+  - This closes out the Phase 4/5/6 implementation plan from `.claude/plans/crystalline-plotting-badger.md`. Next natural action is the FULL rebuild + A/B measurements described in `SESSION_HANDOFF.md` §2.
