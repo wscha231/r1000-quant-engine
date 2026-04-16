@@ -4,6 +4,7 @@
 Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과수익 목표.
 
 ## Key Files
+- `SESSION_HANDOFF.md` — **다른 기기/세션에서 이어 작업할 때 제일 먼저 읽을 파일. "방금 뭐 했고 다음에 뭐 해야 하는지" 단일 inbox. Phase 하나 끝날 때마다 덮어씀.**
 - `r1000_top30_institutional.py` — 메인 엔진 (~25,600+ lines)
 - `r1000_data_collector.py` — 데이터 수집 + 검증 파이프라인
 - `colab_run.ipynb` — Colab 실행 런북 (GitHub master pull → collector → pipeline → validation)
@@ -136,12 +137,16 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 ## Multi-Session Phase Plan
 **Phase 1..6 전체 계획 = `PHASE_ROADMAP.md` 에 저장됨.**
 
-새 대화 시작할 때 순서:
-1. 이 파일 (`CLAUDE.md`) 읽기 — 프로젝트 베이직.
-2. `CHANGELOG.md` 마지막 ~150줄 읽기 — 최신 상태.
-3. `PHASE_ROADMAP.md` 읽기 — 어디까지 했고 다음에 뭘 할지.
-4. `outputs/concentrated_backtest_metrics.json` 확인 — 가장 최근 baseline.
-5. Roadmap의 PR 순서대로 진행 (Phase 3 → 4 → 5 → 6a → 6b → 6c).
+**다른 기기/세션에서 이어 작업할 때 순서 (in order — don't skip)**:
+1. **`SESSION_HANDOFF.md` 먼저** — "방금 뭐 했고 다음에 뭐 해야 하나" (single-item inbox, 가장 정확한 최신 상태).
+2. 이 파일 (`CLAUDE.md`) — 프로젝트 베이직.
+3. `CHANGELOG.md` 마지막 ~200줄 — 최근 결정.
+4. `PHASE_ROADMAP.md` — 전체 Phase 계획 + invariants.
+5. `git log --oneline -5` — 최신 commit 확인.
+6. `outputs/concentrated_backtest_metrics.json` (on Drive) — 가장 최근 baseline.
+7. Roadmap의 PR 순서대로 진행 (Phase 3 → 4 → 5 → 6a → 6b → 6c).
+
+**복붙용 부트스트랩 프롬프트는 `SESSION_HANDOFF.md` §4 에 있음.**
 
 현재 상태:
 - Phase 1 ✅ DONE (turnaround/value/uptrend alpha)

@@ -1586,3 +1586,27 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - If the new run's diversified CAGR / Sharpe improves materially over baseline, that is the "real" Phase 1+2 signal. If it underperforms, the Phase 2 signal is actually detrimental and should be gated / disabled - easy to A/B via `PHASE_PHASE2_INDUSTRY_ENABLED=0` on a second QUICK run once the FULL run has refreshed the cache.
   - Any new Phase (3..6) that attaches columns inside `build_universe_monthly` MUST either (a) be re-derivable in `score_latest_month` / `prepare_latest_scored_data`, or (b) add its columns to a constant appended to `keep_cols` in `build_feature_store`. Recommended pattern: create a `PHASE<N>_<NAME>_COLUMNS` constant and append to both `keep_cols` and the zero-placeholder block under the phase toggle's disabled branch.
+
+### 18:37 KST - add-session-handoff-file
+
+- scope:
+  - Multi-machine session continuity. The user wanted to resume the same project on a different laptop / Colab account and needed a reliable single-item inbox that captures "what was just done + what must happen next" so a fresh Claude / Codex / GPT chat can pick up without having the prior conversation in memory. Previously the resume checklist pointed at CLAUDE.md + CHANGELOG.md + PHASE_ROADMAP.md, but none of those encode the very-latest pending action (e.g. "FULL rebuild must run next to verify the phase2-keepcols-fix commit"); a new chat session would have to infer it.
+- files:
+  - `SESSION_HANDOFF.md` -> new file, single-item inbox with §1 last thing that happened, §2 next action for the user, §3 what comes after verification, §4 copy-paste bootstrap prompt for a new chat, §5 what's in git vs Drive, §6 how to rotate the file.
+  - `CLAUDE.md` -> added `SESSION_HANDOFF.md` at the top of Key Files list; rewrote the Multi-Session Phase Plan resume checklist to read `SESSION_HANDOFF.md` first, then CLAUDE.md / CHANGELOG.md / PHASE_ROADMAP.md / git log / Drive baseline.
+  - `PHASE_ROADMAP.md` -> §7 session-continuation checklist updated to read `SESSION_HANDOFF.md` first; added a rule that when a phase ships the handoff file must be rewritten with the new state.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `SESSION_HANDOFF.md` -> ephemeral single-item inbox; rewritten (not appended) each time a phase ships.
+- validation:
+  - `git log --oneline -3` -> confirmed latest commit is `1d4fb40 Fix Phase 2 columns dropped by feature_store keep_cols whitelist`.
+- risks_or_notes:
+  - The handoff file must be rotated (rewritten in place) after every phase ship. Do NOT accumulate multiple handoff files or let stale handoff notes linger - a fresh chat session should always trust the current handoff as the single source of truth for "what's the immediate next action". If no phase is in-flight, the handoff can be a short note saying "no pending action, read CHANGELOG and PHASE_ROADMAP for the last shipped state".

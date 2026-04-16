@@ -385,12 +385,15 @@ Use these as the dated baseline for every subsequent A/B comparison. Always copy
 
 ## 7. Session-continuation checklist
 
-When you pick this up in a new chat, do this in order:
+When you pick this up in a new chat / new machine, do this in order:
 
-1. Read `CLAUDE.md` (project basics).
-2. Read the last ~150 lines of `CHANGELOG.md` (current state).
-3. Read this file (PHASE_ROADMAP.md) to see what's planned.
-4. Check `outputs/concentrated_backtest_metrics.json` on Drive for the most recent baseline number to compare against.
-5. Decide which phase is next based on the PR plan (§3). If Phase 3 is still pending, start there.
-6. Work in QUICK_RESCORE_ONLY mode unless the change requires FULL rebuild (see §1 table).
-7. Commit with CHANGELOG entry when A/B gate passes.
+1. **Read `SESSION_HANDOFF.md` FIRST** — single-item inbox for "last thing done + next action". This file is authoritative over everything else for the immediate next step.
+2. Read `CLAUDE.md` (project basics).
+3. Read the last ~200 lines of `CHANGELOG.md` (most recent decisions).
+4. Read this file (PHASE_ROADMAP.md) to see what's planned.
+5. Run `git log --oneline -5` to confirm you have the latest commit.
+6. Check `outputs/concentrated_backtest_metrics.json` on Drive for the most recent baseline number to compare against.
+7. Decide which phase is next based on the PR plan (§3). If Phase 3 is still pending, start there — BUT only if `SESSION_HANDOFF.md` says the previous phase was verified.
+8. Work in QUICK_RESCORE_ONLY mode unless the change requires FULL rebuild (see §1 table).
+9. Commit with CHANGELOG entry when A/B gate passes.
+10. **When a phase ships: rewrite `SESSION_HANDOFF.md` with the new "last thing done + next action"**. Never accumulate multiple handoffs.
