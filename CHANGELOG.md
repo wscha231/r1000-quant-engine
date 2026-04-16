@@ -1901,3 +1901,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - Uses `_median_or_default("vix_level", np.nan)` which is a closure already defined inside `compute_regime_portfolio_controls`. `vix_level` has been available in the monthly panel since `build_macro_regime_table()` at line 7502 — no new data source needed.
   - `cfg.cash_weight_max` still binds as the overall cap, so if a user has `cash_weight_max=0.40` and VIX goes to 50 (tier 4 floor = 0.55), the final `np.clip` would bring cash back down to 0.40. This is the correct precedence — the cfg ceiling is the user's hard constraint, the VIX floor is a defensive pressure.
   - `ENGINE_REUSE_VERSION` NOT bumped. VIX level is already in the feature_store via `MACRO_REGIME_COLUMNS`; Phase 6b is a pure cash-target-construction change.
+
+### 09:10 KST - phase6c-volatility-targeting-default-off
+
+- scope:
+  - Phase 6c (PHASE_ROADMAP §2.6 + PROPOSAL_defensive_upgrades.md §Proposal 7): add realized-portfolio-volatility targeting inside `backtest_portfolio`. Trailing 6-month monthly net returns are used to compute annualized realized vol; when it exceeds `vol_target_annualized` (default 12%), non-cash exposure is shrunk via an equivalent cash floor. Default OFF — vol targeting can hurt CAGR in calm markets, so the user must explicitly opt in.
+  - Expressed as a cash floor rather than direct weight multiplication so it composes cleanly with Phase 6a drawdown breaker and Phase 6b VIX guard through a simple chain of `max()` operations.
+- files:
+  - `r1000_top30_institutional.py` ->
+    - `EngineConfig`: 5 new fields (`volatility_targeting_enabled`, `vol_target_annualized`, `vol_lookback_months`, `vol_scale_floor`, `vol_scale_ceiling`).
+    - `backtest_portfolio` + `_legacy_unused_backtest_portfolio`: Phase 6c state block next to Phase 6a init. `recent_returns: list[float]` captures trailing monthly net returns.
+    - Monthly loop: after `net_ret = month_ret - cost` and `running_equity` update, appends `net_ret` to `recent_returns` and trims to `max(lookback, 12)`. Computes `vol_cash_floor_p6c` per month; when it exceeds zero, participates in the `max()` chain for `effective_cash_target_max`. Refactored the cash-floor composition so it no longer short-circuits on `circuit_breaker_active`; the chain is now: cfg cap -> Phase 6a breaker floor (if active) -> Phase 6c vol floor (if active).
+    - `ret_rows.append(...)` picks up three new Phase 6c diagnostics: `vol_target_active` (0/1), `vol_cash_floor_p6c` (0.0 when vol target off, else the dynamic floor), `recent_returns_len` (how many trailing months we've accumulated).
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none.
+- symbols_changed:
+  - `backtest_portfolio()` -> tracks `recent_returns` state; reads realized vol per month; computes `vol_cash_floor_p6c` via `clip(target/max(realized, target), floor, ceiling)`; refactored `effective_cash_target_max` computation to a cumulative `max()` chain.
+- config_fields_added:
+  - `volatility_targeting_enabled: bool = False`
+  - `vol_target_annualized: float = 0.12`
+  - `vol_lookback_months: int = 6`
+  - `vol_scale_floor: float = 0.50`
+  - `vol_scale_ceiling: float = 1.00`
+- breaking_changes:
+  - Subtle behavioral change: the `effective_cash_target_max` computation was restructured from a ternary that short-circuited on `circuit_breaker_active` to a cumulative `max()` chain that also honours the Phase 6c vol floor. With all Phase 6 gates off this is algebraically identical to the pre-Phase-6c path (both Phase 6a and Phase 6c contributions are 0, only `cfg.cash_weight_max` binds).
+- outputs:
+  - `ret_df` / `equity_curve.csv` / validation suite now include `vol_target_active`, `vol_cash_floor_p6c`, `recent_returns_len` columns on every monthly row.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Semantic A/B deferred to Colab. Ship gate per PHASE_ROADMAP §3: Δ Sharpe ≥ +0.05 AND Δ CAGR ≥ -1pp.
+- risks_or_notes:
+  - Default OFF means the user must set BOTH `cfg.volatility_targeting_enabled=True` AND `os.environ["PHASE_PHASE6C_VOLTARGET_ENABLED"]="1"` to activate. Any quick A/B comparing the default configuration to the "everything defensive on" configuration isolates Phase 6c cleanly.
+  - Expressing vol targeting as a cash floor (instead of multiplicative non-cash scaling) loses one subtlety: the original proposal scales the non-cash BUCKET uniformly, preserving relative sleeve weights. The cash-floor approximation hands excess cash to the downstream sleeve re-normaliser which will reshape the sleeve mix based on the regime controller's target. In practice the distinction is minor at low vol-scale values (0.9+), and material only when vol_scale drops toward the 0.5 floor.
+  - `recent_returns` is capped at `max(lookback, 12)` entries to prevent unbounded memory growth across long backtests. Not expected to bind because `lookback` defaults to 6.
+  - Phase 6c's ENGINE_REUSE_VERSION is NOT bumped. All state is per-backtest-run and no feature_store schema changes.

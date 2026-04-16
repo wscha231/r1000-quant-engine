@@ -2138,6 +2138,24 @@ class EngineConfig:
     vix_level_tier3_cash_floor: float = 0.40
     vix_level_tier4_threshold: float = 45.0
     vix_level_tier4_cash_floor: float = 0.55
+    # ---------------
+    # Phase 6c: volatility targeting (PHASE_ROADMAP §2.6 + PROPOSAL §7)
+    # ---------------
+    # Tracks realized portfolio volatility over a rolling window of
+    # monthly net returns and scales non-cash weights down when vol
+    # exceeds target. Formula:
+    #   vol_scale = clip(target_vol / max(realized_vol, target_vol),
+    #                    vol_scale_floor, vol_scale_ceiling)
+    # `target_vol` is ANNUALIZED. The floor of 0.5 means we never
+    # shrink non-cash below 50% of its constructed weight; the ceiling
+    # of 1.0 means we never LEVER up (would need margin anyway).
+    # Default OFF per PHASE_ROADMAP §2.6 — vol targeting can hurt
+    # CAGR in calm markets, so user must explicitly opt in.
+    volatility_targeting_enabled: bool = False
+    vol_target_annualized: float = 0.12
+    vol_lookback_months: int = 6
+    vol_scale_floor: float = 0.50
+    vol_scale_ceiling: float = 1.00
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -16968,6 +16986,21 @@ def _legacy_unused_backtest_portfolio(
     ]
     _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "drawdown_breaker_recovery_buffer", 0.03), 0.03), 0.0))
 
+    # -----------------------------------------------------------------
+    # Phase 6c: volatility targeting state (PHASE_ROADMAP §2.6).
+    # Default OFF — user must explicitly set
+    # cfg.volatility_targeting_enabled=True AND
+    # PHASE_PHASE6C_VOLTARGET_ENABLED=1.
+    # -----------------------------------------------------------------
+    _phase6c_cfg_on = bool(getattr(cfg, "volatility_targeting_enabled", False))
+    _phase6c_env_on = phase_is_enabled("phase6c_voltarget", default=False)
+    _phase6c_active = bool(_phase6c_cfg_on and _phase6c_env_on)
+    _p6c_target_vol = float(max(safe_float(getattr(cfg, "vol_target_annualized", 0.12), 0.12), 1e-4))
+    _p6c_lookback = int(max(int(getattr(cfg, "vol_lookback_months", 6) or 6), 3))
+    _p6c_floor = float(np.clip(safe_float(getattr(cfg, "vol_scale_floor", 0.50), 0.50), 0.0, 1.0))
+    _p6c_ceiling = float(np.clip(safe_float(getattr(cfg, "vol_scale_ceiling", 1.0), 1.0), _p6c_floor, 1.0))
+    recent_returns: list[float] = []  # trailing monthly net returns for vol calc
+
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
             return "balanced"
@@ -17081,9 +17114,33 @@ def _legacy_unused_backtest_portfolio(
             circuit_breaker_active or breaker_event.startswith("recovered") or breaker_event.startswith("triggered")
         )
         breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
-        effective_cash_target_max = (
-            max(float(cash_target_max), effective_breaker_cash_floor) if circuit_breaker_active else float(cash_target_max)
-        )
+        # Phase 6c: volatility targeting. When realized portfolio
+        # vol (annualized from last `lookback` monthly net returns)
+        # exceeds `_p6c_target_vol`, shrink non-cash exposure by
+        # vol_scale, which we express as an equivalent cash floor.
+        # Both the cfg flag and env gate must be on. Default OFF.
+        vol_cash_floor_p6c = 0.0
+        if _phase6c_active and len(recent_returns) >= _p6c_lookback:
+            try:
+                realized_vol = float(np.std(recent_returns[-_p6c_lookback:], ddof=1) * np.sqrt(12))
+            except Exception:
+                realized_vol = float("nan")
+            if np.isfinite(realized_vol) and realized_vol > 0:
+                vol_scale = float(
+                    np.clip(
+                        _p6c_target_vol / max(realized_vol, _p6c_target_vol),
+                        _p6c_floor,
+                        _p6c_ceiling,
+                    )
+                )
+                # Express vol shrinkage as an equivalent cash floor:
+                # if vol_scale=0.7, at least 30% of the book goes to cash.
+                vol_cash_floor_p6c = float(np.clip(1.0 - vol_scale, 0.0, 1.0))
+        effective_cash_target_max = float(cash_target_max)
+        if circuit_breaker_active:
+            effective_cash_target_max = max(effective_cash_target_max, effective_breaker_cash_floor)
+        if vol_cash_floor_p6c > 0.0:
+            effective_cash_target_max = max(effective_cash_target_max, vol_cash_floor_p6c)
         if sleeve_specific_rebalance_enabled:
             if force_breaker_rebalance:
                 due_sleeves = list(sleeve_interval_map.keys())
@@ -20461,6 +20518,21 @@ def backtest_portfolio(
     ]
     _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "drawdown_breaker_recovery_buffer", 0.03), 0.03), 0.0))
 
+    # -----------------------------------------------------------------
+    # Phase 6c: volatility targeting state (PHASE_ROADMAP §2.6).
+    # Default OFF — user must explicitly set
+    # cfg.volatility_targeting_enabled=True AND
+    # PHASE_PHASE6C_VOLTARGET_ENABLED=1.
+    # -----------------------------------------------------------------
+    _phase6c_cfg_on = bool(getattr(cfg, "volatility_targeting_enabled", False))
+    _phase6c_env_on = phase_is_enabled("phase6c_voltarget", default=False)
+    _phase6c_active = bool(_phase6c_cfg_on and _phase6c_env_on)
+    _p6c_target_vol = float(max(safe_float(getattr(cfg, "vol_target_annualized", 0.12), 0.12), 1e-4))
+    _p6c_lookback = int(max(int(getattr(cfg, "vol_lookback_months", 6) or 6), 3))
+    _p6c_floor = float(np.clip(safe_float(getattr(cfg, "vol_scale_floor", 0.50), 0.50), 0.0, 1.0))
+    _p6c_ceiling = float(np.clip(safe_float(getattr(cfg, "vol_scale_ceiling", 1.0), 1.0), _p6c_floor, 1.0))
+    recent_returns: list[float] = []  # trailing monthly net returns for vol calc
+
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
             return "balanced"
@@ -20574,9 +20646,33 @@ def backtest_portfolio(
             circuit_breaker_active or breaker_event.startswith("recovered") or breaker_event.startswith("triggered")
         )
         breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
-        effective_cash_target_max = (
-            max(float(cash_target_max), effective_breaker_cash_floor) if circuit_breaker_active else float(cash_target_max)
-        )
+        # Phase 6c: volatility targeting. When realized portfolio
+        # vol (annualized from last `lookback` monthly net returns)
+        # exceeds `_p6c_target_vol`, shrink non-cash exposure by
+        # vol_scale, which we express as an equivalent cash floor.
+        # Both the cfg flag and env gate must be on. Default OFF.
+        vol_cash_floor_p6c = 0.0
+        if _phase6c_active and len(recent_returns) >= _p6c_lookback:
+            try:
+                realized_vol = float(np.std(recent_returns[-_p6c_lookback:], ddof=1) * np.sqrt(12))
+            except Exception:
+                realized_vol = float("nan")
+            if np.isfinite(realized_vol) and realized_vol > 0:
+                vol_scale = float(
+                    np.clip(
+                        _p6c_target_vol / max(realized_vol, _p6c_target_vol),
+                        _p6c_floor,
+                        _p6c_ceiling,
+                    )
+                )
+                # Express vol shrinkage as an equivalent cash floor:
+                # if vol_scale=0.7, at least 30% of the book goes to cash.
+                vol_cash_floor_p6c = float(np.clip(1.0 - vol_scale, 0.0, 1.0))
+        effective_cash_target_max = float(cash_target_max)
+        if circuit_breaker_active:
+            effective_cash_target_max = max(effective_cash_target_max, effective_breaker_cash_floor)
+        if vol_cash_floor_p6c > 0.0:
+            effective_cash_target_max = max(effective_cash_target_max, vol_cash_floor_p6c)
         if sleeve_specific_rebalance_enabled:
             if force_breaker_rebalance:
                 due_sleeves = list(sleeve_interval_map.keys())
@@ -20781,6 +20877,13 @@ def backtest_portfolio(
         running_equity = running_equity * (1.0 + net_ret)
         portfolio_peak = max(portfolio_peak, running_equity)
         drawdown_after_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
+        # Phase 6c: track trailing monthly net returns for vol targeting.
+        # Always populated so diagnostics are consistent; Phase 6c only
+        # ACTS on it when `_phase6c_active` is True above.
+        recent_returns.append(float(net_ret))
+        if len(recent_returns) > max(int(_p6c_lookback), 12):
+            # cap memory to at most 12 months to avoid unbounded growth.
+            recent_returns = recent_returns[-12:]
         current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
@@ -20871,6 +20974,10 @@ def backtest_portfolio(
                 "dd_breaker_level": int(dd_active_level) if _phase6a_active else 0,
                 "dd_trigger_equity": float(dd_trigger_equity) if _phase6a_active else 0.0,
                 "dd_breaker_multilevel_active": 1 if _phase6a_active else 0,
+                # Phase 6c diagnostics (vol targeting).
+                "vol_target_active": 1 if _phase6c_active else 0,
+                "vol_cash_floor_p6c": float(vol_cash_floor_p6c) if _phase6c_active else 0.0,
+                "recent_returns_len": int(len(recent_returns)),
             }
         )
 
