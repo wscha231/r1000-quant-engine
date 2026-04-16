@@ -49,6 +49,37 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 ENGINE_REUSE_VERSION = "2026-04-16-phase1+2-turnaround-value-industry-rs"
 
+
+# =====================================================================
+# Phase A/B toggles (env-var based, for fast iteration testing)
+# =====================================================================
+# These let us isolate the marginal contribution of a given phase by
+# running the full pipeline twice — once with the phase enabled, once
+# disabled — without touching code.  When a phase is disabled the
+# corresponding columns still get created (with safe zero / "" values)
+# so downstream schemas and sleeve composites don't break.
+#
+# Usage (Colab cell or shell):
+#     import os
+#     os.environ["PHASE_PHASE1_ALPHA_ENABLED"] = "0"       # disable Phase 1
+#     os.environ["PHASE_PHASE2_INDUSTRY_ENABLED"] = "0"    # disable Phase 2
+#
+# Any of: "0", "false", "no", "off", "disabled" (case-insensitive) turns
+# a phase OFF.  Anything else (including unset) leaves it at the default.
+def phase_is_enabled(phase_key: str, default: bool = True) -> bool:
+    """Check env var PHASE_{KEY}_ENABLED.  Returns `default` when unset."""
+    env_name = f"PHASE_{phase_key.upper()}_ENABLED"
+    raw = os.environ.get(env_name, "")
+    val = str(raw).strip().lower()
+    if val == "":
+        return bool(default)
+    if val in ("0", "false", "no", "off", "disabled"):
+        return False
+    if val in ("1", "true", "yes", "on", "enabled"):
+        return True
+    return bool(default)
+
+
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
 CASH_PROXY_TICKER = "CASH"
@@ -8863,6 +8894,24 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     ).fillna(0.0)
     d["uptrend_breakdown_penalty"] = breakdown_components.clip(lower=0.0, upper=1.5)
 
+    # ---------------------------------------------------------------------
+    # Phase 1 A/B toggle.  When PHASE_PHASE1_ALPHA_ENABLED=0 we keep the
+    # column schema intact but zero the 5 new alpha scores so we can
+    # measure Phase 1's marginal contribution by running the same cfg twice.
+    # Intermediate locals above (e.g. `quality_floor`, `revision_alpha`) are
+    # preserved because they're re-used elsewhere in this function.
+    # ---------------------------------------------------------------------
+    if not phase_is_enabled("phase1_alpha", default=True):
+        for _p1_col in (
+            "fundamental_turnaround_acceleration_score",
+            "cashflow_inflection_under_loss_score",
+            "value_inflection_score",
+            "uptrend_continuation_score",
+            "uptrend_breakdown_penalty",
+        ):
+            if _p1_col in d.columns:
+                d[_p1_col] = 0.0
+
     anticipatory_market_confirmation = row_mean(
         [
             (numeric_series_or_default(d, "event_reaction_score", 0.0) > 0.0).astype(float),
@@ -12596,17 +12645,44 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     # downstream features can compute industry-level relative strength and
     # leadership.  Cache lives in `cache_misc/yf_industry_metadata.parquet`;
     # we only refresh tickers older than `industry_metadata_refresh_days`.
-    industry_meta = ensure_industry_metadata(
-        cfg,
-        paths,
-        monthly["ticker"].dropna().astype(str).unique().tolist(),
-        max_new=int(getattr(cfg, "industry_metadata_max_new_per_run", 250)),
-        refresh_days=int(getattr(cfg, "industry_metadata_refresh_days", 60)),
-    )
-    monthly = attach_industry_metadata(monthly, industry_meta)
-    monthly = add_industry_relative_strength(monthly)
-    monthly = compute_oneil_leadership_score(monthly)
-    monthly = add_industry_rotation_signal(monthly)
+    # A/B toggle: PHASE_PHASE2_INDUSTRY_ENABLED=0 skips the yfinance fetch
+    # and the three industry-RS / leadership / rotation builders, but still
+    # writes zero placeholder columns so downstream sleeve composites keep
+    # their column schema.
+    if phase_is_enabled("phase2_industry", default=True):
+        industry_meta = ensure_industry_metadata(
+            cfg,
+            paths,
+            monthly["ticker"].dropna().astype(str).unique().tolist(),
+            max_new=int(getattr(cfg, "industry_metadata_max_new_per_run", 250)),
+            refresh_days=int(getattr(cfg, "industry_metadata_refresh_days", 60)),
+        )
+        monthly = attach_industry_metadata(monthly, industry_meta)
+        monthly = add_industry_relative_strength(monthly)
+        monthly = compute_oneil_leadership_score(monthly)
+        monthly = add_industry_rotation_signal(monthly)
+    else:
+        log(
+            "[phase2_industry] disabled via env PHASE_PHASE2_INDUSTRY_ENABLED=0 "
+            "— skipping yfinance metadata fetch + industry RS / leadership / rotation."
+        )
+        for _p2_str_col in ("industry", "industry_group", "subindustry"):
+            if _p2_str_col not in monthly.columns:
+                monthly[_p2_str_col] = ""
+        _p2_zero_cols = (
+            "rs_industry_1m", "rs_industry_3m", "rs_industry_6m", "rs_industry_12m",
+            "rs_industry_group_1m", "rs_industry_group_3m",
+            "rs_industry_group_6m", "rs_industry_group_12m",
+            "industry_mom_mean_3m", "industry_mom_mean_6m", "industry_mom_mean_12m",
+            "industry_group_mom_mean_3m", "industry_group_mom_mean_6m",
+            "industry_group_mom_mean_12m",
+            "industry_breadth_above_ma200", "industry_group_breadth_above_ma200",
+            "industry_group_strength_score", "industry_within_leader_rank",
+            "oneil_leadership_score", "industry_rotation_signal",
+        )
+        for _p2_col in _p2_zero_cols:
+            if _p2_col not in monthly.columns:
+                monthly[_p2_col] = 0.0
     live_candidates = (
         monthly.sort_values(["rebalance_date", "dollar_vol_20d"], ascending=[False, False])["ticker"]
         .dropna()

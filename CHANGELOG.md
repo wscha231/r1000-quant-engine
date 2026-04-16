@@ -1502,3 +1502,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - End-to-end reproduction test: wrote a legacy parquet with string `updated_at`, stubbed the per-ticker fetch, called `ensure_industry_metadata` with mixed cached + new tickers — sort succeeded, returned dtype is `datetime64[us]`, second call (cache hit, no fetch) also returns `datetime64[us]`.
 - risks_or_notes:
   - The user's in-flight Colab run crashed at `[05:49:55]` after the collector finished cleanly. After this fix is pulled, re-running cell 4 will reuse the collector outputs (already on Drive), reuse the bad-dtype cache (auto-coerced on load), and continue past the previous crash point. No re-collection or cache deletion is needed.
+
+### 16:45 KST - fast-iter-infra-phase-toggles-quick-rescore-roadmap
+
+- scope:
+  - Fast-iteration infrastructure: Phase 1+2 env-var A/B toggles so the marginal contribution of each phase can be measured without editing code, a `pipeline_quick_rescore_cfg` preset that reuses the feature store + trained models for ~15-25 min iteration (down from ~1.5-4h full rebuilds), a `colab_run.ipynb` branch that chooses between the quick and full path at cell 2, and a persistent multi-session phase roadmap document for Phases 1..6.
+- files:
+  - `r1000_top30_institutional.py` -> added module-level `phase_is_enabled(phase_key, default=True)` helper right after `ENGINE_REUSE_VERSION`; added Phase 1 post-hoc zero-out guard at the end of `compute_strategy_blueprint_columns` (after `uptrend_breakdown_penalty` is written); added Phase 2 guard with zero-column fallback inside `build_universe_monthly` around the industry-metadata / industry-RS block so downstream sleeve code always sees the expected columns.
+  - `r1000_data_collector.py` -> added `pipeline_quick_rescore_cfg(base_dir, end_date)` preset that sets `reuse_existing_artifacts=True`, `resume_partial_walkforward=True`, `reuse_phase4_models_for_latest_recommendations=True`, forces all refresh-TTL knobs to 99999, zeros out `industry_metadata_max_new_per_run` / `yf_quarterly_max_tickers_per_run`, disables every comparison-suite backtest except the concentrated one, and enables `fast_mode=True` so a single rescore round completes in ~15-25 min.
+  - `colab_run.ipynb` -> cell 2 now exposes `QUICK_RESCORE_ONLY`, `PHASE1_ALPHA_ENABLED`, `PHASE2_INDUSTRY_ENABLED` knobs and wires the non-`auto` phase values into `PHASE_PHASE1_ALPHA_ENABLED` / `PHASE_PHASE2_INDUSTRY_ENABLED` env vars before the engine is imported; cell 4 branches between `pipeline_quick_rescore_cfg` and `collector_lean_full_run_cfg` on `QUICK_RESCORE_ONLY`, guards the old unconditional `resume_partial_walkforward=False` / `reuse_phase4_models_for_latest_recommendations=False` overrides behind `if not QUICK_RESCORE_ONLY:`, and guards the Phase 1+2 industry-metadata warm-up behind `if OPTION_1_FULL_REBUILD and not QUICK_RESCORE_ONLY:` so quick-rescore never re-fetches yfinance.
+  - `CLAUDE.md` -> added a "Fast-Iteration Workflow" section documenting mode choice, phase-toggle mechanics, and the A/B measurement recipe; added a "Multi-Session Phase Plan" section linking to `PHASE_ROADMAP.md`; updated Key Files to list the new roadmap + proposal docs.
+  - `PHASE_ROADMAP.md` -> new file: the canonical Phase 1..6 plan, including a TL;DR, the fast-iteration workflow, per-phase scope / signals / integration / expected impact / complexity / acceptance criteria / env gate, the full implementation order / PR plan, the 2026-04-15 baseline reference, session-continuation checklist, and invariants a cold-start agent must preserve.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `phase_is_enabled(phase_key: str, default: bool = True) -> bool` -> reads env var `PHASE_{KEY}_ENABLED`, returns True/False with `default` fallback; accepts truthy/falsy string forms (`1/0`, `true/false`, `on/off`, `yes/no`, `enabled/disabled`)
+  - `pipeline_quick_rescore_cfg(base_dir: str, end_date: str | None = None) -> dict` -> fast-iter pipeline config preset that reuses feature store + models; docstring calls out the caveat that signal-formula changes are NOT reflected because the feature store is cached
+- symbols_changed:
+  - `compute_strategy_blueprint_columns()` -> added a post-hoc zero-out block at the end (after `d["uptrend_breakdown_penalty"] = ...`) that zeros the five Phase 1 score columns when `phase_is_enabled("phase1_alpha", default=True)` returns False; schema is always preserved so downstream code never KeyErrors
+  - `build_universe_monthly()` -> wrapped the Phase 2 industry-metadata / `add_industry_relative_strength` / `compute_oneil_leadership_score` / `add_industry_rotation_signal` block in `if phase_is_enabled("phase2_industry", default=True)`, with an `else` branch that writes all expected industry / RS / leadership / rotation columns as zero / empty-string placeholders so disabled-phase runs still have a stable schema
+- config_fields_added:
+  - none. All toggles are via env vars (`PHASE_PHASE1_ALPHA_ENABLED`, `PHASE_PHASE2_INDUSTRY_ENABLED`), not EngineConfig fields, because (a) they are experiment knobs not production config and (b) env vars are easier to set at the top of a Colab notebook.
+- breaking_changes:
+  - none. Default behaviour is unchanged (both phases default to enabled). Existing runs that do not set the env vars behave identically to pre-change runs. Existing feature_store and model caches are compatible.
+- outputs:
+  - none new. The new preset produces the same `outputs/concentrated_backtest_metrics.json` schema used for all prior A/B comparisons, just faster.
+- validation:
+  - `py -3 -c "import ast; ast.parse(open('r1000_top30_institutional.py', encoding='utf-8').read())"` passed locally.
+  - `py -3 -c "import ast; ast.parse(open('r1000_data_collector.py', encoding='utf-8').read())"` passed locally.
+  - `py -3 -c "import json, pathlib; json.loads(pathlib.Path('colab_run.ipynb').read_text(encoding='utf-8'))"` passed locally — notebook JSON is well-formed after the `NotebookEdit` replacements.
+  - Manual check: `phase_is_enabled` defaults True when env var is unset, False on `0/false/no/off/disabled`, True on `1/true/yes/on/enabled`.
+- risks_or_notes:
+  - Quick-rescore reuses the cached `feature_store/*.parquet`. Signal-formula changes (anything inside `compute_*` / `build_*` / `add_*` that writes a feature column) will NOT be reflected in the historical backtest under quick-rescore because the historical features were baked with the old formula. Bump `ENGINE_REUSE_VERSION` and run a full rebuild once whenever a formula changes, then return to quick-rescore.
+  - The Phase 2 disable branch writes zero-valued placeholder columns via a small helper; if a future phase change depends on NaN vs zero semantics, revisit those defaults.
+  - The phase toggles are written as post-hoc zero-outs for Phase 1 and conditional-branch for Phase 2 because Phase 2 touches `build_universe_monthly` (heavy IO), while Phase 1 just writes cheap cross-sectional columns. Post-hoc zero-out is sufficient for Phase 1 but would waste yfinance calls if applied to Phase 2 — the conditional branch is deliberate.
+  - `PHASE_ROADMAP.md` is the durable memory of Phases 3..6 plans so this work can be resumed in a fresh chat session without re-deriving the plan. Any phase-level architectural decision should be reflected there before implementation begins.

@@ -97,6 +97,76 @@ def collector_reuse_step2_cfg(base_dir: Optional[str] = None, end_date: Optional
     return _apply_notebook_runtime_defaults(cfg)
 
 
+def pipeline_quick_rescore_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
+    """Fastest-iteration preset for tweaking sleeve weights / A/B phase toggles.
+
+    What this reuses (vs. a full run):
+      - Phase 0 code-search cache
+      - Phase 1/2/3 feature store parquet  (NO universe rebuild, NO SEC fetch,
+        NO yfinance industry metadata fetch, NO macro refresh)
+      - Phase 4 trained model bundle  (NO walk-forward retraining)
+
+    What this still runs:
+      - Latest-date scoring (so sleeve-weight / phase-toggle changes DO take
+        effect for the latest recommendation and the concentrated backtest)
+      - Main portfolio backtest  (required — this is the measurement we want)
+      - Concentrated backtest  (required — CAGR vs baseline)
+
+    What this skips entirely:
+      - All comparison suites (portfolio size, rebalance interval, backtest
+        window, sleeve regime, AI four-sleeve, regime-map-method, standalone
+        sleeve, sleeve-cap policy)
+      - Extended / explain output exports
+
+    Expected runtime on Colab: ~15-25 min (vs. ~1.5-2h for a full fast-mode run).
+
+    Caveat: because the feature store is REUSED, any change to a feature-engineering
+    formula (e.g. weights inside `compute_strategy_blueprint_columns` that bake into
+    the historical feature store) will NOT re-propagate into the historical backtest —
+    the historical scores come from the cached parquet.  Use this preset ONLY when
+    changing things that are applied at scoring time (sleeve-weight tuning, A/B
+    phase toggles, concentrated-mode knobs).  If you change a feature formula, use
+    `collector_reuse_step2_cfg` (or a full rebuild) instead.
+    """
+    cfg = collector_reuse_step2_cfg(base_dir=base_dir, end_date=end_date)
+    # Force cache reuse at every layer.
+    cfg["reuse_existing_artifacts"] = True
+    cfg["resume_partial_walkforward"] = True
+    cfg["reuse_phase4_models_for_latest_recommendations"] = True
+    cfg["force_full_fund_panel_rebuild"] = False
+    # Zero out every network refresh so no data gets fetched on this run.
+    cfg["companyfacts_refresh_days"] = 99999
+    cfg["live_refresh_days"] = 99999
+    cfg["macro_refresh_days"] = 99999
+    cfg["alpha_vantage_free_statement_refresh_days"] = 99999
+    cfg["yf_quarterly_refresh_days"] = 99999
+    cfg["industry_metadata_refresh_days"] = 99999
+    cfg["latest_statement_repair_refresh_days"] = 99999
+    cfg["max_live_refresh_tickers"] = 0
+    cfg["alpha_vantage_free_refresh_tickers"] = 0
+    cfg["alpha_vantage_free_statement_repair_tickers"] = 0
+    cfg["yf_quarterly_max_tickers_per_run"] = 0
+    cfg["industry_metadata_max_new_per_run"] = 0
+    # Skip every optional comparison suite.  Keep the concentrated comparison
+    # ON because that is the measurement we actually care about.
+    cfg["run_comparison_backtests"] = False
+    cfg["run_portfolio_size_comparison"] = False
+    cfg["run_rebalance_interval_comparison"] = False
+    cfg["run_backtest_window_comparison"] = False
+    cfg["run_sleeve_regime_comparison"] = False
+    cfg["run_ai_four_sleeve_comparison"] = False
+    cfg["run_regime_map_method_comparison"] = False
+    cfg["run_standalone_sleeve_backtest_comparison"] = False
+    cfg["run_concentrated_backtest_comparison"] = True
+    # Keep exports compact.
+    cfg["export_extended_outputs"] = False
+    cfg["export_explain_outputs"] = False
+    # Fast_mode cuts CatBoost iters / retrain frequency; harmless with reuse
+    # since models are cached anyway, but keeps any forced re-train short.
+    cfg["fast_mode"] = True
+    return _apply_notebook_runtime_defaults(cfg)
+
+
 def collector_coverage_debug_cfg(base_dir: Optional[str] = None, end_date: Optional[str] = None) -> dict[str, Any]:
     cfg = collector_full_run_cfg(base_dir=base_dir, end_date=end_date)
     cfg["companyfacts_refresh_days"] = 0
