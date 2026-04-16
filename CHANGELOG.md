@@ -1478,3 +1478,27 @@ All entries must be written in English. Entries must be predictable and machine-
   - `YF_INDUSTRY_TO_GICS_GROUP` covers the most common yfinance industry strings seen in the Russell-1000 universe; truly exotic strings fall into `Other` and will receive zero industry-group RS rather than spurious values. The map should be reviewed quarterly as yfinance occasionally renames buckets.
   - Sleeve weight additions are deliberately additive (no existing weights were reduced) to avoid silently regressing previously-working signals; this means the relative weight of pre-existing factors mechanically dilutes slightly. We expect the next walk-forward backtest to show whether the industry-leadership tilt outweighs that dilution; if not, weights will be renormalised in a follow-up.
   - The new `rs_industry_*` and `rs_industry_group_*` columns set zero (not NaN) for micro-buckets below the `min_group_size` threshold — this is intentional to avoid spurious extreme z-scores but means a single-name-bucket name gets no industry RS credit at all.
+
+### 15:30 KST - phase2-fix-industry-cache-dtype-crash
+
+- scope:
+  - Hot-fix for the `phase2-industry-relative-strength-and-leadership` change: `ensure_industry_metadata` crashed during the first end-to-end pipeline run with `TypeError: '<' not supported between instances of 'str' and 'Timestamp'` because newly fetched rows wrote `updated_at` as an ISO string while a freshly-loaded cache had it as `Timestamp`, producing a mixed-dtype object column that broke `sort_values`.
+- files:
+  - `r1000_top30_institutional.py` -> changed `fetch_ticker_industry_metadata` to return `pd.Timestamp` instead of an ISO string for `updated_at`; added defensive `pd.to_datetime` coercion at every entry point inside `ensure_industry_metadata` (before concat, after concat, on every return path); added `[yf_industry] Fetching ...` and progress logs so the long first-run yfinance pass is visible.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `fetch_ticker_industry_metadata()` -> `updated_at` field now `pd.Timestamp.utcnow().tz_localize(None)` instead of `datetime.utcnow().isoformat(timespec="seconds")`
+  - `ensure_industry_metadata()` -> coerces `updated_at` on `add` before concat, on `cache` before concat, and again after concat; added `na_position="first"` to the sort; added entry/progress log lines (`[yf_industry] Fetching ... `, `[yf_industry]   progress: i/N`)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Existing legacy cache files written by the broken version (string `updated_at`) are accepted on load and coerced to `datetime64` automatically — no manual cache deletion required to recover.
+- outputs:
+  - none new. The existing `cache_misc/yf_industry_metadata.parquet` will be re-saved with `datetime64[us]` dtype on the next run that triggers a fetch.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed locally.
+  - End-to-end reproduction test: wrote a legacy parquet with string `updated_at`, stubbed the per-ticker fetch, called `ensure_industry_metadata` with mixed cached + new tickers — sort succeeded, returned dtype is `datetime64[us]`, second call (cache hit, no fetch) also returns `datetime64[us]`.
+- risks_or_notes:
+  - The user's in-flight Colab run crashed at `[05:49:55]` after the collector finished cleanly. After this fix is pulled, re-running cell 4 will reuse the collector outputs (already on Drive), reuse the bad-dtype cache (auto-coerced on load), and continue past the previous crash point. No re-collection or cache deletion is needed.

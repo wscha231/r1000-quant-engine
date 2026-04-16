@@ -10500,7 +10500,11 @@ def fetch_ticker_industry_metadata(ticker: str) -> dict[str, Any]:
         "yf_industry_disp": None,
         "yf_sector_key": None,
         "yf_industry_key": None,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        # Use pd.Timestamp (tz-naive UTC) so downstream concat/sort stays in
+        # datetime64 dtype.  Writing an ISO string here previously caused a
+        # dtype mismatch (str vs Timestamp) after concat with a freshly-loaded
+        # cache and crashed `sort_values("updated_at")`.
+        "updated_at": pd.Timestamp.utcnow().tz_localize(None),
     }
     try:
         t = yf.Ticker(to_yf_symbol(ticker))
@@ -10534,19 +10538,39 @@ def ensure_industry_metadata(
     have = set(fresh["ticker"].astype(str).tolist()) if not fresh.empty else set()
     need = [t for t in tickers if str(t) not in have][: int(max(max_new, 0))]
     if need:
+        log(
+            f"[yf_industry] Fetching industry metadata for {len(need)} tickers "
+            f"(cached={len(have)}, refresh_days={refresh_days}) ..."
+        )
         rows: list[dict[str, Any]] = []
         for i, t in enumerate(need, start=1):
             rows.append(fetch_ticker_industry_metadata(t))
             if i % 40 == 0:
                 time.sleep(1.0)
+            if i % 200 == 0 or i == len(need):
+                log(f"[yf_industry]   progress: {i}/{len(need)}")
         add = pd.DataFrame(rows)
+        # Force `updated_at` to datetime64 on both sides before concat so a
+        # string-typed legacy cache file never poisons the sort that follows.
+        if "updated_at" in add.columns:
+            add["updated_at"] = pd.to_datetime(add["updated_at"], errors="coerce")
+        if not cache.empty and "updated_at" in cache.columns:
+            cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
         cache = pd.concat([cache, add], ignore_index=True) if not cache.empty else add
+        # Belt-and-suspenders: re-coerce after concat in case a column ended up
+        # object-typed due to mixed inputs, then sort.
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
         cache = (
-            cache.sort_values("updated_at")
+            cache.sort_values("updated_at", na_position="first")
             .drop_duplicates("ticker", keep="last")
             .reset_index(drop=True)
         )
         save_industry_metadata_cache(paths, cache)
+    # Always return a cache with updated_at coerced to datetime so downstream
+    # consumers (recent_cut filters etc.) see a consistent dtype even if we
+    # skipped the fetch branch above.
+    if "updated_at" in cache.columns and not cache.empty:
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
     return cache
 
 
