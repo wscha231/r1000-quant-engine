@@ -1536,3 +1536,27 @@ All entries must be written in English. Entries must be predictable and machine-
   - The Phase 2 disable branch writes zero-valued placeholder columns via a small helper; if a future phase change depends on NaN vs zero semantics, revisit those defaults.
   - The phase toggles are written as post-hoc zero-outs for Phase 1 and conditional-branch for Phase 2 because Phase 2 touches `build_universe_monthly` (heavy IO), while Phase 1 just writes cheap cross-sectional columns. Post-hoc zero-out is sufficient for Phase 1 but would waste yfinance calls if applied to Phase 2 — the conditional branch is deliberate.
   - `PHASE_ROADMAP.md` is the durable memory of Phases 3..6 plans so this work can be resumed in a fresh chat session without re-deriving the plan. Any phase-level architectural decision should be reflected there before implementation begins.
+
+### 17:20 KST - colab-sanity-cells-self-contained
+
+- scope:
+  - Fixed `NameError: name 'OUT' is not defined` / `name 'top30' is not defined` in `colab_run.ipynb` cells 9, 10, and 11 (the Phase 1+2 sanity check / baseline-delta / top-30 industry context cells). The previous implementation relied on `OUT` and `top30` being defined by cell 5, which fails when the user runs sanity cells directly without re-running cell 5 (or after a kernel restart).
+- files:
+  - `colab_run.ipynb` -> cells 9, 10, 11 now each redefine `BASE_DIR` and `OUT = Path(BASE_DIR) / 'outputs'` at the top and re-read `scored_latest.csv` / `concentrated_backtest_metrics.json` / `top30_latest.csv` from disk; added `[INFO]` / `[NOTE]` diagnostic messages when columns are missing or `target_stock_names` differs from the baseline.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `colab_run.ipynb cell 9` -> added self-contained path setup + `Path` import; logic unchanged
+  - `colab_run.ipynb cell 10` -> added self-contained path setup + `Path` import; added a [NOTE] when `cur.get('selected_names') != BASELINE['selected_names']` so the user knows the concentrated comparison is not apples-to-apples
+  - `colab_run.ipynb cell 11` -> added self-contained path setup + `Path` import + reads `top30_latest.csv` directly; added a `missing` column report so absent industry / leadership columns are visible instead of silently dropped
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 -c "import json, pathlib; json.loads(pathlib.Path('colab_run.ipynb').read_text(encoding='utf-8'))"` passed locally.
+- risks_or_notes:
+  - The sanity cells now work even when cell 5 is not executed, which makes them safer to re-run after editing a single upstream cell during iteration.
