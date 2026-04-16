@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-16-phase2-keepcols-fix"
+ENGINE_REUSE_VERSION = "2026-04-17-phase5-leader-laggard"
 
 
 # =====================================================================
@@ -956,6 +956,24 @@ PHASE2_INDUSTRY_COLUMNS = [
 
 
 # =====================================================================
+# Phase 5: sub-industry leader/laggard pair signals (PHASE_ROADMAP §2.5).
+# =====================================================================
+# Three numeric columns produced by `add_sub_industry_leader_laggard_signals`
+# during `build_universe_monthly`, right after `compute_oneil_leadership_score`.
+# Like Phase 2's industry metadata, these columns are NOT re-derived
+# inside `score_latest_month` / `prepare_latest_scored_data` — they must
+# survive the feature_store whitelist (Invariant #8 in PHASE_ROADMAP §5),
+# so this list is appended to `build_feature_store.keep_cols`.
+# Keep in sync with the zero-placeholder block in `build_universe_monthly`
+# under `if not phase_is_enabled("phase5_leader_laggard"): ...`.
+PHASE5_LEADER_LAGGARD_COLUMNS = [
+    "industry_leader_gap",           # (top-quartile mean - median) / std within industry_group
+    "industry_leader_bonus_score",   # positive bonus for top-quartile in a clearly-separated strong group
+    "industry_laggard_penalty_score",# symmetric penalty for bottom-quartile in the same strong group
+]
+
+
+# =====================================================================
 # Phase 4: regime-conditional sleeve multipliers (PHASE_ROADMAP §2.4).
 # =====================================================================
 # Maps a confirmed regime label -> per-sleeve multiplicative scalar that
@@ -1472,6 +1490,111 @@ def compute_oneil_leadership_score(monthly: pd.DataFrame) -> pd.DataFrame:
 
 
 # =====================================================================
+# Phase 5: sub-industry leader/laggard pair signals (PHASE_ROADMAP §2.5).
+# =====================================================================
+def add_sub_industry_leader_laggard_signals(
+    monthly: pd.DataFrame,
+    min_group_size: int = 6,
+    gap_threshold: float = 0.8,
+) -> pd.DataFrame:
+    """Within each (rebalance_date, industry_group), score:
+      - `industry_leader_gap`: (top-quartile mean - median) / std.
+        Large gap = clear leader separation; small gap = homogeneous group.
+      - `industry_leader_bonus_score`: positive multiplier for top-quartile
+        names WHEN industry_group is in the upper half of
+        `industry_group_strength_score` AND the gap exceeds `gap_threshold`.
+      - `industry_laggard_penalty_score`: mirror negative multiplier for
+        bottom-quartile names in the same strong group.
+
+    Groups with fewer than `min_group_size` names are skipped entirely
+    (all three columns set to 0.0 for rows in that group).
+
+    The within-group percentile ranking reuses `industry_within_leader_rank`
+    (already computed upstream in `compute_oneil_leadership_score`) if
+    present, or falls back to a freshly-ranked composite of mom_6m +
+    rs_benchmark_6m so the function is robust to call-order changes.
+    """
+    required = [
+        "rebalance_date", "industry_group", "industry_group_strength_score",
+    ]
+    # Defensive: when this runs with Phase 2 disabled some columns may be
+    # missing. Return zero-filled columns without raising so downstream
+    # code still finds the expected schema.
+    if not all(c in monthly.columns for c in required):
+        for col in PHASE5_LEADER_LAGGARD_COLUMNS:
+            monthly[col] = 0.0
+        return monthly
+
+    out = monthly.copy()
+    # 1. Get the within-group leader rank. Prefer the existing column;
+    #    fall back to an on-the-fly rank if missing.
+    if "industry_within_leader_rank" in out.columns:
+        leader_rank = pd.to_numeric(out["industry_within_leader_rank"], errors="coerce")
+    else:
+        mom = pd.to_numeric(out.get("mom_6m", 0.0), errors="coerce").fillna(0.0)
+        rs = pd.to_numeric(out.get("rs_benchmark_6m", 0.0), errors="coerce").fillna(0.0)
+        composite = 0.60 * mom + 0.40 * rs
+        leader_rank = (
+            composite
+            .groupby([out["rebalance_date"], out["industry_group"].astype(str)])
+            .rank(pct=True, method="average", ascending=True)
+            .mul(2.0)
+            .sub(1.0)
+        )
+    out["_p5_leader_rank"] = leader_rank.fillna(0.0)
+
+    # 2. Per-group stats (count, top-quartile mean, median, std) to
+    #    compute the leader gap.
+    grp_keys = [out["rebalance_date"], out["industry_group"].astype(str)]
+    grp_size = out["_p5_leader_rank"].groupby(grp_keys).transform("size")
+    # Top-quartile mean: mean over rows where leader_rank >= +0.5
+    # (since rank is in [-1, +1], >=+0.5 is the top quartile).
+    top_q_mask = (out["_p5_leader_rank"] >= 0.5).astype(float)
+    top_q_sum = (out["_p5_leader_rank"] * top_q_mask).groupby(grp_keys).transform("sum")
+    top_q_count = top_q_mask.groupby(grp_keys).transform("sum").clip(lower=1.0)
+    top_q_mean = top_q_sum / top_q_count
+    grp_median = out["_p5_leader_rank"].groupby(grp_keys).transform("median")
+    grp_std = out["_p5_leader_rank"].groupby(grp_keys).transform("std").fillna(0.0).clip(lower=1e-6)
+    leader_gap_raw = (top_q_mean - grp_median) / grp_std
+    # Zero out groups too small to trust, and NaN edges.
+    leader_gap = pd.Series(
+        np.where(grp_size >= int(min_group_size), leader_gap_raw.fillna(0.0), 0.0),
+        index=out.index,
+        dtype=float,
+    ).clip(lower=0.0, upper=4.0)  # gap is definitionally non-negative, cap for safety
+    out["industry_leader_gap"] = leader_gap
+
+    # 3. Strong-group gate: only fire bonus/penalty when the group is
+    #    in the upper half of industry_group_strength_score (>= 0) AND
+    #    the leader gap exceeds the threshold.
+    group_strength = pd.to_numeric(out["industry_group_strength_score"], errors="coerce").fillna(0.0)
+    strong_group = (group_strength >= 0.0).astype(float)
+    gap_strong = (leader_gap >= float(gap_threshold)).astype(float)
+    active = strong_group * gap_strong
+
+    # 4. Leader bonus: top-quartile rows in active groups get a positive
+    #    score proportional to both the leader rank AND the gap strength.
+    top_q_row = (out["_p5_leader_rank"] >= 0.5).astype(float)
+    bot_q_row = (out["_p5_leader_rank"] <= -0.5).astype(float)
+    # Normalise gap into [0, 1] range for multiplier construction
+    gap_strength = (leader_gap / 2.0).clip(lower=0.0, upper=1.0)
+
+    bonus = (
+        active * top_q_row * (0.60 * out["_p5_leader_rank"].clip(lower=0.0, upper=1.0)
+                              + 0.40 * gap_strength)
+    )
+    penalty = (
+        active * bot_q_row * (0.60 * out["_p5_leader_rank"].clip(lower=-1.0, upper=0.0).abs()
+                              + 0.40 * gap_strength)
+    )
+    out["industry_leader_bonus_score"] = bonus.fillna(0.0).clip(lower=0.0, upper=1.0)
+    out["industry_laggard_penalty_score"] = penalty.fillna(0.0).clip(lower=0.0, upper=1.0)
+
+    out.drop(columns=["_p5_leader_rank"], errors="ignore", inplace=True)
+    return out
+
+
+# =====================================================================
 # Phase 2.6: Industry rotation signal (rising-from-bottom industries)
 # =====================================================================
 def add_industry_rotation_signal(monthly: pd.DataFrame) -> pd.DataFrame:
@@ -1715,6 +1838,28 @@ class EngineConfig:
     # 1.0 for unknown regimes).
     regime_dynamic_sleeve_weights_enabled: bool = False
     regime_sleeve_multiplier_table: Optional[dict[str, dict[str, float]]] = None
+    # ------------------------------------------------------------------
+    # Phase 5: sub-industry leader/laggard pair signals (PHASE_ROADMAP §2.5).
+    # ------------------------------------------------------------------
+    # Within a strong industry_group, the top-quartile names earn a
+    # bonus and the bottom-quartile names earn a symmetric penalty.
+    # This is the IBD / O'Neil empirical regularity ("leaders pull
+    # away, laggards get left behind in a rotating group"). Unlike
+    # Phase 3 / Phase 4 which are default OFF, Phase 5 is default ON
+    # per PHASE_ROADMAP because the signals are purely additive to the
+    # existing factor tables: when disabled via env var the three new
+    # columns are zero-filled so downstream sleeve composites are
+    # unaffected. Default ON means the next FULL rebuild bakes the
+    # signals into `feature_store_latest.parquet` immediately.
+    #
+    # `sub_industry_min_group_size=6` skips groups with fewer than 6
+    # names to avoid spurious quartile ranking on tiny groups.
+    # `sub_industry_leader_gap_threshold=0.8` is the std-units gap the
+    # within-group top-quartile has to exceed the median by before the
+    # bonus fires (a "clear separation" guard).
+    sub_industry_leader_laggard_enabled: bool = True
+    sub_industry_min_group_size: int = 6
+    sub_industry_leader_gap_threshold: float = 0.8
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -12941,6 +13086,37 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p2_col in _p2_zero_cols:
             if _p2_col not in monthly.columns:
                 monthly[_p2_col] = 0.0
+    # -----------------------------------------------------------------
+    # Phase 5: sub-industry leader/laggard (PHASE_ROADMAP §2.5).
+    # Depends on industry_group + industry_group_strength_score from
+    # Phase 2, so it must come after the Phase 2 block above. Toggle
+    # pattern mirrors Phase 2: when disabled via env var, zero-fill the
+    # three Phase 5 columns so downstream sleeve code + keep_cols
+    # whitelist (Invariant #8) never see them as missing.
+    # -----------------------------------------------------------------
+    if phase_is_enabled("phase5_leader_laggard", default=True):
+        _p5_enabled_cfg = bool(getattr(cfg, "sub_industry_leader_laggard_enabled", True))
+        if _p5_enabled_cfg:
+            _p5_min_grp = int(getattr(cfg, "sub_industry_min_group_size", 6))
+            _p5_gap_thr = float(getattr(cfg, "sub_industry_leader_gap_threshold", 0.8))
+            monthly = add_sub_industry_leader_laggard_signals(
+                monthly,
+                min_group_size=_p5_min_grp,
+                gap_threshold=_p5_gap_thr,
+            )
+        else:
+            log("[phase5_leader_laggard] disabled via cfg — zero-filling columns.")
+            for _p5_col in PHASE5_LEADER_LAGGARD_COLUMNS:
+                if _p5_col not in monthly.columns:
+                    monthly[_p5_col] = 0.0
+    else:
+        log(
+            "[phase5_leader_laggard] disabled via env PHASE_PHASE5_LEADER_LAGGARD_ENABLED=0 "
+            "— skipping sub-industry leader/laggard signals."
+        )
+        for _p5_col in PHASE5_LEADER_LAGGARD_COLUMNS:
+            if _p5_col not in monthly.columns:
+                monthly[_p5_col] = 0.0
     live_candidates = (
         monthly.sort_values(["rebalance_date", "dollar_vol_20d"], ascending=[False, False])["ticker"]
         .dropna()
@@ -13614,6 +13790,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + MACRO_INTERACTION_COLUMNS
             + LATEST_ONLY_SIGNAL_COLUMNS
             + PHASE2_INDUSTRY_COLUMNS
+            + PHASE5_LEADER_LAGGARD_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -13638,6 +13815,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + SEC_FORM345_COLUMNS
         + PILLAR_SCORE_COLUMNS
         + _PHASE2_NUMERIC_COLUMNS
+        + PHASE5_LEADER_LAGGARD_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -13670,6 +13848,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + MACRO_REGIME_COLUMNS
         + MACRO_INTERACTION_COLUMNS
         + _PHASE2_NUMERIC_COLUMNS
+        + PHASE5_LEADER_LAGGARD_COLUMNS
         + LIVE_EVENT_ALERT_COLUMNS,
     )
     write_fundamental_coverage_report(
@@ -17739,6 +17918,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # leadership matters less than long-term moat quality.
         (0.25, cross_sectional_robust_z(d, "oneil_leadership_score")),
         (0.10, cross_sectional_robust_z(d, "industry_group_strength_score")),
+        # Phase 5: compounders also respect group-leader separation;
+        # weight moderate so it doesn't overpower the moat/quality core.
+        (0.15, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
     ]
     core_score = weighted_sleeve_composite(
         core_weight_pairs,
@@ -17783,6 +17965,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
         (0.25, cross_sectional_robust_z(d, "rs_industry_6m")),
         (0.18, cross_sectional_robust_z(d, "industry_rotation_signal")),
+        # Phase 5: sub-industry leader/laggard — future sleeve gets the
+        # highest weight on these because "leaders pull away in a strong
+        # group" is the IBD/O'Neil playbook this sleeve is built around.
+        (0.25, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
+        (-0.15, cross_sectional_robust_z(d, "industry_laggard_penalty_score")),
     ]
     future_score = weighted_sleeve_composite(
         future_weight_pairs,
@@ -17827,6 +18014,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.25, cross_sectional_robust_z(d, "industry_group_strength_score")),
         (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
         (0.18, cross_sectional_robust_z(d, "rs_industry_3m")),
+        # Phase 5: early-scout is already rotation-heavy; keep leader
+        # bonus light to avoid double-counting with industry_rotation_signal.
+        (0.10, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
     ]
     early_score = weighted_sleeve_composite(
         early_weight_pairs,

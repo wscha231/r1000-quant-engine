@@ -1778,3 +1778,49 @@ All entries must be written in English. Entries must be predictable and machine-
   - The multiplier clamp `[0.40, 1.60]` is intentionally generous relative to the built-in table's actual range `[0.55, 1.30]`. This leaves room for user-supplied overrides to explore more aggressive regime differentiation without touching the core code.
   - Unknown regime labels default to identity multipliers, so adding a new regime (e.g. future Phase 6 regime-smoothing introducing `confirmed_regime_label`) does NOT break Phase 4 — it just means the new label gets 1.0x treatment until someone adds it to the table.
   - `ENGINE_REUSE_VERSION` is NOT bumped. Phase 4 is a portfolio-layer only change; feature_store schema is untouched. The 2026-04-16 Phase 2 FULL rebuild cache remains valid for Phase 4 QUICK_RESCORE A/B.
+
+### 07:55 KST - phase5-sub-industry-leader-laggard-pair
+
+- scope:
+  - Phase 5 (PHASE_ROADMAP §2.5): within each strong industry_group, give the top-quartile names a bonus and the bottom-quartile names a symmetric penalty. This is the IBD / O'Neil empirical regularity that "leaders pull away and laggards get left behind inside a rotating strong group". Default ON (the three new columns land in `scored_latest.csv` automatically on the next FULL rebuild). The Phase 5 sleeve wiring is additive — if the env gate disables Phase 5 the three columns are zero-filled so downstream sleeve composites are unaffected, but otherwise each sleeve's factor table picks up the new signals with role-appropriate weights (future=highest, core=moderate, early=light).
+  - Bumps `ENGINE_REUSE_VERSION` to `"2026-04-17-phase5-leader-laggard"` to force a FULL rebuild when the user next runs Colab. This is mandatory because Phase 5 adds three columns to `build_universe_monthly` that must be baked into `feature_store_latest.parquet` via the `keep_cols` whitelist (Invariant #8 in `PHASE_ROADMAP.md` §5). Without the bump + FULL rebuild, the walk-forward backtest would see zero-filled Phase 5 columns from the old cache and Phase 5 would contribute nothing.
+- files:
+  - `r1000_top30_institutional.py` ->
+    - Bumped `ENGINE_REUSE_VERSION` from `"2026-04-16-phase2-keepcols-fix"` to `"2026-04-17-phase5-leader-laggard"` (line 50).
+    - Added new module constant `PHASE5_LEADER_LAGGARD_COLUMNS` listing the three new numeric columns so they can survive the feature_store whitelist.
+    - Added new helper `add_sub_industry_leader_laggard_signals()` that computes leader_gap / leader_bonus / laggard_penalty per (rebalance_date, industry_group) with min-group-size and gap-threshold guards.
+    - Wired the helper into `build_universe_monthly` right after `compute_oneil_leadership_score` + `add_industry_rotation_signal`, with the standard toggle/zero-fill pattern for both env gate (`PHASE_PHASE5_LEADER_LAGGARD_ENABLED`) and cfg flag (`sub_industry_leader_laggard_enabled`).
+    - Appended `PHASE5_LEADER_LAGGARD_COLUMNS` to `build_feature_store.keep_cols` and to both numeric-sanitize lists in the same function so the columns survive the whitelist AND get NaN-scrubbed like every other numeric column.
+    - Wired the three columns into `compute_portfolio_sleeve_columns` weight tables: future sleeve gets `(0.25, bonus)` + `(-0.15, penalty)` (highest weight because IBD leadership is its bread and butter), core gets `(0.15, bonus)` (moderate — compounders still respect leader separation), early gets `(0.10, bonus)` (light — it's already rotation-heavy via industry_rotation_signal).
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `add_sub_industry_leader_laggard_signals(monthly, min_group_size=6, gap_threshold=0.8) -> pd.DataFrame` -> computes `industry_leader_gap`, `industry_leader_bonus_score`, `industry_laggard_penalty_score` per row. Gracefully returns zero-filled columns when the Phase 2 prerequisite columns are missing.
+  - `PHASE5_LEADER_LAGGARD_COLUMNS: list[str]` -> the three new column names, for use as a single handle when updating keep_cols / sanitize lists / zero-fill fallbacks.
+- symbols_changed:
+  - `build_universe_monthly` -> after the Phase 2 block, inserts a Phase 5 block guarded by both `phase_is_enabled("phase5_leader_laggard", default=True)` and `cfg.sub_industry_leader_laggard_enabled`. Zero-fill fallbacks cover both the env-disabled and cfg-disabled cases so the Phase 5 columns are always present in `monthly`.
+  - `build_feature_store` -> `keep_cols` now appends `PHASE5_LEADER_LAGGARD_COLUMNS`, and both `hard_sanitize(...)` calls include the list so Phase 5 columns get the same NaN / clip treatment as Phase 2 numerics.
+  - `compute_portfolio_sleeve_columns` -> three sleeve weight-pair tables now include Phase 5 signals at sleeve-appropriate weights. No behaviour change when Phase 5 is disabled (columns are zero-filled from the universe block, so `cross_sectional_robust_z` returns zero and the weighted contribution is zero).
+- config_fields_added:
+  - `sub_industry_leader_laggard_enabled: bool = True` -> cfg-level on/off; default ON per PHASE_ROADMAP §2.5.
+  - `sub_industry_min_group_size: int = 6` -> groups smaller than this get zero Phase 5 signals (no spurious quartile ranking on tiny groups).
+  - `sub_industry_leader_gap_threshold: float = 0.8` -> std-units gap the top-quartile must exceed the median by before bonus/penalty fire.
+- breaking_changes:
+  - none -> env gate + cfg flag both default ON, matching the PHASE_ROADMAP plan. With gates OFF the three new columns are zero-filled so legacy behaviour is byte-identical (apart from the schema having three extra zero columns).
+  - **however**: `ENGINE_REUSE_VERSION` bump forces a FULL rebuild on the next Colab run. Users relying on the `2026-04-16-phase2-keepcols-fix` cache will automatically trigger feature_store regeneration -> expect a ~1.5-3h FULL rebuild the next time the engine runs. This is intentional and required — see §2 above.
+- outputs:
+  - `outputs/scored_latest.csv` -> three additional numeric columns: `industry_leader_gap`, `industry_leader_bonus_score`, `industry_laggard_penalty_score`. All are clipped to `[0.0, 4.0]` for gap and `[0.0, 1.0]` for bonus/penalty.
+  - `feature_store_latest.parquet` (after FULL rebuild) -> the three columns survive the keep_cols whitelist and are available to the walk-forward backtest.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - `ast.parse(...)` passed with 383 top-level defs (was 382 — new `add_sub_industry_leader_laggard_signals` helper).
+  - Symbol spot-check: `add_sub_industry_leader_laggard_signals`, `resolve_regime_sleeve_multipliers`, `weighted_sleeve_composite`, `compute_portfolio_sleeve_columns`, `PHASE5_LEADER_LAGGARD_COLUMNS`, `sub_industry_leader_laggard_enabled`, `sub_industry_min_group_size`, `sub_industry_leader_gap_threshold` all present.
+  - Semantic A/B deferred to Colab FULL rebuild. When the user runs the FULL rebuild against `2026-04-17-phase5-leader-laggard`, expected sanity checks in `scored_latest.csv`:
+    - `industry_leader_gap` ≥ 0.0 on every row; `nonzero_share` at least 0.3 (depends on how many groups have ≥6 names — typically 50-70% of rows).
+    - `industry_leader_bonus_score` non-zero only in strong groups (`industry_group_strength_score ≥ 0`) with clear leader separation; expected nonzero_share 0.15-0.25.
+    - `industry_laggard_penalty_score` symmetric to bonus in the same strong groups; similar nonzero_share.
+    - Ship gate per `PHASE_ROADMAP.md` §3: Δ CAGR ≥ +0.3pp AND future-sleeve hit-rate improves ≥ +2pp.
+- risks_or_notes:
+  - Phase 5 works on `industry_group`, not `industry`. This is intentional — industry-level groups have ~20-30 names each (enough for reliable quartile stats), whereas GICS sub-industries often have only 2-5 names. The `min_group_size=6` guard further protects against spurious leader/laggard signals on tiny groups.
+  - The `gap_threshold=0.8` (std units) means the top-quartile mean has to be ~0.8 std above the median before the bonus fires. This is empirically calibrated to weed out "homogeneous groups where nothing stands out" while still catching meaningful leadership dispersion. A/B run will tell us if this threshold needs adjustment.
+  - Future-sleeve wiring uses `(+0.25, bonus)` and `(-0.15, penalty)` — asymmetric because laggards in a strong group are often just "next to catch up" rather than "structurally bad", so we don't want to punish them as hard as we reward leaders. If the A/B reveals laggards DO catch down, we can flip the penalty magnitude up later.
+  - `ENGINE_REUSE_VERSION` bump means the next Colab run MUST be FULL rebuild (`QUICK_RESCORE_ONLY=False`). The user is aware — this was explicitly plan-approved with the bump string `"2026-04-17-phase5-leader-laggard"`.
