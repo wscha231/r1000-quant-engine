@@ -2083,10 +2083,34 @@ class EngineConfig:
     # --------------- valuation extreme penalty ---------------
     valuation_extreme_pe_threshold: float = 80.0        # forward PE above this triggers penalty
     valuation_extreme_penalty_weight: float = 0.20      # seed_score penalty for extreme valuation
-    # --------------- drawdown circuit breaker ---------------
+    # --------------- drawdown circuit breaker (legacy single-threshold; kept for backward compat) ---------------
     drawdown_circuit_breaker_threshold: float = 0.20    # portfolio drawdown that triggers cash raise
     drawdown_circuit_breaker_cash_target: float = 0.50  # force cash to 50% in drawdown
     drawdown_circuit_breaker_recovery: float = 0.10     # drawdown recovers below this to exit breaker
+    # ---------------
+    # Phase 6a: 3-level drawdown circuit breaker (PHASE_ROADMAP §2.6)
+    # ---------------
+    # Expands the legacy single-threshold breaker into an asymmetric
+    # 3-level ladder. When a level is tripped, the portfolio's cash
+    # weight is floored at `level_N_cash_floor` AND non-cash weights
+    # are shrunk by `level_N_scale`. Recovery uses equity-level tracking
+    # (not drawdown percentage) to avoid oscillation: after level N
+    # trips at `dd_trigger_equity`, the breaker only steps down when
+    # `running_equity >= dd_trigger_equity * (1 + recovery_buffer)`.
+    # Default ON per PHASE_ROADMAP §2.6. When disabled via env var or
+    # cfg flag the active path reverts to the legacy single-threshold
+    # breaker so prior runs remain reproducible.
+    drawdown_breaker_multilevel_enabled: bool = True
+    drawdown_breaker_level_1_threshold: float = 0.08    # -8% peak-to-running DD
+    drawdown_breaker_level_1_cash_floor: float = 0.15
+    drawdown_breaker_level_1_scale: float = 0.90
+    drawdown_breaker_level_2_threshold: float = 0.15    # -15%
+    drawdown_breaker_level_2_cash_floor: float = 0.35
+    drawdown_breaker_level_2_scale: float = 0.70
+    drawdown_breaker_level_3_threshold: float = 0.25    # -25%
+    drawdown_breaker_level_3_cash_floor: float = 0.60
+    drawdown_breaker_level_3_scale: float = 0.40
+    drawdown_breaker_recovery_buffer: float = 0.03      # require equity to overshoot trigger by 3% before stepping down
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -16854,6 +16878,34 @@ def _legacy_unused_backtest_portfolio(
     breaker_cash_target = float(np.clip(safe_float(getattr(cfg, "drawdown_circuit_breaker_cash_target", 0.0), 0.0), 0.0, 1.0))
     breaker_recovery = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_recovery", 0.0), 0.0), 0.0))
 
+    # -----------------------------------------------------------------
+    # Phase 6a: 3-level drawdown breaker state (PHASE_ROADMAP §2.6).
+    # Dual-gate toggle — both cfg flag AND env var must be on. When
+    # off, the active path reverts to the legacy single-threshold
+    # breaker above (byte-identical to pre-Phase-6a).
+    # -----------------------------------------------------------------
+    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", False))
+    _phase6a_env_on = phase_is_enabled("phase6a_breaker", default=True)
+    _phase6a_active = bool(_phase6a_cfg_on and _phase6a_env_on)
+    dd_active_level = 0  # 0 = no breaker, 1/2/3 = ladder level
+    dd_trigger_equity = 1.0  # equity level recorded when active level was tripped
+    _p6a_level_thresholds = [
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_1_threshold", 0.08), 0.08), 1e-6)),
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_2_threshold", 0.15), 0.15), 1e-6)),
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_3_threshold", 0.25), 0.25), 1e-6)),
+    ]
+    _p6a_level_cash = [
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_1_cash_floor", 0.15), 0.15), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_2_cash_floor", 0.35), 0.35), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_3_cash_floor", 0.60), 0.60), 0.0, 1.0)),
+    ]
+    _p6a_level_scale = [
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_1_scale", 0.90), 0.90), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_2_scale", 0.70), 0.70), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_3_scale", 0.40), 0.40), 0.0, 1.0)),
+    ]
+    _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "drawdown_breaker_recovery_buffer", 0.03), 0.03), 0.0))
+
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
             return "balanced"
@@ -16913,17 +16965,62 @@ def _legacy_unused_backtest_portfolio(
         mm = d[d["rebalance_date"] == dt].copy()
         drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         breaker_event = ""
-        if breaker_threshold > 0:
+        # Phase 6a: 3-level ladder with equity-based recovery hysteresis.
+        # When `_phase6a_active` is True this path replaces the legacy
+        # single-threshold breaker; when False the legacy path runs
+        # unchanged (byte-identical).
+        if _phase6a_active:
+            # current_dd as a positive number (0 when above peak, increases
+            # as equity falls). positive-valued ladder makes the math
+            # cleaner than the legacy negative drawdown_before_month.
+            current_dd = max(0.0, 1.0 - (running_equity / max(portfolio_peak, 1e-8)))
+            # Target level: the deepest threshold whose DD we meet.
+            target_level = 0
+            if current_dd >= _p6a_level_thresholds[2]:
+                target_level = 3
+            elif current_dd >= _p6a_level_thresholds[1]:
+                target_level = 2
+            elif current_dd >= _p6a_level_thresholds[0]:
+                target_level = 1
+            # Escalation: never step down on DD deepening; only go up.
+            if target_level > dd_active_level:
+                dd_active_level = target_level
+                dd_trigger_equity = running_equity
+                circuit_breaker_active = True
+                breaker_event = f"triggered_level_{target_level}"
+            elif dd_active_level > 0:
+                # Recovery: equity must overshoot the trigger level by
+                # `recovery_buffer` before we step all the way down to 0.
+                # PROPOSAL_defensive_upgrades.md line 153 math: use
+                # `running_equity >= dd_trigger_equity * (1 + buffer)`,
+                # NOT a negative comparison.
+                if running_equity >= dd_trigger_equity * (1.0 + _p6a_recovery_buffer):
+                    dd_active_level = 0
+                    dd_trigger_equity = 1.0
+                    circuit_breaker_active = False
+                    breaker_event = "recovered"
+            if dd_active_level > 0:
+                effective_breaker_cash_floor = _p6a_level_cash[dd_active_level - 1]
+            else:
+                effective_breaker_cash_floor = 0.0
+        elif breaker_threshold > 0:
+            # Legacy single-threshold path (unchanged — kept byte-identical
+            # so Phase 6a OFF runs reproduce prior results).
             if circuit_breaker_active and drawdown_before_month >= -breaker_recovery:
                 circuit_breaker_active = False
                 breaker_event = "recovered"
             elif (not circuit_breaker_active) and drawdown_before_month <= -breaker_threshold:
                 circuit_breaker_active = True
                 breaker_event = "triggered"
-        force_breaker_rebalance = bool(current_w) and (circuit_breaker_active or breaker_event == "recovered")
+            effective_breaker_cash_floor = breaker_cash_target if circuit_breaker_active else 0.0
+        else:
+            effective_breaker_cash_floor = 0.0
+        force_breaker_rebalance = bool(current_w) and (
+            circuit_breaker_active or breaker_event.startswith("recovered") or breaker_event.startswith("triggered")
+        )
         breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
         effective_cash_target_max = (
-            max(float(cash_target_max), breaker_cash_target) if circuit_breaker_active else float(cash_target_max)
+            max(float(cash_target_max), effective_breaker_cash_floor) if circuit_breaker_active else float(cash_target_max)
         )
         if sleeve_specific_rebalance_enabled:
             if force_breaker_rebalance:
@@ -20274,6 +20371,34 @@ def backtest_portfolio(
     breaker_cash_target = float(np.clip(safe_float(getattr(cfg, "drawdown_circuit_breaker_cash_target", 0.0), 0.0), 0.0, 1.0))
     breaker_recovery = float(max(safe_float(getattr(cfg, "drawdown_circuit_breaker_recovery", 0.0), 0.0), 0.0))
 
+    # -----------------------------------------------------------------
+    # Phase 6a: 3-level drawdown breaker state (PHASE_ROADMAP §2.6).
+    # Dual-gate toggle — both cfg flag AND env var must be on. When
+    # off, the active path reverts to the legacy single-threshold
+    # breaker above (byte-identical to pre-Phase-6a).
+    # -----------------------------------------------------------------
+    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", False))
+    _phase6a_env_on = phase_is_enabled("phase6a_breaker", default=True)
+    _phase6a_active = bool(_phase6a_cfg_on and _phase6a_env_on)
+    dd_active_level = 0  # 0 = no breaker, 1/2/3 = ladder level
+    dd_trigger_equity = 1.0  # equity level recorded when active level was tripped
+    _p6a_level_thresholds = [
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_1_threshold", 0.08), 0.08), 1e-6)),
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_2_threshold", 0.15), 0.15), 1e-6)),
+        float(max(safe_float(getattr(cfg, "drawdown_breaker_level_3_threshold", 0.25), 0.25), 1e-6)),
+    ]
+    _p6a_level_cash = [
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_1_cash_floor", 0.15), 0.15), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_2_cash_floor", 0.35), 0.35), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_3_cash_floor", 0.60), 0.60), 0.0, 1.0)),
+    ]
+    _p6a_level_scale = [
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_1_scale", 0.90), 0.90), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_2_scale", 0.70), 0.70), 0.0, 1.0)),
+        float(np.clip(safe_float(getattr(cfg, "drawdown_breaker_level_3_scale", 0.40), 0.40), 0.0, 1.0)),
+    ]
+    _p6a_recovery_buffer = float(max(safe_float(getattr(cfg, "drawdown_breaker_recovery_buffer", 0.03), 0.03), 0.0))
+
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
             return "balanced"
@@ -20333,17 +20458,62 @@ def backtest_portfolio(
         mm = d[d["rebalance_date"] == dt].copy()
         drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         breaker_event = ""
-        if breaker_threshold > 0:
+        # Phase 6a: 3-level ladder with equity-based recovery hysteresis.
+        # When `_phase6a_active` is True this path replaces the legacy
+        # single-threshold breaker; when False the legacy path runs
+        # unchanged (byte-identical).
+        if _phase6a_active:
+            # current_dd as a positive number (0 when above peak, increases
+            # as equity falls). positive-valued ladder makes the math
+            # cleaner than the legacy negative drawdown_before_month.
+            current_dd = max(0.0, 1.0 - (running_equity / max(portfolio_peak, 1e-8)))
+            # Target level: the deepest threshold whose DD we meet.
+            target_level = 0
+            if current_dd >= _p6a_level_thresholds[2]:
+                target_level = 3
+            elif current_dd >= _p6a_level_thresholds[1]:
+                target_level = 2
+            elif current_dd >= _p6a_level_thresholds[0]:
+                target_level = 1
+            # Escalation: never step down on DD deepening; only go up.
+            if target_level > dd_active_level:
+                dd_active_level = target_level
+                dd_trigger_equity = running_equity
+                circuit_breaker_active = True
+                breaker_event = f"triggered_level_{target_level}"
+            elif dd_active_level > 0:
+                # Recovery: equity must overshoot the trigger level by
+                # `recovery_buffer` before we step all the way down to 0.
+                # PROPOSAL_defensive_upgrades.md line 153 math: use
+                # `running_equity >= dd_trigger_equity * (1 + buffer)`,
+                # NOT a negative comparison.
+                if running_equity >= dd_trigger_equity * (1.0 + _p6a_recovery_buffer):
+                    dd_active_level = 0
+                    dd_trigger_equity = 1.0
+                    circuit_breaker_active = False
+                    breaker_event = "recovered"
+            if dd_active_level > 0:
+                effective_breaker_cash_floor = _p6a_level_cash[dd_active_level - 1]
+            else:
+                effective_breaker_cash_floor = 0.0
+        elif breaker_threshold > 0:
+            # Legacy single-threshold path (unchanged — kept byte-identical
+            # so Phase 6a OFF runs reproduce prior results).
             if circuit_breaker_active and drawdown_before_month >= -breaker_recovery:
                 circuit_breaker_active = False
                 breaker_event = "recovered"
             elif (not circuit_breaker_active) and drawdown_before_month <= -breaker_threshold:
                 circuit_breaker_active = True
                 breaker_event = "triggered"
-        force_breaker_rebalance = bool(current_w) and (circuit_breaker_active or breaker_event == "recovered")
+            effective_breaker_cash_floor = breaker_cash_target if circuit_breaker_active else 0.0
+        else:
+            effective_breaker_cash_floor = 0.0
+        force_breaker_rebalance = bool(current_w) and (
+            circuit_breaker_active or breaker_event.startswith("recovered") or breaker_event.startswith("triggered")
+        )
         breaker_sleeve_override = _current_breaker_mix() if circuit_breaker_active else None
         effective_cash_target_max = (
-            max(float(cash_target_max), breaker_cash_target) if circuit_breaker_active else float(cash_target_max)
+            max(float(cash_target_max), effective_breaker_cash_floor) if circuit_breaker_active else float(cash_target_max)
         )
         if sleeve_specific_rebalance_enabled:
             if force_breaker_rebalance:
@@ -20635,6 +20805,10 @@ def backtest_portfolio(
                 "drawdown_circuit_breaker_active": bool(circuit_breaker_active),
                 "drawdown_circuit_breaker_event": breaker_event,
                 "drawdown_circuit_breaker_cash_target": float(breaker_cash_target if circuit_breaker_active else 0.0),
+                # Phase 6a diagnostics (always populated; 0 when Phase 6a off).
+                "dd_breaker_level": int(dd_active_level) if _phase6a_active else 0,
+                "dd_trigger_equity": float(dd_trigger_equity) if _phase6a_active else 0.0,
+                "dd_breaker_multilevel_active": 1 if _phase6a_active else 0,
             }
         )
 

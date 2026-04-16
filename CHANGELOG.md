@@ -1824,3 +1824,46 @@ All entries must be written in English. Entries must be predictable and machine-
   - The `gap_threshold=0.8` (std units) means the top-quartile mean has to be ~0.8 std above the median before the bonus fires. This is empirically calibrated to weed out "homogeneous groups where nothing stands out" while still catching meaningful leadership dispersion. A/B run will tell us if this threshold needs adjustment.
   - Future-sleeve wiring uses `(+0.25, bonus)` and `(-0.15, penalty)` — asymmetric because laggards in a strong group are often just "next to catch up" rather than "structurally bad", so we don't want to punish them as hard as we reward leaders. If the A/B reveals laggards DO catch down, we can flip the penalty magnitude up later.
   - `ENGINE_REUSE_VERSION` bump means the next Colab run MUST be FULL rebuild (`QUICK_RESCORE_ONLY=False`). The user is aware — this was explicitly plan-approved with the bump string `"2026-04-17-phase5-leader-laggard"`.
+
+### 08:20 KST - phase6a-three-level-drawdown-breaker
+
+- scope:
+  - Phase 6a (PHASE_ROADMAP §2.6 + PROPOSAL_defensive_upgrades.md §Proposal 1): expand the existing binary drawdown circuit breaker in `backtest_portfolio` into an asymmetric 3-level ladder with equity-based recovery hysteresis. When the portfolio's peak-to-running drawdown crosses -8% / -15% / -25%, the cash-target floor steps up to 15% / 35% / 60% respectively. Recovery uses equity-level tracking (running_equity must overshoot the trigger equity by `recovery_buffer=3%`) instead of drawdown percentage, eliminating the oscillation risk flagged in PROPOSAL line 153.
+  - Default ON (cfg + env both default to True). Legacy single-threshold breaker (cfg fields `drawdown_circuit_breaker_threshold`, `..._cash_target`, `..._recovery`) kept intact and used when Phase 6a is toggled off, so legacy runs are byte-identical.
+- files:
+  - `r1000_top30_institutional.py` ->
+    - `EngineConfig`: added 11 new Phase 6a fields (`drawdown_breaker_multilevel_enabled`, `drawdown_breaker_level_{1,2,3}_{threshold,cash_floor,scale}`, `drawdown_breaker_recovery_buffer`) with plan-aligned defaults. Legacy 3 fields retained.
+    - `backtest_portfolio` + `_legacy_unused_backtest_portfolio`: added Phase 6a state block (`_phase6a_cfg_on`, `_phase6a_env_on`, `_phase6a_active`, `dd_active_level`, `dd_trigger_equity`, `_p6a_level_thresholds/cash/scale`, `_p6a_recovery_buffer`) in the init section right after the legacy breaker_threshold block.
+    - Replaced the breaker decision block (inside the monthly loop) with a dispatch: Phase 6a active -> 3-level ladder with equity-based recovery; Phase 6a inactive + legacy breaker_threshold > 0 -> legacy single-threshold logic unchanged; neither -> no breaker. Downstream `effective_cash_target_max`, `breaker_sleeve_override`, `force_breaker_rebalance` now consume `effective_breaker_cash_floor` which comes from whichever path is active.
+    - `ret_rows.append(...)` inside the monthly loop gains three new diagnostic fields: `dd_breaker_level` (int 0/1/2/3), `dd_trigger_equity` (float), `dd_breaker_multilevel_active` (0/1 flag). These are populated on every monthly row so auditors can verify the ladder was actually tripping.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none (behavior is in-place; no new top-level functions).
+- symbols_changed:
+  - `backtest_portfolio()` -> breaker decision dispatches on Phase 6a toggle; adds diagnostic columns to `ret_rows`.
+  - `_legacy_unused_backtest_portfolio()` -> mirrors the active path so re-activation would behave consistently; kept because the audit at 17:12 KST called out both closures as "expected to appear twice".
+- config_fields_added:
+  - `drawdown_breaker_multilevel_enabled: bool = True`
+  - `drawdown_breaker_level_1_threshold: float = 0.08`
+  - `drawdown_breaker_level_1_cash_floor: float = 0.15`
+  - `drawdown_breaker_level_1_scale: float = 0.90`
+  - `drawdown_breaker_level_2_threshold: float = 0.15`
+  - `drawdown_breaker_level_2_cash_floor: float = 0.35`
+  - `drawdown_breaker_level_2_scale: float = 0.70`
+  - `drawdown_breaker_level_3_threshold: float = 0.25`
+  - `drawdown_breaker_level_3_cash_floor: float = 0.60`
+  - `drawdown_breaker_level_3_scale: float = 0.40`
+  - `drawdown_breaker_recovery_buffer: float = 0.03`
+- breaking_changes:
+  - none -> when dual-gate is off, the breaker logic is byte-identical to the legacy path.
+- outputs:
+  - Backtest return rows (`ret_df`, which flows into `outputs/equity_curve.csv` and the validation suite) now have three additional columns: `dd_breaker_level`, `dd_trigger_equity`, `dd_breaker_multilevel_active`.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Both `backtest_portfolio` and its `_legacy_unused_` twin share the Phase 6a state + decision logic; `grep _phase6a_active | wc -l` = 6 call-sites (3 in each function, matching the audit-accepted "expected to appear twice" pattern).
+  - Semantic A/B deferred to Colab. Ship gate per PHASE_ROADMAP §3: Δ MaxDD ≤ -3pp AND Δ CAGR ≥ -0.5pp.
+- risks_or_notes:
+  - The `_p6a_level_scale` factors (0.90 / 0.70 / 0.40) are read from cfg and clipped but NOT yet applied in this commit. In this v1 Phase 6a implementation, cash-floor enforcement alone drives the defense (the existing sleeve-renormalisation infra re-allocates among sleeves proportionally once cash is floored). If the A/B shows ladder + cash-floor alone isn't delivering the MaxDD target, a follow-up can add explicit scale multiplication to non-cash weights after sleeve construction.
+  - The recovery buffer is intentionally small (3%). Making it larger reduces oscillation risk further but can keep the breaker engaged longer after a real recovery, trading some CAGR for more MaxDD protection. 3% is the PROPOSAL default.
+  - Escalation is monotonic (you can only step UP within a single monthly iteration); de-escalation happens in one jump after full recovery. This matches the PROPOSAL and mimics how a human risk manager runs a ladder.
+  - `ENGINE_REUSE_VERSION` is NOT bumped here (Phase 5 bump already covers this commit).
