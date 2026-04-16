@@ -12,8 +12,9 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 - `PROPOSAL_growth_regime_offense_defense.md` — Phase 4 참고용 아키텍처 문서
 
 ## Current Engine Version
-- `ENGINE_REUSE_VERSION = "2026-04-16-phase1+2-turnaround-value-industry-rs"`
+- `ENGINE_REUSE_VERSION = "2026-04-16-phase2-keepcols-fix"`
 - Cache invalidation: 버전 문자열이 바뀌면 `cache_*`/`feature_store` 아티팩트가 자동 재생성됨.
+- **Next run must be FULL rebuild** (QUICK_RESCORE_ONLY=False) because this version bump forces regeneration of `feature_store_latest.parquet` with Phase 2 columns restored. After one FULL run the cached feature_store has Phase 2, so you can return to `QUICK_RESCORE_ONLY=True` for subsequent iterations.
 
 ## Environments
 - **Local**: `C:\Users\Andrew Cha\Documents\codex`
@@ -59,6 +60,20 @@ PHASE2_INDUSTRY_ENABLED = 'auto'     # 'auto' | '0' | '1' (Phase 2 on/off)
 - 엔진 최상단 `phase_is_enabled()` 헬퍼가 `PHASE_<KEY>_ENABLED` 환경변수 읽음.
 - phase disable 시 관련 컬럼은 **삭제가 아니라 0.0으로 채움** (downstream sleeve 코드의 KeyError 방지).
 - 새 phase 추가 시 반드시 같은 패턴 따를 것.
+
+### 새 phase 추가 시 feature_store 생존 규칙 (2026-04-16 phase2-keepcols-fix)
+`build_feature_store.keep_cols` 는 **명시적 whitelist** 다. `build_universe_monthly` 에서 붙인 컬럼이라도 whitelist 에 없으면 `fs = universe[keep_cols].copy()` 에서 drop 된다. 드롭되면:
+1. `feature_store_latest.parquet` 에서 빠짐
+2. walk-forward 가 훈련/스코어링할 때 `cross_sectional_robust_z` → NaN → 0.0 으로 fallback 돼서 시그널 contribution 이 **조용히 0 이 됨** (에러 없음)
+3. `scored_latest.csv` 에도 안 나타남
+
+**Phase 1 은 `compute_strategy_blueprint_columns` 가 `score_latest_month`/`prepare_latest_scored_data` 에서 재실행되므로 drop 돼도 최종 CSV 에는 나타난다** — 그래서 Phase 1 은 버그를 가려줬다. Phase 2 는 재계산 안 됐기 때문에 완전히 사라졌다.
+
+**새 phase 추가 시 반드시**:
+- `PHASE<N>_<NAME>_COLUMNS` 상수 만들고 (e.g. `PHASE2_INDUSTRY_COLUMNS`)
+- `build_feature_store.keep_cols` 에 `+ PHASE<N>_<NAME>_COLUMNS` 추가
+- 숫자 컬럼이면 같은 함수의 `hard_sanitize` 호출 리스트에도 추가
+- phase toggle disabled 브랜치의 zero-placeholder 리스트와 동기화 유지
 
 ### A/B 측정 레시피
 1. `PHASE_<KEY>_ENABLED=1` 로 QUICK run → metrics 기록.

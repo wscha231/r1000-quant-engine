@@ -159,8 +159,11 @@ if not phase_is_enabled("phase1_alpha", default=True):
 **Commit refs**:
 - `2026-04-16 12:36 KST - phase2-industry-relative-strength-and-leadership`
 - `2026-04-16 15:30 KST - phase2-fix-industry-cache-dtype-crash` (hotfix)
+- `2026-04-16 18:08 KST - phase2-keepcols-survival-fix` (critical: Phase 2 columns were being dropped from feature_store before this fix — the 2026-04-16 runs prior to this timestamp did NOT actually benefit from Phase 2)
 
 **Known gotcha**: first run after a fresh cache costs ~5-15 min for yfinance fetches (~1000-1200 tickers at 1s per 40 calls backoff). `colab_run.ipynb` cell 4 has a `OPTION_1_FULL_REBUILD and not QUICK_RESCORE_ONLY` guard to skip the fetch in quick-rescore mode.
+
+**Survival bug history (2026-04-16 18:08)**: `build_feature_store` has an explicit `keep_cols` whitelist that silently dropped the 23 Phase 2 columns because they weren't listed. Phase 1 didn't hit this bug only because `compute_strategy_blueprint_columns` is re-invoked on `latest_df` in `score_latest_month` / `prepare_latest_scored_data`, which re-derives Phase 1 columns after the feature-store drop. Phase 2 has no such re-derivation — so the columns were missing from `feature_store_latest.parquet`, and the sleeve composites at `compute_dual_sleeve_composite_scores` silently collapsed to 0.0 for every walk-forward month. Fix adds `PHASE2_INDUSTRY_COLUMNS` constant and appends it to `keep_cols` + `hard_sanitize` (numeric subset). **Any pre-2026-04-16 18:08 run's "Phase 2 metrics" are actually "Phase 1 only + Phase 2 yfinance fetch wasted"** — true Phase 2 contribution measurement requires a FULL rebuild after this fix.
 
 ---
 
@@ -364,6 +367,7 @@ Use these as the dated baseline for every subsequent A/B comparison. Always copy
 5. **A/B toggle parity**: every new phase must zero out its columns on disable, not raise KeyError.
 6. **CHANGELOG contract**: every commit touching code/notebooks must have a matching CHANGELOG entry in English with all fields populated (see top of `CHANGELOG.md`).
 7. **Quick-rescore caveat**: sleeve-weight and toggle changes propagate; signal-formula changes DO NOT propagate through quick-rescore. Force FULL rebuild when in doubt.
+8. **`build_feature_store.keep_cols` survival (2026-04-16 phase2-keepcols-fix)**: Any new phase column attached inside `build_universe_monthly` must ALSO be listed in a `PHASE<N>_<NAME>_COLUMNS` constant and appended to the `keep_cols` whitelist in `build_feature_store`. Otherwise the column is dropped from `feature_store_latest.parquet`, walk-forward sees NaN, the sleeve composite silently collapses to 0.0, and the phase contributes nothing while showing no error. Phase 1 hid this bug by accident (its columns are re-derived in `score_latest_month` / `prepare_latest_scored_data`); Phase 2 exposed it (no re-derivation). Match the pattern of `PHASE2_INDUSTRY_COLUMNS` when adding Phase 3..6.
 
 ---
 

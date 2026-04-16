@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-16-phase1+2-turnaround-value-industry-rs"
+ENGINE_REUSE_VERSION = "2026-04-16-phase2-keepcols-fix"
 
 
 # =====================================================================
@@ -904,6 +904,54 @@ ACTUAL_PRIORITY_COLUMNS = [
     "actual_priority_weight",
     "proxy_fallback_weight",
     "actual_results_score",
+]
+
+# Phase 2 (2026-04-16): industry-level relative strength + O'Neil / IBD
+# leadership + industry-rotation signal. These columns are attached to the
+# monthly frame inside `build_universe_monthly` via
+#   attach_industry_metadata -> add_industry_relative_strength
+#   -> compute_oneil_leadership_score -> add_industry_rotation_signal
+# They are NOT re-derived later in the latest-scoring path (unlike Phase 1
+# blueprint columns, which are recomputed via compute_strategy_blueprint_columns
+# at score_latest_month / prepare_latest_scored_data). Therefore they MUST be
+# whitelisted in `build_feature_store.keep_cols`, otherwise:
+#   (1) they get dropped from feature_store_latest.parquet, and
+#   (2) every walk-forward iteration sees them as missing -> sleeve composites
+#       at compute_dual_sleeve_composite_scores silently fall back to 0.0 via
+#       numeric_series_or_default, effectively zeroing out Phase 2's
+#       contribution to the historical backtest AND the latest scored export.
+# Keep this list in sync with the zero-placeholder block in
+# `build_universe_monthly` under `if not phase_is_enabled("phase2_industry"): ...`.
+PHASE2_INDUSTRY_COLUMNS = [
+    # yfinance metadata (string-typed)
+    "industry",
+    "industry_group",
+    "subindustry",
+    # industry / industry-group relative strength
+    "rs_industry_1m",
+    "rs_industry_3m",
+    "rs_industry_6m",
+    "rs_industry_12m",
+    "rs_industry_group_1m",
+    "rs_industry_group_3m",
+    "rs_industry_group_6m",
+    "rs_industry_group_12m",
+    # group-mean momentum (used to derive RS above; keep for diagnostics)
+    "industry_mom_mean_3m",
+    "industry_mom_mean_6m",
+    "industry_mom_mean_12m",
+    "industry_group_mom_mean_3m",
+    "industry_group_mom_mean_6m",
+    "industry_group_mom_mean_12m",
+    # breadth within (sub)industry / group
+    "industry_breadth_above_ma200",
+    "industry_group_breadth_above_ma200",
+    # O'Neil / IBD leadership composites
+    "industry_group_strength_score",
+    "industry_within_leader_rank",
+    "oneil_leadership_score",
+    # rotation (acceleration of group RS vs benchmark)
+    "industry_rotation_signal",
 ]
 
 SATELLITE_ONLY_FEATURE_COLUMNS = [
@@ -13355,6 +13403,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + MACRO_REGIME_COLUMNS
             + MACRO_INTERACTION_COLUMNS
             + LATEST_ONLY_SIGNAL_COLUMNS
+            + PHASE2_INDUSTRY_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -13362,6 +13411,14 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         if c not in universe.columns:
             universe[c] = np.nan
     fs = universe[keep_cols].copy()
+    # Phase 2 industry metadata is string-typed (industry / industry_group /
+    # subindustry) and must NOT be force-converted to numeric by hard_sanitize.
+    # Sanitize only the numeric Phase 2 columns (rs_industry_*, breadth, O'Neil
+    # leadership score, industry_within_leader_rank, industry_rotation_signal).
+    _PHASE2_NUMERIC_COLUMNS = [
+        c for c in PHASE2_INDUSTRY_COLUMNS
+        if c not in ("industry", "industry_group", "subindustry")
+    ]
     fs = hard_sanitize(
         fs,
         CORE_FUNDAMENTAL_COLUMNS
@@ -13370,6 +13427,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + SEC_13F_COLUMNS
         + SEC_FORM345_COLUMNS
         + PILLAR_SCORE_COLUMNS
+        + _PHASE2_NUMERIC_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -13401,6 +13459,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + SEC_FORM345_COLUMNS
         + MACRO_REGIME_COLUMNS
         + MACRO_INTERACTION_COLUMNS
+        + _PHASE2_NUMERIC_COLUMNS
         + LIVE_EVENT_ALERT_COLUMNS,
     )
     write_fundamental_coverage_report(

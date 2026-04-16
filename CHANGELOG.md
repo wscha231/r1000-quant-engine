@@ -1560,3 +1560,29 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 -c "import json, pathlib; json.loads(pathlib.Path('colab_run.ipynb').read_text(encoding='utf-8'))"` passed locally.
 - risks_or_notes:
   - The sanity cells now work even when cell 5 is not executed, which makes them safer to re-run after editing a single upstream cell during iteration.
+
+### 18:08 KST - phase2-keepcols-survival-fix
+
+- scope:
+  - Critical bug fix. Phase 2 industry RS / O'Neil leadership / industry-rotation columns were being silently dropped from `feature_store_latest.parquet` by the explicit whitelist in `build_feature_store.keep_cols`. Phase 1 survived because `compute_strategy_blueprint_columns` is re-invoked on `latest_df` at `score_latest_month` (line 16890) and `prepare_latest_scored_data` (line 20237), re-deriving the 5 Phase 1 columns from raw inputs after the feature-store drop. Phase 2 columns have no such re-derivation path - they are attached once inside `build_universe_monthly` (`attach_industry_metadata` -> `add_industry_relative_strength` -> `compute_oneil_leadership_score` -> `add_industry_rotation_signal`) and then lost at `fs = universe[keep_cols].copy()`. Impact: every walk-forward month saw `oneil_leadership_score`, `industry_group_strength_score`, `industry_within_leader_rank`, `rs_industry_6m`, `industry_rotation_signal` as missing, so `cross_sectional_robust_z` fallbacks in `compute_dual_sleeve_composite_scores` (lines 17427 core, 17465-17468 future_winner, 17506-17509 early_scout) collapsed to 0.0, zeroing Phase 2's contribution in both historical backtest AND the latest scored export / `top30_latest.csv`.
+- files:
+  - `r1000_top30_institutional.py` -> added `PHASE2_INDUSTRY_COLUMNS` constant (23 entries: 3 string + 20 numeric); extended `keep_cols` in `build_feature_store` with `+ PHASE2_INDUSTRY_COLUMNS`; extended the `hard_sanitize` call with a numeric-only subset (`_PHASE2_NUMERIC_COLUMNS` excludes `industry` / `industry_group` / `subindustry` so they stay string-typed); extended `write_stage_coverage_report` for the `feature_store` stage so Phase 2 coverage is now tracked in `stage_coverage_feature_store.json`; bumped `ENGINE_REUSE_VERSION` from `"2026-04-16-phase1+2-turnaround-value-industry-rs"` to `"2026-04-16-phase2-keepcols-fix"` to force regeneration of cached `feature_store_latest.parquet`.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - `PHASE2_INDUSTRY_COLUMNS: list[str]` -> module-level constant listing the 23 Phase 2 columns (3 string + 20 numeric) that must survive the feature_store keep-whitelist; kept in sync with the zero-placeholder block under `if not phase_is_enabled("phase2_industry"): ...` in `build_universe_monthly`.
+- symbols_changed:
+  - `build_feature_store(cfg, paths, ...)` -> added `+ PHASE2_INDUSTRY_COLUMNS` to the `keep_cols` construction; added `_PHASE2_NUMERIC_COLUMNS` (local) and passes it to `hard_sanitize`; appended `_PHASE2_NUMERIC_COLUMNS` to the `write_stage_coverage_report` column list for the `feature_store` stage.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Forces one-time regeneration of `feature_store_latest.parquet` on the next run (because `ENGINE_REUSE_VERSION` changed). Users on FULL rebuild mode will see a longer run; users on `QUICK_RESCORE_ONLY=True` will NOT pick up the fix because quick-rescore reuses the cached feature_store - they must run FULL once to materialize Phase 2 into feature_store, then can return to quick-rescore.
+- outputs:
+  - `feature_store_latest.parquet` -> now includes 23 Phase 2 columns (`industry`, `industry_group`, `subindustry`, `rs_industry_{1,3,6,12}m`, `rs_industry_group_{1,3,6,12}m`, `industry_mom_mean_{3,6,12}m`, `industry_group_mom_mean_{3,6,12}m`, `industry_breadth_above_ma200`, `industry_group_breadth_above_ma200`, `industry_group_strength_score`, `industry_within_leader_rank`, `oneil_leadership_score`, `industry_rotation_signal`).
+  - `stage_coverage_feature_store.json` -> now reports coverage for the 20 numeric Phase 2 columns.
+  - `scored_latest.csv` -> downstream, Phase 2 columns are now non-empty (sanity cell 9 will show `present=True` with non-zero `nonzero_share`).
+- validation:
+  - `py -3 -c "import py_compile; py_compile.compile('r1000_top30_institutional.py', doraise=True)"` -> passed.
+  - Pending: user re-runs FULL rebuild (QUICK_RESCORE_ONLY=False) to confirm Phase 2 columns materialize in `scored_latest.csv` and that the concentrated / diversified backtest metrics reflect Phase 2 signal contribution. Previous 2026-04-15 baseline (CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%) was measured with Phase 2 effectively zeroed - this rerun is the true Phase 1+2 apples-to-apples measurement.
+- risks_or_notes:
+  - If the new run's diversified CAGR / Sharpe improves materially over baseline, that is the "real" Phase 1+2 signal. If it underperforms, the Phase 2 signal is actually detrimental and should be gated / disabled - easy to A/B via `PHASE_PHASE2_INDUSTRY_ENABLED=0` on a second QUICK run once the FULL run has refreshed the cache.
+  - Any new Phase (3..6) that attaches columns inside `build_universe_monthly` MUST either (a) be re-derivable in `score_latest_month` / `prepare_latest_scored_data`, or (b) add its columns to a constant appended to `keep_cols` in `build_feature_store`. Recommended pattern: create a `PHASE<N>_<NAME>_COLUMNS` constant and append to both `keep_cols` and the zero-placeholder block under the phase toggle's disabled branch.
