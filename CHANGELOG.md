@@ -1963,3 +1963,33 @@ All entries must be written in English. Entries must be predictable and machine-
   - If Colab users have a locally-edited `colab_run.ipynb`, pulling origin will create a merge conflict. They should either `git stash` their local ipynb edits before pulling or resolve manually. All notebook edits on the main branch have been via git on this machine so no conflict should exist today.
   - The `SESSION_HANDOFF.md` now promises that the next Colab run is a FULL rebuild. The user should confirm `QUICK_RESCORE_ONLY = False` in Cell 2 before running. The Phase 5 `ENGINE_REUSE_VERSION` bump already forces FULL rebuild via cache invalidation regardless, but the explicit Cell 2 setting is cleaner.
   - This closes out the Phase 4/5/6 implementation plan from `.claude/plans/crystalline-plotting-badger.md`. Next natural action is the FULL rebuild + A/B measurements described in `SESSION_HANDOFF.md` §2.
+
+### 10:05 KST - phase6a-6b-getattr-default-alignment-fix
+
+- scope:
+  - Pre-rebuild audit (3 parallel Explore agents) flagged a defensive-consistency bug: `EngineConfig.drawdown_breaker_multilevel_enabled` and `EngineConfig.vix_level_guard_enabled` both default to `True`, but the `getattr(cfg, ..., <default>)` call sites that resolve these flags in `backtest_portfolio` / `_legacy_unused_backtest_portfolio` / `compute_regime_portfolio_controls` were using `False` as the fallback default. In all current active call paths `cfg` is a populated `EngineConfig` instance so the getattr fallback never fires, but a future caller or test harness that passes `cfg=None` would silently disable Phase 6a / 6b when the engine advertises them as default-ON.
+  - Small aligning fix: change all three `getattr(..., False)` call sites to `getattr(..., True)` so the fallback matches the EngineConfig declaration.
+- files:
+  - `r1000_top30_institutional.py`:
+    - line 10276: `_p6b_cfg_on = bool(getattr(cfg, "vix_level_guard_enabled", True))` (was `False`)
+    - line 16967: `_phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", True))` (was `False`, inside `_legacy_unused_backtest_portfolio`)
+    - line 20499: `_phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", True))` (was `False`, inside active `backtest_portfolio`)
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none (only the default-argument values changed inside existing expressions).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. In all active call paths, `cfg` is always a populated `EngineConfig` instance, so the `getattr` fallback was never reached. Behaviour is unchanged in practice.
+- outputs:
+  - none (no output artifacts change).
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Grep check confirms all 8 `getattr(cfg, <phase_flag>, ...)` call sites now have the `<default>` argument matching the corresponding `EngineConfig` default: Phase 3/4/6c -> `False`, Phase 5/6a/6b -> `True`.
+- risks_or_notes:
+  - This is a pure hardening fix. The Phase 6 A/B measurement semantics are unaffected — in the active codepaths `cfg` is always an `EngineConfig` instance and `cfg.drawdown_breaker_multilevel_enabled` / `cfg.vix_level_guard_enabled` are explicitly `True`, so the `_phase6X_cfg_on` evaluation was always producing the correct True value. The fallback alignment matters only for future callers that construct the engine with `cfg=None` or with a minimal dict override.
+  - The three parallel Explore agents also confirmed there is currently no invocation of `_legacy_unused_backtest_portfolio`. Keeping it guarded (even though unused) means that if we ever ressurrect it, the Phase 6 toggles fire the right default.
+  - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. No schema change.
+  - The same audit surfaced a "delete or hard-guard the legacy function" recommendation. Deferring that because the legacy function has its own Phase 3/4/5/6 state and decision blocks correctly populated; deleting it now would touch ~470 lines and isn't on the critical path for the FULL rebuild. Can be a separate hygiene commit later.

@@ -10273,7 +10273,7 @@ def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame)
         # the overall cash cap. Dual-gate: cfg flag AND env var.
         # Composes with other cash controls via max().
         # ---------------------------------------------------------
-        _p6b_cfg_on = bool(getattr(cfg, "vix_level_guard_enabled", False))
+        _p6b_cfg_on = bool(getattr(cfg, "vix_level_guard_enabled", True))
         _p6b_env_on = phase_is_enabled("phase6b_vix", default=True)
         if _p6b_cfg_on and _p6b_env_on:
             vix_level_val = _median_or_default("vix_level", np.nan)
@@ -16964,7 +16964,7 @@ def _legacy_unused_backtest_portfolio(
     # off, the active path reverts to the legacy single-threshold
     # breaker above (byte-identical to pre-Phase-6a).
     # -----------------------------------------------------------------
-    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", False))
+    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", True))
     _phase6a_env_on = phase_is_enabled("phase6a_breaker", default=True)
     _phase6a_active = bool(_phase6a_cfg_on and _phase6a_env_on)
     dd_active_level = 0  # 0 = no breaker, 1/2/3 = ladder level
@@ -20496,7 +20496,7 @@ def backtest_portfolio(
     # off, the active path reverts to the legacy single-threshold
     # breaker above (byte-identical to pre-Phase-6a).
     # -----------------------------------------------------------------
-    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", False))
+    _phase6a_cfg_on = bool(getattr(cfg, "drawdown_breaker_multilevel_enabled", True))
     _phase6a_env_on = phase_is_enabled("phase6a_breaker", default=True)
     _phase6a_active = bool(_phase6a_cfg_on and _phase6a_env_on)
     dd_active_level = 0  # 0 = no breaker, 1/2/3 = ladder level
