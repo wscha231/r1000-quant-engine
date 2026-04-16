@@ -17453,17 +17453,37 @@ def _legacy_unused_backtest_portfolio(
         metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
     else:
         metrics["avg_stock_names"] = 0.0
-    equity_df = ret_df[
-        [
-            "rebalance_date",
-            "equity",
-            "equity_value_usd",
-            "benchmark_equity",
-            "benchmark_value_usd",
-            "net_return",
-            "bench_return",
-        ]
-    ].copy()
+    # Base equity columns + any Phase 6a / 6c diagnostic columns that
+    # were populated in ret_rows. `equity_curve.csv` downstream is the
+    # only end-user view of these diagnostics; keep them if they exist
+    # so the next run-verification step can inspect breaker activations
+    # / vol-target floors without re-running the backtest.
+    _equity_cols = [
+        "rebalance_date",
+        "equity",
+        "equity_value_usd",
+        "benchmark_equity",
+        "benchmark_value_usd",
+        "net_return",
+        "bench_return",
+    ]
+    for _diag_col in (
+        "drawdown_before_month",
+        "drawdown_after_month",
+        "equity_peak",
+        "drawdown_circuit_breaker_active",
+        "drawdown_circuit_breaker_event",
+        "drawdown_circuit_breaker_cash_target",
+        "dd_breaker_level",
+        "dd_trigger_equity",
+        "dd_breaker_multilevel_active",
+        "vol_target_active",
+        "vol_cash_floor_p6c",
+        "recent_returns_len",
+    ):
+        if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
+            _equity_cols.append(_diag_col)
+    equity_df = ret_df[_equity_cols].copy()
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
@@ -18152,6 +18172,26 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         getattr(cfg, "phase7a_accruals_core_weight", -0.20) if cfg is not None else -0.20
     )
 
+    # -------------------------------------------------------------------
+    # Phase 5 dilution fix (2026-04-17 post-mortem): the bonus/penalty
+    # signals fire on only ~3-4% of rows (bonus) / ~0% (penalty) because
+    # they require a strong industry_group AND a gap > 0.8 std threshold.
+    # If we hand the raw z-scores to `row_mean` via the weight-pair table
+    # the `N` denominator grows by +2 for future / +1 for core / +1 for
+    # early while the numerator barely changes -> ~6% dilution of every
+    # other factor on every sleeve. Masking the zeros to NaN lets
+    # row_mean drop them from BOTH the numerator and denominator, so a
+    # row with no Phase 5 signal contributes 0 effect (same as legacy)
+    # instead of a subtle drag.
+    _p5_bonus_raw = numeric_series_or_default(d, "industry_leader_bonus_score", 0.0)
+    _p5_penalty_raw = numeric_series_or_default(d, "industry_laggard_penalty_score", 0.0)
+    _p5_bonus_z = cross_sectional_robust_z(d, "industry_leader_bonus_score").where(
+        _p5_bonus_raw != 0.0, np.nan
+    )
+    _p5_penalty_z = cross_sectional_robust_z(d, "industry_laggard_penalty_score").where(
+        _p5_penalty_raw != 0.0, np.nan
+    )
+
     core_weight_pairs: list[tuple[float, pd.Series]] = [
         (1.05, cross_sectional_robust_z(d, "long_hold_compounder_score")),
         (0.90, cross_sectional_robust_z(d, "archetype_compounder_score")),
@@ -18179,7 +18219,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.10, cross_sectional_robust_z(d, "industry_group_strength_score")),
         # Phase 5: compounders also respect group-leader separation;
         # weight moderate so it doesn't overpower the moat/quality core.
-        (0.15, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
+        # Uses zero-masked z-score (see _p5_bonus_z above) so the
+        # weight-pair is skipped on rows where Phase 5 didn't fire.
+        (0.15, _p5_bonus_z),
         # Phase 7a: accruals quality penalty on core. High accruals
         # (net_income - OCF / assets) = earnings-quality risk (Sloan
         # effect). Low or negative accruals = quality signal. Weight
@@ -18235,8 +18277,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # Phase 5: sub-industry leader/laggard — future sleeve gets the
         # highest weight on these because "leaders pull away in a strong
         # group" is the IBD/O'Neil playbook this sleeve is built around.
-        (0.25, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
-        (-0.15, cross_sectional_robust_z(d, "industry_laggard_penalty_score")),
+        # Uses zero-masked z-scores (see _p5_bonus_z / _p5_penalty_z
+        # above) so the weight-pairs are skipped on rows where Phase 5
+        # didn't fire, eliminating the row_mean dilution effect.
+        (0.25, _p5_bonus_z),
+        (-0.15, _p5_penalty_z),
         # Phase 7a: insider flow bonus on future-winner sleeve. Medium
         # weight because growth-with-insider-buying is a high-conviction
         # combination but insider signals can be noisy on mid-cap names.
@@ -18290,7 +18335,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.18, cross_sectional_robust_z(d, "rs_industry_3m")),
         # Phase 5: early-scout is already rotation-heavy; keep leader
         # bonus light to avoid double-counting with industry_rotation_signal.
-        (0.10, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
+        # Zero-masked (see _p5_bonus_z above).
+        (0.10, _p5_bonus_z),
         # Phase 7a: insider flow bonus on early-scout — highest weight
         # across sleeves because early-stage insider buying is the
         # cleanest conviction signal (management sees inflection before
@@ -21129,17 +21175,37 @@ def backtest_portfolio(
         metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
     else:
         metrics["avg_stock_names"] = 0.0
-    equity_df = ret_df[
-        [
-            "rebalance_date",
-            "equity",
-            "equity_value_usd",
-            "benchmark_equity",
-            "benchmark_value_usd",
-            "net_return",
-            "bench_return",
-        ]
-    ].copy()
+    # Base equity columns + any Phase 6a / 6c diagnostic columns that
+    # were populated in ret_rows. `equity_curve.csv` downstream is the
+    # only end-user view of these diagnostics; keep them if they exist
+    # so the next run-verification step can inspect breaker activations
+    # / vol-target floors without re-running the backtest.
+    _equity_cols = [
+        "rebalance_date",
+        "equity",
+        "equity_value_usd",
+        "benchmark_equity",
+        "benchmark_value_usd",
+        "net_return",
+        "bench_return",
+    ]
+    for _diag_col in (
+        "drawdown_before_month",
+        "drawdown_after_month",
+        "equity_peak",
+        "drawdown_circuit_breaker_active",
+        "drawdown_circuit_breaker_event",
+        "drawdown_circuit_breaker_cash_target",
+        "dd_breaker_level",
+        "dd_trigger_equity",
+        "dd_breaker_multilevel_active",
+        "vol_target_active",
+        "vol_cash_floor_p6c",
+        "recent_returns_len",
+    ):
+        if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
+            _equity_cols.append(_diag_col)
+    equity_df = ret_df[_equity_cols].copy()
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
@@ -22846,17 +22912,37 @@ def backtest_standalone_sleeve_topn(
         metrics["avg_stock_names"] = float(stock_names.mean()) if not stock_names.empty else 0.0
     else:
         metrics["avg_stock_names"] = 0.0
-    equity_df = ret_df[
-        [
-            "rebalance_date",
-            "equity",
-            "equity_value_usd",
-            "benchmark_equity",
-            "benchmark_value_usd",
-            "net_return",
-            "bench_return",
-        ]
-    ].copy()
+    # Base equity columns + any Phase 6a / 6c diagnostic columns that
+    # were populated in ret_rows. `equity_curve.csv` downstream is the
+    # only end-user view of these diagnostics; keep them if they exist
+    # so the next run-verification step can inspect breaker activations
+    # / vol-target floors without re-running the backtest.
+    _equity_cols = [
+        "rebalance_date",
+        "equity",
+        "equity_value_usd",
+        "benchmark_equity",
+        "benchmark_value_usd",
+        "net_return",
+        "bench_return",
+    ]
+    for _diag_col in (
+        "drawdown_before_month",
+        "drawdown_after_month",
+        "equity_peak",
+        "drawdown_circuit_breaker_active",
+        "drawdown_circuit_breaker_event",
+        "drawdown_circuit_breaker_cash_target",
+        "dd_breaker_level",
+        "dd_trigger_equity",
+        "dd_breaker_multilevel_active",
+        "vol_target_active",
+        "vol_cash_floor_p6c",
+        "recent_returns_len",
+    ):
+        if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
+            _equity_cols.append(_diag_col)
+    equity_df = ret_df[_equity_cols].copy()
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
@@ -23406,17 +23492,37 @@ def backtest_concentrated_portfolio(
     else:
         metrics["avg_stock_names"] = 0.0
         metrics["max_top_name_weight"] = 0.0
-    equity_df = ret_df[
-        [
-            "rebalance_date",
-            "equity",
-            "equity_value_usd",
-            "benchmark_equity",
-            "benchmark_value_usd",
-            "net_return",
-            "bench_return",
-        ]
-    ].copy()
+    # Base equity columns + any Phase 6a / 6c diagnostic columns that
+    # were populated in ret_rows. `equity_curve.csv` downstream is the
+    # only end-user view of these diagnostics; keep them if they exist
+    # so the next run-verification step can inspect breaker activations
+    # / vol-target floors without re-running the backtest.
+    _equity_cols = [
+        "rebalance_date",
+        "equity",
+        "equity_value_usd",
+        "benchmark_equity",
+        "benchmark_value_usd",
+        "net_return",
+        "bench_return",
+    ]
+    for _diag_col in (
+        "drawdown_before_month",
+        "drawdown_after_month",
+        "equity_peak",
+        "drawdown_circuit_breaker_active",
+        "drawdown_circuit_breaker_event",
+        "drawdown_circuit_breaker_cash_target",
+        "dd_breaker_level",
+        "dd_trigger_equity",
+        "dd_breaker_multilevel_active",
+        "vol_target_active",
+        "vol_cash_floor_p6c",
+        "recent_returns_len",
+    ):
+        if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
+            _equity_cols.append(_diag_col)
+    equity_df = ret_df[_equity_cols].copy()
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 

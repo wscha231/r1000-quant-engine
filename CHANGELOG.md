@@ -2058,3 +2058,35 @@ All entries must be written in English. Entries must be predictable and machine-
   - The pre-existing `w_insider_flow` path in the main `total_score` (line 4619) is independent of Phase 7a and remains unchanged. Phase 7a adds sleeve-specific insider tilt on top of the existing main-score insider component, not as a replacement. If the sleeve contribution turns out to be redundant with the main-score path, A/B will show it as neutral.
   - Phase 7a weights are exposed as cfg fields on purpose so they can be tuned via `COMMON_CFG_OVERRIDES` in Colab Cell 2 without having to re-edit / re-push the weight-pair tables. For example a user could test `cfg["phase7a_insider_early_weight"]=0.35, cfg["phase7a_accruals_core_weight"]=-0.30` to probe a more aggressive tilt.
   - `ENGINE_REUSE_VERSION` NOT bumped. Phase 7a is portfolio-layer only; it reuses columns already in `feature_store_latest.parquet` so the Phase 5 FULL-rebuild bump still covers this commit.
+
+### 12:15 KST - phase5-dilution-fix-plus-breaker-diagnostic-csv-export
+
+- scope:
+  - Emergency fix for a regression surfaced by the 2026-04-17 FULL rebuild (commit `914558f`): CAGR dropped from 20.10% to 15.44% (-4.66pp), Sharpe from 1.08 to 0.84, MaxDD from -23.60% to -26.34%, IR from 0.58 to 0.20. Root cause: Phase 5's sub-industry leader/laggard signals fire on only ~3.6% of rows (`industry_leader_bonus_score`) and ~0% of rows (`industry_laggard_penalty_score`), but their weight pairs were handed to `row_mean` as plain zero-valued z-scores. `row_mean` treats zero as a valid term, so the denominator `N` grew by +2 on future / +1 on core / +1 on early while the numerator stayed roughly unchanged — diluting every other factor's effective weight by ~6% across all three sleeves. This is the same dilution issue Phase 3 tried to solve via L1-normalisation; Phase 3 was rejected so the row_mean structure stayed, and Phase 5's low-coverage additions then fell into exactly that trap.
+  - Companion fix: the Phase 6a (3-level drawdown breaker) and Phase 6c (volatility targeting) diagnostic columns I added to `ret_rows` (`dd_breaker_level`, `dd_trigger_equity`, `dd_breaker_multilevel_active`, `vol_target_active`, `vol_cash_floor_p6c`, `recent_returns_len`) were stripped out of `equity_curve.csv` by an explicit 7-column whitelist in the four `backtest_portfolio` variants. They landed in `ret_df` (used for metrics computation) but never made it to the CSV the user inspects to verify breaker activity. Fix extends the whitelist to conditionally include the diagnostic columns when they exist.
+- files:
+  - `r1000_top30_institutional.py` ->
+    - `compute_portfolio_sleeve_columns()` (line ~18186): added Phase 5 dilution-fix block that defines `_p5_bonus_z` and `_p5_penalty_z` as the robust-z-scored signals with `.where(raw != 0.0, np.nan)` so `row_mean` skips rows where Phase 5 didn't fire. Three sleeve weight-pair tables now reference `_p5_bonus_z` / `_p5_penalty_z` instead of calling `cross_sectional_robust_z` inline, preserving the original sleeve-specific weights (`core: +0.15 bonus`, `future: +0.25 bonus + -0.15 penalty`, `early: +0.10 bonus`).
+    - All four `equity_df = ret_df[...]` column-subset expressions now build the column list dynamically: base 7 columns + any Phase 6a/6c diagnostic column that exists in `ret_df`. Using `replace_all=True` on the edit so legacy / active / concentrated / standalone backtest variants all get the same treatment.
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> precomputes `_p5_bonus_z` and `_p5_penalty_z` with NaN-masking; references them in all three sleeve weight-pair tables.
+  - `backtest_portfolio()` and three variants -> `equity_df` column selection is now dynamic (whitelist + conditional diagnostic columns).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Phase 5 wiring semantics change ONLY on rows where the raw signal is exactly 0.0 — those rows now contribute zero to the composite instead of contributing a small dilution effect. On the ~3.6% of rows where Phase 5 fires, the contribution is the same magnitude as before (the z-score is preserved, only the zero-rows are masked).
+- outputs:
+  - `outputs/equity_curve.csv` -> now includes Phase 6a diagnostics (`dd_breaker_level`, `dd_trigger_equity`, `dd_breaker_multilevel_active`), Phase 6c diagnostics (`vol_target_active`, `vol_cash_floor_p6c`, `recent_returns_len`), and the pre-existing legacy breaker fields (`drawdown_circuit_breaker_active` etc.) when they're populated. Columns that are absent from `ret_df` for a particular backtest variant are silently dropped so existing callers that read only the base 7 columns remain unaffected.
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Grep confirms `_p5_bonus_z` / `_p5_penalty_z` are defined once and referenced in all three sleeve weight-pair tables (4 references total: core 1, future 2, early 1).
+  - `equity_df` column-subset block edited in all 4 `backtest_portfolio` variants (legacy unused, active, concentrated, standalone).
+- risks_or_notes:
+  - **Expected A/B outcome after this fix + QUICK_RESCORE**: CAGR recovers toward the 2026-04-16 baseline (~20.1%), Sharpe recovers toward 1.08, MaxDD recovers toward -23.6%. The actual Phase 5 alpha contribution (measured against the recovered baseline) is likely small and may not ship its own gate. That's fine — the urgent priority is undoing the regression.
+  - If the QUICK_RESCORE CAGR does NOT recover to within 1pp of baseline, the dilution theory was only partially right and we should also check (a) whether `f7ec511`'s getattr defaults actually changed any active execution path, (b) whether Phase 6a/6b/6c are silently firing more aggressively than expected despite cash_weight averaging 0.3%.
+  - Same dilution pattern could affect future Phase 7b/7c if their signals end up sparse. When adding any new weight pair, check `scored_latest.csv` for its `nonzero_share` and use the masking pattern if coverage is below ~20%.
+  - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. Only portfolio-layer composition changed; feature_store cache is still valid.
+  - Ship decision on Phase 5 itself is deferred until the QUICK_RESCORE confirms the CAGR recovery. If after the fix Phase 5 is still a net drag, Phase 5 ON by default should be flipped to OFF in a follow-up commit.
