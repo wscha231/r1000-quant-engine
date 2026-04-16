@@ -1993,3 +1993,30 @@ All entries must be written in English. Entries must be predictable and machine-
   - The three parallel Explore agents also confirmed there is currently no invocation of `_legacy_unused_backtest_portfolio`. Keeping it guarded (even though unused) means that if we ever ressurrect it, the Phase 6 toggles fire the right default.
   - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. No schema change.
   - The same audit surfaced a "delete or hard-guard the legacy function" recommendation. Deferring that because the legacy function has its own Phase 3/4/5/6 state and decision blocks correctly populated; deleting it now would touch ~470 lines and isn't on the critical path for the FULL rebuild. Can be a separate hygiene commit later.
+
+### 10:15 KST - agent-facing-docs-refresh-post-phase456
+
+- scope:
+  - Refresh the agent-facing project documents (`SESSION_HANDOFF.md` + `PHASE_ROADMAP.md`) so any future chat-session / Codex / GPT agent that resumes the project can accurately see the current state after the Phase 4/5/6 rollout + the `f7ec511` audit-hardening fix. No engine code changes.
+- files:
+  - `SESSION_HANDOFF.md` -> updated HEAD commit reference from `33ed065` / `ee93fa0` to `f7ec511`, expanded the commit timeline table with the `f7ec511` alignment fix + 3-agent audit outcome, rewrote §3 with the three Phase 7 candidate proposals from the 2026-04-17 alpha-gap audit (7a insider+accruals, 7b estimate-dispersion+SUE, 7c yield-curve+cross-asset) + portfolio-construction sweeps.
+  - `PHASE_ROADMAP.md` -> flipped §2 Phase 3 heading to "❌ REJECTED" with A/B outcome numbers, Phase 4/5/6 headings to "✅ DONE (2026-04-17)" with commit references + key implementation facts; §3 implementation-order table now shows commit SHA + status for each PR (A..H including `f7ec511` as PR H).
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none (documentation only).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `SESSION_HANDOFF.md`, `PHASE_ROADMAP.md` (both refreshed in place).
+- validation:
+  - `wc -l` confirms both files grew in line count (SESSION_HANDOFF 135 → 177, PHASE_ROADMAP 399 → 453).
+  - Manual inspection confirms the commit SHA timeline matches `git log --oneline -10` output.
+  - No engine code changes → no py_compile needed.
+- risks_or_notes:
+  - `PHASE_ROADMAP.md` §2 retains the original "PLANNED" design notes as "Historical design notes" subsections for reference. If those grow stale they can be pruned in a later cleanup.
+  - The resume-checklist section of `SESSION_HANDOFF.md` §4 now points at `f7ec511` as the expected HEAD. Any agent joining after this refresh will look for this exact commit (or newer) to confirm the codebase is in-sync.
+  - `ENGINE_REUSE_VERSION` unchanged. No FULL-rebuild forcing beyond what Phase 5 already mandated.

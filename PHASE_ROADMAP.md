@@ -167,7 +167,16 @@ if not phase_is_enabled("phase1_alpha", default=True):
 
 ---
 
-### Phase 3 📋 PLANNED — Sleeve Weight Renormalization + Phase-Contribution Audit
+### Phase 3 ❌ REJECTED (2026-04-17) — Sleeve Weight Renormalization + Phase-Contribution Audit
+
+**A/B outcome (commits `5b95e17` infra, `8b10bf4` hardening, `28e41fe` rejection)**:
+- QUICK_RESCORE A/B on the 2026-04-16 FULL rebuild baseline showed regression on ALL THREE risk-adjusted axes:
+  - Δ CAGR: −2.30pp (0.2010 → 0.1780)
+  - Δ Sharpe: −0.1294 (1.0754 → 0.9460)
+  - Δ MaxDD: −4.58pp (−0.2360 → −0.2818)
+- Hypothesis falsified: `row_mean`'s N-averaging was providing natural regularisation. L1 normalisation doubles composite magnitude, increasing winsorize/clip saturation + amplifying sparse-history penalty ~2x → more weight on outliers and penalties.
+- Infrastructure retained (`weighted_sleeve_composite` helper + diagnostic columns) for possible future re-evaluation with a different `l1_target` (e.g. per-sleeve N-based target). Default `sleeve_weight_renorm_enabled=False` stays.
+- See CHANGELOG entry `2026-04-17 06:45 KST - phase3-ab-rejected-keep-off-default`.
 
 **Why**: Phase 1 and 2 added signals to `compute_portfolio_sleeve_columns` additively (no existing weights were reduced). The relative weight of pre-existing factors (e.g. `long_hold_compounder_score`) therefore mechanically dilutes. We need to confirm (a) Phase 1+2 are net-positive vs the old weights, and (b) renormalize if the old signals are now overshadowed.
 
@@ -198,7 +207,19 @@ sleeve_weight_renorm_enabled: bool = False    # default OFF
 
 ---
 
-### Phase 4 📋 PLANNED — Regime-Conditional Dynamic Sleeve Weights
+### Phase 4 ✅ DONE (2026-04-17, default OFF) — Regime-Conditional Dynamic Sleeve Weights
+
+**Commit**: `6b790cb Add Phase 4 regime-conditional sleeve multipliers (default OFF)`
+**Status**: Infrastructure landed, pending A/B measurement. Default OFF.
+**Implementation**:
+- Module constants `SLEEVE_FACTOR_REGIME_MULTIPLIERS` (6-regime table: `growth_reentry`, `balanced`, `stagflation`, `systemic_crisis`, `carry_unwind`, `war_oil_rate_shock`) and `SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP = (0.40, 1.60)`.
+- Helper `resolve_regime_sleeve_multipliers()` with three-tier fallback (user override → built-in → identity) and clamp.
+- `compute_portfolio_sleeve_columns()` multiplies final `core_score` / `future_score` / `early_score` by regime-keyed scalars AFTER Phase 3 composition AND penalty subtraction but BEFORE winsorize/clip.
+- Four new diagnostic columns: `regime_sleeve_multiplier_{core,future,early}`, `regime_sleeve_weights_active`.
+- Dual-gate toggle: `cfg.regime_dynamic_sleeve_weights_enabled=True` AND `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1` both required.
+**Ship gate**: Δ CAGR ≥ +0.5pp AND Δ Sharpe ≥ +0.05.
+
+**(Historical design notes — kept for reference, superseded by implementation above)**
 
 **Why**: Today's sleeve composites use **static** factor weights across every regime. But the right weight for `uptrend_continuation_score` in a risk-on bull market is very different from the right weight in a systemic-crisis regime. The engine already has a regime label (`event_regime_label`) — it just doesn't use it to modulate sleeve weights.
 
@@ -240,7 +261,21 @@ regime_sleeve_multiplier_table: dict | None = None      # None = use built-in de
 
 ---
 
-### Phase 5 📋 PLANNED — Sub-Industry Leader/Laggard Pair Signal
+### Phase 5 ✅ DONE (2026-04-17, default ON) — Sub-Industry Leader/Laggard Pair Signal
+
+**Commit**: `0756636 Add Phase 5 sub-industry leader/laggard signals (default ON, bumps reuse version)`
+**Status**: Infrastructure landed, default ON, awaiting FULL rebuild to bake Phase 5 columns into feature_store_latest.parquet.
+**Implementation**:
+- New module constant `PHASE5_LEADER_LAGGARD_COLUMNS` with 3 column names.
+- New helper `add_sub_industry_leader_laggard_signals(monthly, min_group_size=6, gap_threshold=0.8)` computes `industry_leader_gap` = (top-quartile mean − median) / std per (rebalance_date, industry_group), plus `industry_leader_bonus_score` (top-quartile rows in strong groups with clear gap separation) and `industry_laggard_penalty_score` (bottom-quartile mirror).
+- Wired into `build_universe_monthly` right after `compute_oneil_leadership_score` / `add_industry_rotation_signal`, with standard toggle/zero-fill fallback.
+- Invariant #8: columns whitelisted in both `build_feature_store.keep_cols` and both `hard_sanitize` numeric lists.
+- Sleeve composites: `(0.25, bonus)` + `(−0.15, penalty)` in future (highest), `(0.15, bonus)` in core, `(0.10, bonus)` in early.
+- Dual-gate toggle: `cfg.sub_industry_leader_laggard_enabled=True` AND `PHASE_PHASE5_LEADER_LAGGARD_ENABLED=1`, both default ON.
+- **`ENGINE_REUSE_VERSION` bumped to `"2026-04-17-phase5-leader-laggard"`** → forces FULL rebuild on next Colab run.
+**Ship gate**: Δ CAGR ≥ +0.3pp AND future-sleeve hit-rate improves ≥ +2pp.
+
+**(Historical design notes — kept for reference, superseded by implementation above)**
 
 **Why**: Phase 2 gives us industry-level RS. The next refinement: within a leading industry, the strongest name should get a bonus AND the weakest name should get a penalty. Pairs-style logic captures "leaders pull away, laggards get left behind" — an IBD/O'Neil empirical regularity.
 
@@ -274,7 +309,22 @@ sub_industry_leader_gap_threshold: float = 0.8   # std units
 
 ---
 
-### Phase 6 📋 PLANNED — Risk-Off Tail Protection
+### Phase 6 ✅ DONE (2026-04-17) — Risk-Off Tail Protection
+
+**Three sub-proposals landed as separate commits**:
+- **Phase 6a** ✅ (commit `b4c63c9`, default ON): 3-level drawdown circuit breaker. Thresholds −8%/−15%/−25% → cash floors 15%/35%/60% with equity-based recovery hysteresis (`dd_trigger_equity * (1 + 0.03)` overshoot required). Legacy single-threshold breaker preserved as fallback. 11 new EngineConfig fields. Three new `ret_rows` diagnostic columns: `dd_breaker_level`, `dd_trigger_equity`, `dd_breaker_multilevel_active`. Scale factor (0.9/0.7/0.4) read but not yet applied — cash floor alone drives defense via existing sleeve renormalisation. Ship gate: Δ MaxDD ≤ −3pp AND Δ CAGR ≥ −0.5pp.
+- **Phase 6b** ✅ (commit `4c3274d`, default ON): VIX level hard guard. 4 tiers (22/28/35/45 → cash floors 10%/25%/40%/55%) applied inside `compute_regime_portfolio_controls()` right before the final `np.clip`. `vix_level` already in `MACRO_REGIME_COLUMNS` — no new data source needed. 9 new EngineConfig fields. Composes with Phase 6a via `max()`. Ship gate: Δ MaxDD ≤ −1pp in VIX-spike periods.
+- **Phase 6c** ✅ (commit `ee93fa0`, **default OFF** per PROPOSAL §7): Volatility targeting. 6-month trailing realized vol × sqrt(12) vs 12% annualized target. Scale = clip(target/max(realized, target), 0.5, 1.0). Expressed as dynamic cash floor `1.0 − scale`, composing with Phase 6a/6b via `max()` chain. 5 new EngineConfig fields. Three new ret_rows diagnostics: `vol_target_active`, `vol_cash_floor_p6c`, `recent_returns_len`. Ship gate: Δ Sharpe ≥ +0.05 AND Δ CAGR ≥ −1pp.
+
+**Follow-up `f7ec511`**: pre-rebuild audit spotted `getattr(cfg, ..., False)` mismatch vs EngineConfig default `True` for Phase 6a/6b. Fixed defensively. No behavior change in active paths (cfg is always populated).
+
+**Skipped for Phase 6 (still open)**:
+- `PROPOSAL_defensive_upgrades.md §2` (per-sleeve stop-loss) — defer.
+- `PROPOSAL_defensive_upgrades.md §4` (yield curve inversion) — proposed as Phase 7c.
+- `PROPOSAL_defensive_upgrades.md §5` (cross-asset confirmation) — proposed as Phase 7c.
+- `PROPOSAL_defensive_upgrades.md §6` (regime transition smoothing) — defer.
+
+**(Historical design notes — kept for reference, superseded by implementation above)**
 
 **Why**: Baseline MaxDD is −36.86% — acceptable in a bull market but unsafe as a permanent profile. The single most asymmetric improvement is cutting tail drawdowns without sacrificing CAGR.
 
@@ -318,14 +368,18 @@ sub_industry_leader_gap_threshold: float = 0.8   # std units
 
 ## 3. Implementation Order & PR Plan
 
-| PR | Phase | Files | Runtime per test | Must-pass gate |
-|---|---|---|---|---|
-| A | Phase 3 audit + renorm | `r1000_top30_institutional.py` | QUICK | Renorm ON ≥ Renorm OFF ≥ Phase 1+2 off |
-| B | Phase 4 regime weights | `r1000_top30_institutional.py` | QUICK | Δ CAGR ≥ +0.5, Δ Sharpe ≥ +0.05 |
-| C | Phase 5 leader/laggard | `r1000_top30_institutional.py`, `r1000_data_collector.py` (version bump) | FULL once, then QUICK | Δ CAGR ≥ +0.3, future-sleeve hit-rate ↑ |
-| D | Phase 6a DD breaker | `r1000_top30_institutional.py` (backtest_portfolio) | QUICK | Δ MaxDD ≤ −3pp, Δ CAGR ≥ −0.5pp |
-| E | Phase 6b VIX guard | `r1000_top30_institutional.py` (regime_controls) | QUICK | Δ MaxDD ≤ −1pp in VIX-spike periods |
-| F | Phase 6c vol target | `r1000_top30_institutional.py` (backtest_portfolio) | QUICK | Δ Sharpe ≥ +0.05, Δ CAGR ≥ −1pp |
+**STATUS AS OF 2026-04-17 10:15 KST**: All PRs A..F landed. Phase 3 A/B ran and was REJECTED; Phase 4/5/6a/6b/6c infrastructure is in place. Next action is the FULL rebuild + per-phase A/B measurements described in `SESSION_HANDOFF.md` §2-§3.
+
+| PR | Phase | Commit | Status | Files | Must-pass gate |
+|---|---|---|---|---|---|
+| A | Phase 3 audit + renorm | `5b95e17` + `8b10bf4` + `28e41fe` | ❌ A/B rejected | `r1000_top30_institutional.py` | Renorm ON ≥ Renorm OFF ≥ Phase 1+2 off |
+| B | Phase 4 regime weights | `6b790cb` | ✅ landed, default OFF, A/B pending | `r1000_top30_institutional.py` | Δ CAGR ≥ +0.5, Δ Sharpe ≥ +0.05 |
+| C | Phase 5 leader/laggard | `0756636` | ✅ landed, default ON, FULL rebuild pending | `r1000_top30_institutional.py` + ENGINE_REUSE_VERSION bump | Δ CAGR ≥ +0.3, future-sleeve hit-rate ↑ |
+| D | Phase 6a DD breaker | `b4c63c9` | ✅ landed, default ON | `r1000_top30_institutional.py` (backtest_portfolio) | Δ MaxDD ≤ −3pp, Δ CAGR ≥ −0.5pp |
+| E | Phase 6b VIX guard | `4c3274d` | ✅ landed, default ON | `r1000_top30_institutional.py` (regime_controls) | Δ MaxDD ≤ −1pp in VIX-spike periods |
+| F | Phase 6c vol target | `ee93fa0` | ✅ landed, default OFF | `r1000_top30_institutional.py` (backtest_portfolio) | Δ Sharpe ≥ +0.05, Δ CAGR ≥ −1pp |
+| G | Glue — notebook + handoff rotate | `33ed065` | ✅ landed | `colab_run.ipynb`, `SESSION_HANDOFF.md` | — |
+| H | Audit-hardening getattr alignment | `f7ec511` | ✅ landed | `r1000_top30_institutional.py` | — |
 
 Each PR:
 1. Write code + env-var toggle (`PHASE_<KEY>_ENABLED`, default ON for A/B/C/D/E, default OFF for F).

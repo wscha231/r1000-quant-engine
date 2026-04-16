@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-17 09:30 KST
+# Session Handoff — 2026-04-17 10:15 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,20 +8,25 @@
 
 ## 1. Last thing that happened
 
-**Phase 4 / 5 / 6a / 6b / 6c all landed as separate commits. Phase 3 was REJECTED by A/B (see 28e41fe). Next action: user runs ONE FULL rebuild in Colab to pick up Phase 5 columns + measure each of the new phases.**
+**Phase 4 / 5 / 6a / 6b / 6c all landed + post-audit hardening fix. Phase 3 was REJECTED by A/B (see 28e41fe). Code is READY for ONE FULL rebuild in Colab. The latest commit on `origin/master` is `f7ec511`.**
 
-Timeline of recent commits on `origin/master`:
+Timeline of recent commits on `origin/master` (newest first):
 
 | Commit | Phase | Default | Summary |
 |---|---|---|---|
-| `28e41fe` | Phase 3 | **OFF (reject)** | A/B regression (-2.30pp CAGR, -0.13 Sharpe, -4.58pp MaxDD). Toggle kept for future re-eval. |
-| `6b790cb` | Phase 4 | **OFF** | Regime-conditional sleeve multipliers. `SLEEVE_FACTOR_REGIME_MULTIPLIERS` table keyed on `event_regime_label`. Dual-gate: `regime_dynamic_sleeve_weights_enabled` + `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED`. |
-| `0756636` | Phase 5 | **ON** | Sub-industry leader/laggard. Three new columns (`industry_leader_gap`, `_bonus_score`, `_penalty_score`). Wired into all 3 sleeves. **`ENGINE_REUSE_VERSION` bumped -> `"2026-04-17-phase5-leader-laggard"` — forces next Colab run to FULL rebuild.** |
-| `b4c63c9` | Phase 6a | **ON** | 3-level drawdown breaker (-8/-15/-25% -> cash 15/35/60%) with equity-based recovery hysteresis. Legacy single-threshold breaker preserved as fallback. |
-| `4c3274d` | Phase 6b | **ON** | VIX level hard guard. 4 tiers (22/28/35/45 -> cash 10/25/40/55%). Inside `compute_regime_portfolio_controls`. |
+| `f7ec511` | 6a/6b fix | — | Pre-rebuild audit spotted `getattr(cfg, ..., False)` mismatch vs EngineConfig default `True` for Phase 6a/6b (hardening for `cfg=None` callers). Zero behaviour change in active paths. |
+| `33ed065` | Glue | — | `SESSION_HANDOFF.md` rotated + `colab_run.ipynb` Cell 2 gains 6 new phase toggles (`PHASE3/4/5/6A/6B/6C_*_ENABLED`). |
 | `ee93fa0` | Phase 6c | **OFF** | Volatility targeting (6m rolling vol, 12% target). Expressed as dynamic cash floor. Default OFF — user must explicitly opt in. |
+| `4c3274d` | Phase 6b | **ON** | VIX level hard guard. 4 tiers (22/28/35/45 -> cash 10/25/40/55%). Inside `compute_regime_portfolio_controls`. |
+| `b4c63c9` | Phase 6a | **ON** | 3-level drawdown breaker (-8/-15/-25% -> cash 15/35/60%) with equity-based recovery hysteresis. Legacy single-threshold breaker preserved as fallback. |
+| `0756636` | Phase 5 | **ON** | Sub-industry leader/laggard. Three new columns (`industry_leader_gap`, `_bonus_score`, `_penalty_score`). Wired into all 3 sleeves. **`ENGINE_REUSE_VERSION` bumped -> `"2026-04-17-phase5-leader-laggard"` — forces next Colab run to FULL rebuild.** |
+| `6b790cb` | Phase 4 | **OFF** | Regime-conditional sleeve multipliers. `SLEEVE_FACTOR_REGIME_MULTIPLIERS` table keyed on `event_regime_label`. Dual-gate: `regime_dynamic_sleeve_weights_enabled` + `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED`. |
+| `28e41fe` | Phase 3 | **OFF (reject)** | A/B regression (-2.30pp CAGR, -0.13 Sharpe, -4.58pp MaxDD). Toggle kept for future re-eval. |
 
-Total: ~680 new lines across engine + CHANGELOG. Each phase has byte-identical legacy behavior when its toggle is off. 27 new EngineConfig fields total. All toggles are dual-gate (cfg + env).
+Total: ~830 new lines across engine + CHANGELOG. Each phase has byte-identical legacy behavior when its toggle is off. 32 new EngineConfig fields total. All toggles are dual-gate (cfg + env). Pre-rebuild 3-agent audit completed:
+- Agent 1 (adversarial code review): SAFE — all 5 phases implemented correctly.
+- Agent 2 (alpha ideas): Top 3 Phase 7 candidates identified (see §3 below).
+- Agent 3 (risk/integration): 2 CRITICAL items found and **fixed in `f7ec511`**. Ready to run.
 
 ---
 
@@ -85,7 +90,38 @@ Each A/B ships or doesn't ship based on the ship gate in `PHASE_ROADMAP.md` §3:
 
 - For any phase that PASSES its ship gate: flip its cfg default to True in a small commit, update CHANGELOG, push. No infra change needed — just `EngineConfig.xxx_enabled: bool = False` -> `True`.
 - For any phase that FAILS: keep default OFF, record the negative result in CHANGELOG (mirror the 28e41fe Phase 3 rejection pattern).
-- Once all Phase 4/5/6 A/B rulings are in, `SESSION_HANDOFF.md` gets rewritten with the new "last thing done + next action". At that point the immediate roadmap is exhausted — future work is proposal-driven (e.g. re-visit `PROPOSAL_defensive_upgrades.md` §2/4/5/6 which were skipped for the Phase 6 initial release).
+
+### Phase 7 candidate proposals (from the 2026-04-17 alpha-gap audit)
+
+Three mini-proposals ranked by (expected CAGR lift) / (implementation complexity). Each should be implemented behind its own toggle (following the Phase 4/5/6 pattern) and A/B-measured before ship.
+
+#### Proposal 7a — Insider buying + accruals quality (HIGHEST ROI, ~30 min)
+- `insider_flow_score` is already computed by the engine but NOT wired into any sleeve composite (weight 0 everywhere). Wire `(+0.25, insider_flow_score)` into `early_weight_pairs` and `(+0.15, insider_flow_score)` into `future_weight_pairs`.
+- `accruals_to_assets` is already computed but also unwired. Add `(-0.20, accruals_to_assets)` to `core_weight_pairs` (high accruals = earnings quality risk).
+- Toggle: `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` + `cfg.phase7a_insider_accruals_enabled: bool = False` (default OFF pending A/B).
+- Expected lift: CAGR +0.3 to +0.6pp, Sharpe +0.02 to +0.05, MaxDD neutral.
+- Risk: LOW — signals are already in the data, orthogonal to existing factors.
+
+#### Proposal 7b — Estimate dispersion + SUE (MEDIUM ROI, ~90 min, FULL rebuild once)
+- Compute `estimate_dispersion_score` = std(analyst estimates) / mean(estimates). Low dispersion = high-conviction consensus. Wire into future + early at weight 0.12.
+- Compute `standardized_unexpected_earnings_score` = recent earnings surprise / rolling std of surprises. Captures post-earnings drift. Wire into future + early at weight 0.18.
+- Needs a new universe-monthly helper and feature_store whitelist entry (Invariant #8). One FULL rebuild required to bake the columns.
+- Expected lift: CAGR +0.2 to +0.5pp, Sharpe +0.03 to +0.07.
+- Risk: MEDIUM — new columns need data-quality validation.
+
+#### Proposal 7c — Yield curve + cross-asset confirmation (DEFENSIVE ROI, ~120 min)
+- Implement `PROPOSAL_defensive_upgrades.md §4` (T10Y2Y spread + inversion persistence) and `§5` (6-vote cross-asset confirmation via breadth / HY OAS / DXY / bonds / gold / oil). Both were explicitly skipped for the Phase 6 initial release.
+- Inject both as regime-smoothing INPUTS to `compute_regime_portfolio_controls()`, not as direct factor weights. This cuts false regime flips without touching the selection engine.
+- Expected lift: MaxDD -1.5 to -3pp, Sharpe +0.05 to +0.10, CAGR -0.1 to +0.2pp (mostly defensive).
+- Risk: LOW — regime modifications are orthogonal to selection.
+
+### Portfolio-construction sweeps (can run in parallel with Phase 7 work)
+- `top_n` sweep {15, 20, 25, 30, 40} — current is 30. Concentration may buy +0.2 to +0.8pp CAGR.
+- Conviction-curve exponent tuning — give top-quartile names ~1.5x weight within sleeves. Low-effort change (~20 lines) with potential +0.3 to +0.8pp CAGR.
+
+### Only AFTER all Phase 7 A/B rulings are in
+- Re-visit `PROPOSAL_defensive_upgrades.md` §2 (per-sleeve stop-loss) and §6 (regime smoothing) if tail-risk is still too high.
+- Longer-term: short-interest signals, multi-horizon revision composites, macro-sector interactions — these require new data sources and are lower-priority.
 
 ---
 
@@ -100,7 +136,7 @@ I'm continuing work on the r1000 Quant Engine project. Before doing anything els
 2. Read `SESSION_HANDOFF.md` — current pending work (THIS is the most important file for picking up where we left off).
 3. Read the last ~300 lines of `CHANGELOG.md` — most recent decisions (includes the Phase 3 rejection + Phase 4/5/6 implementations).
 4. Read `PHASE_ROADMAP.md` §3 (PR plan) and §5 (invariants) — what's next.
-5. Check `git log --oneline -8` to confirm the latest commit (should be at or after `ee93fa0 Add Phase 6c volatility targeting`).
+5. Check `git log --oneline -8` to confirm the latest commit (should be at or after `f7ec511 Align Phase 6a/6b getattr defaults with EngineConfig defaults`).
 
 Only after reading those files, ask me what I want to do next. Do NOT start editing anything until you've read them.
 
