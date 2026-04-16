@@ -95,12 +95,14 @@ Each A/B ships or doesn't ship based on the ship gate in `PHASE_ROADMAP.md` §3:
 
 Three mini-proposals ranked by (expected CAGR lift) / (implementation complexity). Each should be implemented behind its own toggle (following the Phase 4/5/6 pattern) and A/B-measured before ship.
 
-#### Proposal 7a — Insider buying + accruals quality (HIGHEST ROI, ~30 min)
-- `insider_flow_score` is already computed by the engine but NOT wired into any sleeve composite (weight 0 everywhere). Wire `(+0.25, insider_flow_score)` into `early_weight_pairs` and `(+0.15, insider_flow_score)` into `future_weight_pairs`.
-- `accruals_to_assets` is already computed but also unwired. Add `(-0.20, accruals_to_assets)` to `core_weight_pairs` (high accruals = earnings quality risk).
-- Toggle: `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` + `cfg.phase7a_insider_accruals_enabled: bool = False` (default OFF pending A/B).
-- Expected lift: CAGR +0.3 to +0.6pp, Sharpe +0.02 to +0.05, MaxDD neutral.
+#### Proposal 7a — Insider buying + accruals quality (✅ LANDED as commit, default OFF)
+- Status: infrastructure implemented as part of the 2026-04-17 Phase 4/5/6 rollout. Awaiting A/B measurement.
+- `insider_flow_signal_score` — already computed end-to-end via yfinance `insider_transactions` + optional SEC Form 3/4/5 actual-data override. Now ALSO wired into sleeve composites: `(+0.25, insider_flow)` on early_scout and `(+0.15, insider_flow)` on future_winner (both toggle-gated).
+- `accruals_to_assets` = (NI_ttm − OCF_ttm) / assets — already computed in the fundamentals pipeline (~81% coverage). Wired as `(−0.20, accruals_to_assets)` on core_compounder (toggle-gated).
+- Toggle: `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED=1` + `cfg.phase7a_insider_accruals_enabled=True` (dual-gate). Default OFF. Weights exposed as cfg fields (`phase7a_insider_early_weight`, `phase7a_insider_future_weight`, `phase7a_accruals_core_weight`) so they can be tuned without re-editing the weight-pair tables.
+- Expected lift (not yet measured): CAGR +0.3 to +0.6pp, Sharpe +0.02 to +0.05, MaxDD neutral.
 - Risk: LOW — signals are already in the data, orthogonal to existing factors.
+- A/B protocol after FULL rebuild: QUICK_RESCORE with `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED=1` + `cfg["phase7a_insider_accruals_enabled"]=True` — compare `outputs/backtest_metrics.json` vs the default-off baseline from the same FULL rebuild.
 
 #### Proposal 7b — Estimate dispersion + SUE (MEDIUM ROI, ~90 min, FULL rebuild once)
 - Compute `estimate_dispersion_score` = std(analyst estimates) / mean(estimates). Low dispersion = high-conviction consensus. Wire into future + early at weight 0.12.

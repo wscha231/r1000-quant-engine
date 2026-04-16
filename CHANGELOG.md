@@ -2020,3 +2020,41 @@ All entries must be written in English. Entries must be predictable and machine-
   - `PHASE_ROADMAP.md` §2 retains the original "PLANNED" design notes as "Historical design notes" subsections for reference. If those grow stale they can be pruned in a later cleanup.
   - The resume-checklist section of `SESSION_HANDOFF.md` §4 now points at `f7ec511` as the expected HEAD. Any agent joining after this refresh will look for this exact commit (or newer) to confirm the codebase is in-sync.
   - `ENGINE_REUSE_VERSION` unchanged. No FULL-rebuild forcing beyond what Phase 5 already mandated.
+
+### 10:45 KST - phase7a-insider-flow-and-accruals-sleeve-wiring
+
+- scope:
+  - Phase 7a from `SESSION_HANDOFF.md` §3: wire the already-computed `insider_flow_signal_score` and `accruals_to_assets` signals into the sleeve composites inside `compute_portfolio_sleeve_columns`. Both signals are produced by the existing fundamentals + live-overlay pipeline (yfinance `insider_transactions` + optional SEC Form 3/4/5 raw-file override for insider, `(NI_ttm − OCF_ttm) / assets` for accruals) but neither was wired into any of the three sleeve weight-pair tables prior to this commit. Phase 7a adds them with sleeve-appropriate weights behind a dual-gate toggle so they can be A/B-measured against the same FULL-rebuild baseline that Phase 5/6a/6b will use.
+  - Default OFF — user explicitly requested default-OFF landing so the upcoming FULL rebuild measures Phase 5/6a/6b in isolation, and a subsequent QUICK_RESCORE can isolate Phase 7a's marginal contribution on top.
+  - No new data sources needed. `insider_flow_signal_score` is produced by `build_live_factor_overlay` (line 9849), `accruals_to_assets` by the fundamental-derivation block (line 11760). Prior `w_insider_flow` path in the main `total_score` (line 4619) is unchanged — Phase 7a is additive to the sleeve-specific composition only.
+- files:
+  - `r1000_top30_institutional.py`:
+    - `EngineConfig` (post-`vol_scale_ceiling` block): added 4 Phase 7a fields.
+    - `compute_portfolio_sleeve_columns`: added Phase 7a dual-gate resolution block; added one weight pair to `core_weight_pairs` (`_p7a_w_accruals_core * accruals_to_assets`), one to `future_weight_pairs` (`_p7a_w_insider_future * insider_flow_signal_score`), one to `early_weight_pairs` (`_p7a_w_insider_early * insider_flow_signal_score`) — each gated behind `_phase7a_active` with 0.0 fallback so the toggle-off path is byte-identical to `017b853`; added `phase7a_insider_accruals_active` diagnostic column; extended the empty-frame branch with the new diagnostic.
+  - `colab_run.ipynb`: Cell 2 toggle block now also surfaces `PHASE7A_INSIDER_ACCRUALS_ENABLED` with `_set_phase_env()` and prints it alongside the other seven phase env vars.
+  - `SESSION_HANDOFF.md`: §3 Phase 7a candidate marked as "✅ LANDED, default OFF" with exact toggle names + A/B protocol.
+  - `CHANGELOG.md`: this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> resolves Phase 7a dual-gate, reads insider/accruals weights from cfg, applies them to the three sleeve weight-pair tables gated on `_phase7a_active`, writes `phase7a_insider_accruals_active` scalar column (1.0 when on, 0.0 when off).
+- config_fields_added:
+  - `phase7a_insider_accruals_enabled: bool = False` -> master toggle (dual-gate with `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED`).
+  - `phase7a_insider_early_weight: float = 0.25` -> insider_flow_signal_score weight on early_scout when Phase 7a is on.
+  - `phase7a_insider_future_weight: float = 0.15` -> insider_flow_signal_score weight on future_winner when Phase 7a is on.
+  - `phase7a_accruals_core_weight: float = -0.20` -> accruals_to_assets weight on core_compounder when Phase 7a is on (negative = high accruals penalized).
+- breaking_changes:
+  - none. When either gate is off, all three weight pairs multiply by 0.0, which is a no-op inside `weighted_sleeve_composite` (multiplying 0.0 by any z-score series produces 0.0 contribution and 0.0 added to the L1 norm — so Phase 3 renorm diagnostics are unaffected too).
+- outputs:
+  - `outputs/scored_latest.csv` gains one additional column: `phase7a_insider_accruals_active` (scalar 0.0 or 1.0 per row).
+- validation:
+  - `py -3 -m py_compile r1000_top30_institutional.py` passed.
+  - Grep confirms 4 new cfg fields, `_phase7a_active` dual-gate, and the 3 weight-pair gated expressions in core / future / early.
+  - Grep on `colab_run.ipynb` source confirms `PHASE7A_INSIDER_ACCRUALS_ENABLED` declaration + env setter both present.
+  - Semantic A/B deferred to Colab. Ship gate (per SESSION_HANDOFF §3 Phase 7a): ΔCAGR ≥ +0.3pp AND ΔSharpe ≥ +0.02, with MaxDD not worse by more than +1pp.
+- risks_or_notes:
+  - `insider_flow_signal_score` coverage depends on the yfinance `insider_transactions` endpoint availability per-ticker; historical coverage has been good (~90% of liquid Russell 1000 names) but very-low-liquidity or recently-IPO'd names can be missing. `cross_sectional_robust_z` handles missing values by filling with 0.0 (the within-period z-score centre), so missing coverage translates to "no tilt" for that name, not a NaN explosion.
+  - `accruals_to_assets` coverage is ~81% (see `outputs/reports/full_validation_suite.json :: acceptance_checks` from the 2026-04-16 FULL rebuild). For the remaining ~19% of names the z-score falls back to 0.0 — same "no tilt" behaviour.
+  - The pre-existing `w_insider_flow` path in the main `total_score` (line 4619) is independent of Phase 7a and remains unchanged. Phase 7a adds sleeve-specific insider tilt on top of the existing main-score insider component, not as a replacement. If the sleeve contribution turns out to be redundant with the main-score path, A/B will show it as neutral.
+  - Phase 7a weights are exposed as cfg fields on purpose so they can be tuned via `COMMON_CFG_OVERRIDES` in Colab Cell 2 without having to re-edit / re-push the weight-pair tables. For example a user could test `cfg["phase7a_insider_early_weight"]=0.35, cfg["phase7a_accruals_core_weight"]=-0.30` to probe a more aggressive tilt.
+  - `ENGINE_REUSE_VERSION` NOT bumped. Phase 7a is portfolio-layer only; it reuses columns already in `feature_store_latest.parquet` so the Phase 5 FULL-rebuild bump still covers this commit.

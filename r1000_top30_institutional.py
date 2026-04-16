@@ -2156,6 +2156,25 @@ class EngineConfig:
     vol_lookback_months: int = 6
     vol_scale_floor: float = 0.50
     vol_scale_ceiling: float = 1.00
+    # ---------------
+    # Phase 7a: Insider flow + accruals quality sleeve wiring (PHASE_ROADMAP §Phase 7 candidates)
+    # ---------------
+    # `insider_flow_signal_score` is already computed end-to-end in the
+    # engine (yfinance `insider_transactions` -> optional SEC Form 3/4/5
+    # actual-data override -> z-scored composite in `build_live_factor_overlay`)
+    # and is already consumed by the main `total_score` via the
+    # pre-existing `w_insider_flow` weight. Phase 7a adds it to the
+    # sleeve composites (future/early) so the sleeve-specific tilt also
+    # captures insider conviction.
+    # `accruals_to_assets` = (NI_ttm - OCF_ttm) / assets is computed
+    # automatically in the fundamentals pipeline (line ~11760). High
+    # accruals = earnings-quality risk (Sloan effect) -> negative
+    # contribution on the `core` compounder sleeve.
+    # Default OFF per the plan — A/B measurement first.
+    phase7a_insider_accruals_enabled: bool = False
+    phase7a_insider_early_weight: float = 0.25   # insider flow bonus on early_scout
+    phase7a_insider_future_weight: float = 0.15  # insider flow bonus on future_winner
+    phase7a_accruals_core_weight: float = -0.20  # negative = high accruals penalised on core
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -18040,6 +18059,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             "regime_sleeve_multiplier_future",
             "regime_sleeve_multiplier_early",
             "regime_sleeve_weights_active",
+            # Phase 7a diagnostic — insider + accruals wiring flag.
+            "phase7a_insider_accruals_active",
         ] + HISTORICAL_DATA_QUALITY_COLUMNS:
             d[c] = np.nan
         return d
@@ -18109,6 +18130,28 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         getattr(cfg, "regime_sleeve_multiplier_table", None) if cfg is not None else None
     )
 
+    # -------------------------------------------------------------------
+    # Phase 7a: insider flow + accruals quality sleeve wiring.
+    # Default OFF. Pulls weights from cfg so they can be tuned without
+    # editing the weight-pair tables directly.
+    # -------------------------------------------------------------------
+    _phase7a_cfg_on = (
+        bool(getattr(cfg, "phase7a_insider_accruals_enabled", False))
+        if cfg is not None
+        else False
+    )
+    _phase7a_env_on = phase_is_enabled("phase7a_insider_accruals", default=False)
+    _phase7a_active = bool(_phase7a_cfg_on and _phase7a_env_on)
+    _p7a_w_insider_early = float(
+        getattr(cfg, "phase7a_insider_early_weight", 0.25) if cfg is not None else 0.25
+    )
+    _p7a_w_insider_future = float(
+        getattr(cfg, "phase7a_insider_future_weight", 0.15) if cfg is not None else 0.15
+    )
+    _p7a_w_accruals_core = float(
+        getattr(cfg, "phase7a_accruals_core_weight", -0.20) if cfg is not None else -0.20
+    )
+
     core_weight_pairs: list[tuple[float, pd.Series]] = [
         (1.05, cross_sectional_robust_z(d, "long_hold_compounder_score")),
         (0.90, cross_sectional_robust_z(d, "archetype_compounder_score")),
@@ -18137,6 +18180,14 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # Phase 5: compounders also respect group-leader separation;
         # weight moderate so it doesn't overpower the moat/quality core.
         (0.15, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
+        # Phase 7a: accruals quality penalty on core. High accruals
+        # (net_income - OCF / assets) = earnings-quality risk (Sloan
+        # effect). Low or negative accruals = quality signal. Weight
+        # gated by `_phase7a_active` so toggle OFF is byte-identical.
+        (
+            _p7a_w_accruals_core if _phase7a_active else 0.0,
+            cross_sectional_robust_z(d, "accruals_to_assets"),
+        ),
     ]
     core_score = weighted_sleeve_composite(
         core_weight_pairs,
@@ -18186,6 +18237,13 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # group" is the IBD/O'Neil playbook this sleeve is built around.
         (0.25, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
         (-0.15, cross_sectional_robust_z(d, "industry_laggard_penalty_score")),
+        # Phase 7a: insider flow bonus on future-winner sleeve. Medium
+        # weight because growth-with-insider-buying is a high-conviction
+        # combination but insider signals can be noisy on mid-cap names.
+        (
+            _p7a_w_insider_future if _phase7a_active else 0.0,
+            cross_sectional_robust_z(d, "insider_flow_signal_score"),
+        ),
     ]
     future_score = weighted_sleeve_composite(
         future_weight_pairs,
@@ -18233,6 +18291,14 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # Phase 5: early-scout is already rotation-heavy; keep leader
         # bonus light to avoid double-counting with industry_rotation_signal.
         (0.10, cross_sectional_robust_z(d, "industry_leader_bonus_score")),
+        # Phase 7a: insider flow bonus on early-scout — highest weight
+        # across sleeves because early-stage insider buying is the
+        # cleanest conviction signal (management sees inflection before
+        # the market).
+        (
+            _p7a_w_insider_early if _phase7a_active else 0.0,
+            cross_sectional_robust_z(d, "insider_flow_signal_score"),
+        ),
     ]
     early_score = weighted_sleeve_composite(
         early_weight_pairs,
@@ -18344,6 +18410,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         d["regime_sleeve_multiplier_future"] = 1.0
         d["regime_sleeve_multiplier_early"] = 1.0
     d["regime_sleeve_weights_active"] = 1.0 if _phase4_regime_active else 0.0
+    # Phase 7a diagnostic: scalar flag so downstream reports can see
+    # whether insider + accruals wiring was active during this run.
+    d["phase7a_insider_accruals_active"] = 1.0 if _phase7a_active else 0.0
 
     d["portfolio_core_compounder_engine_score"] = winsorize(core_score, 0.01).clip(-6.0, 6.0)
     d["portfolio_future_winner_engine_score"] = winsorize(future_score, 0.01).clip(-6.0, 6.0)
