@@ -5,10 +5,13 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 
 ## Key Files
 - `SESSION_HANDOFF.md` — **다른 기기/세션에서 이어 작업할 때 제일 먼저 읽을 파일. "방금 뭐 했고 다음에 뭐 해야 하는지" 단일 inbox. Phase 하나 끝날 때마다 덮어씀.**
-- `r1000_top30_institutional.py` — 메인 엔진 (~25,600+ lines)
+- `r1000_top30_institutional.py` — 메인 엔진 (~27,000+ lines, Phase 8 이후 Phase A refactor 로 분리 예정)
 - `r1000_data_collector.py` — 데이터 수집 + 검증 파이프라인
 - `colab_run.ipynb` — Colab 실행 런북 (GitHub master pull → collector → pipeline → validation)
 - `PHASE_ROADMAP.md` — **Phase 1..6 멀티-세션 작업 플랜 (새 대화 시작할 때 먼저 읽기)**
+- `PHASE_8_PROPOSAL.md` — Phase 8 restructuring (신규 8a/8b/8c/8d 설계 문서)
+- `REFACTOR_PLAN.md` — **27k→5 module 분리 + observability 인프라 플랜. Phase 8 ship 후 실행.**
+- `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` — Phase C 데이터 근거
 - `PROPOSAL_defensive_upgrades.md` — Phase 6 (tail protection) 상세 설계 문서
 - `PROPOSAL_growth_regime_offense_defense.md` — Phase 4 참고용 아키텍처 문서
 

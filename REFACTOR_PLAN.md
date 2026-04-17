@@ -231,3 +231,252 @@ The bugs we caught during Phase 8 audit (weight-0 dilution, r_1m lookahead, env-
 A modular structure wouldn't have automatically caught those — but it **would have surfaced the code locations faster** and made the fix surface smaller. The real win isn't bug *prevention* but bug *localisation*.
 
 Refactor ROI = time saved on all future reviews × number of future reviews. On a 2-year horizon, 1.5 days of refactor pays back ~20x.
+
+---
+
+## 11. Observability & Attribution — diagnose WHICH module broke
+
+Splitting files alone is half the win. The other half is building **fault-isolation infrastructure** so that when CAGR drops or a run crashes, we know **within seconds** which module is responsible instead of grep-bisecting across the codebase.
+
+This section adds six observability primitives that ship AS PART of the refactor (Phase A), not as a follow-up.
+
+### 11.1 Module boundary decorator — error containment + identity
+
+Every public function of every module is wrapped in a standard decorator that:
+
+1. Tags exceptions with the module identity (stack trace still intact, but error message leads with `[module_name] raised KeyError: ...`).
+2. Records entry/exit timing + row counts.
+3. Optionally returns a safe fallback (zero-fill) when `PHASE_SAFE_DEGRADE=1` is set.
+
+```python
+# r1000_helpers.py
+import functools, time, logging
+
+def module_boundary(module_name: str, *, safe_degrade_fallback=None):
+    """Wrap every module's public function with identity + timing + optional fallback.
+    
+    Usage:
+      @module_boundary("signals.industry")
+      def compute_oneil_leadership_score(monthly): ...
+    
+    On failure: re-raises with prepended `[signals.industry]` tag.
+    On PHASE_SAFE_DEGRADE=1: returns safe_degrade_fallback(*args, **kwargs) if provided.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                out = fn(*args, **kwargs)
+                dt = time.perf_counter() - t0
+                # Log on debug mode only
+                if os.environ.get("PHASE_DEBUG_MODULE_TRACE") == "1":
+                    n_rows = len(out) if hasattr(out, "__len__") else "-"
+                    n_cols = len(out.columns) if hasattr(out, "columns") else "-"
+                    logging.info(f"[{module_name}] {fn.__name__} -> {n_rows}x{n_cols} in {dt*1000:.1f}ms")
+                return out
+            except Exception as e:
+                dt = time.perf_counter() - t0
+                tagged = f"[{module_name}] {fn.__name__} raised {type(e).__name__} after {dt*1000:.1f}ms: {e}"
+                if os.environ.get("PHASE_SAFE_DEGRADE") == "1" and safe_degrade_fallback is not None:
+                    logging.error(tagged + " — returning safe fallback (PHASE_SAFE_DEGRADE=1)")
+                    return safe_degrade_fallback(*args, **kwargs)
+                raise type(e)(tagged) from e
+        return wrapper
+    return decorator
+```
+
+**Effect when something breaks**:
+```
+BEFORE refactor:
+  KeyError: 'oneil_leadership_score'
+  File "r1000_top30_institutional.py", line 18499, in compute_portfolio_sleeve_columns
+    (0.55, cross_sectional_robust_z(d, "oneil_leadership_score")),
+  ... (unclear which upstream module failed to produce it)
+
+AFTER refactor + boundary:
+  KeyError: [signals.industry] compute_oneil_leadership_score raised KeyError after 0.3ms: 
+  'rs_industry_6m' — upstream industry metadata missing for row 472 (TSLA 2019-05)
+  File "r1000_quant/signals/industry.py", line 145, in compute_oneil_leadership_score
+```
+
+Instantly points at `signals.industry` instead of `sleeves.composite`.
+
+### 11.2 Per-module health check — validate outputs before return
+
+Each module ships a `_validate_<fn>_output(df)` function that runs coverage + range + schema checks. Called automatically on return when `PHASE_STRICT_VALIDATION=1`:
+
+```python
+# r1000_quant/features/macro.py
+def _validate_macro_regime_output(macro: pd.DataFrame) -> None:
+    """Assert the macro frame shape + coverage + range + schema."""
+    # Schema: all MACRO_REGIME_COLUMNS present
+    missing = [c for c in MACRO_REGIME_COLUMNS if c not in macro.columns]
+    assert not missing, f"[features.macro] missing {len(missing)} columns: {missing[:5]}"
+    # Coverage: at least 80% of rows in recent 5y should have non-NaN
+    recent = macro[macro["macro_date"] >= "2021-01-01"]
+    for col in ["stagflation_score", "growth_liquidity_reentry_score"]:
+        cov = recent[col].notna().mean()
+        assert cov > 0.80, f"[features.macro] {col} coverage {cov:.1%} < 80%"
+    # Range: z-score style columns stay in [-6, 6] after macro clamp
+    for col in ["stagflation_score", "labor_softening_score"]:
+        abs_max = macro[col].abs().max()
+        assert abs_max <= 6.1, f"[features.macro] {col} abs_max={abs_max:.2f} exceeds clamp [-6,6]"
+```
+
+**Effect**: the 2024-06 `labor_softening_score = -2e14` bug would have been caught at the module boundary instead of propagating silently to every stock score. Validation cost: microseconds. Benefit: catastrophic bugs localised on the spot.
+
+### 11.3 Column ownership registry — "who wrote this column?"
+
+A central dict in `r1000_config.py`:
+
+```python
+# r1000_config.py
+COLUMN_OWNERSHIP = {
+    # Price features (features.price)
+    "mom_1m": "features.price",
+    "mom_3m": "features.price",
+    "mom_18m": "features.price",
+    "mom_24m": "features.price",
+    "mom_36m": "features.price",
+    "dist_ma200": "features.price",
+    # Fundamentals (features.fundamental)
+    "ep_ttm": "features.fundamental",
+    "fcfy_ttm": "features.fundamental",
+    "sp_ttm": "features.fundamental",
+    "roe_proxy": "features.fundamental",
+    # Phase 1 blueprint (signals.blueprints)
+    "fundamental_turnaround_acceleration_score": "signals.blueprints",
+    "value_inflection_score": "signals.blueprints",
+    "uptrend_continuation_score": "signals.blueprints",
+    # Phase 2 industry (signals.industry)
+    "industry_group_strength_score": "signals.industry",
+    "oneil_leadership_score": "signals.industry",
+    "industry_rotation_signal": "signals.industry",
+    "rs_industry_6m": "signals.industry",
+    # Phase 5 (signals.sub_industry)
+    "industry_leader_gap": "signals.sub_industry",
+    # Phase 8b (signals.long_lookback)
+    "multi_year_winner_score": "signals.long_lookback",
+    "persistence_trend_24m": "signals.long_lookback",
+    # Phase 8a/b/c/d diagnostic flags (sleeves.composite)
+    "hold_persistence_bonus": "sleeves.composite",
+    "long_horizon_alpha_composite": "sleeves.composite",
+    "phase8a_hold_persistence_active": "sleeves.composite",
+    "phase8b_long_lookback_active": "sleeves.composite",
+    "phase8c_megacap_override_active": "sleeves.composite",
+    "phase8d_ic_reweight_active": "sleeves.composite",
+    "phase8d_long_horizon_alpha_active": "sleeves.composite",
+    # ... (all columns mapped)
+}
+
+def owning_module(column: str) -> str:
+    """Return the module responsible for producing `column`, or 'unknown'."""
+    return COLUMN_OWNERSHIP.get(column, "unknown")
+```
+
+**Benefits**:
+- Debug: "why is `ep_ttm` zero for 40% of rows?" → `owning_module("ep_ttm")` = `features.fundamental` → look there
+- Automated check at pipeline end: warn if a column with a known owner is MISSING or has < 50% coverage
+- Cross-module boundary check: each module can only WRITE columns it OWNS (enforced by test)
+
+### 11.4 Performance attribution — which phase added or subtracted CAGR
+
+At the end of `backtest_portfolio`, generate `outputs/reports/module_contribution_report.csv`:
+
+```
+module              factor_count  avg_monthly_contribution  cum_return_impact  rank
+features.fundamental        14                     0.0046          +0.0850    1
+signals.blueprints           5                     0.0038          +0.0620    2
+signals.industry            11                     0.0015          +0.0240    3
+signals.long_lookback        5                     0.0024          +0.0385    4  (Phase 8b)
+sleeves.composite (p8a.4)    1                     0.0018          +0.0290    5  (hold persistence)
+sleeves.composite (p8c.1)    1                    -0.0003          -0.0048    6  (megacap override net-negative)
+features.macro               8                    -0.0009          -0.0150    7
+signals.sub_industry         3                     0.0001          +0.0015    8  (Phase 5 — near-zero)
+signals.industry rotation    1                    -0.0012          -0.0196   ❌  (industry_rotation_signal — already dropped by 8a.1)
+```
+
+Computation: for each ticker-month, attribute the final `score` decomposition to source modules (via `COLUMN_OWNERSHIP`). Aggregate across backtest.
+
+**Effect**: post-run, one CSV shows **exactly which module added how much CAGR**. If next iteration CAGR drops 3pp, diff two reports → find the module that lost contribution.
+
+### 11.5 Debug verbose mode — per-row per-module trace
+
+Environment variable `PHASE_DEBUG_MODULE_TRACE=1` activates:
+
+- Every module function logs entry/exit with runtime + row/col count (11.1 already has this)
+- `build_feature_store` emits `outputs/reports/module_trace.csv` with:
+  ```
+  module              rows_in  rows_out  cols_added  cols_dropped  runtime_ms  memory_delta_mb
+  features.price        51100    51100          25             0       1250               +8.4
+  features.fundamental  51100    48200          42             3      15200              +22.1
+  features.macro        48200    48200          49             0       3100               +4.2
+  signals.blueprints    48200    48200          34             0       8900              +12.3
+  signals.industry      48200    48200          24             0       6200               +9.8
+  ...
+  ```
+- `score_latest_month` emits `outputs/reports/latest_score_module_trace.csv` with per-name per-module contribution
+
+Cost: ~5% runtime overhead when ON, zero when OFF. Default OFF.
+
+### 11.6 Module-level smoke tests — CI-ready unit tests
+
+`tests/` directory ships with the refactor:
+
+```
+tests/
+├── test_helpers.py           # rolling_robust_z edge cases, weight-0 skip, etc.
+├── test_features_price.py    # mom_* computation on synthetic price series
+├── test_features_fundamental.py
+├── test_features_macro.py    # macro clamp, 1e14 corruption regression test
+├── test_signals_blueprints.py  # Phase 1 signals on 3-ticker synthetic fundamentals
+├── test_signals_industry.py    # O'Neil + rotation on synthetic industry groups
+├── test_signals_long_lookback.py  # Phase 8b composites
+├── test_sleeves_composite.py   # Phase 3/4/7a/8a/b/c/d toggle interactions
+├── test_pipeline_universe.py   # build_universe_monthly on tiny synthetic universe
+├── test_pipeline_backtest.py   # Phase 6a/b/c on synthetic equity curve
+└── test_integration.py          # full mini-run, asserts no schema regressions
+```
+
+Each test ~50-200 lines. Total ~2,000 lines of test code. Runs in < 30s (synthetic data, no actual fetches).
+
+**Regression tests** pinned to known bugs:
+- `test_helpers::test_weighted_sleeve_composite_skips_weight_zero` — the Phase 8 agent-caught bug
+- `test_features_macro::test_rolling_robust_z_survives_near_zero_mad` — the 2024-06 bug
+- `test_sleeves_composite::test_hold_persistence_uses_mom_1m_not_r_1m` — the lookahead bug
+
+### 11.7 Execution addition — what changes in §6 checklist
+
+Add to the Phase A execution checklist (between step 11 and 12):
+
+```
+11.5 [ ] Add @module_boundary to every public function in each new module
+11.6 [ ] Add _validate_<fn>_output() for every public function
+11.7 [ ] Populate COLUMN_OWNERSHIP in r1000_config.py
+11.8 [ ] Wire module_contribution_report.csv into backtest_portfolio end
+11.9 [ ] Create tests/ directory with 10 smoke test files + regression pins
+11.10[ ] Verify PHASE_DEBUG_MODULE_TRACE=1 produces module_trace.csv
+11.11[ ] Verify PHASE_SAFE_DEGRADE=1 on a simulated module failure returns zero-fill
+```
+
+### 11.8 Return on investment — why this is the real win
+
+| Scenario | Without observability | With observability |
+|---|---|---|
+| Pipeline crashes mid-run | Traceback + manual grep to find owning module (10-30 min) | `[signals.industry]` tag in error message (instant) |
+| CAGR drops 3pp on next A/B | Manual bisect across phases (hours) | Diff two `module_contribution_report.csv` (minutes) |
+| One column has 50% NaN | Grep across file to find who wrote it (15 min) | `owning_module(col)` lookup (seconds) |
+| New phase adds dilution bug | Caught only by lucky agent review | Weight-0 unit test catches it on first commit |
+| Silent NaN propagation from macro | Surfaces in final backtest numbers | Module health check catches at module boundary |
+
+Expected payoff: **5-10x faster debugging on every future regression**. 1-1.5 day refactor + observability pays back within the FIRST post-refactor bug.
+
+### 11.9 Why bundle this with the refactor (not add later)
+
+- Adding `@module_boundary` AFTER the split requires touching every function again. **4x more work.**
+- `COLUMN_OWNERSHIP` is natural to populate while moving code (you know which module you just wrote).
+- Test stubs are cheap to write WHILE the function is in front of you, not months later.
+- `PHASE_DEBUG_MODULE_TRACE` requires wiring once at split time; retrofitting means touching the whole pipeline again.
+
+**Rule**: observability scaffolding ships in the same commit as the module split. No exceptions.
