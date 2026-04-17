@@ -246,42 +246,88 @@ NVDA (rev 65%) classified as "compounder", CVX (rev -5%) as "future winner", BKN
 
 4. **No explicit archetype gate** — nothing says "to be in early_scout you must have a genuine turnaround OR value inflection OR be pre-mega-cap". Everything is score-only.
 
-### Redesigned taxonomy — thesis gates + rank within
+### Redesigned taxonomy — thesis gates + rank within (v2, refined 2026-04-17)
 
-Replace argmax sleeve-score assignment with EXPLICIT ELIGIBILITY GATES, then rank within each gate:
+**User refinement** (2026-04-17 post-v1):
+1. "NVDA 이미 전세계 시총 1위라 core 라고 봐도 무방" — at $4T market cap, NVDA is a
+   compounder-by-scale, not a "future winner". `mktcap > $500B` should be a core-qualify
+   rule regardless of revenue growth rate.
+2. "early 는 eps 적자거나 양전환 막 하거나 차트상으로도 장기 이평선 돌파나 golden cross
+   같은 상승 시작 신호" — early scout should use EPS turn-positive signals AND technical
+   breakout signals. The existing golden_cross_fresh_20d / breakout_fresh_20d /
+   price_above_ma200 / ma200_slope_1m columns should be part of the early eligibility.
+3. "주가 올르더라도 턴어라운드 시작이면 오래갈 수도 있어서" — do NOT require "price at
+   bottom" for early eligibility. The thesis is "the turnaround is starting" — a
+   stock that has already risen some but whose fundamental / technical turnaround
+   is fresh can still be in early_scout. The multi-year run-up is ahead of it.
+
+Revised taxonomy:
 
 ```
-CORE COMPOUNDER      mktcap > $50B
-                     AND 2% <= revenue_growth_final <= 25%  (mature, not hyper-grow)
-                     AND roe_proxy > 15% (3y consistent)
-                     AND net_margin > 10%
-                     AND vol_252d < 1.3x cross-sectional median (low vol)
+CORE COMPOUNDER     Rule 1: mktcap > $500B (mega-cap, compound-at-scale thesis)
+                            auto-qualifies regardless of growth rate
+                            -> NVDA, AAPL, MSFT, GOOGL, AMZN, META, AVGO, TSM, NVDA
+                    OR Rule 2: mktcap > $50B
+                            AND 2% <= revenue_growth_final <= 30%
+                            AND roe_proxy > 15%
+                            AND net_margin > 10%
+                            AND vol_252d < 1.3x cross-sectional median
+                            -> KO, V, PG, JNJ, VZ, CSCO, COST, MA
 
-FUTURE WINNER        (revenue_growth_final > 20%) OR (mom_24m > 50%)
-                     AND revision_blueprint_score > 0
-                     AND mom_12m > 0
-                     AND NOT core_eligible  (strict partitioning)
+FUTURE WINNER       mktcap in [$10B, $500B]  (NOT mega-cap — that's core)
+                    AND (
+                        revenue_growth_final > 20%
+                        OR mom_24m > 50%  (multi-year compounding up)
+                    )
+                    AND revision_blueprint_score > 0  (rising estimates)
+                    AND mom_12m > 0                    (recent momentum alive)
+                    AND NOT core_eligible
+                    -> PLTR, CRWD, DDOG, NET, GEV, LNG, CIEN, VRT
 
-EARLY SCOUT          (fundamental_turnaround_acceleration_score > 1.5)
-                     OR (cashflow_inflection_under_loss_score > 1.5)
-                     OR (value_inflection_score > 2.0)
-                     AND mktcap < $100B (pre-mega stage)
-                     AND -10% <= revenue_growth_final <= 30% (not hyper, not terminal decline)
-                     AND NOT core_eligible AND NOT future_eligible
+EARLY SCOUT         ONE OR MORE inflection signals:
+                      (a) Fundamental turn:
+                          fundamental_turnaround_acceleration_score > 1.5
+                          OR cashflow_inflection_under_loss_score > 1.5
+                          OR value_inflection_score > 2.0
+                      (b) Technical breakout (new):
+                          golden_cross_fresh_20d > 0.5
+                          OR breakout_fresh_20d > 0.5
+                          OR (price_above_ma200 > 0 AND ma200_slope_1m > 0
+                              AND mom_6m > 0.15)   (fresh MA200 breakout + rising slope)
+                      (c) Optional: EPS turn-positive flags if we add them as features
+                          (profit_turn_positive_4q, cashflow_turn_positive_4q)
+                    AND mktcap < $500B  (mega-cap always routes to core)
+                    AND NOT core_eligible AND NOT future_eligible
+                    -> genuine turnaround plays, fresh-breakout mid-caps, loss-to-profit
+                       transitions, value-inflection bottoms that haven't fully scaled yet
+                    (price level NOT required to be at bottom — if the turnaround is
+                     fresh, riding a multi-year move up from here is valid thesis)
 
-UNASSIGNED          Names eligible for 0 sleeves -> dropped from portfolio entirely
-                    (quality gate — we only hold names that fit a thesis)
+UNASSIGNED          Names eligible for 0 sleeves -> DROPPED from portfolio
+                    (e.g. CVX with rev -5% + no inflection signal + not mega-cap)
 ```
 
-**Consequences**:
-- NVDA (rev 65%, mom 200%+): core NOT eligible (rev > 25%), future eligible → **FUTURE WINNER** ✓ (correct — it's an emerging leader)
-- CVX (rev -5%): core NOT eligible (rev < 2%), future NOT eligible (rev < 20% AND mom_24m not > 50%), early NOT eligible (no turnaround score) → **DROPPED**
-- BKNG ($1T mega + rev 0%): core eligible (rev in range, roe high), early NOT (not <$100B) → **CORE COMPOUNDER** (correct — it's a platform compounder)
-- A genuine inflection name (loss-to-profit transition) with $30B cap → only early eligible → **EARLY SCOUT** ✓
+**Expected classification (verified against the 2026-04-16 problem holdings)**:
+- NVDA ($4T, rev 65%): Rule 1 (mega-cap) → **CORE** ✓ (user-correct: NVDA at $4T is compound-at-scale)
+- AAPL ($3.5T, rev 0%): Rule 1 → **CORE** ✓
+- AVGO ($1T, rev 24%): Rule 1 → **CORE** ✓ (mega-cap)
+- V ($580B, rev 12%): Rule 2 → **CORE** ✓
+- KO, PG, CSCO, VZ: Rule 2 → **CORE** ✓
+- PLTR ($180B, rev 30%): NOT core, future_eligible → **FUTURE** ✓
+- GEV ($240B, rev 9%, mom_24m > 50%): NOT core (growth_rate too low for rule 2 with high vol, no mega cap), future_eligible via mom_24m → **FUTURE** ✓
+- LNG ($60B, rev 26%): future_eligible → **FUTURE** ✓
+- VRT ($99B, rev 28%): future_eligible → **FUTURE** ✓
+- CVX ($370B, rev -5%): NOT core (rev < 2%), NOT future (rev < 20%, no inflection), NOT early (no turnaround signal, declining revenue) → **DROPPED** ✓
+- XOM ($710B, rev -5%): mega-cap BUT Rule 2 fails (rev < 2%), Rule 1 passes (mktcap > 500B) → **CORE** (neutral — sector diversifier; will rank low within core)
+- BKNG ($1T, rev 0%): Rule 1 → **CORE** ✓ (user-correct: platform compounder)
+- A mid-cap turnaround play ($30B, loss→profit recent quarter, golden cross fresh):
+  NOT core, NOT future (rev growth not high enough), early_eligible (fundamental turn AND technical breakout) → **EARLY** ✓
+- A mid-cap that's already up 50% in 6m but breakout_fresh_20d just fired:
+  NOT core, future eligibility depends on rev_growth; if rev_growth < 20% AND breakout is fresh AND mktcap < $500B → **EARLY** (turnaround-starting thesis, user-approved)
 
-**Benefit**: every name in the portfolio has an EXPLICIT THESIS that matches its archetype. Sleeve allocation targets (12% core / 58% future / 22% early) now directly express "how much risk exposure by archetype" rather than "how the factor scores happened to rank".
+**Benefit**: every sleeve label matches a real archetype. No more noise-argmax classifications like "NVDA is a compounder by factor-score" (we now say NVDA is a compounder by SCALE, which is a more defensible thesis).
 
-**Tradeoff**: some months may have fewer than 7 eligible names in early_scout (if no genuine turnarounds available). That's fine — it means the portfolio concentrates on core + future when inflection plays are unavailable.
+**Tradeoff**: some months may have fewer eligible early_scout names. Fine — means genuine turnarounds are rare, so we concentrate in core + future that month.
 
 ### Implementation (goes into Phase 9 §7)
 
