@@ -2823,7 +2823,15 @@ def squeeze_series(x: Any) -> pd.Series:
 
 def hard_sanitize(df: pd.DataFrame, cols: Iterable[str], clip: float = 1e12) -> pd.DataFrame:
     d = df.copy()
-    cols = [c for c in cols if c in d.columns]
+    # Phase 8 review fix (2026-04-17): dedup `cols` to prevent pandas
+    # `ValueError: Columns must be same length as key` when callers pass
+    # overlapping lists (e.g. DEFAULT_FEATURES contains Phase 1 columns
+    # which are also in PHASE1_ALPHA_COLUMNS, and similarly for Phase 8b).
+    # `d[cols] = d[cols].replace(...)` requires len(cols) to match the
+    # right-hand-side column count; with duplicates in `cols`, the RHS
+    # returns one column per unique name, so shapes mismatch.
+    # dict.fromkeys preserves order + removes duplicates in one pass.
+    cols = [c for c in dict.fromkeys(cols) if c in d.columns]
     if not cols:
         return d
     d[cols] = d[cols].replace([np.inf, -np.inf], np.nan)
