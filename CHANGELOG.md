@@ -2360,3 +2360,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - Helper is defensive: 3s timeout + `check=False` + broad `except Exception` ensures a missing/broken git never takes down the pipeline; falls back to `(unknown)`.
   - The in-flight 08:10 FULL REBUILD run that triggered this change (commit `33581bc`) will NOT show the SHA banner — the helper was added after the run started. Next run from fresh checkout will show it.
   - When the engine is installed as a wheel (not a clone) `(unknown)` will be printed. If we start shipping wheels later, consider baking SHA into a generated `_version.py` during build.
+
+### 17:40 KST - phase9-c3-design-and-refactor-plan-update
+
+- scope:
+  - Planning artifacts only. No engine or notebook code changes. Documents the Phase 9 C3 EPS turn-positive flag design so the next coding session (post Phase 9 C1+C2 verdict) can implement mechanically, and updates the refactor plan to stage Phase 9 into the existing roadmap.
+- files:
+  - `PHASE_9_C3_PROPOSAL.md` -> NEW. Full design for 8 new feature-store columns (`profit_turn_positive_4q`, `cashflow_turn_positive_4q`, `roe_turn_positive_4q`, `any_profitability_turn_positive_4q`, `roe_sign_flip_pos`, plus whitelisting 3 existing but-not-exposed loss-narrowing columns). Includes exact code snippets for the Phase 9 C2 gate extension (`_p9_eps_turn_positive` OR `_p9_still_loss_but_improving`), cfg field additions, notebook toggle, and Cell 9 sanity check.
+  - `REFACTOR_PLAN.md` -> Updated status header with Phase 9 C1/C2/C3 state table; added §1.5 re Phase 9 C3 keep_cols burden (4th keep_cols survival incident); rewrote §5 Timing around Phase 9 C1+C2 verdict (was Phase 8); added decision tree for C3-first vs Refactor-first; extended §8 What-this-unblocks list with C3 + subtractive pass; added Phase 9 entries to §11.3 COLUMN_OWNERSHIP registry (core/future/early/unassigned + mktcap_percentile + 8 C3 columns + 3 C3 diagnostics); extended §11.4 performance attribution example with Phase 9 C1/C2/C3 rows; added new §12 5-stage sequencing diagram (Verdict → C3-or-Refactor → complement → Subtractive → Phase 8e) with invariants and anti-patterns.
+- symbols_added:
+  - none (docs only)
+- symbols_changed:
+  - none (docs only)
+- config_fields_added:
+  - none (C3 cfg fields documented in proposal but NOT yet added to EngineConfig)
+  - proposed (pending C3 implementation): `phase9_c3_turnaround_enabled: bool = True`, `phase9_c3_loss_narrowing_threshold: float = 0.3`
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 -c "import json; json.load(open('colab_run.ipynb'))"` -> still valid (untouched).
+  - Doc-only: verified `PHASE_9_C3_PROPOSAL.md` line count (~350 lines) and §1-§11 structure matches Agent Update Contract referenceable format.
+  - Confirmed via grep that `ni_sign_flip_pos` / `ocf_sign_flip_pos` / `any_profit_sign_flip_pos` exist in `recompute_fund_panel_derived_columns` (line 12194-12222) but are ABSENT from all keep_cols whitelists (CORE_FUNDAMENTAL / PHASE1_ALPHA / PHASE2_INDUSTRY / PHASE5 / PHASE8B / FUND_TTM_FALLBACK) -> confirms C3 proposal's premise (internal-only flags need explicit whitelisting).
+- risks_or_notes:
+  - C3 ship gate is a user decision post Phase 9 C1+C2 verdict. Proposal includes both "C3 before refactor" and "refactor before C3" decision branches so neither session is blocked on the other.
+  - The 8 C3 columns + 2 diagnostic flags add minimal footprint (~1 MB on feature_store, negligible on scored_latest.csv).
+  - Section 12 sequencing ONLY encodes the intent; each stage still requires its own CHANGELOG entry at ship time.
+  - Subtractive pass (Stage 4) requires A/B evidence before deleting Phase 3/5/7a — some may have marginal regime-conditional IC not captured in global means.

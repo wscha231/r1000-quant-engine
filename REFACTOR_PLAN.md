@@ -1,8 +1,17 @@
 # Refactor Plan — r1000_top30_institutional.py (27k lines → modular)
 
-**Date**: 2026-04-17
-**Status**: PLANNED (execute AFTER Phase 8 FULL rebuild ships)
+**Date**: 2026-04-17 (updated: 17:40 KST after Phase 9 C1+C2 ship + C3 design)
+**Status**: PLANNED (execute AFTER Phase 9 C1+C2 SHIP verdict confirmed)
 **Owner**: next coding session
+
+### Phase 9 status at time of last update
+
+| Phase | State | Notes |
+|---|---|---|
+| Phase 9 C1 (multi_year weight rebalance) | SHIPPED `ced5db6` | Weights future 0.90→0.50, early 0.60→0.80, core 0.40→0.30 |
+| Phase 9 C2 (percentile thesis-gate) | SHIPPED `ced5db6`, awaiting FULL REBUILD metrics | Cross-sectional percentile gates replace argmax; `unassigned` sleeve introduced |
+| Phase 9 C3 (EPS turn-positive flags) | DESIGNED (`PHASE_9_C3_PROPOSAL.md`) | Awaits C2 SHIP verdict before implementation; requires FULL rebuild |
+| Run banner provenance (`afaa768`) | SHIPPED | `[commit=<sha>]` in every `run_default_pipeline` log line |
 
 ---
 
@@ -20,6 +29,8 @@ The single-file engine `r1000_top30_institutional.py` has grown to 27,000+ lines
    - env-var name mismatch (Phase 8 toggles vs. `phase_is_enabled()` key format; caught by toggle test)
 
 4. **Phase 8e (r_12m ML) risk**: the deferred retrain-against-r_12m work requires walk-forward refactor. In a single file, identifying the touch surface is ambiguous. In a modular structure, it would be obvious which module owns what.
+
+5. **Phase 9 C3 (EPS turn-positive flags) keep_cols burden**: Phase 9 C3 design proposes adding 8 new feature-store columns (4 aliases + 1 new ROE flip + 3 loss-narrowing columns that live in fund_panel but were never whitelisted). Each addition requires edits in THREE separate places (`PHASE9_C3_TURNAROUND_COLUMNS` constant, `build_feature_store.keep_cols`, `hard_sanitize`). This is the 4th time we've hit the keep_cols survival trap (Phase 1 keepcols-fix 4cd938e, Phase 2 keepcols-fix 1d4fb40, hard_sanitize dedup d87160d, and now Phase 9 C3 needing it preemptively). A modular split with a COLUMN_OWNERSHIP registry (§11.3) makes this invariant mechanical — the owning module's constants ARE the source of truth, imported by the pipeline module.
 
 ## 2. Scope
 
@@ -146,17 +157,25 @@ Our 14-module proposal (earlier version) is premature — jumping from 1 file to
 
 DO NOT refactor until ALL these conditions hold:
 
-1. **Phase 8 FULL rebuild CAGR verdict is known**: ship / partial-ship / regression.
-2. **Baseline is documented**: if Phase 8 ships, the post-Phase-8 `backtest_metrics.json` is committed as the new baseline reference.
-3. **No Phase 8 regression remediation in flight**: if CAGR regresses < 18% and we're mid-investigation, defer.
-4. **User is free for 1-1.5 days**: refactor is best done in a single uninterrupted session to catch migration issues.
+1. **Phase 9 C1+C2 FULL rebuild verdict is known**: SHIP / PARTIAL / REGRESS (per EXECUTION_PLAN.md Stage 1 criteria: ΔCAGR ≥ +0.5pp, ΔSharpe ≥ -0.05, ΔMaxDD ≥ -3pp, early_count ≥ 4).
+2. **Baseline is documented**: if Phase 9 C1+C2 ships, its `concentrated_backtest_metrics.json` becomes the new baseline reference.
+3. **No active Phase 9 regression remediation**: if Phase 9 regresses below Phase 8 (21.86% CAGR) and we're mid-investigation, defer.
+4. **Phase 9 C3 decision made**: either ship C3 BEFORE refactor (~3.5h including FULL rebuild) so refactor locks in its sleeve taxonomy, OR explicitly defer C3 until AFTER refactor (single-file addition becomes mechanical). Do not leave C3 in limbo across a refactor commit.
+5. **User is free for 1-1.5 days**: refactor is best done in a single uninterrupted session to catch migration issues.
 
-Estimated earliest start: ~24-48h after Phase 8 rebuild finishes, assuming CAGR ships ≥ 25%.
+**Decision tree**:
+- C2 SHIP + C3 small scope → ship C3 first (~3.5h) → refactor on the C3 baseline.
+- C2 SHIP + user wants refactor urgency → refactor first, C3 after (mechanical).
+- C2 PARTIAL → fix C2 via A/B isolation before C3 or refactor.
+- C2 REGRESS → roll back Phase 9 defaults, return to Phase 8 baseline, re-plan.
+
+Estimated earliest refactor start: ~24-48h after Phase 9 C1+C2 rebuild finishes AND verdict is SHIP.
 
 ## 6. Execution checklist (Phase A)
 
 ### Pre-flight
-- [ ] Confirm Phase 8 baseline CAGR committed to CHANGELOG
+- [ ] Confirm Phase 9 C1+C2 baseline CAGR committed to CHANGELOG (new baseline replaces 21.86% Phase 8 reference)
+- [ ] Decide C3 sequencing: ship C3 first (then refactor) OR defer C3 (refactor first). Record decision in CHANGELOG.
 - [ ] Run a QUICK_RESCORE on master, capture `scored_latest.csv` SHA256 as reference
 - [ ] Create branch `refactor/phase-a-module-split`
 
@@ -210,11 +229,15 @@ Once Phase A completes:
 
 2. **Phase 8f (factor cluster consolidation)**: the "industry cluster has 6 overlapping signals" finding would be addressed by adding a `compute_industry_composite()` helper in `r1000_signals.py::industry`.
 
-3. **Unit tests**: add `tests/test_features.py`, `tests/test_signals.py` — at last possible because each module has < 10 public functions.
+3. **Phase 9 C3 and future sleeve-taxonomy work**: `PHASE9_C3_TURNAROUND_COLUMNS` becomes a single constant in `r1000_config.py`; `build_feature_store` imports it once; no more three-way edits (constant + keep_cols + hard_sanitize) scattered across a 27k-line file. The C3 gate extension lives purely in `r1000_signals.py::compute_portfolio_sleeve_columns`.
 
-4. **Agent-driven feature work**: a single agent can read `r1000_signals.py` (~6k lines) fully and reason about sleeve composition coherently. Not possible today with 27k lines.
+4. **Unit tests**: add `tests/test_features.py`, `tests/test_signals.py` — at last possible because each module has < 10 public functions.
 
-5. **Merge conflict reduction**: if someone ever joins, file-level locks replace 27k-line-file-level conflicts.
+5. **Agent-driven feature work**: a single agent can read `r1000_signals.py` (~6k lines) fully and reason about sleeve composition coherently. Not possible today with 27k lines.
+
+6. **Merge conflict reduction**: if someone ever joins, file-level locks replace 27k-line-file-level conflicts.
+
+7. **Subtractive pass** (separate, ~4h): delete Phase 3/5/7a dead code paths + 153 zero-IC noise factors identified in ARCHITECTURE_REVIEW.md. Post-refactor this is mechanical (remove the module or remove the factor constant + call site).
 
 ## 9. Reference — alternative views
 
@@ -367,6 +390,26 @@ COLUMN_OWNERSHIP = {
     "phase8c_megacap_override_active": "sleeves.composite",
     "phase8d_ic_reweight_active": "sleeves.composite",
     "phase8d_long_horizon_alpha_active": "sleeves.composite",
+    # Phase 9 thesis-gate diagnostics (sleeves.composite)
+    "phase9_thesis_gate_active": "sleeves.composite",
+    "phase9_core_eligible": "sleeves.composite",
+    "phase9_future_eligible": "sleeves.composite",
+    "phase9_early_eligible": "sleeves.composite",
+    "phase9_unassigned": "sleeves.composite",
+    "phase9_mktcap_percentile": "sleeves.composite",
+    # Phase 9 C3 turnaround flags (features.fundamental, pending C3 ship)
+    "profit_turn_positive_4q": "features.fundamental",
+    "cashflow_turn_positive_4q": "features.fundamental",
+    "roe_turn_positive_4q": "features.fundamental",
+    "any_profitability_turn_positive_4q": "features.fundamental",
+    "roe_sign_flip_pos": "features.fundamental",
+    "ocf_under_loss_growth": "features.fundamental",
+    "fcf_under_loss_growth": "features.fundamental",
+    "ni_loss_narrowing_4q": "features.fundamental",
+    # Phase 9 C3 gate diagnostics (sleeves.composite)
+    "phase9_c3_turnaround_active": "sleeves.composite",
+    "phase9_c3_eps_turn_positive": "sleeves.composite",
+    "phase9_c3_still_loss_branch": "sleeves.composite",
     # ... (all columns mapped)
 }
 
@@ -385,16 +428,19 @@ def owning_module(column: str) -> str:
 At the end of `backtest_portfolio`, generate `outputs/reports/module_contribution_report.csv`:
 
 ```
-module              factor_count  avg_monthly_contribution  cum_return_impact  rank
-features.fundamental        14                     0.0046          +0.0850    1
-signals.blueprints           5                     0.0038          +0.0620    2
-signals.industry            11                     0.0015          +0.0240    3
-signals.long_lookback        5                     0.0024          +0.0385    4  (Phase 8b)
-sleeves.composite (p8a.4)    1                     0.0018          +0.0290    5  (hold persistence)
-sleeves.composite (p8c.1)    1                    -0.0003          -0.0048    6  (megacap override net-negative)
-features.macro               8                    -0.0009          -0.0150    7
-signals.sub_industry         3                     0.0001          +0.0015    8  (Phase 5 — near-zero)
-signals.industry rotation    1                    -0.0012          -0.0196   ❌  (industry_rotation_signal — already dropped by 8a.1)
+module                             factor_count  avg_monthly_contribution  cum_return_impact  rank
+features.fundamental                     14                     0.0046          +0.0850    1
+signals.blueprints                        5                     0.0038          +0.0620    2
+signals.industry                         11                     0.0015          +0.0240    3
+signals.long_lookback                     5                     0.0024          +0.0385    4  (Phase 8b)
+sleeves.composite (p8a.4)                 1                     0.0018          +0.0290    5  (hold persistence)
+sleeves.composite (p9.C1 rebalance)       —                     —               (measured) 6  (multi_year weight shift, measured once C1+C2 verdict lands)
+sleeves.composite (p9.C2 thesis-gate)     —                     —               (measured) 7  (percentile-based sleeve labels, vs prior argmax)
+sleeves.composite (p9.C3 turnaround)      —                     —               (measured) 8  (EPS turn-positive / still-loss-improving, Phase 9 C3 when shipped)
+sleeves.composite (p8c.1)                 1                    -0.0003          -0.0048    9  (megacap override net-negative)
+features.macro                            8                    -0.0009          -0.0150   10
+signals.sub_industry                      3                     0.0001          +0.0015   11  (Phase 5 — near-zero)
+signals.industry rotation                 1                    -0.0012          -0.0196   ❌  (industry_rotation_signal — already dropped by 8a.1)
 ```
 
 Computation: for each ticker-month, attribute the final `score` decomposition to source modules (via `COLUMN_OWNERSHIP`). Aggregate across backtest.
@@ -480,3 +526,87 @@ Expected payoff: **5-10x faster debugging on every future regression**. 1-1.5 da
 - `PHASE_DEBUG_MODULE_TRACE` requires wiring once at split time; retrofitting means touching the whole pipeline again.
 
 **Rule**: observability scaffolding ships in the same commit as the module split. No exceptions.
+
+---
+
+## 12. Phase 9 → Refactor → Phase 9 C3 → Phase 8e sequencing
+
+Concrete operational order agreed 2026-04-17 17:40 KST:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 0 — AWAITING (in progress as of 17:40 KST 2026-04-17)            │
+│  ───────────────────────────────────────────────────────────────       │
+│  Phase 9 C1+C2 FULL REBUILD (commit 33581bc, started 08:10 KST)         │
+│  Expected finish: ~11:00 KST → user paste Cell E verdict                │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 1 — VERDICT                                                      │
+│  ───────────────                                                        │
+│   SHIP ────────────────┐                                                │
+│   PARTIAL ─────────────┤→ A/B isolation (2 × QUICK_RESCORE, ~40 min)    │
+│   REGRESS ─────────────┘→ Roll back Phase 9 defaults, Phase 8 baseline  │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │  (SHIP path)
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 2 — Phase 9 C3 OR Refactor (user choice per §5 decision tree)    │
+│                                                                         │
+│   OPTION A (C3 first): ~3.5h                                            │
+│     • Implement C3 per PHASE_9_C3_PROPOSAL.md (40 LOC + FS whitelist)   │
+│     • ENGINE_REUSE_VERSION bump → FULL REBUILD                          │
+│     • Verify wider early sleeve (60-75 eligible vs 55 C2)               │
+│     • Commit + push → new baseline                                       │
+│                                                                         │
+│   OPTION B (Refactor first): 1-1.5 day                                  │
+│     • Execute §6 checklist (5-module split + observability §11)         │
+│     • C3 deferred → becomes mechanical (single file change) post-refactor│
+│                                                                         │
+│   User picks ONE. Don't mix.                                            │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 3 — COMPLEMENTARY (whichever wasn't done in Stage 2)              │
+│                                                                         │
+│   If Stage 2 = C3: then refactor (Option B work)                        │
+│   If Stage 2 = Refactor: then C3 (single-file addition in r1000_signals)│
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 4 — SUBTRACTIVE pass (after Stage 3, ~4h)                         │
+│  ──────────────────────────────────────────                             │
+│  Delete Phase 3 / Phase 5 / Phase 7a dead branches (all default OFF)    │
+│  + 153 noise factors (IC ≈ 0, identified in ARCHITECTURE_REVIEW.md)     │
+│  + Phase 8 `_active` diagnostic flags for shipped phases (consolidate)  │
+│  Expected LOC reduction: ~15-20% (~5k lines).                           │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 5 — Phase 8e (r_12m ML training)                                 │
+│  ─────────────────────────────────────                                  │
+│  Add parallel r_12m CatBoost/Ridge ensemble in r1000_pipeline.py        │
+│  ::train_walkforward. Blend r_1m + r_12m scores in score_latest_month.  │
+│  Expected +1-2pp CAGR from longer-horizon alpha capture. 1-2 days.      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.1 Invariants that must hold through all stages
+
+1. **Single-file atomicity**: every stage is one PR/commit. No cross-stage bundling.
+2. **Byte-exact backward compat for non-code stages**: Refactor (Stage 2 Option B) must produce byte-identical backtest metrics. Phase 9 C3 (Stage 2 Option A) explicitly MAY change metrics (new admission branch).
+3. **QUICK_RESCORE vs FULL rebuild**: Phase 9 C3 requires FULL (FS schema change). Refactor and Subtractive can use QUICK if no schema touched. Always verify `ENGINE_REUSE_VERSION` is bumped on FS schema change.
+4. **Commit SHA in banner**: post-`afaa768`, every run prints `[commit=<sha>]` — use this to reconstruct which stage produced which metrics file if commits get out of order.
+5. **CHANGELOG + SESSION_HANDOFF update**: every stage must leave a clean Agent Update Contract entry + SESSION_HANDOFF.md §2 pointing at what the next session does.
+
+### 12.2 What we will NOT do in this sequence
+
+- Do not bundle C3 WITH Refactor (increases blast radius of any bug).
+- Do not run FULL REBUILD at Stage 4 / Stage 5 boundaries unless schema changes (saves 2-3h each).
+- Do not revive Phase 3 / Phase 5 / Phase 7a during Subtractive pass without A/B evidence of marginal IC > 0.02 (all three currently measured near zero).
+- Do not add new phases (Phase 10, etc.) until Stage 5 completes AND baseline is re-measured. Feature fatigue is real; the current monolith already has Phases 1-9 and ≈153 noise factors. Adding more without subtracting compounds debt.
+
