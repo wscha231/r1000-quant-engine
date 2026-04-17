@@ -1888,7 +1888,13 @@ class EngineConfig:
     # `sub_industry_leader_gap_threshold=0.8` is the std-units gap the
     # within-group top-quartile has to exceed the median by before the
     # bonus fires (a "clear separation" guard).
-    sub_industry_leader_laggard_enabled: bool = True
+    # Phase 5 default flipped to False on 2026-04-17 after factor IC
+    # measurement (DIAGNOSIS_FACTOR_IC.md) showed industry_leader_bonus_score
+    # and industry_leader_gap both have IC near zero (~-0.006 / -0.001) over
+    # 83 months. The signal has no alpha even after the dilution fix in
+    # commit c4d50fd. Keep the infrastructure + toggle so future re-enable
+    # via PHASE_PHASE5_LEADER_LAGGARD_ENABLED=1 + cfg override is trivial.
+    sub_industry_leader_laggard_enabled: bool = False
     sub_industry_min_group_size: int = 6
     sub_industry_leader_gap_threshold: float = 0.8
     export_extended_outputs: bool = True
@@ -13287,7 +13293,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     # three Phase 5 columns so downstream sleeve code + keep_cols
     # whitelist (Invariant #8) never see them as missing.
     # -----------------------------------------------------------------
-    if phase_is_enabled("phase5_leader_laggard", default=True):
+    if phase_is_enabled("phase5_leader_laggard", default=False):
         _p5_enabled_cfg = bool(getattr(cfg, "sub_industry_leader_laggard_enabled", True))
         if _p5_enabled_cfg:
             _p5_min_grp = int(getattr(cfg, "sub_industry_min_group_size", 6))
@@ -18265,14 +18271,39 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         _p5_penalty_raw != 0.0, np.nan
     )
 
+    # -------------------------------------------------------------------
+    # Phase 8a.1 (2026-04-17): drop negative-IC factors from sleeve
+    # weight tables. Factor IC measurement over 83 months (see
+    # DIAGNOSIS_FACTOR_IC.md) revealed:
+    #   - quality_trend_score        IC -0.0042  (w=1.00 in core)  -> drop
+    #   - selection_confirmation_score IC -0.0028 (w=0.55 in core) -> drop
+    #   - industry_rotation_signal   IC -0.0117  (w=0.18 future, 0.45 early) -> drop
+    #   - archetype_defensive_value_score IC -0.0061 -> drop wherever referenced
+    # These factors have statistically-significant NEGATIVE alpha, so
+    # keeping them in the composite actively hurts CAGR and Sharpe.
+    # Gated behind env toggle so we can A/B the marginal effect; default
+    # TRUE (drop is active by default).
+    # -------------------------------------------------------------------
+    _phase8a_neg_ic_drop = phase_is_enabled("phase8a_neg_ic_drop", default=True)
+
+    # Weight-0 when drop is active; original value when toggle OFF.
+    # This preserves the (weight, series) table structure so A/B runs
+    # can diff the sleeve composite byte-exactly.
+    _w_quality_trend_core = 0.0 if _phase8a_neg_ic_drop else 1.00
+    _w_selection_confirm_core = 0.0 if _phase8a_neg_ic_drop else 0.55
+    _w_industry_rotation_future = 0.0 if _phase8a_neg_ic_drop else 0.18
+    _w_industry_rotation_early = 0.0 if _phase8a_neg_ic_drop else 0.45
+
     core_weight_pairs: list[tuple[float, pd.Series]] = [
         (1.05, cross_sectional_robust_z(d, "long_hold_compounder_score")),
         (0.90, cross_sectional_robust_z(d, "archetype_compounder_score")),
         (1.10, cross_sectional_robust_z(d, "moat_quality_blueprint_score")),
-        (1.00, cross_sectional_robust_z(d, "quality_trend_score")),
+        # Phase 8a.1: quality_trend_score has IC -0.0042 (see DIAGNOSIS_FACTOR_IC.md)
+        (_w_quality_trend_core, cross_sectional_robust_z(d, "quality_trend_score")),
         (0.45, cross_sectional_robust_z(d, "garp_score")),
         (0.95, cross_sectional_robust_z(d, "actual_results_score")),
-        (0.55, cross_sectional_robust_z(d, "selection_confirmation_score")),
+        # Phase 8a.1: selection_confirmation_score has IC -0.0028
+        (_w_selection_confirm_core, cross_sectional_robust_z(d, "selection_confirmation_score")),
         (0.25, cross_sectional_robust_z(d, "strategy_blueprint_score")),
         (0.35, cross_sectional_robust_z(d, "pricing_power_score")),
         (0.30, cross_sectional_robust_z(d, "margin_stability_8q")),
@@ -18346,7 +18377,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.30, cross_sectional_robust_z(d, "industry_group_strength_score")),
         (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
         (0.25, cross_sectional_robust_z(d, "rs_industry_6m")),
-        (0.18, cross_sectional_robust_z(d, "industry_rotation_signal")),
+        # Phase 8a.1: industry_rotation_signal has IC -0.0117 (negative alpha)
+        (_w_industry_rotation_future, cross_sectional_robust_z(d, "industry_rotation_signal")),
         # Phase 5: sub-industry leader/laggard — future sleeve gets the
         # highest weight on these because "leaders pull away in a strong
         # group" is the IBD/O'Neil playbook this sleeve is built around.
@@ -18398,10 +18430,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.55, cross_sectional_robust_z(d, "value_inflection_score")),
         (0.20, cross_sectional_robust_z(d, "uptrend_continuation_score")),
         (-0.25, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
-        # Phase 2.7: industry rotation gets the biggest weight on the
-        # early-scout sleeve — exactly the "buy the bottom-of-cycle
-        # industry that just turned up" mandate the user described.
-        (0.45, cross_sectional_robust_z(d, "industry_rotation_signal")),
+        # Phase 2.7 + Phase 8a.1: industry_rotation_signal has IC -0.0117 over
+        # 83 months — the "buy the rotating-up industry" theory didn't survive
+        # empirical test. Weight zeroed by default; set PHASE_PHASE8A_NEG_IC_DROP=0
+        # to restore original 0.45 weight for A/B.
+        (_w_industry_rotation_early, cross_sectional_robust_z(d, "industry_rotation_signal")),
         (0.35, cross_sectional_robust_z(d, "oneil_leadership_score")),
         (0.25, cross_sectional_robust_z(d, "industry_group_strength_score")),
         (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
