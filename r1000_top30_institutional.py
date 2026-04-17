@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-17-phase8a-macro-clamp-and-phase1-keepcols"
+ENGINE_REUSE_VERSION = "2026-04-17-phase8b-long-lookback-momentum"
 
 
 # =====================================================================
@@ -600,6 +600,12 @@ DEFAULT_FEATURES = [
     "mom_3m",
     "mom_6m",
     "mom_12m",
+    # Phase 8b.1: long-lookback momentum for multi-year-trend detection.
+    "mom_18m",
+    "mom_24m",
+    "mom_36m",
+    "multi_year_winner_score",
+    "persistence_trend_24m",
     "dist_ma200",
     "price_above_ma20",
     "price_above_ma50",
@@ -1001,6 +1007,31 @@ PHASE1_ALPHA_COLUMNS = [
     "value_inflection_score",                     # cheap val + earnings catching up + Stage-1->2 setup with quality floor
     "uptrend_continuation_score",                 # 52w-high + full MA-stack + intact mom + intact earnings
     "uptrend_breakdown_penalty",                  # fires when strong names lose MA50/MA200, gap-down on earnings, etc.
+]
+
+
+# =====================================================================
+# Phase 8b.1: long-lookback momentum (PHASE_8_PROPOSAL.md).
+# =====================================================================
+# Factor IC analysis (DIAGNOSIS_FACTOR_IC.md) revealed the current
+# engine caps momentum at mom_12m, leaving multi-year winners
+# (NVDA 2021-2024, AVGO 2018-2025, MU 2020-2024) cross-sectionally
+# equivalent to 12-month-only rallies. Fundamental factor IC is
+# 2-4x stronger at r_12m than r_1m, implying long-horizon momentum
+# should also matter. Added:
+#   mom_18m / mom_24m / mom_36m  raw price pct-change (1y, 2y, 3y)
+#   multi_year_winner_score      blend 0.5*z(mom_12m) + 0.8*z(mom_24m)
+#                                + 0.6*z(mom_36m), winsorised [-6,6].
+#                                Zero-masked where mom_24m is NaN.
+#   persistence_trend_24m        binary flag for mom_12m>0.15 AND
+#                                mom_24m>0.30 AND mom_36m>0.50
+# Toggle: PHASE_PHASE8B_LONG_LOOKBACK_ENABLED + cfg flag.
+PHASE8B_LONG_LOOKBACK_COLUMNS = [
+    "mom_18m",
+    "mom_24m",
+    "mom_36m",
+    "multi_year_winner_score",
+    "persistence_trend_24m",
 ]
 
 
@@ -2219,6 +2250,17 @@ class EngineConfig:
     # compute_portfolio_sleeve_columns for the formula. Default ON.
     phase8a_hold_persistence_enabled: bool = True
     phase8a_hold_persistence_weight: float = 0.90    # weight of bonus in each sleeve composite
+
+    # --------------- Phase 8b.1: long-lookback momentum ---------------
+    # Adds mom_18m / mom_24m / mom_36m and two composites
+    # (multi_year_winner_score, persistence_trend_24m) so the engine can
+    # identify multi-year trend names (NVDA/AVGO/MU pattern).
+    phase8b_long_lookback_enabled: bool = True
+    phase8b_multi_year_future_weight: float = 0.90   # weight on future sleeve
+    phase8b_multi_year_early_weight: float = 0.60    # weight on early sleeve (lower — early is bottom-fishing focused)
+    phase8b_multi_year_core_weight: float = 0.40     # weight on core sleeve (moderate — compounders benefit less)
+    phase8b_persistence_trend_future_weight: float = 0.50  # binary-flag boost on future
+    phase8b_persistence_trend_core_weight: float = 0.30    # binary-flag boost on core
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -11355,6 +11397,16 @@ def compute_daily_tech_table(hist: pd.DataFrame) -> pd.DataFrame:
     out["mom_3m"] = close.pct_change(63)
     out["mom_6m"] = close.pct_change(126)
     out["mom_12m"] = close.pct_change(252)
+    # Phase 8b.1 (2026-04-17): long-lookback momentum. Factor IC analysis
+    # (DIAGNOSIS_FACTOR_IC.md) showed fundamental factors have 2-4x
+    # stronger IC at r_12m than r_1m, but our engine only had mom up to
+    # 12m — we were blind to multi-year winners (NVDA/AVGO/MU) in their
+    # multi-year-trend phase. Three new lookbacks + a composite
+    # "multi_year_winner_score" that rewards names with persistent
+    # positive returns across 1y / 2y / 3y horizons.
+    out["mom_18m"] = close.pct_change(378)
+    out["mom_24m"] = close.pct_change(504)
+    out["mom_36m"] = close.pct_change(756)
     ma20 = close.rolling(20).mean()
     ma50 = close.rolling(50).mean()
     ma150 = close.rolling(150).mean()
@@ -13323,6 +13375,87 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p5_col in PHASE5_LEADER_LAGGARD_COLUMNS:
             if _p5_col not in monthly.columns:
                 monthly[_p5_col] = 0.0
+    # -----------------------------------------------------------------
+    # Phase 8b.1: long-lookback momentum composites.
+    # mom_18m / mom_24m / mom_36m are already computed in
+    # `compute_price_features`. Here we build the two cross-sectional
+    # composites that the sleeve composites will read:
+    #   multi_year_winner_score: weighted blend of mom_12m / 24m / 36m
+    #                            (cross-sectional rank-z). Rewards names
+    #                            with compound multi-year uptrends (NVDA
+    #                            / AVGO / MU pattern).
+    #   persistence_trend_24m:   binary flag (1 if mom_12m > 0.15 AND
+    #                            mom_24m > 0.30 AND mom_36m > 0.50, else 0).
+    #                            Pure confirmation that the trend isn't
+    #                            a one-year pop but a sustained multi-year
+    #                            rally.
+    # Toggle: PHASE_PHASE8B_LONG_LOOKBACK_ENABLED env var (default True)
+    # AND cfg.phase8b_long_lookback_enabled (default True).
+    # When disabled, zero-fill so downstream sleeve composites never see
+    # a missing column.
+    # -----------------------------------------------------------------
+    _phase8b_long_env = phase_is_enabled("phase8b_long_lookback", default=True)
+    _phase8b_long_cfg = bool(getattr(cfg, "phase8b_long_lookback_enabled", True)) if cfg is not None else True
+    _phase8b_long_active = bool(_phase8b_long_env and _phase8b_long_cfg)
+
+    if _phase8b_long_active:
+        # Multi-year winner score: weighted blend of z-scored multi-year momentum.
+        # Weights: 0.50 * mom_12m + 0.80 * mom_24m + 0.60 * mom_36m
+        # (heaviest on 24m to capture the NVDA-style 2-year trend phase).
+        _mom_12m_num = pd.to_numeric(monthly.get("mom_12m", 0.0), errors="coerce")
+        _mom_24m_num = pd.to_numeric(monthly.get("mom_24m", 0.0), errors="coerce")
+        _mom_36m_num = pd.to_numeric(monthly.get("mom_36m", 0.0), errors="coerce")
+
+        def _xsec_z_on(col_series: pd.Series) -> pd.Series:
+            """Cross-sectional robust z within each rebalance_date group."""
+            def _z(x: pd.Series) -> pd.Series:
+                arr = x.to_numpy(dtype=float)
+                med = np.nanmedian(arr)
+                mad = np.nanmedian(np.abs(arr - med))
+                denom = 1.4826 * max(float(mad), max(abs(med) * 0.01, 1e-6))
+                z = (arr - med) / denom
+                return pd.Series(np.clip(z, -6.0, 6.0), index=x.index, dtype=float)
+            return col_series.groupby(monthly["rebalance_date"]).transform(_z)
+
+        _z_mom12 = _xsec_z_on(_mom_12m_num.fillna(0.0))
+        _z_mom24 = _xsec_z_on(_mom_24m_num.fillna(0.0))
+        _z_mom36 = _xsec_z_on(_mom_36m_num.fillna(0.0))
+        # Blend: heaviest on 24m. Skip rows where mom_24m is NaN (first
+        # 504 trading days of a ticker's history) so the composite doesn't
+        # reward short-history names with bogus zeros.
+        _blend_raw = (
+            0.50 * _z_mom12.fillna(0.0)
+            + 0.80 * _z_mom24.fillna(0.0)
+            + 0.60 * _z_mom36.fillna(0.0)
+        )
+        # Mask: score is valid only if mom_24m has real data (not fillna).
+        _valid_24m = _mom_24m_num.notna()
+        monthly["multi_year_winner_score"] = _blend_raw.where(_valid_24m, 0.0).clip(lower=-6.0, upper=6.0)
+        # Persistence flag: 1 if all three conditions met, 0 otherwise.
+        # Thresholds chosen so that only names with genuine multi-year
+        # uptrends get the flag (NVDA 2021-2024 pattern).
+        monthly["persistence_trend_24m"] = (
+            (_mom_12m_num > 0.15)
+            & (_mom_24m_num > 0.30)
+            & (_mom_36m_num > 0.50)
+        ).astype(float)
+    else:
+        log(
+            "[phase8b_long_lookback] disabled via env PHASE_PHASE8B_LONG_LOOKBACK_ENABLED=0 "
+            "or cfg.phase8b_long_lookback_enabled=False — zero-filling composite columns."
+        )
+        if "multi_year_winner_score" not in monthly.columns:
+            monthly["multi_year_winner_score"] = 0.0
+        if "persistence_trend_24m" not in monthly.columns:
+            monthly["persistence_trend_24m"] = 0.0
+
+    # Ensure raw mom_18m/24m/36m columns exist (they might already be
+    # populated from compute_price_features, but defensive-fill with 0
+    # for any row where the ticker has < 756 days of history).
+    for _p8b_col in ("mom_18m", "mom_24m", "mom_36m"):
+        if _p8b_col not in monthly.columns:
+            monthly[_p8b_col] = 0.0
+
     live_candidates = (
         monthly.sort_values(["rebalance_date", "dollar_vol_20d"], ascending=[False, False])["ticker"]
         .dropna()
@@ -13998,6 +14131,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE2_INDUSTRY_COLUMNS
             + PHASE5_LEADER_LAGGARD_COLUMNS
             + PHASE1_ALPHA_COLUMNS
+            + PHASE8B_LONG_LOOKBACK_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -14024,6 +14158,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + _PHASE2_NUMERIC_COLUMNS
         + PHASE5_LEADER_LAGGARD_COLUMNS
         + PHASE1_ALPHA_COLUMNS
+        + PHASE8B_LONG_LOOKBACK_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -14058,6 +14193,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + _PHASE2_NUMERIC_COLUMNS
         + PHASE5_LEADER_LAGGARD_COLUMNS
         + PHASE1_ALPHA_COLUMNS
+        + PHASE8B_LONG_LOOKBACK_COLUMNS
         + LIVE_EVENT_ALERT_COLUMNS,
     )
     write_fundamental_coverage_report(
@@ -18336,6 +18472,55 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     )
     _w_hold_persistence = _phase8a_hold_bonus_weight_each if _phase8a_hold_active else 0.0
 
+    # -------------------------------------------------------------------
+    # Phase 8b.1 (2026-04-17): long-lookback momentum sleeve wiring.
+    # The `multi_year_winner_score` composite is already computed in
+    # `build_universe_monthly` (weighted blend of z-scored mom_12m / 24m
+    # / 36m, zero-masked where mom_24m is NaN). Wire it into the three
+    # sleeves with sleeve-appropriate weights:
+    #   future:  0.90 (primary — this is the NVDA/AVGO/MU catcher)
+    #   early:   0.60 (supporting — early is bottom-fishing focus, but
+    #            we still want to avoid bottom-fishing things in a
+    #            declining multi-year trend)
+    #   core:    0.40 (moderate — compounders already prize long-term
+    #            records, so multi-year momentum reinforces the thesis)
+    # Also wire `persistence_trend_24m` (binary 0/1 flag) into future
+    # and core with smaller weights as a SELECTION gate — boost names
+    # whose 3-year uptrend is "confirmed" by all three lookbacks.
+    # Gated behind the same toggle as the feature-level block in
+    # build_universe_monthly; when inactive the columns are 0, so the
+    # weights have no effect.
+    # -------------------------------------------------------------------
+    _phase8b_active = bool(
+        (getattr(cfg, "phase8b_long_lookback_enabled", True) if cfg is not None else True)
+        and phase_is_enabled("phase8b_long_lookback", default=True)
+    )
+    if _phase8b_active:
+        _w_multi_year_future = float(
+            getattr(cfg, "phase8b_multi_year_future_weight", 0.90) if cfg is not None else 0.90
+        )
+        _w_multi_year_early = float(
+            getattr(cfg, "phase8b_multi_year_early_weight", 0.60) if cfg is not None else 0.60
+        )
+        _w_multi_year_core = float(
+            getattr(cfg, "phase8b_multi_year_core_weight", 0.40) if cfg is not None else 0.40
+        )
+        _w_persist_future = float(
+            getattr(cfg, "phase8b_persistence_trend_future_weight", 0.50) if cfg is not None else 0.50
+        )
+        _w_persist_core = float(
+            getattr(cfg, "phase8b_persistence_trend_core_weight", 0.30) if cfg is not None else 0.30
+        )
+    else:
+        _w_multi_year_future = _w_multi_year_early = _w_multi_year_core = 0.0
+        _w_persist_future = _w_persist_core = 0.0
+
+    # Use the multi_year_winner_score column directly (already rank-z
+    # and clipped in build_universe_monthly). Fallback to 0 if missing.
+    _multi_year_winner = numeric_series_or_default(d, "multi_year_winner_score", 0.0).clip(-6.0, 6.0)
+    _persistence_trend = numeric_series_or_default(d, "persistence_trend_24m", 0.0).clip(0.0, 1.0)
+    d["phase8b_long_lookback_active"] = 1.0 if _phase8b_active else 0.0
+
     # Build the bonus series. Use raw 0/1 masks (not z-scored) so the bonus
     # is a HARD additive preference rather than a relative rank nudge.
     if _phase8a_hold_active:
@@ -18400,6 +18585,12 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # PHASE_PHASE8A_HOLD_PERSISTENCE=1 AND
         # cfg.phase8a_hold_persistence_enabled=True.
         (_w_hold_persistence, _hold_persistence_bonus),
+        # Phase 8b.1: long-lookback multi-year winner score (moderate weight
+        # on core — compounders already prize long records but extra
+        # reward for multi-year winners keeps NVDA-style names in rotation).
+        (_w_multi_year_core, _multi_year_winner),
+        # Phase 8b.1: persistence_trend_24m binary confirmation.
+        (_w_persist_core, _persistence_trend),
     ]
     core_score = weighted_sleeve_composite(
         core_weight_pairs,
@@ -18462,6 +18653,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         ),
         # Phase 8a.4: hold persistence bonus (see core sleeve).
         (_w_hold_persistence, _hold_persistence_bonus),
+        # Phase 8b.1: long-lookback multi-year winner score — highest
+        # weight on future sleeve (this is the NVDA/AVGO/MU catcher).
+        (_w_multi_year_future, _multi_year_winner),
+        # Phase 8b.1: persistence_trend_24m binary confirmation on future.
+        (_w_persist_future, _persistence_trend),
     ]
     future_score = weighted_sleeve_composite(
         future_weight_pairs,
@@ -18521,6 +18717,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         ),
         # Phase 8a.4: hold persistence bonus (see core sleeve).
         (_w_hold_persistence, _hold_persistence_bonus),
+        # Phase 8b.1: long-lookback multi-year winner score on early
+        # scout — supporting weight. Early is bottom-fishing focused so
+        # multi-year winners aren't the main prey, but we still reward
+        # the trend (don't bottom-fish collapsing multi-year losers).
+        (_w_multi_year_early, _multi_year_winner),
     ]
     early_score = weighted_sleeve_composite(
         early_weight_pairs,
