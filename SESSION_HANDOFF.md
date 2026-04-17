@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-17 11:16 KST
+# Session Handoff — 2026-04-17 11:42 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,7 +8,7 @@
 
 ## 0. TL;DR — one-paragraph resume brief
 
-A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. The afternoon Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped all ten recommended changes from `PHASE_8_PROPOSAL.md`: macro-bug fix, Phase 1 keepcols fix, 3 negative-IC factors dropped, Phase 5 disabled by default, hold-persistence bonus (for turnover reduction), long-lookback momentum (mom_18m/24m/36m + multi_year_winner_score + persistence_trend_24m), mega-cap future-sleeve override, and growth-adjusted valuation dampening. Current HEAD = `caddec3`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8 toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%.
+A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. The afternoon Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped all ten recommended changes from `PHASE_8_PROPOSAL.md`. A pre-FULL-rebuild code review (commit `300affc`) caught and fixed two CRITICAL bugs: (1) `weighted_sleeve_composite` was not actually dropping weight-0 pairs (silently diluted by 1/N instead), defeating Phase 8a/b/c toggles; and (2) `hold_persistence_bonus` was using `r_1m` which is the FORWARD return (lookahead bias), swapped to `mom_1m` (backward 21-day realised return). Current HEAD = `300affc`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8 toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%.
 
 ---
 
@@ -16,7 +16,8 @@ A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS 
 
 | Commit | Title | Phase | Requires | Default |
 |---|---|---|---|---|
-| `caddec3` | **Phase 8c: Mega-cap future override + growth-adj valuation** | 8c.1 + 8c.2 | QUICK-measurable | ON |
+| `300affc` | **Phase 8 review fixes: weight-0 skip + r_1m lookahead fix** | review | no rebuild | always-on |
+| `caddec3` | Phase 8c: Mega-cap future override + growth-adj valuation | 8c.1 + 8c.2 | QUICK-measurable | ON |
 | `3e44d35` | **Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m + multi_year_winner)** | 8b.1 | **FULL rebuild** | ON |
 | `e3bf29d` | Phase 8a.4: Hold persistence bonus to reduce turnover | 8a.4 | QUICK-measurable | ON |
 | `3624e06` | Phase 8a.1 + 8a.2: Drop 3 negative-IC factors + disable Phase 5 default | 8a.1 / 8a.2 | QUICK-measurable | ON / OFF |
@@ -45,7 +46,7 @@ subprocess.run(['git', '-C', REPO_DIR, 'fetch', 'origin', 'master'], check=True)
 subprocess.run(['git', '-C', REPO_DIR, 'reset', '--hard', 'origin/master'], check=True)
 print("Latest 5 commits on origin/master:")
 subprocess.run(['git', '-C', REPO_DIR, 'log', '--oneline', '-5'])
-# Expected HEAD: caddec3 "Phase 8c: Mega-cap future override ..."
+# Expected HEAD: 300affc "Phase 8 review fixes: weight-0 skip + r_1m lookahead fix"
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 os.chdir(DATA_DIR)
@@ -200,7 +201,7 @@ I'm continuing work on the r1000 Quant Engine project. Before doing anything els
 3. Read the last ~400 lines of `CHANGELOG.md` — most recent decisions (Phase 8 restructuring entries).
 4. Read `PHASE_8_PROPOSAL.md` — the proposal doc behind the Phase 8 commits.
 5. Read `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md` — data evidence supporting Phase 8.
-6. Check `git log --oneline -10` to confirm the latest commit is at or after `caddec3 Phase 8c: Mega-cap future override + growth-adjusted valuation dampening`.
+6. Check `git log --oneline -10` to confirm the latest commit is at or after `300affc Phase 8 review fixes: weight-0 skip + r_1m lookahead fix`.
 
 Only after reading those files, ask me what I want to do next. Do NOT start editing anything until you've read them.
 

@@ -2182,3 +2182,41 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Not yet implemented from PHASE_8_PROPOSAL.md**: `8a.3 IC-proportional reweighting` (deferred — needs post-FULL measurement to verify factor correlations first) and `8b.2 r_12m ML training target` (deferred — requires walk-forward train-target refactor, high risk for one session). Both flagged in SESSION_HANDOFF.md as Phase 8d/8e follow-ups pending.
   - **Negative-IC drops may be too aggressive**: `quality_trend_score` (IC -0.0042) and `selection_confirmation_score` (IC -0.0028) are statistically significant but marginally so over 83 months. Possible they help on specific regimes (stagflation / systemic-crisis) that the 83-month sample underweights. Mitigation: env toggle `PHASE_PHASE8A_NEG_IC_DROP=0` restores original weights.
   - **Megacap override may concentrate future sleeve too heavily**: if 6-10 names simultaneously meet (mktcap>$50B, rev_growth>0.25, multi_year_winner>1.0), future_winner sleeve's top-7 selection will be dominated by them. This is the INTENDED behaviour but increases single-name concentration — tradeoff accepted per user's "CAGR > diversification" stance.
+
+### 11:42 KST - phase8-review-fixes-weight0-and-r1m-lookahead
+
+- scope:
+  - Pre-FULL-rebuild code-review pass on the Phase 8 restructuring (commits `4cd938e` -> `caddec3`). Two CRITICAL bugs caught before burning 3h of Colab compute. Commit `300affc` lands both fixes with unit-test verification.
+- files:
+  - `r1000_top30_institutional.py` -> two surgical edits (19 lines total).
+  - `CHANGELOG.md` -> this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `weighted_sleeve_composite(weight_pairs, index, ...)` -> added `if abs(float(w)) < 1e-10: continue` guard BEFORE the `weighted_terms.append` to skip weight-0 pairs. Prevents `row_mean` denominator dilution when Phase 8a/b/c toggles set weight to 0.
+  - `compute_portfolio_sleeve_columns(df, cfg)` -> replaced `_recent_r_1m = numeric_series_or_default(d, "r_1m", 0.0)` with `_recent_realised_mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)` inside the hold_persistence_bonus block. `r_1m` is the FORWARD return (set at line 14110 to `forward_returns[cfg.target_1m_days]`) — using it in scoring creates lookahead bias.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none (these are bug fixes; they bring behaviour in line with the documented intent of Phase 8a/b/c toggles and eliminate lookahead bias).
+- outputs:
+  - none new; existing outputs will now reflect corrected composite (no silent dilution from weight-0 pairs, no lookahead in hold_persistence_bonus).
+- validation:
+  - `py -3 -c "import py_compile; py_compile.compile('r1000_top30_institutional.py', doraise=True)"` PASS.
+  - `import r1000_top30_institutional` module load PASS.
+  - `weighted_sleeve_composite` unit tests (4 cases) PASS:
+    - `[(0.0, const_1), (1.0, const_2)]` returns mean=2.0 (only weight=1.0 term counts). Pre-fix buggy result would have been 1.5 (both diluting the denominator).
+    - `[(0.5, const_1), (1.0, const_2)]` returns mean=1.25 (unchanged vs legacy — weights non-zero).
+    - `[(0.0, s1), (0.0, s2)]` returns all-zero (fallback).
+    - `[]` returns all-zero (fallback).
+  - `rolling_robust_z` constant-series test PASS (z=0, not inf).
+  - `rolling_robust_z` tiny-jump test PASS (max z=0.067, all within [-10, 10]).
+  - `numeric_series_or_default` NaN-fallback PASS.
+  - Mega-cap override mask construction on synthetic data PASS (NVDA True, AAPL/MSFT/AMZN/XOM False at boundary conditions).
+  - Empty-DataFrame path in `compute_portfolio_sleeve_columns` PASS (shape (0, 28), no crash).
+  - `colab_run.ipynb` cell 2 Phase 8 toggle integrity PASS (all 5 toggles: definition `= 'auto'`, env-bind via `_set_phase_env`, and print statement all present).
+- risks_or_notes:
+  - The weight-0 dilution bug was subtle and would not have crashed the run — it would have simply made Phase 8a.1 (drop quality_trend_score / selection_confirmation_score / industry_rotation_signal) produce the OPPOSITE effect (keeping these terms AT zero value, diluting the rest by 1/N each). After this fix, "weight=0" truly means "drop from composite" as intended.
+  - The r_1m lookahead fix prevents a backtest-real-world divergence that would have been painful to diagnose post-hoc. `r_1m` is universally used as the PIT-safe "this month's forward return" target for ML training, NOT a feature. Using it as a feature would have made the 83-month backtest look fantastic and the live deployment perform like random.
+  - **No ENGINE_REUSE_VERSION bump**: these are post-composite-computation logic fixes. Feature store schema unchanged. The existing cache (from the 2026-04-17 phase5 FULL rebuild) is still invalid because the Phase 8 ENGINE_REUSE_VERSION already bumped; the user's next FULL rebuild picks up both the Phase 8 additions AND these review fixes in one run.
+  - Agent-based code review (spawned Explore agent) was the source of the weight-0 discovery. Keep this pattern: after any non-trivial composite weighting change, run an independent agent review BEFORE burning FULL-rebuild compute. Cheap insurance vs. 3-hour rollback.
