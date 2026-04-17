@@ -606,6 +606,19 @@ DEFAULT_FEATURES = [
     "mom_36m",
     "multi_year_winner_score",
     "persistence_trend_24m",
+    # Phase 1 alpha signals — blueprint-class composites. Added to
+    # DEFAULT_FEATURES on 2026-04-17 (Phase 8 final audit) because every
+    # other blueprint composite (strategy_blueprint_score, revision_blueprint_score,
+    # moat_quality_blueprint_score, etc.) is already here, and now that
+    # the Phase 8b.3 keepcols fix ensures these 5 columns reach
+    # feature_store_latest.parquet, the walk-forward ML should use
+    # them as model inputs. Previous omission was an artefact of the
+    # keep_cols bug that dropped Phase 1 columns from feature_store.
+    "fundamental_turnaround_acceleration_score",
+    "cashflow_inflection_under_loss_score",
+    "value_inflection_score",
+    "uptrend_continuation_score",
+    "uptrend_breakdown_penalty",
     "dist_ma200",
     "price_above_ma20",
     "price_above_ma50",
