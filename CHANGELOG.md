@@ -2263,3 +2263,72 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Weight-pair table is now complex**: core sleeve has ~21 weight-pairs, future ~32, early ~31. The weight-0 skip guard from commit `300affc` ensures disabled factors are truly dropped (not diluting). But the sheer term count means each factor's EFFECTIVE weight remains small (~1/N). Future work: Phase 8d.3 / Phase 8f could consolidate correlated clusters into single composites to reduce N.
   - **Phase 8e full still deferred**: a dedicated session with walk-forward refactor + parallel r_12m model bundle + blending logic. ~2-3h focused work, medium risk. Ship gate would require QUICK_RESCORE A/B.
   - **ENGINE_REUSE_VERSION unchanged**: 8d.2 composite is computed at scoring time (inside `compute_portfolio_sleeve_columns`) not as a feature_store column. Same FULL rebuild triggered by 8b.1's version bump covers all Phase 8a-d changes atomically.
+
+### 16:30 KST - phase9-c1-multi-year-rebalance-and-c2-thesis-gate
+
+- scope:
+  - **Two architectural fixes addressing problems surfaced by the Phase 8 measured run** (commit d87160d, CAGR 21.86% but Sharpe -0.09pp, MaxDD -8.5pp, early sleeve collapsed to 0 names selected, future sleeve absorbing 71.6% of portfolio vs 45% target). Phase 9 C1 rebalances Phase 8b multi_year_winner_score sleeve weights; Phase 9 C2 replaces argmax+override-chain sleeve assignment with explicit cross-sectional percentile-based thesis gates. Per user feedback ("$500B 도 10년 후엔 작을 수 있다 — 능동적으로 분리"), Phase 9 C2 uses PERCENTILE thresholds, not absolute USD, so gates remain meaningful as the market grows.
+  - Both changes ship in one commit but with SEPARATE toggles so A/B isolation is possible in 3 QUICK_RESCORE runs.
+- files:
+  - `r1000_top30_institutional.py` (commit `ced5db6`):
+    - `EngineConfig`: 16 new fields (Phase 9 C1: 4 fields, Phase 9 C2: 12 fields).
+    - `compute_portfolio_sleeve_columns`: Phase 9 C1 multi_year weight resolution wraps existing Phase 8b weight reads (lines ~18681-18720); Phase 9 C2 thesis-gate override block runs AFTER existing argmax + Phase 8c.1 megacap override, replaces sleeve_label entirely when active (~115 new lines).
+    - `apply_latest_ranking_eligibility`: when sleeve_label == "unassigned" (Phase 9 C2 quality gate), force `ranking_eligible = False` to exclude name from portfolio candidate pool regardless of model score.
+  - `colab_run.ipynb` (this commit):
+    - Cell 2: 2 new toggle var defs (`PHASE9_C1_REBALANCE`, `PHASE9_THESIS_GATE`); 2 new `_set_phase_env` calls; print-loop tuple extended.
+  - `CHANGELOG.md`: this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `compute_portfolio_sleeve_columns(df, cfg)`:
+    - Phase 8b multi_year weight block: when `phase9_c1_rebalance_enabled` (cfg + env) is True, override Phase 8b legacy weights (0.90 / 0.60 / 0.40) with Phase 9 C1 rebalanced weights (0.50 / 0.80 / 0.30). When False, falls back to legacy.
+    - Inserted Phase 9 C2 thesis-gate block between Phase 8c.1 megacap override and `sleeve_label_raw = sleeve_label.copy()`. When `phase9_thesis_gate_enabled` (cfg + env) is True, computes cross-sectional percentile rank of mktcap and applies eligibility masks for core/future/early; sleeve_label gets replaced with "core_compounder" / "future_winner" / "early_scout" / "unassigned" based on gates. When False, preserves legacy argmax+override result byte-exactly.
+  - `apply_latest_ranking_eligibility(df, cfg, context)`: post-processing step that sets `ranking_eligible = False` for any row with sleeve_label == "unassigned" (Phase 9 C2 quality gate). When Phase 9 C2 inactive there are no "unassigned" labels so this step is a no-op.
+- config_fields_added:
+  - `phase9_c1_rebalance_enabled: bool = True` — Phase 9 C1 master toggle
+  - `phase9_c1_multi_year_future_weight: float = 0.50`
+  - `phase9_c1_multi_year_early_weight: float = 0.80`
+  - `phase9_c1_multi_year_core_weight: float = 0.30`
+  - `phase9_thesis_gate_enabled: bool = True` — Phase 9 C2 master toggle
+  - `phase9_core_megacap_percentile: float = 0.95` — top 5% mktcap = mega-cap auto-core
+  - `phase9_core_quality_size_percentile: float = 0.70` — top 30% size for "quality" rule
+  - `phase9_future_size_lower_percentile: float = 0.30`
+  - `phase9_future_size_upper_percentile: float = 0.95`
+  - `phase9_early_size_upper_percentile: float = 0.70` — bottom 70% (small + mid)
+  - `phase9_core_quality_min_roe: float = 0.15`
+  - `phase9_core_quality_min_margin: float = 0.10` — net OR op margin
+  - `phase9_core_quality_rev_growth_min: float = 0.02`
+  - `phase9_core_quality_rev_growth_max: float = 0.30` — hyper-grow goes to future
+  - `phase9_future_min_rev_growth: float = 0.20`
+  - `phase9_future_min_mom_24m: float = 0.50`
+  - `phase9_early_inflection_threshold: float = 0.3` — turnaround / cf_inflection
+  - `phase9_early_value_inflection_threshold: float = 0.5`
+  - `phase9_early_breakout_threshold: float = 0.5`
+  - `phase9_early_golden_cross_threshold: float = 0.3`
+- breaking_changes:
+  - **Behavior change** when Phase 9 C2 thesis-gate is active: portfolio composition changes because (a) sleeve labels reflect archetype thesis instead of factor-score argmax, (b) names without clear thesis (sleeve_label == "unassigned") get ranking_eligible = False and are excluded from portfolio. Toggle OFF (env or cfg) restores legacy argmax behavior byte-exactly.
+  - **No keep_cols / feature_store schema change**: both Phase 9 C1 and C2 are post-feature-store logic in `compute_portfolio_sleeve_columns`. ENGINE_REUSE_VERSION unchanged. QUICK_RESCORE compatible (~20 min iteration, no FULL rebuild needed).
+- outputs:
+  - `outputs/scored_latest.csv`: 7 new diagnostic columns when Phase 9 C2 active:
+    - `phase9_thesis_gate_active` (0.0 / 1.0)
+    - `phase9_c1_rebalance_active` (0.0 / 1.0)
+    - `phase9_core_eligible` (0.0 / 1.0 per row)
+    - `phase9_future_eligible` (0.0 / 1.0 per row)
+    - `phase9_early_eligible` (0.0 / 1.0 per row)
+    - `phase9_unassigned` (0.0 / 1.0 per row)
+    - `phase9_mktcap_percentile` (0.0-1.0 cross-sectional rank)
+- validation:
+  - `py -3 -c "import py_compile; py_compile.compile('r1000_top30_institutional.py', doraise=True)"` PASS.
+  - `import r1000_top30_institutional as mod` PASS.
+  - `cfg = mod.EngineConfig()` — all 16 new fields present with correct defaults PASS.
+  - Synthetic 50-row smoke test (random universe with 5 percentile buckets): `compute_portfolio_sleeve_columns` returns shape (50, 122) with sleeve labels {core: 5, future: 4, early: 28, unassigned: 13} — sleeve labels reflect synthetic data distribution PASS.
+  - Phase 9 toggle OFF test: env `PHASE_PHASE9_THESIS_GATE_ENABLED=0` + `PHASE_PHASE9_C1_REBALANCE_ENABLED=0` -> diagnostic flags read 0.0, sleeve labels fall back to argmax {core: 41, future: 9, early: 0} PASS.
+  - Drive simulation on real 610-name universe (Phase 8 scored_latest.csv): Phase 9 C2 gates produce {core: 58, future: 54, early: 55, unassigned: 443} — clean 27% candidate selection, top picks per sleeve match thesis (core: NVDA/GOOGL/AVGO mega-cap; future: GEV/APH/LITE scaling-up; early: BKNG/EXE/PR turnaround). PASS.
+  - `colab_run.ipynb` JSON validity: PASS. Cell 2 has 2 new Phase 9 toggle vars + 2 `_set_phase_env` calls + print-loop extended.
+- risks_or_notes:
+  - **Phase 1 inflection thresholds calibrated from data**: initial guess (>1.5 for turnaround/cf_inflection/value_inflection) caught 0 names cross-sectionally on real universe. Data-validated thresholds (>0.3 for turnaround / cf_inflection, >0.5 for value_inflection) catch 29 names total. Calibration assumed normal-ish distribution of these scores; if a regime shift produces extreme inflection scores (mass turnaround period like 2009 or 2020), gate may admit too many names. Mitigation: cfg knobs (`phase9_early_inflection_threshold`, `phase9_early_value_inflection_threshold`) are tunable per-strategy.
+  - **EPS turn-positive flags NOT yet implemented**: `profit_turn_positive_4q`, `cashflow_turn_positive_4q`, `roe_turn_positive_4q` etc. would be the cleanest "EPS just turned positive" gate signals (per user definition: "early 는 eps 적자거나 양전환 막 하거나"). They require fund_panel modification in `compute_fundamental_features` and a feature_store rebuild. Deferred to Phase 9 C3 (separate commit, FULL rebuild required). Phase 1 alpha scores (`fundamental_turnaround_acceleration_score`, `cashflow_inflection_under_loss_score`, `value_inflection_score`) are the proxy for now.
+  - **Quality gate aggressiveness**: 72.6% of universe gets `unassigned` -> ranking_eligible False. This is INTENDED (only hold names with clear thesis), but tightly couples portfolio composition to gate calibration. If percentile thresholds are too strict in a particular regime (e.g. crisis where most names lose growth qualification), portfolio could shrink dramatically. Diagnostic columns (phase9_*_eligible) per row let us audit any concerning months post-run.
+  - **C1 + C2 combined effect not yet measured**: C2 is a major behavior change; C1 is a minor weight change. Combined could improve metrics, hurt metrics, or be mixed. User QUICK_RESCORE test required to make Stage 1 verdict (SHIP / PARTIAL / REGRESS per EXECUTION_PLAN). 3-run A/B isolation possible (each ~20 min): both ON vs C1-only vs C2-only.
+  - **`unassigned` sleeve label propagates downstream**: any consumer of `portfolio_sleeve_label` that hard-codes the 3 legacy labels (core_compounder / future_winner / early_scout) and doesn't handle "unassigned" will silently miss those names. `apply_latest_ranking_eligibility` handles it correctly via the ranking_eligible mask, but operator/state code should be audited for hard-coded sleeve enumeration.
+  - Phase 9 C1 + C2 are POST-feature-store changes. ENGINE_REUSE_VERSION unchanged. **QUICK_RESCORE compatible** (~20 min iteration vs 2-3h FULL rebuild).

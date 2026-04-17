@@ -1,14 +1,18 @@
-# Session Handoff — 2026-04-17 11:52 KST
+# Session Handoff — 2026-04-17 16:30 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
-> **LIFETIME**: delete / rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
+> **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
 
 ---
 
 ## 0. TL;DR — one-paragraph resume brief
 
-A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped the core restructuring. Pre-FULL-rebuild code review (commit `300affc`) caught two CRITICAL bugs: weight-0 dilution + r_1m lookahead. **Phase 8d + 8e-lite (commit `9b083d2`)** bundled additional improvements into the same session: IC-proportional weight boost for 2 underweighted factors (strategy_blueprint 0.017 IC, industry_group_strength 0.016 IC) AND a `long_horizon_alpha_composite` aggregating the 5 best r_12m-IC fundamentals to bypass the ML ensemble's r_1m training myopia. Same commit fixed a silent env-name mismatch (Phase 8a/b/c env vars in Cell 2 were missing `_ENABLED` suffix). Current HEAD = `9b083d2`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8a-d toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%, stretch goal 30%+.
+Phase 8 (commits `4cd938e` → `9b083d2`) shipped on 2026-04-17 with **measured CAGR 21.86% / Sharpe 0.99 / MaxDD -32.1%** vs the 1d4fb40 baseline (CAGR 20.10% / Sharpe 1.08 / MaxDD -23.6%). Result: **PARTIAL** ship per `EXECUTION_PLAN.md` (CAGR up +1.76pp, but Sharpe down -0.09 and MaxDD worsened -8.5pp). Critical structural problem identified: **early sleeve collapsed to 0 names selected, future sleeve absorbed 71.6% of portfolio (target 45%), sleeve labels lost archetype meaning (NVDA classified as core_compounder by argmax-of-factor-scores instead of by mega-cap structural rule).** User feedback: "core/future/early can't tell apart" + "$500B 도 10년 후엔 작을 수 있다 — 능동적으로 분리". Phase 9 (commit `ced5db6`) lands two architectural fixes BOTH defaulting ON, BOTH `QUICK_RESCORE`-compatible (~20 min iteration, no FULL rebuild needed):
+- **C1**: rebalance Phase 8b multi_year_winner_score sleeve weights (future 0.90→0.50, early 0.60→0.80, core 0.40→0.30) to break future-sleeve dominance
+- **C2**: replace argmax+override sleeve assignment with explicit cross-sectional **percentile-based thesis gates** (mega-cap auto-core, scaling-up future, EPS-inflection-or-technical-breakout early, no-thesis dropped). Empirical sim on real 610-name universe gave clean 9.5/8.9/9.0% candidate split per sleeve.
+
+Current HEAD = `ced5db6`. **Next action: Colab QUICK_RESCORE (~20 min) to measure C1+C2 combined effect.** Ship gate: CAGR ≥ 22.5% AND Sharpe ≥ 1.0 AND early sleeve ≥ 4 names selected.
 
 ---
 
@@ -16,28 +20,29 @@ A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS 
 
 | Commit | Title | Phase | Requires | Default |
 |---|---|---|---|---|
-| `9b083d2` | **Phase 8d: IC-reweight + long-horizon alpha composite (Phase 8e-lite)** | 8d.1 + 8d.2 | QUICK-measurable; env-name fix | ON |
-| `300affc` | Phase 8 review fixes: weight-0 skip + r_1m lookahead fix | review | no rebuild | always-on |
-| `caddec3` | Phase 8c: Mega-cap future override + growth-adj valuation | 8c.1 + 8c.2 | QUICK-measurable | ON |
-| `3e44d35` | **Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m + multi_year_winner)** | 8b.1 | **FULL rebuild** | ON |
-| `e3bf29d` | Phase 8a.4: Hold persistence bonus to reduce turnover | 8a.4 | QUICK-measurable | ON |
-| `3624e06` | Phase 8a.1 + 8a.2: Drop 3 negative-IC factors + disable Phase 5 default | 8a.1 / 8a.2 | QUICK-measurable | ON / OFF |
-| `4cd938e` | Phase 8a safety: rolling_robust_z MAD floor + macro clamp + Phase 1 keepcols | 8a.5 + 8b.3 | **FULL rebuild** | always-on |
-| `027c5b3` | **Phase C diagnosis docs (factor IC, counterfactuals, bugs, Phase 8 proposal)** | C | — | — |
-| `53e8c91` | Rotate SESSION_HANDOFF for office-resume after dilution fix | — | — | — |
-| `c4d50fd` | Fix Phase 5 row_mean dilution + restore breaker diagnostic CSV export | — | QUICK | — |
+| `ced5db6` | **Phase 9 C1+C2: multi_year rebalance + percentile thesis-gate** | 9.C1 + 9.C2 | QUICK | ON |
+| `2c2101c` | EXECUTION_PLAN.md: Drive audit + staged roadmap | docs | — | — |
+| `d87160d` | hard_sanitize dedup fix (CRITICAL — unblocked Phase 8 FULL run) | 8 fix | no rebuild | always-on |
+| `9b083d2` | Phase 8d: IC-reweight + long-horizon alpha composite | 8d.1 + 8d.2 | QUICK | ON |
+| `300affc` | Phase 8 review fixes: weight-0 skip + r_1m lookahead | review | no rebuild | always-on |
+| `caddec3` | Phase 8c: Mega-cap future override + growth-adj valuation | 8c.1 + 8c.2 | QUICK | ON |
+| `3e44d35` | Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m) | 8b.1 | FULL (already done) | ON |
+| `e3bf29d` | Phase 8a.4: Hold persistence bonus | 8a.4 | QUICK | ON |
+| `3624e06` | Phase 8a.1+8a.2: Drop neg-IC factors + Phase 5 default OFF | 8a.1/8a.2 | QUICK | ON / OFF |
+| `4cd938e` | Phase 8a safety: rolling_robust_z + macro clamp + Phase 1 keepcols | 8a.5 + 8b.3 | FULL (already done) | always-on |
+| `027c5b3` | Phase C diagnosis docs (factor IC, counterfactuals, bugs, Phase 8 proposal) | C | — | — |
 
-**Current `ENGINE_REUSE_VERSION`**: `"2026-04-17-phase8b-long-lookback-momentum"`. FULL rebuild required because the feature-store schema grew by 10 columns (5 Phase 1 + 5 Phase 8b).
+**Current `ENGINE_REUSE_VERSION`**: `"2026-04-17-phase8b-long-lookback-momentum"`. **NO new FULL rebuild needed** for Phase 9 — feature_store schema unchanged. Phase 9 is post-feature-store sleeve label assignment + cfg weight tweak.
 
-See `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md`, `PHASE_8_PROPOSAL.md` for the data-driven justification behind every Phase 8 change.
+See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy redesign), `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md`, `PHASE_8_PROPOSAL.md`, `REFACTOR_PLAN.md` for design history + future plan.
 
 ---
 
-## 2. What the user must do NEXT — **Colab FULL REBUILD**
+## 2. What the user must do NEXT — **Colab QUICK_RESCORE (~20 min)**
 
-Goal: measure the combined CAGR effect of Phase 8a + 8b + 8c. Runtime ~3 hours (FULL rebuild: feature_store regeneration + walk-forward retrain). All 10 Phase 8 changes are at their default ON setting, so no env overrides needed.
+Goal: measure Phase 9 C1+C2 combined effect. NO FULL rebuild needed (feature_store from Phase 8 run is reused).
 
-### Cell A — sync code + switch cwd (paste at top of notebook every session)
+### Cell A — git sync (paste at top of notebook every session)
 
 ```python
 import subprocess, sys, os
@@ -45,240 +50,232 @@ REPO_DIR = '/content/drive/MyDrive/r1000-quant-engine'
 DATA_DIR = '/content/drive/MyDrive/r1000_top30_institutional'
 subprocess.run(['git', '-C', REPO_DIR, 'fetch', 'origin', 'master'], check=True)
 subprocess.run(['git', '-C', REPO_DIR, 'reset', '--hard', 'origin/master'], check=True)
-print("Latest 5 commits on origin/master:")
 subprocess.run(['git', '-C', REPO_DIR, 'log', '--oneline', '-5'])
-# Expected HEAD: 9b083d2 "Phase 8d: IC-reweight + long-horizon alpha composite (Phase 8e-lite)"
+# Expected HEAD: ced5db6 "Phase 9 C1 + C2: multi_year weight rebalance + percentile-based sleeve thesis-gate"
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 os.chdir(DATA_DIR)
-print("\ncwd:", os.getcwd())
 ```
 
-### Cell 2 — toggles (critical: FULL rebuild, not QUICK)
+### Cell 2 — toggles (★ QUICK_RESCORE not FULL ★)
 
 ```python
-QUICK_RESCORE_ONLY = False             # ★ FULL rebuild this time
-OPTION_1_FULL_REBUILD = True           # ★ required
+QUICK_RESCORE_ONLY = True              # ★ QUICK, ~20 min
+OPTION_1_FULL_REBUILD = False
 FRESH_START = False
 NUKE_ALL = False
-
-# All Phase 8 toggles left at 'auto' — cfg defaults are:
-#   Phase 8a.1 negative-IC drop:           ON
-#   Phase 8a.2 Phase 5 disabled:           OFF (by default, i.e. Phase 5 off)
-#   Phase 8a.4 hold persistence:           ON
-#   Phase 8a.5 macro clamp:                always-on (no toggle)
-#   Phase 8b.1 long-lookback momentum:     ON
-#   Phase 8b.3 Phase 1 keepcols:           always-on (no toggle)
-#   Phase 8c.1 megacap future override:    ON
-#   Phase 8c.2 growth-adj valuation:       ON
-#   Phase 8d.1 IC-proportional weight boost: ON  (strategy_blueprint + industry_group_strength)
-#   Phase 8d.2 long-horizon alpha composite: ON  (ep/fcfy/sp/roe/sage r_12m blend)
-# No env overrides needed. Let cfg defaults drive the run.
+# All Phase 1-9 toggles default 'auto':
+#   Phase 1+2 ON, Phase 3 OFF (rejected), Phase 4 OFF (pending),
+#   Phase 5 OFF (rejected), Phase 6a/6b ON, Phase 6c OFF (pending),
+#   Phase 7a OFF (pending), Phase 8a/b/c/d ON,
+#   Phase 9 C1 ON, Phase 9 C2 ON.
 ```
 
-### Cell 3 → Cell 4 (pipeline, ~2.5-3.5h in FULL mode)
+### Cell 3 SKIP (collector data already cached from earlier today's run)
 
-Run the notebook's existing collector + pipeline cells unchanged. Expect:
-- Cell 3 (collector): ~10-20 min (mostly cached; new feature coverage is price-based which is already cached)
-- Cell 4 (pipeline): ~2.5-3h for FULL rebuild + walk-forward + latest scoring
+### Cell 4 — pipeline (~20 min in QUICK_RESCORE mode)
 
-### Cell E — recovery verdict (run after Cell 4 finishes)
+Run as-is. Look for "QUICK RESCORE MODE" header in output.
+
+### Cell E — verdict snippet (paste as new code cell after Cell 4)
 
 ```python
-import json, pathlib
-import pandas as pd
-
+import json, pathlib, pandas as pd
 BASE = pathlib.Path('/content/drive/MyDrive/r1000_top30_institutional')
 
-print("=" * 70); print("1. PHASE 8 COLUMN COVERAGE (verify keepcols fix + new Phase 8b features)"); print("=" * 70)
+# Phase 9 diagnostic + sleeve distribution
+print("=" * 70); print("PHASE 9 DIAGNOSTIC — sleeve distribution + activity flags"); print("=" * 70)
 scored = pd.read_csv(BASE / 'outputs/scored_latest.csv', low_memory=False)
-phase8_cols = [
-    # Phase 1 keepcols fix — MUST now be present with non-zero coverage
-    'fundamental_turnaround_acceleration_score', 'cashflow_inflection_under_loss_score',
-    'value_inflection_score', 'uptrend_continuation_score', 'uptrend_breakdown_penalty',
-    # Phase 8b long-lookback — NEW features
-    'mom_18m', 'mom_24m', 'mom_36m', 'multi_year_winner_score', 'persistence_trend_24m',
-    # Phase 8a.4 / 8b / 8c diagnostics
-    'hold_persistence_bonus', 'phase8a_hold_persistence_active',
-    'phase8b_long_lookback_active', 'phase8c_megacap_override_active',
-    'phase8c_growth_adj_valuation_active',
-    # Phase 8d — Phase 8e-lite long-horizon alpha composite + IC reweight
-    'long_horizon_alpha_composite', 'phase8d_long_horizon_alpha_active',
-    'phase8d_ic_reweight_active',
-]
-for c in phase8_cols:
+print(f"\\nScored rows: {len(scored)}")
+sleeve_dist = scored['portfolio_sleeve_label'].value_counts()
+print(f"\\nSleeve distribution (raw):"); print(sleeve_dist)
+
+phase9_cols = ['phase9_thesis_gate_active','phase9_c1_rebalance_active',
+               'phase9_core_eligible','phase9_future_eligible',
+               'phase9_early_eligible','phase9_unassigned',
+               'phase9_mktcap_percentile']
+print("\\nPhase 9 diagnostic columns:")
+for c in phase9_cols:
     if c in scored.columns:
-        v = pd.to_numeric(scored[c], errors='coerce').fillna(0.0)
-        print(f"  {c:52s}: nonzero={(v != 0).mean():>7.1%}  mean={v.mean():>+.4f}")
+        v = pd.to_numeric(scored[c], errors='coerce').fillna(0)
+        print(f"  {c:40s}  mean={v.mean():.3f}  sum={v.sum():.0f}")
     else:
-        print(f"  {c:52s}: MISSING")
+        print(f"  {c:40s}  MISSING")
 
-print(); print("=" * 70); print("2. MAIN PORTFOLIO METRICS vs 2026-04-16 baseline"); print("=" * 70)
+# Final portfolio
+pf = pd.read_csv(BASE / 'outputs/portfolio_latest.csv')
+print(f"\\nFinal portfolio: {len(pf)} positions")
+print(f"  Sleeve dist: {pf.groupby('portfolio_sleeve_label').size().to_dict()}")
+print(f"  Top 10 by weight:")
+print(pf.nlargest(10, 'weight')[['ticker','portfolio_sleeve_label','weight']].to_string(index=False))
+
+# Backtest metrics vs baseline
+print("\\n" + "=" * 70); print("MAIN PORTFOLIO METRICS vs Phase 8 baseline (d87160d)"); print("=" * 70)
 bm = json.loads((BASE / 'outputs/backtest_metrics.json').read_text())
-baseline = {'cagr': 0.2010, 'sharpe': 1.0754, 'max_dd': -0.2360, 'ir': 0.5835, 'excess_cagr': 0.0660, 'avg_stock_names': 25.78, 'avg_turnover_monthly': 0.4951}
-print(f"  {'metric':24s} {'new':>10s} {'baseline':>10s} {'delta':>14s}")
-for k in ['cagr', 'sharpe', 'max_dd', 'ir', 'excess_cagr', 'avg_stock_names', 'vol_ann', 'beat_month_ratio', 'avg_turnover_monthly']:
-    new_v = bm.get(k, float('nan'))
-    bl_v = baseline.get(k)
-    if bl_v is not None:
-        d_str = f"{(new_v - bl_v) * 100:+.2f}pp" if k in ['cagr', 'max_dd', 'excess_cagr', 'avg_turnover_monthly'] else f"{new_v - bl_v:+.4f}"
-        print(f"  {k:24s} {new_v:>10.4f} {bl_v:>10.4f} {d_str:>14s}")
+phase8_baseline = {'cagr': 0.2186, 'sharpe': 0.9856, 'max_dd': -0.3208, 'ir': 0.5800,
+                   'avg_turnover_monthly': 0.5119, 'avg_stock_names': 21.34}
+print(f"  {'metric':24s} {'new':>10s} {'Phase 8':>10s} {'delta':>14s}")
+for k in ['cagr','sharpe','max_dd','ir','avg_turnover_monthly','avg_stock_names','beat_month_ratio','excess_cagr']:
+    new_v = bm.get(k, float('nan')); bl_v = phase8_baseline.get(k)
+    if bl_v is None: print(f"  {k:24s} {new_v:>10.4f}"); continue
+    if k in ['cagr','max_dd','avg_turnover_monthly','excess_cagr']:
+        d_str = f"{(new_v - bl_v) * 100:+.2f}pp"
     else:
-        print(f"  {k:24s} {new_v:>10.4f}")
+        d_str = f"{new_v - bl_v:+.4f}"
+    print(f"  {k:24s} {new_v:>10.4f} {bl_v:>10.4f} {d_str:>14s}")
 
-print(); print("=" * 70); print("3. PHASE 8 VERDICT"); print("=" * 70)
-dCAGR = (bm['cagr'] - baseline['cagr']) * 100
-dSharpe = bm['sharpe'] - baseline['sharpe']
-dMaxDD = (bm['max_dd'] - baseline['max_dd']) * 100
-dTurnover = (bm['avg_turnover_monthly'] - baseline['avg_turnover_monthly']) * 100
-print(f"  CAGR      new={bm['cagr']*100:+.2f}%  (target >=25%, stretch 30%+)")
-print(f"  Sharpe    new={bm['sharpe']:.4f}    (target >=1.00)")
-print(f"  MaxDD     new={bm['max_dd']*100:+.2f}% (target better than -24%)")
-print(f"  Turnover  new={bm['avg_turnover_monthly']*100:+.2f}%/mo (target <35%/mo)")
-print()
-if bm['cagr'] >= 0.25 and bm['sharpe'] >= 1.0:
-    print("  -> SHIP. Phase 8 at default ON is the new baseline.")
-elif bm['cagr'] >= 0.22:
-    print("  -> PARTIAL SHIP. CAGR target missed but directionally positive. Run A/B isolation below.")
+# Sleeve allocation reality vs target
+print("\\n=== SLEEVE ALLOCATION (from weights_latest) ===")
+weights = json.loads((BASE / 'outputs/weights_latest.json').read_text())
+print(f"  target:  {weights.get('sleeve_target_weights')}")
+print(f"  actual:  {weights.get('sleeve_actual_weights')}")
+print(f"  counts:  {weights.get('sleeve_selected_counts', '?')}")
+
+print("\\n=== VERDICT ===")
+dCAGR = (bm['cagr'] - phase8_baseline['cagr']) * 100
+dSharpe = bm['sharpe'] - phase8_baseline['sharpe']
+dMaxDD = (bm['max_dd'] - phase8_baseline['max_dd']) * 100
+early_count = sum(1 for v in (weights.get('sleeve_selected_counts') or {}).values() if v)
+early_n = (weights.get('sleeve_selected_counts') or {}).get('early_scout', 0)
+print(f"  ΔCAGR     {dCAGR:+.2f}pp   (gate >= 0.5pp)")
+print(f"  ΔSharpe   {dSharpe:+.4f}    (gate >= -0.05)")
+print(f"  ΔMaxDD    {dMaxDD:+.2f}pp   (gate >= -3pp; positive better)")
+print(f"  early_scout selected: {early_n}    (gate >= 4)")
+
+if dCAGR >= 0.5 and dSharpe >= -0.05 and dMaxDD >= -3.0 and early_n >= 4:
+    print("\\n  --> SHIP. Phase 9 C1+C2 default ON wins. Stage 2 (refactor + cleanup) next.")
+elif dCAGR >= -2.0 and early_n >= 2:
+    print("\\n  --> PARTIAL. Run A/B isolation (each ~20 min):")
+    print("      a) PHASE9_C1_REBALANCE='0' QUICK_RESCORE -> C1 isolated effect")
+    print("      b) PHASE9_THESIS_GATE='0' QUICK_RESCORE  -> C2 isolated effect")
 else:
-    print("  -> REGRESSION. Set PHASE_PHASE8A_NEG_IC_DROP=0, PHASE_PHASE8B_LONG_LOOKBACK_ENABLED=0,")
-    print("     PHASE_PHASE8C_MEGACAP_OVERRIDE=0, PHASE_PHASE8C_GROWTH_ADJ_VALUATION=0")
-    print("     and re-run QUICK_RESCORE. Compare to isolate offender.")
+    print("\\n  --> REGRESS. Roll back Phase 9 (set both Phase 9 toggles to '0' as default).")
 ```
 
-**Paste the full output of Cell E back into the chat when Cell 4 finishes.** The CAGR / Sharpe / MaxDD numbers + Phase 8 column coverage determine the next action.
+**Paste the full Cell E output back to the chat when Cell 4 finishes.** Verdict line drives the next action.
 
 ---
 
-## 3. Decision tree after FULL rebuild
+## 3. Decision tree after QUICK_RESCORE
 
-### 3a. If CAGR ≥ 25% AND Sharpe ≥ 1.0 (SHIP)
+### 3a. SHIP (CAGR ≥ +0.5pp, Sharpe -0.05+, MaxDD -3pp+, early ≥ 4 names)
 
-1. Update `backtest_metrics.json` baseline in a new CHANGELOG entry: "phase8-shipped-ab-sweep-start".
-2. Commit `colab_run.ipynb` Cell 2 unchanged (defaults already correct).
-3. **Plan Phase 8d/8e** (deferred items from `PHASE_8_PROPOSAL.md`):
-   - Phase 8d: IC-proportional sleeve reweighting (requires correlation audit first)
-   - Phase 8e: r_12m ML training target (requires walk-forward refactor — medium risk)
-4. Consider tightening Phase 8c.1 mega-cap override criteria if too many names are being force-reclassified (check `phase8c_megacap_override_active` distribution in `scored_latest.csv`).
+1. Update CHANGELOG with measured Phase 9 metrics as new baseline.
+2. Proceed to **Phase 9 C3**: add EPS turn-positive flags (profit_turn_positive_4q, etc.) to early eligibility gate. Requires fund_panel modification + FULL rebuild.
+3. After C3: start **Refactor Phase A** (5-module split per `REFACTOR_PLAN.md`) on the now-stable Phase 9 baseline.
 
-### 3b. If CAGR in [18%, 25%) (PARTIAL)
+### 3b. PARTIAL (CAGR -2pp to +0.5pp OR mixed metrics)
 
-Run four QUICK_RESCORE A/B runs (each ~20 min) flipping ONE Phase 8 env var off at a time:
+Run two QUICK_RESCORE A/B isolation passes (each ~20 min, total 40 min):
 
 ```python
-# Run A (negative-IC drop off)
-os.environ["PHASE_PHASE8A_NEG_IC_DROP"] = "0"
+# Run A: C1 isolated (C2 OFF)
+PHASE9_C1_REBALANCE = 'auto'
+PHASE9_THESIS_GATE = '0'
 
-# Run B (hold persistence off)
-os.environ["PHASE_PHASE8A_HOLD_PERSISTENCE"] = "0"
-
-# Run C (megacap override off)
-os.environ["PHASE_PHASE8C_MEGACAP_OVERRIDE"] = "0"
-
-# Run D (growth-adj valuation off)
-os.environ["PHASE_PHASE8C_GROWTH_ADJ_VALUATION"] = "0"
+# Run B: C2 isolated (C1 OFF)
+PHASE9_C1_REBALANCE = '0'
+PHASE9_THESIS_GATE = 'auto'
 ```
 
-Whichever A/B shows the biggest NEGATIVE CAGR delta (vs. the all-ON baseline) is the strongest contributing phase — keep it ON. Whichever shows positive delta is a candidate for default OFF (or tuning).
+Compare each isolated effect to Phase 8 baseline. Ship whichever (or both) gives net positive metrics.
 
-Note: Phase 8b.1 requires FULL rebuild to A/B so it's last to test.
+### 3c. REGRESS (CAGR < -2pp OR early < 2 names)
 
-### 3c. If CAGR < 18% (REGRESSION)
-
-1. First check Cell E §1 output: are any Phase 1 / 8b columns still MISSING? If so the keepcols-fix didn't take — verify `git log --oneline` shows `caddec3` or newer.
-2. If columns are populated but CAGR regressed, disable phases in this order via env:
-   - `PHASE_PHASE8B_LONG_LOOKBACK_ENABLED=0` (biggest change, most likely to break)
-   - `PHASE_PHASE8C_MEGACAP_OVERRIDE=0` (concentration risk)
-   - `PHASE_PHASE8A_NEG_IC_DROP=0` (if 83-month IC sample was unrepresentative)
-3. Re-run QUICK_RESCORE after each toggle to isolate.
-4. Report the isolation result — the phase that, when disabled, recovers CAGR most is the culprit. Likely cause: factor correlation the simulation didn't capture.
+1. Set both Phase 9 toggles to '0' as cfg defaults (`phase9_c1_rebalance_enabled = False`, `phase9_thesis_gate_enabled = False`).
+2. Phase 9 stays in code as `experimental` for future re-evaluation but is OFF by default.
+3. Investigate: is the percentile threshold off? Are EPS turn-positive flags needed before Phase 9 can ship?
+4. Fall back to Phase 8 baseline (CAGR 21.86%) as the production baseline.
 
 ---
 
-## 4. Bootstrap prompt for a fresh chat session (office PC, phone, anywhere)
-
-Paste this into a new Claude / Codex / GPT chat:
+## 4. Bootstrap prompt for a fresh chat session
 
 ```
 I'm continuing work on the r1000 Quant Engine project. Before doing anything else, please:
 
 1. Read `CLAUDE.md` — project basics.
 2. Read `SESSION_HANDOFF.md` — current pending work (THIS is the most important file for picking up where we left off).
-3. Read the last ~400 lines of `CHANGELOG.md` — most recent decisions (Phase 8 restructuring entries).
-4. Read `PHASE_8_PROPOSAL.md` — the proposal doc behind the Phase 8 commits.
-5. Read `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md` — data evidence supporting Phase 8.
-6. Check `git log --oneline -10` to confirm the latest commit is at or after `300affc Phase 8 review fixes: weight-0 skip + r_1m lookahead fix`.
+3. Read the last ~400 lines of `CHANGELOG.md` — most recent decisions.
+4. Read `EXECUTION_PLAN.md` + `ARCHITECTURE_REVIEW.md` — staged roadmap and ceiling assessment.
+5. Read `PHASE_8_PROPOSAL.md` and `REFACTOR_PLAN.md` for design history.
+6. Read `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md` — data evidence.
+7. Check `git log --oneline -10` to confirm latest commit is at or after `ced5db6 "Phase 9 C1 + C2 ..."`.
 
 Only after reading those files, ask me what I want to do next. Do NOT start editing anything until you've read them.
 
-Context: Phase 8 (the major restructuring targeting CAGR 15.44% → 25-30%+) landed in 5 commits on 2026-04-17 afternoon. All toggles at default ON. Immediate next action is a Colab FULL REBUILD (~3h) to measure cumulative CAGR effect. SESSION_HANDOFF.md §2 has the exact cells to paste and the recovery-verdict Cell E. Ship gate: CAGR ≥ 25%.
+Context: Phase 8 (CAGR 21.86%) shipped PARTIAL; Phase 9 C1+C2 (sleeve thesis-gate redesign) just landed and is awaiting Colab QUICK_RESCORE measurement. SESSION_HANDOFF.md §2 has the exact cells to paste and the verdict snippet.
 ```
 
 ---
 
 ## 5. Files that persist across machines
 
-Everything source-of-truth is in git on `origin/master`:
+Source-of-truth in git on `origin/master`:
 
-- `r1000_top30_institutional.py` — engine (~27k lines after Phase 8)
+- `r1000_top30_institutional.py` — engine (~27.4k lines after Phase 9)
 - `r1000_data_collector.py` — collector
 - `r1000_operator.py` — live operator layer
 - `r1000_portfolio_state.py` — state persistence
-- `colab_run.ipynb` — runbook (Cell 2 has phase env toggles — Phase 8 toggles rely on defaults, no edits needed)
+- `colab_run.ipynb` — runbook (Cell 2 has all 18 phase env toggles incl Phase 9)
 - `CLAUDE.md` — project brain (short)
-- `PHASE_ROADMAP.md` — phase plan (PHASE_8_PROPOSAL.md is the successor for 8a/8b/8c)
-- `PHASE_8_PROPOSAL.md` — Phase 8 design & expected CAGR deltas
-- `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` / `DIAGNOSIS_factor_ic.csv` — data evidence
+- `PHASE_ROADMAP.md` — Phase 1-6 multi-session plan (older, partial coverage)
+- `PHASE_8_PROPOSAL.md` — Phase 8 design
+- `REFACTOR_PLAN.md` — module split + observability infrastructure plan
+- `ARCHITECTURE_REVIEW.md` — cold first-principles assessment + Phase 9 + sleeve redesign rationale
+- `EXECUTION_PLAN.md` — 4-stage roadmap (Stage 0 = current Phase 9, Stage 2 = refactor + cleanup, Stage 3 = optional structural)
+- `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` / `DIAGNOSIS_factor_ic.csv` — Phase C empirical evidence
 - `CHANGELOG.md` — decision log (every commit has a matching entry)
-- `SESSION_HANDOFF.md` — this file; single-item inbox
-- `PROPOSAL_defensive_upgrades.md`, `PROPOSAL_growth_regime_offense_defense.md` — older design docs (Phase 4/6 reference)
+- `SESSION_HANDOFF.md` — this file
+- `PROPOSAL_defensive_upgrades.md` / `PROPOSAL_growth_regime_offense_defense.md` — older design refs
 
-What's NOT in git (lives only on Google Drive):
-
-- `/content/drive/MyDrive/r1000-quant-engine/` — Cell A keeps this `git reset --hard origin/master` on every run.
-- `/content/drive/MyDrive/r1000_top30_institutional/` — data folder with `cache_*/`, `feature_store/`, `checkpoints/`, `outputs/`, `companyfacts.zip`. Cell A `os.chdir()`'s into it.
-- Local mirror (Windows): `G:\내 드라이브\r1000_top30_institutional\` — accessible for post-run analysis.
-
-Any machine with (a) a clone of the repo and (b) the Drive mounted has full state.
+Drive (NOT in git):
+- `/content/drive/MyDrive/r1000-quant-engine/` — Cell A keeps `git reset --hard origin/master` on every run.
+- `/content/drive/MyDrive/r1000_top30_institutional/` — data folder (`cache_*/`, `feature_store/`, `checkpoints/`, `outputs/`, `companyfacts.zip`).
+- Local Windows mirror: `G:\내 드라이브\r1000_top30_institutional\`.
 
 ---
 
-## 6. Quick reference — Phase status + toggles (post-Phase 8)
+## 6. Quick reference — Phase status + toggles (post Phase 9)
 
 | Phase | cfg field | env var | Default | A/B status |
 |---|---|---|---|---|
-| 1 | (auto via `phase_is_enabled`) | `PHASE_PHASE1_ALPHA_ENABLED` | ON | **keepcols fix landed in 8b.3 — now actually measurable on next rebuild** |
-| 2 | (no flag) | `PHASE_PHASE2_INDUSTRY_ENABLED` | ON | Industry_rotation_signal zeroed by 8a.1 because IC -0.012 |
-| 3 | `sleeve_weight_renorm_enabled` | `PHASE_PHASE3_RENORM_ENABLED` | OFF | REJECTED (ship failure: ΔCAGR -2.30pp) |
-| 4 | `regime_dynamic_sleeve_weights_enabled` | `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` | OFF | A/B pending — revisit after Phase 8 ships |
-| 5 | `sub_industry_leader_laggard_enabled` | `PHASE_PHASE5_LEADER_LAGGARD_ENABLED` | **OFF (new default after 8a.2)** | Rejected — factor IC ~0 |
-| 6a | `drawdown_breaker_multilevel_enabled` | `PHASE_PHASE6A_BREAKER_ENABLED` | ON | Dormant in 83-month sample — keep |
-| 6b | `vix_level_guard_enabled` | `PHASE_PHASE6B_VIX_ENABLED` | ON | Dormant in 83-month sample — keep |
-| 6c | `volatility_targeting_enabled` | `PHASE_PHASE6C_VOLTARGET_ENABLED` | OFF | A/B pending |
-| 7a | `phase7a_insider_accruals_enabled` | `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` | OFF | A/B pending |
-| **8a.1** neg-IC drop | — (hard-coded) | `PHASE_PHASE8A_NEG_IC_DROP` | **ON** | QUICK-measurable |
-| **8a.4** hold-persistence | `phase8a_hold_persistence_enabled` | `PHASE_PHASE8A_HOLD_PERSISTENCE` | **ON** | QUICK-measurable |
-| **8a.5** macro clamp | — (always active) | — | always | safety fix |
-| **8b.1** long-lookback momentum | `phase8b_long_lookback_enabled` | `PHASE_PHASE8B_LONG_LOOKBACK` | **ON** | **FULL rebuild required** |
-| **8b.3** Phase 1 keepcols | — (always active) | — | always | structural fix |
-| **8c.1** megacap future override | `phase8c_megacap_future_override_enabled` | `PHASE_PHASE8C_MEGACAP_OVERRIDE_ENABLED` | **ON** | QUICK-measurable |
-| **8c.2** growth-adj valuation | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION_ENABLED` | **ON** | QUICK-measurable |
-| **8d.1** IC-proportional weight boost | `phase8d_ic_reweight_enabled` | `PHASE_PHASE8D_IC_REWEIGHT_ENABLED` | **ON** | QUICK-measurable |
-| **8d.2** long-horizon alpha composite | `phase8d_long_horizon_alpha_enabled` | `PHASE_PHASE8D_LONG_HORIZON_ALPHA_ENABLED` | **ON** | QUICK-measurable |
+| 1 (alpha) | (auto via phase_is_enabled) | `PHASE_PHASE1_ALPHA_ENABLED` | ON | Shipped |
+| 2 (industry RS) | (no flag) | `PHASE_PHASE2_INDUSTRY_ENABLED` | ON | Shipped (signal in C2 thesis gate too) |
+| 3 (sleeve renorm) | `sleeve_weight_renorm_enabled` | `PHASE_PHASE3_RENORM_ENABLED` | OFF | REJECTED (-2.30pp CAGR) |
+| 4 (regime mult) | `regime_dynamic_sleeve_weights_enabled` | `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` | OFF | A/B pending |
+| 5 (sub-industry) | `sub_industry_leader_laggard_enabled` | `PHASE_PHASE5_LEADER_LAGGARD_ENABLED` | OFF | REJECTED (IC ~0) |
+| 6a (DD breaker) | `drawdown_breaker_multilevel_enabled` | `PHASE_PHASE6A_BREAKER_ENABLED` | ON | Dormant in 83-month sample |
+| 6b (VIX guard) | `vix_level_guard_enabled` | `PHASE_PHASE6B_VIX_ENABLED` | ON | Dormant in 83-month sample |
+| 6c (vol target) | `volatility_targeting_enabled` | `PHASE_PHASE6C_VOLTARGET_ENABLED` | OFF | A/B pending |
+| 7a (insider+accruals) | `phase7a_insider_accruals_enabled` | `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` | OFF | A/B pending |
+| **8a.1** neg-IC drop | (hard-coded) | `PHASE_PHASE8A_NEG_IC_DROP_ENABLED` | ON | Shipped (Phase 8 PARTIAL) |
+| **8a.4** hold-persist | `phase8a_hold_persistence_enabled` | `PHASE_PHASE8A_HOLD_PERSISTENCE_ENABLED` | ON | Shipped |
+| **8a.5** macro clamp | (always active) | — | always | Shipped (safety) |
+| **8b.1** long-lookback | `phase8b_long_lookback_enabled` | `PHASE_PHASE8B_LONG_LOOKBACK_ENABLED` | ON | Shipped |
+| **8b.3** Phase 1 keepcols | (always active) | — | always | Shipped (structural) |
+| **8c.1** megacap override | `phase8c_megacap_future_override_enabled` | `PHASE_PHASE8C_MEGACAP_OVERRIDE_ENABLED` | ON | Shipped (also gated by Phase 9 C2) |
+| **8c.2** growth-adj val | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION_ENABLED` | ON | Shipped |
+| **8d.1** IC reweight | `phase8d_ic_reweight_enabled` | `PHASE_PHASE8D_IC_REWEIGHT_ENABLED` | ON | Shipped |
+| **8d.2** long-horizon alpha | `phase8d_long_horizon_alpha_enabled` | `PHASE_PHASE8D_LONG_HORIZON_ALPHA_ENABLED` | ON | Shipped |
+| **9.C1** multi_year weight rebalance | `phase9_c1_rebalance_enabled` | `PHASE_PHASE9_C1_REBALANCE_ENABLED` | ON | **A/B pending (this run)** |
+| **9.C2** percentile thesis gate | `phase9_thesis_gate_enabled` | `PHASE_PHASE9_THESIS_GATE_ENABLED` | ON | **A/B pending (this run)** |
 
-**Note**: all Phase 8 env var names now include the `_ENABLED` suffix (commit `9b083d2` fix). Older docs/code that referenced `PHASE_PHASE8X_YYYY` without the suffix are outdated.
+**Deferred work** (per `EXECUTION_PLAN.md` Stage 2-3):
 
-**Deferred Phase 8 items** (not yet implemented):
-- **Phase 8e full**: proper r_12m ML training target — requires walk-forward train-target refactor + parallel r_12m model bundle + blending logic. Medium risk. (Phase 8d.2 "8e-lite" captures most of the benefit via direct sleeve composite.)
-- **Phase 8f (future)**: consolidate correlated factor clusters (industry cluster, revision cluster, growth-onset cluster) into single composites to reduce N and improve each factor's effective weight contribution.
+- **Phase 9 C3**: EPS turn-positive flags (profit_turn_positive_4q etc.). Requires fund_panel modification + FULL rebuild. ~2-3h.
+- **Refactor Phase A**: 5-module split (`r1000_config.py / r1000_helpers.py / r1000_features.py / r1000_signals.py / r1000_pipeline.py`) + facade + observability + tests. ~12-16h focused work.
+- **Phase 9 Subtractive**: delete dead phases (3 / 5 / 7a if A/B-rejected) + 153 noise factors + cluster consolidation. ~8h. Saves 7-10k lines.
+- **Phase 8e proper**: r_12m ML training target. Walk-forward refactor required. Best done on modular code post-Refactor. ~11-13h.
+- **Optional structural** (Stage 3): one of {quarterly rebalance / top-10 concentration / R2000 universe expansion}. Each ~1 day to ~1 week.
 
 ---
 
 ## 7. How to rotate this handoff
 
 When:
-- **FULL rebuild ships CAGR ≥ 25%**: rewrite §0-§2 to "Phase 8 shipped, Phase 8d planning" and clear §3 decision tree.
-- **Regression ≥ 5pp drop**: rewrite §2 to "isolate offender via A/B toggle". §3c becomes §2.
-- **Partial ship**: §3b becomes §2 with the specific A/B protocol.
+- **Phase 9 C1+C2 ships** → §0/§1/§2 become "Phase 9 baseline established, next is Phase 9 C3 EPS turn-positive flags".
+- **Phase 9 PARTIAL** → §2 becomes "A/B isolation protocol from §3b" and rerun.
+- **Phase 9 REGRESS** → §0 becomes "Phase 9 rolled back; Phase 8 (CAGR 21.86%) is production baseline; refactor next".
 
-Never accumulate multiple handoff files. This is a single-item inbox, not a log.
+Never accumulate multiple handoff files. Single-item inbox only.
