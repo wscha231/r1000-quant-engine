@@ -50,6 +50,32 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 ENGINE_REUSE_VERSION = "2026-04-17-phase8b-long-lookback-momentum"
 
 
+def _resolve_engine_commit_sha() -> str:
+    """Return short git SHA of the engine repo for run provenance.
+
+    Printed in every run banner so logs/notebooks self-identify which
+    code version produced them. Falls back to '(unknown)' if git isn't
+    available (e.g. engine installed as a wheel instead of a clone, or
+    the git binary is missing from PATH).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).resolve().parent),
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        sha = (result.stdout or "").strip()
+        return sha if sha else "(unknown)"
+    except Exception:
+        return "(unknown)"
+
+
+ENGINE_COMMIT_SHA = _resolve_engine_commit_sha()
+
+
 # =====================================================================
 # Phase A/B toggles (env-var based, for fast iteration testing)
 # =====================================================================
@@ -2497,6 +2523,7 @@ def run_default_pipeline(cfg: Optional[dict | EngineConfig] = None) -> dict[str,
     cfg_obj = to_cfg(cfg)
     window_years = max(int(cfg_obj.default_backtest_years), 1)
     log(
+        f"[commit={ENGINE_COMMIT_SHA}] [engine_version={ENGINE_REUSE_VERSION}] "
         "Running default full pipeline with rolling window "
         f"(years={window_years}, end_date={cfg_obj.end_date}, "
         f"reuse_existing_artifacts={cfg_obj.reuse_existing_artifacts}, "

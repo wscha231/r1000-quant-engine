@@ -2332,3 +2332,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - **C1 + C2 combined effect not yet measured**: C2 is a major behavior change; C1 is a minor weight change. Combined could improve metrics, hurt metrics, or be mixed. User QUICK_RESCORE test required to make Stage 1 verdict (SHIP / PARTIAL / REGRESS per EXECUTION_PLAN). 3-run A/B isolation possible (each ~20 min): both ON vs C1-only vs C2-only.
   - **`unassigned` sleeve label propagates downstream**: any consumer of `portfolio_sleeve_label` that hard-codes the 3 legacy labels (core_compounder / future_winner / early_scout) and doesn't handle "unassigned" will silently miss those names. `apply_latest_ranking_eligibility` handles it correctly via the ranking_eligible mask, but operator/state code should be audited for hard-coded sleeve enumeration.
   - Phase 9 C1 + C2 are POST-feature-store changes. ENGINE_REUSE_VERSION unchanged. **QUICK_RESCORE compatible** (~20 min iteration vs 2-3h FULL rebuild).
+
+### 17:16 KST - run-banner-commit-sha-provenance
+
+- scope:
+  - Pipeline run banner self-identification. Every run now prints the engine's git commit SHA so logs / Colab scrollback unambiguously identify which code version produced the metrics.
+- files:
+  - `r1000_top30_institutional.py` -> new module-level helper `_resolve_engine_commit_sha()` + constant `ENGINE_COMMIT_SHA`; prefixes `run_default_pipeline` start log with `[commit=<sha>] [engine_version=<ENGINE_REUSE_VERSION>]`.
+  - `colab_run.ipynb` -> Cell 2 captures `COMMIT_SHA` from `git rev-parse --short HEAD` right after `git reset --hard origin/master` (or fresh clone) and prints `Repo commit: <sha>`; Cell 4 FULL REBUILD and QUICK RESCORE banners both interpolate `{COMMIT_SHA}` so the first pipeline-mode print line also carries the SHA.
+- symbols_added:
+  - `_resolve_engine_commit_sha() -> str` -> runs `git rev-parse --short HEAD` in the repo dir with 3s timeout; returns the short SHA or `(unknown)` if git unavailable (wheel install, missing binary, non-repo cwd).
+  - `ENGINE_COMMIT_SHA: str` -> module-level constant resolved once at import, reused across all log lines.
+- symbols_changed:
+  - `run_default_pipeline(cfg)` -> start-of-run log line gains `[commit=<sha>] [engine_version=<ver>]` prefix so the first timestamped output already carries version provenance.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none (pure additive print, no control-flow change, no artifact schema change).
+- outputs:
+  - none (only stdout / notebook log text changes).
+- validation:
+  - `py -3 -c "import ast; ast.parse(open('r1000_top30_institutional.py').read())"` -> syntax OK.
+  - `py -3 -c "import json; json.load(open('colab_run.ipynb'))"` -> notebook JSON still valid after patch (12 cells, indent=1 preserved).
+  - Runtime-tested the helper inline (subprocess + pathlib only) against this repo: returned `33581bc` (matches `git rev-parse --short HEAD`).
+  - Notebook patch verified by re-reading: Cell 2 contains `rev-parse` + `print('Repo commit:', COMMIT_SHA)`, Cell 4 contains both `FULL REBUILD MODE (commit={COMMIT_SHA})` and `QUICK RESCORE MODE (commit={COMMIT_SHA})`.
+- risks_or_notes:
+  - Helper is defensive: 3s timeout + `check=False` + broad `except Exception` ensures a missing/broken git never takes down the pipeline; falls back to `(unknown)`.
+  - The in-flight 08:10 FULL REBUILD run that triggered this change (commit `33581bc`) will NOT show the SHA banner — the helper was added after the run started. Next run from fresh checkout will show it.
+  - When the engine is installed as a wheel (not a clone) `(unknown)` will be printed. If we start shipping wheels later, consider baking SHA into a generated `_version.py` during build.
