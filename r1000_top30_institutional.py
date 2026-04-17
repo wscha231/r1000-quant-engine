@@ -2212,6 +2212,13 @@ class EngineConfig:
     phase7a_insider_early_weight: float = 0.25   # insider flow bonus on early_scout
     phase7a_insider_future_weight: float = 0.15  # insider flow bonus on future_winner
     phase7a_accruals_core_weight: float = -0.20  # negative = high accruals penalised on core
+
+    # --------------- Phase 8a.4: hold persistence bonus ---------------
+    # Reduces turnover (measured at 49.5%/mo -> target 25%/mo) by adding
+    # a composite bonus to held names that are still trending. See
+    # compute_portfolio_sleeve_columns for the formula. Default ON.
+    phase8a_hold_persistence_enabled: bool = True
+    phase8a_hold_persistence_weight: float = 0.90    # weight of bonus in each sleeve composite
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -18294,6 +18301,61 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     _w_industry_rotation_future = 0.0 if _phase8a_neg_ic_drop else 0.18
     _w_industry_rotation_early = 0.0 if _phase8a_neg_ic_drop else 0.45
 
+    # -------------------------------------------------------------------
+    # Phase 8a.4 (2026-04-17): hold persistence bonus.
+    # The 2026-04-17 FULL rebuild measured avg_turnover_monthly = 49.5%
+    # (~600%/yr) with an estimated 3pp/yr CAGR cost in round-trip trading
+    # fees. Root cause: every month the ensemble re-ranks 600 names, and
+    # small score shuffles at the edge of the top-N cutoff flip names in
+    # and out. Counterfactual (DIAGNOSIS_COUNTERFACTUAL.md §2) estimates
+    # reducing to 25%/month turnover would save +1.5pp CAGR from costs.
+    #
+    # Mechanism: reward names that (a) were held last month AND (b) are
+    # still trending up AND (c) have a positive recent 1-month return.
+    # This shifts the ranking in favour of already-held winners so we
+    # don't whipsaw out of NVDA-style multi-year compounders on a single
+    # bad month.
+    #
+    # Factors:
+    #   held              = was this name in last month's portfolio? (0/1)
+    #   recent_win        = last month's realised return > 0? (0/1)
+    #   long_trend_alive  = mom_12m z-score > 0? (0/1)
+    # bonus = 0.80*held + 0.50*held*recent_win + 0.70*held*long_trend_alive
+    #       (max ~2.0 — applied with weight +0.9 in each sleeve)
+    #
+    # Gated behind `phase8a_hold_persistence` env toggle (default True)
+    # and `cfg.phase8a_hold_persistence_enabled` (default True). Both
+    # must be on; either off = legacy behaviour (weight 0 = no bonus).
+    # -------------------------------------------------------------------
+    _phase8a_hold_env = phase_is_enabled("phase8a_hold_persistence", default=True)
+    _phase8a_hold_cfg = bool(getattr(cfg, "phase8a_hold_persistence_enabled", True)) if cfg is not None else True
+    _phase8a_hold_active = bool(_phase8a_hold_env and _phase8a_hold_cfg)
+    _w_hold_persistence = 0.90 if _phase8a_hold_active else 0.0
+    _phase8a_hold_bonus_weight_each = float(
+        getattr(cfg, "phase8a_hold_persistence_weight", 0.90) if cfg is not None else 0.90
+    )
+    _w_hold_persistence = _phase8a_hold_bonus_weight_each if _phase8a_hold_active else 0.0
+
+    # Build the bonus series. Use raw 0/1 masks (not z-scored) so the bonus
+    # is a HARD additive preference rather than a relative rank nudge.
+    if _phase8a_hold_active:
+        _held_from_prev = numeric_series_or_default(d, "held_from_prev_rebalance", 0.0).astype(float).clip(lower=0.0, upper=1.0)
+        _recent_r_1m = numeric_series_or_default(d, "r_1m", 0.0)  # previous month's return is filled into r_1m at rebalance
+        _recent_win = (_recent_r_1m > 0.0).astype(float)
+        _mom_12m_z_for_bonus = cross_sectional_robust_z(d, "mom_12m").fillna(0.0)
+        _long_trend_alive = (_mom_12m_z_for_bonus > 0.0).astype(float)
+        _hold_persistence_bonus = (
+            0.80 * _held_from_prev
+            + 0.50 * _held_from_prev * _recent_win
+            + 0.70 * _held_from_prev * _long_trend_alive
+        ).clip(lower=0.0, upper=2.0)
+    else:
+        _hold_persistence_bonus = pd.Series(0.0, index=d.index, dtype=float)
+
+    # Expose as a column for diagnostic CSV / monthly audit.
+    d["hold_persistence_bonus"] = _hold_persistence_bonus.values
+    d["phase8a_hold_persistence_active"] = 1.0 if _phase8a_hold_active else 0.0
+
     core_weight_pairs: list[tuple[float, pd.Series]] = [
         (1.05, cross_sectional_robust_z(d, "long_hold_compounder_score")),
         (0.90, cross_sectional_robust_z(d, "archetype_compounder_score")),
@@ -18334,6 +18396,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             _p7a_w_accruals_core if _phase7a_active else 0.0,
             cross_sectional_robust_z(d, "accruals_to_assets"),
         ),
+        # Phase 8a.4: hold persistence bonus. Non-zero weight if
+        # PHASE_PHASE8A_HOLD_PERSISTENCE=1 AND
+        # cfg.phase8a_hold_persistence_enabled=True.
+        (_w_hold_persistence, _hold_persistence_bonus),
     ]
     core_score = weighted_sleeve_composite(
         core_weight_pairs,
@@ -18394,6 +18460,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             _p7a_w_insider_future if _phase7a_active else 0.0,
             cross_sectional_robust_z(d, "insider_flow_signal_score"),
         ),
+        # Phase 8a.4: hold persistence bonus (see core sleeve).
+        (_w_hold_persistence, _hold_persistence_bonus),
     ]
     future_score = weighted_sleeve_composite(
         future_weight_pairs,
@@ -18451,6 +18519,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             _p7a_w_insider_early if _phase7a_active else 0.0,
             cross_sectional_robust_z(d, "insider_flow_signal_score"),
         ),
+        # Phase 8a.4: hold persistence bonus (see core sleeve).
+        (_w_hold_persistence, _hold_persistence_bonus),
     ]
     early_score = weighted_sleeve_composite(
         early_weight_pairs,
