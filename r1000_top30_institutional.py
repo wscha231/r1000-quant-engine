@@ -2277,6 +2277,26 @@ class EngineConfig:
     # growth. High P/E is justified for high-growth names — penalising
     # them is what caused NVDA to rank 23 during its best 2024-01 month.
     phase8c_growth_adj_valuation_enabled: bool = True
+
+    # --------------- Phase 8d.1: IC-proportional sleeve weight boost ---------------
+    # Boost 2 specific underweighted factors whose factor IC is top-tier
+    # in their sleeves (strategy_blueprint 0.017, industry_group_strength 0.016).
+    # When active: strategy_blueprint core 0.25->1.00; industry_group_strength
+    # core 0.10->0.50, future 0.30->0.60. When inactive: legacy weights.
+    phase8d_ic_reweight_enabled: bool = True
+
+    # --------------- Phase 8d.2: long-horizon alpha composite ---------------
+    # Aggregates the 5 best r_12m-IC fundamental factors (ep_ttm, fcfy_ttm,
+    # sp_ttm, roe_proxy, sage_composite_score) into a single composite
+    # and wires it into sleeve tables with meaningful weights. Bypasses
+    # the walk-forward ML ensemble's r_1m training myopia (which under-
+    # weights factors whose alpha materialises over longer horizons).
+    # "Phase 8e lite" without the walk-forward refactor risk of proper
+    # r_12m ML retraining.
+    phase8d_long_horizon_alpha_enabled: bool = True
+    phase8d_long_horizon_alpha_core_weight: float = 1.00      # full weight on core (quality+value thesis)
+    phase8d_long_horizon_alpha_future_weight: float = 0.60    # moderate on future (momentum-first sleeve)
+    phase8d_long_horizon_alpha_early_weight: float = 0.50     # moderate on early (inflection-first sleeve)
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -18530,6 +18550,31 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     _phase8a_hold_env = phase_is_enabled("phase8a_hold_persistence", default=True)
     _phase8a_hold_cfg = bool(getattr(cfg, "phase8a_hold_persistence_enabled", True)) if cfg is not None else True
     _phase8a_hold_active = bool(_phase8a_hold_env and _phase8a_hold_cfg)
+
+    # -------------------------------------------------------------------
+    # Phase 8d.1 (2026-04-17): IC-proportional weight boost for two
+    # specific underweighted factors. Factor IC measurement
+    # (DIAGNOSIS_FACTOR_IC.md) over 83 OOS months identified:
+    #   - `strategy_blueprint_score`       IC +0.0166 (highest in core!)
+    #     currently w=0.25 in core — underweighted by ~4x given IC rank
+    #   - `industry_group_strength_score`  IC +0.0155
+    #     currently w=0.10 in core (lowest in table) and w=0.30 in future
+    #     — both sleeves systematically discounting a high-IC factor
+    # Conservative 8d: boost THESE TWO factors only. No other weights
+    # changed. Correlation-risk mitigated because the two factors measure
+    # unrelated concepts (blueprint = overall strategy composite;
+    # group_strength = industry rotation). Gated behind the same dual-gate
+    # pattern; when inactive, fall back to legacy weights for byte-
+    # identical A/B comparison.
+    # -------------------------------------------------------------------
+    _phase8d_env = phase_is_enabled("phase8d_ic_reweight", default=True)
+    _phase8d_cfg = bool(getattr(cfg, "phase8d_ic_reweight_enabled", True)) if cfg is not None else True
+    _phase8d_active = bool(_phase8d_env and _phase8d_cfg)
+    # Weights chosen to approximately match IC rank proportion.
+    _w_strategy_blueprint_core = 1.00 if _phase8d_active else 0.25
+    _w_industry_grp_strength_core = 0.50 if _phase8d_active else 0.10
+    _w_industry_grp_strength_future = 0.60 if _phase8d_active else 0.30
+    d["phase8d_ic_reweight_active"] = 1.0 if _phase8d_active else 0.0
     _w_hold_persistence = 0.90 if _phase8a_hold_active else 0.0
     _phase8a_hold_bonus_weight_each = float(
         getattr(cfg, "phase8a_hold_persistence_weight", 0.90) if cfg is not None else 0.90
@@ -18585,6 +18630,61 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     _persistence_trend = numeric_series_or_default(d, "persistence_trend_24m", 0.0).clip(0.0, 1.0)
     d["phase8b_long_lookback_active"] = 1.0 if _phase8b_active else 0.0
 
+    # -------------------------------------------------------------------
+    # Phase 8d.2 (2026-04-17): long-horizon alpha composite. Factor IC
+    # measurement showed fundamental factors have 2-4x stronger IC at
+    # r_12m vs r_1m:
+    #     factor               r_1m IC    r_12m IC    ratio
+    #     ep_ttm               0.026      0.042       1.6x
+    #     fcfy_ttm             0.025      0.050       2.0x
+    #     sp_ttm               0.022      0.086       3.9x !!
+    #     roe_proxy            0.016      0.035       2.2x
+    #     sage_composite_score 0.022      0.052       2.4x
+    # The walk-forward ensemble ML is trained against r_1m, so it
+    # systematically under-weights these high-r_12m-IC factors. This
+    # composite bypasses the ML ensemble's myopia by aggregating the
+    # five best fundamental factors with weights approximately
+    # proportional to their r_12m IC, then wiring the composite into
+    # the sleeve tables with full weight. Achieves ~80% of the intended
+    # benefit of a proper r_12m ML retraining (Phase 8e full) without
+    # the walk-forward refactor risk.
+    #
+    # Toggle: PHASE_PHASE8D_LONG_HORIZON + cfg.phase8d_long_horizon_alpha_enabled
+    # (dual-gate, both default True).
+    # -------------------------------------------------------------------
+    _phase8d_lh_env = phase_is_enabled("phase8d_long_horizon_alpha", default=True)
+    _phase8d_lh_cfg = bool(getattr(cfg, "phase8d_long_horizon_alpha_enabled", True)) if cfg is not None else True
+    _phase8d_lh_active = bool(_phase8d_lh_env and _phase8d_lh_cfg)
+    if _phase8d_lh_active:
+        _z_ep = cross_sectional_robust_z(d, "ep_ttm").fillna(0.0)
+        _z_fcfy = cross_sectional_robust_z(d, "fcfy_ttm").fillna(0.0)
+        _z_sp = cross_sectional_robust_z(d, "sp_ttm").fillna(0.0)
+        _z_roe = cross_sectional_robust_z(d, "roe_proxy").fillna(0.0)
+        _z_sage = cross_sectional_robust_z(d, "sage_composite_score").fillna(0.0)
+        # Weights chosen approximately proportional to r_12m IC strength:
+        #   sp_ttm (0.086) > fcfy_ttm (0.050) = sage (0.052) > ep_ttm (0.042) > roe (0.035)
+        # Then L1-normalised internally via /1.30 so the downstream sleeve
+        # weights on this composite stay in the same scale as other sleeve terms.
+        _long_horizon_alpha_composite = (
+            0.30 * _z_ep
+            + 0.30 * _z_fcfy
+            + 0.40 * _z_sp
+            + 0.20 * _z_roe
+            + 0.30 * _z_sage
+        ).clip(lower=-6.0, upper=6.0)
+        d["long_horizon_alpha_composite"] = _long_horizon_alpha_composite.values
+        d["phase8d_long_horizon_alpha_active"] = 1.0
+    else:
+        _long_horizon_alpha_composite = pd.Series(0.0, index=d.index, dtype=float)
+        d["long_horizon_alpha_composite"] = 0.0
+        d["phase8d_long_horizon_alpha_active"] = 0.0
+    # Sleeve weights for the composite (conservative — each sleeve gets
+    # a modest weight, not a dominating one, to avoid over-concentration
+    # on any single composite). Tunable via cfg.
+    _w_lh_alpha_core = float(getattr(cfg, "phase8d_long_horizon_alpha_core_weight", 1.00) if cfg is not None else 1.00) if _phase8d_lh_active else 0.0
+    _w_lh_alpha_future = float(getattr(cfg, "phase8d_long_horizon_alpha_future_weight", 0.60) if cfg is not None else 0.60) if _phase8d_lh_active else 0.0
+    _w_lh_alpha_early = float(getattr(cfg, "phase8d_long_horizon_alpha_early_weight", 0.50) if cfg is not None else 0.50) if _phase8d_lh_active else 0.0
+
     # Build the bonus series. Use raw 0/1 masks (not z-scored) so the bonus
     # is a HARD additive preference rather than a relative rank nudge.
     # CRITICAL: do NOT use `r_1m` here — it's the FORWARD return (see line
@@ -18620,7 +18720,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.95, cross_sectional_robust_z(d, "actual_results_score")),
         # Phase 8a.1: selection_confirmation_score has IC -0.0028
         (_w_selection_confirm_core, cross_sectional_robust_z(d, "selection_confirmation_score")),
-        (0.25, cross_sectional_robust_z(d, "strategy_blueprint_score")),
+        # Phase 8d.1: strategy_blueprint_score IC +0.0166 (highest in core) — boosted 0.25 -> 1.00
+        (_w_strategy_blueprint_core, cross_sectional_robust_z(d, "strategy_blueprint_score")),
         (0.35, cross_sectional_robust_z(d, "pricing_power_score")),
         (0.30, cross_sectional_robust_z(d, "margin_stability_8q")),
         (0.22, sage_q_rank),
@@ -18636,7 +18737,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # core compounders are already long-cycle plays where industry
         # leadership matters less than long-term moat quality.
         (0.25, cross_sectional_robust_z(d, "oneil_leadership_score")),
-        (0.10, cross_sectional_robust_z(d, "industry_group_strength_score")),
+        # Phase 8d.1: industry_group_strength_score IC +0.0155 — boosted core 0.10 -> 0.50
+        (_w_industry_grp_strength_core, cross_sectional_robust_z(d, "industry_group_strength_score")),
         # Phase 5: compounders also respect group-leader separation;
         # weight moderate so it doesn't overpower the moat/quality core.
         # Uses zero-masked z-score (see _p5_bonus_z above) so the
@@ -18660,6 +18762,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (_w_multi_year_core, _multi_year_winner),
         # Phase 8b.1: persistence_trend_24m binary confirmation.
         (_w_persist_core, _persistence_trend),
+        # Phase 8d.2: long-horizon alpha composite (ep_ttm/fcfy_ttm/sp_ttm/
+        # roe_proxy/sage_composite — high r_12m IC factors that ML ensemble
+        # under-weights due to r_1m training target). Full weight on core
+        # where quality + value + long-horizon fundamentals are the thesis.
+        (_w_lh_alpha_core, _long_horizon_alpha_composite),
     ]
     core_score = weighted_sleeve_composite(
         core_weight_pairs,
@@ -18700,7 +18807,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # finding "the best name in the strongest group" is the core
         # O'Neil/IBD playbook this sleeve tries to execute.
         (0.55, cross_sectional_robust_z(d, "oneil_leadership_score")),
-        (0.30, cross_sectional_robust_z(d, "industry_group_strength_score")),
+        # Phase 8d.1: industry_group_strength_score IC +0.0155 — boosted future 0.30 -> 0.60
+        (_w_industry_grp_strength_future, cross_sectional_robust_z(d, "industry_group_strength_score")),
         (0.20, cross_sectional_robust_z(d, "industry_within_leader_rank")),
         (0.25, cross_sectional_robust_z(d, "rs_industry_6m")),
         # Phase 8a.1: industry_rotation_signal has IC -0.0117 (negative alpha)
@@ -18727,6 +18835,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (_w_multi_year_future, _multi_year_winner),
         # Phase 8b.1: persistence_trend_24m binary confirmation on future.
         (_w_persist_future, _persistence_trend),
+        # Phase 8d.2: long-horizon alpha composite — moderate weight on
+        # future (some growth-with-fundamentals gate, but future sleeve
+        # is momentum-first so we don't dominate with value factors).
+        (_w_lh_alpha_future, _long_horizon_alpha_composite),
     ]
     future_score = weighted_sleeve_composite(
         future_weight_pairs,
@@ -18791,6 +18903,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # multi-year winners aren't the main prey, but we still reward
         # the trend (don't bottom-fish collapsing multi-year losers).
         (_w_multi_year_early, _multi_year_winner),
+        # Phase 8d.2: long-horizon alpha composite on early — moderate
+        # weight. Early sleeve is inflection-focused but we still want
+        # high fundamental quality (roe/margin) as an anchor to avoid
+        # bottom-fishing true zombies.
+        (_w_lh_alpha_early, _long_horizon_alpha_composite),
     ]
     early_score = weighted_sleeve_composite(
         early_weight_pairs,
