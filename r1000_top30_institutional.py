@@ -2261,6 +2261,22 @@ class EngineConfig:
     phase8b_multi_year_core_weight: float = 0.40     # weight on core sleeve (moderate — compounders benefit less)
     phase8b_persistence_trend_future_weight: float = 0.50  # binary-flag boost on future
     phase8b_persistence_trend_core_weight: float = 0.30    # binary-flag boost on core
+
+    # --------------- Phase 8c.1: mega-cap future-sleeve override ---------------
+    # When a name is mega-cap (>$50B) AND has strong revenue growth (>25%)
+    # AND is a multi-year trend winner (multi_year_winner_score>1.0),
+    # force-classify it into future_winner sleeve so it gets the full
+    # 58% sleeve allocation instead of being stranded in core's 12%.
+    phase8c_megacap_future_override_enabled: bool = True
+    phase8c_megacap_threshold_usd: float = 50.0e9            # market cap floor for override
+    phase8c_megacap_min_revenue_growth: float = 0.25         # rev-growth gate
+    phase8c_megacap_min_multi_year_score: float = 1.0        # multi_year_winner_score gate (top-quartile)
+
+    # --------------- Phase 8c.2: growth-adjusted valuation dampen ---------------
+    # Zero out the valuation PENALTY when a name has strong revenue
+    # growth. High P/E is justified for high-growth names — penalising
+    # them is what caused NVDA to rank 23 during its best 2024-01 month.
+    phase8c_growth_adj_valuation_enabled: bool = True
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -4020,6 +4036,42 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         ],
         d.index,
     ).fillna(0.0)
+    # -------------------------------------------------------------------
+    # Phase 8c.2 (2026-04-17): growth-adjusted valuation dampening.
+    # The raw forward_value_score above gives NVDA / AVGO / AMD (25%+
+    # revenue growth mega-caps) a NEGATIVE score because their P/E, P/S
+    # are above cross-sectional median. But a 45%-revenue-growth name
+    # SHOULD trade at a premium — penalising it for that is what caused
+    # our engine to rank NVDA 23rd during its best 2024-01 month.
+    #
+    # Fix: when revenue_growth_final is high, cap the valuation
+    # PENALTY (negative score) — we don't want to reward high P/E, but
+    # we shouldn't punish it either when earnings are catching up fast.
+    # POSITIVE score (cheap names) is unchanged; only NEGATIVE score
+    # (expensive names being penalised) is dampened.
+    #
+    # Thresholds:
+    #   rev_growth > 0.40  -> zero out the penalty (growth fully justifies)
+    #   rev_growth > 0.20  -> halve the penalty
+    #   rev_growth <= 0.20 -> no change (legacy behaviour)
+    # -------------------------------------------------------------------
+    _phase8c2_env = phase_is_enabled("phase8c_growth_adj_valuation", default=True)
+    _phase8c2_cfg = bool(getattr(cfg, "phase8c_growth_adj_valuation_enabled", True)) if cfg is not None else True
+    if _phase8c2_env and _phase8c2_cfg:
+        _rev_gr_for_value = numeric_series_or_default(d, "revenue_growth_final", 0.0)
+        _fwd_val = pd.to_numeric(d["forward_value_score"], errors="coerce").fillna(0.0)
+        _is_penalty = (_fwd_val < 0.0)
+        # Dampening factor: 0.0 when growth>0.40, 0.5 when 0.20<growth<=0.40, 1.0 otherwise.
+        _dampen = pd.Series(1.0, index=d.index, dtype=float)
+        _dampen = _dampen.where(~((_rev_gr_for_value > 0.20) & (_rev_gr_for_value <= 0.40)), 0.5)
+        _dampen = _dampen.where(~(_rev_gr_for_value > 0.40), 0.0)
+        # Only apply to NEGATIVE (penalty) rows — keep positive (cheap) rows intact.
+        d["forward_value_score"] = np.where(
+            _is_penalty, _fwd_val * _dampen.to_numpy(dtype=float), _fwd_val
+        )
+        d["phase8c_growth_adj_valuation_active"] = 1.0
+    else:
+        d["phase8c_growth_adj_valuation_active"] = 0.0
 
     revision_components = [
         "eps_est_q_next",
@@ -18912,6 +18964,53 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         "core_compounder",
         sleeve_label,
     )
+    # -------------------------------------------------------------------
+    # Phase 8c.1 (2026-04-17): force future_winner sleeve for mega-cap
+    # + high-growth + multi-year-trend names. Without this override the
+    # engine classifies NVDA/AVGO/MU as core_compounder (because they're
+    # $100B+ mega-caps) which constrains them to the 12%-weighted core
+    # sleeve. 2024-2026 empirical evidence (DIAGNOSIS_FACTOR_IC.md) shows
+    # future_winner sleeve returns 2.29%/month vs core 1.17%/month —
+    # reclassifying multi-year mega-cap winners to future unlocks the
+    # ~8% per-name weight they deserve based on their momentum profile.
+    #
+    # Criteria (ALL must hold):
+    #   market_cap_live or mktcap > $50B  (mega-cap gate)
+    #   revenue_growth_final > 0.25       (genuine growth, not mature
+    #                                      compounder)
+    #   multi_year_winner_score > 1.0     (top-quartile multi-year trend)
+    # Gated behind PHASE_PHASE8C_MEGACAP_OVERRIDE + cfg flag; default ON.
+    # -------------------------------------------------------------------
+    _phase8c1_env = phase_is_enabled("phase8c_megacap_override", default=True)
+    _phase8c1_cfg = bool(getattr(cfg, "phase8c_megacap_future_override_enabled", True)) if cfg is not None else True
+    _phase8c1_active = bool(_phase8c1_env and _phase8c1_cfg)
+    if _phase8c1_active:
+        _mktcap_threshold = float(
+            getattr(cfg, "phase8c_megacap_threshold_usd", 50.0e9) if cfg is not None else 50.0e9
+        )
+        _rev_growth_threshold = float(
+            getattr(cfg, "phase8c_megacap_min_revenue_growth", 0.25) if cfg is not None else 0.25
+        )
+        _multi_year_threshold = float(
+            getattr(cfg, "phase8c_megacap_min_multi_year_score", 1.0) if cfg is not None else 1.0
+        )
+        # Prefer live market_cap, fall back to historical mktcap for walk-forward rows.
+        _mcap_live_arr = numeric_series_or_default(d, "market_cap_live", 0.0).to_numpy(dtype=float)
+        _mcap_hist_arr = numeric_series_or_default(d, "mktcap", 0.0).to_numpy(dtype=float)
+        _mcap_resolved = np.where(np.isfinite(_mcap_live_arr) & (_mcap_live_arr > 0), _mcap_live_arr, _mcap_hist_arr)
+        _rev_growth_arr = numeric_series_or_default(d, "revenue_growth_final", 0.0).to_numpy(dtype=float)
+        _my_winner_arr = numeric_series_or_default(d, "multi_year_winner_score", 0.0).to_numpy(dtype=float)
+        _megacap_winner_mask = (
+            (_mcap_resolved > _mktcap_threshold)
+            & (_rev_growth_arr > _rev_growth_threshold)
+            & (_my_winner_arr > _multi_year_threshold)
+        )
+        sleeve_label = np.where(_megacap_winner_mask, "future_winner", sleeve_label)
+        d["phase8c_megacap_override_active"] = pd.Series(
+            _megacap_winner_mask.astype(float), index=d.index, dtype=float
+        )
+    else:
+        d["phase8c_megacap_override_active"] = 0.0
     sleeve_label_raw = sleeve_label.copy()
     fundamental_confirmation = numeric_series_or_default(
         d, "selection_fundamental_confirmation_score", 0.0
