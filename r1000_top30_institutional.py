@@ -7132,6 +7132,18 @@ def weighted_sleeve_composite(
     for w, s in weight_pairs:
         if s is None:
             continue
+        # Phase 8 review fix (2026-04-17): skip weight-0 pairs to prevent
+        # row_mean denominator dilution. `row_mean` computes
+        # `sum / count_of_non_NaN`, so `0.0 * non_NaN_z_score = 0.0`
+        # would count as a valid term and silently dilute every other
+        # factor's effective weight by ~1/N. Phase 8a.1 (negative-IC
+        # drop), 8a.4 (hold-persistence when inactive), 8b.1 (multi-year
+        # when inactive), 8c (when inactive) all set weight to 0 to mean
+        # "drop this factor" — without this guard they'd be producing
+        # the opposite effect. Threshold 1e-10 catches exact zeros but
+        # preserves intentionally-small weights like 0.05.
+        if abs(float(w)) < 1e-10:
+            continue
         weighted_terms.append(float(w) * s)
         abs_weights.append(abs(float(w)))
     if not weighted_terms:
@@ -18575,10 +18587,15 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
 
     # Build the bonus series. Use raw 0/1 masks (not z-scored) so the bonus
     # is a HARD additive preference rather than a relative rank nudge.
+    # CRITICAL: do NOT use `r_1m` here — it's the FORWARD return (see line
+    # 14110 where it's set to `forward_returns[cfg.target_1m_days]`) and
+    # using it would introduce lookahead bias. Use `mom_1m` which is
+    # `close.pct_change(21)` at the rebalance date = BACKWARD-looking
+    # realised 21-day return.
     if _phase8a_hold_active:
         _held_from_prev = numeric_series_or_default(d, "held_from_prev_rebalance", 0.0).astype(float).clip(lower=0.0, upper=1.0)
-        _recent_r_1m = numeric_series_or_default(d, "r_1m", 0.0)  # previous month's return is filled into r_1m at rebalance
-        _recent_win = (_recent_r_1m > 0.0).astype(float)
+        _recent_realised_mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)  # PAST 21-day return (backward)
+        _recent_win = (_recent_realised_mom_1m > 0.0).astype(float)
         _mom_12m_z_for_bonus = cross_sectional_robust_z(d, "mom_12m").fillna(0.0)
         _long_trend_alive = (_mom_12m_z_for_bonus > 0.0).astype(float)
         _hold_persistence_bonus = (
