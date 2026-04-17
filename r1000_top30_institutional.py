@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-17-phase5-leader-laggard"
+ENGINE_REUSE_VERSION = "2026-04-17-phase8a-macro-clamp-and-phase1-keepcols"
 
 
 # =====================================================================
@@ -970,6 +970,37 @@ PHASE5_LEADER_LAGGARD_COLUMNS = [
     "industry_leader_gap",           # (top-quartile mean - median) / std within industry_group
     "industry_leader_bonus_score",   # positive bonus for top-quartile in a clearly-separated strong group
     "industry_laggard_penalty_score",# symmetric penalty for bottom-quartile in the same strong group
+]
+
+
+# =====================================================================
+# Phase 1 (turnaround / value / uptrend alpha) — keep_cols survival list.
+# =====================================================================
+# Original Phase 1 (2026-04-16 12:27 KST commit `d464e9d`) added 5 new
+# cross-sectional alpha columns via `compute_strategy_blueprint_columns`.
+# That helper is re-invoked on `latest_df` at `score_latest_month` and
+# `prepare_latest_scored_data`, so Phase 1 columns show up in
+# `scored_latest.csv` via the latest-scoring path.
+#
+# BUT — `compute_strategy_blueprint_columns` inside `build_feature_store`
+# runs BEFORE the `keep_cols = [...]` whitelist at line ~13900, and the
+# whitelist did not list these 5 columns. Result: Phase 1 signal was
+# silently dropped from `feature_store_latest.parquet` and therefore
+# absent from every walk-forward training row across 83 months.
+# Factor IC measurement on 2026-04-17 confirmed the columns are missing
+# from `scored_oos_latest.parquet` (see DIAGNOSIS_FACTOR_IC.md).
+#
+# This is the exact same class of bug as the Phase 2 keepcols-fix
+# (commit `1d4fb40`, 2026-04-16). Fix: list the 5 columns here and
+# append to `build_feature_store.keep_cols`, plus bump
+# `ENGINE_REUSE_VERSION` so the feature_store is regenerated with
+# Phase 1 columns included.
+PHASE1_ALPHA_COLUMNS = [
+    "fundamental_turnaround_acceleration_score",  # loss->profit sign flip + loss-narrowing + under-loss CF growth
+    "cashflow_inflection_under_loss_score",       # OCF/FCF turning positive while NI still negative (Lynch/O'Neil)
+    "value_inflection_score",                     # cheap val + earnings catching up + Stage-1->2 setup with quality floor
+    "uptrend_continuation_score",                 # 52w-high + full MA-stack + intact mom + intact earnings
+    "uptrend_breakdown_penalty",                  # fires when strong names lose MA50/MA200, gap-down on earnings, etc.
 ]
 
 
@@ -6860,12 +6891,34 @@ def price_close_series(hist: pd.DataFrame) -> pd.Series:
 
 
 def rolling_robust_z(s: pd.Series, window: int = 63) -> pd.Series:
+    """Rolling robust z-score (median / MAD).
+
+    Post-2026-04-17 hardening (see DIAGNOSIS_BUGS.md): the previous
+    implementation only replaced `mad == 0` with NaN, leaving very small
+    MAD values (e.g. 1e-10) to produce z-scores like 1e14 when the
+    rolling window happened to have near-constant values followed by a
+    jump. This was the root cause of the 2024-06 macro corruption that
+    propagated `labor_softening_score = -2e14` to all 600 stock-level
+    scores via `compute_macro_regime_features`.
+
+    Fix:
+    - Floor MAD at `max(|median| * 0.01, 1e-6)` so the denominator can
+      never collapse below a scale-aware floor.
+    - Clip the final z-score to [-10, 10]. Any legitimate rolling z-score
+      beyond +-10 standard-MADs is almost certainly a data artefact;
+      clipping here is cheaper than relying on downstream hard_sanitize.
+    """
     x = pd.to_numeric(s, errors="coerce").astype(float)
     min_periods = max(12, window // 3)
     med = x.rolling(window, min_periods=min_periods).median()
     mad = (x - med).abs().rolling(window, min_periods=min_periods).median()
-    z = (x - med) / (1.4826 * mad.replace(0, np.nan))
-    return z.replace([np.inf, -np.inf], np.nan)
+    # Scale-aware MAD floor: prevents near-zero-denominator blow-ups.
+    abs_med = med.abs().fillna(0.0)
+    mad_floor = np.maximum(abs_med * 0.01, 1e-6)
+    mad_safe = np.maximum(mad.fillna(0.0), mad_floor)
+    z = (x - med) / (1.4826 * mad_safe)
+    z = z.replace([np.inf, -np.inf], np.nan)
+    return z.clip(lower=-10.0, upper=10.0)
 
 
 def row_mean(parts: list[pd.Series], index: pd.Index) -> pd.Series:
@@ -8206,6 +8259,23 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     for c in MACRO_REGIME_COLUMNS:
         if c not in macro.columns:
             macro[c] = np.nan
+
+    # Phase 8a.5 (2026-04-17): belt-and-suspenders clamp on every macro
+    # regime score. These columns are either `.clip(0, 1)` probability-style
+    # or row_mean of z-scores that should live in roughly [-3, +3].
+    # Clamp to [-6, 6] to catch any residual blow-up from rolling_robust_z
+    # (which is now z-clipped but could still compose into large magnitudes
+    # via row_mean of many terms).  This is cheap (vectorised) and
+    # eliminates the class of bug that produced `labor_softening_score =
+    # -2e14` on 2024-06-01.
+    _MACRO_CLAMP_MIN, _MACRO_CLAMP_MAX = -6.0, 6.0
+    for _macro_col in MACRO_REGIME_COLUMNS:
+        if _macro_col in macro.columns:
+            macro[_macro_col] = (
+                pd.to_numeric(macro[_macro_col], errors="coerce")
+                .replace([np.inf, -np.inf], np.nan)
+                .clip(lower=_MACRO_CLAMP_MIN, upper=_MACRO_CLAMP_MAX)
+            )
 
     macro.index.name = "macro_date"
     macro = macro.reset_index()
@@ -13914,6 +13984,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + LATEST_ONLY_SIGNAL_COLUMNS
             + PHASE2_INDUSTRY_COLUMNS
             + PHASE5_LEADER_LAGGARD_COLUMNS
+            + PHASE1_ALPHA_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -13939,6 +14010,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PILLAR_SCORE_COLUMNS
         + _PHASE2_NUMERIC_COLUMNS
         + PHASE5_LEADER_LAGGARD_COLUMNS
+        + PHASE1_ALPHA_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -13972,6 +14044,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + MACRO_INTERACTION_COLUMNS
         + _PHASE2_NUMERIC_COLUMNS
         + PHASE5_LEADER_LAGGARD_COLUMNS
+        + PHASE1_ALPHA_COLUMNS
         + LIVE_EVENT_ALERT_COLUMNS,
     )
     write_fundamental_coverage_report(
