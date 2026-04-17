@@ -224,6 +224,74 @@ Before proposing cuts, let's be clear on what's WORKING:
 
 ---
 
+## 6b. Sleeve taxonomy has collapsed (user observation, 2026-04-17)
+
+User noticed: "Early 와 Future 가 실질적으로 같아 보인다. Early 도 대형주에 성숙 이익 기업을 담고 있다." **Confirmed empirically** on 2026-04-16 latest ops recommendations:
+
+| Sleeve | 10 picks median mktcap | median rev growth | Sample |
+|---|---|---|---|
+| Core compounder | $458B | 7.2% | NVDA (!), AAPL, V, AVGO (!), KO |
+| Future winner   | $310B | 9.0%  | CVX (-5% rev!), JNJ, COST, WMT |
+| Early scout     | $113B | 0.0%  | BKNG ($1T!), KLAC, MU, WDC     |
+
+NVDA (rev 65%) classified as "compounder", CVX (rev -5%) as "future winner", BKNG ($1T mega-cap plateau) as "early scout". Sleeve labels have **lost their archetype meaning**.
+
+### Root causes
+
+1. **Same factors appear in multiple sleeves with similar weights** — future and early sleeves share `anticipatory_growth_score`, `leader_emergence_score`, `revision_blueprint_score`, `revision_score`, `relative_strength_composite`, `fundamental_turnaround_acceleration_score`, `cashflow_inflection_under_loss_score`, `minervini_momentum_alive_score`, `breakout_setup_quality_score`. The two sleeve scores become highly correlated.
+
+2. **Argmax assignment** — sleeve is decided by `np.argmax([core_score, future_score, early_score])`. When scores are close (correlated), the winner is essentially noise.
+
+3. **Phase 1's "early scout" signals are underweighted** — `value_inflection_score` (w=0.55), `cashflow_inflection_under_loss_score` (w=0.45), `fundamental_turnaround_acceleration_score` (w=0.55) in the early sleeve are DOMINATED by `anticipatory_growth_score` (w=1.00), `growth_onset_composite` (w=1.00), `leader_emergence_score` (w=1.00). The "established growth" factors win the vote even inside the sleeve that was supposed to be about inflection-stage names.
+
+4. **No explicit archetype gate** — nothing says "to be in early_scout you must have a genuine turnaround OR value inflection OR be pre-mega-cap". Everything is score-only.
+
+### Redesigned taxonomy — thesis gates + rank within
+
+Replace argmax sleeve-score assignment with EXPLICIT ELIGIBILITY GATES, then rank within each gate:
+
+```
+CORE COMPOUNDER      mktcap > $50B
+                     AND 2% <= revenue_growth_final <= 25%  (mature, not hyper-grow)
+                     AND roe_proxy > 15% (3y consistent)
+                     AND net_margin > 10%
+                     AND vol_252d < 1.3x cross-sectional median (low vol)
+
+FUTURE WINNER        (revenue_growth_final > 20%) OR (mom_24m > 50%)
+                     AND revision_blueprint_score > 0
+                     AND mom_12m > 0
+                     AND NOT core_eligible  (strict partitioning)
+
+EARLY SCOUT          (fundamental_turnaround_acceleration_score > 1.5)
+                     OR (cashflow_inflection_under_loss_score > 1.5)
+                     OR (value_inflection_score > 2.0)
+                     AND mktcap < $100B (pre-mega stage)
+                     AND -10% <= revenue_growth_final <= 30% (not hyper, not terminal decline)
+                     AND NOT core_eligible AND NOT future_eligible
+
+UNASSIGNED          Names eligible for 0 sleeves -> dropped from portfolio entirely
+                    (quality gate — we only hold names that fit a thesis)
+```
+
+**Consequences**:
+- NVDA (rev 65%, mom 200%+): core NOT eligible (rev > 25%), future eligible → **FUTURE WINNER** ✓ (correct — it's an emerging leader)
+- CVX (rev -5%): core NOT eligible (rev < 2%), future NOT eligible (rev < 20% AND mom_24m not > 50%), early NOT eligible (no turnaround score) → **DROPPED**
+- BKNG ($1T mega + rev 0%): core eligible (rev in range, roe high), early NOT (not <$100B) → **CORE COMPOUNDER** (correct — it's a platform compounder)
+- A genuine inflection name (loss-to-profit transition) with $30B cap → only early eligible → **EARLY SCOUT** ✓
+
+**Benefit**: every name in the portfolio has an EXPLICIT THESIS that matches its archetype. Sleeve allocation targets (12% core / 58% future / 22% early) now directly express "how much risk exposure by archetype" rather than "how the factor scores happened to rank".
+
+**Tradeoff**: some months may have fewer than 7 eligible names in early_scout (if no genuine turnarounds available). That's fine — it means the portfolio concentrates on core + future when inflection plays are unavailable.
+
+### Implementation (goes into Phase 9 §7)
+
+- Rewrite the `sleeve_label` assignment block in `compute_portfolio_sleeve_columns` (~line 18887 onwards).
+- Delete the current "low_gap + dominant_archetype" override chain (which was a Band-Aid for the argmax problem).
+- Keep 3 separate sleeve composite scores for RANKING within each sleeve's eligible set.
+- Add `sleeve_eligibility_mask` diagnostic column so audits can see which sleeves a name qualified for.
+
+---
+
 ## 7. Phase 9 proposal — "Subtractive" mode
 
 After Phase 8 ships (CAGR ≥ 25%) and refactor Phase A completes, execute a ruthless cleanup pass.
@@ -253,6 +321,15 @@ After Phase 8 ships (CAGR ≥ 25%) and refactor Phase A completes, execute a rut
 
 **Estimated lines removed: 4,000-5,000**.
 
+**REDESIGN** (behavior change):
+
+12. **Sleeve taxonomy thesis-gate redesign** (see §6b). Replace argmax-of-3-sleeve-scores with explicit eligibility masks per sleeve. Names eligible for 0 sleeves → dropped. Names eligible for 1+ sleeves → ranked within that sleeve by composite. This is a BEHAVIOR CHANGE (not just code cleanup) — requires A/B verification. Target impact:
+    - Genuine compounders (KO/V/PG/JNJ) → core
+    - Genuine growth winners (NVDA/AVGO/CRWD/PLTR) → future
+    - Genuine inflection plays (turnaround, value-with-growth, emerging profitability) → early
+    - Dropped names: declining revenue + no inflection (current false-positives like CVX in future_winner)
+    - Current "low_gap/dominant_archetype" override chain (Band-Aid for argmax) DELETED (~200 lines)
+
 **SIMPLIFY** (replace, not delete):
 
 9. Sleeve composite: consolidate 6 industry signals into one `industry_composite`; 3 revision signals into one; 3 growth-onset signals into one (~500 lines → ~150 lines)
@@ -260,6 +337,7 @@ After Phase 8 ships (CAGR ≥ 25%) and refactor Phase A completes, execute a rut
 11. SAGE sub-scores: keep composite, drop individual g/v/q/c weights in sleeve tables (was double-counting) (~200 lines)
 
 **Estimated lines reduced by simplification: 1,500-2,500**.
+**Sleeve thesis redesign**: roughly neutral on line count (new eligibility masks add ~300 lines, removed Band-Aid overrides delete ~200 lines).
 
 ### 7.3 What we KEEP and strengthen
 
