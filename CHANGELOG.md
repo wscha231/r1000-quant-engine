@@ -2115,3 +2115,70 @@ All entries must be written in English. Entries must be predictable and machine-
   - The handoff's §2 assumes the user opens `colab_run.ipynb` from Drive and pastes Cell A / Cell E as sidecar cells. The existing Cell 2 in the notebook is already current (has all 8 phase env toggles via commit `33ed065` + `914558f`); no notebook changes needed for the office session.
   - If the QUICK_RESCORE takes more than 25 minutes, the Cell A Drive mount / git fetch likely failed silently. Cell A's `git log --oneline -3` output is the checkpoint — if HEAD is NOT `c4d50fd` or newer the fix isn't being used.
   - `ENGINE_REUSE_VERSION` stays at `"2026-04-17-phase5-leader-laggard"`. The cached feature_store from the 2026-04-17 morning FULL rebuild is valid for this QUICK_RESCORE — the dilution fix is portfolio-layer only.
+
+### 11:16 KST - phase8-complete-restructure-for-30pct-cagr
+
+- scope:
+  - Major restructuring pass targeting CAGR 15.44% -> 25-30%+. Five commits (`4cd938e`, `3624e06`, `e3bf29d`, `3e44d35`, `caddec3`) implementing every action in `PHASE_8_PROPOSAL.md`. Grounded in the Phase C diagnosis (commit `027c5b3`) which measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet`, confirmed the 2024-06 macro score corruption, audited the universe for survivorship + missing AI names, and ran counterfactual simulations for each proposed improvement.
+- files:
+  - `r1000_top30_institutional.py` (all 5 commits):
+    - `rolling_robust_z` — hardened MAD denominator with scale-aware floor (`max(|median|*0.01, 1e-6)`) and z-clip to `[-10, 10]`. Root cause of the 2024-06 `labor_softening_score = -2.025e+14` bug.
+    - `compute_macro_regime_features` — added `clip(-6, 6)` belt-and-suspenders on every `MACRO_REGIME_COLUMNS` entry at the end of the function.
+    - `PHASE1_ALPHA_COLUMNS` — new constant (5 columns) appended to `build_feature_store.keep_cols` + `hard_sanitize` + `write_stage_coverage_report` so Phase 1 alpha signals actually reach the walk-forward training set (same keepcols-bug class as commit `1d4fb40` for Phase 2).
+    - `compute_portfolio_sleeve_columns` — three negative-IC factors zeroed under `PHASE_PHASE8A_NEG_IC_DROP` env gate: `quality_trend_score` (core, IC -0.0042), `selection_confirmation_score` (core, IC -0.0028), `industry_rotation_signal` (future + early, IC -0.0117).
+    - `EngineConfig.sub_industry_leader_laggard_enabled` flipped from `True` -> `False` and matching `phase_is_enabled("phase5_leader_laggard")` default changed to `False`. Factor IC measurement showed Phase 5 signals have ~0 alpha; disabling saves 3 weight-pair slots.
+    - `compute_portfolio_sleeve_columns` — new `hold_persistence_bonus` composite with weight 0.90 in all three sleeves (PHASE_PHASE8A_HOLD_PERSISTENCE env gate, default ON). Rewards held-and-winning names to cut turnover from 49.5%/mo toward 25%/mo.
+    - `compute_price_features` — three new raw lookbacks `mom_18m` (pct_change 378), `mom_24m` (504), `mom_36m` (756). Added to `DEFAULT_FEATURES`.
+    - `build_universe_monthly` — new `multi_year_winner_score` cross-sectional composite (weighted blend 0.50*z12+0.80*z24+0.60*z36) and `persistence_trend_24m` binary flag (mom_12>.15 AND mom_24>.30 AND mom_36>.50). Gated PHASE_PHASE8B_LONG_LOOKBACK.
+    - `compute_portfolio_sleeve_columns` — wired 8b.1 into sleeves with weights: future=0.90 + 0.50 persist, early=0.60, core=0.40 + 0.30 persist.
+    - `compute_portfolio_sleeve_columns` sleeve_label override — force `future_winner` for (mktcap>$50B AND rev_growth>0.25 AND multi_year_winner_score>1.0). Moves NVDA-style names from the 12%-weight core sleeve to the 58%-weight future sleeve. Env gate PHASE_PHASE8C_MEGACAP_OVERRIDE, cfg knobs for threshold tuning.
+    - `compute_live_factor_columns` — growth-adjusted valuation dampening: when `revenue_growth_final > 0.40` the NEGATIVE portion of `forward_value_score` is zeroed; >0.20 halves it; positive portion unchanged. Stops the engine from penalising high-growth mega-caps for their earnings-catch-up P/E. Env gate PHASE_PHASE8C_GROWTH_ADJ_VALUATION.
+    - `ENGINE_REUSE_VERSION` bumped: `"2026-04-17-phase5-leader-laggard"` -> `"2026-04-17-phase8a-macro-clamp-and-phase1-keepcols"` (commit 1) -> `"2026-04-17-phase8b-long-lookback-momentum"` (commit 4). Final value for FULL rebuild trigger.
+    - `PHASE8B_LONG_LOOKBACK_COLUMNS` constant (5 columns: mom_18m, mom_24m, mom_36m, multi_year_winner_score, persistence_trend_24m) appended to keep_cols / hard_sanitize / coverage report.
+  - `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md`, `PHASE_8_PROPOSAL.md`, `DIAGNOSIS_factor_ic.csv` — landed earlier in commit `027c5b3`; referenced throughout the Phase 8 changes.
+  - `SESSION_HANDOFF.md` — rewritten (this commit).
+  - `CHANGELOG.md` — this entry.
+- symbols_added:
+  - `PHASE1_ALPHA_COLUMNS: list[str]` — 5-column keepcols survival list for Phase 1 turnaround/value/uptrend alpha.
+  - `PHASE8B_LONG_LOOKBACK_COLUMNS: list[str]` — 5-column keepcols survival list for mom_18m/24m/36m + two composites.
+- symbols_changed:
+  - `rolling_robust_z(s, window)` — hardened MAD denominator and z-clip.
+  - `compute_macro_regime_features(cfg, paths)` — added MACRO_REGIME_COLUMNS clip(-6, 6) at end.
+  - `build_universe_monthly(cfg, paths)` — added Phase 8b.1 composite block after Phase 5.
+  - `compute_price_features(close, open_, vol, dividends)` — added mom_18m/24m/36m raw momentum.
+  - `compute_live_factor_columns(d, cfg)` — added Phase 8c.2 growth-adj valuation dampening after forward_value_score.
+  - `compute_portfolio_sleeve_columns(df, cfg)` — weight-pair tables extended with hold_persistence + multi_year_winner + persistence_trend + megacap_override logic.
+  - `build_feature_store(cfg, paths, ...)` — keep_cols / hard_sanitize / write_stage_coverage_report extended with `PHASE1_ALPHA_COLUMNS` + `PHASE8B_LONG_LOOKBACK_COLUMNS`.
+  - `EngineConfig.sub_industry_leader_laggard_enabled`: `True` -> `False`.
+- config_fields_added:
+  - `phase8a_hold_persistence_enabled: bool = True` — Phase 8a.4 master toggle
+  - `phase8a_hold_persistence_weight: float = 0.90` — sleeve-composite weight for the bonus
+  - `phase8b_long_lookback_enabled: bool = True` — Phase 8b.1 master toggle
+  - `phase8b_multi_year_future_weight: float = 0.90` — multi_year_winner_score weight in future sleeve
+  - `phase8b_multi_year_early_weight: float = 0.60` — same for early
+  - `phase8b_multi_year_core_weight: float = 0.40` — same for core
+  - `phase8b_persistence_trend_future_weight: float = 0.50` — persistence_trend_24m weight in future
+  - `phase8b_persistence_trend_core_weight: float = 0.30` — same for core
+  - `phase8c_megacap_future_override_enabled: bool = True` — Phase 8c.1 master toggle
+  - `phase8c_megacap_threshold_usd: float = 50.0e9` — market-cap floor for the override
+  - `phase8c_megacap_min_revenue_growth: float = 0.25` — revenue-growth floor for the override
+  - `phase8c_megacap_min_multi_year_score: float = 1.0` — multi_year_winner_score floor for the override
+  - `phase8c_growth_adj_valuation_enabled: bool = True` — Phase 8c.2 master toggle
+- breaking_changes:
+  - `ENGINE_REUSE_VERSION` changed -> FULL REBUILD required on next Colab run. Feature-store added 5 new columns (mom_18m/24m/36m + 2 composites) and Phase 1 keepcols fix expects 5 more columns in the whitelist, so a stale `feature_store_latest.parquet` is INVALID. Cell 4 will automatically rebuild when `QUICK_RESCORE_ONLY=False`.
+  - Phase 5 default flipped OFF — `sub_industry_leader_laggard_enabled: True -> False`. Downstream Phase 5 diagnostic columns (`industry_leader_gap` etc.) still exist in the schema (zero-filled) so no consumer code breaks.
+- outputs:
+  - `feature_store_latest.parquet` -> 10 new columns: `fundamental_turnaround_acceleration_score`, `cashflow_inflection_under_loss_score`, `value_inflection_score`, `uptrend_continuation_score`, `uptrend_breakdown_penalty`, `mom_18m`, `mom_24m`, `mom_36m`, `multi_year_winner_score`, `persistence_trend_24m`.
+  - `scored_latest.csv` / `scored_oos_latest.parquet` -> same 10 new columns + 5 new diagnostic flags: `hold_persistence_bonus`, `phase8a_hold_persistence_active`, `phase8b_long_lookback_active`, `phase8c_megacap_override_active`, `phase8c_growth_adj_valuation_active`.
+  - `stage_coverage_feature_store.json` -> coverage metrics for the 10 new numeric columns.
+- validation:
+  - `py -3 -c "import py_compile; py_compile.compile('r1000_top30_institutional.py', doraise=True)"` passed after each of the 5 commits.
+  - No existing tests broken (walk-forward structure unchanged; only additional weight-pair entries + composite columns; every change gated behind dual-gate env+cfg toggle with `weight=0` fallback to byte-identical legacy behaviour).
+  - Colab FULL rebuild required on next run to validate cumulative CAGR impact; ship gate `DIAGNOSIS_COUNTERFACTUAL.md §6`: CAGR >= 25% on the 83-month backtest.
+- risks_or_notes:
+  - **Execution plan**: user runs a FULL REBUILD in Colab (3h+) with all Phase 8 toggles at default ON. After Cell 4 completes, Cell E runs the recovery-verdict script (baseline in SESSION_HANDOFF.md `§2`) comparing the new metrics against the 2026-04-16 baseline (CAGR 20.10%). Expected: CAGR 25-30%+, Sharpe >= 1.0, MaxDD -18% to -24%. If CAGR is below 18% a regression occurred and we roll back via env toggles.
+  - **A/B isolation**: every Phase 8 change is behind a dual-gate `cfg + env` toggle, so if the combined run regresses we can isolate which sub-phase via QUICK_RESCORE runs flipping one env var at a time. Phase 8a.1 (negative-IC drop), 8a.2 (phase5 default), 8a.4 (hold persistence), 8c.1 (megacap override), 8c.2 (growth-adj valuation) are all QUICK-measurable. Phase 8b.1 (long lookback) requires FULL rebuild due to new feature columns.
+  - **Known gotcha**: `mom_24m` / `mom_36m` columns require 504 / 756 trading days of price history. Tickers with <3 years of data get `NaN` for `mom_36m` and `multi_year_winner_score` is zero-masked by design. Early-universe IPOs (PLTR, COIN, DASH, RBLX, etc.) will not score on Phase 8b for their first 2-3 years.
+  - **Not yet implemented from PHASE_8_PROPOSAL.md**: `8a.3 IC-proportional reweighting` (deferred — needs post-FULL measurement to verify factor correlations first) and `8b.2 r_12m ML training target` (deferred — requires walk-forward train-target refactor, high risk for one session). Both flagged in SESSION_HANDOFF.md as Phase 8d/8e follow-ups pending.
+  - **Negative-IC drops may be too aggressive**: `quality_trend_score` (IC -0.0042) and `selection_confirmation_score` (IC -0.0028) are statistically significant but marginally so over 83 months. Possible they help on specific regimes (stagflation / systemic-crisis) that the 83-month sample underweights. Mitigation: env toggle `PHASE_PHASE8A_NEG_IC_DROP=0` restores original weights.
+  - **Megacap override may concentrate future sleeve too heavily**: if 6-10 names simultaneously meet (mktcap>$50B, rev_growth>0.25, multi_year_winner>1.0), future_winner sleeve's top-7 selection will be dominated by them. This is the INTENDED behaviour but increases single-name concentration — tradeoff accepted per user's "CAGR > diversification" stance.

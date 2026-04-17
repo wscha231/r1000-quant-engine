@@ -1,42 +1,41 @@
-# Session Handoff — 2026-04-17 12:30 KST
+# Session Handoff — 2026-04-17 11:16 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
-> **LIFETIME**: delete / rewrite this file whenever a phase is shipped or a new blocker appears. Do NOT let stale handoff notes accumulate — keep exactly one active handoff.
+> **LIFETIME**: delete / rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
 
 ---
 
 ## 0. TL;DR — one-paragraph resume brief
 
-A 2026-04-17 morning FULL rebuild exposed a regression: main-portfolio CAGR dropped 20.10% → 15.44% (−4.66pp), Sharpe 1.08 → 0.84, MaxDD −23.6% → −26.3%, IR 0.58 → 0.20. Root cause: Phase 5's sub-industry leader/laggard bonus fires on only 3.6% of rows / penalty on 0%, but `row_mean` was treating those zero-valued z-scores as valid terms, diluting every other factor's effective weight by ~6% across all three sleeves (same trap Phase 3 tried to solve). The fix (commit `c4d50fd`) masks zero-valued signals to NaN so `row_mean` drops them from BOTH numerator and denominator. A companion fix extends `equity_curve.csv` to carry Phase 6a/6c diagnostic columns so the user can verify breaker activity. Current HEAD = `c4d50fd`. **Next action: Colab QUICK_RESCORE (~20 min) to verify CAGR recovery toward baseline.** Post-recovery, decide whether Phase 5 ON-by-default is worth keeping (likely small positive contribution once dilution is gone), then run the three deferred A/Bs (Phase 4 regime weights, Phase 6c vol-target, Phase 7a insider+accruals).
+A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. The afternoon Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped all ten recommended changes from `PHASE_8_PROPOSAL.md`: macro-bug fix, Phase 1 keepcols fix, 3 negative-IC factors dropped, Phase 5 disabled by default, hold-persistence bonus (for turnover reduction), long-lookback momentum (mom_18m/24m/36m + multi_year_winner_score + persistence_trend_24m), mega-cap future-sleeve override, and growth-adjusted valuation dampening. Current HEAD = `caddec3`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8 toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%.
 
 ---
 
 ## 1. Recent timeline on `origin/master` (newest first)
 
-| Commit | Title | Default state | Notes |
-|---|---|---|---|
-| `c4d50fd` | **Fix Phase 5 row_mean dilution + restore breaker diagnostic CSV export** | — | Emergency fix. Phase 5 ON stays ON but now actually acts like ON (no dilution). Diagnostic columns now flow to CSV. |
-| `914558f` | Add Phase 7a insider-flow + accruals sleeve wiring | **OFF** | dual-gate opt-in. Expected +0.3-0.6pp CAGR once wired. Not yet A/B-measured. |
-| `017b853` | Refresh agent-facing docs after Phase 4/5/6 rollout | — | Pure docs refresh. |
-| `f7ec511` | Align Phase 6a/6b getattr defaults with EngineConfig defaults | — | Pure hardening. No behaviour change in active paths. |
-| `33ed065` | Wire Phase 4/5/6 toggles into Colab notebook + rotate SESSION_HANDOFF | — | Cell 2 gained 6 new phase env toggles. |
-| `ee93fa0` | Add Phase 6c volatility targeting | **OFF** | Dynamic cash-floor expression. Default OFF per plan. |
-| `4c3274d` | Add Phase 6b VIX level hard guard | **ON** | 4-tier cash floor on VIX ≥ 22/28/35/45. |
-| `b4c63c9` | Add Phase 6a 3-level drawdown circuit breaker | **ON** | −8/−15/−25% ladder + equity-based recovery hysteresis. |
-| `0756636` | Add Phase 5 sub-industry leader/laggard | **ON** | Bumped `ENGINE_REUSE_VERSION` to `"2026-04-17-phase5-leader-laggard"`. |
-| `6b790cb` | Add Phase 4 regime-conditional sleeve multipliers | **OFF** | A/B pending. |
-| `28e41fe` | **Record Phase 3 A/B rejection** | **OFF (reject)** | ΔCAGR −2.30pp / ΔSharpe −0.13 / ΔMaxDD −4.58pp. Infra retained, do not re-try without `l1_target` redesign. |
+| Commit | Title | Phase | Requires | Default |
+|---|---|---|---|---|
+| `caddec3` | **Phase 8c: Mega-cap future override + growth-adj valuation** | 8c.1 + 8c.2 | QUICK-measurable | ON |
+| `3e44d35` | **Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m + multi_year_winner)** | 8b.1 | **FULL rebuild** | ON |
+| `e3bf29d` | Phase 8a.4: Hold persistence bonus to reduce turnover | 8a.4 | QUICK-measurable | ON |
+| `3624e06` | Phase 8a.1 + 8a.2: Drop 3 negative-IC factors + disable Phase 5 default | 8a.1 / 8a.2 | QUICK-measurable | ON / OFF |
+| `4cd938e` | Phase 8a safety: rolling_robust_z MAD floor + macro clamp + Phase 1 keepcols | 8a.5 + 8b.3 | **FULL rebuild** | always-on |
+| `027c5b3` | **Phase C diagnosis docs (factor IC, counterfactuals, bugs, Phase 8 proposal)** | C | — | — |
+| `53e8c91` | Rotate SESSION_HANDOFF for office-resume after dilution fix | — | — | — |
+| `c4d50fd` | Fix Phase 5 row_mean dilution + restore breaker diagnostic CSV export | — | QUICK | — |
 
-Full chronological detail is in `CHANGELOG.md` (last ~400 lines). `PHASE_ROADMAP.md` §3 carries the PR-level status table.
+**Current `ENGINE_REUSE_VERSION`**: `"2026-04-17-phase8b-long-lookback-momentum"`. FULL rebuild required because the feature-store schema grew by 10 columns (5 Phase 1 + 5 Phase 8b).
+
+See `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md`, `PHASE_8_PROPOSAL.md` for the data-driven justification behind every Phase 8 change.
 
 ---
 
-## 2. What the user must do NEXT — **Colab QUICK_RESCORE**
+## 2. What the user must do NEXT — **Colab FULL REBUILD**
 
-Goal: confirm the `c4d50fd` dilution fix restores the main-portfolio CAGR toward the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD −23.60%). Runtime ~15-25 min (QUICK_RESCORE reuses feature_store + trained models).
+Goal: measure the combined CAGR effect of Phase 8a + 8b + 8c. Runtime ~3 hours (FULL rebuild: feature_store regeneration + walk-forward retrain). All 10 Phase 8 changes are at their default ON setting, so no env overrides needed.
 
-### Cell A — sync code + switch cwd (paste at top of notebook, every session)
+### Cell A — sync code + switch cwd (paste at top of notebook every session)
 
 ```python
 import subprocess, sys, os
@@ -44,33 +43,40 @@ REPO_DIR = '/content/drive/MyDrive/r1000-quant-engine'
 DATA_DIR = '/content/drive/MyDrive/r1000_top30_institutional'
 subprocess.run(['git', '-C', REPO_DIR, 'fetch', 'origin', 'master'], check=True)
 subprocess.run(['git', '-C', REPO_DIR, 'reset', '--hard', 'origin/master'], check=True)
-print("Latest 3 commits on origin/master:")
-subprocess.run(['git', '-C', REPO_DIR, 'log', '--oneline', '-3'])
-# Expected HEAD: c4d50fd "Fix Phase 5 row_mean dilution ..."
+print("Latest 5 commits on origin/master:")
+subprocess.run(['git', '-C', REPO_DIR, 'log', '--oneline', '-5'])
+# Expected HEAD: caddec3 "Phase 8c: Mega-cap future override ..."
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 os.chdir(DATA_DIR)
 print("\ncwd:", os.getcwd())
 ```
 
-### Cell 2 — toggles (critical: QUICK_RESCORE_ONLY=True this time, not FULL)
+### Cell 2 — toggles (critical: FULL rebuild, not QUICK)
 
 ```python
-QUICK_RESCORE_ONLY = True              # ★ QUICK_RESCORE, NOT full rebuild
-OPTION_1_FULL_REBUILD = False
+QUICK_RESCORE_ONLY = False             # ★ FULL rebuild this time
+OPTION_1_FULL_REBUILD = True           # ★ required
 FRESH_START = False
 NUKE_ALL = False
 
-# All phase toggles left at 'auto' — cfg defaults are:
-#   Phase 1 ON, Phase 2 ON, Phase 3 OFF, Phase 4 OFF,
-#   Phase 5 ON, Phase 6a ON, Phase 6b ON, Phase 6c OFF,
-#   Phase 7a OFF.
-# The dilution fix applies automatically — no env override needed.
+# All Phase 8 toggles left at 'auto' — cfg defaults are:
+#   Phase 8a.1 negative-IC drop:           ON
+#   Phase 8a.2 Phase 5 disabled:           OFF (by default, i.e. Phase 5 off)
+#   Phase 8a.4 hold persistence:           ON
+#   Phase 8a.5 macro clamp:                always-on (no toggle)
+#   Phase 8b.1 long-lookback momentum:     ON
+#   Phase 8b.3 Phase 1 keepcols:           always-on (no toggle)
+#   Phase 8c.1 megacap future override:    ON
+#   Phase 8c.2 growth-adj valuation:       ON
+# No env overrides needed. Let cfg defaults drive the run.
 ```
 
-### Cell 3 → Cell 4 (pipeline, ~15-25 min in QUICK_RESCORE mode)
+### Cell 3 → Cell 4 (pipeline, ~2.5-3.5h in FULL mode)
 
-Run the notebook's existing collector + pipeline cells unchanged.
+Run the notebook's existing collector + pipeline cells unchanged. Expect:
+- Cell 3 (collector): ~10-20 min (mostly cached; new feature coverage is price-based which is already cached)
+- Cell 4 (pipeline): ~2.5-3h for FULL rebuild + walk-forward + latest scoring
 
 ### Cell E — recovery verdict (run after Cell 4 finishes)
 
@@ -80,88 +86,105 @@ import pandas as pd
 
 BASE = pathlib.Path('/content/drive/MyDrive/r1000_top30_institutional')
 
-# 1. Phase 5 signal coverage
+print("=" * 70); print("1. PHASE 8 COLUMN COVERAGE (verify keepcols fix + new Phase 8b features)"); print("=" * 70)
 scored = pd.read_csv(BASE / 'outputs/scored_latest.csv', low_memory=False)
-print("=" * 70); print("1. PHASE 5 SIGNAL COVERAGE (should be unchanged vs prior run — the fix is in the sleeve-composition weighting, not in the signal production)"); print("=" * 70)
-for col in ['industry_leader_gap', 'industry_leader_bonus_score', 'industry_laggard_penalty_score']:
-    if col in scored.columns:
-        v = pd.to_numeric(scored[col], errors='coerce').fillna(0.0)
-        print(f"  {col}: nonzero_share = {(v != 0).mean():.2%}, mean = {v.mean():.4f}, max = {v.max():.4f}")
+phase8_cols = [
+    # Phase 1 keepcols fix — MUST now be present with non-zero coverage
+    'fundamental_turnaround_acceleration_score', 'cashflow_inflection_under_loss_score',
+    'value_inflection_score', 'uptrend_continuation_score', 'uptrend_breakdown_penalty',
+    # Phase 8b long-lookback — NEW features
+    'mom_18m', 'mom_24m', 'mom_36m', 'multi_year_winner_score', 'persistence_trend_24m',
+    # Phase 8a.4 / 8b / 8c diagnostics
+    'hold_persistence_bonus', 'phase8a_hold_persistence_active',
+    'phase8b_long_lookback_active', 'phase8c_megacap_override_active',
+    'phase8c_growth_adj_valuation_active',
+]
+for c in phase8_cols:
+    if c in scored.columns:
+        v = pd.to_numeric(scored[c], errors='coerce').fillna(0.0)
+        print(f"  {c:52s}: nonzero={(v != 0).mean():>7.1%}  mean={v.mean():>+.4f}")
+    else:
+        print(f"  {c:52s}: MISSING")
 
-# 2. equity_curve.csv should now carry Phase 6a diagnostic columns
-eq = pd.read_csv(BASE / 'outputs/equity_curve.csv')
-print(); print("=" * 70); print("2. equity_curve.csv diagnostic columns (post-fix)"); print("=" * 70)
-p6_cols = [c for c in eq.columns if 'dd_breaker' in c or 'vol_target' in c or 'drawdown_circuit' in c]
-print(f"  Total columns: {len(eq.columns)}")
-print(f"  Phase 6-related columns now present: {p6_cols}")
-if 'dd_breaker_level' in eq.columns:
-    print(f"  dd_breaker_level distribution: {eq['dd_breaker_level'].value_counts().to_dict()}")
-    print(f"  dd_breaker_multilevel_active mean: {eq['dd_breaker_multilevel_active'].mean():.4f}")
-
-# 3. MAIN PORTFOLIO METRICS vs baseline
-print(); print("=" * 70); print("3. RECOVERY vs 2026-04-16 baseline"); print("=" * 70)
+print(); print("=" * 70); print("2. MAIN PORTFOLIO METRICS vs 2026-04-16 baseline"); print("=" * 70)
 bm = json.loads((BASE / 'outputs/backtest_metrics.json').read_text())
-baseline = {'cagr': 0.2010, 'sharpe': 1.0754, 'max_dd': -0.2360, 'ir': 0.5835, 'excess_cagr': 0.0660, 'avg_stock_names': 25.78}
+baseline = {'cagr': 0.2010, 'sharpe': 1.0754, 'max_dd': -0.2360, 'ir': 0.5835, 'excess_cagr': 0.0660, 'avg_stock_names': 25.78, 'avg_turnover_monthly': 0.4951}
 print(f"  {'metric':24s} {'new':>10s} {'baseline':>10s} {'delta':>14s}")
-for k in ['cagr', 'sharpe', 'max_dd', 'ir', 'excess_cagr', 'avg_stock_names', 'vol_ann', 'beat_month_ratio']:
+for k in ['cagr', 'sharpe', 'max_dd', 'ir', 'excess_cagr', 'avg_stock_names', 'vol_ann', 'beat_month_ratio', 'avg_turnover_monthly']:
     new_v = bm.get(k, float('nan'))
     bl_v = baseline.get(k)
     if bl_v is not None:
-        if k in ['cagr', 'max_dd', 'excess_cagr']:
-            d_str = f"{(new_v - bl_v) * 100:+.2f}pp"
-        else:
-            d_str = f"{new_v - bl_v:+.4f}"
+        d_str = f"{(new_v - bl_v) * 100:+.2f}pp" if k in ['cagr', 'max_dd', 'excess_cagr', 'avg_turnover_monthly'] else f"{new_v - bl_v:+.4f}"
         print(f"  {k:24s} {new_v:>10.4f} {bl_v:>10.4f} {d_str:>14s}")
     else:
         print(f"  {k:24s} {new_v:>10.4f}")
 
-# 4. SHIP GATE (ratcheted to the 2026-04-16 baseline — we just need the regression undone)
-print(); print("=" * 70); print("4. VERDICT"); print("=" * 70)
+print(); print("=" * 70); print("3. PHASE 8 VERDICT"); print("=" * 70)
 dCAGR = (bm['cagr'] - baseline['cagr']) * 100
 dSharpe = bm['sharpe'] - baseline['sharpe']
 dMaxDD = (bm['max_dd'] - baseline['max_dd']) * 100
-print(f"  ΔCAGR   = {dCAGR:+.2f}pp  | acceptable >= -1.0pp")
-print(f"  ΔSharpe = {dSharpe:+.4f}  | acceptable >= -0.05")
-print(f"  ΔMaxDD  = {dMaxDD:+.2f}pp  | acceptable >= -1.0pp")
+dTurnover = (bm['avg_turnover_monthly'] - baseline['avg_turnover_monthly']) * 100
+print(f"  CAGR      new={bm['cagr']*100:+.2f}%  (target >=25%, stretch 30%+)")
+print(f"  Sharpe    new={bm['sharpe']:.4f}    (target >=1.00)")
+print(f"  MaxDD     new={bm['max_dd']*100:+.2f}% (target better than -24%)")
+print(f"  Turnover  new={bm['avg_turnover_monthly']*100:+.2f}%/mo (target <35%/mo)")
 print()
-if dCAGR >= -1.0 and dSharpe >= -0.05 and dMaxDD >= -1.0:
-    print("  -> ✅ REGRESSION RECOVERED. Phase 5 default-ON is safe. Next: run Phase 5 ON-vs-OFF A/B to measure its marginal alpha.")
-elif dCAGR >= -3.0:
-    print("  -> ⚠️  PARTIAL RECOVERY. Dilution fix helped but something else is still leaking ~1-3pp CAGR. Flip cfg.sub_industry_leader_laggard_enabled=False and re-run QUICK_RESCORE to isolate.")
+if bm['cagr'] >= 0.25 and bm['sharpe'] >= 1.0:
+    print("  -> SHIP. Phase 8 at default ON is the new baseline.")
+elif bm['cagr'] >= 0.22:
+    print("  -> PARTIAL SHIP. CAGR target missed but directionally positive. Run A/B isolation below.")
 else:
-    print("  -> ❌ STILL BROKEN. Roll back more phases: set PHASE_PHASE5_LEADER_LAGGARD_ENABLED=0, PHASE_PHASE6A_BREAKER_ENABLED=0, PHASE_PHASE6B_VIX_ENABLED=0 in Cell 2 and re-run. Report which subset triggers the drop.")
+    print("  -> REGRESSION. Set PHASE_PHASE8A_NEG_IC_DROP=0, PHASE_PHASE8B_LONG_LOOKBACK_ENABLED=0,")
+    print("     PHASE_PHASE8C_MEGACAP_OVERRIDE=0, PHASE_PHASE8C_GROWTH_ADJ_VALUATION=0")
+    print("     and re-run QUICK_RESCORE. Compare to isolate offender.")
 ```
 
-**Paste the full output of Cell E back into the chat when it finishes.** The verdict line determines the next action.
+**Paste the full output of Cell E back into the chat when Cell 4 finishes.** The CAGR / Sharpe / MaxDD numbers + Phase 8 column coverage determine the next action.
 
 ---
 
-## 3. Decision tree after the QUICK_RESCORE
+## 3. Decision tree after FULL rebuild
 
-### 3a. If verdict = ✅ REGRESSION RECOVERED
+### 3a. If CAGR ≥ 25% AND Sharpe ≥ 1.0 (SHIP)
 
-1. Run **Phase 5 marginal A/B**: set `PHASE_PHASE5_LEADER_LAGGARD_ENABLED=0` in Cell 2, re-run QUICK_RESCORE (20 min). Compare ON-vs-OFF metrics. If Phase 5 adds ≥ +0.3pp CAGR, ship (flip default stays True, write ship-confirmation CHANGELOG entry). If neutral / negative, flip `cfg.sub_industry_leader_laggard_enabled=False` as the new default.
-2. Run **Phase 4 A/B**: set `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1` + `cfg["regime_dynamic_sleeve_weights_enabled"]=True` in `COMMON_CFG_OVERRIDES`. Ship gate: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ +0.05.
-3. Run **Phase 7a A/B**: set `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED=1` + `cfg["phase7a_insider_accruals_enabled"]=True`. Ship gate: ΔCAGR ≥ +0.3pp, ΔSharpe ≥ +0.02, MaxDD not worse by +1pp.
-4. Run **Phase 6c A/B**: set `PHASE_PHASE6C_VOLTARGET_ENABLED=1` + `cfg["volatility_targeting_enabled"]=True`. Ship gate: ΔSharpe ≥ +0.05 AND ΔCAGR ≥ −1pp.
+1. Update `backtest_metrics.json` baseline in a new CHANGELOG entry: "phase8-shipped-ab-sweep-start".
+2. Commit `colab_run.ipynb` Cell 2 unchanged (defaults already correct).
+3. **Plan Phase 8d/8e** (deferred items from `PHASE_8_PROPOSAL.md`):
+   - Phase 8d: IC-proportional sleeve reweighting (requires correlation audit first)
+   - Phase 8e: r_12m ML training target (requires walk-forward refactor — medium risk)
+4. Consider tightening Phase 8c.1 mega-cap override criteria if too many names are being force-reclassified (check `phase8c_megacap_override_active` distribution in `scored_latest.csv`).
 
-Each A/B is ~20 min in QUICK_RESCORE. Total ~80 min for all four.
+### 3b. If CAGR in [18%, 25%) (PARTIAL)
 
-### 3b. If verdict = ⚠️ PARTIAL RECOVERY
-
-Flip cfg.sub_industry_leader_laggard_enabled to False via `COMMON_CFG_OVERRIDES["sub_industry_leader_laggard_enabled"] = False`, re-run QUICK_RESCORE. If recovery completes, Phase 5 default should land as OFF in a small commit. Then proceed through 3a steps 2-4.
-
-### 3c. If verdict = ❌ STILL BROKEN
-
-Isolate which phase is the culprit. In Cell 2:
+Run four QUICK_RESCORE A/B runs (each ~20 min) flipping ONE Phase 8 env var off at a time:
 
 ```python
-os.environ["PHASE_PHASE5_LEADER_LAGGARD_ENABLED"] = "0"
-os.environ["PHASE_PHASE6A_BREAKER_ENABLED"] = "0"
-os.environ["PHASE_PHASE6B_VIX_ENABLED"] = "0"
+# Run A (negative-IC drop off)
+os.environ["PHASE_PHASE8A_NEG_IC_DROP"] = "0"
+
+# Run B (hold persistence off)
+os.environ["PHASE_PHASE8A_HOLD_PERSISTENCE"] = "0"
+
+# Run C (megacap override off)
+os.environ["PHASE_PHASE8C_MEGACAP_OVERRIDE"] = "0"
+
+# Run D (growth-adj valuation off)
+os.environ["PHASE_PHASE8C_GROWTH_ADJ_VALUATION"] = "0"
 ```
 
-Re-run QUICK_RESCORE. That should recover to the 2026-04-16 baseline. Then turn them back on one at a time (each a separate 20-min QUICK run) to find the offender.
+Whichever A/B shows the biggest NEGATIVE CAGR delta (vs. the all-ON baseline) is the strongest contributing phase — keep it ON. Whichever shows positive delta is a candidate for default OFF (or tuning).
+
+Note: Phase 8b.1 requires FULL rebuild to A/B so it's last to test.
+
+### 3c. If CAGR < 18% (REGRESSION)
+
+1. First check Cell E §1 output: are any Phase 1 / 8b columns still MISSING? If so the keepcols-fix didn't take — verify `git log --oneline` shows `caddec3` or newer.
+2. If columns are populated but CAGR regressed, disable phases in this order via env:
+   - `PHASE_PHASE8B_LONG_LOOKBACK_ENABLED=0` (biggest change, most likely to break)
+   - `PHASE_PHASE8C_MEGACAP_OVERRIDE=0` (concentration risk)
+   - `PHASE_PHASE8A_NEG_IC_DROP=0` (if 83-month IC sample was unrepresentative)
+3. Re-run QUICK_RESCORE after each toggle to isolate.
+4. Report the isolation result — the phase that, when disabled, recovers CAGR most is the culprit. Likely cause: factor correlation the simulation didn't capture.
 
 ---
 
@@ -174,13 +197,14 @@ I'm continuing work on the r1000 Quant Engine project. Before doing anything els
 
 1. Read `CLAUDE.md` — project basics.
 2. Read `SESSION_HANDOFF.md` — current pending work (THIS is the most important file for picking up where we left off).
-3. Read the last ~300 lines of `CHANGELOG.md` — most recent decisions.
-4. Read `PHASE_ROADMAP.md` §3 (PR plan) and §5 (invariants) — what's next.
-5. Check `git log --oneline -5` to confirm the latest commit is at or after `c4d50fd Fix Phase 5 row_mean dilution + restore breaker diagnostic CSV export`.
+3. Read the last ~400 lines of `CHANGELOG.md` — most recent decisions (Phase 8 restructuring entries).
+4. Read `PHASE_8_PROPOSAL.md` — the proposal doc behind the Phase 8 commits.
+5. Read `DIAGNOSIS_FACTOR_IC.md`, `DIAGNOSIS_COUNTERFACTUAL.md`, `DIAGNOSIS_BUGS.md` — data evidence supporting Phase 8.
+6. Check `git log --oneline -10` to confirm the latest commit is at or after `caddec3 Phase 8c: Mega-cap future override + growth-adjusted valuation dampening`.
 
 Only after reading those files, ask me what I want to do next. Do NOT start editing anything until you've read them.
 
-Context: a 2026-04-17 FULL rebuild exposed a Phase 5 row_mean dilution regression (CAGR 20.10% → 15.44%). The fix landed in commit c4d50fd and the immediate next action is a Colab QUICK_RESCORE (~20 min) to verify CAGR recovery. Section 2 of SESSION_HANDOFF.md has the exact cells to paste into Colab and the recovery-verdict cell.
+Context: Phase 8 (the major restructuring targeting CAGR 15.44% → 25-30%+) landed in 5 commits on 2026-04-17 afternoon. All toggles at default ON. Immediate next action is a Colab FULL REBUILD (~3h) to measure cumulative CAGR effect. SESSION_HANDOFF.md §2 has the exact cells to paste and the recovery-verdict Cell E. Ship gate: CAGR ≥ 25%.
 ```
 
 ---
@@ -189,51 +213,61 @@ Context: a 2026-04-17 FULL rebuild exposed a Phase 5 row_mean dilution regressio
 
 Everything source-of-truth is in git on `origin/master`:
 
-- `r1000_top30_institutional.py` — engine (~26k lines)
+- `r1000_top30_institutional.py` — engine (~27k lines after Phase 8)
 - `r1000_data_collector.py` — collector
 - `r1000_operator.py` — live operator layer
 - `r1000_portfolio_state.py` — state persistence
-- `colab_run.ipynb` — runbook (Cell 2 already has all 8 phase env toggles)
+- `colab_run.ipynb` — runbook (Cell 2 has phase env toggles — Phase 8 toggles rely on defaults, no edits needed)
 - `CLAUDE.md` — project brain (short)
-- `PHASE_ROADMAP.md` — phase plan with DONE/REJECTED/PLANNED status
-- `CHANGELOG.md` — decision log (every commit has a matching entry under the Agent Update Contract format)
-- `SESSION_HANDOFF.md` — this file; rewritten whenever a phase ships or a new blocker appears
-- `PROPOSAL_defensive_upgrades.md` — Phase 6 design (§2, §4, §5, §6 still open)
-- `PROPOSAL_growth_regime_offense_defense.md` — Phase 4 design reference
+- `PHASE_ROADMAP.md` — phase plan (PHASE_8_PROPOSAL.md is the successor for 8a/8b/8c)
+- `PHASE_8_PROPOSAL.md` — Phase 8 design & expected CAGR deltas
+- `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` / `DIAGNOSIS_factor_ic.csv` — data evidence
+- `CHANGELOG.md` — decision log (every commit has a matching entry)
+- `SESSION_HANDOFF.md` — this file; single-item inbox
+- `PROPOSAL_defensive_upgrades.md`, `PROPOSAL_growth_regime_offense_defense.md` — older design docs (Phase 4/6 reference)
 
 What's NOT in git (lives only on Google Drive):
 
-- `/content/drive/MyDrive/r1000-quant-engine/` — Cell A keeps this `git reset --hard origin/master` on every run so it's always the live repo.
-- `/content/drive/MyDrive/r1000_top30_institutional/` — data folder with `cache_*/`, `feature_store/`, `checkpoints/`, `outputs/`, `companyfacts.zip`. This is where the engine reads/writes. Cell A `os.chdir()`'s into it.
+- `/content/drive/MyDrive/r1000-quant-engine/` — Cell A keeps this `git reset --hard origin/master` on every run.
+- `/content/drive/MyDrive/r1000_top30_institutional/` — data folder with `cache_*/`, `feature_store/`, `checkpoints/`, `outputs/`, `companyfacts.zip`. Cell A `os.chdir()`'s into it.
+- Local mirror (Windows): `G:\내 드라이브\r1000_top30_institutional\` — accessible for post-run analysis.
 
-Any machine with (a) a clone of the repo and (b) the Drive mounted has full state. No additional setup needed at the office — just open `colab_run.ipynb` from Drive.
+Any machine with (a) a clone of the repo and (b) the Drive mounted has full state.
 
 ---
 
-## 6. Quick reference — Phase status + toggles
+## 6. Quick reference — Phase status + toggles (post-Phase 8)
 
 | Phase | cfg field | env var | Default | A/B status |
 |---|---|---|---|---|
-| 1 | (no flag — always on via `phase_is_enabled` only) | `PHASE_PHASE1_ALPHA_ENABLED` | ON | Shipped pre-2026-04-16 |
-| 2 | (no flag) | `PHASE_PHASE2_INDUSTRY_ENABLED` | ON | Shipped 2026-04-16 (keepcols-fix verified) |
-| 3 | `sleeve_weight_renorm_enabled` | `PHASE_PHASE3_RENORM_ENABLED` | **OFF (reject)** | ❌ A/B regressed. Infra retained for future re-design. |
-| 4 | `regime_dynamic_sleeve_weights_enabled` | `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` | OFF | A/B pending. Ship gate +0.5pp CAGR + 0.05 Sharpe. |
-| 5 | `sub_industry_leader_laggard_enabled` | `PHASE_PHASE5_LEADER_LAGGARD_ENABLED` | ON | A/B pending (dilution fix in c4d50fd). Real marginal contribution unknown. |
-| 6a | `drawdown_breaker_multilevel_enabled` | `PHASE_PHASE6A_BREAKER_ENABLED` | ON | Defensive A/B pending. Ship gate ΔMaxDD ≤ −3pp. |
-| 6b | `vix_level_guard_enabled` | `PHASE_PHASE6B_VIX_ENABLED` | ON | Defensive A/B pending. Ship gate ΔMaxDD ≤ −1pp on VIX-spike months. |
-| 6c | `volatility_targeting_enabled` | `PHASE_PHASE6C_VOLTARGET_ENABLED` | OFF | A/B pending. Ship gate ΔSharpe ≥ +0.05. |
-| 7a | `phase7a_insider_accruals_enabled` | `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` | OFF | A/B pending. Ship gate ΔCAGR ≥ +0.3pp. |
+| 1 | (auto via `phase_is_enabled`) | `PHASE_PHASE1_ALPHA_ENABLED` | ON | **keepcols fix landed in 8b.3 — now actually measurable on next rebuild** |
+| 2 | (no flag) | `PHASE_PHASE2_INDUSTRY_ENABLED` | ON | Industry_rotation_signal zeroed by 8a.1 because IC -0.012 |
+| 3 | `sleeve_weight_renorm_enabled` | `PHASE_PHASE3_RENORM_ENABLED` | OFF | REJECTED (ship failure: ΔCAGR -2.30pp) |
+| 4 | `regime_dynamic_sleeve_weights_enabled` | `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` | OFF | A/B pending — revisit after Phase 8 ships |
+| 5 | `sub_industry_leader_laggard_enabled` | `PHASE_PHASE5_LEADER_LAGGARD_ENABLED` | **OFF (new default after 8a.2)** | Rejected — factor IC ~0 |
+| 6a | `drawdown_breaker_multilevel_enabled` | `PHASE_PHASE6A_BREAKER_ENABLED` | ON | Dormant in 83-month sample — keep |
+| 6b | `vix_level_guard_enabled` | `PHASE_PHASE6B_VIX_ENABLED` | ON | Dormant in 83-month sample — keep |
+| 6c | `volatility_targeting_enabled` | `PHASE_PHASE6C_VOLTARGET_ENABLED` | OFF | A/B pending |
+| 7a | `phase7a_insider_accruals_enabled` | `PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED` | OFF | A/B pending |
+| **8a.1** neg-IC drop | — (hard-coded) | `PHASE_PHASE8A_NEG_IC_DROP` | **ON** | QUICK-measurable |
+| **8a.4** hold-persistence | `phase8a_hold_persistence_enabled` | `PHASE_PHASE8A_HOLD_PERSISTENCE` | **ON** | QUICK-measurable |
+| **8a.5** macro clamp | — (always active) | — | always | safety fix |
+| **8b.1** long-lookback momentum | `phase8b_long_lookback_enabled` | `PHASE_PHASE8B_LONG_LOOKBACK` | **ON** | **FULL rebuild required** |
+| **8b.3** Phase 1 keepcols | — (always active) | — | always | structural fix |
+| **8c.1** megacap future override | `phase8c_megacap_future_override_enabled` | `PHASE_PHASE8C_MEGACAP_OVERRIDE` | **ON** | QUICK-measurable |
+| **8c.2** growth-adj valuation | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION` | **ON** | QUICK-measurable |
 
-Toggle weights tunable via `COMMON_CFG_OVERRIDES` in Colab Cell 2:
-- Phase 7a: `phase7a_insider_early_weight` (0.25), `phase7a_insider_future_weight` (0.15), `phase7a_accruals_core_weight` (−0.20).
-- Phase 4: `regime_sleeve_multiplier_table` (None → use built-in 6-regime table).
+**Deferred Phase 8 items** (not yet implemented):
+- **Phase 8d**: IC-proportional sleeve reweighting — requires post-FULL measurement + factor correlation audit first
+- **Phase 8e**: r_12m ML training target — requires walk-forward train-target refactor (medium risk)
 
 ---
 
 ## 7. How to rotate this handoff
 
 When:
-- **QUICK_RESCORE recovers the regression AND** a phase A/B ships (or all pending phases have been measured and decided) → replace §1/§2/§3 with the new state.
-- **Regression is NOT recovered** → §2 becomes "investigate further" with the isolation cells from §3c.
+- **FULL rebuild ships CAGR ≥ 25%**: rewrite §0-§2 to "Phase 8 shipped, Phase 8d planning" and clear §3 decision tree.
+- **Regression ≥ 5pp drop**: rewrite §2 to "isolate offender via A/B toggle". §3c becomes §2.
+- **Partial ship**: §3b becomes §2 with the specific A/B protocol.
 
 Never accumulate multiple handoff files. This is a single-item inbox, not a log.
