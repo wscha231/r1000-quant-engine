@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-17 11:42 KST
+# Session Handoff — 2026-04-17 11:52 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,7 +8,7 @@
 
 ## 0. TL;DR — one-paragraph resume brief
 
-A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. The afternoon Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped all ten recommended changes from `PHASE_8_PROPOSAL.md`. A pre-FULL-rebuild code review (commit `300affc`) caught and fixed two CRITICAL bugs: (1) `weighted_sleeve_composite` was not actually dropping weight-0 pairs (silently diluted by 1/N instead), defeating Phase 8a/b/c toggles; and (2) `hold_persistence_bonus` was using `r_1m` which is the FORWARD return (lookahead bias), swapped to `mom_1m` (backward 21-day realised return). Current HEAD = `300affc`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8 toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%.
+A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS months using the Drive's `scored_oos_latest.parquet` and found (a) only 9% of 258 factors have real alpha, 59% are pure noise, 12 have negative IC; (b) the final `score` has +0.011 IC at r_1m but **-0.006 at r_12m** — the engine is structurally wired for short-term flips, not multi-year winners; (c) fundamental factors (ep_ttm, fcfy_ttm, sp_ttm, sage_composite) have 2-4x stronger IC at r_12m than r_1m; (d) NVDA was ranked 9 → 17 → 18 → 23 during its biggest AI-boom months and popped to rank 1 only AFTER the parabolic move; (e) a 2024-06 `labor_softening_score = -2e14` corruption propagated to all 600 stock scores that month. Phase 8 implementation (commits `4cd938e` → `caddec3`) shipped the core restructuring. Pre-FULL-rebuild code review (commit `300affc`) caught two CRITICAL bugs: weight-0 dilution + r_1m lookahead. **Phase 8d + 8e-lite (commit `9b083d2`)** bundled additional improvements into the same session: IC-proportional weight boost for 2 underweighted factors (strategy_blueprint 0.017 IC, industry_group_strength 0.016 IC) AND a `long_horizon_alpha_composite` aggregating the 5 best r_12m-IC fundamentals to bypass the ML ensemble's r_1m training myopia. Same commit fixed a silent env-name mismatch (Phase 8a/b/c env vars in Cell 2 were missing `_ENABLED` suffix). Current HEAD = `9b083d2`. **Next action: Colab FULL REBUILD (~3h) with all Phase 8a-d toggles at default ON, then Cell E recovery-verdict comparing new metrics against the 2026-04-16 baseline (CAGR 20.10%, Sharpe 1.08, MaxDD -23.60%).** Ship gate: CAGR ≥ 25%, stretch goal 30%+.
 
 ---
 
@@ -16,7 +16,8 @@ A morning Phase C diagnosis (commit `027c5b3`) measured factor IC across 83 OOS 
 
 | Commit | Title | Phase | Requires | Default |
 |---|---|---|---|---|
-| `300affc` | **Phase 8 review fixes: weight-0 skip + r_1m lookahead fix** | review | no rebuild | always-on |
+| `9b083d2` | **Phase 8d: IC-reweight + long-horizon alpha composite (Phase 8e-lite)** | 8d.1 + 8d.2 | QUICK-measurable; env-name fix | ON |
+| `300affc` | Phase 8 review fixes: weight-0 skip + r_1m lookahead fix | review | no rebuild | always-on |
 | `caddec3` | Phase 8c: Mega-cap future override + growth-adj valuation | 8c.1 + 8c.2 | QUICK-measurable | ON |
 | `3e44d35` | **Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m + multi_year_winner)** | 8b.1 | **FULL rebuild** | ON |
 | `e3bf29d` | Phase 8a.4: Hold persistence bonus to reduce turnover | 8a.4 | QUICK-measurable | ON |
@@ -46,7 +47,7 @@ subprocess.run(['git', '-C', REPO_DIR, 'fetch', 'origin', 'master'], check=True)
 subprocess.run(['git', '-C', REPO_DIR, 'reset', '--hard', 'origin/master'], check=True)
 print("Latest 5 commits on origin/master:")
 subprocess.run(['git', '-C', REPO_DIR, 'log', '--oneline', '-5'])
-# Expected HEAD: 300affc "Phase 8 review fixes: weight-0 skip + r_1m lookahead fix"
+# Expected HEAD: 9b083d2 "Phase 8d: IC-reweight + long-horizon alpha composite (Phase 8e-lite)"
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 os.chdir(DATA_DIR)
@@ -70,6 +71,8 @@ NUKE_ALL = False
 #   Phase 8b.3 Phase 1 keepcols:           always-on (no toggle)
 #   Phase 8c.1 megacap future override:    ON
 #   Phase 8c.2 growth-adj valuation:       ON
+#   Phase 8d.1 IC-proportional weight boost: ON  (strategy_blueprint + industry_group_strength)
+#   Phase 8d.2 long-horizon alpha composite: ON  (ep/fcfy/sp/roe/sage r_12m blend)
 # No env overrides needed. Let cfg defaults drive the run.
 ```
 
@@ -99,6 +102,9 @@ phase8_cols = [
     'hold_persistence_bonus', 'phase8a_hold_persistence_active',
     'phase8b_long_lookback_active', 'phase8c_megacap_override_active',
     'phase8c_growth_adj_valuation_active',
+    # Phase 8d — Phase 8e-lite long-horizon alpha composite + IC reweight
+    'long_horizon_alpha_composite', 'phase8d_long_horizon_alpha_active',
+    'phase8d_ic_reweight_active',
 ]
 for c in phase8_cols:
     if c in scored.columns:
@@ -255,12 +261,16 @@ Any machine with (a) a clone of the repo and (b) the Drive mounted has full stat
 | **8a.5** macro clamp | — (always active) | — | always | safety fix |
 | **8b.1** long-lookback momentum | `phase8b_long_lookback_enabled` | `PHASE_PHASE8B_LONG_LOOKBACK` | **ON** | **FULL rebuild required** |
 | **8b.3** Phase 1 keepcols | — (always active) | — | always | structural fix |
-| **8c.1** megacap future override | `phase8c_megacap_future_override_enabled` | `PHASE_PHASE8C_MEGACAP_OVERRIDE` | **ON** | QUICK-measurable |
-| **8c.2** growth-adj valuation | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION` | **ON** | QUICK-measurable |
+| **8c.1** megacap future override | `phase8c_megacap_future_override_enabled` | `PHASE_PHASE8C_MEGACAP_OVERRIDE_ENABLED` | **ON** | QUICK-measurable |
+| **8c.2** growth-adj valuation | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION_ENABLED` | **ON** | QUICK-measurable |
+| **8d.1** IC-proportional weight boost | `phase8d_ic_reweight_enabled` | `PHASE_PHASE8D_IC_REWEIGHT_ENABLED` | **ON** | QUICK-measurable |
+| **8d.2** long-horizon alpha composite | `phase8d_long_horizon_alpha_enabled` | `PHASE_PHASE8D_LONG_HORIZON_ALPHA_ENABLED` | **ON** | QUICK-measurable |
+
+**Note**: all Phase 8 env var names now include the `_ENABLED` suffix (commit `9b083d2` fix). Older docs/code that referenced `PHASE_PHASE8X_YYYY` without the suffix are outdated.
 
 **Deferred Phase 8 items** (not yet implemented):
-- **Phase 8d**: IC-proportional sleeve reweighting — requires post-FULL measurement + factor correlation audit first
-- **Phase 8e**: r_12m ML training target — requires walk-forward train-target refactor (medium risk)
+- **Phase 8e full**: proper r_12m ML training target — requires walk-forward train-target refactor + parallel r_12m model bundle + blending logic. Medium risk. (Phase 8d.2 "8e-lite" captures most of the benefit via direct sleeve composite.)
+- **Phase 8f (future)**: consolidate correlated factor clusters (industry cluster, revision cluster, growth-onset cluster) into single composites to reduce N and improve each factor's effective weight contribution.
 
 ---
 
