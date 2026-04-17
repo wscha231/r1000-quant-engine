@@ -2310,6 +2310,59 @@ class EngineConfig:
     phase8d_long_horizon_alpha_core_weight: float = 1.00      # full weight on core (quality+value thesis)
     phase8d_long_horizon_alpha_future_weight: float = 0.60    # moderate on future (momentum-first sleeve)
     phase8d_long_horizon_alpha_early_weight: float = 0.50     # moderate on early (inflection-first sleeve)
+
+    # --------------- Phase 9 C1: Phase 8b multi_year weight rebalance ---------------
+    # Phase 8 measured run (d87160d) showed Future sleeve absorbing ~72% of
+    # portfolio (target 45%) and Early sleeve collapsing to 0 names. The
+    # multi_year_winner_score sleeve weights (future 0.90, early 0.60, core 0.40)
+    # were too future-heavy. Rebalanced to:
+    #   future 0.50 (-44%)  reduce future absorption of multi-year trends
+    #   early  0.80 (+33%)  let multi-year early candidates surface
+    #   core   0.30 (-25%)  mega-cap auto-catch (Phase 9 C2) means core 가중치 작음
+    # Net L1: 1.90 -> 1.60 (signal preserved, dominance rebalanced).
+    # Override the legacy phase8b_multi_year_*_weight defaults above.
+    # When Phase 9 C1 disabled (env or cfg), legacy values restore.
+    phase9_c1_rebalance_enabled: bool = True
+    phase9_c1_multi_year_future_weight: float = 0.50
+    phase9_c1_multi_year_early_weight: float = 0.80
+    phase9_c1_multi_year_core_weight: float = 0.30
+
+    # --------------- Phase 9 C2: Sleeve thesis-gate (percentile-based) ---------------
+    # Replaces argmax-of-3-sleeve-scores assignment with EXPLICIT THESIS GATES.
+    # Solves the structural problem documented in ARCHITECTURE_REVIEW.md §6b
+    # ("sleeve taxonomy collapsed — early scout 0 names, sleeve labels lost
+    # archetype meaning"). Uses CROSS-SECTIONAL PERCENTILES (not absolute $)
+    # so thresholds remain valid as market grows over time (user feedback:
+    # "$500B 도 10년 후엔 작을 수 있다 — 능동적으로 분리").
+    #
+    # Validated by 2026-04-17 simulation on 610-name universe:
+    #   CORE eligible:    58 names ( 9.5%)  mega 31 + quality 36
+    #   FUTURE eligible:  54 names ( 8.9%)
+    #   EARLY eligible:   55 names ( 9.0%)
+    #   UNASSIGNED:      443 names (72.6%)  ← thesis-less names auto-dropped
+    #
+    # Percentile thresholds (top X% by mktcap rank within rebalance_date):
+    phase9_thesis_gate_enabled: bool = True
+    phase9_core_megacap_percentile: float = 0.95           # top 5%  -> mega-cap auto-core
+    phase9_core_quality_size_percentile: float = 0.70      # top 30% size for "quality" core
+    phase9_future_size_lower_percentile: float = 0.30      # bottom of future band
+    phase9_future_size_upper_percentile: float = 0.95      # top of future band (mega excluded)
+    phase9_early_size_upper_percentile: float = 0.70       # bottom 70% (excludes top 30% large-mega)
+    # Quality thresholds for core "rule 2"
+    phase9_core_quality_min_roe: float = 0.15
+    phase9_core_quality_min_margin: float = 0.10           # net OR op margin
+    phase9_core_quality_rev_growth_min: float = 0.02       # 안정 성장 하한
+    phase9_core_quality_rev_growth_max: float = 0.30       # hyper-grow 는 future
+    # Future criteria
+    phase9_future_min_rev_growth: float = 0.20
+    phase9_future_min_mom_24m: float = 0.50                # 2-year mom OR rev growth gate
+    # Early signal thresholds (data-validated; Phase 1 inflection scores
+    # rarely reach > 1.0 cross-sectionally so calibrated to 0.3 / 0.5)
+    phase9_early_inflection_threshold: float = 0.3         # turnaround / cf_inflection
+    phase9_early_value_inflection_threshold: float = 0.5   # value_inflection_score
+    phase9_early_breakout_threshold: float = 0.5           # breakout_fresh_20d
+    phase9_early_golden_cross_threshold: float = 0.3       # golden_cross_fresh_20d
+
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -4675,6 +4728,15 @@ def apply_latest_ranking_eligibility(
         d = compute_portfolio_sleeve_columns(d, cfg)
     d = annotate_portfolio_candidate_gate(d, cfg)
     d["ranking_eligible"] = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    # Phase 9 C2 (2026-04-17): when thesis-gate is active, names labeled
+    # "unassigned" (no clear archetype thesis) MUST be excluded from
+    # portfolio candidates regardless of model score. This is the quality
+    # gate that prevents "high-score-but-no-thesis" names (e.g. CVX with
+    # rev -5% and no inflection signal) from entering the portfolio.
+    if "portfolio_sleeve_label" in d.columns:
+        _p9_unassigned_mask = d["portfolio_sleeve_label"].astype(str).eq("unassigned")
+        if _p9_unassigned_mask.any():
+            d.loc[_p9_unassigned_mask, "ranking_eligible"] = False
     eligible_count = int(d["ranking_eligible"].sum())
     ineligible_count = int(len(d) - eligible_count)
     if ineligible_count > 0:
@@ -18626,24 +18688,47 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         and phase_is_enabled("phase8b_long_lookback", default=True)
     )
     if _phase8b_active:
-        _w_multi_year_future = float(
-            getattr(cfg, "phase8b_multi_year_future_weight", 0.90) if cfg is not None else 0.90
+        # Phase 9 C1 (2026-04-17): rebalance multi_year_winner sleeve weights.
+        # Phase 8 measured run showed Future sleeve absorbing ~72% of portfolio
+        # (target 45%) and Early sleeve collapsed to 0 names. Cause: future
+        # weight 0.90 too dominant. Phase 9 C1 rebalances 0.50 / 0.80 / 0.30.
+        # Toggle: PHASE_PHASE9_C1_REBALANCE_ENABLED + cfg.phase9_c1_rebalance_enabled.
+        _phase9_c1_active = bool(
+            (getattr(cfg, "phase9_c1_rebalance_enabled", True) if cfg is not None else True)
+            and phase_is_enabled("phase9_c1_rebalance", default=True)
         )
-        _w_multi_year_early = float(
-            getattr(cfg, "phase8b_multi_year_early_weight", 0.60) if cfg is not None else 0.60
-        )
-        _w_multi_year_core = float(
-            getattr(cfg, "phase8b_multi_year_core_weight", 0.40) if cfg is not None else 0.40
-        )
+        if _phase9_c1_active:
+            _w_multi_year_future = float(
+                getattr(cfg, "phase9_c1_multi_year_future_weight", 0.50) if cfg is not None else 0.50
+            )
+            _w_multi_year_early = float(
+                getattr(cfg, "phase9_c1_multi_year_early_weight", 0.80) if cfg is not None else 0.80
+            )
+            _w_multi_year_core = float(
+                getattr(cfg, "phase9_c1_multi_year_core_weight", 0.30) if cfg is not None else 0.30
+            )
+        else:
+            # Legacy Phase 8b weights
+            _w_multi_year_future = float(
+                getattr(cfg, "phase8b_multi_year_future_weight", 0.90) if cfg is not None else 0.90
+            )
+            _w_multi_year_early = float(
+                getattr(cfg, "phase8b_multi_year_early_weight", 0.60) if cfg is not None else 0.60
+            )
+            _w_multi_year_core = float(
+                getattr(cfg, "phase8b_multi_year_core_weight", 0.40) if cfg is not None else 0.40
+            )
         _w_persist_future = float(
             getattr(cfg, "phase8b_persistence_trend_future_weight", 0.50) if cfg is not None else 0.50
         )
         _w_persist_core = float(
             getattr(cfg, "phase8b_persistence_trend_core_weight", 0.30) if cfg is not None else 0.30
         )
+        d["phase9_c1_rebalance_active"] = 1.0 if _phase9_c1_active else 0.0
     else:
         _w_multi_year_future = _w_multi_year_early = _w_multi_year_core = 0.0
         _w_persist_future = _w_persist_core = 0.0
+        d["phase9_c1_rebalance_active"] = 0.0
 
     # Use the multi_year_winner_score column directly (already rank-z
     # and clipped in build_universe_monthly). Fallback to 0 if missing.
@@ -19166,6 +19251,129 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         )
     else:
         d["phase8c_megacap_override_active"] = 0.0
+
+    # -------------------------------------------------------------------
+    # Phase 9 C2 (2026-04-17): SLEEVE THESIS-GATE OVERRIDE (terminal)
+    # ===================================================================
+    # Replaces the argmax + growth_lean + megacap-override chain with
+    # EXPLICIT THESIS GATES based on cross-sectional percentiles. Solves
+    # the structural problem where sleeve labels lost archetype meaning
+    # (NVDA in core because of factor scores, not because it's a mega-cap;
+    # early_scout collapsed to 0 names; sleeve labels indistinguishable).
+    # See ARCHITECTURE_REVIEW.md §6b.
+    #
+    # Uses CROSS-SECTIONAL PERCENTILES (not absolute $) so thresholds
+    # remain meaningful as market grows over time. User feedback:
+    # "$500B 도 10년 후엔 작을 수 있다 — 능동적으로 분리".
+    #
+    # Empirically validated 2026-04-17 on 610-name universe:
+    #   CORE eligible:    58 ( 9.5%)  mega-cap auto + mature quality
+    #   FUTURE eligible:  54 ( 8.9%)  scaling-up growth + momentum confirm
+    #   EARLY eligible:   55 ( 9.0%)  inflection OR technical breakout
+    #   UNASSIGNED:      443 (72.6%)  no thesis -> excluded from portfolio
+    #
+    # Runs AFTER all legacy assignment + Phase 8c.1 megacap override so
+    # toggle OFF preserves existing behaviour byte-exactly.
+    # -------------------------------------------------------------------
+    _phase9_thesis_active = bool(
+        (getattr(cfg, "phase9_thesis_gate_enabled", True) if cfg is not None else True)
+        and phase_is_enabled("phase9_thesis_gate", default=True)
+    )
+    if _phase9_thesis_active:
+        _p9_core_mega_pct = float(getattr(cfg, "phase9_core_megacap_percentile", 0.95) if cfg is not None else 0.95)
+        _p9_core_qual_size_pct = float(getattr(cfg, "phase9_core_quality_size_percentile", 0.70) if cfg is not None else 0.70)
+        _p9_future_lo_pct = float(getattr(cfg, "phase9_future_size_lower_percentile", 0.30) if cfg is not None else 0.30)
+        _p9_future_hi_pct = float(getattr(cfg, "phase9_future_size_upper_percentile", 0.95) if cfg is not None else 0.95)
+        _p9_early_hi_pct = float(getattr(cfg, "phase9_early_size_upper_percentile", 0.70) if cfg is not None else 0.70)
+        _p9_core_min_roe = float(getattr(cfg, "phase9_core_quality_min_roe", 0.15) if cfg is not None else 0.15)
+        _p9_core_min_margin = float(getattr(cfg, "phase9_core_quality_min_margin", 0.10) if cfg is not None else 0.10)
+        _p9_core_rev_min = float(getattr(cfg, "phase9_core_quality_rev_growth_min", 0.02) if cfg is not None else 0.02)
+        _p9_core_rev_max = float(getattr(cfg, "phase9_core_quality_rev_growth_max", 0.30) if cfg is not None else 0.30)
+        _p9_future_rev_min = float(getattr(cfg, "phase9_future_min_rev_growth", 0.20) if cfg is not None else 0.20)
+        _p9_future_mom24_min = float(getattr(cfg, "phase9_future_min_mom_24m", 0.50) if cfg is not None else 0.50)
+        _p9_early_inflect_thr = float(getattr(cfg, "phase9_early_inflection_threshold", 0.3) if cfg is not None else 0.3)
+        _p9_early_value_thr = float(getattr(cfg, "phase9_early_value_inflection_threshold", 0.5) if cfg is not None else 0.5)
+        _p9_early_breakout_thr = float(getattr(cfg, "phase9_early_breakout_threshold", 0.5) if cfg is not None else 0.5)
+        _p9_early_gc_thr = float(getattr(cfg, "phase9_early_golden_cross_threshold", 0.3) if cfg is not None else 0.3)
+
+        # Cross-sectional percentile rank of mktcap (within current rebalance frame)
+        _p9_mktcap = numeric_series_or_default(d, "mktcap", 0.0).astype(float)
+        _p9_mktcap_pct = _p9_mktcap.rank(pct=True, method="average").fillna(0.0)
+        _p9_rev_growth = numeric_series_or_default(d, "revenue_growth_final", 0.0)
+        _p9_roe = numeric_series_or_default(d, "roe_proxy", 0.0)
+        _p9_net_margin = numeric_series_or_default(d, "net_margin", 0.0)
+        _p9_op_margin = numeric_series_or_default(d, "op_margin_ttm", 0.0)
+        _p9_revision = numeric_series_or_default(d, "revision_blueprint_score", 0.0)
+        _p9_mom_12m = numeric_series_or_default(d, "mom_12m", 0.0)
+        _p9_mom_24m = numeric_series_or_default(d, "mom_24m", 0.0)
+        _p9_turnaround = numeric_series_or_default(d, "fundamental_turnaround_acceleration_score", 0.0)
+        _p9_cf_inflect = numeric_series_or_default(d, "cashflow_inflection_under_loss_score", 0.0)
+        _p9_value_infl = numeric_series_or_default(d, "value_inflection_score", 0.0)
+        _p9_golden = numeric_series_or_default(d, "golden_cross_fresh_20d", 0.0)
+        _p9_breakout = numeric_series_or_default(d, "breakout_fresh_20d", 0.0)
+        _p9_above_ma200 = numeric_series_or_default(d, "price_above_ma200", 0.0)
+
+        _p9_core_mega = (_p9_mktcap_pct >= _p9_core_mega_pct)
+        _p9_core_quality = (
+            (_p9_mktcap_pct >= _p9_core_qual_size_pct)
+            & (_p9_rev_growth.between(_p9_core_rev_min, _p9_core_rev_max))
+            & (_p9_roe > _p9_core_min_roe)
+            & ((_p9_net_margin > _p9_core_min_margin) | (_p9_op_margin > _p9_core_min_margin))
+        )
+        _p9_core_elig = (_p9_core_mega | _p9_core_quality)
+
+        _p9_future_size = _p9_mktcap_pct.between(_p9_future_lo_pct, _p9_future_hi_pct)
+        _p9_future_growth = (_p9_rev_growth > _p9_future_rev_min) | (_p9_mom_24m > _p9_future_mom24_min)
+        _p9_future_confirm = (_p9_revision > 0) & (_p9_mom_12m > 0)
+        _p9_future_elig = _p9_future_size & _p9_future_growth & _p9_future_confirm & (~_p9_core_elig)
+
+        _p9_early_size = (_p9_mktcap_pct < _p9_early_hi_pct)
+        _p9_early_inflect = (
+            (_p9_turnaround > _p9_early_inflect_thr)
+            | (_p9_cf_inflect > _p9_early_inflect_thr)
+            | (_p9_value_infl > _p9_early_value_thr)
+        )
+        _p9_early_breakout = (
+            (_p9_golden > _p9_early_gc_thr)
+            | ((_p9_breakout > _p9_early_breakout_thr) & (_p9_above_ma200 > 0))
+        )
+        _p9_early_elig = (
+            _p9_early_size
+            & (_p9_early_inflect | _p9_early_breakout)
+            & (~_p9_core_elig) & (~_p9_future_elig)
+        )
+
+        _p9_unassigned = ~(_p9_core_elig | _p9_future_elig | _p9_early_elig)
+        sleeve_label = np.where(
+            _p9_core_elig.to_numpy(dtype=bool),
+            "core_compounder",
+            np.where(
+                _p9_future_elig.to_numpy(dtype=bool),
+                "future_winner",
+                np.where(
+                    _p9_early_elig.to_numpy(dtype=bool),
+                    "early_scout",
+                    "unassigned",
+                ),
+            ),
+        )
+
+        d["phase9_thesis_gate_active"] = 1.0
+        d["phase9_core_eligible"] = _p9_core_elig.astype(float).values
+        d["phase9_future_eligible"] = _p9_future_elig.astype(float).values
+        d["phase9_early_eligible"] = _p9_early_elig.astype(float).values
+        d["phase9_unassigned"] = _p9_unassigned.astype(float).values
+        d["phase9_mktcap_percentile"] = _p9_mktcap_pct.values
+    else:
+        d["phase9_thesis_gate_active"] = 0.0
+        d["phase9_core_eligible"] = 0.0
+        d["phase9_future_eligible"] = 0.0
+        d["phase9_early_eligible"] = 0.0
+        d["phase9_unassigned"] = 0.0
+        d["phase9_mktcap_percentile"] = 0.0
+    # END Phase 9 C2 thesis-gate
+    # -------------------------------------------------------------------
+
     sleeve_label_raw = sleeve_label.copy()
     fundamental_confirmation = numeric_series_or_default(
         d, "selection_fundamental_confirmation_score", 0.0
