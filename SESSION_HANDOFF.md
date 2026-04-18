@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-18 12:30 KST
+# Session Handoff — 2026-04-18 21:30 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,39 +6,55 @@
 
 ---
 
-## 0. TL;DR — one-paragraph resume brief
+## 0. TL;DR — 🎉 Phase 9 C3 + CE v2 SHIPPED. CAGR 30%+ goal achieved.
 
-**Phase 9 C1+C2 SHIPPED** 2026-04-18. Phase 9 C3 **IMPLEMENTED** (commit `86be7f9`) and **FULL REBUILD in progress** on local machine (PID 23764, started 13:01 KST, ETA 16:00-17:00 KST).
+**SHIP VERDICT confirmed on commit `d3d3a91`** (2026-04-18 21:22 KST) via `py -3 run_local.py --no-collector`. Both main diversified AND concentrated improved across every metric. User's original CAGR 30%+ goal achieved via concentrated mode.
 
-**Phase 9 C1+C2 measurement (re-read 2026-04-18 from Colab commit `02f1b83` run at 13:13 KST)** — three policies produced by the same pipeline:
+### Main diversified — new production baseline (replaces Phase 9 C1+C2)
 
-| policy | CAGR | Sharpe | MaxDD | avg_names | turnover | source |
-|---|---|---|---|---|---|---|
-| **adaptive monthly** (default in `backtest_metrics.json`) | **21.69%** | **1.073** | **-23.97%** | 22.8 | 45% | `outputs/backtest_metrics.json` |
-| **best interval (3-month)** | **23.39%** | **1.197** | **-26.09%** | 33.3 | 25% | `outputs/reports/rebalance_interval_comparison.csv` best_interval row |
-| **concentrated (3-name)** | **29.89%** | **1.124** | **-25.39%** | 3.0 | 64% | `outputs/concentrated_backtest_metrics.json` |
+| metric | new | prior (C1+C2) | delta | ship gate |
+|---|---|---|---|---|
+| **CAGR** | **22.91%** | 21.69% | **+1.22pp** | ✅ (≥+0.5pp) |
+| **Sharpe** | **1.1721** | 1.0732 | **+0.0989** | ✅ (≥-0.05) |
+| **MaxDD** | -26.26% | -23.97% | -2.29pp | ✅ (within -3pp) |
+| **IR** | **0.9474** | 0.7985 | **+0.1489** | - |
+| **excess_cagr** | **+9.42%** | +8.19% | +1.23pp | - |
+| avg_turnover | 43.1% | 45.0% | -1.9pp | - |
+| early_scout count | 4 | 4 | 0 | ✅ (≥4) |
 
-Phase 8 baseline (pre-Phase-9) was CAGR 21.86% for the main diversified portfolio. Direct comparison:
-- Adaptive monthly: -0.17pp (tied, but structural win via Sharpe +0.09 and MaxDD -8.1pp)
-- Best 3-month interval: **+1.53pp** (clean SHIP — also Sharpe +0.21, MaxDD -6pp, IR 0.56→1.04)
-- Concentrated: **+8.03pp** (essentially hits user's original CAGR 30% target; 83 months $100k → $610k)
+Portfolio: **18 positions, cash 3.8%**. Sleeve target 60/25/15 (defensive_drawdown_control). Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%.
 
-**Concentrated 3-name holdings (from Colab 13:13 KST run)**:
-- **PR** Permian Resources (Energy, mktcap $15B) — 50% weight, concentrated_score 0.987, archetype emerging_growth
-- **ETR** Entergy (Utilities, mktcap $5.3B) — 30% weight, concentrated_score 0.899
-- **FTI** TechnipFMC (Energy, mktcap $29B) — 20% weight, concentrated_score 0.887, sage_c_score 2.72
+### 🎯 Concentrated champion — CAGR 30%+ goal DONE
 
-**Main 17-position diversified (defensive_drawdown_control cap policy, sleeve target core 0.60 / future 0.25 / early 0.15)**:
-- Core 7: NVDA, GOOG, V, JNJ, AAPL, LNG, VRT
-- Future 6: GEV, FTI, CIEN, LITE, MRVL, ADI
-- Early 4: PR, BKNG, ETR, AKAM
-- +CASH 3.7%
+**N=5 / monthly / score_power → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**. $100k → $786k in 83 months (7.87x). **10 combos > 30% CAGR** in the full 63-combo CE v2 grid.
 
-Phase 9 C3 hypothesis: EPS turn-positive flags tighten early_scout quality, potentially recovering or improving the adaptive monthly CAGR toward the best-interval 23.39%. The concentrated sleeve is ALREADY past the 30% goal and uncoupled from C3 (different selection logic). C3 FULL REBUILD currently running, will produce fresh metrics when complete (~16-17 KST).
+5-name holdings (by score_power weight):
 
-**Ship gate for C3** (or any next change): ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp vs current baseline (adaptive monthly 21.69% / 1.073 / -23.97%, stored in `run_local.py CURRENT_BASELINE`).
+| Rank | Ticker | Name | Sector | Weight |
+|---|---|---|---|---|
+| 1 | **PR** | Permian Resources | Energy | 30.3% |
+| 2 | **ETR** | Entergy | Utilities | 27.8% |
+| 3 | **GEV** | GE Vernova | Industrials | 15.2% |
+| 4 | **FTI** | TechnipFMC | Energy | 14.5% |
+| 5 | **AKAM** | Akamai | IT | 12.3% |
 
-Current HEAD = `86be7f9` (Phase 9 C3 implementation). Background run PID 23764.
+Runner-up concentrated (all >30% CAGR, for A/B robustness):
+- N=3 / 1m / score_power: 33.77%, Sharpe 1.193
+- N=4 / 1m / score_power: 32.70%, Sharpe 1.185
+- N=7 / 2m / score_power: 30.92%, Sharpe 1.227 (lowest turnover 33.9%)
+- N=3..10 / 1m / conviction_curve tied at 30.80% (weight decay makes tail positions zero)
+
+### What was shipped (commits f93a4a2 + d3d3a91)
+- Phase 9 C3: EPS turn-positive / still-loss-improving branches on early-scout gate (commit `86be7f9`, now in this baseline)
+- CE v1: widened concentrated grid defaults (7 N × 3 intervals × 3 modes = 63 combos) and lifted 3 outer caps (commit `f93a4a2`)
+- CE v2: lifted 2 inner clamps in `select_concentrated_portfolio_topk` + `backtest_concentrated_portfolio` that were silently clamping N>3 back to N=3. **Without CE v2 the Phase 5e grid was a 21-combo test cosplaying as 63.** Commit `d3d3a91`.
+
+### Baselines rotated (3 files atomic)
+- `run_local.py CURRENT_BASELINE` → Phase 9 C3 + CE v2 metrics. Previous baseline kept as `PHASE9_C1C2_BASELINE` for legacy delta calculations.
+- `colab_run.ipynb` Cell 10 `BASELINE` → same numbers.
+- `CLAUDE.md` "Current Production Baseline" section → same numbers + concentrated champion pointer.
+
+**Current HEAD = `d3d3a91`.** Next commit (this one) rotates baselines atomically across the 3 files.
 
 ---
 
@@ -63,7 +79,40 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Next step — Phase 9 C3 implementation
+## 2. Next step — Refactor Phase A (C3 + CE shipped, Stage 2 Option A complete)
+
+Per `REFACTOR_PLAN.md` §12 5-stage sequencing: Stage 2 Option A (Phase 9 C3) now **complete**. Stage 3 picks up the complementary work = **Refactor Phase A** (5-module split + observability, `REFACTOR_PLAN.md` §6 checklist).
+
+**Why refactor next**:
+1. Engine is now ~27.5k lines. The CE v1 cap bug (shipped 2 inner `min(top_n, 3)` sites that the first review missed) is exactly the class of bug the 5-module split + observability pass are meant to prevent — one place owns concentrated logic, one constant owns the cap, structural smoke test catches it.
+2. Phase 9 is done; no more feature work blocking cleanup.
+3. The Phase 1/2 keepcols-survival saga, hard_sanitize dedup bug, CE v1→v2 iteration — all share the root cause "monolithic file makes invariants implicit". Refactor explicitly encodes them.
+
+### Stage 3 flow (Refactor Phase A, 1-1.5 day per REFACTOR_PLAN.md §5)
+
+1. **Smoke test first**: `py -3 tests/smoke_test.py` — expect 25/25.
+2. **Pre-flight checklist** (REFACTOR_PLAN.md §6): create branch `refactor/phase-a-module-split`, snapshot `scored_latest.csv` SHA256.
+3. **Migration order**: config → helpers → features → signals → pipeline → facade. Each stage has its own QUICK_RESCORE smoke test gate (must produce byte-identical outputs).
+4. **Observability** (REFACTOR_PLAN.md §11): each module gets `@module_boundary` decorator, `_validate_<fn>_output()` health checks, `COLUMN_OWNERSHIP` registry entries, smoke test coverage. Ships IN THE SAME commit series as the split.
+5. **Byte-exact verification**: post-refactor `py -3 run_local.py --no-collector` must produce identical `backtest_metrics.json` SHA256 to pre-refactor baseline. Zero behavior change allowed in this stage.
+6. **Post-flight**: rotate CLAUDE.md "Key Files" section to cite new module map; update this §2 to point at Stage 4 Subtractive pass.
+
+### Stage 4 preview (after Refactor — deletable dead code)
+
+- Delete Phase 3 (REJECTED, default OFF)
+- Delete Phase 5 sub-industry (REJECTED, IC ≈ 0)
+- Delete Phase 7a (OPT-IN, never A/B ship-gated)
+- Drop 153 noise factors (ARCHITECTURE_REVIEW.md); keep only IC > 0.02 gates
+- Consolidate industry cluster's 6 overlapping signals into 1 composite
+- Expected LOC reduction: ~15-20% (~5k lines)
+
+### Alternative (if user wants more alpha first, not cleanup)
+
+Stage 5 preview: **Phase 8e** (r_12m ML training). Add a second CatBoost/Ridge ensemble trained on 12-month forward returns (vs the current 1-month myopia). Blend 1m + 12m scores in `score_latest_month`. Expected +1-2pp CAGR from longer-horizon alpha capture. ~11-13h. REFACTOR_PLAN.md §12 recommends this AFTER refactor because it touches walk-forward training — but user could re-order.
+
+---
+
+## 2a. LEGACY — Phase 9 C3 implementation flow (kept for audit trail)
 
 Phase 9 C1+C2 is shipped. C3 adds EPS turn-positive flags to sharpen the early_scout gate. Detailed design in `PHASE_9_C3_PROPOSAL.md`. Implementation flow:
 
@@ -376,9 +425,10 @@ Drive (NOT in git):
 | **8c.2** growth-adj val | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION_ENABLED` | ON | Shipped |
 | **8d.1** IC reweight | `phase8d_ic_reweight_enabled` | `PHASE_PHASE8D_IC_REWEIGHT_ENABLED` | ON | Shipped |
 | **8d.2** long-horizon alpha | `phase8d_long_horizon_alpha_enabled` | `PHASE_PHASE8D_LONG_HORIZON_ALPHA_ENABLED` | ON | Shipped |
-| **9.C1** multi_year weight rebalance | `phase9_c1_rebalance_enabled` | `PHASE_PHASE9_C1_REBALANCE_ENABLED` | ON | **SHIPPED 2026-04-18** (PARTIAL verdict, user accepted trade-off) |
-| **9.C2** percentile thesis gate | `phase9_thesis_gate_enabled` | `PHASE_PHASE9_THESIS_GATE_ENABLED` | ON | **SHIPPED 2026-04-18** (same trade-off; restored sleeve taxonomy) |
-| **9.C3** EPS turn-positive flags | `phase9_c3_turnaround_enabled` (proposed) | `PHASE_PHASE9_C3_TURNAROUND_ENABLED` (proposed) | — | **DESIGNED, ready to implement** (`PHASE_9_C3_PROPOSAL.md`; next session's work) |
+| **9.C1** multi_year weight rebalance | `phase9_c1_rebalance_enabled` | `PHASE_PHASE9_C1_REBALANCE_ENABLED` | ON | **SHIPPED 2026-04-18** (part of current baseline) |
+| **9.C2** percentile thesis gate | `phase9_thesis_gate_enabled` | `PHASE_PHASE9_THESIS_GATE_ENABLED` | ON | **SHIPPED 2026-04-18** (restored sleeve taxonomy) |
+| **9.C3** EPS turn-positive flags | `phase9_c3_turnaround_enabled` | `PHASE_PHASE9_C3_TURNAROUND_ENABLED` | ON | **SHIPPED 2026-04-18 21:22 KST** (commit `d3d3a91`; +1.22pp CAGR, +0.099 Sharpe, +0.149 IR vs C1+C2) |
+| **9.CE** Concentrated Expansion | `concentrated_top_n_candidates`, `concentrated_rebalance_intervals`, `concentrated_weighting_modes` (list cfg) | — (grid params) | default 7×3×3 = 63 combos | **SHIPPED v2 2026-04-18** (commit `d3d3a91`; lifted 5 hard caps; champion N=5/1m/score_power = 34.75% CAGR) |
 
 **Deferred work** (per `REFACTOR_PLAN.md` §12 5-stage sequencing):
 

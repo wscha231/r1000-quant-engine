@@ -170,11 +170,19 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
   - `industry_group_strength_score`, `industry_within_leader_rank`
   - `oneil_leadership_score`, `industry_rotation_signal`
 
-## Current Production Baseline — Phase 9 C1+C2 (SHIPPED 2026-04-18)
-- **CAGR 21.12% / Sharpe 1.0664 / MaxDD -26.30% / IR 0.6977 / excess_cagr +7.63%**
-- Sleeve counts: core_compounder 4 (NVDA, GOOG, JNJ, VRT), future_winner 5 (GEV, FTI, LITE, CIEN, MRVL), early_scout 8 (ETR + 7)
-- 17 positions total, avg_stock_names 24.35, beat_month_ratio 61.45%
-- Defined in `run_local.py` `CURRENT_BASELINE` dict and `colab_run.ipynb` Cell 10 `BASELINE` dict.
+## Current Production Baseline — Phase 9 C3 + CE v2 (SHIPPED 2026-04-18 21:22 KST)
+- **Main diversified: CAGR 22.91% / Sharpe 1.1721 / MaxDD -26.26% / IR 0.9474 / excess_cagr +9.42%**
+- 18 positions, avg_stock_names 20.43, beat_month_ratio 57.83%, turnover 43.1%
+- Sleeve counts: core 8 / future 5 / early 4 (defensive_drawdown_control 60/25/15)
+- Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%
+- Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
+
+## 🎯 Concentrated Champion — CAGR 30%+ goal achieved
+- **N=5 / monthly rebalance / score_power weighting → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**
+- $100k → $786k in 83 months (6.9 years, 7.87x)
+- Holdings (by score_power weight): PR 30.3% (Permian Resources), ETR 27.8% (Entergy), GEV 15.2% (GE Vernova), FTI 14.5% (TechnipFMC), AKAM 12.3% (Akamai)
+- 10 concentrated combos > 30% CAGR in the 63-combo CE v2 grid (run via `py -3 run_local.py --no-collector`)
+- Full grid: `outputs/reports/concentrated_strategy_comparison.csv`
 
 ## Ship gate (for any next change)
 - **ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp** (MaxDD positive delta = less drawdown = better)
@@ -182,6 +190,7 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Check via `py -3 run_local.py --verdict-only` after any run.
 
 ## Historical baselines (reference only — do not use for verdict)
+- Phase 9 C1+C2 (prior): CAGR 21.69%, Sharpe 1.073, MaxDD -23.97%, IR 0.799 — kept in `run_local.py PHASE9_C1C2_BASELINE`
 - Phase 8 pre-Phase-9: CAGR 21.86%, Sharpe 0.9856, MaxDD -32.08%, early_scout = 0 (sleeve collapsed)
 - 2026-04-15 pre-Phase-1+2: CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%, 2 names (extreme concentration)
 

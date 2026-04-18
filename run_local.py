@@ -66,15 +66,58 @@ DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 # again per SESSION_HANDOFF.md §7 rotation rule.
 # ------------------------------------------------------------------
 CURRENT_BASELINE = {
-    # Phase 9 C1+C2 shipped 2026-04-18, re-measured 2026-04-18 13:13 KST Colab run
-    # (commit 02f1b83). `cagr`/`sharpe`/`max_dd` below are from
-    # `outputs/backtest_metrics.json` which reports the ADAPTIVE MONTHLY policy.
-    # Other policies from the same run (for reference):
-    #   Best interval (3-month):  CAGR 23.39% / Sharpe 1.197 / MaxDD -26.1% / IR 1.04
-    #   Concentrated (3-name):    CAGR 29.89% / Sharpe 1.124 / MaxDD -25.4% (hits user's 30% goal)
-    # Those alternate policies appear in `rebalance_interval_comparison.csv` and
-    # `concentrated_backtest_metrics.json` respectively.
-    "name": "Phase 9 C1+C2 (SHIPPED 2026-04-18, adaptive monthly)",
+    # Phase 9 C3 + CE v2 SHIPPED 2026-04-18 21:22 KST on commit d3d3a91.
+    # Measured via `py -3 run_local.py --no-collector` QUICK_RESCORE (which
+    # re-did Phase 3 + 4 due to config_fingerprint change after CE v2 commit).
+    # See CHANGELOG 21:30 KST entry for full verdict.
+    #
+    # Main diversified metrics below are from `outputs/backtest_metrics.json`
+    # (adaptive monthly policy). Ship gate PASS: ΔCAGR +1.22pp, ΔSharpe +0.099,
+    # ΔMaxDD -2.29pp (within -3pp gate), ΔIR +0.149 vs prior Phase 9 C1+C2
+    # baseline (21.69% / 1.073 / -23.97% / 0.799).
+    #
+    # CE v2 result: 10 combos > 30% CAGR. Engine-selected concentrated champion
+    # captured in `alt_policies.concentrated_champion` below.
+    "name": "Phase 9 C3 + CE v2 (SHIPPED 2026-04-18, adaptive monthly)",
+    "cagr": 0.2291,
+    "sharpe": 1.1721,
+    "max_dd": -0.2626,
+    "ir": 0.9474,
+    "avg_turnover_monthly": 0.4308,
+    "avg_stock_names": 20.43,
+    "beat_month_ratio": 0.5783,
+    "excess_cagr": 0.0942,
+    # Sleeve counts from this run (defensive_drawdown_control cap policy 60/25/15)
+    "sleeve_counts_reference": {"core_compounder": 8, "future_winner": 5, "early_scout": 4},
+    # Alternate policy metrics (not used for verdict; informational)
+    "alt_policies": {
+        # 🎯 User's original CAGR 30%+ goal SHIPPED via this config:
+        "concentrated_champion": {
+            "target_stock_names": 5,
+            "rebalance_interval_months": 1,
+            "weighting_mode": "score_power",
+            "cagr": 0.3475,
+            "sharpe": 1.2538,
+            "max_dd": -0.2674,
+            "ir": 1.0734,
+            "avg_turnover_monthly": 0.5379,
+            "ending_capital_usd": 786745,
+            "holdings": ["PR (30.3%)", "ETR (27.8%)", "GEV (15.2%)", "FTI (14.5%)", "AKAM (12.3%)"],
+        },
+        # Runner-up concentrated combos (all >30% CAGR on 83-month backtest):
+        "concentrated_alternatives_gt30pct": [
+            {"n": 3, "interval": 1, "mode": "score_power", "cagr": 0.3377, "sharpe": 1.193},
+            {"n": 4, "interval": 1, "mode": "score_power", "cagr": 0.3270, "sharpe": 1.185},
+            {"n": 7, "interval": 2, "mode": "score_power", "cagr": 0.3092, "sharpe": 1.227},
+            {"n": "3..10", "interval": 1, "mode": "conviction_curve", "cagr": 0.3080, "sharpe": 1.136, "note": "N-insensitive tie due to conviction curve weight decay"},
+            {"n": 7, "interval": 1, "mode": "score_power", "cagr": 0.3028, "sharpe": 1.192},
+        ],
+    },
+}
+
+# Prior production baseline (pre-C3+CE v2) — kept for historical delta calc
+PHASE9_C1C2_BASELINE = {
+    "name": "Phase 9 C1+C2 (SHIPPED 2026-04-18, adaptive monthly) — prior baseline",
     "cagr": 0.2169,
     "sharpe": 1.0732,
     "max_dd": -0.2397,
@@ -83,13 +126,7 @@ CURRENT_BASELINE = {
     "avg_stock_names": 22.81,
     "beat_month_ratio": 0.5904,
     "excess_cagr": 0.0819,
-    # Sleeve counts from Colab 13:13 run (defensive_drawdown_control cap policy)
     "sleeve_counts_reference": {"core_compounder": 7, "future_winner": 6, "early_scout": 4},
-    # Alternate policy metrics (not used for verdict; informational)
-    "alt_policies": {
-        "best_interval_3m": {"cagr": 0.2339, "sharpe": 1.197, "max_dd": -0.2609, "ir": 1.036, "avg_stock_names": 33.30},
-        "concentrated_3name": {"cagr": 0.2989, "sharpe": 1.124, "max_dd": -0.2539, "ending_capital_x": 6.10},
-    },
 }
 
 # Previous baseline kept for legacy / historical comparison utilities

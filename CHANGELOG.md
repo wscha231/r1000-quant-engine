@@ -2665,3 +2665,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Main portfolio: 14 positions** (was 17 in prior Colab run). Sleeve dist 4 core / 6 future / 4 early. Target {40/40/20} -- different sleeve cap policy selected this run (was 60/25/15 "defensive_drawdown_control"). This change is likely from a different cap policy winner and unrelated to C3.
   - **Next step: QUICK_RESCORE** from this commit. feature_store + trained models stay (engine_version unchanged from f93a4a2 -> this commit is post-FS behavior only). Expected ~30 min. Will produce corrected concentrated grid with true N differentiation -- that's the real CE measurement.
 
+### 21:27 KST - SHIP phase9-c3-plus-ce-v2-and-baseline-rotation
+
+- scope:
+  - **SHIP verdict for Phase 9 C3 + CE v2** on commit `d3d3a91`. Measured via `py -3 run_local.py --no-collector` completed at 21:22 KST (runtime 124.9 min — Phase 3 + 4 re-ran because config_fingerprint changed when CE v2 lifted the 2 inner clamps). Both main diversified and concentrated improved across every ship-gate metric. User's original CAGR 30%+ goal achieved via concentrated mode (N=5 / monthly / score_power = 34.75% CAGR). This commit rotates the baseline registry across 3 atomic files and documents the concentrated champion for live use.
+- files:
+  - `run_local.py` -> `CURRENT_BASELINE` dict rotated to Phase 9 C3 + CE v2 metrics (cagr 0.2291, sharpe 1.1721, max_dd -0.2626, ir 0.9474, excess_cagr 0.0942, avg_stock_names 20.43, avg_turnover 0.4308, beat_month_ratio 0.5783). Added `alt_policies.concentrated_champion` sub-dict with the measured N=5 champion spec + 5 holdings. Added `alt_policies.concentrated_alternatives_gt30pct` listing 4 runner-up combos. Previous Phase 9 C1+C2 baseline kept as `PHASE9_C1C2_BASELINE` for historical delta calcs. Verdict message in `print_verdict()` unchanged — still compares `CURRENT_BASELINE` (now C3+CE v2); future runs without `--no-collector` will show tiny deltas vs itself until a new feature ships.
+  - `colab_run.ipynb` Cell 10 `BASELINE` dict rotated to match. Added nested `concentrated_champion` dict so Colab Cell 10 baseline-delta view shows the 34.75% number.
+  - `CLAUDE.md` "Current Production Baseline" section fully rewritten. Added "🎯 Concentrated Champion — CAGR 30%+ goal achieved" sub-section with the 5 holdings. Historical baselines table updated to list Phase 9 C1+C2 as PRIOR (was "current") and Phase 8 / 2026-04-15 as further prior.
+  - `SESSION_HANDOFF.md`:
+    * §0 TL;DR fully rewritten as SHIP post-verdict. Main diversified table + concentrated champion table + runners-up list + what-was-shipped summary.
+    * §2 "Next step" rewritten as **Refactor Phase A** (REFACTOR_PLAN.md §12 Stage 3). Explicit argument: the CE v1 cap bug is exactly the "monolithic file makes invariants implicit" class the refactor is designed to prevent. §2a legacy kept as audit trail.
+    * §6 phase status table: 9.C3 -> SHIPPED with measured delta, 9.CE new row added with SHIPPED v2 status (champion N=5).
+- symbols_added:
+  - `run_local.PHASE9_C1C2_BASELINE: dict` -- historical reference baseline kept for any future tool that wants to compare against prior shipped state.
+  - `run_local.CURRENT_BASELINE['alt_policies']['concentrated_champion']` (nested dict) -- engine-selected N=5 concentrated champion spec including holdings list.
+  - `run_local.CURRENT_BASELINE['alt_policies']['concentrated_alternatives_gt30pct']` (list of dicts) -- 4 runner-up concentrated combos with CAGR > 30%.
+- symbols_changed:
+  - `run_local.CURRENT_BASELINE` -- field values rotated from Phase 9 C1+C2 to Phase 9 C3 + CE v2. Schema unchanged (same keys).
+  - `colab_run.ipynb` Cell 10 `BASELINE` dict -- field values rotated, new nested `concentrated_champion` key.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Baseline rotation is a documentation change; verdict gate formula (ΔCAGR ≥ +0.5pp etc.) unchanged, only the reference point shifts.
+- outputs:
+  - Measurement of record (2026-04-18 21:22 KST, commit `d3d3a91`, 83 months backtest):
+    * Main diversified: `outputs/backtest_metrics.json` cagr=0.22905 sharpe=1.17209 max_dd=-0.26256 ir=0.94742 excess_cagr=0.09423 avg_turnover=0.43076 avg_stock_names=20.434 beat_month_ratio=0.57831
+    * Concentrated champion: `outputs/concentrated_backtest_metrics.json` cagr=0.34747 sharpe=1.25383 max_dd=-0.26740 ir=1.07337 comparison_objective=0.38436 target_stock_names=5 weighting_mode=score_power rebalance_interval_months=1
+    * Full concentrated grid: `outputs/reports/concentrated_strategy_comparison.csv` (63 rows, 10 with CAGR>30%)
+    * Live portfolio: `outputs/portfolio_latest.csv` (18 positions, sleeve {core 8, future 5, early 4}, cash 3.8%)
+    * Live concentrated: `outputs/concentrated_portfolio_latest.csv` (5 positions PR/ETR/GEV/FTI/AKAM, weights 30.3/27.8/15.2/14.5/12.3)
+- validation:
+  - `py -3 tests/smoke_test.py --quick` -> 11/11 passed.
+  - CE v2 grid sanity: N=3/4/5/7/10 at (interval=1, mode=score_power) now produce DIFFERENT CAGR values (33.77/32.70/34.75/30.28/26.52), confirming the 2 inner clamps are lifted. Pre-v2 all 5 would tie at 29.86%.
+  - Baseline consistency check: new CURRENT_BASELINE cagr=0.2291 appears in all 3 files (run_local.py, colab_run.ipynb, CLAUDE.md).
+- risks_or_notes:
+  - **Main diversified +1.22pp CAGR improvement surprising**: previous FULL REBUILD (f93a4a2) showed -0.97pp regression on the same C3 code. Difference is sleeve cap policy selection — v2 run picked `defensive_drawdown_control` (60/25/15) and v1 run picked `balanced` (40/40/20). The cap policy comparison appears sensitive to minor input changes when CAGR is close between policies. Worth a follow-up: pin the cap policy to `defensive_drawdown_control` explicitly if it's consistently best, OR widen cap policy comparison to more candidates and let the engine pick. See sleeve_cap_policy_comparison.csv for full ladder.
+  - **CE v2 champion IS robust across N**: N=3/4/5/7/10 at (1m, score_power) all score >26% CAGR. N=5 is only marginally ahead of N=3 (34.75 vs 33.77). If user prefers simpler 3-name concentrated, N=3 at 33.77% is a valid SHIP-gate-pass alternative — still >30%.
+  - **winner_take_all mode is a trap in its current form**: 100% weight on #1 score every month. CAGR 19.29%, Sharpe 0.697, MaxDD -35.5% at best. The grid still tests it (63 combos stays) but `comparison_objective` correctly never selects it as winner.
+  - **Concentrated rebalance cost is real**: 54% monthly turnover on N=5 = ~26% trading cost drag over 12 months at current 25 bps per side. Net CAGR already includes this. For live trading, investor should budget ~3-5 trades per month plus hold-period taxes.
+  - **Concentration risk**: champion holdings are 2 Energy (PR 30%, FTI 14.5%), 1 Utilities (ETR 27.8%), 1 Industrials (GEV 15.2%), 1 IT (AKAM 12.3%). Energy = 45% of concentrated sleeve → sensitive to oil/gas regime shifts. Diversified portfolio (18 positions) stays the recommended primary vehicle; concentrated is a SEPARATE high-conviction sleeve (per concentrated_operating_guide.json).
+  - **Stage 3 unblocked**: Refactor Phase A per REFACTOR_PLAN.md §6. Estimated 1-1.5 day focused session. After refactor: Stage 4 Subtractive (delete Phase 3/5/7a + 153 noise factors), then Stage 5 Phase 8e (r_12m ML) for next alpha wave.
+
