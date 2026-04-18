@@ -209,6 +209,49 @@ def test_hard_sanitize_dedup() -> None:
     )
 
 
+@_test("structural.phase9_c3_turnaround_columns_in_keep_cols")
+def test_phase9_c3_columns_in_keep_cols() -> None:
+    """PHASE9_C3_TURNAROUND_COLUMNS must be spliced into build_feature_store keep_cols + hard_sanitize.
+
+    Regression guard: Phase 9 C3 adds 8 feature-store columns that would
+    silently disappear without the whitelist (same trap as Phase 1/2 keepcols-fix).
+    """
+    src = _engine_src()
+    # Constant exists and has the expected 8 names
+    assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in src, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
+    required = [
+        "profit_turn_positive_4q",
+        "cashflow_turn_positive_4q",
+        "roe_turn_positive_4q",
+        "any_profitability_turn_positive_4q",
+        "roe_sign_flip_pos",
+        "ocf_under_loss_growth",
+        "fcf_under_loss_growth",
+        "ni_loss_narrowing_4q",
+    ]
+    # Extract the constant body
+    m = re.search(r"PHASE9_C3_TURNAROUND_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    assert m, "Failed to parse PHASE9_C3_TURNAROUND_COLUMNS body"
+    body = m.group(1)
+    missing = [c for c in required if f'"{c}"' not in body]
+    assert not missing, f"PHASE9_C3_TURNAROUND_COLUMNS missing names: {missing}"
+
+    # Build feature store function body must reference the constant twice
+    # (once in keep_cols, once in hard_sanitize call)
+    fn = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fn, "build_feature_store function not found"
+    fn_body = fn.group(0)
+    count = fn_body.count("PHASE9_C3_TURNAROUND_COLUMNS")
+    assert count >= 2, (
+        f"PHASE9_C3_TURNAROUND_COLUMNS referenced only {count} time(s) in build_feature_store; "
+        "expected >=2 (keep_cols + hard_sanitize)."
+    )
+
+
 @_test("structural.sign_flip_pos_preserves_semantics")
 def test_sign_flip_pos_pattern() -> None:
     """_sign_flip_pos formula must stay: (cur>0) & (prev<=0) & prev.notna().
@@ -252,6 +295,7 @@ def test_phase9_dual_gate() -> None:
         "phase8d_long_horizon_alpha_enabled",
         "phase9_c1_rebalance_enabled",
         "phase9_thesis_gate_enabled",
+        "phase9_c3_turnaround_enabled",
     }
     missing = expected_dual - cfg_fields
     assert not missing, (
@@ -265,15 +309,20 @@ def test_phase9_dual_gate() -> None:
 # ======================================================================
 
 
+_ENGINE_MODULE = None  # module-level cache so logic + regression tests share one import
+
+
 def _import_engine():
-    sys.path.insert(0, str(ROOT))
-    # Avoid running heavy setup on import
-    import importlib
-    if "r1000_top30_institutional" in sys.modules:
-        importlib.reload(sys.modules["r1000_top30_institutional"])
-    else:
-        import r1000_top30_institutional  # noqa: F401
-    return sys.modules["r1000_top30_institutional"]
+    """Import the engine module once per smoke-test run. Subsequent calls
+    return the cached module (avoids 15s reload per test in Groups 3-5)."""
+    global _ENGINE_MODULE
+    if _ENGINE_MODULE is not None:
+        return _ENGINE_MODULE
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    import r1000_top30_institutional  # noqa: F401
+    _ENGINE_MODULE = sys.modules["r1000_top30_institutional"]
+    return _ENGINE_MODULE
 
 
 @_test("import.engine_loads_cleanly")
@@ -286,9 +335,27 @@ def test_engine_import() -> None:
     assert hasattr(eng, "PHASE1_ALPHA_COLUMNS"), "PHASE1_ALPHA_COLUMNS not exported"
     assert hasattr(eng, "PHASE2_INDUSTRY_COLUMNS"), "PHASE2_INDUSTRY_COLUMNS not exported"
     assert hasattr(eng, "PHASE8B_LONG_LOOKBACK_COLUMNS"), "PHASE8B_LONG_LOOKBACK_COLUMNS not exported"
+    assert hasattr(eng, "PHASE9_C3_TURNAROUND_COLUMNS"), "PHASE9_C3_TURNAROUND_COLUMNS not exported (Phase 9 C3)"
     assert hasattr(eng, "weighted_sleeve_composite"), "weighted_sleeve_composite not exported"
     assert hasattr(eng, "phase_is_enabled"), "phase_is_enabled not exported"
     assert hasattr(eng, "hard_sanitize"), "hard_sanitize not exported"
+
+
+@_test("import.engine_reuse_version_bumped_for_c3")
+def test_engine_reuse_version_c3() -> None:
+    """After Phase 9 C3 ships, ENGINE_REUSE_VERSION must reflect the FS schema change.
+
+    Regression guard: if someone reverts C3 but forgets to revert the
+    version bump, cached feature_stores from pre-C3 will be reused with
+    post-C3 code paths — silent schema mismatch.
+    """
+    if _args.quick:
+        return
+    eng = _import_engine()
+    ver = eng.ENGINE_REUSE_VERSION
+    assert "phase9c3" in ver.lower() or ver >= "2026-04-18", (
+        f"ENGINE_REUSE_VERSION {ver!r} doesn't reflect Phase 9 C3 feature-store schema change"
+    )
 
 
 # ======================================================================
@@ -468,6 +535,53 @@ def test_sign_flip_cols_carried() -> None:
     ]
     missing = [c for c in required if f'"{c}"' not in carry_block]
     assert not missing, f"fund_panel carry_cols missing sign-flip flags: {missing}"
+
+
+@_test("regression.phase9_c3_alias_cols_in_carry_cols")
+def test_phase9_c3_cols_carried() -> None:
+    """Phase 9 C3 alias columns must be in fund_panel carry_cols so they ffill forward.
+
+    Regression: without carry_cols membership, these columns exist at
+    quarter boundaries but vanish between quarters — keep_cols whitelist
+    alone isn't enough because build_universe_monthly merges fund_panel
+    using the ffilled columns.
+    """
+    src = _engine_src()
+    m = re.search(r"carry_cols\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    assert m, "carry_cols list not found"
+    carry_block = m.group(1)
+    required = [
+        "profit_turn_positive_4q",
+        "cashflow_turn_positive_4q",
+        "roe_turn_positive_4q",
+        "any_profitability_turn_positive_4q",
+        "roe_sign_flip_pos",
+    ]
+    missing = [c for c in required if f'"{c}"' not in carry_block]
+    assert not missing, f"fund_panel carry_cols missing Phase 9 C3 aliases: {missing}"
+
+
+@_test("regression.phase9_c3_gate_wired_in_early_scout")
+def test_phase9_c3_gate_wired() -> None:
+    """Phase 9 C2 early-scout gate must call _p9_c3_admit as an OR branch.
+
+    Regression: without this wire-up, C3 toggle is dead code even when
+    the feature-store columns are present.
+    """
+    src = _engine_src()
+    # _p9_c3_admit must appear in the _p9_early_elig definition
+    m = re.search(
+        r"_p9_early_elig\s*=\s*\([^)]*_p9_c3_admit[^)]*\)",
+        src,
+        re.DOTALL,
+    )
+    assert m, (
+        "_p9_c3_admit not found inside _p9_early_elig expression. "
+        "Phase 9 C3 code exists but gate not wired — disable=no-op."
+    )
+    # And _phase9_c3_active must gate the compute block
+    assert "_phase9_c3_active = bool(" in src, "_phase9_c3_active toggle variable missing"
+    assert 'phase9_c3_turnaround_enabled' in src, "cfg field phase9_c3_turnaround_enabled missing"
 
 
 # ======================================================================

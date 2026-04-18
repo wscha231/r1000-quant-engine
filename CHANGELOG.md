@@ -2532,3 +2532,52 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Three places store the baseline**: run_local.py `CURRENT_BASELINE`, colab_run.ipynb Cell 10 `BASELINE`, CLAUDE.md "Current Production Baseline" section. All three rotate atomically in this commit. A future Refactor Phase A (REFACTOR_PLAN.md §6) should move these to a single JSON file (`baselines/current.json`) so the next rotation is one file, not three.
   - **sleeve_counts_reference in CURRENT_BASELINE is advisory not enforced**: the ship gate checks `early_scout >= 4`, not "exactly 8". Subsequent phases may legitimately produce different counts (e.g. C3 may shift 1-2 names across sleeves). The reference is for diagnostic sanity, not regression.
   - **PHASE8_BASELINE remains in code** so historical researchers or Stage 4 subtractive-pass auditors can compare against it without re-running Phase 8 from scratch. Consider deleting in the Stage 4 subtractive pass once sufficient baselines are captured in version-controlled JSON.
+
+### 12:52 KST - phase9-c3-implementation-eps-turn-positive-flags
+
+- scope:
+  - Phase 9 C3 implementation per `PHASE_9_C3_PROPOSAL.md`. Adds 8 feature-store columns + 2 new admission branches (`_p9_eps_turn_positive`, `_p9_still_loss_but_improving`) to the Phase 9 C2 early-scout gate. Encodes user definition of early sleeve ("eps 적자거나 양전환 막 하거나") exactly. Requires FULL rebuild (feature-store schema change). Hypothesis: tightening early admission via explicit turnaround signal may recover some of the -0.74pp CAGR lost to Phase 9 C1+C2's taxonomy repair.
+- files:
+  - `r1000_top30_institutional.py` ->
+    (1) `ENGINE_REUSE_VERSION` bumped `"2026-04-17-phase8b-long-lookback-momentum"` -> `"2026-04-18-phase9c3-turnaround-flags"` (triggers FS rebuild).
+    (2) New module-level constant `PHASE9_C3_TURNAROUND_COLUMNS` = 8 names (4 aliases + 1 new roe flip + 3 existing-but-unexposed loss-narrowing scores).
+    (3) EngineConfig gains `phase9_c3_turnaround_enabled: bool = True` + `phase9_c3_loss_narrowing_threshold: float = 0.3`.
+    (4) `recompute_fund_panel_derived_columns` now computes 4 Phase 9 C3 alias columns (`profit_turn_positive_4q`, `cashflow_turn_positive_4q`, `roe_turn_positive_4q`, `any_profitability_turn_positive_4q`) + `roe_sign_flip_pos` via reusing the existing nested `_sign_flip_pos` helper. Defensive against missing assets/liabilities (sets zero instead of skipping).
+    (5) `carry_cols` list extended with 5 new Phase 9 C3 names so ffill propagates them through quarter gaps.
+    (6) `build_feature_store` `keep_cols` + `hard_sanitize` calls both gain `+ PHASE9_C3_TURNAROUND_COLUMNS` (the Phase 1+2 keepcols-survival rule applied preemptively).
+    (7) `compute_portfolio_sleeve_columns` Phase 9 C2 block extended: new `_phase9_c3_active` toggle gates 2 admission branches (`_p9_eps_turn_positive = OR of 3 turn-flags > 0.5`, `_p9_still_loss_but_improving = (ni_ttm < 0) AND (ocf/fcf_under_loss/ni_narrow > threshold)`). `_p9_early_elig` now admits via `(_p9_early_inflect | _p9_early_breakout | _p9_c3_admit)`. C3 diagnostics `phase9_c3_turnaround_active / phase9_c3_eps_turn_positive / phase9_c3_still_loss_branch` written to `d` for post-run analysis.
+  - `colab_run.ipynb` Cell 2 -> new `PHASE9_C3_TURNAROUND = 'auto'` toggle + `_set_phase_env('PHASE_PHASE9_C3_TURNAROUND_ENABLED', ...)` + extended print-loop tuple with `'PHASE_PHASE9_C3_TURNAROUND_ENABLED'`.
+  - `run_local.py` -> new `--phase9-c3` CLI flag with same {auto, 0, 1} choices as C1/C2. Env var set via `apply_phase_toggle`. Banner prints current value.
+  - `tests/smoke_test.py` -> 5 new tests covering C3 (structural: `phase9_c3_turnaround_columns_in_keep_cols`, `phase9_keys_have_dual_gate_cfg` extended with `phase9_c3_turnaround_enabled`; import: `engine_reuse_version_bumped_for_c3`; regression: `phase9_c3_alias_cols_in_carry_cols`, `phase9_c3_gate_wired_in_early_scout`). Fixed long-standing bug in `_import_engine()` — was using `importlib.reload()` on every call which caused 15s-per-test overhead; now caches the module reference globally so all Group 3-5 tests share one import (5s full run vs 54s pre-fix).
+- symbols_added:
+  - `r1000_top30_institutional.PHASE9_C3_TURNAROUND_COLUMNS: list[str]` -- 8-entry feature-store whitelist.
+  - `tests.smoke_test.test_phase9_c3_columns_in_keep_cols` -- structural regression test.
+  - `tests.smoke_test.test_engine_reuse_version_c3` -- FS schema-version regression test.
+  - `tests.smoke_test.test_phase9_c3_cols_carried` -- fund_panel carry_cols regression test.
+  - `tests.smoke_test.test_phase9_c3_gate_wired` -- early-scout gate wiring regression test.
+  - `tests.smoke_test._ENGINE_MODULE` -- module-level cache for engine import (performance fix).
+- symbols_changed:
+  - `recompute_fund_panel_derived_columns` -- added 4 alias columns + `roe_sign_flip_pos`. Backward compatible: new columns are non-destructive additions.
+  - `compute_portfolio_sleeve_columns` -- Phase 9 C2 early_scout eligibility expression now unions `_p9_c3_admit`. Behavior-preserving when `phase9_c3_turnaround_enabled=False` (C3 toggle off -> `_p9_c3_admit = pd.Series(False, ...)` -> pure C2 behavior).
+  - `tests.smoke_test._import_engine()` -- cached via `_ENGINE_MODULE` global instead of reloading every call.
+- config_fields_added:
+  - `phase9_c3_turnaround_enabled: bool = True` -- master toggle.
+  - `phase9_c3_loss_narrowing_threshold: float = 0.3` -- minimum loss-narrowing rate for the `_p9_still_loss_but_improving` branch. Tunable per-strategy.
+- breaking_changes:
+  - **ENGINE_REUSE_VERSION bump forces one FULL REBUILD** per machine on next run (cached `feature_store_latest.parquet` will be regenerated with 8 new columns). No runtime behavior breaking.
+- outputs:
+  - After FULL REBUILD: `feature_store/feature_store_latest.parquet` will have 8 new columns appended. `scored_latest.csv` will have 3 new diagnostic columns (`phase9_c3_turnaround_active / phase9_c3_eps_turn_positive / phase9_c3_still_loss_branch`). All existing columns unchanged in schema.
+- validation:
+  - `py -3 tests/smoke_test.py` -> 22/22 passed in 4.9s (18 prior + 5 new; 1 test consolidated).
+  - `py -3 tests/smoke_test.py --quick` -> 12/12 passed in <1s.
+  - `py -3 run_local.py --help` -> `--phase9-c3 {auto,0,1}` flag listed.
+  - `py -3 -c "import json; json.load(open('colab_run.ipynb'))"` -> notebook still valid JSON (12 cells).
+  - No actual pipeline run yet. Next step: `py -3 run_local.py --full` for FULL rebuild + Cell E verdict against Phase 9 C1+C2 baseline.
+- risks_or_notes:
+  - **FULL REBUILD required this commit**: ENGINE_REUSE_VERSION bumped, so any machine running the pipeline next will rebuild the feature_store from scratch. Estimated runtime: ~3-4h local CPU, ~2-3h Colab GPU.
+  - **C3 branch count variance**: `phase9_c3_eps_turn_positive` typically fires on 3-8 names per rebalance date (fund_panel `ni_sign_flip_pos` raw frequency). `phase9_c3_still_loss_but_improving` is stricter (both loss AND narrowing). Total new admissions estimated at 5-15 per rebalance — if this exceeds 20% of early sleeve (currently 8 names), threshold `phase9_c3_loss_narrowing_threshold` may need tightening from 0.3 to 0.5.
+  - **ROE sign-flip noise**: `roe_proxy = net_income_ttm / (assets - liabilities)`. Spurious flip possible when equity crosses zero via accounting adjustments. Defensive: `_sign_flip_pos` already handles NaN via `prev_num.notna()` mask; subsequent gate threshold `> 0.5` filters near-zero noise.
+  - **C3 is DEPENDENT on C2**: C3 only activates inside the `if _phase9_thesis_active:` block. Disabling C2 automatically disables C3 regardless of the C3 toggle — this is intentional, not a bug. If user wants to A/B C3 specifically, they must leave C2 ON.
+  - **Gate semantics verification deferred**: the exact count/identity of names admitted by C3 cannot be measured without running the pipeline. The 5 new tests verify CODE PRESENCE but not VALUE CORRECTNESS. That verification happens post-FULL-rebuild via Cell E verdict + `scored_latest.csv` inspection.
+  - **Backward compat on C3 toggle OFF**: with `PHASE_PHASE9_C3_TURNAROUND_ENABLED=0`, `_p9_c3_admit` becomes all-False so `_p9_early_elig` reverts exactly to the pre-C3 expression. Feature_store columns still get written (cheap, wasted storage ~1MB) but gate ignores them.
+  - **SESSION_HANDOFF.md NOT yet rotated**: §0 still says "Phase 9 C1+C2 SHIPPED, C3 DESIGNED". After C3 SHIP verdict (post FULL REBUILD), rotate §0 to "Phase 9 C1+C2+C3 SHIPPED" + CURRENT_BASELINE again + next-step Refactor Phase A.

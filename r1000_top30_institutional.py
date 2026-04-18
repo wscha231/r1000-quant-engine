@@ -47,7 +47,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-17-phase8b-long-lookback-momentum"
+ENGINE_REUSE_VERSION = "2026-04-18-phase9c3-turnaround-flags"
 
 
 def _resolve_engine_commit_sha() -> str:
@@ -1071,6 +1071,35 @@ PHASE8B_LONG_LOOKBACK_COLUMNS = [
     "mom_36m",
     "multi_year_winner_score",
     "persistence_trend_24m",
+]
+
+
+# =====================================================================
+# Phase 9 C3: EPS / profitability turn-positive flags exposed to feature
+# store so Phase 9 C2 early-scout gate can admit names via explicit
+# Q-over-Q sign transition (user definition: "early 는 eps 적자거나
+# 양전환 막 하거나"). Design in PHASE_9_C3_PROPOSAL.md.
+#
+# Two column classes bundled here:
+#   (a) 4 NEW user-facing aliases + 1 NEW roe sign-flip flag:
+#       profit_turn_positive_4q, cashflow_turn_positive_4q,
+#       roe_turn_positive_4q, any_profitability_turn_positive_4q,
+#       roe_sign_flip_pos
+#   (b) 3 EXISTING-BUT-UNEXPOSED continuous scores from fund_panel that
+#       never survived the old keep_cols filter:
+#       ocf_under_loss_growth, fcf_under_loss_growth, ni_loss_narrowing_4q
+#
+# ENGINE_REUSE_VERSION bump required because feature_store parquet
+# schema gains these 8 columns. One FULL REBUILD needed per machine.
+PHASE9_C3_TURNAROUND_COLUMNS = [
+    "profit_turn_positive_4q",
+    "cashflow_turn_positive_4q",
+    "roe_turn_positive_4q",
+    "any_profitability_turn_positive_4q",
+    "roe_sign_flip_pos",
+    "ocf_under_loss_growth",
+    "fcf_under_loss_growth",
+    "ni_loss_narrowing_4q",
 ]
 
 
@@ -2388,6 +2417,21 @@ class EngineConfig:
     phase9_early_value_inflection_threshold: float = 0.5   # value_inflection_score
     phase9_early_breakout_threshold: float = 0.5           # breakout_fresh_20d
     phase9_early_golden_cross_threshold: float = 0.3       # golden_cross_fresh_20d
+
+    # --------------- Phase 9 C3: EPS turn-positive gate ---------------
+    # Adds 2 new admission branches to the early-scout gate (inside the
+    # Phase 9 C2 thesis-gate block):
+    #   (1) _p9_eps_turn_positive: any of profit/cashflow/roe turn-positive
+    #       flag > 0.5 (binary, from fund_panel _sign_flip_pos helper).
+    #   (2) _p9_still_loss_but_improving: net_income_ttm < 0 AND
+    #       (ocf_under_loss_growth > threshold OR fcf_under_loss_growth >
+    #       threshold OR ni_loss_narrowing_4q > threshold).
+    # Encodes the user definition of early sleeve exactly: "eps 적자거나
+    # 양전환 막 하거나" (still losing OR just turned positive). C3 is
+    # DEPENDENT on C2 (ships together when C2 active); disabling this
+    # toggle reverts to pure C2 (inflect/breakout) gate.
+    phase9_c3_turnaround_enabled: bool = True
+    phase9_c3_loss_narrowing_threshold: float = 0.3
 
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
@@ -12221,13 +12265,50 @@ def recompute_fund_panel_derived_columns(
         .fillna(0.0)
     )
 
+    # -----------------------------------------------------------------
+    # Phase 9 C3: user-facing alias columns for feature_store export.
+    # These mirror existing internal sign-flip flags under intention-revealing
+    # names so the Phase 9 C2 early-scout gate (in compute_portfolio_sleeve_columns)
+    # can reference them directly without depending on fund_panel internals.
+    # See PHASE9_C3_TURNAROUND_COLUMNS constant + PHASE_9_C3_PROPOSAL.md §3.
+    # -----------------------------------------------------------------
+    d["profit_turn_positive_4q"] = d["ni_sign_flip_pos"]
+    d["cashflow_turn_positive_4q"] = (
+        pd.concat([d["ocf_sign_flip_pos"], d["fcf_sign_flip_pos"]], axis=1)
+        .max(axis=1)
+        .fillna(0.0)
+    )
+
     if "assets" in d.columns and "liabilities" in d.columns:
         equity = (d["assets"] - d["liabilities"]).replace(0, np.nan)
         d["debt_to_equity"] = d["liabilities"] / equity
         if "net_income_ttm" in d.columns:
             d["roe_proxy"] = d["net_income_ttm"] / equity
             d["roe_trend_4q"] = d.groupby("cik")["roe_proxy"].diff(4)
+            # Phase 9 C3: ROE sign-flip flag + user-facing alias (parallel to op/ocf/fcf/ni).
+            d["roe_sign_flip_pos"] = _sign_flip_pos("roe_proxy")
+            d["roe_turn_positive_4q"] = d["roe_sign_flip_pos"]
         d["debt_to_equity_delta_4q"] = d.groupby("cik")["debt_to_equity"].diff(4)
+
+    # Phase 9 C3 union composite — 3-way OR across profit/cashflow/roe.
+    # Defensive: fill missing roe_* columns with 0 so the union still computes
+    # even when the roe_proxy block above was skipped (missing assets/liab).
+    if "roe_sign_flip_pos" not in d.columns:
+        d["roe_sign_flip_pos"] = 0.0
+    if "roe_turn_positive_4q" not in d.columns:
+        d["roe_turn_positive_4q"] = 0.0
+    d["any_profitability_turn_positive_4q"] = (
+        pd.concat(
+            [
+                d["profit_turn_positive_4q"],
+                d["cashflow_turn_positive_4q"],
+                d["roe_turn_positive_4q"],
+            ],
+            axis=1,
+        )
+        .max(axis=1)
+        .fillna(0.0)
+    )
 
     # --- SAGE derived metrics (proxy-safe: fallback to approximations when new tags absent) ---
     rev_ttm = pd.to_numeric(d.get("revenues_ttm"), errors="coerce").replace(0, np.nan)
@@ -12368,6 +12449,12 @@ def recompute_fund_panel_derived_columns(
         "fcf_under_loss_growth",
         "op_income_under_loss_growth",
         "any_profit_sign_flip_pos",
+        # Phase 9 C3: user-facing alias + ROE sign-flip (PHASE9_C3_TURNAROUND_COLUMNS)
+        "profit_turn_positive_4q",
+        "cashflow_turn_positive_4q",
+        "roe_turn_positive_4q",
+        "any_profitability_turn_positive_4q",
+        "roe_sign_flip_pos",
         # SAGE derived metrics
         "fcf_margin",
         "net_margin",
@@ -14326,6 +14413,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE5_LEADER_LAGGARD_COLUMNS
             + PHASE1_ALPHA_COLUMNS
             + PHASE8B_LONG_LOOKBACK_COLUMNS
+            + PHASE9_C3_TURNAROUND_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -14353,6 +14441,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE5_LEADER_LAGGARD_COLUMNS
         + PHASE1_ALPHA_COLUMNS
         + PHASE8B_LONG_LOOKBACK_COLUMNS
+        + PHASE9_C3_TURNAROUND_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -19364,9 +19453,49 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
             (_p9_golden > _p9_early_gc_thr)
             | ((_p9_breakout > _p9_early_breakout_thr) & (_p9_above_ma200 > 0))
         )
+
+        # Phase 9 C3: EPS turn-positive + still-loss-but-improving branches.
+        # Encodes user definition "early 는 eps 적자거나 양전환 막 하거나"
+        # exactly. See PHASE_9_C3_PROPOSAL.md. C3 is dependent on C2 — it
+        # only runs inside this thesis-gate block and disabling this toggle
+        # reverts early_scout to pure C2 (inflect/breakout) admission.
+        _phase9_c3_active = bool(
+            (getattr(cfg, "phase9_c3_turnaround_enabled", True) if cfg is not None else True)
+            and phase_is_enabled("phase9_c3_turnaround", default=True)
+        )
+        if _phase9_c3_active:
+            _p9_ni_ttm = numeric_series_or_default(d, "net_income_ttm", 0.0)
+            _p9_profit_turn = numeric_series_or_default(d, "profit_turn_positive_4q", 0.0)
+            _p9_cf_turn = numeric_series_or_default(d, "cashflow_turn_positive_4q", 0.0)
+            _p9_roe_turn = numeric_series_or_default(d, "roe_turn_positive_4q", 0.0)
+            _p9_ocf_under_loss = numeric_series_or_default(d, "ocf_under_loss_growth", 0.0)
+            _p9_fcf_under_loss = numeric_series_or_default(d, "fcf_under_loss_growth", 0.0)
+            _p9_ni_narrow = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0)
+            _p9_c3_narrow_thr = float(
+                getattr(cfg, "phase9_c3_loss_narrowing_threshold", 0.3) if cfg is not None else 0.3
+            )
+            _p9_eps_turn_positive = (
+                (_p9_profit_turn > 0.5)
+                | (_p9_cf_turn > 0.5)
+                | (_p9_roe_turn > 0.5)
+            )
+            _p9_still_loss_but_improving = (
+                (_p9_ni_ttm < 0)
+                & (
+                    (_p9_ocf_under_loss > _p9_c3_narrow_thr)
+                    | (_p9_fcf_under_loss > _p9_c3_narrow_thr)
+                    | (_p9_ni_narrow > _p9_c3_narrow_thr)
+                )
+            )
+            _p9_c3_admit = _p9_eps_turn_positive | _p9_still_loss_but_improving
+        else:
+            _p9_c3_admit = pd.Series(False, index=d.index)
+            _p9_eps_turn_positive = pd.Series(False, index=d.index)
+            _p9_still_loss_but_improving = pd.Series(False, index=d.index)
+
         _p9_early_elig = (
             _p9_early_size
-            & (_p9_early_inflect | _p9_early_breakout)
+            & (_p9_early_inflect | _p9_early_breakout | _p9_c3_admit)
             & (~_p9_core_elig) & (~_p9_future_elig)
         )
 
@@ -19391,6 +19520,10 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         d["phase9_early_eligible"] = _p9_early_elig.astype(float).values
         d["phase9_unassigned"] = _p9_unassigned.astype(float).values
         d["phase9_mktcap_percentile"] = _p9_mktcap_pct.values
+        # Phase 9 C3 diagnostics (how many names C3 admitted per branch)
+        d["phase9_c3_turnaround_active"] = float(_phase9_c3_active)
+        d["phase9_c3_eps_turn_positive"] = _p9_eps_turn_positive.astype(float).values
+        d["phase9_c3_still_loss_branch"] = _p9_still_loss_but_improving.astype(float).values
     else:
         d["phase9_thesis_gate_active"] = 0.0
         d["phase9_core_eligible"] = 0.0
@@ -19398,6 +19531,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         d["phase9_early_eligible"] = 0.0
         d["phase9_unassigned"] = 0.0
         d["phase9_mktcap_percentile"] = 0.0
+        d["phase9_c3_turnaround_active"] = 0.0
+        d["phase9_c3_eps_turn_positive"] = 0.0
+        d["phase9_c3_still_loss_branch"] = 0.0
     # END Phase 9 C2 thesis-gate
     # -------------------------------------------------------------------
 

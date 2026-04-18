@@ -116,6 +116,8 @@ def parse_args() -> argparse.Namespace:
                    help="Phase 9 C1 multi_year rebalance (default: auto = on per cfg).")
     p.add_argument("--phase9-c2", choices=["auto", "0", "1"], default="auto",
                    help="Phase 9 C2 percentile thesis-gate (default: auto = on per cfg).")
+    p.add_argument("--phase9-c3", choices=["auto", "0", "1"], default="auto",
+                   help="Phase 9 C3 EPS turn-positive + still-loss-improving branches (default: auto = on per cfg).")
     return p.parse_args()
 
 
@@ -326,6 +328,7 @@ def main() -> int:
     # Phase toggles
     apply_phase_toggle("PHASE_PHASE9_C1_REBALANCE_ENABLED", args.phase9_c1)
     apply_phase_toggle("PHASE_PHASE9_THESIS_GATE_ENABLED", args.phase9_c2)
+    apply_phase_toggle("PHASE_PHASE9_C3_TURNAROUND_ENABLED", args.phase9_c3)
 
     # Banner
     sha, dirty = resolve_commit_sha()
@@ -343,6 +346,7 @@ def main() -> int:
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")
     print(f"  Phase 9 C2:    {args.phase9_c2}")
+    print(f"  Phase 9 C3:    {args.phase9_c3}")
     print("=" * 70)
 
     # Prereqs
