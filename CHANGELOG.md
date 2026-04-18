@@ -2581,3 +2581,51 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Gate semantics verification deferred**: the exact count/identity of names admitted by C3 cannot be measured without running the pipeline. The 5 new tests verify CODE PRESENCE but not VALUE CORRECTNESS. That verification happens post-FULL-rebuild via Cell E verdict + `scored_latest.csv` inspection.
   - **Backward compat on C3 toggle OFF**: with `PHASE_PHASE9_C3_TURNAROUND_ENABLED=0`, `_p9_c3_admit` becomes all-False so `_p9_early_elig` reverts exactly to the pre-C3 expression. Feature_store columns still get written (cheap, wasted storage ~1MB) but gate ignores them.
   - **SESSION_HANDOFF.md NOT yet rotated**: §0 still says "Phase 9 C1+C2 SHIPPED, C3 DESIGNED". After C3 SHIP verdict (post FULL REBUILD), rotate §0 to "Phase 9 C1+C2+C3 SHIPPED" + CURRENT_BASELINE again + next-step Refactor Phase A.
+
+### 14:42 KST - pandas3-crash-recovery-plus-concentrated-expansion
+
+- scope:
+  - Two distinct fixes bundled in one commit because both blocked a single restart of the Phase 9 C3 FULL REBUILD:
+    (a) Emergency: pandas 3.0.2 crashes the fund_panel merge with `MergeError: incompatible merge keys dtype('<M8[us]') and dtype('<M8[ns]')`. Local FULL REBUILD on commit 86be7f9 died at 2026-04-18 14:37 KST after 1h 36min. Colab runs work because Colab has pandas 2.x. Recovery: downgrade local to `pandas>=2.3,<3.0` (2.3.3 installed) + add smoke regression guard so future `pip install --upgrade pandas` on this box fails loudly.
+    (b) Feature: Phase 9 CE (Concentrated Expansion). Previously the concentrated-mode grid search was hard-clamped to N≤3 at three separate sites and fast_mode stripped it further to `[N=1,2,3] × [monthly] × [conviction_curve]` = 3 combos. Lift the caps + widen defaults so the grid explores N=1..10, intervals 1/2/3 months, all 3 weighting modes (conviction_curve, winner_take_all, score_power) = 63 combos. Goal: beat the measured 29.89% CAGR / 1.124 Sharpe concentrated result by finding a better point on the concentration/interval/weighting surface.
+- files:
+  - `r1000_top30_institutional.py` ->
+    * EngineConfig defaults: `concentrated_top_n_candidates = [1, 2, 3, 4, 5, 7, 10]` (was [1, 2, 3]), `concentrated_rebalance_intervals = [1, 2, 3]` (was [1]), `concentrated_weighting_modes = ["conviction_curve", "winner_take_all", "score_power"]` (was missing score_power).
+    * EngineConfig validator: upper bound 3 -> 30 (with explanatory comment about Top-30 main portfolio ceiling).
+    * `compare_concentrated_portfolio_backtests` clean_top_n: `min(int(x), 3)` -> `min(int(x), 30)`.
+    * `build_latest_concentrated_holdings` top_n picker clamp: `min(3, ...)` -> `min(30, ...)`. Critical — otherwise grid winners at N=5 get silently rewritten to N=3 when producing the live recommendation.
+    * `apply_fast_mode` override: stopped stripping the grid down. fast_mode now runs the full 63-combo grid (costs ~6 min extra, negligible vs walk-forward training).
+  - `tests/smoke_test.py` ->
+    * `import.pandas_version_below_3` -- asserts pandas < 3.0 at test time. Fails with explicit `pip install` command if violated. Skipped in --quick mode (needs import).
+    * `regression.concentrated_expansion_caps_lifted` -- greps the engine source to confirm the 3 hard caps are lifted and stay lifted. Structural check.
+    * `regression.concentrated_expansion_defaults_widened` -- imports EngineConfig and asserts max(top_n) > 3, len(intervals) > 1, "score_power" in weighting_modes.
+- symbols_added:
+  - `tests.smoke_test.test_pandas_version()` -- version guard.
+  - `tests.smoke_test.test_ce_caps_lifted()` -- structural CE guard.
+  - `tests.smoke_test.test_ce_defaults_widened()` -- behavioral CE guard.
+- symbols_changed:
+  - `EngineConfig.concentrated_top_n_candidates` default -- [1,2,3] -> [1,2,3,4,5,7,10].
+  - `EngineConfig.concentrated_rebalance_intervals` default -- [1] -> [1,2,3].
+  - `EngineConfig.concentrated_weighting_modes` default -- ["conviction_curve","winner_take_all"] -> ["conviction_curve","winner_take_all","score_power"].
+  - `apply_fast_mode` -- no longer narrows concentrated grid to a single 1×1×1 combo.
+  - `compare_concentrated_portfolio_backtests.clean_top_n` clamp -- 3 -> 30.
+  - `build_latest_concentrated_holdings.top_n` clamp -- 3 -> 30.
+  - `_validate_engine_config` concentrated_top_n range gate -- [1,3] -> [1,30].
+- config_fields_added:
+  - none (expanded existing field defaults)
+- breaking_changes:
+  - none runtime. Users who previously passed `concentrated_top_n_candidates=[4]` would have gotten a validation error; now it's accepted. Users who WANT the old 3-combo behavior can explicitly set `cfg.concentrated_top_n_candidates = [1, 2, 3]` etc.
+- outputs:
+  - After next FULL REBUILD: `outputs/reports/concentrated_strategy_comparison.csv` will have 63 rows (was 3). Sorted by `comparison_objective`, the top row drives the latest concentrated recommendation.
+- validation:
+  - `py -3 -m pip show pandas` -> pandas 2.3.3 (was 3.0.2).
+  - `py -3 tests/smoke_test.py` -> 25/25 passed in 5s (22 prior + 3 new). Pandas guard + CE caps + CE defaults all pass.
+  - No pipeline run yet. Launching FULL REBUILD immediately after this commit.
+- risks_or_notes:
+  - **Overfitting risk from wider grid**: 63 combos vs 3 is a 21x increase in hyperparameter search. If we always pick the top-CAGR combo, we're fitting more to 83-month sample. Mitigation: `comparison_objective` already penalizes MaxDD (so raw CAGR alone doesn't win). Post-run: spot-check whether the winner is robust (e.g. still top-decile on 60-month or 48-month sub-windows).
+  - **Expected runtime add**: 60 extra concentrated backtests × ~6s each = 6 min. Negligible vs 3-4h walk-forward training.
+  - **Winner_take_all weighting**: puts 100% on the #1-scoring name. Expect higher volatility and larger drawdowns than conviction_curve. Historical N=1 already showed -50% MaxDD; N=2 winner_take_all could be worse. `comparison_objective` MaxDD penalty should deselect these.
+  - **score_power weighting mode**: weights by score^p (p > 1). Conceptually more extreme conviction than conviction_curve's cumulative 50/30/20. Exact formula lives in `backtest_concentrated_portfolio` around line 24258; needs audit if results look suspicious.
+  - **Live recommendation path**: after CE ships, if the grid picks N=5 as winner, `build_latest_concentrated_holdings` will emit 5 ticker names. That's a UI change (from always-3 to variable). Downstream consumers (`concentrated_portfolio_latest.csv`, operator plan) should handle variable N already but worth verifying post-run.
+  - **Pandas 3 incompatibility is latent, not fixed**: engine code still has whatever datetime mismatch triggered the crash. The fix is "pin pandas to 2.x"; the next time we upgrade (deliberately or otherwise), the crash returns. Long-term fix belongs in Refactor Phase A observability pass (REFACTOR_PLAN.md §11): audit every `pd.merge` for dtype alignment, add `.astype('datetime64[ns]')` normalization at module boundaries.
+

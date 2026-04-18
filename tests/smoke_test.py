@@ -325,6 +325,26 @@ def _import_engine():
     return _ENGINE_MODULE
 
 
+@_test("import.pandas_version_below_3")
+def test_pandas_version() -> None:
+    """pandas 3.x breaks the engine with `MergeError: incompatible merge keys
+    dtype('<M8[us]') and dtype('<M8[ns]')` during Phase 1/2 fund_panel merge.
+
+    Regression: 2026-04-18 14:37 KST local FULL REBUILD crashed under
+    pandas 3.0.2 after 1.5h. Downgrade to pandas 2.3.x (Colab-compatible)
+    fixed it. Keep this test until engine is explicitly pandas-3-safe.
+    """
+    if _args.quick:
+        return
+    import pandas
+    major = int(pandas.__version__.split(".", 1)[0])
+    assert major < 3, (
+        f"pandas {pandas.__version__} detected — engine requires pandas 2.x "
+        f"(pandas 3 strict datetime64 dtype check breaks fund_panel merges). "
+        f"Run: `py -3 -m pip install 'pandas>=2.3,<3.0'`"
+    )
+
+
 @_test("import.engine_loads_cleanly")
 def test_engine_import() -> None:
     if _args.quick:
@@ -559,6 +579,55 @@ def test_phase9_c3_cols_carried() -> None:
     ]
     missing = [c for c in required if f'"{c}"' not in carry_block]
     assert not missing, f"fund_panel carry_cols missing Phase 9 C3 aliases: {missing}"
+
+
+@_test("regression.concentrated_expansion_caps_lifted")
+def test_ce_caps_lifted() -> None:
+    """Phase 9 CE (2026-04-18): 3 hard caps on concentrated N≤3 must stay lifted.
+
+    Regression: without these lifts, N=5/7/10 grid search silently clamps
+    back to N=3 and the wider concentration ladder never gets measured.
+    Fix sites:
+      - EngineConfig validator (around line 5662): upper bound 3 -> 30
+      - compare_concentrated_portfolio_backtests clean_top_n: min(x, 3) -> min(x, 30)
+      - build_latest_concentrated_holdings: min(3, ...) -> min(30, ...)
+    """
+    src = _engine_src()
+    # Validator must reject > 30, NOT > 3
+    assert "must be between 1 and 30" in src, (
+        "EngineConfig validator still says `must be between 1 and 3` — CE cap not lifted."
+    )
+    # The inner min clamp must be 30 not 3 in both sites
+    assert src.count("min(int(x), 3)") == 0, (
+        "grid search loop still has `min(int(x), 3)` clamp — CE cap not lifted."
+    )
+    assert src.count("min(3, safe_float") == 0, (
+        "build_latest_concentrated_holdings still has `min(3, safe_float` clamp — CE cap not lifted."
+    )
+
+
+@_test("regression.concentrated_expansion_defaults_widened")
+def test_ce_defaults_widened() -> None:
+    """Phase 9 CE cfg defaults must include N>3 options, multi-month intervals, score_power.
+
+    Protects against someone reverting the EngineConfig default_factory
+    lambdas without lifting the caps (or vice versa).
+    """
+    if _args.quick:
+        return
+    eng = _import_engine()
+    cfg = eng.EngineConfig()
+    assert max(cfg.concentrated_top_n_candidates) > 3, (
+        f"concentrated_top_n_candidates max is {max(cfg.concentrated_top_n_candidates)}; "
+        f"CE expects at least N=5 in default."
+    )
+    assert len(cfg.concentrated_rebalance_intervals) > 1, (
+        f"concentrated_rebalance_intervals is {cfg.concentrated_rebalance_intervals}; "
+        f"CE expects multiple intervals tested."
+    )
+    assert "score_power" in cfg.concentrated_weighting_modes, (
+        f"concentrated_weighting_modes missing score_power; CE expects 3 modes."
+    )
 
 
 @_test("regression.phase9_c3_gate_wired_in_early_scout")

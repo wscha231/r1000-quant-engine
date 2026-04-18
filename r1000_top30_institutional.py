@@ -1903,9 +1903,13 @@ class EngineConfig:
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
     run_concentrated_backtest_comparison: bool = True
-    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [1, 2, 3])
-    concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1])
-    concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all"])
+    # Phase 9 CE (Concentrated Expansion, 2026-04-18): lifted N≤3 cap to
+    # challenge beyond 29.89% CAGR. Previous optimum was N=3 conviction_curve
+    # monthly (concentrated_backtest_metrics.json). New grid tests higher N,
+    # multi-month intervals, and score_power weighting. See CHANGELOG.
+    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5, 7, 10])
+    concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
+    concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
     concentrated_min_confirmation: float = 0.45
     concentrated_score_future_weight: float = 0.95
@@ -2481,11 +2485,16 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     cfg.run_regime_map_method_comparison = False
     cfg.run_standalone_sleeve_backtest_comparison = False
     cfg.run_concentrated_backtest_comparison = True
-    cfg.concentrated_top_n_candidates = [1, 2, 3]
-    cfg.concentrated_rebalance_intervals = [1]
-    cfg.concentrated_weighting_modes = ["conviction_curve"]
+    # Phase 9 CE (2026-04-18): fast_mode used to strip concentrated grid to
+    # [N=1,2,3] × [monthly] × [conviction_curve] = 3 backtests. Expand to the
+    # CE grid so fast_mode runs still measure the full concentration ladder.
+    # Cost: 7 × 3 × 3 = 63 concentrated backtests × ~6s each = ~6.3 min extra,
+    # negligible next to walk-forward training time.
+    cfg.concentrated_top_n_candidates = [1, 2, 3, 4, 5, 7, 10]
+    cfg.concentrated_rebalance_intervals = [1, 2, 3]
+    cfg.concentrated_weighting_modes = ["conviction_curve", "winner_take_all", "score_power"]
     cfg.sleeve_cap_policy_max_candidates = 3
-    log("[fast_mode] ON — lighter collector refresh + ~5 backtests, retrain every 6m.")
+    log("[fast_mode] ON — lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.")
     return cfg
 
 
@@ -5659,8 +5668,11 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("standalone_sleeve_rebalance_intervals values must be >= 1.")
     if not cfg.concentrated_top_n_candidates:
         raise ValueError("concentrated_top_n_candidates must not be empty.")
-    if any(int(x) < 1 or int(x) > 3 for x in cfg.concentrated_top_n_candidates):
-        raise ValueError("concentrated_top_n_candidates values must be between 1 and 3.")
+    if any(int(x) < 1 or int(x) > 30 for x in cfg.concentrated_top_n_candidates):
+        # Phase 9 CE: raised upper bound 3 -> 30 to explore wider concentration
+        # ladder. Top 30 is the main portfolio boundary; beyond that we're
+        # diluting into full diversified mode.
+        raise ValueError("concentrated_top_n_candidates values must be between 1 and 30.")
     if not cfg.concentrated_rebalance_intervals:
         raise ValueError("concentrated_rebalance_intervals must not be empty.")
     if any(int(x) < 1 for x in cfg.concentrated_rebalance_intervals):
@@ -24547,7 +24559,10 @@ def compare_concentrated_portfolio_backtests(
     weighting_modes: Optional[Iterable[str]] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cfg_obj = to_cfg(cfg)
-    clean_top_n = sorted({max(1, min(int(x), 3)) for x in (top_n_candidates if top_n_candidates is not None else getattr(cfg_obj, "concentrated_top_n_candidates", [1, 2, 3]))})
+    # Phase 9 CE: upper bound 3 -> 30 so the grid can explore concentrated
+    # ladders wider than N=3. The EngineConfig validator already gates
+    # user-visible values to [1, 30]; this guard is final defensive clamp.
+    clean_top_n = sorted({max(1, min(int(x), 30)) for x in (top_n_candidates if top_n_candidates is not None else getattr(cfg_obj, "concentrated_top_n_candidates", [1, 2, 3, 4, 5, 7, 10]))})
     clean_intervals = sorted({max(1, int(x)) for x in (intervals if intervals is not None else getattr(cfg_obj, "concentrated_rebalance_intervals", [1]))})
     clean_modes = [str(x) for x in (weighting_modes if weighting_modes is not None else getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve", "winner_take_all"])) if str(x)]
     rows: list[dict[str, Any]] = []
@@ -24618,7 +24633,10 @@ def build_latest_concentrated_holdings(
     compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
     if not compare_df.empty and "portfolio_mode" in compare_df.columns:
         compare_df = compare_df[compare_df["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
-    top_n = int(max(1, min(3, safe_float(compare_df["target_stock_names"].iloc[0], 3.0)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(1, min(3, getattr(cfg_obj, "concentrated_top_n_candidates", [3])[0])))
+    # Phase 9 CE: latest-holdings picker clamp bumped 3 -> 30 so the
+    # winning N from the concentrated grid can drive the live recommendation
+    # regardless of size (was silently clipping N=5 winners back to 3).
+    top_n = int(max(1, min(30, safe_float(compare_df["target_stock_names"].iloc[0], 3.0)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(1, min(30, getattr(cfg_obj, "concentrated_top_n_candidates", [3])[0])))
     weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
     interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
     best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
