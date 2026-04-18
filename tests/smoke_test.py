@@ -583,23 +583,32 @@ def test_phase9_c3_cols_carried() -> None:
 
 @_test("regression.concentrated_expansion_caps_lifted")
 def test_ce_caps_lifted() -> None:
-    """Phase 9 CE (2026-04-18): 3 hard caps on concentrated N≤3 must stay lifted.
+    """Phase 9 CE (2026-04-18): 5 hard caps on concentrated N≤3 must stay lifted.
 
-    Regression: without these lifts, N=5/7/10 grid search silently clamps
-    back to N=3 and the wider concentration ladder never gets measured.
+    Regression story:
+      v1 (commit f93a4a2) lifted 3 OUTER caps. First FULL REBUILD showed
+      N=3/4/5/7/10 producing IDENTICAL metrics because 2 inner clamps were
+      missed inside select_concentrated_portfolio_topk + backtest_concentrated_portfolio.
+      v2 lifts those 2 inner caps. All 5 must stay lifted.
     Fix sites:
-      - EngineConfig validator (around line 5662): upper bound 3 -> 30
+      - EngineConfig validator: upper bound 3 -> 30
       - compare_concentrated_portfolio_backtests clean_top_n: min(x, 3) -> min(x, 30)
       - build_latest_concentrated_holdings: min(3, ...) -> min(30, ...)
+      - select_concentrated_portfolio_topk (line ~24207): min(int(top_n), 3) -> 30
+      - backtest_concentrated_portfolio (line ~24310): min(int(top_n), 3) -> 30
     """
     src = _engine_src()
     # Validator must reject > 30, NOT > 3
     assert "must be between 1 and 30" in src, (
         "EngineConfig validator still says `must be between 1 and 3` — CE cap not lifted."
     )
-    # The inner min clamp must be 30 not 3 in both sites
+    # No `min(int(x), 3)` or `min(int(top_n), 3)` anywhere
     assert src.count("min(int(x), 3)") == 0, (
         "grid search loop still has `min(int(x), 3)` clamp — CE cap not lifted."
+    )
+    assert src.count("min(int(top_n), 3)") == 0, (
+        "inner select/backtest still has `min(int(top_n), 3)` clamp — CE v2 cap not lifted. "
+        "Without this, every N>3 grid point silently reports the N=3 backtest."
     )
     assert src.count("min(3, safe_float") == 0, (
         "build_latest_concentrated_holdings still has `min(3, safe_float` clamp — CE cap not lifted."

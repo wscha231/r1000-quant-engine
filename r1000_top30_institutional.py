@@ -24204,7 +24204,11 @@ def select_concentrated_portfolio_topk(
     d = prepare_concentrated_frame(cfg, month_df)
     if d.empty:
         return d
-    top_n = max(1, min(int(top_n), 3))
+    # Phase 9 CE v2 (2026-04-18): inner clamp 3 -> 30. First CE commit
+    # f93a4a2 lifted 3 OUTER clamps but missed this one; result was N=3..10
+    # producing identical metrics because the grid was silently clamping
+    # back to 3 here. See CHANGELOG 19:30 KST entry.
+    top_n = max(1, min(int(top_n), 30))
     min_confirmation = float(getattr(cfg, "concentrated_min_confirmation", 0.45))
     selected_parts: list[pd.DataFrame] = []
     selected_tickers: set[str] = set()
@@ -24307,7 +24311,9 @@ def backtest_concentrated_portfolio(
 ) -> BacktestResult:
     cfg_obj = to_cfg(cfg)
     paths = get_paths(cfg_obj)
-    top_n = max(1, min(int(top_n), 3))
+    # Phase 9 CE v2 (2026-04-18): inner clamp 3 -> 30 (second missed site).
+    # Without this lift, every grid point with top_n>3 reports the N=3 backtest.
+    top_n = max(1, min(int(top_n), 30))
     interval_months = max(int(rebalance_interval_months), 1)
     d = signals.copy()
     if "score" not in d.columns:

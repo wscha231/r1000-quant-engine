@@ -2629,3 +2629,39 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Live recommendation path**: after CE ships, if the grid picks N=5 as winner, `build_latest_concentrated_holdings` will emit 5 ticker names. That's a UI change (from always-3 to variable). Downstream consumers (`concentrated_portfolio_latest.csv`, operator plan) should handle variable N already but worth verifying post-run.
   - **Pandas 3 incompatibility is latent, not fixed**: engine code still has whatever datetime mismatch triggered the crash. The fix is "pin pandas to 2.x"; the next time we upgrade (deliberately or otherwise), the crash returns. Long-term fix belongs in Refactor Phase A observability pass (REFACTOR_PLAN.md §11): audit every `pd.merge` for dtype alignment, add `.astype('datetime64[ns]')` normalization at module boundaries.
 
+### 19:16 KST - phase9-c3-ce-v1-results-plus-ce-v2-inner-clamp-fix
+
+- scope:
+  - Results from 4h 29min FULL REBUILD (14:44 -> 19:13 KST, commit f93a4a2) PLUS fix for incomplete CE grid expansion surfaced by the results. Two outcomes bundled:
+    (a) Phase 9 C3 + CE v1 measured. Main diversified regresses slightly (CAGR 21.69% -> 20.72%, -0.97pp), consistent with user acceptance of risk-adjusted trade-off. Concentrated grid best is 29.86% at N=3 / interval=2 / score_power — BUT all N>3 produced identical metrics, revealing CE v1 was incomplete.
+    (b) CE v2: 2 additional inner clamps found and lifted. CE v1 lifted 3 OUTER caps (validator, grid loop, latest-holdings) but missed 2 INNER caps inside select_concentrated_portfolio_topk (line 24207) and backtest_concentrated_portfolio (line 24310). Those silently forced every N>3 call to behave as N=3 at the actual backtest execution layer, producing the identical-row pattern seen in the 63-row concentrated_strategy_comparison.csv.
+- files:
+  - `r1000_top30_institutional.py` ->
+    * `select_concentrated_portfolio_topk()` top_n clamp at ~line 24207: `min(int(top_n), 3)` -> `min(int(top_n), 30)`.
+    * `backtest_concentrated_portfolio()` top_n clamp at ~line 24310: `min(int(top_n), 3)` -> `min(int(top_n), 30)`.
+    Both carry inline comment pointing at this CHANGELOG entry so future readers see the v1->v2 history.
+  - `tests/smoke_test.py` `regression.concentrated_expansion_caps_lifted` -> tightened. Now checks for BOTH v1 outer caps AND v2 inner caps. Assertion message explicitly names the 5 sites that must stay lifted. Blocks future revert silently.
+- symbols_added:
+  - none (test updated, not added)
+- symbols_changed:
+  - `select_concentrated_portfolio_topk(cfg, month_df, top_n)` -- upper clamp 3 -> 30.
+  - `backtest_concentrated_portfolio(cfg, signals, top_n, rebalance_interval_months, weighting_mode)` -- upper clamp 3 -> 30.
+  - `tests.smoke_test.test_ce_caps_lifted()` -- now verifies 4 string patterns instead of 3.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. CE v2 is strictly additive — any prior caller expecting N<=3 behavior still gets it (the concentrated_top_n_candidates default goes up to 10 so the grid already tests it).
+- outputs:
+  - After next QUICK_RESCORE (~30 min): `outputs/reports/concentrated_strategy_comparison.csv` will finally differentiate N=3 vs N=5 vs N=7 vs N=10 because the inner clamp no longer collapses them.
+- validation:
+  - `py -3 tests/smoke_test.py --quick` -> 11/11 passed in <1s (syntax + structural + new CE cap assertion).
+  - Full smoke deferred to post-QUICK_RESCORE.
+- risks_or_notes:
+  - **CE v1 measurement is NOT usable for N-ladder analysis**: rows showing N=3,4,5,7,10 at same (interval, mode) with identical CAGR all describe the N=3 backtest, not the intended N. Only genuinely measured data points from v1: (N=3, interval=1/2/3, mode=conviction/winner/power) = 9 unique combos, 54 aliases.
+  - **Concentrated v1 best measured**: N=3 at interval=2 months, score_power weighting -> 29.86% CAGR / 1.044 Sharpe / -29.57% MaxDD / IR 0.758 / turnover 36% / $609k ending from $100k. Slightly BELOW prior Colab N=3 conviction_curve monthly 29.89% — C3 net effect on concentrated is near-zero, consistent with main-diversified regression.
+  - **New finding from v1 that IS reliable**: 2-month interval outperforms monthly across all modes (CAGR delta +3-4pp), turnover halves, Sharpe roughly flat. Suggests monthly rebalance was overtrading.
+  - **Main diversified CAGR regression**: 21.69% -> 20.72% is consistent with C3 admitting more noise via widened early_scout pool (172 names admitted during Phase 5 vs 77 previously). The still-loss-improving branch may be admitting names whose EPS IS negative but 3y forward return doesn't materialize. Needs QUICK_RESCORE with PHASE_PHASE9_C3_TURNAROUND_ENABLED=0 to A/B isolate C3 effect cleanly.
+  - **winner_take_all mode runs but is N-independent by definition**: 100% weight on #1 scoring name regardless of top_n. CAGR 19.29% / Sharpe 0.697 / MaxDD -35.5% at interval=2. Not a candidate for ship; keep in grid only as reference.
+  - **Main portfolio: 14 positions** (was 17 in prior Colab run). Sleeve dist 4 core / 6 future / 4 early. Target {40/40/20} -- different sleeve cap policy selected this run (was 60/25/15 "defensive_drawdown_control"). This change is likely from a different cap policy winner and unrelated to C3.
+  - **Next step: QUICK_RESCORE** from this commit. feature_store + trained models stay (engine_version unchanged from f93a4a2 -> this commit is post-FS behavior only). Expected ~30 min. Will produce corrected concentrated grid with true N differentiation -- that's the real CE measurement.
+
