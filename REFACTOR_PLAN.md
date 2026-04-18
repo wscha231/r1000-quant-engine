@@ -163,13 +163,15 @@ DO NOT refactor until ALL these conditions hold:
 4. **Phase 9 C3 decision made**: either ship C3 BEFORE refactor (~3.5h including FULL rebuild) so refactor locks in its sleeve taxonomy, OR explicitly defer C3 until AFTER refactor (single-file addition becomes mechanical). Do not leave C3 in limbo across a refactor commit.
 5. **User is free for 1-1.5 days**: refactor is best done in a single uninterrupted session to catch migration issues.
 
-**Decision tree**:
-- C2 SHIP + C3 small scope → ship C3 first (~3.5h) → refactor on the C3 baseline.
-- C2 SHIP + user wants refactor urgency → refactor first, C3 after (mechanical).
-- C2 PARTIAL → fix C2 via A/B isolation before C3 or refactor.
-- C2 REGRESS → roll back Phase 9 defaults, return to Phase 8 baseline, re-plan.
+**Decision tree** (both C3 AND Refactor ship — choose ORDER, not EXCLUSION):
+- C2 SHIP + default recommendation → **C3 first (~3.5h)** → refactor on the C3 baseline. Fastest to measurable behavior + final FS schema locks before structural moves.
+- C2 SHIP + user wants refactor urgency / has free 1.5-day block → refactor first, C3 after (mechanical single-file change post-refactor). Trade-off: 1.5 days before C3's effect is measurable, and refactor's byte-exact reference needs a second pass when C3 lands.
+- C2 PARTIAL → fix C2 via A/B isolation BEFORE either C3 or refactor.
+- C2 REGRESS → roll back Phase 9 defaults, return to Phase 8 baseline, re-plan (C3 re-evaluated against Phase 8).
 
-Estimated earliest refactor start: ~24-48h after Phase 9 C1+C2 rebuild finishes AND verdict is SHIP.
+**Non-negotiable**: never bundle C3 code INTO a refactor commit. Each ships as its own commit series with its own verification. The "order decision" is only about which commit series happens first, not about merging them.
+
+Estimated earliest first-step start: ~24-48h after Phase 9 C1+C2 rebuild finishes AND verdict is SHIP. Total wall-clock for both steps: ~2 days regardless of order chosen.
 
 ## 6. Execution checklist (Phase A)
 
@@ -552,27 +554,28 @@ Concrete operational order agreed 2026-04-17 17:40 KST:
                                    │  (SHIP path)
                                    ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 2 — Phase 9 C3 OR Refactor (user choice per §5 decision tree)    │
+│  STAGE 2 — FIRST of (C3, Refactor). Order choice only; BOTH ship.       │
 │                                                                         │
-│   OPTION A (C3 first): ~3.5h                                            │
+│   DEFAULT (C3 first): ~3.5h                                             │
 │     • Implement C3 per PHASE_9_C3_PROPOSAL.md (40 LOC + FS whitelist)   │
 │     • ENGINE_REUSE_VERSION bump → FULL REBUILD                          │
 │     • Verify wider early sleeve (60-75 eligible vs 55 C2)               │
 │     • Commit + push → new baseline                                       │
 │                                                                         │
-│   OPTION B (Refactor first): 1-1.5 day                                  │
+│   ALT (Refactor first): 1-1.5 day                                       │
 │     • Execute §6 checklist (5-module split + observability §11)         │
-│     • C3 deferred → becomes mechanical (single file change) post-refactor│
+│     • C3 still ships in Stage 3, becomes single-file change              │
 │                                                                         │
-│   User picks ONE. Don't mix.                                            │
+│   Bundling C3 code INTO a refactor commit is forbidden (bisection).     │
 └────────────────────────────────────────────────────────────────────────┘
                                    │
                                    ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 3 — COMPLEMENTARY (whichever wasn't done in Stage 2)              │
+│  STAGE 3 — SECOND of (C3, Refactor). Whichever wasn't first.             │
 │                                                                         │
-│   If Stage 2 = C3: then refactor (Option B work)                        │
-│   If Stage 2 = Refactor: then C3 (single-file addition in r1000_signals)│
+│   If Stage 2 = C3: Stage 3 = Refactor                                   │
+│   If Stage 2 = Refactor: Stage 3 = C3 (mechanical, single-file)         │
+│   Both ship in separate commit series with their own verification.      │
 └────────────────────────────────────────────────────────────────────────┘
                                    │
                                    ▼

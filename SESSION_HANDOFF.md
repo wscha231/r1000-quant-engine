@@ -142,23 +142,43 @@ else:
 
 ### 3a. SHIP (CAGR ≥ +0.5pp, Sharpe ≥ -0.05, MaxDD ≥ -3pp, early ≥ 4 names)
 
-User picks ONE of the two paths per REFACTOR_PLAN.md §5 decision tree:
+**Both Phase 9 C3 AND Refactor Phase A ship** — they are serialized, NOT mutually exclusive. The only choice is the ORDER. Per REFACTOR_PLAN.md §12: Stage 2 picks the first, Stage 3 does the complement.
 
-**Path A — Phase 9 C3 first** (~3.5h wall-clock):
+**Hard rule**: never bundle C3 + Refactor in the same commit. Bisection dies. Ship C3 as its own commit, Refactor as its own commit (actually multiple commits per §6 checklist), each with its own verification.
+
+**Recommended order: C3 first, then Refactor** (~2 days total wall-clock)
+
+Reasons:
+- **Fast measurable result**: C3 behavior change measurable within ~3.5h vs 1.5 days.
+- **Final FS schema locks in before refactor moves code**: Refactor's byte-exact verification needs a stable feature_store schema as reference. If C3 ships after refactor, the schema changes twice.
+- **C3 regression is cheap to revert**: 1-commit revert, refactor continues on Phase 9 C1+C2 baseline. Opposite order means if C3 regresses, refactor is already done on the wrong baseline.
+- **Sleeve taxonomy stabilizes first**: user's definition of early sleeve ("eps 적자거나 양전환 막 하거나") is codified before structural refactor cements it.
+
+**Alternative order: Refactor first, then C3** — valid if user prefers long mechanical work before feature work. Pros: C3 becomes single-file change in `r1000_signals.py` post-refactor. Cons: 1.5 days before C3's effect is measurable; refactor's byte-exact reference is Phase 9 C1+C2 (i.e. sleeve count/composition may shift again when C3 lands post-refactor, forcing a second byte-exact verification pass).
+
+#### Step 1 — Phase 9 C3 (recommended first, ~3.5h wall-clock)
+
 1. Implement per `PHASE_9_C3_PROPOSAL.md` §3. Touch surface:
    - `r1000_top30_institutional.py` — new `PHASE9_C3_TURNAROUND_COLUMNS` constant (~line 1080), 5 new fund_panel columns after line 12228, keep_cols + hard_sanitize whitelist (line 14327, 14354), Phase 9 C2 gate extension (line 19357), 2 new cfg fields, ENGINE_REUSE_VERSION bump to `2026-04-17-phase9c3-turnaround-flags`.
    - `colab_run.ipynb` Cell 2 — add `PHASE9_C3_TURNAROUND = 'auto'` toggle + env binding + print-loop entry.
    - `CHANGELOG.md` — Agent Update Contract entry.
 2. Commit + push from fresh checkout.
 3. Trigger Colab FULL REBUILD (required — FS schema changes). The `[commit=<sha>]` banner will self-identify the run.
-4. Cell E verdict vs Phase 9 C1+C2 baseline.
-5. If SHIP: start Refactor Phase A.
+4. Cell E verdict vs Phase 9 C1+C2 baseline (ship gate: ΔCAGR ≥ 0, early count widening, no Sharpe regression > -0.05).
+5. If C3 SHIPs: continue to Step 2 (Refactor).
+6. If C3 REGRESSes: revert C3 commit, proceed to Step 2 on Phase 9 C1+C2 baseline.
 
-**Path B — Refactor first** (~1-1.5 day):
+#### Step 2 — Refactor Phase A (~1-1.5 day)
+
 1. Execute `REFACTOR_PLAN.md` §6 checklist (5-module split + §11 observability scaffolding).
-2. Byte-exact verification via QUICK_RESCORE diff.
-3. Commit + push.
-4. Phase 9 C3 becomes mechanical single-file change afterward.
+2. Byte-exact verification via QUICK_RESCORE diff: pre-refactor `scored_latest.csv` SHA256 must match post-refactor.
+3. Commit + push (multiple commits per §6 migration order: config → helpers → features → signals → pipeline → facade).
+4. If byte-exact fails: bisect which module move broke which symbol; fix; retest.
+5. Post-refactor: update CLAUDE.md "Key Files", PHASE_ROADMAP.md deprecation note, SESSION_HANDOFF.md §5 file list to reflect new module map.
+
+#### After both ship: Stage 4 (Subtractive pass)
+
+Per REFACTOR_PLAN.md §12 Stage 4: delete Phase 3 / Phase 5 / Phase 7a dead branches + 153 zero-IC noise factors. Post-refactor this is mechanical (remove constant + call site in the owning module). ~4-8h. Saves ~15-20% LOC.
 
 ### 3b. PARTIAL (CAGR -2pp to +0.5pp OR mixed metrics)
 
