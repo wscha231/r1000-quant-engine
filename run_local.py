@@ -51,10 +51,35 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 
 # ------------------------------------------------------------------
-# Baseline metrics — used for Cell E verdict (Phase 8 pre-Phase-9 state).
-# When Phase 9 C1+C2 SHIPs, rotate this to the new baseline per
-# SESSION_HANDOFF.md §7 rotation rule.
+# Baseline metrics — used for Cell E verdict delta comparison.
+#
+# CURRENT BASELINE: Phase 9 C1+C2 (SHIPPED 2026-04-18). Rotated from
+# Phase 8 after SHIP decision on commit 79d6fe8 verdict PARTIAL (user
+# accepted -0.74pp CAGR trade for +0.08 Sharpe, +5.78pp MaxDD, and
+# sleeve taxonomy restoration with 8 early_scout names).
+#
+# HISTORICAL BASELINES (kept as reference; do not use for verdict):
+#   Phase 8  (pre-Phase-9): cagr 0.2186, sharpe 0.9856, max_dd -0.3208
+#   2026-04-15 concentrated: cagr 0.2180, sharpe 0.73, max_dd -0.3686
+#
+# When next phase (C3 / refactor / etc.) SHIPs, rotate CURRENT_BASELINE
+# again per SESSION_HANDOFF.md §7 rotation rule.
 # ------------------------------------------------------------------
+CURRENT_BASELINE = {
+    "name": "Phase 9 C1+C2 (SHIPPED 2026-04-18)",
+    "cagr": 0.2112,
+    "sharpe": 1.0664,
+    "max_dd": -0.2630,
+    "ir": 0.6977,
+    "avg_turnover_monthly": 0.4774,
+    "avg_stock_names": 24.35,
+    "beat_month_ratio": 0.6145,
+    "excess_cagr": 0.0763,
+    # Sleeve counts for regression check (Phase 8 was 0 early -> shipped 8)
+    "sleeve_counts_reference": {"core_compounder": 4, "future_winner": 5, "early_scout": 8},
+}
+
+# Previous baseline kept for legacy / historical comparison utilities
 PHASE8_BASELINE = {
     "cagr": 0.2186,
     "sharpe": 0.9856,
@@ -210,14 +235,14 @@ def print_verdict(base_dir: Path) -> int:
         print(top[keep].to_string(index=False))
 
     print("\n" + "=" * 70)
-    print("METRICS vs Phase 8 baseline")
+    print(f"METRICS vs baseline: {CURRENT_BASELINE['name']}")
     print("=" * 70)
     bm = json.loads((out_dir / "backtest_metrics.json").read_text(encoding="utf-8"))
-    print(f"  {'metric':24s} {'new':>10s} {'Phase 8':>10s} {'delta':>14s}")
+    print(f"  {'metric':24s} {'new':>10s} {'baseline':>10s} {'delta':>14s}")
     for k in ["cagr", "sharpe", "max_dd", "ir", "avg_turnover_monthly",
               "avg_stock_names", "beat_month_ratio", "excess_cagr"]:
         new_v = bm.get(k)
-        bl_v = PHASE8_BASELINE.get(k)
+        bl_v = CURRENT_BASELINE.get(k)
         if bl_v is None:
             if isinstance(new_v, (int, float)):
                 print(f"  {k:24s} {new_v:>10.4f}")
@@ -245,9 +270,9 @@ def print_verdict(base_dir: Path) -> int:
         print("  metrics malformed; manual inspection required")
         return 1
 
-    dCAGR = (cagr - PHASE8_BASELINE["cagr"]) * 100
-    dSharpe = sharpe - PHASE8_BASELINE["sharpe"]
-    dMaxDD = (max_dd - PHASE8_BASELINE["max_dd"]) * 100
+    dCAGR = (cagr - CURRENT_BASELINE["cagr"]) * 100
+    dSharpe = sharpe - CURRENT_BASELINE["sharpe"]
+    dMaxDD = (max_dd - CURRENT_BASELINE["max_dd"]) * 100
     counts = weights.get("sleeve_selected_counts") or {}
     early_n = counts.get("early_scout", 0) if isinstance(counts, dict) else 0
 
@@ -257,11 +282,11 @@ def print_verdict(base_dir: Path) -> int:
     print(f"  early_scout selected: {early_n}    (gate >= 4)")
 
     if dCAGR >= 0.5 and dSharpe >= -0.05 and dMaxDD >= -3.0 and early_n >= 4:
-        print("\n  --> SHIP. Phase 9 C1+C2 wins. Next: SESSION_HANDOFF.md §3a Step 1 (C3).")
+        print(f"\n  --> SHIP vs {CURRENT_BASELINE['name']}. Rotate baseline + next phase.")
     elif dCAGR >= -2.0 and early_n >= 2:
-        print("\n  --> PARTIAL. Next: SESSION_HANDOFF.md §3b (A/B isolation).")
+        print(f"\n  --> PARTIAL vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3b (A/B isolation).")
     else:
-        print("\n  --> REGRESS. Next: SESSION_HANDOFF.md §3c (rollback).")
+        print(f"\n  --> REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
 
     return 0
 

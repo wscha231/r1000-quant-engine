@@ -170,10 +170,20 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
   - `industry_group_strength_score`, `industry_within_leader_rank`
   - `oneil_leadership_score`, `industry_rotation_signal`
 
-## Phase 1+2 Baseline Comparison
-직전 baseline (`outputs/concentrated_backtest_metrics.json`, 2026-04-15 rebalance):
-- CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%
-- 새 실행 후 CAGR 개선 + MaxDD 유지/개선이 성공 기준.
+## Current Production Baseline — Phase 9 C1+C2 (SHIPPED 2026-04-18)
+- **CAGR 21.12% / Sharpe 1.0664 / MaxDD -26.30% / IR 0.6977 / excess_cagr +7.63%**
+- Sleeve counts: core_compounder 4 (NVDA, GOOG, JNJ, VRT), future_winner 5 (GEV, FTI, LITE, CIEN, MRVL), early_scout 8 (ETR + 7)
+- 17 positions total, avg_stock_names 24.35, beat_month_ratio 61.45%
+- Defined in `run_local.py` `CURRENT_BASELINE` dict and `colab_run.ipynb` Cell 10 `BASELINE` dict.
+
+## Ship gate (for any next change)
+- **ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp** (MaxDD positive delta = less drawdown = better)
+- **Plus sleeve sanity**: early_scout count ≥ 4 (Phase 8 collapse regression guard)
+- Check via `py -3 run_local.py --verdict-only` after any run.
+
+## Historical baselines (reference only — do not use for verdict)
+- Phase 8 pre-Phase-9: CAGR 21.86%, Sharpe 0.9856, MaxDD -32.08%, early_scout = 0 (sleeve collapsed)
+- 2026-04-15 pre-Phase-1+2: CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%, 2 names (extreme concentration)
 
 ## Multi-Session Phase Plan
 **현행 로드맵 = `REFACTOR_PLAN.md` §12 5-stage 시퀀싱** (PHASE_ROADMAP.md 는 deprecated, Phase 1-6 만 커버).

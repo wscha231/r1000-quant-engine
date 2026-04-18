@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-18 12:20 KST
+# Session Handoff — 2026-04-18 12:30 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,27 +8,24 @@
 
 ## 0. TL;DR — one-paragraph resume brief
 
-**Phase 9 C1+C2 FULL REBUILD VERDICT: PARTIAL.** Measured via `py -3 run_local.py --verdict-only` on 2026-04-18 12:18 KST against Drive-synced outputs from the 2026-04-18 02:02 UTC FULL REBUILD (commit `33581bc`; yesterday's 08:10 run crashed when user's computer slept). Verdict detail:
+**Phase 9 C1+C2 SHIPPED** 2026-04-18. User accepted PARTIAL verdict (ΔCAGR -0.74pp vs Phase 8) in exchange for dramatic risk-adjusted and structural improvements: Sharpe +0.08, MaxDD -5.78pp, sleeve taxonomy restored (early_scout 0 → 8 names), mega-cap core rule working as designed (NVDA/GOOG in core_compounder via percentile gate). Phase 9 C1+C2 is the NEW PRODUCTION BASELINE. Rotated baseline snapshot:
 
-| gate | measurement | baseline (Phase 8) | delta | pass? |
-|---|---|---|---|---|
-| CAGR | **21.12%** | 21.86% | **-0.74pp** | ❌ (needs ≥ +0.5pp) |
-| Sharpe | **1.0664** | 0.9856 | **+0.0808** | ✅ (needs ≥ -0.05) |
-| MaxDD | **-26.30%** | -32.08% | **+5.78pp** | ✅ (needs ≥ -3pp) |
-| early_scout | **8** | 0 | **+8** | ✅ (needs ≥ 4, sleeve collapse resolved) |
+| metric | value | source |
+|---|---|---|
+| CAGR | **21.12%** | `run_local.py --verdict-only` against Drive outputs (commit `33581bc` FULL REBUILD) |
+| Sharpe | **1.0664** | |
+| MaxDD | **-26.30%** | |
+| IR | **0.6977** | |
+| excess_cagr | **+7.63%** vs S&P 500 | |
+| avg_stock_names | **24.35** | |
+| beat_month_ratio | **61.45%** | |
+| sleeve_counts | core 4 / future 5 / early 8 | NVDA GOOG JNJ VRT ∥ GEV FTI LITE CIEN MRVL ∥ ETR + 7 |
 
-**Structural win**: sleeve taxonomy restored. NVDA + GOOG + JNJ + VRT in core_compounder (4), GEV/FTI/LITE/CIEN/MRVL in future_winner (5), ETR + 7 others in early_scout (8). Total 17-18 positions. Phase 9 C2 percentile-based gates delivered as designed — mega-cap core (9.5% of universe), mid-large growth future (8.9%), inflection+breakout early (12.6%), unassigned 69.0% (correctly excluded).
+**Next step: Phase 9 C3 implementation** per `PHASE_9_C3_PROPOSAL.md`. Hypothesis: EPS turn-positive flags (`profit_turn_positive_4q` / `cashflow_turn_positive_4q` / `roe_turn_positive_4q`) + "still-loss-improving" branch tightens early_scout quality, which may recover some of the -0.74pp CAGR. Requires ENGINE_REUSE_VERSION bump → FULL rebuild (~3-4h local CPU / ~2-3h Colab). Design complete; implementation is ~40 LOC + keep_cols whitelist + 2 cfg fields + Cell 2 toggle. After C3 SHIP verdict: Refactor Phase A (REFACTOR_PLAN.md §6).
 
-**CAGR regression is small (-0.74pp) but real.** Sharpe and MaxDD dramatically improved (+0.08, +5.78pp). Risk-adjusted return cleanly up. The sleeve taxonomy fix cost 0.74pp of raw CAGR to fix structural collapse.
+**Ship gate for C3 (or any next change)**: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp vs current baseline (Phase 9 C1+C2, see CURRENT_BASELINE in `run_local.py`).
 
-**Three paths forward** (user decision pending):
-1. **SHIP as-is** — argue that sleeve taxonomy + risk-adjusted metrics outweigh -0.74pp CAGR. Rotate PHASE8_BASELINE in SESSION_HANDOFF §0 + run_local.py to Phase 9 metrics. Continue to Phase 9 C3 (EPS turn-positive, will likely recover some CAGR by tightening early sleeve quality).
-2. **A/B isolate** — run 2 × `py -3 run_local.py --phase9-c1=0` / `--phase9-c2=0` (~20 min each). Ship whichever subset has positive CAGR delta.
-3. **C3 first** — skip verdict ambiguity, implement C3 now. If C3 recovers CAGR (user hypothesis: tightening early sleeve with explicit turnaround flags), the combined Phase 9 C1+C2+C3 may pass SHIP gate cleanly.
-
-Current HEAD = `5576dd5` (smoke test infrastructure) → will become `<next>` after this commit (`run_local.py` + docs).
-
-**Next action: user choice among paths 1/2/3 above.** No pipeline run needed to decide — verdict is already known.
+Current HEAD = `79d6fe8` (local runner + verdict). Next commit: baseline rotation paperwork. Commit after that: C3 implementation.
 
 ---
 
@@ -53,28 +50,72 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Quickest way to reproduce the verdict OR run a new experiment
+## 2. Next step — Phase 9 C3 implementation
 
-### If you just want to see the measured verdict again (~2s, no pipeline)
+Phase 9 C1+C2 is shipped. C3 adds EPS turn-positive flags to sharpen the early_scout gate. Detailed design in `PHASE_9_C3_PROPOSAL.md`. Implementation flow:
+
+### Step 1 — smoke test current state
+```bash
+py -3 tests/smoke_test.py
+# expect 18/18 passed
+```
+
+### Step 2 — add C3 code per PHASE_9_C3_PROPOSAL.md §3
+
+Touch surface (all in the SAME commit, bundled C3 feature code; keep refactor separate):
+
+| File | Change |
+|---|---|
+| `r1000_top30_institutional.py` | • `PHASE9_C3_TURNAROUND_COLUMNS` constant (~line 1080)<br>• Add `d["roe_sign_flip_pos"] = _sign_flip_pos("roe_proxy")` after line 12228<br>• Add 4 alias columns (profit_turn_positive_4q, cashflow_turn_positive_4q, roe_turn_positive_4q, any_profitability_turn_positive_4q) after the `any_profit_sign_flip_pos` block<br>• Extend `carry_cols` list (line ~12358) with 5 new names<br>• Add `+ PHASE9_C3_TURNAROUND_COLUMNS` to `build_feature_store.keep_cols` (line 14327) AND to `hard_sanitize` call (line 14354)<br>• Extend Phase 9 C2 early-scout gate block (line ~19357) with `_p9_eps_turn_positive` + `_p9_still_loss_but_improving` branches<br>• Add 2 cfg fields: `phase9_c3_turnaround_enabled: bool = True`, `phase9_c3_loss_narrowing_threshold: float = 0.3`<br>• Bump `ENGINE_REUSE_VERSION` → `"2026-04-18-phase9c3-turnaround-flags"` |
+| `colab_run.ipynb` Cell 2 | `PHASE9_C3_TURNAROUND = 'auto'` + env binding + print-loop entry |
+| `run_local.py` | Add `--phase9-c3` CLI flag mirroring Phase 9 C1/C2 toggles |
+| `tests/smoke_test.py` | Add 3 tests: `import.phase9_c3_constants_exported`, `regression.phase9_c3_columns_complete`, `structural.phase9_c3_carry_cols_present` |
+| `CHANGELOG.md` | Agent Update Contract entry |
+
+### Step 3 — pre-push validation
+```bash
+py -3 tests/smoke_test.py
+# expect 21/21 passed (18 existing + 3 new)
+```
+
+### Step 4 — FULL REBUILD (required: feature_store schema change)
+```bash
+py -3 run_local.py --full          # ~3-4h local CPU
+# or
+# Colab Cell A + Cell 4 if GPU needed (~2-3h)
+```
+
+### Step 5 — Cell E verdict
 ```bash
 py -3 run_local.py --verdict-only
 ```
 
-### If you want to A/B isolate C1 vs C2 (~20 min each on local CPU)
+Ship gate: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp vs Phase 9 C1+C2 baseline (defined in `run_local.py CURRENT_BASELINE`).
+
+### Ship vs Partial vs Regress decision tree (same as C1+C2)
+- **SHIP** → rotate CURRENT_BASELINE in run_local.py + SESSION_HANDOFF §0 to Phase 9 C1+C2+C3 metrics. Proceed to Refactor Phase A (REFACTOR_PLAN.md §6).
+- **PARTIAL** → user decision: A/B isolate C3 ON/OFF, or accept taxonomy improvement with marginal CAGR trade (same call we just made for C1+C2).
+- **REGRESS** → revert the C3 commit; Phase 9 C1+C2 remains baseline; re-plan.
+
+---
+
+## 2b. Legacy commands — local or Colab runs on current baseline
+
+### If you want to re-verify current baseline (~2s, no pipeline)
 ```bash
-py -3 run_local.py --phase9-c1=0              # C1 OFF, C2 stays ON (auto default)
-py -3 run_local.py --phase9-c2=0              # C2 OFF, C1 stays ON (auto default)
+py -3 run_local.py --verdict-only
+# expect ΔCAGR +0.00pp vs Phase 9 C1+C2 baseline (comparing itself to itself)
 ```
-Each run writes to Drive. After each, `py -3 run_local.py --verdict-only` shows updated metrics.
 
-### If you want FULL REBUILD on a new commit (~2-3h CPU)
+### If you want full local run (~15-25 min QUICK / ~3-4h FULL)
 ```bash
-py -3 run_local.py --full
+py -3 run_local.py                 # QUICK_RESCORE (cached feature_store + models)
+py -3 run_local.py --full          # FULL rebuild (required after FS schema change)
+py -3 run_local.py --phase9-c1=0   # A/B: C1 OFF
+py -3 run_local.py --phase9-c2=0   # A/B: C2 OFF
 ```
 
-### If you prefer Colab (documented below, legacy)
-
-Goal: read the FULL REBUILD's outputs, measure Phase 9 C1+C2 combined effect vs Phase 8 baseline, and emit a SHIP/PARTIAL/REGRESS verdict.
+### If you prefer Colab (legacy, documented below)
 
 ### Step 1 -- verify run completed
 
@@ -322,9 +363,9 @@ Drive (NOT in git):
 | **8c.2** growth-adj val | `phase8c_growth_adj_valuation_enabled` | `PHASE_PHASE8C_GROWTH_ADJ_VALUATION_ENABLED` | ON | Shipped |
 | **8d.1** IC reweight | `phase8d_ic_reweight_enabled` | `PHASE_PHASE8D_IC_REWEIGHT_ENABLED` | ON | Shipped |
 | **8d.2** long-horizon alpha | `phase8d_long_horizon_alpha_enabled` | `PHASE_PHASE8D_LONG_HORIZON_ALPHA_ENABLED` | ON | Shipped |
-| **9.C1** multi_year weight rebalance | `phase9_c1_rebalance_enabled` | `PHASE_PHASE9_C1_REBALANCE_ENABLED` | ON | **Shipped code, FULL REBUILD complete, verdict pending** |
-| **9.C2** percentile thesis gate | `phase9_thesis_gate_enabled` | `PHASE_PHASE9_THESIS_GATE_ENABLED` | ON | **Shipped code, FULL REBUILD complete, verdict pending** |
-| **9.C3** EPS turn-positive flags | `phase9_c3_turnaround_enabled` (proposed) | `PHASE_PHASE9_C3_TURNAROUND_ENABLED` (proposed) | — | **DESIGNED only** (`PHASE_9_C3_PROPOSAL.md`); blocked on C1+C2 verdict |
+| **9.C1** multi_year weight rebalance | `phase9_c1_rebalance_enabled` | `PHASE_PHASE9_C1_REBALANCE_ENABLED` | ON | **SHIPPED 2026-04-18** (PARTIAL verdict, user accepted trade-off) |
+| **9.C2** percentile thesis gate | `phase9_thesis_gate_enabled` | `PHASE_PHASE9_THESIS_GATE_ENABLED` | ON | **SHIPPED 2026-04-18** (same trade-off; restored sleeve taxonomy) |
+| **9.C3** EPS turn-positive flags | `phase9_c3_turnaround_enabled` (proposed) | `PHASE_PHASE9_C3_TURNAROUND_ENABLED` (proposed) | — | **DESIGNED, ready to implement** (`PHASE_9_C3_PROPOSAL.md`; next session's work) |
 
 **Deferred work** (per `REFACTOR_PLAN.md` §12 5-stage sequencing):
 

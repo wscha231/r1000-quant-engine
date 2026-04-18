@@ -2502,3 +2502,33 @@ All entries must be written in English. Entries must be predictable and machine-
   - `run_local.py` sets `sys.stdout.reconfigure(encoding="utf-8")` on Windows -- some older Python 3.x (<3.7) cannot reconfigure stdout. Requires Python 3.10+ (enforced in check_prereqs).
   - If user runs `--full` locally while Colab is also running, both will write to the same Drive outputs/ path. Last writer wins. Add `--base-dir` to isolate runs if doing parallel A/B experiments across machines.
   - `PHASE8_BASELINE` in run_local.py is pinned literal. When Phase 9 SHIPs, rotate this block + SESSION_HANDOFF §0 baseline table in the same commit.
+
+### 12:32 KST - phase9-c1-c2-ship-paperwork-baseline-rotation
+
+- scope:
+  - Administrative SHIP commit for Phase 9 C1+C2. User reviewed PARTIAL verdict (dCAGR -0.74pp, dSharpe +0.0808, dMaxDD +5.78pp, early_scout 0→8) and chose Path 1 SHIP-as-is: structural win (sleeve taxonomy restored) + risk-adjusted improvement (Sharpe +0.08, MaxDD -5.78pp) outweigh the raw CAGR regression. No engine or notebook code change; pure baseline rotation + doc sync. Next-commit scope: Phase 9 C3 implementation per `PHASE_9_C3_PROPOSAL.md`.
+- files:
+  - `run_local.py` -> renamed baseline variable: new `CURRENT_BASELINE` dict holds Phase 9 metrics (cagr 0.2112, sharpe 1.0664, max_dd -0.2630, ir 0.6977, avg_turnover_monthly 0.4774, avg_stock_names 24.35, beat_month_ratio 0.6145, excess_cagr 0.0763, sleeve_counts_reference {core 4, future 5, early 8}) plus readable `name` field. `PHASE8_BASELINE` kept as historical reference. `print_verdict` function switched to read `CURRENT_BASELINE` for delta comparison. SHIP/PARTIAL/REGRESS message quotes the current baseline name so ambiguity is eliminated.
+  - `colab_run.ipynb` Cell 10 -> replaced stale 2026-04-15 `BASELINE` dict (strategy_cagr 0.2180, sharpe 0.73, max_dd -0.3686, selected_names 2) with Phase 9 C1+C2 baseline matching `run_local.py CURRENT_BASELINE`. Comparison title updated from "baseline vs Phase 1+2" to "baseline (Phase 9 C1+C2) vs new run".
+  - `CLAUDE.md` -> "Phase 1+2 Baseline Comparison" section renamed to "Current Production Baseline -- Phase 9 C1+C2 (SHIPPED 2026-04-18)". Added explicit ship gate formula + sleeve sanity guard (early_scout >= 4). Historical baselines (Phase 8, 2026-04-15) listed as reference only.
+  - `SESSION_HANDOFF.md` -> §0 TL;DR rewritten as SHIPPED posture with baseline snapshot table + next-step pointer (C3). §2 rewritten as "Next step -- Phase 9 C3 implementation" with 5-step flow (smoke test -> code -> smoke test -> FULL rebuild -> verdict) citing exact touch surface per PHASE_9_C3_PROPOSAL.md. §2b retained as legacy commands for reruns on current baseline. §6 Phase status table: 9.C1 + 9.C2 status "SHIPPED 2026-04-18", 9.C3 "DESIGNED, ready to implement".
+- symbols_added:
+  - `run_local.CURRENT_BASELINE: dict` -- baseline dict consumed by `print_verdict` for delta comparison. Contains `name` field for user-facing verdict message.
+- symbols_changed:
+  - `run_local.print_verdict(base_dir)` -- changed to read `CURRENT_BASELINE` instead of `PHASE8_BASELINE`. Now prints "METRICS vs baseline: <name>" header so the comparison is self-documenting.
+- config_fields_added:
+  - none (no EngineConfig change)
+- breaking_changes:
+  - none. `PHASE8_BASELINE` dict kept for any consumer that imported it historically.
+- outputs:
+  - none
+- validation:
+  - `py -3 run_local.py --verdict-only` -> rotated baseline confirmed: dCAGR +0.00pp, dSharpe +0.0000, dMaxDD +0.00pp, dIR +0.0000 vs itself. Verdict line reads "PARTIAL vs Phase 9 C1+C2 (SHIPPED 2026-04-18)" -- expected (measurement vs itself trivially passes 3 of 4 gates but dCAGR +0.00 < +0.5pp). Future C3 / refactor runs will produce non-zero deltas naturally.
+  - `py -3 tests/smoke_test.py` -> 18/18 passed in 5s (no code change in engine, smoke tests still pass).
+  - `py -3 -c "import json; json.load(open('colab_run.ipynb'))"` -> notebook JSON still valid after Cell 10 rotation (12 cells, indent=1 preserved). Grep confirms no remaining references to the stale CAGR 0.2180.
+- risks_or_notes:
+  - **Ship gate interpretation**: Phase 9 C1+C2 ships as an institutional-grade improvement on risk-adjusted metrics, not as a raw CAGR win. User's original goal of CAGR 30%+ remains open; the -0.74pp regression is a deliberate trade for structural repair. C3 hypothesis (EPS turn-positive flags) may recover some CAGR by tightening early_scout quality -- first opportunity to revisit raw-return optimization on the new baseline.
+  - **Baseline rotation discipline**: From now on, every verdict run compares to Phase 9 C1+C2 baseline (21.12% / 1.0664 / -26.30% / early_scout 8). The ship gate formula (dCAGR >= +0.5pp AND dSharpe >= -0.05 AND dMaxDD >= -3pp) applied to this new baseline is stricter than vs Phase 8 (because dSharpe and dMaxDD floors are relative, not absolute). A future change that lands at e.g. Sharpe 0.95 would fail the -0.05 Sharpe gate even though 0.95 beats historical Phase 8's 0.99. This is intentional -- we don't want to silently regress the structural wins.
+  - **Three places store the baseline**: run_local.py `CURRENT_BASELINE`, colab_run.ipynb Cell 10 `BASELINE`, CLAUDE.md "Current Production Baseline" section. All three rotate atomically in this commit. A future Refactor Phase A (REFACTOR_PLAN.md §6) should move these to a single JSON file (`baselines/current.json`) so the next rotation is one file, not three.
+  - **sleeve_counts_reference in CURRENT_BASELINE is advisory not enforced**: the ship gate checks `early_scout >= 4`, not "exactly 8". Subsequent phases may legitimately produce different counts (e.g. C3 may shift 1-2 names across sleeves). The reference is for diagnostic sanity, not regression.
+  - **PHASE8_BASELINE remains in code** so historical researchers or Stage 4 subtractive-pass auditors can compare against it without re-running Phase 8 from scratch. Consider deleting in the Stage 4 subtractive pass once sufficient baselines are captured in version-controlled JSON.
