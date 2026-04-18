@@ -49,10 +49,26 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 
 ### Pre-commit smoke test (local, <10s)
 ```bash
-py -3 tests/smoke_test.py                # 17 tests, ~7s full (syntax + structural + import + logic + regression)
-py -3 tests/smoke_test.py --quick        # 9 tests, ~1s (syntax + structural only, no numpy import)
+py -3 tests/smoke_test.py                # 18 tests, ~7s full (syntax + structural + import + logic + regression)
+py -3 tests/smoke_test.py --quick        # 10 tests, ~1s (syntax + structural only, no numpy import)
 py -3 tests/smoke_test.py -v             # verbose — per-test PASS lines + timings
 ```
+
+### Local pipeline run (no Colab round-trip)
+```bash
+py -3 run_local.py --verdict-only        # ~2s — just Cell E verdict on existing outputs (use after any run)
+py -3 run_local.py                       # ~15-25 min — QUICK_RESCORE (default, sleeve/phase toggle tuning)
+py -3 run_local.py --full                # ~2-3h CPU — FULL rebuild (required for feature_store schema changes)
+py -3 run_local.py --no-collector        # skip collector step (use cached prices + SEC + macro)
+py -3 run_local.py --phase9-c1=0         # A/B isolation: Phase 9 C1 OFF
+py -3 run_local.py --phase9-c2=0         # A/B isolation: Phase 9 C2 OFF
+```
+
+Uses Drive mirror at `G:\내 드라이브\r1000_top30_institutional\` (override with `--base-dir`). Prints `[commit=<sha>]` banner (with `DIRTY` tag if working tree has uncommitted changes). Falls through to Cell E verdict at the end so you see SHIP/PARTIAL/REGRESS immediately.
+
+**Why local**: eliminates `edit → commit → push → Colab pull → Cell 4` round-trip. Faster for A/B isolation (20min vs 40min for two Colab runs). No 12h Colab timeout. Direct file access.
+
+**When to still use Colab**: (a) need GPU for FULL rebuild (CatBoost GPU), (b) no local Python/Drive sync, (c) shared team review. Colab notebook remains the canonical runbook.
 
 Runs BEFORE `git push` → before Colab round-trip. Catches ~80% of bugs in 7 seconds instead of burning 20-180 minutes of Colab time on an obvious typo.
 

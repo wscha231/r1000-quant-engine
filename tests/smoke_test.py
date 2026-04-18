@@ -102,6 +102,12 @@ def test_collector_syntax() -> None:
     ast.parse(src)
 
 
+@_test("syntax.run_local_py_parses")
+def test_run_local_syntax() -> None:
+    src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    ast.parse(src)
+
+
 @_test("syntax.notebook_json_valid")
 def test_notebook_json() -> None:
     nb = json.loads(NOTEBOOK_PATH.read_text(encoding="utf-8"))

@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-18 10:46 KST
+# Session Handoff — 2026-04-18 12:20 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -8,12 +8,27 @@
 
 ## 0. TL;DR — one-paragraph resume brief
 
-Phase 9 C1 (multi_year weight rebalance) + C2 (percentile-based sleeve thesis-gate) shipped in commit `ced5db6` on 2026-04-17. Design for Phase 9 C3 (EPS turn-positive flags) completed in commit `527fdde` (see `PHASE_9_C3_PROPOSAL.md`). Run provenance: every pipeline run now prints `[commit=<sha>]` banner (`afaa768`). **User launched a FULL REBUILD from commit `33581bc` at 2026-04-17 08:10 KST** (before the `afaa768` SHA banner commit, so that specific run will NOT show the SHA banner). User went home at end of day 2026-04-17 with run still in progress; current time 2026-04-18 10:46 KST, so **the FULL REBUILD should be complete by now** (expected ~2-3h runtime, ~26h elapsed). Next agent's first task: **verify FULL REBUILD results exist on Drive, then run Cell E verdict snippet from §2 below and paste output back.** The resulting SHIP/PARTIAL/REGRESS verdict drives the next stage per REFACTOR_PLAN.md §12.
+**Phase 9 C1+C2 FULL REBUILD VERDICT: PARTIAL.** Measured via `py -3 run_local.py --verdict-only` on 2026-04-18 12:18 KST against Drive-synced outputs from the 2026-04-18 02:02 UTC FULL REBUILD (commit `33581bc`; yesterday's 08:10 run crashed when user's computer slept). Verdict detail:
 
-Phase 8 baseline (pre-Phase-9): CAGR 21.86% / Sharpe 0.99 / MaxDD -32.1% / early_scout = 0 (sleeve collapsed).
-Phase 9 C1+C2 goal: CAGR ≥ +0.5pp (i.e. ≥ 22.36%) AND Sharpe ≥ -0.05 AND MaxDD ≥ -3pp AND early_scout ≥ 4 names.
+| gate | measurement | baseline (Phase 8) | delta | pass? |
+|---|---|---|---|---|
+| CAGR | **21.12%** | 21.86% | **-0.74pp** | ❌ (needs ≥ +0.5pp) |
+| Sharpe | **1.0664** | 0.9856 | **+0.0808** | ✅ (needs ≥ -0.05) |
+| MaxDD | **-26.30%** | -32.08% | **+5.78pp** | ✅ (needs ≥ -3pp) |
+| early_scout | **8** | 0 | **+8** | ✅ (needs ≥ 4, sleeve collapse resolved) |
 
-Current HEAD = `527fdde`. **Next action: Cell E verdict against the already-completed FULL REBUILD's outputs.**
+**Structural win**: sleeve taxonomy restored. NVDA + GOOG + JNJ + VRT in core_compounder (4), GEV/FTI/LITE/CIEN/MRVL in future_winner (5), ETR + 7 others in early_scout (8). Total 17-18 positions. Phase 9 C2 percentile-based gates delivered as designed — mega-cap core (9.5% of universe), mid-large growth future (8.9%), inflection+breakout early (12.6%), unassigned 69.0% (correctly excluded).
+
+**CAGR regression is small (-0.74pp) but real.** Sharpe and MaxDD dramatically improved (+0.08, +5.78pp). Risk-adjusted return cleanly up. The sleeve taxonomy fix cost 0.74pp of raw CAGR to fix structural collapse.
+
+**Three paths forward** (user decision pending):
+1. **SHIP as-is** — argue that sleeve taxonomy + risk-adjusted metrics outweigh -0.74pp CAGR. Rotate PHASE8_BASELINE in SESSION_HANDOFF §0 + run_local.py to Phase 9 metrics. Continue to Phase 9 C3 (EPS turn-positive, will likely recover some CAGR by tightening early sleeve quality).
+2. **A/B isolate** — run 2 × `py -3 run_local.py --phase9-c1=0` / `--phase9-c2=0` (~20 min each). Ship whichever subset has positive CAGR delta.
+3. **C3 first** — skip verdict ambiguity, implement C3 now. If C3 recovers CAGR (user hypothesis: tightening early sleeve with explicit turnaround flags), the combined Phase 9 C1+C2+C3 may pass SHIP gate cleanly.
+
+Current HEAD = `5576dd5` (smoke test infrastructure) → will become `<next>` after this commit (`run_local.py` + docs).
+
+**Next action: user choice among paths 1/2/3 above.** No pipeline run needed to decide — verdict is already known.
 
 ---
 
@@ -38,11 +53,30 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. What the NEXT AGENT must do — Cell E verdict on completed FULL REBUILD
+## 2. Quickest way to reproduce the verdict OR run a new experiment
 
-Goal: read the FULL REBUILD's outputs (started 08:10 KST 2026-04-17 on commit `33581bc`), measure Phase 9 C1+C2 combined effect vs Phase 8 baseline, and emit a SHIP/PARTIAL/REGRESS verdict.
+### If you just want to see the measured verdict again (~2s, no pipeline)
+```bash
+py -3 run_local.py --verdict-only
+```
 
-### Step 1 — verify run completed
+### If you want to A/B isolate C1 vs C2 (~20 min each on local CPU)
+```bash
+py -3 run_local.py --phase9-c1=0              # C1 OFF, C2 stays ON (auto default)
+py -3 run_local.py --phase9-c2=0              # C2 OFF, C1 stays ON (auto default)
+```
+Each run writes to Drive. After each, `py -3 run_local.py --verdict-only` shows updated metrics.
+
+### If you want FULL REBUILD on a new commit (~2-3h CPU)
+```bash
+py -3 run_local.py --full
+```
+
+### If you prefer Colab (documented below, legacy)
+
+Goal: read the FULL REBUILD's outputs, measure Phase 9 C1+C2 combined effect vs Phase 8 baseline, and emit a SHIP/PARTIAL/REGRESS verdict.
+
+### Step 1 -- verify run completed
 
 ```python
 import pathlib, time

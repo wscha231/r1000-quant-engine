@@ -2460,3 +2460,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - When a new phase ships, add 2-3 tests in the same commit: one structural (constant exists), one import (attribute exported), one regression (value/behavior as expected). Template in `tests/smoke_test.py` docstring.
   - Future extension (Phase A refactor, REFACTOR_PLAN.md §11.6): this single-file smoke test becomes the seed of the full `tests/` suite with per-module files. Existing tests stay; new unit tests for individual helpers get added.
   - Unicode safety: all output is ASCII (cp949-compatible) so Windows terminals don't crash on em-dash. `--` used as separator instead of Unicode em-dash.
+
+### 12:21 KST - local-pipeline-runner-plus-phase9-c1-c2-verdict
+
+- scope:
+  - Two outcomes in one commit: (a) `run_local.py` script that executes the pipeline on the user's local machine against the Drive mirror (no Colab round-trip), and (b) FIRST measurement of Phase 9 C1+C2 combined effect -- verdict is PARTIAL.
+- files:
+  - `run_local.py` -> NEW (~330 lines). Replicates colab_run.ipynb Cells 2-4 + Cell E as a single Python script. Modes: default QUICK_RESCORE, `--full`, `--no-collector`, `--verdict-only`, `--end-date`, `--base-dir`, `--fast-mode`, `--phase9-c1`, `--phase9-c2`. Uses pathlib + `G:\내 드라이브\r1000_top30_institutional\` by default. Prints `[commit=<sha>]` banner with DIRTY tag when working tree has uncommitted changes. Forces UTF-8 stdout/stderr on Windows so Korean paths render correctly. Falls through to inline Cell E verdict (same snippet as SESSION_HANDOFF.md §2) so SHIP/PARTIAL/REGRESS appears in one run.
+  - `tests/smoke_test.py` -> added `syntax.run_local_py_parses` test. Total smoke tests: 18 full / 10 quick.
+  - `CLAUDE.md` -> Fast-Iteration Workflow subsection gains "Local pipeline run" block with all 5 run_local.py modes. Mentions Drive mirror path, local advantages (no round-trip, no 12h timeout), Colab still useful for GPU / shared review.
+  - `SESSION_HANDOFF.md` -> §0 REWRITTEN with verdict table (ΔCAGR -0.74pp / ΔSharpe +0.0808 / ΔMaxDD +5.78pp / early_scout 8). Three-path decision tree (SHIP-as-is / A/B isolate / C3 first) replaces "awaiting Cell E" posture. §2 now leads with local commands (--verdict-only / --phase9-c1=0 / --phase9-c2=0 / --full), Colab instructions demoted to legacy.
+- symbols_added:
+  - `run_local.main() -> int` -> CLI entry point.
+  - `run_local.parse_args() -> argparse.Namespace`
+  - `run_local.check_prereqs(base_dir) -> tuple[bool, list[str]]`
+  - `run_local.apply_phase_toggle(env_name, value) -> None`
+  - `run_local.resolve_commit_sha() -> tuple[str, bool]`
+  - `run_local.now_kst() -> str`
+  - `run_local.print_verdict(base_dir) -> int`
+  - `run_local.PHASE8_BASELINE: dict` -- baseline for ΔCAGR/ΔSharpe/ΔMaxDD comparison. Rotate to Phase 9 metrics if/when SHIP verdict confirmed.
+  - `tests.smoke_test.test_run_local_syntax()` -- new smoke test.
+- symbols_changed:
+  - none (no engine code changes)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none (pure additive infrastructure + measurement)
+- outputs:
+  - Measured on Drive: `G:/내 드라이브/r1000_top30_institutional/outputs/backtest_metrics.json` (cagr=0.2112, sharpe=1.0664, max_dd=-0.2630, ir=0.6977, beat_month_ratio=0.6145, excess_cagr=0.0763, avg_turnover_monthly=0.4774, avg_stock_names=24.35).
+  - Sleeve counts: core_compounder=4 (NVDA, GOOG, JNJ, VRT), future_winner=5 (GEV, FTI, LITE, CIEN, MRVL), early_scout=8 (ETR + 7 others). Total 17-18 positions. Sleeve targets {core: 0.35, future: 0.30, early: 0.35} actuals {core: 0.332, future: 0.293, early: 0.337} -- within 2% of target.
+  - Phase 9 diagnostic columns (from scored_latest.csv): phase9_thesis_gate_active=1.0 (610/610), phase9_core_eligible=58, phase9_future_eligible=54, phase9_early_eligible=77, phase9_unassigned=421. Percentile gate semantics confirmed working as designed.
+- validation:
+  - `py -3 run_local.py --verdict-only` -> 2s runtime, verdict PARTIAL printed with all 4 gate metrics + sleeve distribution + top holdings. Korean path in header renders correctly after UTF-8 reconfigure.
+  - `py -3 tests/smoke_test.py --quick` -> 10/10 passed (new `syntax.run_local_py_parses` test added).
+  - `py -3 tests/smoke_test.py` -> 18/18 passed (full suite, ~5s).
+  - Deps confirmed installed locally: numpy 2.4.4, pandas 3.0.2, sklearn 1.8.0, catboost 1.2.10, yfinance 1.2.2, requests 2.33.1, pyarrow 23.0.1. Python 3.14.4 Windows.
+- risks_or_notes:
+  - **Verdict PARTIAL means Phase 9 C1+C2 is NOT auto-SHIP per ship gate.** Taxonomy + risk-adjusted metrics (Sharpe, MaxDD, early count) all strongly improved, but raw CAGR dropped 0.74pp. User decision required among SHIP-as-is / A/B isolate / C3-first paths.
+  - The FULL REBUILD measured was the 2026-04-18 02:02 UTC run (commit `33581bc`, before `afaa768` SHA banner commit) not the 2026-04-17 08:10 run (which crashed when user's computer slept overnight).
+  - **run_local.py requires CPU-only CatBoost on user's Windows laptop.** FULL rebuild may be 3-4h locally vs 2-3h on Colab GPU. QUICK_RESCORE should be similar speed (20 min) since training is cached.
+  - `run_local.py` sets `sys.stdout.reconfigure(encoding="utf-8")` on Windows -- some older Python 3.x (<3.7) cannot reconfigure stdout. Requires Python 3.10+ (enforced in check_prereqs).
+  - If user runs `--full` locally while Colab is also running, both will write to the same Drive outputs/ path. Last writer wins. Add `--base-dir` to isolate runs if doing parallel A/B experiments across machines.
+  - `PHASE8_BASELINE` in run_local.py is pinned literal. When Phase 9 SHIPs, rotate this block + SESSION_HANDOFF §0 baseline table in the same commit.
