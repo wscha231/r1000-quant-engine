@@ -66,17 +66,30 @@ DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 # again per SESSION_HANDOFF.md §7 rotation rule.
 # ------------------------------------------------------------------
 CURRENT_BASELINE = {
-    "name": "Phase 9 C1+C2 (SHIPPED 2026-04-18)",
-    "cagr": 0.2112,
-    "sharpe": 1.0664,
-    "max_dd": -0.2630,
-    "ir": 0.6977,
-    "avg_turnover_monthly": 0.4774,
-    "avg_stock_names": 24.35,
-    "beat_month_ratio": 0.6145,
-    "excess_cagr": 0.0763,
-    # Sleeve counts for regression check (Phase 8 was 0 early -> shipped 8)
-    "sleeve_counts_reference": {"core_compounder": 4, "future_winner": 5, "early_scout": 8},
+    # Phase 9 C1+C2 shipped 2026-04-18, re-measured 2026-04-18 13:13 KST Colab run
+    # (commit 02f1b83). `cagr`/`sharpe`/`max_dd` below are from
+    # `outputs/backtest_metrics.json` which reports the ADAPTIVE MONTHLY policy.
+    # Other policies from the same run (for reference):
+    #   Best interval (3-month):  CAGR 23.39% / Sharpe 1.197 / MaxDD -26.1% / IR 1.04
+    #   Concentrated (3-name):    CAGR 29.89% / Sharpe 1.124 / MaxDD -25.4% (hits user's 30% goal)
+    # Those alternate policies appear in `rebalance_interval_comparison.csv` and
+    # `concentrated_backtest_metrics.json` respectively.
+    "name": "Phase 9 C1+C2 (SHIPPED 2026-04-18, adaptive monthly)",
+    "cagr": 0.2169,
+    "sharpe": 1.0732,
+    "max_dd": -0.2397,
+    "ir": 0.7985,
+    "avg_turnover_monthly": 0.4498,
+    "avg_stock_names": 22.81,
+    "beat_month_ratio": 0.5904,
+    "excess_cagr": 0.0819,
+    # Sleeve counts from Colab 13:13 run (defensive_drawdown_control cap policy)
+    "sleeve_counts_reference": {"core_compounder": 7, "future_winner": 6, "early_scout": 4},
+    # Alternate policy metrics (not used for verdict; informational)
+    "alt_policies": {
+        "best_interval_3m": {"cagr": 0.2339, "sharpe": 1.197, "max_dd": -0.2609, "ir": 1.036, "avg_stock_names": 33.30},
+        "concentrated_3name": {"cagr": 0.2989, "sharpe": 1.124, "max_dd": -0.2539, "ending_capital_x": 6.10},
+    },
 }
 
 # Previous baseline kept for legacy / historical comparison utilities

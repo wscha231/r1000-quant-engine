@@ -8,24 +8,37 @@
 
 ## 0. TL;DR — one-paragraph resume brief
 
-**Phase 9 C1+C2 SHIPPED** 2026-04-18. User accepted PARTIAL verdict (ΔCAGR -0.74pp vs Phase 8) in exchange for dramatic risk-adjusted and structural improvements: Sharpe +0.08, MaxDD -5.78pp, sleeve taxonomy restored (early_scout 0 → 8 names), mega-cap core rule working as designed (NVDA/GOOG in core_compounder via percentile gate). Phase 9 C1+C2 is the NEW PRODUCTION BASELINE. Rotated baseline snapshot:
+**Phase 9 C1+C2 SHIPPED** 2026-04-18. Phase 9 C3 **IMPLEMENTED** (commit `86be7f9`) and **FULL REBUILD in progress** on local machine (PID 23764, started 13:01 KST, ETA 16:00-17:00 KST).
 
-| metric | value | source |
-|---|---|---|
-| CAGR | **21.12%** | `run_local.py --verdict-only` against Drive outputs (commit `33581bc` FULL REBUILD) |
-| Sharpe | **1.0664** | |
-| MaxDD | **-26.30%** | |
-| IR | **0.6977** | |
-| excess_cagr | **+7.63%** vs S&P 500 | |
-| avg_stock_names | **24.35** | |
-| beat_month_ratio | **61.45%** | |
-| sleeve_counts | core 4 / future 5 / early 8 | NVDA GOOG JNJ VRT ∥ GEV FTI LITE CIEN MRVL ∥ ETR + 7 |
+**Phase 9 C1+C2 measurement (re-read 2026-04-18 from Colab commit `02f1b83` run at 13:13 KST)** — three policies produced by the same pipeline:
 
-**Next step: Phase 9 C3 implementation** per `PHASE_9_C3_PROPOSAL.md`. Hypothesis: EPS turn-positive flags (`profit_turn_positive_4q` / `cashflow_turn_positive_4q` / `roe_turn_positive_4q`) + "still-loss-improving" branch tightens early_scout quality, which may recover some of the -0.74pp CAGR. Requires ENGINE_REUSE_VERSION bump → FULL rebuild (~3-4h local CPU / ~2-3h Colab). Design complete; implementation is ~40 LOC + keep_cols whitelist + 2 cfg fields + Cell 2 toggle. After C3 SHIP verdict: Refactor Phase A (REFACTOR_PLAN.md §6).
+| policy | CAGR | Sharpe | MaxDD | avg_names | turnover | source |
+|---|---|---|---|---|---|---|
+| **adaptive monthly** (default in `backtest_metrics.json`) | **21.69%** | **1.073** | **-23.97%** | 22.8 | 45% | `outputs/backtest_metrics.json` |
+| **best interval (3-month)** | **23.39%** | **1.197** | **-26.09%** | 33.3 | 25% | `outputs/reports/rebalance_interval_comparison.csv` best_interval row |
+| **concentrated (3-name)** | **29.89%** | **1.124** | **-25.39%** | 3.0 | 64% | `outputs/concentrated_backtest_metrics.json` |
 
-**Ship gate for C3 (or any next change)**: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp vs current baseline (Phase 9 C1+C2, see CURRENT_BASELINE in `run_local.py`).
+Phase 8 baseline (pre-Phase-9) was CAGR 21.86% for the main diversified portfolio. Direct comparison:
+- Adaptive monthly: -0.17pp (tied, but structural win via Sharpe +0.09 and MaxDD -8.1pp)
+- Best 3-month interval: **+1.53pp** (clean SHIP — also Sharpe +0.21, MaxDD -6pp, IR 0.56→1.04)
+- Concentrated: **+8.03pp** (essentially hits user's original CAGR 30% target; 83 months $100k → $610k)
 
-Current HEAD = `79d6fe8` (local runner + verdict). Next commit: baseline rotation paperwork. Commit after that: C3 implementation.
+**Concentrated 3-name holdings (from Colab 13:13 KST run)**:
+- **PR** Permian Resources (Energy, mktcap $15B) — 50% weight, concentrated_score 0.987, archetype emerging_growth
+- **ETR** Entergy (Utilities, mktcap $5.3B) — 30% weight, concentrated_score 0.899
+- **FTI** TechnipFMC (Energy, mktcap $29B) — 20% weight, concentrated_score 0.887, sage_c_score 2.72
+
+**Main 17-position diversified (defensive_drawdown_control cap policy, sleeve target core 0.60 / future 0.25 / early 0.15)**:
+- Core 7: NVDA, GOOG, V, JNJ, AAPL, LNG, VRT
+- Future 6: GEV, FTI, CIEN, LITE, MRVL, ADI
+- Early 4: PR, BKNG, ETR, AKAM
+- +CASH 3.7%
+
+Phase 9 C3 hypothesis: EPS turn-positive flags tighten early_scout quality, potentially recovering or improving the adaptive monthly CAGR toward the best-interval 23.39%. The concentrated sleeve is ALREADY past the 30% goal and uncoupled from C3 (different selection logic). C3 FULL REBUILD currently running, will produce fresh metrics when complete (~16-17 KST).
+
+**Ship gate for C3** (or any next change): ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp vs current baseline (adaptive monthly 21.69% / 1.073 / -23.97%, stored in `run_local.py CURRENT_BASELINE`).
+
+Current HEAD = `86be7f9` (Phase 9 C3 implementation). Background run PID 23764.
 
 ---
 
