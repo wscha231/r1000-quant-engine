@@ -1,7 +1,21 @@
 # r1000 Quant Engine — Phase 1..6 Roadmap
 
-**Purpose**: persistent memory of the six-phase alpha-improvement plan for the Russell 1000 Top 30 institutional engine.
-This document is written so a fresh Claude / Codex / GPT chat session can pick up the work cold — without the prior conversation context.
+> **⚠ DEPRECATED as of 2026-04-18** — this file only covers the original Phase 1-6 plan (2026-04-16).
+> Phases 7 / 8 / 8a-8d / 9 / 9 C1 / 9 C2 / 9 C3 have landed since and are NOT reflected here.
+>
+> **Current roadmap sources (use these instead)**:
+> 1. `SESSION_HANDOFF.md` — single-item inbox for the next immediate action (THE file to read first).
+> 2. `REFACTOR_PLAN.md` §12 — 5-stage sequencing diagram (Verdict → C3-or-Refactor → complement → Subtractive → Phase 8e).
+> 3. `EXECUTION_PLAN.md` — 4-stage roadmap with ceiling assessment.
+> 4. `PHASE_9_C3_PROPOSAL.md` — Phase 9 C3 implementation design.
+> 5. Latest `CHANGELOG.md` entries (since 2026-04-17 Phase 8-9).
+>
+> This file is kept for historical reference of the original Phase 1-6 invariants (phase toggle mechanism, env-var convention, feature_store keep_cols survival rule). Those invariants ARE still valid — but the outcome descriptions below are stale (e.g. Phase 3 "PLANNED" → actually REJECTED, Phase 5 "PLANNED" → REJECTED, Phase 6 "PLANNED" → 6a/6b SHIPPED dormant / 6c OPT-IN).
+
+---
+
+**Purpose** (original 2026-04-16): persistent memory of the six-phase alpha-improvement plan for the Russell 1000 Top 30 institutional engine.
+This document was written so a fresh Claude / Codex / GPT chat session can pick up the work cold — without the prior conversation context.
 
 **Always read this file first** when resuming phase work in a new chat session. Read `CLAUDE.md` for the project basics, read the newest `CHANGELOG.md` entries for the latest state, and only then start editing.
 

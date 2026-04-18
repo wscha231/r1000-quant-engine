@@ -2388,3 +2388,32 @@ All entries must be written in English. Entries must be predictable and machine-
   - The 8 C3 columns + 2 diagnostic flags add minimal footprint (~1 MB on feature_store, negligible on scored_latest.csv).
   - Section 12 sequencing ONLY encodes the intent; each stage still requires its own CHANGELOG entry at ship time.
   - Subtractive pass (Stage 4) requires A/B evidence before deleting Phase 3/5/7a — some may have marginal regime-conditional IC not captured in global means.
+
+## 2026-04-18
+
+### 10:46 KST - handoff-doc-refresh-for-next-agent
+
+- scope:
+  - End-of-work-day handoff hygiene. User finished 2026-04-17 with the Phase 9 C1+C2 FULL REBUILD (started 08:10 on commit `33581bc`) still in progress and went home; resumed 2026-04-18 morning to ensure the next agent (possibly on a different machine or chat session) can resume cleanly. No engine / notebook code changes — pure documentation sync.
+- files:
+  - `SESSION_HANDOFF.md` -> full rewrite. Dated to 2026-04-18 10:46 KST. HEAD updated from `ced5db6` to `527fdde`. Added `afaa768` (SHA banner) and `527fdde` (C3 design) to §1 timeline. §2 "What next" rewritten around the ALREADY-COMPLETED FULL REBUILD (was QUICK_RESCORE guidance). Step 1 added: verify run completed by checking Drive artifact mtimes. Step 2 is the Cell E verdict snippet. §3 decision tree kept SHIP/PARTIAL/REGRESS trichotomy but SHIP path now split into Path A (C3 first per PHASE_9_C3_PROPOSAL.md) and Path B (Refactor first per REFACTOR_PLAN.md §12). §4 bootstrap prompt updated with `527fdde` expected HEAD. §5 file list adds PHASE_9_C3_PROPOSAL.md, marks PHASE_ROADMAP.md DEPRECATED. §6 phase table adds Phase 9 C3 row as DESIGNED. §7 rotation rules expanded to cover all verdict branches.
+  - `CLAUDE.md` -> updated Key Files (added EXECUTION_PLAN / ARCHITECTURE_REVIEW / PHASE_9_C3_PROPOSAL; marked PHASE_ROADMAP DEPRECATED; moved REFACTOR_PLAN emphasis to §12). Fixed `ENGINE_REUSE_VERSION` from stale `"2026-04-16-phase2-keepcols-fix"` to actual `"2026-04-17-phase8b-long-lookback-momentum"`. Added `ENGINE_COMMIT_SHA` mention. Replaced Multi-Session Phase Plan order to cite REFACTOR_PLAN §12 and current doc stack instead of deprecated PHASE_ROADMAP. Replaced Phase-1..6 status block with full Phase 1-9 state table including C1/C2 SHIP code status + C3 DESIGNED status + Refactor PLANNED status.
+  - `PHASE_ROADMAP.md` -> added DEPRECATED banner at top pointing at SESSION_HANDOFF.md / REFACTOR_PLAN.md §12 / EXECUTION_PLAN.md / PHASE_9_C3_PROPOSAL.md as current roadmap sources. Kept the rest of the file as historical reference (Phase toggle mechanism + keep_cols survival invariant are still valid).
+- symbols_added:
+  - none (docs only)
+- symbols_changed:
+  - none (docs only)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `git diff --cached --stat` -> 3 files, documentation-only.
+  - Read-verified SESSION_HANDOFF.md §0/§1/§2/§3/§6 content against current git state (HEAD `527fdde`, Phase 9 C1/C2 code shipped, C3 designed).
+  - No ast parse / JSON validate needed (no code or notebook changes).
+- risks_or_notes:
+  - If the FULL REBUILD from `33581bc` crashed silently overnight, §2 Step 1 catches it via mtime check. Fallback: QUICK_RESCORE (~20 min) from `527fdde` which at least produces comparable metrics.
+  - PHASE_ROADMAP.md is kept as deprecated reference rather than deleted because future contributors may still want to read Phase 1-6 original-intent history. All navigation pointers (CLAUDE.md "Multi-Session Phase Plan", SESSION_HANDOFF.md §5) now point away from it.
+  - SESSION_HANDOFF rotation rule (§7) is explicit enough that the next verdict-ship cycle can overwrite §0/§1/§2 mechanically without re-reading this entry.

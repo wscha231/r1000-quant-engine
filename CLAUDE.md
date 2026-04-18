@@ -5,20 +5,24 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 
 ## Key Files
 - `SESSION_HANDOFF.md` — **다른 기기/세션에서 이어 작업할 때 제일 먼저 읽을 파일. "방금 뭐 했고 다음에 뭐 해야 하는지" 단일 inbox. Phase 하나 끝날 때마다 덮어씀.**
-- `r1000_top30_institutional.py` — 메인 엔진 (~27,000+ lines, Phase 8 이후 Phase A refactor 로 분리 예정)
+- `r1000_top30_institutional.py` — 메인 엔진 (~27,400+ lines, Phase 9 까지 shipped. C1+C2 verdict 확정 후 Refactor Phase A 로 5-module 분리 예정)
 - `r1000_data_collector.py` — 데이터 수집 + 검증 파이프라인
-- `colab_run.ipynb` — Colab 실행 런북 (GitHub master pull → collector → pipeline → validation)
-- `PHASE_ROADMAP.md` — **Phase 1..6 멀티-세션 작업 플랜 (새 대화 시작할 때 먼저 읽기)**
-- `PHASE_8_PROPOSAL.md` — Phase 8 restructuring (신규 8a/8b/8c/8d 설계 문서)
-- `REFACTOR_PLAN.md` — **27k→5 module 분리 + observability 인프라 플랜. Phase 8 ship 후 실행.**
+- `colab_run.ipynb` — Colab 실행 런북 (GitHub master pull → collector → pipeline → validation). Cell 2 에 Phase 1-9 전체 env toggle. Cell 4 pipeline banner 에 `[commit=<sha>]` 표시 (`afaa768` 이후).
+- `EXECUTION_PLAN.md` — **4-stage roadmap (Stage 0 = Phase 9 verdict 대기, Stage 2 = refactor+cleanup, Stage 3 = optional structural)**
+- `ARCHITECTURE_REVIEW.md` — cold first-principles assessment + §6b sleeve taxonomy collapse 진단 + Phase 9 redesign 근거
+- `REFACTOR_PLAN.md` — **27k→5 module 분리 + observability 인프라 + §12 5-stage 시퀀싱 다이어그램 (Verdict → C3 or Refactor → complement → Subtractive → Phase 8e). Phase 9 C1+C2 SHIP verdict 후 실행.**
+- `PHASE_9_C3_PROPOSAL.md` — **Phase 9 C3 EPS turn-positive flag 상세 설계 (C1+C2 SHIP 후 구현 ready)**
+- `PHASE_8_PROPOSAL.md` — Phase 8 restructuring (신규 8a/8b/8c/8d 설계 문서, shipped)
+- `PHASE_ROADMAP.md` — **DEPRECATED** (Phase 1-6 만 커버, 7/8/9 없음). 현행 로드맵은 `REFACTOR_PLAN.md` §12 사용.
 - `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` — Phase C 데이터 근거
 - `PROPOSAL_defensive_upgrades.md` — Phase 6 (tail protection) 상세 설계 문서
 - `PROPOSAL_growth_regime_offense_defense.md` — Phase 4 참고용 아키텍처 문서
 
 ## Current Engine Version
-- `ENGINE_REUSE_VERSION = "2026-04-16-phase2-keepcols-fix"`
+- `ENGINE_REUSE_VERSION = "2026-04-17-phase8b-long-lookback-momentum"` (line 50)
+- `ENGINE_COMMIT_SHA` (module-level, resolved at import from `git rev-parse --short HEAD`, printed in run banner per commit `afaa768`)
 - Cache invalidation: 버전 문자열이 바뀌면 `cache_*`/`feature_store` 아티팩트가 자동 재생성됨.
-- **Next run must be FULL rebuild** (QUICK_RESCORE_ONLY=False) because this version bump forces regeneration of `feature_store_latest.parquet` with Phase 2 columns restored. After one FULL run the cached feature_store has Phase 2, so you can return to `QUICK_RESCORE_ONLY=True` for subsequent iterations.
+- **Phase 9 C1+C2 are post-feature-store changes** — no version bump needed, `QUICK_RESCORE_ONLY=True` works. Phase 9 C3 (if shipped) will bump version to `"2026-04-17-phase9c3-turnaround-flags"` and require one FULL rebuild.
 
 ## Environments
 - **Local**: `C:\Users\Andrew Cha\Documents\codex`
@@ -138,23 +142,32 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - 새 실행 후 CAGR 개선 + MaxDD 유지/개선이 성공 기준.
 
 ## Multi-Session Phase Plan
-**Phase 1..6 전체 계획 = `PHASE_ROADMAP.md` 에 저장됨.**
+**현행 로드맵 = `REFACTOR_PLAN.md` §12 5-stage 시퀀싱** (PHASE_ROADMAP.md 는 deprecated, Phase 1-6 만 커버).
 
 **다른 기기/세션에서 이어 작업할 때 순서 (in order — don't skip)**:
 1. **`SESSION_HANDOFF.md` 먼저** — "방금 뭐 했고 다음에 뭐 해야 하나" (single-item inbox, 가장 정확한 최신 상태).
 2. 이 파일 (`CLAUDE.md`) — 프로젝트 베이직.
-3. `CHANGELOG.md` 마지막 ~200줄 — 최근 결정.
-4. `PHASE_ROADMAP.md` — 전체 Phase 계획 + invariants.
-5. `git log --oneline -5` — 최신 commit 확인.
-6. `outputs/concentrated_backtest_metrics.json` (on Drive) — 가장 최근 baseline.
-7. Roadmap의 PR 순서대로 진행 (Phase 3 → 4 → 5 → 6a → 6b → 6c).
+3. `CHANGELOG.md` 마지막 ~500줄 — 최근 결정 (Phase 8/9 entries).
+4. `EXECUTION_PLAN.md` + `ARCHITECTURE_REVIEW.md` — 4-stage roadmap + ceiling assessment.
+5. `REFACTOR_PLAN.md` §12 — 5-stage 시퀀싱 (Verdict → C3-or-Refactor → complement → Subtractive → Phase 8e).
+6. `PHASE_9_C3_PROPOSAL.md` — Phase 9 C3 구현 시만 읽으면 됨 (~440 lines, 상세 snippets 포함).
+7. `git log --oneline -10` — 최신 commit 확인. 기대 HEAD: `527fdde` 이상.
+8. `outputs/backtest_metrics.json` + `outputs/concentrated_backtest_metrics.json` (on Drive) — 가장 최근 baseline.
 
 **복붙용 부트스트랩 프롬프트는 `SESSION_HANDOFF.md` §4 에 있음.**
 
-현재 상태:
-- Phase 1 ✅ DONE (turnaround/value/uptrend alpha)
-- Phase 2 ✅ DONE (industry RS / O'Neil leadership)
-- Phase 3 📋 PLANNED — sleeve weight 감사 + 재정규화
-- Phase 4 📋 PLANNED — regime-conditional dynamic sleeve weights
-- Phase 5 📋 PLANNED — sub-industry leader/laggard pair
-- Phase 6 📋 PLANNED — risk-off tail protection (drawdown breaker + VIX guard + vol targeting)
+현재 상태 (2026-04-18 10:46 KST):
+- Phase 1 ✅ SHIPPED (turnaround/value/uptrend alpha)
+- Phase 2 ✅ SHIPPED (industry RS / O'Neil leadership)
+- Phase 3 ❌ REJECTED (-2.30pp CAGR via A/B, default OFF)
+- Phase 4 📋 PLANNED — regime-conditional dynamic sleeve weights (A/B pending)
+- Phase 5 ❌ REJECTED (IC ≈ 0, default OFF)
+- Phase 6a/6b ✅ SHIPPED (DD breaker + VIX guard, dormant in 83-month sample)
+- Phase 6c 📋 OPT-IN — vol targeting (A/B pending)
+- Phase 7a 📋 OPT-IN — insider flow + accruals quality (A/B pending)
+- Phase 8a/8b/8c/8d ✅ SHIPPED — restructuring (CAGR 21.86%, PARTIAL verdict)
+- **Phase 9 C1 ✅ SHIPPED code** — multi_year weight rebalance (`ced5db6`)
+- **Phase 9 C2 ✅ SHIPPED code** — percentile thesis-gate (`ced5db6`)
+- **Phase 9 C1+C2 verdict ⏳ PENDING** — FULL REBUILD started 2026-04-17 08:10 KST on `33581bc`, expected complete by now (2026-04-18 10:46); next agent runs Cell E verdict snippet from `SESSION_HANDOFF.md` §2.
+- **Phase 9 C3 📋 DESIGNED** — EPS turn-positive flags (`PHASE_9_C3_PROPOSAL.md`), blocked on C1+C2 SHIP verdict.
+- **Refactor Phase A 📋 PLANNED** — 5-module split + observability, after C1+C2 verdict + C3 decision.
