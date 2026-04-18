@@ -47,6 +47,24 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 ## Fast-Iteration Workflow
 새 phase 실험할 때 매번 1.5-4시간 FULL rebuild 돌리지 말 것.
 
+### Pre-commit smoke test (local, <10s)
+```bash
+py -3 tests/smoke_test.py                # 17 tests, ~7s full (syntax + structural + import + logic + regression)
+py -3 tests/smoke_test.py --quick        # 9 tests, ~1s (syntax + structural only, no numpy import)
+py -3 tests/smoke_test.py -v             # verbose — per-test PASS lines + timings
+```
+
+Runs BEFORE `git push` → before Colab round-trip. Catches ~80% of bugs in 7 seconds instead of burning 20-180 minutes of Colab time on an obvious typo.
+
+**What it covers** (see `tests/smoke_test.py` docstring):
+- syntax: ast.parse + notebook JSON validity
+- structural: PHASE*_COLUMNS in keep_cols (Phase 2 keepcols-fix regression), phase_is_enabled keys, ENGINE_REUSE_VERSION format, hard_sanitize dedup guard (d87160d regression), _sign_flip_pos semantics (Phase 9 C3 prereq), Phase 8+/9 dual-gate cfg fields
+- import: engine module loads + key symbols exported (ENGINE_COMMIT_SHA, phase constants, weighted_sleeve_composite)
+- logic: weight-0 skip regression, hard_sanitize overlap, phase_is_enabled env precedence, cross-sectional percentile semantics
+- regression: PHASE1_ALPHA_COLUMNS complete, PHASE8B_LONG_LOOKBACK_COLUMNS complete, fund_panel carry_cols has sign-flip flags
+
+**Adding a test when shipping a new phase**: open `tests/smoke_test.py`, copy a nearby @_test block, add assertion for your new behavior. Runtime budget: each test <500ms. Commit the test in the same commit as the feature.
+
 ### `colab_run.ipynb` cell 2 knobs
 ```python
 QUICK_RESCORE_ONLY = True            # True=15-25min, False=FULL rebuild

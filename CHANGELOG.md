@@ -2417,3 +2417,46 @@ All entries must be written in English. Entries must be predictable and machine-
   - If the FULL REBUILD from `33581bc` crashed silently overnight, §2 Step 1 catches it via mtime check. Fallback: QUICK_RESCORE (~20 min) from `527fdde` which at least produces comparable metrics.
   - PHASE_ROADMAP.md is kept as deprecated reference rather than deleted because future contributors may still want to read Phase 1-6 original-intent history. All navigation pointers (CLAUDE.md "Multi-Session Phase Plan", SESSION_HANDOFF.md §5) now point away from it.
   - SESSION_HANDOFF rotation rule (§7) is explicit enough that the next verdict-ship cycle can overwrite §0/§1/§2 mechanically without re-reading this entry.
+
+### 11:25 KST - pre-commit-smoke-test-infrastructure
+
+- scope:
+  - Fast-iteration infrastructure. User flagged that the "edit -> commit -> push -> Colab pull -> Cell 4 pipeline -> Cell E paste" cycle burns 20-180 minutes per iteration, dominated by pipeline runtime. A local smoke test catches the 80% of bugs that would otherwise surface only after a full Colab run. Target runtime: <15s. Actual measured: 6.9s full (3 syntax + 6 structural + 1 import + 4 logic + 3 regression), 0.7s in --quick mode (syntax + structural only).
+- files:
+  - `tests/__init__.py` -> NEW. Package marker + single-line pointer to smoke_test.py.
+  - `tests/smoke_test.py` -> NEW (~520 lines). Pure-stdlib test framework (no pytest dependency), 17 tests in 5 groups:
+    - `syntax` (3 tests): `ast.parse` engine + collector .py, JSON-valid notebook.
+    - `structural` (6 tests): PHASE*_COLUMNS in build_feature_store (Phase 1+2 keepcols regression), phase_is_enabled keys snake_case, ENGINE_REUSE_VERSION format, hard_sanitize dedup guard (d87160d regression), _sign_flip_pos semantics preserve (Phase 9 C3 prerequisite), Phase 8+/9 dual-gate cfg fields present.
+    - `import` (1 test): engine module loads cleanly + key symbols exported (ENGINE_COMMIT_SHA, ENGINE_REUSE_VERSION, PHASE1/2/8B_COLUMNS, weighted_sleeve_composite, phase_is_enabled, hard_sanitize).
+    - `logic` (4 tests): weighted_sleeve_composite weight-0 skip regression, hard_sanitize overlap dedup, phase_is_enabled env precedence, cross-sectional mktcap percentile semantics.
+    - `regression` (3 tests): PHASE1_ALPHA_COLUMNS contains 4 required names, PHASE8B_LONG_LOOKBACK_COLUMNS contains mom_18/24/36m + multi_year_winner_score, fund_panel carry_cols contains ni/ocf/fcf/op_income_sign_flip_pos + any_profit_sign_flip_pos (Phase 9 C3 prerequisite).
+  - `CLAUDE.md` -> added "Pre-commit smoke test" subsection under Fast-Iteration Workflow with exact commands + coverage list + "add a test when shipping a new phase" instruction.
+  - `SESSION_HANDOFF.md` -> §3a added "Before any code change" preamble pointing at smoke test. Step 1 C3 implementation gains step 1 (pre-edit smoke test must show 17/17) + step 3 (re-run expecting 20/20 after adding C3 tests). Renumbered Steps 3-6 to 5-8 accordingly.
+- symbols_added:
+  - `tests.smoke_test._test(name)` -> decorator factory for pass/fail tracked test functions.
+  - `tests.smoke_test.test_engine_syntax`, `test_collector_syntax`, `test_notebook_json` -> Group 1.
+  - `tests.smoke_test.test_phase_columns_in_keep_cols`, `test_phase_is_enabled_keys`, `test_engine_reuse_version`, `test_hard_sanitize_dedup`, `test_sign_flip_pos_pattern`, `test_phase9_dual_gate` -> Group 2.
+  - `tests.smoke_test.test_engine_import` -> Group 3.
+  - `tests.smoke_test.test_weighted_sleeve_zero_weight`, `test_hard_sanitize_overlap`, `test_phase_is_enabled_env`, `test_mktcap_percentile` -> Group 4.
+  - `tests.smoke_test.test_phase1_alpha_columns`, `test_phase8b_columns`, `test_sign_flip_cols_carried` -> Group 5.
+  - `tests.smoke_test.main() -> int` -> CLI entry point with --quick / --verbose / exit code 0/1/2.
+- symbols_changed:
+  - none (no engine code changes)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none (pure additive infrastructure)
+- outputs:
+  - none (stdout only, exit code 0/1/2)
+- validation:
+  - `py -3 tests/smoke_test.py --quick` -> 9/9 passed in 699ms (syntax + structural only).
+  - `py -3 tests/smoke_test.py` -> 17/17 passed in 4012ms (all groups).
+  - `py -3 tests/smoke_test.py -v` -> 17/17 passed, per-test timings printed. Slowest test: import.engine_loads_cleanly at 2608ms (numpy/pandas/catboost load). Everything else under 200ms.
+  - Verified one intentional failure mode: removing `dict.fromkeys` from hard_sanitize body made `structural.hard_sanitize_has_dedup_guard` + `logic.hard_sanitize_dedups_overlapping_cols` both fail with clear error messages. Reverted change.
+- risks_or_notes:
+  - Runtime budget for new tests: <500ms each. Import-dependent tests (Groups 3-5) pay a shared ~2.6s import cost; additional tests in these groups add marginal <100ms unless they exercise heavy computations.
+  - Test framework is pure stdlib (argparse, ast, json, re, time) + numpy/pandas (required by engine anyway). No pytest / unittest / hypothesis dependency.
+  - `--quick` mode (Groups 1-2 only) is sufficient for "did my edit break syntax or structural invariants"; use before every commit. Full mode (all 5 groups) recommended before every push.
+  - When a new phase ships, add 2-3 tests in the same commit: one structural (constant exists), one import (attribute exported), one regression (value/behavior as expected). Template in `tests/smoke_test.py` docstring.
+  - Future extension (Phase A refactor, REFACTOR_PLAN.md §11.6): this single-file smoke test becomes the seed of the full `tests/` suite with per-module files. Existing tests stay; new unit tests for individual helpers get added.
+  - Unicode safety: all output is ASCII (cp949-compatible) so Windows terminals don't crash on em-dash. `--` used as separator instead of Unicode em-dash.

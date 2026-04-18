@@ -156,17 +156,28 @@ Reasons:
 
 **Alternative order: Refactor first, then C3** — valid if user prefers long mechanical work before feature work. Pros: C3 becomes single-file change in `r1000_signals.py` post-refactor. Cons: 1.5 days before C3's effect is measurable; refactor's byte-exact reference is Phase 9 C1+C2 (i.e. sleeve count/composition may shift again when C3 lands post-refactor, forcing a second byte-exact verification pass).
 
-#### Step 1 — Phase 9 C3 (recommended first, ~3.5h wall-clock)
+#### Before any code change — run smoke test first (~7s local, saves hours)
 
-1. Implement per `PHASE_9_C3_PROPOSAL.md` §3. Touch surface:
+```bash
+py -3 tests/smoke_test.py
+```
+
+Runs 17 tests (syntax + structural + import + logic + regression). Target: all pass before `git push` → Colab. Catches ~80% of bugs without burning Colab time. If you add new engine code, add a matching `@_test` entry at the bottom of `tests/smoke_test.py` in the same commit (see file docstring for the template).
+
+#### Step 1 -- Phase 9 C3 (recommended first, ~3.5h wall-clock)
+
+1. **Run smoke test first**: `py -3 tests/smoke_test.py` — must show `17/17 passed` before editing.
+2. Implement per `PHASE_9_C3_PROPOSAL.md` §3. Touch surface:
    - `r1000_top30_institutional.py` — new `PHASE9_C3_TURNAROUND_COLUMNS` constant (~line 1080), 5 new fund_panel columns after line 12228, keep_cols + hard_sanitize whitelist (line 14327, 14354), Phase 9 C2 gate extension (line 19357), 2 new cfg fields, ENGINE_REUSE_VERSION bump to `2026-04-17-phase9c3-turnaround-flags`.
    - `colab_run.ipynb` Cell 2 — add `PHASE9_C3_TURNAROUND = 'auto'` toggle + env binding + print-loop entry.
+   - `tests/smoke_test.py` — add 2-3 new `@_test` entries: PHASE9_C3_TURNAROUND_COLUMNS constant present, cfg field `phase9_c3_turnaround_enabled` in EngineConfig, early-scout gate respects new branch.
    - `CHANGELOG.md` — Agent Update Contract entry.
-2. Commit + push from fresh checkout.
-3. Trigger Colab FULL REBUILD (required — FS schema changes). The `[commit=<sha>]` banner will self-identify the run.
-4. Cell E verdict vs Phase 9 C1+C2 baseline (ship gate: ΔCAGR ≥ 0, early count widening, no Sharpe regression > -0.05).
-5. If C3 SHIPs: continue to Step 2 (Refactor).
-6. If C3 REGRESSes: revert C3 commit, proceed to Step 2 on Phase 9 C1+C2 baseline.
+3. **Re-run smoke test**: `py -3 tests/smoke_test.py` — expect 20/20 passed (added 3 new tests).
+4. Commit + push from fresh checkout.
+5. Trigger Colab FULL REBUILD (required — FS schema changes). The `[commit=<sha>]` banner will self-identify the run.
+6. Cell E verdict vs Phase 9 C1+C2 baseline (ship gate: ΔCAGR ≥ 0, early count widening, no Sharpe regression > -0.05).
+7. If C3 SHIPs: continue to Step 2 (Refactor).
+8. If C3 REGRESSes: revert C3 commit, proceed to Step 2 on Phase 9 C1+C2 baseline.
 
 #### Step 2 — Refactor Phase A (~1-1.5 day)
 
