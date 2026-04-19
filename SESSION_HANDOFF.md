@@ -79,7 +79,39 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Next step — Refactor Phase A (C3 + CE shipped, Stage 2 Option A complete)
+## 2. Next step — Refactor Phase A (STAGE 0 BLOCKED — Python 3.9 slow on run_local.py)
+
+### 🚧 Status (2026-04-20 02:10 KST session snapshot)
+
+Refactor Phase A started. Branch `refactor/phase-a-module-split` exists on remote (pushed at this session end). Stage 0 **partially complete**: verify.py script pre-written, but baseline capture via `run_local.py --no-collector` did not finish within the plan's 25 min upper bound and was killed at **~60 min** wall-clock with outputs never rewritten.
+
+**Partial commits on branch** (on top of `6440957`):
+- `run_local.py` Python version check relaxed from `< (3, 10)` → `< (3, 9)` (engine imports/compiles cleanly on 3.9; full runtime unverified).
+- `.refactor_baseline/verify.py` — byte-exact output comparator script. Has the full logic; only the reference files it compares against (`reference.json`, `*.ref.*`) are not yet created because baseline never completed.
+
+**Why baseline never finished**: suspected combination of (a) Python 3.9 slower than 3.10+ on this walk-forward path, or (b) `resume_partial_walkforward` not honoring the cached `.pkl` bundles so the 83-month training runs from scratch. Python process was live (memory climbing 208 MB → 322 MB → 306 MB over the 60 min) but never emitted any stdout due to buffered output AND never wrote `outputs/backtest_metrics.json` (file mtime stayed at 2026-04-18 21:22 from the C3+CE v2 SHIP run).
+
+### Next session (pick whichever is fastest for the machine you're on)
+
+**Option A — Python 3.12 via winget** (20-30 min, cleanest)
+```
+winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+py -3.12 -m pip install numpy pandas scikit-learn catboost yfinance requests pyarrow
+py -3.12 run_local.py --no-collector     # now expect 15-25 min
+```
+If Python 3.12's `run_local.py --no-collector` also blows past 25 min, the real issue is walk-forward caching, not Python version.
+
+**Option B — Colab baseline + local structural work** (10-15 min)
+Run `run_local.py --no-collector` in Colab. SHA256 the four output files (`scored_latest.csv`, `portfolio_latest.csv`, `weights_latest.json`, `backtest_metrics.json`). Paste into chat. Agent will populate `.refactor_baseline/reference.json` + copy reference files from Drive. Stage 1-6 code moves stay local; byte-exact verification runs in Colab between stages.
+
+**Option C — revert all local changes and skip Stage 0** (not recommended)
+Stages 1-2 (config + helpers, pure symbol moves) could proceed without a baseline and rely on `smoke_test.py` only. Stages 3+ (where behavior could actually change) would still need Stage 0 done. Skipping Stage 0 just defers the verification problem.
+
+### Once baseline captured, resume the plan at
+
+`C:\Users\Andrew Cha\.claude\plans\crystalline-plotting-badger.md` — detailed Stage 0-8 execution plan with exact function lists per module and line numbers.
+
+### Original "why refactor" reasoning (unchanged)
 
 Per `REFACTOR_PLAN.md` §12 5-stage sequencing: Stage 2 Option A (Phase 9 C3) now **complete**. Stage 3 picks up the complementary work = **Refactor Phase A** (5-module split + observability, `REFACTOR_PLAN.md` §6 checklist).
 
