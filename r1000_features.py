@@ -36,9 +36,24 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+from r1000_helpers import (
+    alpha_vantage_pause_seconds,
+    cache_live_file,
+    cache_live_statement_file,
+    effective_alpha_vantage_refresh_tickers,
+    effective_latest_statement_refresh_days,
+    effective_latest_statement_repair_tickers,
+    is_cache_fresh,
+    is_valid_ticker,
+    log,
+    safe_float,
+    to_yf_symbol,
+)
 from r1000_config import (
     PHASE5_LEADER_LAGGARD_COLUMNS,
+    SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
+    YF_QUARTERLY_COL_MAP,
 )
 
 
@@ -449,6 +464,928 @@ def add_industry_rotation_signal(monthly: pd.DataFrame) -> pd.DataFrame:
     out["industry_rotation_signal"] = rotation_z.clip(lower=-3.0, upper=3.0)
     return out
 
+# =====================================================================
+# Alpha Vantage + yfinance data fetchers + fundamental trend features
+# (Stage 3b, 2026-04-20)
+# =====================================================================
+# 28 functions covering:
+#  - Alpha Vantage HTTP calls + response parsing + statement snapshots
+#    + OVERVIEW / earnings estimates / balance / cash-flow reports
+#  - yfinance live fundamentals + quarterly statements + holder tables
+#    + insider transactions
+#  - Latest-statement repair bridging cached SEC fundamentals with
+#    Alpha-Vantage snapshots when SEC coverage gaps
+#  - Fundamental trend feature computation + merge into monthly frame
+#  - SAGE sector label assignment from YF industry strings
+
+def load_cached_json_if_any(path: Path) -> dict[str, Any]:
+    try:
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def has_present_value(x: Any) -> bool:
+    if x is None:
+        return False
+    if isinstance(x, str) and x.strip() == "":
+        return False
+    try:
+        return not pd.isna(x)
+    except Exception:
+        return True
+
+
+def preserve_cached_fields(
+    base: dict[str, Any],
+    cached: dict[str, Any],
+    fields: Iterable[str],
+) -> dict[str, Any]:
+    out = dict(base)
+    if not cached:
+        return out
+    for field in fields:
+        if not has_present_value(out.get(field)) and has_present_value(cached.get(field)):
+            out[field] = cached[field]
+    return out
+
+
+def statement_snapshot_has_payload(snapshot: dict[str, Any]) -> bool:
+    payload_fields = [
+        "av_stmt_assets",
+        "av_stmt_liabilities",
+        "av_stmt_shares",
+        "av_stmt_revenues",
+        "av_stmt_revenues_ttm",
+        "av_stmt_gross_profit_ttm",
+        "av_stmt_op_income_ttm",
+        "av_stmt_net_income_ttm",
+        "av_stmt_ocf_ttm",
+        "av_stmt_capex_ttm",
+        "av_stmt_quarter_count",
+    ]
+    return any(has_present_value(snapshot.get(field)) for field in payload_fields)
+
+
+def compute_flow_ttm_with_cum_fallback(
+    group: pd.DataFrame,
+    field_name: str,
+) -> tuple[pd.Series, pd.Series]:
+    flow = (
+        pd.to_numeric(group[field_name], errors="coerce")
+        if field_name in group.columns
+        else pd.Series(np.nan, index=group.index, dtype=float)
+    )
+    base_ttm = flow.rolling(4, min_periods=4).sum()
+    fallback_ttm = pd.Series(np.nan, index=group.index, dtype=float)
+    used_fallback = pd.Series(0.0, index=group.index, dtype=float)
+    cum_col = f"{field_name}_cum_value"
+    if cum_col not in group.columns or "quarter_index" not in group.columns:
+        return base_ttm, used_fallback
+
+    q_idx = pd.to_numeric(group["quarter_index"], errors="coerce")
+    cum = pd.to_numeric(group[cum_col], errors="coerce")
+    q_idx_lag4 = q_idx.shift(4)
+    same_q_prev_year = cum.shift(4).where(q_idx_lag4.eq(q_idx))
+    prev_annual = cum.where(q_idx.eq(4)).ffill().shift(1)
+
+    q4_mask = q_idx.eq(4) & cum.notna()
+    fallback_ttm.loc[q4_mask] = cum.loc[q4_mask]
+
+    ytd_mask = q_idx.isin([1, 2, 3]) & cum.notna() & prev_annual.notna() & same_q_prev_year.notna()
+    fallback_ttm.loc[ytd_mask] = prev_annual.loc[ytd_mask] + cum.loc[ytd_mask] - same_q_prev_year.loc[ytd_mask]
+
+    result = base_ttm.where(base_ttm.notna(), fallback_ttm)
+    used_mask = base_ttm.isna() & result.notna()
+    used_fallback.loc[used_mask] = 1.0
+    return result, used_fallback
+
+
+def alpha_vantage_get(function: str, symbol: str, api_key: str) -> dict[str, Any]:
+    """Alpha Vantage API call. Daily rate limit (25/day) → immediate fail, no retry."""
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": function,
+        "symbol": symbol,
+        "apikey": api_key,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=60)
+        r.raise_for_status()
+        payload = r.json()
+        if isinstance(payload, dict) and (payload.get("Note") or payload.get("Information")):
+            msg = payload.get("Note") or payload.get("Information")
+            log(f"[WARN] Alpha Vantage daily limit reached for {symbol} — skipping remaining AV calls.")
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def yf_table_or_empty(tk: Any, attr_name: str) -> pd.DataFrame:
+    try:
+        raw = getattr(tk, attr_name, None)
+    except Exception:
+        return pd.DataFrame()
+    try:
+        if callable(raw):
+            raw = raw()
+    except Exception:
+        return pd.DataFrame()
+    if raw is None:
+        return pd.DataFrame()
+    if isinstance(raw, pd.DataFrame):
+        return raw.copy()
+    if isinstance(raw, pd.Series):
+        return raw.to_frame().T
+    if isinstance(raw, list):
+        return pd.DataFrame(raw)
+    if isinstance(raw, dict):
+        return pd.DataFrame([raw])
+    return pd.DataFrame()
+
+
+def normalize_table_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    out.columns = [
+        re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", str(c).strip().lower())).strip("_")
+        for c in out.columns
+    ]
+    return out
+
+
+def sum_first_numeric_column(df: pd.DataFrame, candidates: list[str]) -> float:
+    for c in candidates:
+        if c in df.columns:
+            vals = pd.to_numeric(df[c], errors="coerce")
+            if vals.notna().any():
+                return float(vals.sum())
+    return np.nan
+
+
+def summarize_holder_table(df: pd.DataFrame, prefix: str) -> dict[str, Any]:
+    out = {
+        f"{prefix}_holders_count": np.nan,
+        f"{prefix}_holders_shares": np.nan,
+        f"{prefix}_holders_value": np.nan,
+    }
+    d = normalize_table_columns(df)
+    if d.empty:
+        return out
+    out[f"{prefix}_holders_count"] = int(len(d))
+    out[f"{prefix}_holders_shares"] = sum_first_numeric_column(
+        d,
+        ["shares", "shares_held", "position", "position_shares"],
+    )
+    out[f"{prefix}_holders_value"] = sum_first_numeric_column(
+        d,
+        ["value", "value_held", "market_value"],
+    )
+    return out
+
+
+def summarize_insider_transactions(df: pd.DataFrame) -> dict[str, Any]:
+    out = {
+        "insider_txn_count": np.nan,
+        "insider_buy_shares": np.nan,
+        "insider_sell_shares": np.nan,
+        "insider_net_shares": np.nan,
+        "insider_buy_ratio": np.nan,
+    }
+    d = normalize_table_columns(df)
+    if d.empty:
+        return out
+
+    shares = pd.Series(np.nan, index=d.index, dtype=float)
+    for c in ["shares", "shares_traded", "shares_delta", "amount"]:
+        if c in d.columns:
+            shares = pd.to_numeric(d[c], errors="coerce")
+            if shares.notna().any():
+                break
+
+    text_cols = [c for c in ["transaction", "transaction_type", "text", "description", "type"] if c in d.columns]
+    if text_cols:
+        txt = d[text_cols].fillna("").astype(str).agg(" ".join, axis=1).str.lower()
+        buy_mask = txt.str.contains(r"buy|purchase|acquir", regex=True, na=False)
+        sell_mask = txt.str.contains(r"sell|sale|dispos", regex=True, na=False)
+    else:
+        buy_mask = shares > 0
+        sell_mask = shares < 0
+
+    out["insider_txn_count"] = int(len(d))
+    if shares.notna().any():
+        buy_shares = float(shares.where(buy_mask, 0.0).clip(lower=0.0).sum())
+        sell_shares = float((-shares.where(sell_mask, 0.0)).clip(lower=0.0).sum())
+        net_shares = float(shares.fillna(0.0).sum())
+        out["insider_buy_shares"] = buy_shares
+        out["insider_sell_shares"] = sell_shares
+        out["insider_net_shares"] = net_shares
+    buy_count = int(buy_mask.fillna(False).sum())
+    out["insider_buy_ratio"] = float(buy_count / max(int(len(d)), 1))
+    return out
+
+
+def fetch_yf_live_fundamentals(ticker: str) -> dict[str, Any]:
+    out = {"ticker": ticker}
+    tk = None
+    try:
+        tk = yf.Ticker(to_yf_symbol(ticker))
+        info = tk.info or {}
+    except Exception:
+        info = {}
+
+    out["forward_pe"] = safe_float(info.get("forwardPE"))
+    out["peg_ratio"] = safe_float(info.get("pegRatio"))
+    out["trailing_pe"] = safe_float(info.get("trailingPE"))
+    out["price_to_sales"] = safe_float(info.get("priceToSalesTrailing12Months"))
+    out["market_cap_live"] = safe_float(info.get("marketCap"))
+    out["target_mean_price"] = safe_float(info.get("targetMeanPrice"))
+    out["target_median_price"] = safe_float(info.get("targetMedianPrice"))
+    out["recommendation_mean"] = safe_float(info.get("recommendationMean"))
+    out["earnings_growth"] = safe_float(info.get("earningsGrowth"))
+    out["revenue_growth"] = safe_float(info.get("revenueGrowth"))
+    out["gross_margins"] = safe_float(info.get("grossMargins"))
+    out["operating_margins"] = safe_float(info.get("operatingMargins"))
+    out["return_on_equity_live"] = safe_float(info.get("returnOnEquity"))
+    out["free_cashflow_live"] = safe_float(info.get("freeCashflow"))
+    out["current_price_live"] = safe_float(info.get("currentPrice"))
+    out.update(summarize_holder_table(yf_table_or_empty(tk, "institutional_holders"), "institutional"))
+    out.update(summarize_holder_table(yf_table_or_empty(tk, "mutualfund_holders"), "mutualfund"))
+    out.update(summarize_insider_transactions(yf_table_or_empty(tk, "insider_transactions")))
+    out["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    return out
+
+
+def fetch_yfinance_quarterly_statements(ticker: str) -> pd.DataFrame:
+    """Fetch quarterly financial statements from yfinance as SEC data supplement."""
+    try:
+        tk = yf.Ticker(to_yf_symbol(ticker))
+    except Exception:
+        return pd.DataFrame()
+
+    rows: dict[pd.Timestamp, dict[str, float]] = {}
+
+    def _extract(stmt, label: str) -> None:
+        if stmt is None or (hasattr(stmt, "empty") and stmt.empty):
+            return
+        for col_date in stmt.columns:
+            dt = pd.Timestamp(col_date).tz_localize(None) if hasattr(pd.Timestamp(col_date), "tz") and pd.Timestamp(col_date).tz else pd.Timestamp(col_date)
+            if dt not in rows:
+                rows[dt] = {}
+            for idx_name in stmt.index:
+                mapped = YF_QUARTERLY_COL_MAP.get(str(idx_name))
+                if mapped and mapped not in rows[dt]:
+                    val = stmt.loc[idx_name, col_date]
+                    if pd.notna(val):
+                        rows[dt][mapped] = float(val)
+
+    try:
+        _extract(tk.quarterly_income_stmt, "income")
+    except Exception:
+        pass
+    try:
+        _extract(tk.quarterly_balance_sheet, "balance")
+    except Exception:
+        pass
+    try:
+        _extract(tk.quarterly_cashflow, "cashflow")
+    except Exception:
+        pass
+
+    if not rows:
+        return pd.DataFrame()
+
+    records = []
+    for dt, fields in sorted(rows.items()):
+        rec = {"period": dt, "accepted": dt + pd.Timedelta(days=45)}
+        rec.update(fields)
+        records.append(rec)
+    df = pd.DataFrame(records)
+    if "capex" in df.columns:
+        df["capex"] = df["capex"].abs()
+    return df
+
+
+def fetch_alpha_vantage_overview(ticker: str, api_key: str) -> dict[str, Any]:
+    raw = alpha_vantage_get("OVERVIEW", ticker, api_key)
+    if not raw or "Symbol" not in raw:
+        return {"ticker": ticker}
+
+    return {
+        "ticker": ticker,
+        "av_forward_pe": safe_float(raw.get("ForwardPE")),
+        "av_peg_ratio": safe_float(raw.get("PEGRatio")),
+        "av_trailing_pe": safe_float(raw.get("PERatio")),
+        "av_price_to_sales": safe_float(raw.get("PriceToSalesRatioTTM")),
+        "av_ev_to_ebitda": safe_float(raw.get("EVToEBITDA")),
+        "av_profit_margin": safe_float(raw.get("ProfitMargin")),
+        "av_operating_margin": safe_float(raw.get("OperatingMarginTTM")),
+        "av_return_on_equity": safe_float(raw.get("ReturnOnEquityTTM")),
+        "av_quarterly_earnings_growth_yoy": safe_float(raw.get("QuarterlyEarningsGrowthYOY")),
+        "av_quarterly_revenue_growth_yoy": safe_float(raw.get("QuarterlyRevenueGrowthYOY")),
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
+
+
+def fetch_alpha_vantage_earnings_estimates(ticker: str, api_key: str) -> dict[str, Any]:
+    raw = alpha_vantage_get("EARNINGS_ESTIMATES", ticker, api_key)
+    if not raw:
+        return {"ticker": ticker}
+
+    annual = raw.get("annualEstimates", []) or []
+    quarterly = raw.get("quarterlyEstimates", []) or []
+    out = {"ticker": ticker}
+
+    if quarterly:
+        q0 = quarterly[0]
+        out["eps_est_q_next"] = safe_float(q0.get("estimatedEPS"))
+        out["rev_est_q_next"] = safe_float(q0.get("estimatedRevenue"))
+        hist = q0.get("estimatedEPSAvg") or q0.get("estimatedEPS")
+        out["eps_revision_proxy"] = safe_float(hist)
+
+    if len(annual) >= 1:
+        out["eps_est_fy1"] = safe_float(annual[0].get("estimatedEPS"))
+        out["rev_est_fy1"] = safe_float(annual[0].get("estimatedRevenue"))
+    if len(annual) >= 2:
+        out["eps_est_fy2"] = safe_float(annual[1].get("estimatedEPS"))
+        out["rev_est_fy2"] = safe_float(annual[1].get("estimatedRevenue"))
+
+    out["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    return out
+
+
+def alpha_vantage_reports_frame(raw: dict[str, Any], key: str) -> pd.DataFrame:
+    reports = raw.get(key, []) if isinstance(raw, dict) else []
+    if not isinstance(reports, list) or not reports:
+        return pd.DataFrame()
+    df = pd.DataFrame(reports)
+    if "fiscalDateEnding" in df.columns:
+        df["fiscalDateEnding"] = pd.to_datetime(df["fiscalDateEnding"], errors="coerce")
+        df = df.sort_values("fiscalDateEnding", ascending=False)
+    return df.reset_index(drop=True)
+
+
+def first_numeric_from_report(df: pd.DataFrame, candidates: list[str]) -> float:
+    if df is None or df.empty:
+        return np.nan
+    row = df.iloc[0]
+    for c in candidates:
+        if c in df.columns:
+            val = safe_float(row.get(c))
+            if pd.notna(val):
+                return float(val)
+    return np.nan
+
+
+def sum_latest_numeric_reports(
+    df: pd.DataFrame,
+    candidates: list[str],
+    count: int = 4,
+    abs_value: bool = False,
+) -> float:
+    if df is None or df.empty or len(df) < count:
+        return np.nan
+    vals = []
+    for _, row in df.head(count).iterrows():
+        val = np.nan
+        for c in candidates:
+            if c in df.columns:
+                val = safe_float(row.get(c))
+                if pd.notna(val):
+                    break
+        vals.append(val)
+    s = pd.Series(vals, dtype=float)
+    if s.notna().sum() < count:
+        return np.nan
+    if abs_value:
+        s = s.abs()
+    return float(s.sum())
+
+
+def yoy_latest_numeric_reports(df: pd.DataFrame, candidates: list[str]) -> float:
+    if df is None or df.empty or len(df) < 5:
+        return np.nan
+    latest = first_numeric_from_report(df.head(1), candidates)
+    prior = first_numeric_from_report(df.iloc[4:5], candidates)
+    if pd.isna(latest) or pd.isna(prior) or prior == 0:
+        return np.nan
+    return float(latest / prior - 1.0)
+
+
+def fetch_alpha_vantage_statement_snapshot(
+    ticker: str,
+    api_key: str,
+    pause_seconds: float = 0.15,
+) -> dict[str, Any]:
+    out = {"ticker": ticker}
+    if not api_key or not ticker:
+        return out
+
+    income_raw = alpha_vantage_get("INCOME_STATEMENT", ticker, api_key)
+    time.sleep(max(float(pause_seconds), 0.0))
+    balance_raw = alpha_vantage_get("BALANCE_SHEET", ticker, api_key)
+    time.sleep(max(float(pause_seconds), 0.0))
+    cash_raw = alpha_vantage_get("CASH_FLOW", ticker, api_key)
+
+    income_q = alpha_vantage_reports_frame(income_raw, "quarterlyReports")
+    balance_q = alpha_vantage_reports_frame(balance_raw, "quarterlyReports")
+    cash_q = alpha_vantage_reports_frame(cash_raw, "quarterlyReports")
+
+    revenue_cols = [
+        "totalRevenue",
+        "revenueFromContractWithCustomerExcludingAssessedTax",
+        "revenueFromContractWithCustomerIncludingAssessedTax",
+    ]
+    cost_cols = [
+        "costOfRevenue",
+        "costOfGoodsSold",
+        "costOfGoodsAndServicesSold",
+        "costOfSales",
+    ]
+    gross_cols = ["grossProfit"]
+    op_income_cols = ["operatingIncome", "operatingIncomeLoss"]
+    net_income_cols = ["netIncome"]
+    ocf_cols = ["operatingCashflow", "cashflowFromOperations"]
+    capex_cols = ["capitalExpenditures", "paymentsForCapitalImprovements"]
+    assets_cols = ["totalAssets"]
+    liabilities_cols = ["totalLiabilities", "totalLiabilitiesNetMinorityInterest"]
+    shares_cols = ["commonStockSharesOutstanding", "commonStockSharesIssued"]
+
+    latest_revenue = first_numeric_from_report(income_q, revenue_cols)
+    latest_cost = first_numeric_from_report(income_q, cost_cols)
+    latest_gross = first_numeric_from_report(income_q, gross_cols)
+    if pd.isna(latest_gross) and pd.notna(latest_revenue) and pd.notna(latest_cost):
+        latest_gross = latest_revenue - latest_cost
+
+    revenue_ttm = sum_latest_numeric_reports(income_q, revenue_cols, count=4)
+    cost_ttm = sum_latest_numeric_reports(income_q, cost_cols, count=4, abs_value=True)
+    gross_ttm = sum_latest_numeric_reports(income_q, gross_cols, count=4)
+    if pd.isna(gross_ttm) and pd.notna(revenue_ttm) and pd.notna(cost_ttm):
+        gross_ttm = revenue_ttm - cost_ttm
+
+    op_income_ttm = sum_latest_numeric_reports(income_q, op_income_cols, count=4)
+    net_income_ttm = sum_latest_numeric_reports(income_q, net_income_cols, count=4)
+    ocf_ttm = sum_latest_numeric_reports(cash_q, ocf_cols, count=4)
+    capex_ttm = sum_latest_numeric_reports(cash_q, capex_cols, count=4, abs_value=True)
+
+    out.update(
+        {
+            "av_stmt_assets": first_numeric_from_report(balance_q, assets_cols),
+            "av_stmt_liabilities": first_numeric_from_report(balance_q, liabilities_cols),
+            "av_stmt_shares": first_numeric_from_report(balance_q, shares_cols),
+            "av_stmt_revenues": latest_revenue,
+            "av_stmt_cost_of_revenue": latest_cost,
+            "av_stmt_gross_profit": latest_gross,
+            "av_stmt_op_income": first_numeric_from_report(income_q, op_income_cols),
+            "av_stmt_net_income": first_numeric_from_report(income_q, net_income_cols),
+            "av_stmt_ocf": first_numeric_from_report(cash_q, ocf_cols),
+            "av_stmt_capex": abs(first_numeric_from_report(cash_q, capex_cols)) if pd.notna(first_numeric_from_report(cash_q, capex_cols)) else np.nan,
+            "av_stmt_revenues_ttm": revenue_ttm,
+            "av_stmt_cost_of_revenue_ttm": cost_ttm,
+            "av_stmt_gross_profit_ttm": gross_ttm,
+            "av_stmt_op_income_ttm": op_income_ttm,
+            "av_stmt_net_income_ttm": net_income_ttm,
+            "av_stmt_ocf_ttm": ocf_ttm,
+            "av_stmt_capex_ttm": capex_ttm,
+            "av_stmt_revenue_growth_yoy_actual": yoy_latest_numeric_reports(income_q, revenue_cols),
+            "av_stmt_earnings_growth_yoy_actual": yoy_latest_numeric_reports(income_q, net_income_cols),
+            "av_stmt_quarter_count": float(max(len(income_q), len(balance_q), len(cash_q))),
+            "av_stmt_updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        }
+    )
+    return out
+
+
+def load_or_fetch_alpha_vantage_statement_snapshot(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    ticker: str,
+) -> dict[str, Any]:
+    p = cache_live_statement_file(paths, ticker)
+    existing = load_cached_json_if_any(p)
+    refresh_days = effective_latest_statement_refresh_days(cfg)
+    if is_cache_fresh(p, refresh_days):
+        return existing or {"ticker": ticker}
+
+    if not cfg.alpha_vantage_api_key:
+        return existing or {"ticker": ticker}
+
+    data = fetch_alpha_vantage_statement_snapshot(
+        ticker,
+        cfg.alpha_vantage_api_key,
+        pause_seconds=alpha_vantage_pause_seconds(cfg, statement=True),
+    )
+    data["ticker"] = ticker
+    if not statement_snapshot_has_payload(data):
+        if existing:
+            try:
+                p.write_text(json.dumps(existing), encoding="utf-8")
+            except Exception:
+                pass
+            return existing
+        return data
+    try:
+        p.write_text(json.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
+    return data
+
+
+def repair_latest_statement_fundamentals(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    d = df.copy()
+    existing_stmt_cols = [c for c in d.columns if str(c).startswith("av_stmt_")]
+    if existing_stmt_cols:
+        d = d.drop(columns=existing_stmt_cols, errors="ignore")
+    d["latest_statement_repair_used"] = False
+    if (
+        d.empty
+        or not bool(getattr(cfg, "latest_statement_repair_enabled", True))
+        or not cfg.alpha_vantage_api_key
+        or "ticker" not in d.columns
+    ):
+        return d
+
+    limit = effective_latest_statement_repair_tickers(cfg)
+    if limit <= 0:
+        return d
+
+    order_cols = [c for c in ["score", "dollar_vol_20d", "market_cap_live", "mktcap"] if c in d.columns]
+    ranked = d.copy()
+    for c in order_cols:
+        ranked[c] = pd.to_numeric(ranked[c], errors="coerce")
+    if "score" in ranked.columns:
+        ranked = ranked.sort_values(["score", "dollar_vol_20d"], ascending=[False, False], na_position="last")
+    elif "dollar_vol_20d" in ranked.columns:
+        ranked = ranked.sort_values(["dollar_vol_20d"], ascending=[False], na_position="last")
+    repair_missing_cols = [
+        "assets",
+        "liabilities",
+        "shares",
+        "revenues_ttm",
+        "gross_profit_ttm",
+        "op_income_ttm",
+        "net_income_ttm",
+        "ocf_ttm",
+        "capex_ttm",
+        "revenue_growth_final",
+        "earnings_growth_final",
+    ]
+    present_repair_cols = [c for c in repair_missing_cols if c in ranked.columns]
+    if present_repair_cols:
+        ranked["statement_missing_count"] = pd.concat(
+            [pd.to_numeric(ranked[c], errors="coerce").isna().rename(c) for c in present_repair_cols],
+            axis=1,
+        ).sum(axis=1)
+        ranked = ranked[ranked["statement_missing_count"] > 0].copy()
+        secondary_sort_cols = ["statement_missing_count"]
+        secondary_sort_asc = [False]
+        for c in ["score", "dollar_vol_20d", "market_cap_live", "mktcap", "mom_6m"]:
+            if c in ranked.columns:
+                secondary_sort_cols.append(c)
+                secondary_sort_asc.append(False)
+        ranked = ranked.sort_values(
+            secondary_sort_cols,
+            ascending=secondary_sort_asc,
+            na_position="last",
+        )
+    if ranked.empty:
+        return d
+    repair_tickers = (
+        ranked["ticker"].dropna().astype(str).str.upper().drop_duplicates().head(limit).tolist()
+    )
+    rows = []
+    for t in repair_tickers:
+        rows.append(load_or_fetch_alpha_vantage_statement_snapshot(cfg, paths, t))
+        time.sleep(0.05)
+    repair_df = pd.DataFrame(rows)
+    if repair_df.empty:
+        return d
+
+    d = d.merge(repair_df, on="ticker", how="left")
+    fill_pairs = [
+        ("assets", "av_stmt_assets"),
+        ("liabilities", "av_stmt_liabilities"),
+        ("shares", "av_stmt_shares"),
+        ("revenues", "av_stmt_revenues"),
+        ("cost_of_revenue", "av_stmt_cost_of_revenue"),
+        ("gross_profit", "av_stmt_gross_profit"),
+        ("op_income", "av_stmt_op_income"),
+        ("net_income", "av_stmt_net_income"),
+        ("ocf", "av_stmt_ocf"),
+        ("capex", "av_stmt_capex"),
+        ("revenues_ttm", "av_stmt_revenues_ttm"),
+        ("cost_of_revenue_ttm", "av_stmt_cost_of_revenue_ttm"),
+        ("gross_profit_ttm", "av_stmt_gross_profit_ttm"),
+        ("op_income_ttm", "av_stmt_op_income_ttm"),
+        ("net_income_ttm", "av_stmt_net_income_ttm"),
+        ("ocf_ttm", "av_stmt_ocf_ttm"),
+        ("capex_ttm", "av_stmt_capex_ttm"),
+        ("fund_history_quarters_available", "av_stmt_quarter_count"),
+        ("revenue_growth_final", "av_stmt_revenue_growth_yoy_actual"),
+        ("earnings_growth_final", "av_stmt_earnings_growth_yoy_actual"),
+    ]
+    repair_used = pd.Series(False, index=d.index, dtype=bool)
+    for base_col, repair_col in fill_pairs:
+        if repair_col not in d.columns:
+            continue
+        if base_col not in d.columns:
+            d[base_col] = np.nan
+        base_vals = pd.to_numeric(d[base_col], errors="coerce")
+        repair_vals = pd.to_numeric(d[repair_col], errors="coerce")
+        use_mask = base_vals.isna() & repair_vals.notna()
+        if use_mask.any():
+            d.loc[use_mask, base_col] = repair_vals.loc[use_mask]
+            repair_used = repair_used | use_mask
+
+    if "gross_profit_ttm" in d.columns and "revenues_ttm" in d.columns and "cost_of_revenue_ttm" in d.columns:
+        gp_ttm = pd.to_numeric(d["gross_profit_ttm"], errors="coerce")
+        rev_ttm = pd.to_numeric(d["revenues_ttm"], errors="coerce")
+        cost_ttm = pd.to_numeric(d["cost_of_revenue_ttm"], errors="coerce")
+        use_mask = gp_ttm.isna() & rev_ttm.notna() & cost_ttm.notna()
+        if use_mask.any():
+            d.loc[use_mask, "gross_profit_ttm"] = rev_ttm.loc[use_mask] - cost_ttm.loc[use_mask]
+            repair_used = repair_used | use_mask
+    if "gross_profit" in d.columns and "revenues" in d.columns and "cost_of_revenue" in d.columns:
+        gp = pd.to_numeric(d["gross_profit"], errors="coerce")
+        rev = pd.to_numeric(d["revenues"], errors="coerce")
+        cost = pd.to_numeric(d["cost_of_revenue"], errors="coerce")
+        use_mask = gp.isna() & rev.notna() & cost.notna()
+        if use_mask.any():
+            d.loc[use_mask, "gross_profit"] = rev.loc[use_mask] - cost.loc[use_mask]
+            repair_used = repair_used | use_mask
+
+    d["latest_statement_repair_used"] = repair_used
+    return d
+
+
+def fetch_live_fundamentals_one(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    ticker: str,
+    use_alpha_vantage: bool = True,
+) -> dict[str, Any]:
+    p = cache_live_file(paths, ticker)
+    existing = load_cached_json_if_any(p)
+    if is_cache_fresh(p, cfg.live_refresh_days):
+        return existing or {"ticker": ticker}
+
+    data = {"ticker": ticker}
+    data.update(fetch_yf_live_fundamentals(ticker))
+
+    if use_alpha_vantage and cfg.alpha_vantage_api_key and ticker:
+        av_ov = fetch_alpha_vantage_overview(ticker, cfg.alpha_vantage_api_key)
+        data.update(av_ov)
+        time.sleep(alpha_vantage_pause_seconds(cfg))
+
+    data = preserve_cached_fields(data, existing, LIVE_CACHE_ALPHA_PRESERVE_FIELDS)
+
+    data["ticker"] = ticker
+    data["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    try:
+        p.write_text(json.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
+    return data
+
+
+def refresh_live_fundamentals(cfg: EngineConfig, paths: dict[str, Path], tickers: list[str]) -> pd.DataFrame:
+    seen_live: set[str] = set()
+    ordered_tickers: list[str] = []
+    for ticker in tickers:
+        if not is_valid_ticker(ticker):
+            continue
+        norm = str(ticker).upper()
+        if norm in seen_live:
+            continue
+        seen_live.add(norm)
+        ordered_tickers.append(norm)
+    tickers = ordered_tickers[: cfg.max_live_refresh_tickers]
+    av_limit = effective_alpha_vantage_refresh_tickers(cfg)
+    av_tickers: set[str] = set()
+    if av_limit > 0:
+        for t in tickers:
+            if len(av_tickers) >= av_limit:
+                break
+            cache_path = cache_live_file(paths, t)
+            if not cache_path.exists():
+                av_tickers.add(t)
+                continue
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                av_tickers.add(t)
+                continue
+            needs_refresh = False
+            for key in ["av_forward_pe", "av_quarterly_revenue_growth_yoy", "av_quarterly_earnings_growth_yoy"]:
+                val = cached.get(key)
+                if val in (None, "", []):
+                    needs_refresh = True
+                    break
+                try:
+                    if pd.isna(val):
+                        needs_refresh = True
+                        break
+                except Exception:
+                    needs_refresh = True
+                    break
+            if needs_refresh:
+                av_tickers.add(t)
+        if len(av_tickers) < av_limit and not bool(getattr(cfg, "alpha_vantage_free_tier_mode", False)):
+            av_tickers.update(tickers[:av_limit])
+            av_tickers = set(list(av_tickers)[:av_limit])
+
+    rows = []
+    for i, t in enumerate(tickers, start=1):
+        use_alpha_vantage = bool(cfg.alpha_vantage_api_key and t in av_tickers)
+        row = fetch_live_fundamentals_one(cfg, paths, t, use_alpha_vantage=use_alpha_vantage)
+        if use_alpha_vantage:
+            row.update(fetch_alpha_vantage_earnings_estimates(t, cfg.alpha_vantage_api_key))
+            row = preserve_cached_fields(row, load_cached_json_if_any(cache_live_file(paths, t)), LIVE_CACHE_ALPHA_PRESERVE_FIELDS)
+            row["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+            try:
+                cache_live_file(paths, t).write_text(json.dumps(row), encoding="utf-8")
+            except Exception:
+                pass
+            time.sleep(alpha_vantage_pause_seconds(cfg))
+        rows.append(row)
+        if i % 20 == 0:
+            time.sleep(1.0)
+
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["ticker"])
+    if not df.empty:
+        df.to_parquet(paths["cache_live_fund"] / "live_fundamentals_latest.parquet", index=False)
+    return df
+
+
+def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
+    TREND_COLS = [
+        "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
+        "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
+    ]
+    if panel is None or panel.empty:
+        return pd.DataFrame(
+            columns=["cik", "period", "trend_accepted"] + TREND_COLS
+        )
+
+    d = panel.copy().sort_values(["cik", "period"]).reset_index(drop=True)
+    d["trend_accepted"] = pd.to_datetime(d.get("accepted"), errors="coerce")
+
+    if "revenues_ttm" in d.columns:
+        d["rev_growth_yoy"] = d.groupby("cik")["revenues_ttm"].pct_change(4)
+        d["rev_growth_accel_4q"] = d.groupby("cik")["rev_growth_yoy"].diff(1)
+        # 2nd derivative: acceleration of acceleration
+        d["revenue_accel_2nd_deriv"] = d.groupby("cik")["rev_growth_accel_4q"].diff(1)
+
+    if "op_margin_ttm" in d.columns:
+        d["margin_trend_4q"] = d.groupby("cik")["op_margin_ttm"].diff(4)
+
+    if "ocf_ttm" in d.columns and "net_income_ttm" in d.columns:
+        ni = pd.to_numeric(d["net_income_ttm"], errors="coerce").replace(0, np.nan)
+        d["ocf_ni_quality_4q"] = pd.to_numeric(d["ocf_ttm"], errors="coerce") / ni
+
+    # Growth inflection: growth just turned positive with acceleration
+    sgy = pd.to_numeric(d.get("sales_growth_yoy"), errors="coerce")
+    sgy_prev = d.groupby("cik")["sales_growth_yoy"].shift(4) if "sales_growth_yoy" in d.columns else pd.Series(np.nan, index=d.index)
+    rga = pd.to_numeric(d.get("rev_growth_accel_4q"), errors="coerce")
+    d["growth_inflection_signal"] = (
+        (sgy > 0) & (sgy_prev <= 0.05) & (rga > 0)
+    ).astype(float).fillna(0.0)
+
+    # Margin expansion during growth phase
+    opm = pd.to_numeric(d.get("op_margin_ttm"), errors="coerce")
+    opm_prev = d.groupby("cik")["op_margin_ttm"].shift(4) if "op_margin_ttm" in d.columns else pd.Series(np.nan, index=d.index)
+    d["margin_expansion_at_growth"] = (
+        (opm > opm_prev) & (sgy > 0.15)
+    ).astype(float).fillna(0.0)
+
+    keep = ["cik", "period", "trend_accepted"]
+    for c in TREND_COLS:
+        if c not in d.columns:
+            d[c] = np.nan
+        keep.append(c)
+    return d[keep].copy()
+
+
+TREND_MERGE_COLS = [
+    "rev_growth_accel_4q", "margin_trend_4q", "ocf_ni_quality_4q",
+    "revenue_accel_2nd_deriv", "growth_inflection_signal", "margin_expansion_at_growth",
+]
+
+
+def merge_trend_features_into_monthly(monthly: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
+    if monthly.empty:
+        return monthly
+    if panel is None or panel.empty:
+        d = monthly.copy()
+        for c in TREND_MERGE_COLS:
+            if c not in d.columns:
+                d[c] = np.nan
+        return d
+
+    trend_panel = compute_fundamental_trend_features(panel)
+    if "trend_accepted" not in trend_panel.columns:
+        trend_panel["trend_accepted"] = pd.NaT
+    trend_panel["trend_accepted"] = pd.to_datetime(trend_panel["trend_accepted"], errors="coerce")
+    trend_panel = trend_panel.dropna(subset=["trend_accepted"]).drop(columns=["period"], errors="ignore").sort_values(["cik", "trend_accepted"])
+
+    d = monthly.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    chunks = []
+
+    for cik, g in d.groupby("cik10", sort=False):
+        gg = g.sort_values("rebalance_date").copy()
+        if pd.isna(cik):
+            for c in TREND_MERGE_COLS:
+                gg[c] = np.nan
+            chunks.append(gg)
+            continue
+
+        p = trend_panel[trend_panel["cik"] == str(cik)]
+        if p.empty:
+            for c in TREND_MERGE_COLS:
+                gg[c] = np.nan
+            chunks.append(gg)
+            continue
+
+        merged = pd.merge_asof(
+            gg,
+            p.sort_values("trend_accepted"),
+            left_on="rebalance_date",
+            right_on="trend_accepted",
+            direction="backward",
+        )
+        if "trend_accepted" in merged.columns:
+            merged = merged.drop(columns=["trend_accepted"])
+        chunks.append(merged)
+
+    return pd.concat(chunks, ignore_index=True)
+
+
+def merge_live_fundamentals(monthly: pd.DataFrame, live_df: pd.DataFrame) -> pd.DataFrame:
+    if monthly.empty:
+        return monthly
+    d = monthly.copy()
+    if live_df is None or live_df.empty:
+        for c in LATEST_ONLY_SIGNAL_COLUMNS:
+            if c not in d.columns:
+                d[c] = np.nan
+        return d
+    return d.merge(live_df, on="ticker", how="left")
+
+
+# Stage 2c (2026-04-20): cross_sectional_robust_z + _by_sector moved to r1000_helpers.py.
+
+
+def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
+    """Classify each row into one of 8 SAGE sectors using SAGE_SECTOR_MAP keyword matching.
+    Returns a Series with values like 'Software', 'Semiconductor', 'Banking', etc."""
+    label_cols = [
+        "industry",
+        "subindustry",
+        "gics_sub_industry",
+        "industry_group",
+        "industry_sector",
+        "gics_sector",
+        "sector",
+    ]
+    available_label_cols = [c for c in label_cols if c in df.columns]
+    if available_label_cols:
+        sector_labels = (
+            df[available_label_cols]
+            .fillna("")
+            .astype(str)
+            .agg(" ".join, axis=1)
+            .str.upper()
+            .str.replace("&", " AND ", regex=False)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+    else:
+        sector_labels = normalized_sector_labels(df)
+    result = pd.Series("General", index=df.index, dtype=str)
+    for sage_name, keywords in SAGE_SECTOR_MAP:
+        if sage_name == "General":
+            break  # catch-all — skip, already initialized to "General"
+        if not keywords:
+            continue
+        mask = sector_keyword_mask(sector_labels, keywords)
+        # Only assign where not yet classified (first match wins)
+        unclassified = result == "General"
+        result.loc[mask & unclassified] = sage_name
+    return result
+
+
+# Stage 2c (2026-04-20): numeric_series_or_default moved to r1000_helpers.py.
+
 __all__ = [
     "map_yf_industry_to_group",
     "attach_industry_metadata",
@@ -458,4 +1395,32 @@ __all__ = [
     "compute_oneil_leadership_score",
     "add_sub_industry_leader_laggard_signals",
     "add_industry_rotation_signal",
+    "load_cached_json_if_any",
+    "has_present_value",
+    "preserve_cached_fields",
+    "statement_snapshot_has_payload",
+    "compute_flow_ttm_with_cum_fallback",
+    "alpha_vantage_get",
+    "yf_table_or_empty",
+    "normalize_table_columns",
+    "sum_first_numeric_column",
+    "summarize_holder_table",
+    "summarize_insider_transactions",
+    "fetch_yf_live_fundamentals",
+    "fetch_yfinance_quarterly_statements",
+    "fetch_alpha_vantage_overview",
+    "fetch_alpha_vantage_earnings_estimates",
+    "alpha_vantage_reports_frame",
+    "first_numeric_from_report",
+    "sum_latest_numeric_reports",
+    "yoy_latest_numeric_reports",
+    "fetch_alpha_vantage_statement_snapshot",
+    "load_or_fetch_alpha_vantage_statement_snapshot",
+    "repair_latest_statement_fundamentals",
+    "fetch_live_fundamentals_one",
+    "refresh_live_fundamentals",
+    "compute_fundamental_trend_features",
+    "merge_trend_features_into_monthly",
+    "merge_live_fundamentals",
+    "compute_sage_sector_labels",
 ]
