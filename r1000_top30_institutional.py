@@ -109,6 +109,11 @@ from r1000_config import (
     SECTOR_GATE_RESOURCE_KEYWORDS,
     SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
+    ENGINE_REUSE_VERSION,
+    TICKER_RE,
+    EXCLUDE_NAME,
+    CASH_PROXY_TICKER,
+    SEC_COMPANYFACTS_MEMBER_RE,
 )
 
 warnings.filterwarnings("ignore")
@@ -116,7 +121,7 @@ logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-ENGINE_REUSE_VERSION = "2026-04-18-phase9c3-turnaround-flags"
+# Stage 1d-i (2026-04-20): ENGINE_REUSE_VERSION moved to r1000_config.py.
 
 
 def _resolve_engine_commit_sha() -> str:
@@ -175,10 +180,8 @@ def phase_is_enabled(phase_key: str, default: bool = True) -> bool:
     return bool(default)
 
 
-TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
-EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
-CASH_PROXY_TICKER = "CASH"
-SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IGNORECASE)
+# Stage 1d-i (2026-04-20): TICKER_RE, EXCLUDE_NAME, CASH_PROXY_TICKER,
+# SEC_COMPANYFACTS_MEMBER_RE moved to r1000_config.py (imported at file top).
 _COMPANYFACTS_BULK_MEMBER_MAP_CACHE: dict[str, dict[str, str]] = {}
 _CATBOOST_COMPONENTS_CACHE: Optional[dict[str, Any]] = None
 

@@ -200,8 +200,12 @@ def test_phase_is_enabled_keys() -> None:
 
 @_test("structural.engine_reuse_version_format")
 def test_engine_reuse_version() -> None:
-    """ENGINE_REUSE_VERSION must be YYYY-MM-DD-description -- bumping triggers FS rebuild."""
-    src = _engine_src()
+    """ENGINE_REUSE_VERSION must be YYYY-MM-DD-description -- bumping triggers FS rebuild.
+
+    Phase A Stage 1d-i (2026-04-20): ENGINE_REUSE_VERSION moved to r1000_config.py.
+    Grep combined sources so test works whether constant lives in main or config.
+    """
+    src = _combined_src()
     m = re.search(r'^ENGINE_REUSE_VERSION\s*=\s*["\'](.*?)["\']', src, re.MULTILINE)
     assert m, "ENGINE_REUSE_VERSION constant not found"
     val = m.group(1)

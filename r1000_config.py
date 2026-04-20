@@ -28,6 +28,8 @@ COLUMN_OWNERSHIP registry for the full invariant.
 """
 from __future__ import annotations
 
+import re
+
 
 # =====================================================================
 # Phase 2 (2026-04-16): industry-level relative strength + O'Neil / IBD
@@ -1314,6 +1316,24 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
     ("Other",                              ()),
 ]
 
+# =====================================================================
+# Stage 1d-i (2026-04-20): scalar constants (cache version + regex/ticker)
+# =====================================================================
+# Primitive module-level constants extracted from main engine file.
+# ENGINE_REUSE_VERSION drives feature_store cache invalidation; bump it
+# any time a schema-changing column is added to PHASE*_COLUMNS or
+# compute_fundamental_features.
+# TICKER_RE / SEC_COMPANYFACTS_MEMBER_RE are compiled regexes; EXCLUDE_NAME
+# is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
+# ticker used by the cash sleeve in backtest_portfolio.
+
+ENGINE_REUSE_VERSION = "2026-04-18-phase9c3-turnaround-flags"
+
+TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
+EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
+CASH_PROXY_TICKER = "CASH"
+SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IGNORECASE)
+
 __all__ = [
     "PHASE2_INDUSTRY_COLUMNS",
     "PHASE5_LEADER_LAGGARD_COLUMNS",
@@ -1377,4 +1397,9 @@ __all__ = [
     "SECTOR_GATE_RESOURCE_KEYWORDS",
     "SAGE_SECTOR_MAP",
     "YF_INDUSTRY_TO_GICS_GROUP",
+    "ENGINE_REUSE_VERSION",
+    "TICKER_RE",
+    "EXCLUDE_NAME",
+    "CASH_PROXY_TICKER",
+    "SEC_COMPANYFACTS_MEMBER_RE",
 ]
