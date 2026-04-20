@@ -1,0 +1,93 @@
+{
+  "period": {
+    "start": "2022-06-30 00:00:00",
+    "end": "2026-04-20 00:00:00",
+    "months": 47
+  },
+  "configs": {
+    "size5_equal": {
+      "cagr": 0.2676801977564178,
+      "sharpe": 1.3274452757687054,
+      "max_dd": -0.08483360035936849,
+      "win_rate": 0.425531914893617,
+      "avg_held": 4.51063829787234,
+      "total_trades": 8,
+      "exit_reasons": {
+        "ml_stop_loss": 7,
+        "rule_take_profit": 1
+      },
+      "months": 47
+    },
+    "size7_equal": {
+      "cagr": 0.23852201889520286,
+      "sharpe": 1.3521286535815555,
+      "max_dd": -0.09074502143967503,
+      "win_rate": 0.40425531914893614,
+      "avg_held": 6.23404255319149,
+      "total_trades": 12,
+      "exit_reasons": {
+        "ml_stop_loss": 10,
+        "rule_take_profit": 1,
+        "rule_stop_loss": 1
+      },
+      "months": 47
+    },
+    "size10_equal": {
+      "cagr": 0.22365156579405698,
+      "sharpe": 1.245481187303615,
+      "max_dd": -0.09892630618505176,
+      "win_rate": 0.46808510638297873,
+      "avg_held": 8.76595744680851,
+      "total_trades": 19,
+      "exit_reasons": {
+        "ml_stop_loss": 17,
+        "rule_take_profit": 1,
+        "rule_stop_loss": 1
+      },
+      "months": 47
+    },
+    "size5_pscore": {
+      "cagr": 0.3110092274570466,
+      "sharpe": 1.4347108709382927,
+      "max_dd": -0.08734557688069815,
+      "win_rate": 0.44680851063829785,
+      "avg_held": 4.51063829787234,
+      "total_trades": 8,
+      "exit_reasons": {
+        "ml_stop_loss": 7,
+        "rule_take_profit": 1
+      },
+      "months": 47
+    },
+    "size7_pscore": {
+      "cagr": 0.27584826431311416,
+      "sharpe": 1.4396409104555181,
+      "max_dd": -0.07852062227784555,
+      "win_rate": 0.44680851063829785,
+      "avg_held": 6.23404255319149,
+      "total_trades": 12,
+      "exit_reasons": {
+        "ml_stop_loss": 10,
+        "rule_take_profit": 1,
+        "rule_stop_loss": 1
+      },
+      "months": 47
+    },
+    "size10_pscore": {
+      "cagr": 0.2530238926433759,
+      "sharpe": 1.3312456593764483,
+      "max_dd": -0.09540530057186279,
+      "win_rate": 0.48936170212765956,
+      "avg_held": 8.76595744680851,
+      "total_trades": 19,
+      "exit_reasons": {
+        "ml_stop_loss": 17,
+        "rule_take_profit": 1,
+        "rule_stop_loss": 1
+      },
+      "months": 47
+    }
+  },
+  "benchmark_spy_cagr": 0.17125202390755767,
+  "best_config": "size5_pscore"
+}
