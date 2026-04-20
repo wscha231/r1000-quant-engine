@@ -41,6 +41,7 @@ from r1000_helpers import (
     cross_sectional_robust_z,
     cross_sectional_robust_z_by_sector,
     hard_sanitize,
+    log,
     numeric_series_or_default,
     phase_is_enabled,
     robust_z,
