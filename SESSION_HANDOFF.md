@@ -35,8 +35,25 @@
 
 ### What's pending
 
-1. **Stage 1 rollup (RUNNING)** — `py -3 run_local.py --no-collector` launched at ~11:30 KST on commit `fd4e6a0`. At ~15:00 progressed through Phase 3 (feature_store rebuild) + Phase 4 (walk-forward training, 95 months completed) + Phase 5 (backtest loop with ~11 policy iterations) and reached Phase 5e (concentrated CE grid, 63 combos). Expected completion ~15:15-15:45 KST. Must produce BYTE-EXACT match against `.refactor_baseline/reference.json` via `py -3 .refactor_baseline/verify.py`. Verifies commits `dd7cf46..fd4e6a0`.
-2. **Commits `2631e62..b2f4331` (Stage 3d-i-prep through 3d-iv) need SEPARATE verify run** after Stage 1 rollup completes. Smoke tests 25/25 and identity + scope checks pass, but byte-exact output across full pipeline is the final gate.
+1. **Stage 1 rollup COMPLETED at 15:43:28 KST with DIVERGENCE — root cause data drift, NOT refactor regression.** Actual commit tested: `06f1171` (Stage 1d-ii), started 11:12:59 KST. Rollup reached Phase 6 successfully writing 4 verify targets (scored/portfolio/weights/backtest_metrics) at 15:43, then crashed in `update_operational_tracking` Phase 6 ops tracking with `pyarrow.lib.ArrowInvalid: Could not convert 1.0 with type float: tried to convert to boolean` — **PRE-EXISTING schema drift bug** in `append_history_parquet` (held_from_prev_rebalance column has mixed bool/float across call sites in main:9269, main:9332, main:18581). Flagged as separate task.
+
+   `verify.py` output:
+   - All 4 files size/SHA differ from baseline
+   - Column structure IDENTICAL (618 cols, 610 rows both)
+   - `rebalance_date` max: current `2026-04-20` vs ref `2026-04-17` (3 days data drift)
+   - CAGR: current `0.2341` vs ref `0.2291` (+0.50pp; explained by retrain on different data window)
+   - Other metric diffs (avg_stock_names, beat_month_ratio, etc.) — all consistent with 3-day data window shift causing feature_store + walk-forward full rebuild.
+
+   **Why full rebuild happened**: `reuse_fingerprint(cfg, scope)` (main:1287) hashes `asdict(cfg)` which includes `cfg.end_date`. When `end_date` differs between runs, fingerprint differs, cached artifacts get rebuilt. `run_local.py` defaults `end_date` to today. **This means byte-exact verify on re-run is fundamentally impractical** without pinning `end_date` exactly AND disabling price cache refresh AND locking every ML seed.
+
+2. **Verification strategy pivot** (post-rollup-finding): byte-exact via full-pipeline re-run is impractical. Strategy must shift to:
+   - **Smoke tests 25/25** after every sub-stage (catches structural invariants)
+   - **Identity checks** (`r.FN is f.FN` / `r.HELPER is h.HELPER`) after each move
+   - **Scope checks** (nested helpers stay encapsulated via hasattr negative test)
+   - **Spot-behavior** (empty/small-input behavior for each moved function)
+   - **Optional re-run with pinned `--end-date 2026-04-17 --no-collector`** at Stage 5 completion — will still drift due to stochastic training but metrics should be within 0.3pp CAGR tolerance if refactor is value-preserving.
+
+3. **Commits `2631e62..b2f4331` (Stage 3d-i-prep through 3d-iv)** — verified via smoke/identity/scope/spot-behavior only; byte-exact deferred per strategy pivot above.
 3. **Stage 3d-ii-b (deferred)** — `load_fred_series` + `build_macro_regime_table` 417L + `build_live_event_alert_table` 187L + merge helpers (~850L). Blocked on moving 5 price-cache cascade helpers (`ensure_prices_cached_incremental` 95L + `load_px` + `macro_cache_file` + `price_close_series` + `write_stage_coverage_report`) to helpers.py first. See `STAGE_3D_PLAN.md` execution log for details.
 4. **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction. In-scope: `compute_portfolio_sleeve_columns` (1,028L), `compute_portfolio_sleeve_policy` (222L), `build_target_portfolio` (739L), `compute_regime_portfolio_controls` (349L), `compute_benchmark_beating_focus_overlay` (260L).
 5. **Stage 5**: `r1000_pipeline.py` — orchestration + facade re-exports. In-scope: `train_walkforward` (443L), `backtest_portfolio` (694L), `export_outputs` (1,622L), `run_all` + `run_default_pipeline` + `run_last_n_years_backtest`, `build_feature_store` (224L), `build_universe_monthly` (321L).
