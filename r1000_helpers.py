@@ -618,6 +618,10 @@ def current_git_commit() -> str:
 
 
 def build_run_identity(cfg: EngineConfig, *, scope: str = "run_archive") -> dict[str, str]:
+    # Late import: reuse_fingerprint lives in r1000_pipeline.py (depends on
+    # to_cfg + hashlib + asdict pattern that belongs in the orchestration layer).
+    # helpers.py is below pipeline.py in the dep graph so top-level import would cycle.
+    from r1000_pipeline import reuse_fingerprint
     run_ts = now_ts()
     git_commit = current_git_commit()
     engine_version = str(ENGINE_REUSE_VERSION)
