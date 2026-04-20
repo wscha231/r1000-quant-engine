@@ -160,6 +160,10 @@ from r1000_helpers import (
     looks_like_noncommon,
     px_cache_name,
     to_yf_symbol,
+    companyfacts_cache_file,
+    normalize_cik10,
+    normalize_cik_list,
+    normalize_cik_series,
     cache_live_file,
     cache_live_statement_file,
     is_cache_fresh,
@@ -1778,38 +1782,8 @@ def load_sec_company_tickers(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     return m
 
 
-def companyfacts_cache_file(paths: dict[str, Path], cik: str) -> Path:
-    return paths["cache_sec_actual"] / f"companyfacts_{str(cik).zfill(10)}.json"
-
-
-def normalize_cik10(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except Exception:
-        pass
-    txt = str(value).strip()
-    if not txt or txt.lower() in {"nan", "none", "nat"}:
-        return None
-    m = re.search(r"\d+", txt)
-    if not m:
-        return None
-    digits = str(m.group(0))
-    if not digits or int(digits) == 0:
-        return None
-    return digits.zfill(10)
-
-
-def normalize_cik_list(values: Iterable[Any]) -> list[str]:
-    out = {cik for cik in (normalize_cik10(v) for v in values) if cik}
-    return sorted(out)
-
-
-def normalize_cik_series(values: Iterable[Any], index: Optional[pd.Index] = None) -> pd.Series:
-    normalized = [normalize_cik10(v) for v in values]
-    return pd.Series(normalized, index=index, dtype=object)
+# Stage 3d-i-prep (2026-04-20): companyfacts_cache_file + normalize_cik10 +
+# normalize_cik_list + normalize_cik_series moved to r1000_helpers.py.
 
 
 def companyfacts_bulk_store_candidates(cfg: EngineConfig, paths: dict[str, Path]) -> list[Path]:
