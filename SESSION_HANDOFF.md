@@ -6,14 +6,34 @@
 
 ---
 
-## 0. TL;DR — Refactor Phase A IN PROGRESS (branch `refactor/phase-a-module-split`). Stages 0 + 1 + 2 + 3a-c + 3d (i/ii-min/iii/iv) + 4a + 4b (i + ii) DONE (22 commits). Rollup verify analyzed — not a refactor regression (data drift from end_date). Stage 4c + Stage 5 next.
+## 0. TL;DR — 🎉 **REFACTOR PHASE A COMPLETE** (26 commits on branch `refactor/phase-a-module-split`). Full 5-module split + Subtractive dead code removal. Main engine 27,838 → 382 lines facade (-98.6%).
 
-**Current HEAD = `b58dd51`** on branch `refactor/phase-a-module-split` (pushed to remote). **22 refactor commits** on top of last SHIP `6440957`. Main engine **27,838 → 17,589 lines (-36.8%)**. Four new modules: `r1000_config.py` (2,109L), `r1000_helpers.py` (967L), `r1000_features.py` (4,598L), `r1000_signals.py` (3,614L). Smoke tests **25/25 PASS** after each sub-stage.
+**Current HEAD = `4c9858a`** on branch `refactor/phase-a-module-split` (pushed to remote). **26 refactor commits** on top of last SHIP `6440957`. All 5 new modules created + main converted to facade:
 
-### What's done (22 commits, newest first)
+| Module | Lines | Owns |
+|---|---|---|
+| `r1000_config.py` | 2,109L | Pure data constants + EngineConfig (435 fields) |
+| `r1000_helpers.py` | 967L | Stats + IO + cache + CIK normalization |
+| `r1000_features.py` | 4,598L | 44 feature funcs (industry/fund/macro/blueprint/pillar/minervini) |
+| `r1000_signals.py` | 3,614L | Sleeve composition + portfolio construction |
+| `r1000_pipeline.py` | 15,315L | Training + backtest + export + validation + grid comparisons |
+| `r1000_top30_institutional.py` | **382L** | **FACADE** (imports + re-exports) |
+| **TOTAL** | 26,985L | (was 27,838 monolith; -853L dead code removed) |
+
+**Dependency graph** (acyclic):
+```
+config.py <- helpers.py <- features.py <- signals.py <- pipeline.py <- main (facade)
+```
+
+Smoke tests **25/25 PASS** at every sub-stage. All nested helpers scope-preserved (Phase 9 C3 `_sign_flip_pos`, `within_group_z`, `sector_median`, `_scaled_unit_from_series`).
+
+### What's done (26 commits, newest first)
 
 | Commit | Stage | Summary | Lines |
 |---|---|---|---|
+| `4c9858a` | **5** | Create `r1000_pipeline.py` (15,315L) + convert main to 382L facade | -14,912 main |
+| `48e4f8b` | **6 Subtractive** | Delete 17 `_legacy_unused_*` dead funcs | -2,307 main |
+| `bb44fe8` | **docs** | SESSION_HANDOFF update after 4b-ii | docs |
 | `b58dd51` | **4b-ii** | `build_target_portfolio` (739L) + 21 portfolio helpers → signals.py | -1,495 main |
 | `14f2cef` | **4b-i** | `compute_regime_portfolio_controls` (349L) + `compute_benchmark_beating_focus_overlay` (260L) → signals.py | -607 main |
 | `a7aca61` | **4a** | NEW `r1000_signals.py`: `compute_portfolio_sleeve_columns` (1,028L with Phase 9 C1+C2+C3 gate) + `compute_portfolio_sleeve_policy` (222L) + 3 helpers | -1,358 main |
@@ -178,7 +198,24 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Next step — Refactor Phase A in progress. First wait for Stage 1 rollup verify, then execute Stage 3d.
+## 2. Next step — Refactor Phase A COMPLETE. Merge branch + optional Stage 3d-ii-b + plan Phase 10 alpha work.
+
+### Immediate next actions
+
+1. **Merge branch to master**: `refactor/phase-a-module-split` → `origin/master`. 26 commits ready. Smoke tests 25/25 at every commit. Byte-exact verify is impractical per the rollup analysis (end_date fingerprint), so merge decision is based on:
+   - Smoke tests 25/25 ✅
+   - Identity + scope + spot-behavior checks at every sub-stage ✅
+   - 5-module dependency graph clean (acyclic) ✅
+   - Main engine is now a 382-line facade; all functional code lives in 5 focused modules ✅
+
+2. **Optional Stage 3d-ii-b** (~850L macro builders deferred; see STAGE_3D_PLAN.md). Lower priority now since main is already mostly drained -- these functions all live in `r1000_pipeline.py` after Stage 5, just co-located with universe/fund plumbing rather than split into the "pure features" layer. Can be moved later as an incremental features.py addition if desired.
+
+3. **Parquet schema drift bug** (pre-existing, spawned as separate task): `held_from_prev_rebalance` bool/float mismatch in `append_history_parquet` crashes Phase 6 ops tracking. Not caused by refactor, but blocks clean local pipeline runs. Fix is small (~30 min).
+
+4. **Phase 10 alpha work** — see `PHASE_10_IDEAS.md`. Post-refactor, adding a new signal/feature is a single-module edit rather than navigating 27k lines. Top candidates:
+   - Top-10 concentrated sleeve (highest rubric score per PHASE_10_IDEAS.md §4)
+   - Quarterly rebalance option (low effort, turnover reduction)
+   - Phase 8e (r_12m ML training target; biggest expected alpha but 11-13h work)
 
 ### 🟢 Status (2026-04-20 12:00 KST)
 
