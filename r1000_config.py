@@ -973,6 +973,15 @@ CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
     "liabilities",
 ]
 
+# Phase 11 (2026-04-20): Multibagger Lifecycle Learning sleeve columns.
+# These 3 columns are added to feature_store by compute_phase11_predictions.
+# Must be included in keep_cols (build_feature_store) and hard_sanitize whitelist.
+PHASE11_MULTIBAGGER_COLUMNS = [
+    "phase11_p_entry",
+    "phase11_p_takeprofit",
+    "phase11_p_stoploss",
+]
+
 # =====================================================================
 # Stage 1c (2026-04-20): SEC/yfinance schema + sector/industry maps
 # =====================================================================
@@ -1330,7 +1339,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-18-phase9c3-turnaround-flags"
+ENGINE_REUSE_VERSION = "2026-04-20-phase11-multibagger-sleeve"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -2030,6 +2039,28 @@ class EngineConfig:
     phase9_c3_turnaround_enabled: bool = True
     phase9_c3_loss_narrowing_threshold: float = 0.3
 
+    # --------------- Phase 11: Multibagger Watch Sleeve ---------------
+    # 4th sleeve alongside core_compounder / future_winner / early_scout.
+    # 3 ML classifiers (entry + take_profit + stop_loss) identify stocks
+    # that match the multibagger lifecycle pattern. See
+    # research/phase11_*.py for the underlying training methodology.
+    # Default OFF -- must be explicitly enabled via env or cfg for A/B testing.
+    phase11_multibagger_sleeve_enabled: bool = False
+    phase11_sleeve_size: int = 5                       # top N by P(entry) selected each month
+    phase11_allocation_pct: float = 0.30               # portion of portfolio weight allocated to this sleeve
+    phase11_p_entry_threshold: float = 0.30            # minimum P(entry) for selection
+    phase11_p_takeprofit_threshold: float = 0.50       # P(tp) above this -> exclude from sleeve (익절)
+    phase11_p_stoploss_threshold: float = 0.70         # P(sl) above this -> exclude from sleeve (손절)
+    phase11_p_stoploss_select_threshold: float = 0.50  # softer P(sl) cap at selection time
+    phase11_quality_min_mcap: float = 1e9              # $1B minimum at selection time
+    phase11_quality_min_revenue: float = 1e8           # $100M revenues_ttm
+    phase11_weighting_mode: str = "pscore"             # "equal" | "pscore" (P(entry)-weighted)
+    phase11_classifier_iterations: int = 500           # CatBoost iterations
+    phase11_classifier_depth: int = 6
+    phase11_classifier_learning_rate: float = 0.03
+    phase11_min_positive_examples: int = 30            # skip training if < this many positives in label set
+    phase11_train_split_date: str = "2022-06-30"       # train/evaluate split for diagnostic output
+
     # --------------- breakout entry gate ---------------
     early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
     # --------------- fast mode ---------------
@@ -2082,6 +2113,7 @@ __all__ = [
     "FORWARD_RETURN_COVERAGE_COLUMNS",
     "HISTORICAL_DATA_QUALITY_COLUMNS",
     "CORE_FUNDAMENTAL_MINIMUM_FIELDS",
+    "PHASE11_MULTIBAGGER_COLUMNS",
     "REGIME_LABEL_NEAREST_FALLBACKS",
     "YF_OVERRIDES",
     "HEADERS_ISHARES",

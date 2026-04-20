@@ -72,6 +72,7 @@ from r1000_config import (
     PHASE1_ALPHA_COLUMNS,
     PHASE8B_LONG_LOOKBACK_COLUMNS,
     PHASE9_C3_TURNAROUND_COLUMNS,
+    PHASE11_MULTIBAGGER_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -7024,6 +7025,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE1_ALPHA_COLUMNS
             + PHASE8B_LONG_LOOKBACK_COLUMNS
             + PHASE9_C3_TURNAROUND_COLUMNS
+            + PHASE11_MULTIBAGGER_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7052,6 +7054,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE1_ALPHA_COLUMNS
         + PHASE8B_LONG_LOOKBACK_COLUMNS
         + PHASE9_C3_TURNAROUND_COLUMNS
+        + PHASE11_MULTIBAGGER_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
