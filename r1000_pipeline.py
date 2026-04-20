@@ -7102,7 +7102,269 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         fs,
         final_filename="feature_store_live_fundamental_coverage_latest.csv",
     )
+    # Phase 11 (2026-04-20): add P(entry)/P(tp)/P(sl) columns. If sleeve disabled,
+    # writes zeros so keep_cols whitelist never drops missing columns.
+    try:
+        fs = compute_phase11_predictions(cfg_obj, fs, paths)
+    except Exception as exc:
+        log(f"[Phase 11] predictions failed; falling back to zeros: {exc}")
+        for c in ("phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss"):
+            if c not in fs.columns:
+                fs[c] = 0.0
     return fs
+
+
+# =====================================================================
+# Phase 11: Multibagger Watch -- classifier training + prediction
+# =====================================================================
+# 3 classifiers trained on historical 5x+ episodes (research/multibagger_episodes.csv):
+#   P(entry)       AUC 0.84 -- pre/early surge detection
+#   P(takeprofit)  AUC 0.75 -- peak detection (익절 signal)
+#   P(stoploss)    AUC 0.62 -- forward-loss detection (손절 signal)
+# Design + validation: research/phase11_{retrospective,entry_classifier,exit_classifier,sleeve_backtest}.py
+
+PHASE11_MODELS_SUBDIR = "phase11_models"
+PHASE11_EPISODES_REL = "research/multibagger_episodes.csv"
+
+PHASE11_FEATURE_EXCLUDE = {
+    "ticker", "Name", "sector", "industry", "industry_group", "subindustry",
+    "universe_source", "cik10", "period", "accepted", "fund_period",
+    "fund_accepted", "fund_source", "fund_asof_quarter", "feature_date",
+    "entry_date", "rebalance_date", "macro_regime_label",
+    "event_regime_label", "live_event_alert_label",
+    "regime_rotation_label", "regime_rotation_short_label",
+    "yf_sector", "yf_industry", "yf_industry_group", "yf_subindustry",
+    "sage_sector", "cnn_fear_greed_label", "company_key",
+    "r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m",
+    "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m",
+    "bench_r_24m", "bench_r_36m",
+    # Label columns (prevent leakage)
+    "label", "tp_label", "sl_label",
+    # Phase 11 prediction columns (self-prediction guard)
+    "phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss",
+}
+
+
+def _prep_phase11_features(
+    df: pd.DataFrame, nan_threshold: float = 0.50
+) -> tuple[pd.DataFrame, list[str]]:
+    """Select + impute + clip features for Phase 11 classifier training/prediction."""
+    numeric = df.select_dtypes(include=[np.number]).columns.tolist()
+    feats = [c for c in numeric if c not in PHASE11_FEATURE_EXCLUDE and not c.startswith("score")]
+    nan_pct = df[feats].isna().mean()
+    good = nan_pct[nan_pct < nan_threshold].index.tolist()
+    X = df[good].copy()
+    for c in good:
+        med = X[c].median()
+        X[c] = X[c].fillna(med if pd.notna(med) else 0.0)
+        if X[c].std() > 0:
+            z = (X[c] - X[c].mean()) / X[c].std()
+            X[c] = X[c].where(z.abs() < 5, X[c].mean())
+    return X, good
+
+
+def _load_phase11_episodes() -> Optional[pd.DataFrame]:
+    """Load historical 5x+ multibagger episodes. Returns None if CSV missing."""
+    p = Path(__file__).resolve().parent / PHASE11_EPISODES_REL
+    if not p.exists():
+        log(f"[Phase 11] episodes CSV not found at {p}; skipping training")
+        return None
+    try:
+        df = pd.read_csv(p)
+    except Exception as exc:
+        log(f"[Phase 11] failed to read episodes CSV: {exc}")
+        return None
+    df["surge_start_date"] = pd.to_datetime(df["surge_start_date"], errors="coerce")
+    df["peak_date"] = pd.to_datetime(df["peak_date"], errors="coerce")
+    return df.dropna(subset=["ticker", "surge_start_date", "peak_date"])
+
+
+def train_phase11_classifiers(
+    cfg: dict | EngineConfig,
+    fs: pd.DataFrame,
+    paths: dict[str, Path],
+) -> Optional[dict[str, Any]]:
+    """Train entry + takeprofit + stoploss classifiers on feature_store history.
+    Saves models to paths["cache_misc"]/phase11_models/. Returns artifact dict or None.
+    """
+    cfg_obj = to_cfg(cfg)
+    if not bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False)):
+        return None
+
+    episodes = _load_phase11_episodes()
+    if episodes is None or episodes.empty:
+        log("[Phase 11] no episodes available; skipping training")
+        return None
+
+    log("Phase 11: training multibagger classifiers (entry + takeprofit + stoploss) ...")
+
+    df = fs.copy()
+    df["rebalance_date"] = pd.to_datetime(df["rebalance_date"], errors="coerce")
+    df = df.dropna(subset=["ticker", "rebalance_date"]).reset_index(drop=True)
+
+    # Construct labels
+    PRE = 6
+    POST_SURGE = 3
+    AMB_POST_PEAK = 6
+
+    df["label"] = 0
+    for ticker, grp in episodes.groupby("ticker"):
+        mask_t = df["ticker"] == ticker
+        for _, ep in grp.iterrows():
+            pre = ep["surge_start_date"] - pd.DateOffset(months=PRE)
+            post = ep["surge_start_date"] + pd.DateOffset(months=POST_SURGE)
+            df.loc[mask_t & (df["rebalance_date"] >= pre) & (df["rebalance_date"] <= post), "label"] = 1
+
+    df["tp_label"] = -9
+    for ticker, grp in episodes.groupby("ticker"):
+        mask_t = df["ticker"] == ticker
+        for _, ep in grp.iterrows():
+            peak = ep["peak_date"]
+            near_start = peak - pd.DateOffset(months=2)
+            near_end = peak + pd.DateOffset(months=1)
+            healthy_end = peak - pd.DateOffset(months=3)
+            pos = (df["rebalance_date"] >= near_start) & (df["rebalance_date"] <= near_end)
+            df.loc[mask_t & pos, "tp_label"] = 1
+            neg = (df["rebalance_date"] >= ep["surge_start_date"]) & (df["rebalance_date"] <= healthy_end)
+            curr = df.loc[mask_t & neg, "tp_label"]
+            df.loc[curr.index[curr == -9], "tp_label"] = 0
+
+    df["sl_label"] = -9
+    r12 = pd.to_numeric(df.get("r_12m", pd.Series(np.nan, index=df.index)), errors="coerce")
+    df.loc[r12 < -0.15, "sl_label"] = 1
+    df.loc[r12 > 0.20, "sl_label"] = 0
+
+    X_full, good_feats = _prep_phase11_features(df)
+
+    min_pos = int(getattr(cfg_obj, "phase11_min_positive_examples", 30))
+    iters = int(getattr(cfg_obj, "phase11_classifier_iterations", 500))
+    depth = int(getattr(cfg_obj, "phase11_classifier_depth", 6))
+    lr = float(getattr(cfg_obj, "phase11_classifier_learning_rate", 0.03))
+
+    try:
+        from catboost import CatBoostClassifier
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+    except Exception as exc:
+        log(f"[Phase 11] sklearn/catboost not available: {exc}")
+        return None
+
+    artifacts: dict[str, Any] = {"features": good_feats}
+
+    def _train_one(label_col: str, name: str) -> bool:
+        mask = df[label_col].isin([0, 1])
+        if mask.sum() == 0:
+            log(f"[Phase 11] {name}: no labeled rows; skipping")
+            return False
+        y = df.loc[mask, label_col].astype(int).values
+        if y.sum() < min_pos or (y == 0).sum() < min_pos:
+            log(f"[Phase 11] {name}: too few examples (pos={int(y.sum())}, neg={int((y==0).sum())})")
+            return False
+        X = X_full.loc[mask].values
+        scaler = StandardScaler().fit(X)
+        lr_model = LogisticRegression(
+            penalty="l2", C=1.0, class_weight="balanced",
+            max_iter=2000, solver="lbfgs", random_state=42,
+        ).fit(scaler.transform(X), y)
+        cb_model = CatBoostClassifier(
+            iterations=iters, learning_rate=lr, depth=depth,
+            loss_function="Logloss", auto_class_weights="Balanced",
+            random_seed=42, verbose=False,
+        ).fit(X, y)
+        artifacts[name] = {
+            "scaler": scaler,
+            "lr": lr_model,
+            "cb": cb_model,
+            "n_train_pos": int(y.sum()),
+            "n_train_neg": int((y == 0).sum()),
+        }
+        log(f"[Phase 11] {name}: trained (pos={int(y.sum())}, neg={int((y==0).sum())})")
+        return True
+
+    entry_ok = _train_one("label", "entry")
+    tp_ok = _train_one("tp_label", "takeprofit")
+    sl_ok = _train_one("sl_label", "stoploss")
+
+    if not (entry_ok or sl_ok):
+        # Entry + stoploss are critical; take_profit is optional
+        log("[Phase 11] critical classifiers failed; aborting")
+        return None
+
+    # Persist
+    import pickle
+    models_dir = paths["cache_misc"] / PHASE11_MODELS_SUBDIR
+    safe_mkdir(models_dir)
+    with open(models_dir / "artifacts.pkl", "wb") as f:
+        pickle.dump(artifacts, f)
+    log(f"[Phase 11] saved artifacts to {models_dir / 'artifacts.pkl'}")
+    return artifacts
+
+
+def _load_phase11_models(paths: dict[str, Path]) -> Optional[dict[str, Any]]:
+    """Load previously-trained Phase 11 artifacts, or None if missing."""
+    import pickle
+    p = paths["cache_misc"] / PHASE11_MODELS_SUBDIR / "artifacts.pkl"
+    if not p.exists():
+        return None
+    try:
+        with open(p, "rb") as f:
+            return pickle.load(f)
+    except Exception as exc:
+        log(f"[Phase 11] failed to load models from {p}: {exc}")
+        return None
+
+
+def compute_phase11_predictions(
+    cfg: dict | EngineConfig,
+    fs: pd.DataFrame,
+    paths: dict[str, Path],
+) -> pd.DataFrame:
+    """Add phase11_p_entry / phase11_p_takeprofit / phase11_p_stoploss columns to fs.
+    If Phase 11 disabled OR models unavailable, writes zeros (so downstream keep_cols
+    whitelist never drops missing columns).
+    """
+    cfg_obj = to_cfg(cfg)
+    out = fs.copy()
+    for c in ("phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss"):
+        if c not in out.columns:
+            out[c] = 0.0
+
+    if not bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False)):
+        return out
+
+    artifacts = _load_phase11_models(paths)
+    if artifacts is None:
+        # Try to train now
+        artifacts = train_phase11_classifiers(cfg_obj, fs, paths)
+    if artifacts is None:
+        log("[Phase 11] no models available; returning zero predictions")
+        return out
+
+    X_full, good_feats = _prep_phase11_features(out)
+    # Align with training features (use intersection)
+    train_feats = artifacts.get("features", good_feats)
+    common = [c for c in train_feats if c in X_full.columns]
+    if not common:
+        log("[Phase 11] feature alignment failed; returning zeros")
+        return out
+    X = X_full[common].values
+
+    def _predict(classifier_key: str, col: str) -> None:
+        if classifier_key not in artifacts:
+            return
+        m = artifacts[classifier_key]
+        try:
+            p_lr = m["lr"].predict_proba(m["scaler"].transform(X))[:, 1]
+            p_cb = m["cb"].predict_proba(X)[:, 1]
+            out[col] = 0.5 * p_lr + 0.5 * p_cb
+        except Exception as exc:
+            log(f"[Phase 11] prediction failed for {classifier_key}: {exc}")
+
+    _predict("entry", "phase11_p_entry")
+    _predict("takeprofit", "phase11_p_takeprofit")
+    _predict("stoploss", "phase11_p_stoploss")
+    log(f"[Phase 11] predictions written for {len(out)} rows")
+    return out
 
 
 @dataclass
