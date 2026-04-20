@@ -531,6 +531,26 @@ def append_history_parquet(
         keep_sort = [col for col in sort_columns if col in combined.columns]
         if keep_sort:
             combined = combined.sort_values(keep_sort).reset_index(drop=True)
+    # Bug fix 2026-04-20: defensive dtype coercion before to_parquet.
+    # pd.concat of DataFrames with different dtypes (bool vs float) for the
+    # same column produces object dtype, which pyarrow rejects with
+    # ArrowInvalid. Coerce any object-dtype column whose non-null values are
+    # all bool-like numeric to float. This is a safety net; upstream sites
+    # should set consistent dtypes at source (see signals.py
+    # apply_hold_policy_overlay bug fix 2026-04-20).
+    for col in combined.columns:
+        if combined[col].dtype != object:
+            continue
+        vals = combined[col].dropna()
+        if vals.empty:
+            continue
+        sample = vals.iloc[: min(100, len(vals))]
+        bool_like = all(
+            (isinstance(v, bool) or (isinstance(v, (int, float)) and v in (0, 1, 0.0, 1.0)))
+            for v in sample
+        )
+        if bool_like:
+            combined[col] = pd.to_numeric(combined[col], errors="coerce").astype(float)
     combined.to_parquet(path, index=False)
 
 

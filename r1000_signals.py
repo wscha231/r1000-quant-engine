@@ -2430,7 +2430,11 @@ def apply_hold_policy_overlay(
     cfg: EngineConfig,
 ) -> pd.DataFrame:
     d = month_df.copy()
-    d["held_from_prev_rebalance"] = False
+    # Bug fix 2026-04-20: unify held_from_prev_rebalance to float (was bool
+    # here + float at pipeline.py:12853). Mixed dtypes caused pyarrow
+    # ArrowInvalid when append_history_parquet concatenated different runs.
+    # Downstream consumer (signals.py:538) coerces to float anyway.
+    d["held_from_prev_rebalance"] = 0.0
     d["prev_weight"] = 0.0
     d["portfolio_hold_policy_seed_bonus"] = 0.0
     d["portfolio_hold_policy_bonus"] = 0.0
@@ -2493,7 +2497,9 @@ def apply_hold_policy_overlay(
         - float(getattr(cfg, "portfolio_hold_policy_exit_penalty_weight", 0.0)) * exit_risk
     )
 
-    d["held_from_prev_rebalance"] = held_flag.astype(bool)
+    # Bug fix 2026-04-20: keep as float (held_flag is already float at line 2451).
+    # Was .astype(bool) which caused parquet schema drift vs other call sites.
+    d["held_from_prev_rebalance"] = held_flag.astype(float)
     d["prev_weight"] = prev_weight
     d["portfolio_hold_policy_support"] = support
     d["portfolio_hold_policy_exit_risk"] = exit_risk
