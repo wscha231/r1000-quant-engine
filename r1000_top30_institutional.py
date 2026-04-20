@@ -224,6 +224,9 @@ from r1000_features import (
     _flexible_lag,
     _cagr_from_lag,
     recompute_fund_panel_derived_columns,
+    compute_event_regime_features,
+    sector_indicator,
+    compute_macro_interaction_features,
 )
 
 warnings.filterwarnings("ignore")
@@ -3517,151 +3520,9 @@ def attach_benchmark_forward_returns(cfg: EngineConfig, paths: dict[str, Path], 
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     return d.merge(bench_forward, on="rebalance_date", how="left")
 
+# Stage 3d-ii-min (2026-04-20): compute_event_regime_features moved to r1000_features.py.
 
-def compute_event_regime_features(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-    if d.empty:
-        for c in REGIME_ROTATION_COLUMNS:
-            d[c] = np.nan
-        d["event_regime_label"] = ""
-        return d
 
-    date_col = None
-    regime_df = d
-    if "rebalance_date" in d.columns:
-        d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
-        unique_dates = d["rebalance_date"].dropna().unique()
-        existing_cols = [c for c in REGIME_ROTATION_COLUMNS if c in d.columns]
-        if len(unique_dates) <= 1 and existing_cols:
-            existing_ready = any(pd.to_numeric(d[c], errors="coerce").notna().any() for c in existing_cols)
-            if existing_ready:
-                if "event_regime_label" not in d.columns:
-                    d["event_regime_label"] = "balanced"
-                return d
-        date_col = "rebalance_date"
-        keep_cols = [
-            c
-            for c in [date_col]
-            + MARKET_ADAPTATION_COLUMNS
-            + BENCHMARK_RELATIVE_COLUMNS
-            + MACRO_REGIME_COLUMNS
-            if c in d.columns
-        ]
-        regime_df = d[keep_cols].dropna(subset=[date_col]).drop_duplicates(date_col, keep="last").sort_values(date_col).reset_index(drop=True)
-        if regime_df.empty:
-            for c in REGIME_ROTATION_COLUMNS:
-                d[c] = np.nan
-            d["event_regime_label"] = ""
-            return d
-
-    def pos_signal(col: str, scale: float = 2.0) -> pd.Series:
-        base = regime_df.get(col, pd.Series(np.nan, index=regime_df.index, dtype=float))
-        return (robust_z(pd.to_numeric(base, errors="coerce")).fillna(0.0) / scale).clip(lower=0.0, upper=1.0)
-
-    def neg_signal(col: str, scale: float = 2.0) -> pd.Series:
-        base = regime_df.get(col, pd.Series(np.nan, index=regime_df.index, dtype=float))
-        return (-robust_z(pd.to_numeric(base, errors="coerce")).fillna(0.0) / scale).clip(lower=0.0, upper=1.0)
-
-    breadth = numeric_series_or_default(regime_df, "market_breadth_regime_score", 0.50).clip(lower=0.0, upper=1.0)
-    participation = numeric_series_or_default(regime_df, "market_sector_participation", 0.35).clip(lower=0.0, upper=1.0)
-    narrowing = numeric_series_or_default(regime_df, "market_leadership_narrowing", 0.50).clip(lower=0.0, upper=1.0)
-    overheat = numeric_series_or_default(regime_df, "market_overheat_ratio", 0.0).clip(lower=0.0, upper=1.0)
-    risk_off = numeric_series_or_default(regime_df, "macro_risk_off_score", 0.0)
-    market = numeric_series_or_default(regime_df, "market_regime_score", 0.0)
-    inflation = numeric_series_or_default(regime_df, "inflation_pressure_score", 0.0)
-    liquidity = numeric_series_or_default(regime_df, "liquidity_regime_score", 0.0)
-    inflation_reaccel = numeric_series_or_default(regime_df, "inflation_reacceleration_score", 0.0)
-    upstream_cost = numeric_series_or_default(regime_df, "upstream_cost_pressure_score", 0.0)
-    labor_softening = numeric_series_or_default(regime_df, "labor_softening_score", 0.0)
-    stagflation = numeric_series_or_default(regime_df, "stagflation_score", 0.0)
-    growth_liquidity = numeric_series_or_default(regime_df, "growth_liquidity_reentry_score", 0.0)
-    bench_trend = numeric_series_or_default(regime_df, "bench_above_ma200", np.nan).fillna(
-        numeric_series_or_default(regime_df, "spy_above_ma200", 1.0)
-    )
-    qqq_rel = numeric_series_or_default(regime_df, "qqq_rel_spy_1m", 0.0)
-
-    systemic = (
-        0.22 * pos_signal("vix_z_63d", scale=1.4)
-        + 0.18 * pos_signal("hy_oas_level", scale=1.5)
-        + 0.18 * pos_signal("hy_oas_change_1m", scale=1.5)
-        + 0.14 * ((0.55 - breadth) / 0.35).clip(lower=0.0, upper=1.0)
-        + 0.10 * ((narrowing - 0.60) / 0.30).clip(lower=0.0, upper=1.0)
-        + 0.10 * pos_signal("bench_dd_1y", scale=1.3)
-        + 0.08 * ((0.50 - bench_trend) * 2.0).clip(lower=0.0, upper=1.0)
-        + 0.08 * labor_softening.clip(lower=0.0, upper=1.0)
-    ).clip(lower=0.0, upper=1.0)
-
-    carry_unwind = (
-        0.26 * pos_signal("vix_z_63d", scale=1.5)
-        + 0.20 * pos_signal("dxy_ret_1m", scale=1.5)
-        + 0.16 * neg_signal("qqq_rel_spy_1m", scale=1.5)
-        + 0.14 * ((0.52 - breadth) / 0.30).clip(lower=0.0, upper=1.0)
-        + 0.12 * ((narrowing - 0.58) / 0.28).clip(lower=0.0, upper=1.0)
-        + 0.12 * pos_signal("hy_oas_change_1m", scale=1.6)
-    ).clip(lower=0.0, upper=1.0)
-
-    war_oil_rate = (
-        0.28 * pos_signal("uso_ret_1m", scale=1.5)
-        + 0.20 * pos_signal("dgs10_change_1m", scale=1.5)
-        + 0.18 * pos_signal("inflation_pressure_score", scale=1.5)
-        + 0.08 * inflation_reaccel.clip(lower=0.0, upper=1.0)
-        + 0.06 * upstream_cost.clip(lower=0.0, upper=1.0)
-        + 0.14 * pos_signal("macro_risk_off_score", scale=1.8)
-        + 0.12 * pos_signal("hy_oas_change_1m", scale=1.6)
-        + 0.08 * ((0.58 - breadth) / 0.35).clip(lower=0.0, upper=1.0)
-    ).clip(lower=0.0, upper=1.0)
-
-    defensive_rotation = (
-        0.42 * systemic
-        + 0.34 * war_oil_rate
-        + 0.16 * carry_unwind
-        + 0.14 * stagflation.clip(lower=0.0, upper=1.0)
-        + 0.08 * ((0.45 - participation) / 0.25).clip(lower=0.0, upper=1.0)
-    ).clip(lower=0.0, upper=1.0)
-
-    growth_reentry = (
-        0.22 * ((breadth - 0.58) / 0.24).clip(lower=0.0, upper=1.0)
-        + 0.18 * ((participation - 0.42) / 0.20).clip(lower=0.0, upper=1.0)
-        + 0.16 * ((bench_trend - 0.50) * 2.0).clip(lower=0.0, upper=1.0)
-        + 0.14 * pos_signal("market_regime_score", scale=1.8)
-        + 0.10 * pos_signal("liquidity_regime_score", scale=1.8)
-        + 0.10 * growth_liquidity.clip(lower=0.0, upper=1.0)
-        + 0.08 * pos_signal("qqq_rel_spy_1m", scale=1.8)
-        + 0.12 * pos_signal("bench_ret_6m", scale=1.8)
-        + 0.08 * ((0.35 - overheat) / 0.35).clip(lower=0.0, upper=1.0)
-        - 0.08 * defensive_rotation
-        - 0.08 * stagflation.clip(lower=0.0, upper=1.0)
-        - 0.06 * ((0.0 - market).clip(lower=0.0) / 1.5).clip(lower=0.0, upper=1.0)
-    ).clip(lower=0.0, upper=1.0)
-
-    labels = np.full(len(regime_df), "balanced", dtype=object)
-    labels = np.where((systemic >= carry_unwind) & (systemic >= war_oil_rate) & (systemic >= 0.55), "systemic_crisis", labels)
-    labels = np.where((carry_unwind > systemic) & (carry_unwind >= war_oil_rate) & (carry_unwind >= 0.52), "carry_unwind", labels)
-    labels = np.where((war_oil_rate > systemic) & (war_oil_rate > carry_unwind) & (war_oil_rate >= 0.52), "war_oil_rate_shock", labels)
-    labels = np.where(
-        (stagflation >= 0.55)
-        & (stagflation > np.maximum(systemic, np.maximum(carry_unwind, war_oil_rate)))
-        & (stagflation >= growth_reentry),
-        "stagflation",
-        labels,
-    )
-    labels = np.where((growth_reentry >= 0.60) & (growth_reentry > defensive_rotation), "growth_reentry", labels)
-
-    regime_df = regime_df.copy()
-    regime_df["systemic_crisis_score"] = systemic
-    regime_df["carry_unwind_stress_score"] = carry_unwind
-    regime_df["war_oil_rate_shock_score"] = war_oil_rate
-    regime_df["defensive_rotation_score"] = defensive_rotation
-    regime_df["growth_reentry_score"] = growth_reentry
-    regime_df["event_regime_label"] = pd.Series(labels, index=regime_df.index, dtype=object)
-
-    if date_col is None:
-        return regime_df
-
-    merge_cols = [date_col] + REGIME_ROTATION_COLUMNS + ["event_regime_label"]
-    d = d.drop(columns=REGIME_ROTATION_COLUMNS + ["event_regime_label"], errors="ignore")
-    d = d.merge(regime_df[merge_cols], on=date_col, how="left")
-    return d
 
 
 def build_live_event_alert_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
@@ -4375,65 +4236,10 @@ def merge_macro_regime_features(cfg: EngineConfig, paths: dict[str, Path], month
     return d
 
 
-def sector_indicator(series: pd.Series, patterns: list[str]) -> pd.Series:
-    txt = series.fillna("").astype(str).str.lower()
-    regex = "|".join(re.escape(p.lower()) for p in patterns)
-    return txt.str.contains(regex, regex=True).astype(float)
+# Stage 3d-ii-min (2026-04-20): sector_indicator + compute_macro_interaction_features
+# moved to r1000_features.py.
 
 
-def compute_macro_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-    if not MACRO_REGIME_COLUMNS:
-        return d
-
-    sector = d.get("sector", pd.Series("", index=d.index, dtype=str))
-    tech_flag = sector_indicator(sector, ["technology", "communication"])
-    energy_flag = sector_indicator(sector, ["energy"])
-    materials_flag = sector_indicator(sector, ["materials"])
-    defensive_flag = sector_indicator(sector, ["utilities", "consumer staples", "health care", "healthcare", "real estate"])
-
-    beta_proxy = (
-        cross_sectional_robust_z(d, "vol_252d")
-        + cross_sectional_robust_z(d, "dd_1y")
-        + cross_sectional_robust_z(d, "mom_6m")
-    ) / 3.0
-    duration_proxy = (
-        -cross_sectional_robust_z(d, "ep_ttm")
-        - cross_sectional_robust_z(d, "sp_ttm")
-        - cross_sectional_robust_z(d, "fcfy_ttm")
-        + cross_sectional_robust_z(d, "mom_6m")
-    ) / 4.0
-    defensive_quality_proxy = (
-        cross_sectional_robust_z(d, "op_margin_ttm")
-        + cross_sectional_robust_z(d, "roe_proxy")
-        - cross_sectional_robust_z(d, "vol_252d")
-        - cross_sectional_robust_z(d, "dd_1y")
-    ) / 4.0
-    momentum_proxy = (
-        cross_sectional_robust_z(d, "mom_3m")
-        + cross_sectional_robust_z(d, "mom_6m")
-        + cross_sectional_robust_z(d, "dist_ma200")
-    ) / 3.0
-
-    vix = numeric_series_or_default(d, "vix_z_63d", 0.0)
-    rates = numeric_series_or_default(d, "dgs10_change_1m", 0.0)
-    qqq_rel = numeric_series_or_default(d, "qqq_rel_spy_1m", 0.0)
-    smh_rel = numeric_series_or_default(d, "smh_rel_spy_1m", 0.0)
-    oil = numeric_series_or_default(d, "uso_ret_1m", 0.0)
-    copper = numeric_series_or_default(d, "cper_ret_1m", 0.0)
-    risk_off = numeric_series_or_default(d, "macro_risk_off_score", 0.0)
-    regime = numeric_series_or_default(d, "market_regime_score", 0.0)
-
-    d["macro_beta_vix_interaction"] = beta_proxy * vix
-    d["macro_duration_rate_interaction"] = duration_proxy * rates
-    d["macro_tech_leadership_interaction"] = tech_flag * qqq_rel
-    d["macro_semis_cycle_interaction"] = tech_flag * smh_rel
-    d["macro_energy_oil_interaction"] = energy_flag * oil
-    d["macro_materials_copper_interaction"] = materials_flag * copper
-    d["macro_defensive_riskoff_interaction"] = defensive_flag * defensive_quality_proxy * risk_off
-    d["macro_momentum_regime_interaction"] = momentum_proxy * regime
-
-    return d
 
 
 def compute_market_adaptation_features(df: pd.DataFrame) -> pd.DataFrame:
