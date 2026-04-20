@@ -7199,9 +7199,9 @@ def train_phase11_classifiers(
     Saves models to paths["cache_misc"]/phase11_models/. Returns artifact dict or None.
     """
     cfg_obj = to_cfg(cfg)
-    # Dual-gate: cfg flag AND env toggle both required.
-    _cfg_enabled = bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False))
-    if not (_cfg_enabled and phase_is_enabled("phase11_multibagger", default=_cfg_enabled)):
+    # Gate: env var overrides cfg default.
+    _cfg_default = bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False))
+    if not phase_is_enabled("phase11_multibagger", default=_cfg_default):
         return None
 
     episodes = _load_phase11_episodes()
@@ -7342,8 +7342,8 @@ def compute_phase11_predictions(
         if c not in out.columns:
             out[c] = 0.0
 
-    _cfg_enabled = bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False))
-    if not (_cfg_enabled and phase_is_enabled("phase11_multibagger", default=_cfg_enabled)):
+    _cfg_default = bool(getattr(cfg_obj, "phase11_multibagger_sleeve_enabled", False))
+    if not phase_is_enabled("phase11_multibagger", default=_cfg_default):
         return out
 
     artifacts = _load_phase11_models(paths)
