@@ -2707,3 +2707,66 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Concentration risk**: champion holdings are 2 Energy (PR 30%, FTI 14.5%), 1 Utilities (ETR 27.8%), 1 Industrials (GEV 15.2%), 1 IT (AKAM 12.3%). Energy = 45% of concentrated sleeve → sensitive to oil/gas regime shifts. Diversified portfolio (18 positions) stays the recommended primary vehicle; concentrated is a SEPARATE high-conviction sleeve (per concentrated_operating_guide.json).
   - **Stage 3 unblocked**: Refactor Phase A per REFACTOR_PLAN.md §6. Estimated 1-1.5 day focused session. After refactor: Stage 4 Subtractive (delete Phase 3/5/7a + 153 noise factors), then Stage 5 Phase 8e (r_12m ML) for next alpha wave.
 
+
+## 2026-04-20
+
+### 19:00 KST - phase11-multibagger-watch-sleeve-integration
+
+- scope:
+  - **Phase 11 Multibagger Watch sleeve** production integration. Adds 4th sleeve alongside core_compounder / future_winner / early_scout that selects stocks matching the multibagger lifecycle pattern (pre-surge → surge → peak → decline) via 3 ML classifiers. Built on the **3-classifier lifecycle model** (entry + take_profit + stop_loss) validated in `research/phase11_*.py` which showed standalone CAGR 31.1% (vs SPY 17.1%, main 29.1%) and 50/50 main+phase11 blend Sharpe 2.07 on 2022-06 to 2026-04 test period. **Default OFF**; enables via `cfg.phase11_multibagger_sleeve_enabled=True` or `PHASE_PHASE11_MULTIBAGGER_ENABLED=1` env.
+- files:
+  - `r1000_config.py` -> PHASE11_MULTIBAGGER_COLUMNS constant (3 prediction columns). 14 EngineConfig fields. ENGINE_REUSE_VERSION bump to 2026-04-20-phase11-multibagger-sleeve.
+  - `r1000_pipeline.py` -> `train_phase11_classifiers` + `compute_phase11_predictions` + helpers (_prep_phase11_features, _load_phase11_episodes, _load_phase11_models). build_feature_store now invokes compute_phase11_predictions inline. PHASE11_MULTIBAGGER_COLUMNS added to keep_cols and hard_sanitize whitelists.
+  - `r1000_signals.py` -> `_apply_multibagger_watch_sleeve_override` helper (called at end of compute_portfolio_sleeve_columns). compute_portfolio_sleeve_policy adds `multibagger_watch_target` to return dict (= invested_share * allocation_pct when enabled). build_target_portfolio adds multibagger_target_n count + dedicated multibagger_sel selection block + sector-limit pass. Core count formula accounts for 4th sleeve at 3 sites.
+  - `tests/smoke_test.py` -> 3 regression tests: phase11_config_fields_exported, phase11_columns_in_feature_store, phase11_sleeve_label_in_build_target_portfolio.
+- symbols_added:
+  - `r1000_config.PHASE11_MULTIBAGGER_COLUMNS: list[str]` -> the 3 prediction column names (phase11_p_entry, phase11_p_takeprofit, phase11_p_stoploss).
+  - `r1000_pipeline.train_phase11_classifiers(cfg, fs, paths)` -> trains LR+CatBoost for entry/tp/sl labels constructed from research/multibagger_episodes.csv. Saves to cache_misc/phase11_models/artifacts.pkl.
+  - `r1000_pipeline.compute_phase11_predictions(cfg, fs, paths)` -> adds 3 P(...) columns to feature_store. Graceful zero-fallback when disabled or models missing.
+  - `r1000_pipeline._prep_phase11_features(df)` / `_load_phase11_episodes()` / `_load_phase11_models(paths)` -> support helpers.
+  - `r1000_signals._apply_multibagger_watch_sleeve_override(d, cfg)` -> overrides portfolio_sleeve_label to "multibagger_watch" for top-N qualified names per rebalance_date.
+- symbols_changed:
+  - `r1000_config.ENGINE_REUSE_VERSION` -> "2026-04-18-phase9c3-turnaround-flags" became "2026-04-20-phase11-multibagger-sleeve". Triggers FS rebuild on next FULL run to populate the 3 new prediction columns.
+  - `r1000_signals.compute_portfolio_sleeve_columns` -> tail now calls _apply_multibagger_watch_sleeve_override.
+  - `r1000_signals.compute_portfolio_sleeve_policy` -> return dict gains "multibagger_watch_target" key. Core/future/early scaled when Phase 11 enabled so all 4 sum to invested_share.
+  - `r1000_signals.build_target_portfolio` -> adds multibagger_target_n computation, new selection block, multibagger_sel concat into sleeve_frames, scaling preserved across cash-buffer rescale branches (2 sites).
+- config_fields_added:
+  - `phase11_multibagger_sleeve_enabled: bool = False` -> master toggle (default OFF for safe ship).
+  - `phase11_sleeve_size: int = 5` -> top-N per month (validated optimal in backtest).
+  - `phase11_allocation_pct: float = 0.30` -> portfolio weight share (30% default = safer; 50% = Sharpe max per backtest).
+  - `phase11_p_entry_threshold: float = 0.30` -> minimum P(entry) for selection.
+  - `phase11_p_takeprofit_threshold: float = 0.50` -> P(tp) cap at selection (익절 exit).
+  - `phase11_p_stoploss_threshold: float = 0.70` -> P(sl) hard exit threshold.
+  - `phase11_p_stoploss_select_threshold: float = 0.50` -> softer P(sl) cap at selection time.
+  - `phase11_quality_min_mcap: float = 1e9` -> $1B minimum (exclude microcaps/pump-and-dump).
+  - `phase11_quality_min_revenue: float = 1e8` -> $100M revenues_ttm minimum (exclude pre-revenue biotech lotteries).
+  - `phase11_weighting_mode: str = "pscore"` -> P(entry)-weighted (beats equal-weight by 4pp CAGR in backtest).
+  - `phase11_classifier_iterations: int = 500` -> CatBoost iterations.
+  - `phase11_classifier_depth: int = 6` -> CatBoost tree depth.
+  - `phase11_classifier_learning_rate: float = 0.03`.
+  - `phase11_min_positive_examples: int = 30` -> skip training if insufficient labels.
+  - `phase11_train_split_date: str = "2022-06-30"` -> diagnostic train/test split.
+- breaking_changes:
+  - none. Default phase11_multibagger_sleeve_enabled=False keeps existing 3-sleeve behavior unchanged. Baseline Phase 9 C3 + CE v2 metrics (CAGR 22.91%, Sharpe 1.17) preserved. Enabling requires explicit opt-in.
+  - ENGINE_REUSE_VERSION bump triggers one-time FS rebuild on next FULL run regardless of phase11 toggle (new keep_cols schema).
+- outputs:
+  - `cache_misc/phase11_models/artifacts.pkl` -> pickled dict with scalers + LR + CatBoost classifiers for entry/takeprofit/stoploss. Created on first enabled FULL run.
+  - `feature_store_latest.parquet` gains 3 new columns: phase11_p_entry, phase11_p_takeprofit, phase11_p_stoploss (zeros when disabled).
+  - research/* artifacts from Steps 1-4 kept as validation record.
+- validation:
+  - `py -3 tests/smoke_test.py` -> 28/28 pass (25 existing + 3 new Phase 11 regression tests).
+  - Unit test of _apply_multibagger_watch_sleeve_override on 8-ticker synthetic frame: 5 correct selections, 3 correct rejections (P_tp>0.5, P_sl>0.5, P_entry<0.3).
+  - Unit test of compute_portfolio_sleeve_policy with Phase 11 ON (30% alloc): core=0.072, future=0.428, early=0.165, mbw=0.285, sum=0.95=invested_share. mbw/invested = 0.30 matches allocation_pct.
+- risks_or_notes:
+  - **Test sample is short** (47 months, 2022-06 to 2026-04). Overfitting risk exists even though walk-forward-esque time split was used. Future FULL rebuild with PHASE_PHASE11_MULTIBAGGER_ENABLED=1 will train on the same data; the only true OOS validation comes from live walk-forward after ship.
+  - **손절 classifier is weak** (AUC 0.62 vs entry 0.84, takeprofit 0.75). Classifier learned macro-timing features (PPI/CPI/unrate) more than stock-specific thesis breaks. Sleeve integration falls back to rule-based P_sl threshold + natural monthly rebalance cycling.
+  - **Classifier retraining required on version bump**. If feature_store schema changes, the pickled scalers + models become stale. compute_phase11_predictions detects missing models and re-trains inline (~1-2 min).
+  - **Episodes CSV is a static training set** (54 5x+ episodes from 2018-2024). Future 5x+ stocks not yet reflected. Next FULL rebuild could regenerate research/multibagger_episodes.csv via research/phase11_retrospective.py.
+  - **Allocation 30% is conservative default**. Backtest shows 50% = Sharpe max, 70% = CAGR +4.8pp. User can raise cfg.phase11_allocation_pct after seeing first live A/B outcome.
+  - **Bisection-safe**: 6 sequential commits (30c796f, 3496e4a, af3050c, 26e1f0f, e5b6a22, this one). Each commit independently smoke-testable + revertable.
+  - **A/B test procedure**: after this commit, run:
+    ```
+    PHASE_PHASE11_MULTIBAGGER_ENABLED=0 py -3 run_local.py --no-collector   # baseline
+    PHASE_PHASE11_MULTIBAGGER_ENABLED=1 py -3 run_local.py --no-collector   # Phase 11 ON (will trigger FS rebuild due to version bump)
+    ```
+    Compare outputs/backtest_metrics.json between runs. Ship gate: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp.
