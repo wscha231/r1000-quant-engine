@@ -50,6 +50,7 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE_PATH = ROOT / "r1000_top30_institutional.py"
 CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
+HELPERS_PATH = ROOT / "r1000_helpers.py"  # Refactor Phase A Stage 2a onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -126,6 +127,7 @@ def test_notebook_json() -> None:
 
 _ENGINE_SRC: str | None = None
 _CONFIG_SRC: str | None = None
+_HELPERS_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -145,10 +147,33 @@ def _config_src() -> str:
     return _CONFIG_SRC
 
 
+def _helpers_src() -> str:
+    """Refactor Phase A Stage 2a onwards: pure utility helpers live in
+    r1000_helpers.py (phase_is_enabled, log, hard_sanitize, etc.).
+    Returns empty string if file absent."""
+    global _HELPERS_SRC
+    if _HELPERS_SRC is None:
+        _HELPERS_SRC = HELPERS_PATH.read_text(encoding="utf-8") if HELPERS_PATH.exists() else ""
+    return _HELPERS_SRC
+
+
 def _combined_src() -> str:
-    """Engine + config sources combined for regex searches that should look
-    across both files (e.g. PHASE*_COLUMNS constant existence)."""
-    return _engine_src() + "\n\n# === r1000_config.py ===\n\n" + _config_src()
+    """Engine + config + helpers sources combined for regex searches that
+    should look across all refactored files (e.g. PHASE*_COLUMNS constant
+    existence, hard_sanitize body, cfg field definitions).
+
+    Section separators use comment headers that cannot appear inside the
+    actual source (the `# === r1000_*.py ===` pattern) so regex anchored
+    to ^def or ^class can still find real definitions without capturing
+    the header text as spurious matches.
+    """
+    return (
+        _engine_src()
+        + "\n\n# === r1000_config.py ===\n\n"
+        + _config_src()
+        + "\n\n# === r1000_helpers.py ===\n\n"
+        + _helpers_src()
+    )
 
 
 @_test("structural.phase_columns_referenced_in_feature_store")
@@ -221,8 +246,11 @@ def test_hard_sanitize_dedup() -> None:
     Regression for: commit d87160d -- FULL rebuild crashed with
     'ValueError: Columns must be same length as key' when DEFAULT_FEATURES and
     PHASE*_COLUMNS overlapped. Fix: `cols = [c for c in dict.fromkeys(cols) ...]`.
+
+    Phase A Stage 2c (2026-04-20): hard_sanitize moved to r1000_helpers.py;
+    grep combined sources so test finds it in either location.
     """
-    src = _engine_src()
+    src = _combined_src()
     m = re.search(
         r"^def hard_sanitize\b.*?(?=^def |\Z)",
         src,
