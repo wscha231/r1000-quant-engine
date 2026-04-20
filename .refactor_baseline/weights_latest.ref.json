@@ -1,0 +1,145 @@
+{
+  "run_id": "20260418_212120__d3d3a91__2026-04-18-phase9c3-turnaround-flags",
+  "run_ts": "20260418_212120",
+  "git_commit": "d3d3a910c564ce1288a841c78c9b1e0c9293d337",
+  "engine_version": "2026-04-18-phase9c3-turnaround-flags",
+  "config_fingerprint": "53bdb6fd31c351d9c3215d3df7022389f98949d8",
+  "rebalance_date": "2026-04-17",
+  "holdings": {
+    "NVDA": 0.14,
+    "GOOG": 0.14,
+    "AVGO": 0.0816799949696037,
+    "AAPL": 0.07805739856176382,
+    "JNJ": 0.07787000477835966,
+    "GEV": 0.04641342708902261,
+    "LNG": 0.04095029683713594,
+    "VRT": 0.04,
+    "BKNG": 0.04,
+    "PR": 0.03888168218020098,
+    "CASH": 0.03803419575683837,
+    "ETR": 0.03742762800897963,
+    "FTI": 0.03688185035123126,
+    "APH": 0.034224681102796875,
+    "AKAM": 0.0336492862012484,
+    "MRVL": 0.032711647164428516,
+    "AMD": 0.031992728487575436,
+    "ADI": 0.03122517851081486
+  },
+  "selected_n": 17,
+  "cash_weight": 0.03803419575683837,
+  "target_n": 18,
+  "weight_cap": 0.14,
+  "cash_target": 0.0,
+  "sleeve_target_weights": {
+    "core_compounder": 0.6,
+    "future_winner": 0.25,
+    "early_scout": 0.15
+  },
+  "sleeve_actual_weights": {
+    "core_compounder": 0.6305504236344386,
+    "future_winner": 0.18145678421829411,
+    "early_scout": 0.14995859639042902
+  },
+  "sleeve_selected_counts": {
+    "core_compounder": 8,
+    "future_winner": 5,
+    "early_scout": 4
+  },
+  "sleeve_specific_rebalance_enabled": true,
+  "sleeve_rebalance_interval_map": {
+    "core_compounder": 1,
+    "future_winner": 2,
+    "early_scout": 1
+  },
+  "sleeve_rebalance_counts": {
+    "core_compounder": 83,
+    "future_winner": 54,
+    "early_scout": 83
+  },
+  "future_winner_regime_strength": 0.2663607729796421,
+  "early_scout_regime_strength": 0.14652280946562432,
+  "sleeve_growth_signal": 0.5060367000076778,
+  "sleeve_risk_signal": 0.2396759270280356,
+  "applied_regime_sleeve_policy_label": "def_60_25_15",
+  "applied_regime_sleeve_live_label": "balanced",
+  "applied_regime_sleeve_source_label": "balanced",
+  "regime_sleeve_method_best": {},
+  "learned_regime_sleeve_method": {},
+  "manual_regime_sleeve_method": {},
+  "prev_holdings_applied": false,
+  "prev_holdings_count": 0,
+  "adaptive_ensemble_weights": {
+    "linear": 0.27783006026627044,
+    "catboost": 0.39832915258781043,
+    "ranker": 0.3238407871459192
+  },
+  "adaptive_ensemble_active": true,
+  "adaptive_ensemble_history_months": 12,
+  "regime_ensemble_weights": {
+    "balanced": {
+      "linear": 0.2615,
+      "catboost": 0.4127,
+      "ranker": 0.3258
+    },
+    "growth_reentry": {
+      "linear": 0.18,
+      "catboost": 0.478,
+      "ranker": 0.342
+    },
+    "stagflation": {
+      "linear": 0.24,
+      "catboost": 0.422,
+      "ranker": 0.338
+    },
+    "war_oil_rate_shock": {
+      "linear": 0.26,
+      "catboost": 0.41,
+      "ranker": 0.33
+    },
+    "carry_unwind": {
+      "linear": 0.248,
+      "catboost": 0.422,
+      "ranker": 0.33
+    },
+    "systemic_crisis": {
+      "linear": 0.28,
+      "catboost": 0.398,
+      "ranker": 0.322
+    }
+  },
+  "rebalance_interval_months": 1,
+  "adaptive_rebalance_policy": false,
+  "avg_rebalance_interval_months": 1.0,
+  "rebalance_count": 83,
+  "rebalanced_month_ratio": 1.0,
+  "recommended_rebalance_interval_months": 3,
+  "active_rebalance_interval_months": 3,
+  "policy_rebalance_due": true,
+  "rebalance_action": "rebalance",
+  "deferred_rebalance_interval_months": null,
+  "next_scheduled_rebalance_date": "2026-07-31",
+  "recommended_next_run_date": "2026-07-31",
+  "recommended_next_run_mode": "full_step1_and_step2",
+  "recommended_next_run_reason": "Run again on the next 3-month rebalance date.",
+  "regime_interval_label": "balanced_quarterly",
+  "regime_interval_reason": "Breadth or risk backdrop is mixed; slow the cadence to quarterly until market participation improves.",
+  "regime_target_interval_months": 3,
+  "strict_live_backtest_alignment": true,
+  "ops_min_realized_coverage": 0.9,
+  "sage_snapshot": {
+    "top30_mean_sage_composite_score": 0.5682767137716899,
+    "portfolio_mean_sage_composite_score": 0.7504115667054175,
+    "portfolio_mean_sage_g_score": 1.0615505642486,
+    "portfolio_mean_sage_v_score": 0.740046118920276,
+    "portfolio_mean_sage_q_score": 0.19028612948189635,
+    "portfolio_mean_sage_c_score": 0.9752387141190972,
+    "portfolio_sage_sector_mode": "Semiconductor",
+    "portfolio_sage_by_sleeve": {
+      "core_compounder": 0.5385150558283763,
+      "early_scout": 1.4087976389912475,
+      "future_winner": 0.5627371262800196
+    }
+  },
+  "event_regime_label": "balanced",
+  "live_event_alert_label": "balanced"
+}

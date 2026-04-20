@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "captured_at_kst": "2026-04-20 10:16:02 KST",
+  "captured_from_commit": "a05aa59047e6dfce0326c18a99f2fef73871c278",
+  "captured_from_commit_dirty": true,
+  "engine_reuse_version": "2026-04-18-phase9c3-turnaround-flags",
+  "base_dir": "G:\\내 드라이브\\r1000_top30_institutional",
+  "files": {
+    "scored_latest.csv": {
+      "sha256": "895c7270aa2267ea1efa6feb437443e6bc4d9a2f9825460cfa7d76d5e38e8c91",
+      "size_bytes": 4180534,
+      "ref_path": ".refactor_baseline\\scored_latest.ref.csv"
+    },
+    "portfolio_latest.csv": {
+      "sha256": "ab8fd64ecc846bc9b3b305f741ea39a2d3143394a660f77732e5d07474c98bca",
+      "size_bytes": 34144,
+      "ref_path": ".refactor_baseline\\portfolio_latest.ref.csv"
+    },
+    "weights_latest.json": {
+      "sha256": "0198db53ee8645c8da077a2d59407a5c65c321f4e15cd1ce9a867f8a25deda77",
+      "size_bytes": 4726,
+      "ref_path": ".refactor_baseline\\weights_latest.ref.json"
+    },
+    "backtest_metrics.json": {
+      "sha256": "368f9993d4c8546e5e7ca57e2fd8c9d6ae508a5321e41d8dad27e47629f2dc91",
+      "size_bytes": 1244,
+      "ref_path": ".refactor_baseline\\backtest_metrics.ref.json"
+    }
+  },
+  "metrics_snapshot": {
+    "cagr": 0.22911166300166297,
+    "sharpe": 1.1721263946351221,
+    "max_dd": -0.26259129906197665,
+    "ir": 0.947406547789942,
+    "excess_cagr": 0.09416978483844196,
+    "avg_stock_names": 20.433734939759034,
+    "avg_turnover_monthly": 0.4307615020708708,
+    "beat_month_ratio": 0.5783132530120482
+  },
+  "concentrated_snapshot": {
+    "target_stock_names": 5,
+    "weighting_mode": "score_power",
+    "strategy_cagr": 0.34746701950392844,
+    "sharpe": 1.2538317566650106,
+    "max_dd": -0.2673967853395588,
+    "comparison_objective": 0.38436038328351585
+  },
+  "csv_row_counts": {
+    "scored_latest.csv": 610,
+    "portfolio_latest.csv": 18
+  }
+}
