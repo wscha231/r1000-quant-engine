@@ -51,6 +51,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ENGINE_PATH = ROOT / "r1000_top30_institutional.py"
 CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
 HELPERS_PATH = ROOT / "r1000_helpers.py"  # Refactor Phase A Stage 2a onwards
+FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -128,6 +129,7 @@ def test_notebook_json() -> None:
 _ENGINE_SRC: str | None = None
 _CONFIG_SRC: str | None = None
 _HELPERS_SRC: str | None = None
+_FEATURES_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -157,10 +159,21 @@ def _helpers_src() -> str:
     return _HELPERS_SRC
 
 
+def _features_src() -> str:
+    """Refactor Phase A Stage 3a onwards: feature engineering funcs live in
+    r1000_features.py (industry RS, alpha_vantage/yfinance fetchers, fund
+    panel derivators incl. recompute_fund_panel_derived_columns + carry_cols).
+    Returns empty string if file absent."""
+    global _FEATURES_SRC
+    if _FEATURES_SRC is None:
+        _FEATURES_SRC = FEATURES_PATH.read_text(encoding="utf-8") if FEATURES_PATH.exists() else ""
+    return _FEATURES_SRC
+
+
 def _combined_src() -> str:
-    """Engine + config + helpers sources combined for regex searches that
-    should look across all refactored files (e.g. PHASE*_COLUMNS constant
-    existence, hard_sanitize body, cfg field definitions).
+    """Engine + config + helpers + features sources combined for regex searches
+    that should look across all refactored files (e.g. PHASE*_COLUMNS constant
+    existence, hard_sanitize body, cfg field definitions, carry_cols membership).
 
     Section separators use comment headers that cannot appear inside the
     actual source (the `# === r1000_*.py ===` pattern) so regex anchored
@@ -173,6 +186,8 @@ def _combined_src() -> str:
         + _config_src()
         + "\n\n# === r1000_helpers.py ===\n\n"
         + _helpers_src()
+        + "\n\n# === r1000_features.py ===\n\n"
+        + _features_src()
     )
 
 
@@ -317,8 +332,12 @@ def test_sign_flip_pos_pattern() -> None:
 
     Phase 9 C3 (PHASE_9_C3_PROPOSAL.md) exposes these flags to feature_store
     via alias columns. Any change to this pattern silently breaks C3's gate.
+
+    Phase A Stage 3d-i (2026-04-20): recompute_fund_panel_derived_columns
+    (which contains _sign_flip_pos) moved to r1000_features.py; grep combined
+    sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # Find _sign_flip_pos definition (nested inside recompute_fund_panel_derived_columns)
     m = re.search(
         r"def _sign_flip_pos\b.*?return flip\.fillna\(0\.0\)",
@@ -602,8 +621,12 @@ def test_sign_flip_cols_carried() -> None:
     Regression: without this they'd be dropped during ffill. Phase 9 C3
     (PHASE_9_C3_PROPOSAL.md) depends on these as the underlying flags for
     profit_turn_positive_4q / cashflow_turn_positive_4q aliases.
+
+    Phase A Stage 3d-i (2026-04-20): carry_cols lives inside
+    recompute_fund_panel_derived_columns (now in r1000_features.py);
+    grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # The carry_cols block in recompute_fund_panel_derived_columns
     m = re.search(r"carry_cols\s*=\s*\[(.*?)\]", src, re.DOTALL)
     assert m, "carry_cols list not found"
@@ -627,8 +650,12 @@ def test_phase9_c3_cols_carried() -> None:
     quarter boundaries but vanish between quarters — keep_cols whitelist
     alone isn't enough because build_universe_monthly merges fund_panel
     using the ffilled columns.
+
+    Phase A Stage 3d-i (2026-04-20): carry_cols lives inside
+    recompute_fund_panel_derived_columns (now in r1000_features.py);
+    grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     m = re.search(r"carry_cols\s*=\s*\[(.*?)\]", src, re.DOTALL)
     assert m, "carry_cols list not found"
     carry_block = m.group(1)
