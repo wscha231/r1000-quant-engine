@@ -1,0 +1,51 @@
+{
+  "params": {
+    "embargo_months": 36,
+    "retrain_freq_months": 12,
+    "sleeve_size": 5,
+    "weighting": "pscore"
+  },
+  "retrains": [
+    {
+      "anchor": "2022-06-30",
+      "train_cutoff": "2019-06-30",
+      "n_train_entry": 65,
+      "entry_auc_test": 0.6915823367065318,
+      "n_pred": 6572
+    },
+    {
+      "anchor": "2023-06-30",
+      "train_cutoff": "2020-06-30",
+      "n_train_entry": 130,
+      "entry_auc_test": 0.771130041261813,
+      "n_pred": 6841
+    },
+    {
+      "anchor": "2024-06-28",
+      "train_cutoff": "2021-06-28",
+      "n_train_entry": 139,
+      "entry_auc_test": 0.6267781875658588,
+      "n_pred": 7594
+    },
+    {
+      "anchor": "2025-06-30",
+      "train_cutoff": "2022-06-30",
+      "n_train_entry": 173,
+      "entry_auc_test": NaN,
+      "n_pred": 7073
+    }
+  ],
+  "walkforward_results": {
+    "cagr": 0.23430156584094708,
+    "sharpe": 1.0731194203309888,
+    "max_dd": -0.14303183920990367,
+    "avg_n": 4.127659574468085,
+    "n_trades": 9,
+    "months": 47
+  },
+  "static_results": {
+    "cagr": 0.3110092274570466,
+    "sharpe": 1.4347108709382927,
+    "max_dd": -0.08734557688069815
+  }
+}

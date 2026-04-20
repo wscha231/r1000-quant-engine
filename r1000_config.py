@@ -2047,7 +2047,7 @@ class EngineConfig:
     # Default OFF -- must be explicitly enabled via env or cfg for A/B testing.
     phase11_multibagger_sleeve_enabled: bool = False
     phase11_sleeve_size: int = 5                       # top N by P(entry) selected each month
-    phase11_allocation_pct: float = 0.30               # portion of portfolio weight allocated to this sleeve
+    phase11_allocation_pct: float = 0.20               # portion of portfolio weight allocated to this sleeve (walk-forward optimum: 20%)
     phase11_p_entry_threshold: float = 0.30            # minimum P(entry) for selection
     phase11_p_takeprofit_threshold: float = 0.50       # P(tp) above this -> exclude from sleeve (익절)
     phase11_p_stoploss_threshold: float = 0.70         # P(sl) above this -> exclude from sleeve (손절)
