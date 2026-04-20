@@ -118,6 +118,16 @@ from r1000_config import (
     EngineConfig,
 )
 
+# Refactor Phase A Stage 2a (2026-04-20): pure utility helpers moved to
+# r1000_helpers.py. See REFACTOR_PLAN.md §6 migration order step 2.
+from r1000_helpers import (
+    _resolve_engine_commit_sha,
+    ENGINE_COMMIT_SHA,
+    phase_is_enabled,
+    now_ts,
+    log,
+)
+
 warnings.filterwarnings("ignore")
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("yfinance").propagate = False
@@ -126,60 +136,11 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # Stage 1d-i (2026-04-20): ENGINE_REUSE_VERSION moved to r1000_config.py.
 
 
-def _resolve_engine_commit_sha() -> str:
-    """Return short git SHA of the engine repo for run provenance.
-
-    Printed in every run banner so logs/notebooks self-identify which
-    code version produced them. Falls back to '(unknown)' if git isn't
-    available (e.g. engine installed as a wheel instead of a clone, or
-    the git binary is missing from PATH).
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(Path(__file__).resolve().parent),
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-        sha = (result.stdout or "").strip()
-        return sha if sha else "(unknown)"
-    except Exception:
-        return "(unknown)"
+# Stage 2a (2026-04-20): _resolve_engine_commit_sha + ENGINE_COMMIT_SHA
+# moved to r1000_helpers.py (re-imported at file top).
 
 
-ENGINE_COMMIT_SHA = _resolve_engine_commit_sha()
-
-
-# =====================================================================
-# Phase A/B toggles (env-var based, for fast iteration testing)
-# =====================================================================
-# These let us isolate the marginal contribution of a given phase by
-# running the full pipeline twice — once with the phase enabled, once
-# disabled — without touching code.  When a phase is disabled the
-# corresponding columns still get created (with safe zero / "" values)
-# so downstream schemas and sleeve composites don't break.
-#
-# Usage (Colab cell or shell):
-#     import os
-#     os.environ["PHASE_PHASE1_ALPHA_ENABLED"] = "0"       # disable Phase 1
-#     os.environ["PHASE_PHASE2_INDUSTRY_ENABLED"] = "0"    # disable Phase 2
-#
-# Any of: "0", "false", "no", "off", "disabled" (case-insensitive) turns
-# a phase OFF.  Anything else (including unset) leaves it at the default.
-def phase_is_enabled(phase_key: str, default: bool = True) -> bool:
-    """Check env var PHASE_{KEY}_ENABLED.  Returns `default` when unset."""
-    env_name = f"PHASE_{phase_key.upper()}_ENABLED"
-    raw = os.environ.get(env_name, "")
-    val = str(raw).strip().lower()
-    if val == "":
-        return bool(default)
-    if val in ("0", "false", "no", "off", "disabled"):
-        return False
-    if val in ("1", "true", "yes", "on", "enabled"):
-        return True
-    return bool(default)
+# Stage 2a (2026-04-20): phase_is_enabled moved to r1000_helpers.py.
 
 
 # Stage 1d-i (2026-04-20): TICKER_RE, EXCLUDE_NAME, CASH_PROXY_TICKER,
@@ -657,12 +618,7 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     return cfg
 
 
-def now_ts() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def log(msg: str) -> None:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+# Stage 2a (2026-04-20): now_ts + log moved to r1000_helpers.py.
 
 
 def to_cfg(cfg: Optional[dict | EngineConfig]) -> EngineConfig:
