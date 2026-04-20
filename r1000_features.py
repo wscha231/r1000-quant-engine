@@ -40,16 +40,23 @@ from r1000_helpers import (
     alpha_vantage_pause_seconds,
     cache_live_file,
     cache_live_statement_file,
+    cross_sectional_robust_z,
     effective_alpha_vantage_refresh_tickers,
     effective_latest_statement_refresh_days,
     effective_latest_statement_repair_tickers,
     is_cache_fresh,
     is_valid_ticker,
     log,
+    numeric_series_or_default,
+    phase_is_enabled,
+    robust_z,
+    row_mean,
     safe_float,
     to_yf_symbol,
+    winsorize,
 )
 from r1000_config import (
+    MOAT_PROXY_COLUMNS,
     PHASE5_LEADER_LAGGARD_COLUMNS,
     SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
@@ -1386,6 +1393,488 @@ def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
 
 # Stage 2c (2026-04-20): numeric_series_or_default moved to r1000_helpers.py.
 
+# =====================================================================
+# Live / satellite / moat / gate feature engineering (Stage 3c, 2026-04-20)
+# =====================================================================
+# 8 functions covering live factor assembly, actual-priority weighting,
+# latest-flow satellite features, moat proxy composite, plus small
+# sector-label normalisation and column-counting helpers.
+# compute_live_factor_columns is the largest single feature function
+# in the engine (265 lines) -- it assembles the cross-sectional live
+# factor stack (sage_* scores, fundamental_confidence, revision_scores)
+# that feeds the sleeve composite at latest-scoring time.
+
+def datetime_series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
+    if col not in df.columns:
+        return pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    return pd.to_datetime(df[col], errors="coerce")
+
+
+def count_present_columns(df: pd.DataFrame, cols: list[str]) -> pd.Series:
+    if df is None or df.empty:
+        return pd.Series(dtype=int)
+    frames = []
+    for c in cols:
+        if c in df.columns:
+            frames.append(pd.to_numeric(df[c], errors="coerce").notna().rename(c))
+        else:
+            frames.append(pd.Series(False, index=df.index, name=c, dtype=bool))
+    return pd.concat(frames, axis=1).sum(axis=1).astype(int)
+
+
+def normalized_sector_labels(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty or "sector" not in df.columns:
+        return pd.Series("", index=getattr(df, "index", pd.Index([])), dtype=str)
+    return (
+        df["sector"]
+        .fillna("")
+        .astype(str)
+        .str.upper()
+        .str.replace("&", " AND ", regex=False)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
+
+
+def sector_keyword_mask(sector_series: pd.Series, keywords: tuple[str, ...]) -> pd.Series:
+    if sector_series is None or sector_series.empty:
+        return pd.Series(dtype=bool)
+    pattern = "|".join(re.escape(k) for k in keywords if k)
+    if not pattern:
+        return pd.Series(False, index=sector_series.index, dtype=bool)
+    return sector_series.astype(str).str.contains(pattern, regex=True, na=False)
+
+
+def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
+    d = df.copy()
+
+    def presence(col: str) -> pd.Series:
+        if col not in d.columns:
+            return pd.Series(0.0, index=d.index, dtype=float)
+        return pd.to_numeric(d[col], errors="coerce").notna().astype(float)
+
+    d["current_price_live"] = numeric_series_or_default(d, "current_price_live", np.nan)
+    d["current_price_live"] = d["current_price_live"].fillna(numeric_series_or_default(d, "px", np.nan))
+
+    d["market_cap_live"] = numeric_series_or_default(d, "market_cap_live", np.nan)
+    d["market_cap_live"] = d["market_cap_live"].fillna(numeric_series_or_default(d, "mktcap", np.nan))
+    d["market_cap_live"] = d["market_cap_live"].fillna(numeric_series_or_default(d, "mktcap_proxy", np.nan))
+    market_cap_effective = d["market_cap_live"].replace(0, np.nan)
+    net_income_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
+    revenues_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan)
+    ocf_ttm = numeric_series_or_default(d, "ocf_ttm", np.nan)
+    capex_ttm = numeric_series_or_default(d, "capex_ttm", np.nan)
+    gross_profit_ttm = numeric_series_or_default(d, "gross_profit_ttm", np.nan)
+    op_income_ttm = numeric_series_or_default(d, "op_income_ttm", np.nan)
+    op_margin_proxy = op_income_ttm / revenues_ttm.replace(0, np.nan)
+    d["op_margin_ttm"] = numeric_series_or_default(d, "op_margin_ttm", np.nan).fillna(op_margin_proxy)
+    d["gross_margins"] = numeric_series_or_default(d, "gross_margins", np.nan).fillna(
+        gross_profit_ttm / revenues_ttm.replace(0, np.nan)
+    )
+    d["operating_margins"] = numeric_series_or_default(d, "operating_margins", np.nan).fillna(
+        d["op_margin_ttm"]
+    )
+    d["fcf_ttm"] = numeric_series_or_default(d, "fcf_ttm", np.nan).fillna(ocf_ttm - capex_ttm)
+    d["ep_ttm"] = numeric_series_or_default(d, "ep_ttm", np.nan).fillna(
+        net_income_ttm / market_cap_effective
+    )
+    d["sp_ttm"] = numeric_series_or_default(d, "sp_ttm", np.nan).fillna(
+        revenues_ttm / market_cap_effective
+    )
+    d["fcfy_ttm"] = numeric_series_or_default(d, "fcfy_ttm", np.nan).fillna(
+        d["fcf_ttm"] / market_cap_effective
+    )
+
+    d["return_on_equity_effective"] = numeric_series_or_default(d, "return_on_equity_live", np.nan)
+    d["return_on_equity_effective"] = d["return_on_equity_effective"].fillna(
+        numeric_series_or_default(d, "av_return_on_equity", np.nan)
+    )
+    d["return_on_equity_effective"] = d["return_on_equity_effective"].fillna(
+        numeric_series_or_default(d, "roe_proxy", np.nan)
+    )
+
+    d["forward_pe_final"] = numeric_series_or_default(d, "av_forward_pe", np.nan)
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "forward_pe", np.nan))
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(
+        (1.0 / numeric_series_or_default(d, "ep_ttm", np.nan)).where(
+            numeric_series_or_default(d, "ep_ttm", np.nan) > 0
+        )
+    )
+    d["ev_to_ebitda_final"] = numeric_series_or_default(d, "av_ev_to_ebitda", np.nan)
+
+    d["peg_final"] = numeric_series_or_default(d, "av_peg_ratio", np.nan)
+    d["peg_final"] = d["peg_final"].fillna(numeric_series_or_default(d, "peg_ratio", np.nan))
+
+    d["earnings_growth_final"] = numeric_series_or_default(d, "earnings_growth_final", np.nan)
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "earnings_growth", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "av_quarterly_earnings_growth_yoy", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "av_stmt_earnings_growth_yoy_actual", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "net_income_growth_yoy", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "op_income_growth_yoy", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "ocf_growth_yoy", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "net_income_cagr_3y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "net_income_cagr_5y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "op_income_cagr_best", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "op_income_cagr_3y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "op_income_cagr_5y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "ocf_cagr_best", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "ocf_cagr_3y", np.nan)
+    )
+    d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
+        numeric_series_or_default(d, "ocf_cagr_5y", np.nan)
+    )
+    earnings_growth_pct = (
+        numeric_series_or_default(d, "earnings_growth_final", np.nan) * 100.0
+    ).where(numeric_series_or_default(d, "earnings_growth_final", np.nan) > 0)
+    d["peg_final"] = d["peg_final"].fillna(
+        numeric_series_or_default(d, "forward_pe_final", np.nan) / earnings_growth_pct.replace(0, np.nan)
+    )
+
+    d["revenue_growth_final"] = numeric_series_or_default(d, "revenue_growth_final", np.nan)
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "revenue_growth", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "av_quarterly_revenue_growth_yoy", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "av_stmt_revenue_growth_yoy_actual", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "sales_growth_yoy", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "sales_cagr_best", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "sales_cagr_3y", np.nan)
+    )
+    d["revenue_growth_final"] = d["revenue_growth_final"].fillna(
+        numeric_series_or_default(d, "sales_cagr_5y", np.nan)
+    )
+
+    # Forward P/S: market_cap / (revenues_ttm * (1 + revenue_growth_final))
+    _rev_fwd = numeric_series_or_default(d, "revenues_ttm", np.nan) * (
+        1.0 + numeric_series_or_default(d, "revenue_growth_final", 0.0).clip(lower=-0.50, upper=2.0)
+    )
+    _mktcap = numeric_series_or_default(d, "mktcap", np.nan)
+    _mktcap = _mktcap.fillna(numeric_series_or_default(d, "market_cap_live", np.nan))
+    d["forward_ps"] = (_mktcap / _rev_fwd.replace(0, np.nan)).where(_rev_fwd > 0)
+    # Forward P/S final: prefer live price_to_sales adjusted, fallback to computed
+    _trailing_ps = numeric_series_or_default(d, "price_to_sales", np.nan).fillna(
+        numeric_series_or_default(d, "av_price_to_sales", np.nan)
+    )
+    _growth_adj = 1.0 + numeric_series_or_default(d, "revenue_growth_final", 0.0).clip(lower=-0.50, upper=2.0)
+    d["forward_ps_final"] = (_trailing_ps / _growth_adj).where(_growth_adj > 0)
+    d["forward_ps_final"] = d["forward_ps_final"].fillna(d["forward_ps"])
+
+    ref_px = numeric_series_or_default(d, "current_price_live", np.nan)
+    d["target_upside_pct"] = numeric_series_or_default(d, "target_mean_price", np.nan) / ref_px.replace(0, np.nan) - 1.0
+    d["analyst_coverage_proxy"] = row_mean(
+        [
+            presence("eps_est_q_next"),
+            presence("rev_est_q_next"),
+            presence("eps_est_fy1"),
+            presence("rev_est_fy1"),
+            presence("eps_est_fy2"),
+            presence("rev_est_fy2"),
+            presence("target_mean_price"),
+            presence("recommendation_mean"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["forward_value_score"] = row_mean(
+        [
+            -cross_sectional_robust_z(d, "forward_pe_final"),
+            -cross_sectional_robust_z(d, "peg_final"),
+            -cross_sectional_robust_z(d, "forward_ps_final"),
+            -cross_sectional_robust_z(d, "ev_to_ebitda_final"),
+            cross_sectional_robust_z(d, "fcfy_ttm"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    # -------------------------------------------------------------------
+    # Phase 8c.2 (2026-04-17): growth-adjusted valuation dampening.
+    # The raw forward_value_score above gives NVDA / AVGO / AMD (25%+
+    # revenue growth mega-caps) a NEGATIVE score because their P/E, P/S
+    # are above cross-sectional median. But a 45%-revenue-growth name
+    # SHOULD trade at a premium — penalising it for that is what caused
+    # our engine to rank NVDA 23rd during its best 2024-01 month.
+    #
+    # Fix: when revenue_growth_final is high, cap the valuation
+    # PENALTY (negative score) — we don't want to reward high P/E, but
+    # we shouldn't punish it either when earnings are catching up fast.
+    # POSITIVE score (cheap names) is unchanged; only NEGATIVE score
+    # (expensive names being penalised) is dampened.
+    #
+    # Thresholds:
+    #   rev_growth > 0.40  -> zero out the penalty (growth fully justifies)
+    #   rev_growth > 0.20  -> halve the penalty
+    #   rev_growth <= 0.20 -> no change (legacy behaviour)
+    # -------------------------------------------------------------------
+    _phase8c2_env = phase_is_enabled("phase8c_growth_adj_valuation", default=True)
+    _phase8c2_cfg = bool(getattr(cfg, "phase8c_growth_adj_valuation_enabled", True)) if cfg is not None else True
+    if _phase8c2_env and _phase8c2_cfg:
+        _rev_gr_for_value = numeric_series_or_default(d, "revenue_growth_final", 0.0)
+        _fwd_val = pd.to_numeric(d["forward_value_score"], errors="coerce").fillna(0.0)
+        _is_penalty = (_fwd_val < 0.0)
+        # Dampening factor: 0.0 when growth>0.40, 0.5 when 0.20<growth<=0.40, 1.0 otherwise.
+        _dampen = pd.Series(1.0, index=d.index, dtype=float)
+        _dampen = _dampen.where(~((_rev_gr_for_value > 0.20) & (_rev_gr_for_value <= 0.40)), 0.5)
+        _dampen = _dampen.where(~(_rev_gr_for_value > 0.40), 0.0)
+        # Only apply to NEGATIVE (penalty) rows — keep positive (cheap) rows intact.
+        d["forward_value_score"] = np.where(
+            _is_penalty, _fwd_val * _dampen.to_numpy(dtype=float), _fwd_val
+        )
+        d["phase8c_growth_adj_valuation_active"] = 1.0
+    else:
+        d["phase8c_growth_adj_valuation_active"] = 0.0
+
+    revision_components = [
+        "eps_est_q_next",
+        "eps_est_fy1",
+        "eps_est_fy2",
+        "rev_est_q_next",
+        "rev_est_fy1",
+        "rev_est_fy2",
+        "eps_revision_proxy",
+        "target_upside_pct",
+    ]
+    revision_raw = row_mean(
+        [cross_sectional_robust_z(d, c) for c in revision_components],
+        d.index,
+    ).fillna(0.0)
+    revision_avail = pd.concat(
+        [
+            (pd.to_numeric(d[c], errors="coerce") if c in d.columns else pd.Series(np.nan, index=d.index, dtype=float))
+            .notna()
+            .rename(c)
+            for c in revision_components
+        ],
+        axis=1,
+    )
+    global_revision_cov = float(revision_avail.mean().mean()) if not revision_avail.empty else 0.0
+    d["revision_coverage_ratio"] = revision_avail.mean(axis=1).fillna(0.0) * global_revision_cov
+    analyst_sentiment = row_mean(
+        [
+            cross_sectional_robust_z(d, "target_upside_pct"),
+            -cross_sectional_robust_z(d, "recommendation_mean"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["revision_score"] = (
+        0.80 * revision_raw + 0.20 * analyst_sentiment
+    ) * (0.55 + 0.45 * d["revision_coverage_ratio"])
+
+    div_weight = float(cfg.dividend_quality_trend_weight) if cfg is not None else 0.20
+    d["quality_trend_score"] = (
+        cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + cross_sectional_robust_z(d, "margin_trend_4q")
+        + cross_sectional_robust_z(d, "ocf_ni_quality_4q")
+        + cross_sectional_robust_z(d, "roe_trend_4q")
+        - cross_sectional_robust_z(d, "debt_to_equity_delta_4q")
+        + cross_sectional_robust_z(d, "margin_stability_8q")
+        + div_weight * cross_sectional_robust_z(d, "dividend_policy_score")
+    ) / (6.0 + div_weight)
+    d["quality_trend_score"] = winsorize(d["quality_trend_score"], 0.01).clip(-6.0, 6.0)
+
+    d["event_reaction_score"] = (
+        cross_sectional_robust_z(d, "earn_gap_1d")
+        + cross_sectional_robust_z(d, "mom_1m")
+    ) / 2.0
+
+    return d
+
+
+def compute_actual_priority_columns(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
+    d = df.copy()
+    accepted = datetime_series_or_default(d, "accepted")
+    rebalance = datetime_series_or_default(d, "rebalance_date")
+    age_days_latest = (rebalance - accepted).dt.days
+    age_days_latest = age_days_latest.where(age_days_latest >= 0, np.nan)
+    fallback_age = numeric_series_or_default(d, "fund_ttm_fallback_age_days", np.nan)
+    fallback_used = numeric_series_or_default(d, "fund_ttm_fallback_used", 0.0) > 0
+    age_days = age_days_latest.copy()
+    if fallback_age.notna().any():
+        age_days = age_days.where(
+            ~fallback_used,
+            np.fmax(age_days_latest.fillna(-1.0), fallback_age.fillna(-1.0)),
+        )
+        age_days = age_days.where(age_days >= 0, np.nan)
+    effective_age = numeric_series_or_default(d, "fund_effective_age_days", np.nan)
+    if effective_age.notna().any():
+        age_days = effective_age.where(effective_age >= 0, np.nan)
+
+    fresh_window = max(int(cfg.actual_results_fresh_days), 1)
+    priority = 1.0 - (age_days / fresh_window)
+    priority = priority.clip(lower=0.0, upper=1.0)
+
+    d["actual_report_age_days_latest"] = age_days_latest
+    d["actual_report_age_days"] = age_days
+    d["actual_report_available"] = age_days.notna().astype(float)
+    d["actual_priority_weight"] = priority.fillna(0.0)
+    d["proxy_fallback_weight"] = 1.0 - cfg.proxy_decay_after_actual * d["actual_priority_weight"]
+
+    d["actual_results_score"] = (
+        cross_sectional_robust_z(d, "sales_growth_yoy")
+        + cross_sectional_robust_z(d, "op_margin_ttm")
+        + cross_sectional_robust_z(d, "ep_ttm")
+        + cross_sectional_robust_z(d, "earn_gap_1d")
+        + cross_sectional_robust_z(d, "roe_trend_4q")
+        + cross_sectional_robust_z(d, "sales_cagr_3y")
+        + 0.75 * cross_sectional_robust_z(d, "sales_cagr_5y")
+    ) / 6.75
+    return d
+
+
+def compute_latest_flow_factor_columns(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    inst_value_proxy = numeric_series_or_default(d, "institutional_holders_value", np.nan)
+    mf_value = numeric_series_or_default(d, "mutualfund_holders_value", np.nan)
+    inst_shares_proxy = numeric_series_or_default(d, "institutional_holders_shares", np.nan)
+    mf_shares = numeric_series_or_default(d, "mutualfund_holders_shares", np.nan)
+    inst_count_proxy = (
+        numeric_series_or_default(d, "institutional_holders_count", np.nan)
+        + numeric_series_or_default(d, "mutualfund_holders_count", np.nan)
+    )
+    sec13f_value = numeric_series_or_default(d, "sec13f_value", np.nan)
+    sec13f_shares = numeric_series_or_default(d, "sec13f_shares", np.nan)
+    sec13f_count = numeric_series_or_default(d, "sec13f_holders_count", np.nan)
+    market_cap = numeric_series_or_default(d, "market_cap_live", np.nan)
+    market_cap = market_cap.fillna(numeric_series_or_default(d, "mktcap", np.nan)).replace(0, np.nan)
+    shares_out = numeric_series_or_default(d, "shares", np.nan).replace(0, np.nan)
+    insider_net_proxy = numeric_series_or_default(d, "insider_net_shares", np.nan)
+    insider_buy_ratio_proxy = numeric_series_or_default(d, "insider_buy_ratio", np.nan)
+    insider_txn_proxy = numeric_series_or_default(d, "insider_txn_count", np.nan)
+    sec_form345_net = numeric_series_or_default(d, "sec_form345_net_shares", np.nan)
+    sec_form345_buy_ratio = numeric_series_or_default(d, "sec_form345_buy_ratio", np.nan)
+    sec_form345_txn = numeric_series_or_default(d, "sec_form345_txn_count", np.nan)
+
+    inst_value = sec13f_value.fillna(inst_value_proxy.fillna(0.0) + mf_value.fillna(0.0))
+    inst_shares = sec13f_shares.fillna(inst_shares_proxy.fillna(0.0) + mf_shares.fillna(0.0))
+    inst_count = sec13f_count.fillna(inst_count_proxy)
+    insider_net = sec_form345_net.fillna(insider_net_proxy)
+    insider_buy_ratio = sec_form345_buy_ratio.fillna(insider_buy_ratio_proxy)
+    insider_txn = sec_form345_txn.fillna(insider_txn_proxy)
+    sec13f_hold_ratio_actual = sec13f_shares / shares_out
+    sec13f_value_ratio_actual = sec13f_value / market_cap
+    sec13f_delta_share_ratio_actual = numeric_series_or_default(d, "sec13f_delta_shares", np.nan) / shares_out
+    sec13f_delta_value_ratio_actual = numeric_series_or_default(d, "sec13f_delta_value", np.nan) / market_cap
+    insider_net_ratio_actual = sec_form345_net / shares_out
+
+    d["institutional_actual_available"] = sec13f_value.notna().astype(float)
+    d["insider_actual_available"] = sec_form345_net.notna().astype(float)
+    d["institutional_ownership_actual"] = sec13f_value_ratio_actual
+    d["institutional_holding_intensity_actual"] = sec13f_hold_ratio_actual
+    d["institutional_delta_shares_ratio_actual"] = sec13f_delta_share_ratio_actual
+    d["institutional_delta_value_ratio_actual"] = sec13f_delta_value_ratio_actual
+    d["insider_net_shares_ratio_actual"] = insider_net_ratio_actual
+    d["institutional_ownership_proxy"] = inst_value / market_cap
+    d["institutional_holding_intensity"] = inst_shares / shares_out
+    d["insider_net_shares_ratio"] = insider_net / shares_out
+    d["insider_buy_ratio_final"] = insider_buy_ratio
+    d["insider_txn_count_final"] = insider_txn
+    d["institutional_count_final"] = inst_count
+
+    d["institutional_flow_score"] = (
+        cross_sectional_robust_z(d, "institutional_count_final")
+        + cross_sectional_robust_z(d, "institutional_ownership_proxy")
+        + cross_sectional_robust_z(d, "institutional_holding_intensity")
+    ) / 3.0
+
+    d["insider_flow_score"] = (
+        cross_sectional_robust_z(d, "insider_net_shares_ratio")
+        + cross_sectional_robust_z(d, "insider_buy_ratio_final")
+        + cross_sectional_robust_z(d, "insider_txn_count_final")
+    ) / 3.0
+    return d
+
+
+def compute_moat_proxy_features(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        for c in MOAT_PROXY_COLUMNS:
+            d[c] = np.nan
+        return d
+
+    market_cap = numeric_series_or_default(d, "market_cap_live", np.nan)
+    market_cap = market_cap.fillna(numeric_series_or_default(d, "mktcap", np.nan)).replace(0, np.nan)
+    log_mktcap = np.log(market_cap)
+    size_saturation = robust_z(log_mktcap).clip(lower=0.0).fillna(0.0)
+
+    pricing_power = row_mean(
+        [
+            cross_sectional_robust_z(d, "op_margin_ttm"),
+            cross_sectional_robust_z(d, "gp_to_assets_ttm"),
+            cross_sectional_robust_z(d, "gross_margins"),
+            cross_sectional_robust_z(d, "operating_margins"),
+            cross_sectional_robust_z(d, "margin_stability_8q"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    durability = row_mean(
+        [
+            cross_sectional_robust_z(d, "return_on_equity_effective"),
+            cross_sectional_robust_z(d, "roa_proxy"),
+            cross_sectional_robust_z(d, "capital_efficiency_score"),
+            cross_sectional_robust_z(d, "sales_cagr_3y"),
+            cross_sectional_robust_z(d, "sales_cagr_5y"),
+            cross_sectional_robust_z(d, "quality_trend_score"),
+            -cross_sectional_robust_z(d, "debt_to_equity"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    holding_intensity_safe = numeric_series_or_default(d, "institutional_holding_intensity_actual", np.nan)
+    holding_intensity_safe = holding_intensity_safe.where(
+        holding_intensity_safe.notna(),
+        numeric_series_or_default(d, "institutional_holding_intensity", np.nan),
+    )
+    dominance = (
+        0.35 * robust_z(holding_intensity_safe).fillna(0.0)
+        + 0.25 * cross_sectional_robust_z(d, "rs_sector_6m").fillna(0.0)
+        + 0.20 * cross_sectional_robust_z(d, "near_52w_high_pct").fillna(0.0)
+        + 0.20 * size_saturation
+    )
+    moat = (
+        0.40 * pricing_power
+        + 0.35 * durability
+        + 0.20 * dominance
+        + 0.05 * size_saturation
+    )
+
+    d["size_saturation_score"] = size_saturation
+    d["pricing_power_score"] = winsorize(pricing_power, 0.01).clip(-6.0, 6.0)
+    d["durability_proxy_score"] = winsorize(durability, 0.01).clip(-6.0, 6.0)
+    d["dominance_proxy_score"] = winsorize(dominance, 0.01).clip(-6.0, 6.0)
+    d["moat_proxy_score"] = winsorize(moat, 0.01).clip(-6.0, 6.0)
+    return d
+
 __all__ = [
     "map_yf_industry_to_group",
     "attach_industry_metadata",
@@ -1423,4 +1912,12 @@ __all__ = [
     "merge_trend_features_into_monthly",
     "merge_live_fundamentals",
     "compute_sage_sector_labels",
+    "datetime_series_or_default",
+    "count_present_columns",
+    "normalized_sector_labels",
+    "sector_keyword_mask",
+    "compute_live_factor_columns",
+    "compute_actual_priority_columns",
+    "compute_latest_flow_factor_columns",
+    "compute_moat_proxy_features",
 ]
