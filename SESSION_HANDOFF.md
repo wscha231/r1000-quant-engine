@@ -6,14 +6,19 @@
 
 ---
 
-## 0. TL;DR — Refactor Phase A IN PROGRESS (branch `refactor/phase-a-module-split`). Stages 0 + 1 + 2 + 3a-c DONE. Stage 1 rollup byte-exact verify PENDING. Stage 3d planned per `STAGE_3D_PLAN.md`.
+## 0. TL;DR — Refactor Phase A IN PROGRESS (branch `refactor/phase-a-module-split`). Stages 0 + 1 + 2 + 3a-c + 3d (i/ii-min/iii/iv) DONE (18 commits). Stage 1 rollup byte-exact verify PENDING.
 
-**Current HEAD = `fd4e6a0`** on branch `refactor/phase-a-module-split` (pushed to remote). **13 refactor commits** on top of last SHIP `6440957`. Main engine **27,838 → 23,594 lines (-15.3%)**. Three new modules created: `r1000_config.py` (2,109L), `r1000_helpers.py` (925L), `r1000_features.py` (1,923L). Smoke tests **25/25 PASS** after each sub-stage.
+**Current HEAD = `b2f4331`** on branch `refactor/phase-a-module-split` (pushed to remote). **18 refactor commits** on top of last SHIP `6440957`. Main engine **27,838 → 21,043 lines (-24.4%)**. Three new modules: `r1000_config.py` (2,109L), `r1000_helpers.py` (967L), `r1000_features.py` (4,598L). Smoke tests **25/25 PASS** after each sub-stage.
 
-### What's done (13 commits, newest first)
+### What's done (18 commits, newest first)
 
 | Commit | Stage | Summary | Lines |
 |---|---|---|---|
+| `b2f4331` | **3d-iv** | `compute_strategy_blueprint_columns` (926L) + `compute_multidimensional_pillar_scores` (186L) + `compute_minervini_momentum_overlay` (144L) → features.py | -1,246 main |
+| `54986f7` | **3d-iii** | 6 funcs: market_adaptation + dynamic_leadership (w/ within_group_z nested) + manual moat overrides + ticker overlays + three_level RS + crisis_sector_fit → features.py | -546 main |
+| `466ba27` | **3d-ii-min** | `compute_event_regime_features` + `sector_indicator` + `compute_macro_interaction_features` (pure transforms) → features.py | -194 main |
+| `6b172a3` | **3d-i** | `_flexible_lag` + `_cagr_from_lag` + `recompute_fund_panel_derived_columns` (458L). Phase 9 C3 nested `_sign_flip_pos`/`_loss_narrowing_rate`/`_under_loss_growth` scope PRESERVED. | -559 main |
+| `2631e62` | **3d-i-prep** | 4 CIK normalization helpers → helpers.py (unblocks 3d-i `normalize_cik_series` dep) | -32 main |
 | `fd4e6a0` | **3c** | 8 live/satellite/moat/gate feature functions → features.py | -469 main |
 | `74be2a0` | **3b** | 28 alpha_vantage + yfinance + fundamental trend fetchers → features.py | -1,237 main |
 | `cf5e1a2` | **3a** | 8 industry RS/O'Neil feature funcs → new `r1000_features.py` | -217 main |
@@ -30,15 +35,12 @@
 
 ### What's pending
 
-1. **Stage 1 rollup (RUNNING)** — `py -3 run_local.py --no-collector` launched at ~11:30 KST on commit `fd4e6a0` (last log: `[11:44] [yf_quarterly] Loaded 5978 rows for 974 CIKs`). Expected ~14:00-14:30 KST. Must produce BYTE-EXACT match against `.refactor_baseline/reference.json` via `py -3 .refactor_baseline/verify.py`. If PASS → Stages 0-3c are confirmed value-preserving.
-2. **Stage 3d — biggest feature group** (planned per `STAGE_3D_PLAN.md`, 4 sub-stages, ~4,000 lines):
-   - **3d-i**: Fundamental panel builders (~1,100L, 7 funcs incl. `recompute_fund_panel_derived_columns` 458L with Phase 9 C3 `_sign_flip_pos` nested helpers — HIGH RISK scope preservation)
-   - **3d-ii**: Macro/event regime builders (~850L, 9 funcs incl. `build_macro_regime_table` 417L)
-   - **3d-iii**: Market/dynamic-leadership/crisis features (~650L, 6 funcs)
-   - **3d-iv**: Strategy blueprint/pillar/minervini composites (~1,400L, 3 funcs incl. `compute_strategy_blueprint_columns` 926L)
-3. **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction
-4. **Stage 5**: `r1000_pipeline.py` — orchestration + facade re-exports on `r1000_top30_institutional.py`
-5. **Stage 6 (Subtractive)**: delete `_legacy_unused_*` funcs (~2,500L) + Phase 3/5/7a dead branches
+1. **Stage 1 rollup (RUNNING)** — `py -3 run_local.py --no-collector` launched at ~11:30 KST on commit `fd4e6a0`. At ~15:00 progressed through Phase 3 (feature_store rebuild) + Phase 4 (walk-forward training, 95 months completed) + Phase 5 (backtest loop with ~11 policy iterations) and reached Phase 5e (concentrated CE grid, 63 combos). Expected completion ~15:15-15:45 KST. Must produce BYTE-EXACT match against `.refactor_baseline/reference.json` via `py -3 .refactor_baseline/verify.py`. Verifies commits `dd7cf46..fd4e6a0`.
+2. **Commits `2631e62..b2f4331` (Stage 3d-i-prep through 3d-iv) need SEPARATE verify run** after Stage 1 rollup completes. Smoke tests 25/25 and identity + scope checks pass, but byte-exact output across full pipeline is the final gate.
+3. **Stage 3d-ii-b (deferred)** — `load_fred_series` + `build_macro_regime_table` 417L + `build_live_event_alert_table` 187L + merge helpers (~850L). Blocked on moving 5 price-cache cascade helpers (`ensure_prices_cached_incremental` 95L + `load_px` + `macro_cache_file` + `price_close_series` + `write_stage_coverage_report`) to helpers.py first. See `STAGE_3D_PLAN.md` execution log for details.
+4. **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction. In-scope: `compute_portfolio_sleeve_columns` (1,028L), `compute_portfolio_sleeve_policy` (222L), `build_target_portfolio` (739L), `compute_regime_portfolio_controls` (349L), `compute_benchmark_beating_focus_overlay` (260L).
+5. **Stage 5**: `r1000_pipeline.py` — orchestration + facade re-exports. In-scope: `train_walkforward` (443L), `backtest_portfolio` (694L), `export_outputs` (1,622L), `run_all` + `run_default_pipeline` + `run_last_n_years_backtest`, `build_feature_store` (224L), `build_universe_monthly` (321L).
+6. **Stage 6 (Subtractive)**: delete `_legacy_unused_*` funcs (~2,500L) + Phase 3/5/7a dead branches.
 
 ### Production baseline — UNCHANGED by refactor (value-preserving extraction)
 

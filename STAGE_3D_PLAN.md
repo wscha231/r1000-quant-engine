@@ -8,6 +8,47 @@
 
 ---
 
+## 🟢 EXECUTION LOG (actual, 2026-04-20)
+
+Sub-stages executed in order 3d-i-prep → 3d-i → 3d-ii-min → 3d-iii → 3d-iv.
+Smoke tests 25/25 pass at every commit. Identity + scope checks verified
+for each sub-stage.
+
+| Commit | Sub-stage | Main delta | Notes |
+|---|---|---|---|
+| `2631e62` | 3d-i-prep | -32L | 4 CIK normalization helpers -> helpers.py (unblocks 3d-i) |
+| `6b172a3` | 3d-i | -559L | `_flexible_lag` + `_cagr_from_lag` + `recompute_fund_panel_derived_columns` (458L). Phase 9 C3 nested `_sign_flip_pos` / `_loss_narrowing_rate` / `_under_loss_growth` scope PRESERVED. |
+| `466ba27` | 3d-ii-min | -194L | `compute_event_regime_features` + `sector_indicator` + `compute_macro_interaction_features` (pure transforms). |
+| `54986f7` | 3d-iii | -546L | 6 funcs: `compute_market_adaptation_features`, `compute_dynamic_leadership_features`, `load_manual_moat_overrides`, `apply_manual_ticker_overlays`, `compute_three_level_relative_strength`, `compute_crisis_sector_fit`. Nested `within_group_z` scope preserved. |
+| `b2f4331` | 3d-iv | -1,246L | `compute_strategy_blueprint_columns` (926L), `compute_multidimensional_pillar_scores` (186L), `compute_minervini_momentum_overlay` (144L). Nested `sector_median` scope preserved. |
+
+**Total 3d impact**: main 23,594 → 21,043 lines (-2,551 / -10.8% within Stage 3d).
+Cumulative main engine reduction vs pre-refactor: **27,838 → 21,043 (-24.4%)**.
+r1000_features.py: 1,923 → 4,598 lines.
+
+### 3d-ii-b DEFERRED
+
+The big macro builders (`load_fred_series`, `build_macro_regime_table` 417L,
+`build_live_event_alert_table` 187L, merge helpers) were NOT moved in this
+pass because they cascade into 5 main-file helpers that still need to
+migrate to helpers.py first:
+
+- `ensure_prices_cached_incremental` (95L) -> helpers or features (price fetch cascade)
+- `load_px` (12L) -> helpers (price cache reader)
+- `macro_cache_file` (2L) -> helpers (path helper)
+- `price_close_series` (9L) -> helpers (close series extractor)
+- `write_stage_coverage_report` (15L) -> helpers (IO report writer)
+
+These in turn cascade into `load_fail_tickers` / `save_fail_tickers` /
+`update_one_ticker_incremental` / `download_yf_price_batch` /
+`merge_price_cache_frame` / `chunked` (already moved). Best tackled
+as a dedicated "price cache cascade" prep commit before 3d-ii-b.
+
+Estimated 3d-ii-b work: 1-2h. Main impact: -850L to -1,000L. Safe to defer
+to post-verify since it doesn't block Stage 4 (signals) or Stage 5 (pipeline).
+
+---
+
 ## Scope summary
 
 Stage 3d completes the feature-engineering extraction by moving the remaining
