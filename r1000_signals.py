@@ -1228,7 +1228,11 @@ def _apply_multibagger_watch_sleeve_override(
 
     No-op when cfg.phase11_multibagger_sleeve_enabled is False.
     """
-    if not bool(getattr(cfg, "phase11_multibagger_sleeve_enabled", False)):
+    # Dual-gate: cfg.phase11_multibagger_sleeve_enabled AND PHASE_PHASE11_MULTIBAGGER_ENABLED.
+    # Default: cfg=False, env=False (opt-in via explicit enable).
+    _cfg_enabled = bool(getattr(cfg, "phase11_multibagger_sleeve_enabled", False))
+    _env_enabled = phase_is_enabled("phase11_multibagger", default=_cfg_enabled)
+    if not (_cfg_enabled and _env_enabled):
         return d
     required_cols = ("phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss",
                      "mktcap", "revenues_ttm", "ticker", "rebalance_date")

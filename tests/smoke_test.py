@@ -791,6 +791,67 @@ def test_phase9_c3_gate_wired() -> None:
     assert 'phase9_c3_turnaround_enabled' in src, "cfg field phase9_c3_turnaround_enabled missing"
 
 
+@_test("regression.phase11_config_fields_exported")
+def test_phase11_cfg_fields() -> None:
+    """Phase 11 multibagger sleeve requires 5 cfg fields + 1 column constant.
+
+    Regression guard: EngineConfig must expose phase11_* fields so run_local.py
+    / colab_run.ipynb / operator can A/B toggle this sleeve programmatically.
+    """
+    combined = _combined_src()
+    required_fields = [
+        "phase11_multibagger_sleeve_enabled",
+        "phase11_sleeve_size",
+        "phase11_allocation_pct",
+        "phase11_p_entry_threshold",
+        "phase11_p_takeprofit_threshold",
+        "phase11_p_stoploss_threshold",
+        "phase11_quality_min_mcap",
+        "phase11_quality_min_revenue",
+        "phase11_weighting_mode",
+    ]
+    missing = [f for f in required_fields if f not in combined]
+    assert not missing, f"EngineConfig missing Phase 11 fields: {missing}"
+    assert "PHASE11_MULTIBAGGER_COLUMNS = [" in combined, (
+        "PHASE11_MULTIBAGGER_COLUMNS list constant missing from config"
+    )
+
+
+@_test("regression.phase11_columns_in_feature_store")
+def test_phase11_columns_whitelisted() -> None:
+    """PHASE11_MULTIBAGGER_COLUMNS must appear in build_feature_store keep_cols
+    and hard_sanitize call. Without this the 3 prediction columns (p_entry,
+    p_tp, p_sl) get silently dropped from feature_store_latest.parquet --
+    same Phase 2 keepcols-survival regression that Phase 1 bug taught us.
+    """
+    combined = _combined_src()
+    # Must be referenced at least twice (keep_cols list + hard_sanitize list)
+    count = combined.count("PHASE11_MULTIBAGGER_COLUMNS")
+    assert count >= 3, (
+        f"PHASE11_MULTIBAGGER_COLUMNS referenced only {count} times across modules; "
+        "expected >=3 (constant def + keep_cols whitelist + hard_sanitize whitelist)."
+    )
+
+
+@_test("regression.phase11_sleeve_label_in_build_target_portfolio")
+def test_phase11_sleeve_wired_in_portfolio() -> None:
+    """build_target_portfolio must define multibagger_target_n + have a
+    multibagger selection block. Without this, even if sleeve_label is set
+    to 'multibagger_watch' by compute_portfolio_sleeve_columns, the allocation
+    never materializes in the final portfolio.
+    """
+    combined = _combined_src()
+    assert "multibagger_target_n" in combined, (
+        "multibagger_target_n missing -- Phase 11 count calc not wired"
+    )
+    assert "multibagger_sel" in combined, (
+        "multibagger_sel missing -- Phase 11 selection block not wired"
+    )
+    assert '"multibagger_watch"' in combined, (
+        "multibagger_watch sleeve label string missing"
+    )
+
+
 # ======================================================================
 # main
 # ======================================================================
