@@ -965,6 +965,7 @@ __all__ = [
     "load_previous_live_policy",
     "_robust_retry",
     "_http_get_inner",
+    "http_get",
     "normalize_ticker",
     "is_valid_ticker",
     "is_valid_price_symbol",
