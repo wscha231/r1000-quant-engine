@@ -1435,3 +1435,631 @@ def compute_portfolio_sleeve_policy(
         ),
         "early_scout_candidate_share": float(early_candidate_share),
     }
+
+
+# =====================================================================
+# Stage 4b-i: regime portfolio controls + benchmark-beating overlay (2026-04-20)
+# =====================================================================
+# Moved from r1000_top30_institutional.py:4238-4848 (was 611L):
+#   compute_regime_portfolio_controls       (349L) -- regime-conditional
+#                                                    sleeve multipliers that
+#                                                    modulate target weights
+#                                                    at runtime per macro regime.
+#   compute_benchmark_beating_focus_overlay  (260L) -- benchmark-beating focus
+#                                                    overlay (rs_benchmark /
+#                                                    focus_score_components).
+#
+# Neither has portfolio-helper deps (unlike build_target_portfolio which needs
+# 16 additional helpers). Safe to move standalone ahead of 4b-ii.
+
+def compute_regime_portfolio_controls(cfg: EngineConfig, month_df: pd.DataFrame) -> dict[str, float]:
+    base = {
+        "risk_multiplier": 1.0,
+        "turnover_multiplier": 1.0,
+        "liquidity_multiplier": 1.0,
+        "single_name_cap": float(cfg.stock_weight_max_high_conviction),
+        "target_n_adjustment": 0.0,
+        "cash_target": 0.0,
+    }
+    if (not cfg.use_macro_regime_features) or month_df.empty:
+        return base
+
+    def _median_or_default(col: str, default: float) -> float:
+        if col not in month_df.columns:
+            return float(default)
+        val = safe_float(pd.to_numeric(month_df[col], errors="coerce").median())
+        return float(default if np.isnan(val) else val)
+
+    risk_off = _median_or_default("macro_risk_off_score", 0.0)
+    market = _median_or_default("market_regime_score", 0.0)
+    inflation = _median_or_default("inflation_pressure_score", 0.0)
+    spy_trend = _median_or_default("spy_above_ma200", 1.0)
+    bench_trend = _median_or_default("bench_above_ma200", spy_trend)
+    breadth_regime = _median_or_default("market_breadth_regime_score", 0.50)
+    leadership_narrowing = _median_or_default("market_leadership_narrowing", 0.50)
+    sector_participation = _median_or_default("market_sector_participation", 0.35)
+    market_overheat = _median_or_default("market_overheat_ratio", 0.0)
+    systemic = _median_or_default("systemic_crisis_score", 0.0)
+    carry_unwind = _median_or_default("carry_unwind_stress_score", 0.0)
+    war_oil_rate = _median_or_default("war_oil_rate_shock_score", 0.0)
+    defensive_rotation = _median_or_default("defensive_rotation_score", 0.0)
+    growth_reentry = _median_or_default("growth_reentry_score", 0.0)
+    inflation_reaccel = _median_or_default("inflation_reacceleration_score", 0.0)
+    upstream_cost = _median_or_default("upstream_cost_pressure_score", 0.0)
+    labor_softening = _median_or_default("labor_softening_score", 0.0)
+    stagflation = _median_or_default("stagflation_score", 0.0)
+    growth_liquidity = _median_or_default("growth_liquidity_reentry_score", 0.0)
+    liquidity_impulse = _median_or_default("liquidity_impulse_score", 0.0)
+    liquidity_drain = _median_or_default("liquidity_drain_score", 0.0)
+    slow_macro_cols = ["cpi_yoy", "core_cpi_yoy", "ppi_yoy", "unrate_level", "sahm_realtime"]
+    slow_macro_available = float(
+        np.nanmean(
+            [
+                float(pd.to_numeric(month_df[c], errors="coerce").notna().mean())
+                if c in month_df.columns
+                else 0.0
+                for c in slow_macro_cols
+            ]
+        )
+    )
+    live_event_risk = _median_or_default("live_event_risk_score", 0.0)
+    live_event_systemic = _median_or_default("live_event_systemic_score", 0.0)
+    live_event_war = _median_or_default("live_event_war_oil_rate_score", 0.0)
+    live_event_defensive = _median_or_default("live_event_defensive_score", 0.0)
+    live_event_growth = _median_or_default("live_event_growth_reentry_score", 0.0)
+
+    risk_off = 0.0 if np.isnan(risk_off) else risk_off
+    market = 0.0 if np.isnan(market) else market
+    inflation = 0.0 if np.isnan(inflation) else inflation
+    spy_trend = 1.0 if np.isnan(spy_trend) else spy_trend
+    bench_trend = spy_trend if np.isnan(bench_trend) else bench_trend
+    breadth_regime = 0.50 if np.isnan(breadth_regime) else breadth_regime
+    leadership_narrowing = 0.50 if np.isnan(leadership_narrowing) else leadership_narrowing
+    sector_participation = 0.35 if np.isnan(sector_participation) else sector_participation
+    market_overheat = 0.0 if np.isnan(market_overheat) else market_overheat
+    systemic = 0.0 if np.isnan(systemic) else systemic
+    carry_unwind = 0.0 if np.isnan(carry_unwind) else carry_unwind
+    war_oil_rate = 0.0 if np.isnan(war_oil_rate) else war_oil_rate
+    defensive_rotation = 0.0 if np.isnan(defensive_rotation) else defensive_rotation
+    growth_reentry = 0.0 if np.isnan(growth_reentry) else growth_reentry
+    inflation_reaccel = 0.0 if np.isnan(inflation_reaccel) else inflation_reaccel
+    upstream_cost = 0.0 if np.isnan(upstream_cost) else upstream_cost
+    labor_softening = 0.0 if np.isnan(labor_softening) else labor_softening
+    stagflation = 0.0 if np.isnan(stagflation) else stagflation
+    growth_liquidity = 0.0 if np.isnan(growth_liquidity) else growth_liquidity
+    liquidity_impulse = 0.0 if np.isnan(liquidity_impulse) else liquidity_impulse
+    liquidity_drain = 0.0 if np.isnan(liquidity_drain) else liquidity_drain
+    slow_macro_available = 0.0 if np.isnan(slow_macro_available) else slow_macro_available
+    inflation_reaccel = float(np.clip(inflation_reaccel, 0.0, 1.0))
+    upstream_cost = float(np.clip(upstream_cost, 0.0, 1.0))
+    labor_softening = float(np.clip(labor_softening, 0.0, 1.0))
+    stagflation = float(np.clip(stagflation, 0.0, 1.0))
+    growth_liquidity = float(np.clip(growth_liquidity, 0.0, 1.0))
+    liquidity_impulse = float(np.clip(liquidity_impulse, 0.0, 1.0))
+    liquidity_drain = float(np.clip(liquidity_drain, 0.0, 1.0))
+    slow_macro_available = float(np.clip(slow_macro_available, 0.0, 1.0))
+    live_event_risk = 0.0 if np.isnan(live_event_risk) else live_event_risk
+    live_event_systemic = 0.0 if np.isnan(live_event_systemic) else live_event_systemic
+    live_event_war = 0.0 if np.isnan(live_event_war) else live_event_war
+    live_event_defensive = 0.0 if np.isnan(live_event_defensive) else live_event_defensive
+    live_event_growth = 0.0 if np.isnan(live_event_growth) else live_event_growth
+    slow_macro_confidence = 0.35 + 0.65 * slow_macro_available
+    inflation_reaccel_eff = inflation_reaccel * slow_macro_confidence
+    labor_softening_eff = labor_softening * slow_macro_confidence
+    stagflation_eff = stagflation * (0.25 + 0.75 * slow_macro_available)
+    upstream_cost_eff = upstream_cost * (0.60 + 0.40 * slow_macro_available)
+
+    breadth_stress = max(0.0, 0.52 - breadth_regime)
+    participation_stress = max(0.0, 0.38 - sector_participation)
+    narrowing_stress = max(0.0, leadership_narrowing - 0.60)
+    stress = (
+        max(0.0, risk_off)
+        + 0.50 * max(0.0, inflation)
+        + (0.45 if spy_trend < 0.5 else 0.0)
+        + (0.25 if bench_trend < 0.5 else 0.0)
+        + 1.20 * breadth_stress
+        + 0.90 * narrowing_stress
+        + 0.60 * participation_stress
+        + 0.35 * max(0.0, market_overheat - 0.28)
+        + 0.45 * liquidity_drain
+        + 0.12 * upstream_cost_eff
+        + float(cfg.event_regime_sensitivity)
+        * (
+            1.10 * systemic
+            + 0.75 * carry_unwind
+            + 0.90 * war_oil_rate
+            + 0.70 * defensive_rotation
+            + 0.55 * stagflation_eff
+            + 0.20 * labor_softening_eff
+            + 0.18 * inflation_reaccel_eff
+        )
+    )
+    bullish = (
+        max(0.0, market)
+        + (0.20 if spy_trend >= 0.5 else 0.0)
+        + (0.12 if bench_trend >= 0.5 else 0.0)
+        + 0.80 * max(0.0, breadth_regime - 0.60)
+        + 0.50 * max(0.0, sector_participation - 0.45)
+        + float(cfg.event_regime_sensitivity) * 0.90 * growth_reentry
+        + 0.85 * growth_liquidity
+        + 0.55 * liquidity_impulse
+    )
+
+    risk_multiplier = 1.0 + 1.20 * cfg.optimizer_regime_sensitivity * min(2.00, stress)
+    turnover_multiplier = 1.0 + 0.80 * cfg.optimizer_regime_sensitivity * min(2.00, stress)
+    liquidity_multiplier = 1.0 + 0.50 * cfg.optimizer_regime_sensitivity * min(2.00, stress)
+
+    single_cap = cfg.stock_weight_max_high_conviction
+    target_adj = 0.0
+    if stress > 0:
+        single_cap = max(
+            cfg.stock_weight_max * 1.10,
+            cfg.stock_weight_max_high_conviction * (1.0 - 0.25 * min(1.15, stress)),
+        )
+        target_adj -= min(2.0, math.ceil(1.25 * min(1.75, stress)))
+    elif bullish > 0.75:
+        single_cap = min(cfg.stock_weight_max_high_conviction, cfg.stock_weight_max * 2.10)
+        target_adj += 1.0
+    if systemic > 0.55:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.05, 0.14))
+        target_adj -= 1.0
+        turnover_multiplier *= 1.10
+    if war_oil_rate > 0.55:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.10, 0.14))
+        target_adj -= 1.0
+    if carry_unwind > 0.52:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.10, 0.14))
+        target_adj -= 1.0
+    if stagflation > 0.55:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.08, 0.14))
+        target_adj -= 1.0
+    if liquidity_drain > 0.60:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.10, 0.14))
+        target_adj -= 1.0
+    if growth_reentry > 0.60 and growth_liquidity > 0.55 and breadth_regime > 0.60 and sector_participation > 0.42:
+        single_cap = min(cfg.stock_weight_max_high_conviction, cfg.stock_weight_max * 2.50)
+        target_adj += 1.0
+    if liquidity_impulse > 0.60 and growth_liquidity > 0.55:
+        target_adj += 1.0
+    if breadth_regime < 0.45 or leadership_narrowing > 0.70:
+        single_cap = min(single_cap, max(cfg.stock_weight_max * 1.10, 0.14))
+        target_adj -= 1.0
+    elif breadth_regime > 0.68 and leadership_narrowing < 0.45 and sector_participation > 0.45:
+        single_cap = min(cfg.stock_weight_max_high_conviction, cfg.stock_weight_max * 2.35)
+        target_adj += 1.0
+
+    cash_target = 0.0
+    if bool(cfg.cash_buffer_enabled):
+        growth_cash_cap = min(float(cfg.cash_weight_max), float(getattr(cfg, "cash_target_growth_cap", 0.03)))
+        balanced_cash_cap = min(float(cfg.cash_weight_max), float(getattr(cfg, "cash_target_balanced_cap", 0.05)))
+        mild_risk_cash_cap = min(float(cfg.cash_weight_max), float(getattr(cfg, "cash_target_mild_risk_cap", 0.10)))
+        live_stress = max(live_event_risk, live_event_systemic, live_event_war)
+        balanced_live = max(live_stress, live_event_defensive, live_event_growth) < max(
+            cfg.live_event_risk_threshold,
+            cfg.live_event_growth_threshold,
+        )
+        cash_target = (
+            0.14 * systemic
+            + 0.07 * carry_unwind
+            + 0.07 * war_oil_rate
+            + 0.03 * defensive_rotation
+            + 0.08 * live_stress
+            + 0.03 * live_event_defensive
+            + 0.04 * breadth_stress
+            + 0.03 * participation_stress
+            + (0.03 if spy_trend < 0.5 else 0.0)
+            + (0.03 if bench_trend < 0.5 else 0.0)
+            + 0.05 * liquidity_drain
+            + 0.04 * stagflation_eff
+            + 0.02 * upstream_cost_eff
+            + 0.02 * labor_softening_eff
+            + 0.02 * inflation_reaccel_eff
+            - 0.18 * growth_reentry
+            - 0.18 * growth_liquidity
+            - 0.10 * liquidity_impulse
+            - 0.18 * live_event_growth
+            - 0.10 * max(0.0, bullish - 0.55)
+        )
+        if systemic > 0.60:
+            cash_target += 0.06 + 0.06 * max(0.0, systemic - 0.60) * 2.0
+        if war_oil_rate > 0.60:
+            cash_target += 0.04 + 0.04 * max(0.0, war_oil_rate - 0.60) * 2.0
+        if carry_unwind > 0.58:
+            cash_target += 0.04 + 0.03 * max(0.0, carry_unwind - 0.58) * 2.0
+        if stagflation_eff > 0.60:
+            cash_target += 0.04 + 0.03 * max(0.0, stagflation_eff - 0.60) * 2.0
+        if liquidity_drain > 0.65:
+            cash_target += 0.04 + 0.03 * max(0.0, liquidity_drain - 0.65) * 2.0
+        extreme_risk = max(systemic, carry_unwind, war_oil_rate, live_stress, liquidity_drain, stagflation_eff)
+        if extreme_risk > 0.70:
+            cash_target = max(cash_target, 0.20 + 0.30 * (extreme_risk - 0.70) / 0.30)
+        concurrent_risk_count = sum([
+            systemic > 0.55, carry_unwind > 0.55, war_oil_rate > 0.55,
+            liquidity_drain > 0.60, stagflation_eff > 0.55,
+        ])
+        if concurrent_risk_count >= 3:
+            cash_target = max(cash_target, 0.25 + 0.05 * (concurrent_risk_count - 3))
+        if balanced_live and slow_macro_available < 0.60:
+            cash_target = min(cash_target, growth_cash_cap)
+        elif balanced_live and stress < 0.80:
+            cash_target = min(cash_target, balanced_cash_cap)
+        elif live_stress < 0.35 and stress < 0.60:
+            cash_target = min(cash_target, balanced_cash_cap)
+        elif live_stress < 0.45 and stress < 0.75:
+            cash_target = min(cash_target, mild_risk_cash_cap)
+        # Reduce cash when crisis-beneficiary sectors are available for rotation
+        crisis_beneficiary_ratio = 0.0
+        if "crisis_sector_beneficiary_score" in month_df.columns:
+            crisis_beneficiary_ratio = float(
+                (pd.to_numeric(month_df["crisis_sector_beneficiary_score"], errors="coerce") > 0.3).mean()
+            )
+        if crisis_beneficiary_ratio > 0.05:
+            cash_target *= max(0.30, 1.0 - 1.2 * crisis_beneficiary_ratio)
+
+        # ── Contrarian Fear/Greed: extreme fear = buy opportunity, not risk ──
+        fear_greed = _median_or_default("fear_greed_score", 50.0)
+        fear_greed = 50.0 if np.isnan(fear_greed) else fear_greed
+        fear_delta = _median_or_default("fear_greed_delta_1w", 0.0)
+        fear_delta = 0.0 if np.isnan(fear_delta) else fear_delta
+        risk_on_backdrop = max(
+            growth_reentry,
+            growth_liquidity,
+            liquidity_impulse,
+            live_event_growth,
+            max(0.0, breadth_regime - 0.55) / 0.25,
+        )
+        # Only apply contrarian logic when there is NO structural systemic crisis
+        # (avoid catching falling knives during 2008-style meltdowns)
+        structural_crisis = (systemic > 0.55) or (concurrent_risk_count >= 3)
+        if not structural_crisis:
+            # Extreme fear (< 25): Aggressively REDUCE cash → buy undervalued stocks
+            # - Fear is mean-reverting; historically best 12m returns start here
+            # - Stronger signal when fear is already recovering (delta > 0)
+            if fear_greed < 25:
+                contrarian_buy = (25.0 - fear_greed) / 25.0  # 0→1 as fear drops 25→0
+                recovery_bonus = max(0.0, min(1.0, fear_delta / 10.0))  # Bounce detected
+                cash_target -= 0.12 * contrarian_buy * (0.60 + 0.40 * recovery_bonus)
+            elif fear_greed < 35:
+                mild_buy = (35.0 - fear_greed) / 20.0  # Moderate fear zone
+                cash_target -= 0.05 * mild_buy
+            # Extreme greed (> 75): INCREASE cash → market overextended
+            if fear_greed > 80:
+                contrarian_sell = (fear_greed - 80.0) / 20.0  # 0→1 as greed rises 80→100
+                if (
+                    risk_on_backdrop > 0.45
+                    and liquidity_drain < 0.55
+                    and live_stress < cfg.live_event_risk_threshold
+                ):
+                    backdrop_bonus = max(0.0, min(1.0, risk_on_backdrop))
+                    cash_target -= 0.10 * contrarian_sell * (0.60 + 0.40 * backdrop_bonus)
+                else:
+                    cash_target += 0.04 * contrarian_sell
+            elif fear_greed > 70:
+                mild_sell = (fear_greed - 70.0) / 20.0
+                if (
+                    risk_on_backdrop > 0.35
+                    and liquidity_drain < 0.60
+                    and live_stress < max(0.40, cfg.live_event_risk_threshold)
+                ):
+                    cash_target -= 0.04 * mild_sell
+                else:
+                    cash_target += 0.02 * mild_sell
+
+        if extreme_risk < 0.55 and concurrent_risk_count <= 1:
+            if risk_on_backdrop >= 0.60 and live_stress < 0.30 and liquidity_drain < 0.40:
+                cash_target = min(cash_target, growth_cash_cap)
+            elif live_stress < 0.40 and liquidity_drain < 0.50:
+                cash_target = min(cash_target, balanced_cash_cap)
+
+        # ---------------------------------------------------------
+        # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6).
+        # Applied BEFORE the final np.clip so the tier floor lifts
+        # cash_target up toward cfg.cash_weight_max but still honors
+        # the overall cash cap. Dual-gate: cfg flag AND env var.
+        # Composes with other cash controls via max().
+        # ---------------------------------------------------------
+        _p6b_cfg_on = bool(getattr(cfg, "vix_level_guard_enabled", True))
+        _p6b_env_on = phase_is_enabled("phase6b_vix", default=True)
+        if _p6b_cfg_on and _p6b_env_on:
+            vix_level_val = _median_or_default("vix_level", np.nan)
+            if np.isfinite(vix_level_val) and vix_level_val > 0:
+                # Tier lookup: start from the highest threshold and
+                # work down; first match wins. This naturally gives
+                # the most defensive floor when multiple tiers are met.
+                _p6b_floor = 0.0
+                t4_thr = float(getattr(cfg, "vix_level_tier4_threshold", 45.0))
+                t4_cash = float(getattr(cfg, "vix_level_tier4_cash_floor", 0.55))
+                t3_thr = float(getattr(cfg, "vix_level_tier3_threshold", 35.0))
+                t3_cash = float(getattr(cfg, "vix_level_tier3_cash_floor", 0.40))
+                t2_thr = float(getattr(cfg, "vix_level_tier2_threshold", 28.0))
+                t2_cash = float(getattr(cfg, "vix_level_tier2_cash_floor", 0.25))
+                t1_thr = float(getattr(cfg, "vix_level_tier1_threshold", 22.0))
+                t1_cash = float(getattr(cfg, "vix_level_tier1_cash_floor", 0.10))
+                if vix_level_val >= t4_thr:
+                    _p6b_floor = t4_cash
+                elif vix_level_val >= t3_thr:
+                    _p6b_floor = t3_cash
+                elif vix_level_val >= t2_thr:
+                    _p6b_floor = t2_cash
+                elif vix_level_val >= t1_thr:
+                    _p6b_floor = t1_cash
+                if _p6b_floor > 0.0:
+                    cash_target = max(cash_target, _p6b_floor)
+
+        cash_target = float(np.clip(cash_target, 0.0, cfg.cash_weight_max))
+    if cash_target >= 0.12:
+        target_adj -= 1.0
+
+    base.update(
+        {
+            "risk_multiplier": float(risk_multiplier),
+            "turnover_multiplier": float(turnover_multiplier),
+            "liquidity_multiplier": float(liquidity_multiplier),
+            "single_name_cap": float(max(cfg.stock_weight_max, single_cap)),
+            "target_n_adjustment": float(target_adj),
+            "cash_target": cash_target,
+        }
+    )
+    return base
+
+
+def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        return d
+
+    join_status = d.get("fund_join_status", pd.Series("", index=d.index, dtype=str)).astype(str)
+    ttm_confirmed = join_status.isin(
+        ["matched_with_ttm", "matched_with_ttm_backfill", "matched_with_ttm_fallback"]
+    ).astype(float)
+    fundamental_presence = numeric_series_or_default(d, "fundamental_presence_score", 0.0).clip(lower=0.0, upper=1.0)
+    fundamental_reliability = numeric_series_or_default(
+        d, "fundamental_reliability_score", fundamental_presence
+    ).clip(lower=0.0, upper=1.0)
+    live_growth_score = row_mean(
+        [
+            (numeric_series_or_default(d, "revenue_growth_final", np.nan) > 0.08).astype(float),
+            (numeric_series_or_default(d, "earnings_growth_final", np.nan) > 0.10).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    flow_confirmation_score = row_mean(
+        [
+            (numeric_series_or_default(d, "institutional_flow_signal_score", 0.0) > 0.10).astype(float),
+            (numeric_series_or_default(d, "insider_flow_signal_score", 0.0) > 0.75).astype(float),
+            (numeric_series_or_default(d, "ownership_flow_pillar_score", 0.0) > 0.10).astype(float),
+            (numeric_series_or_default(d, "score_flow_satellite", 0.0) > 0.10).astype(float),
+            (numeric_series_or_default(d, "actual_results_score", 0.0) > 0.05).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    multidim_confirmation = numeric_series_or_default(
+        d, "multidimensional_confirmation_score", 0.0
+    ).clip(lower=0.0, upper=1.0)
+    market_confirmation_score = (
+        0.50 * live_growth_score
+        + 0.30 * flow_confirmation_score
+        + 0.20 * multidim_confirmation
+    ).clip(lower=0.0, upper=1.0)
+    fundamental_confirmation_score = np.maximum(
+        ttm_confirmed,
+        (0.65 * fundamental_reliability + 0.35 * fundamental_presence).clip(lower=0.0, upper=1.0),
+    ).clip(lower=0.0, upper=1.0)
+    selection_confirmation_score = (
+        pd.concat(
+            [
+                fundamental_confirmation_score,
+                0.85 * market_confirmation_score,
+                (
+                    0.55 * ttm_confirmed
+                    + 0.20 * numeric_series_or_default(d, "fund_panel_ttm_ready", 0.0).clip(lower=0.0, upper=1.0)
+                    + 0.15 * flow_confirmation_score
+                    + 0.10 * multidim_confirmation
+                ),
+            ],
+            axis=1,
+        )
+        .max(axis=1)
+        .clip(lower=0.0, upper=1.0)
+    )
+    d["selection_ttm_confirmation_score"] = ttm_confirmed
+    d["selection_fundamental_confirmation_score"] = fundamental_confirmation_score
+    d["selection_live_growth_score"] = live_growth_score
+    d["selection_flow_confirmation_score"] = flow_confirmation_score
+    d["selection_market_confirmation_score"] = market_confirmation_score
+    d["selection_confirmation_score"] = selection_confirmation_score
+
+    tickers = d.get("ticker", pd.Series("", index=d.index, dtype=str)).astype(str).str.upper()
+    primary_names = {str(t).upper() for t in cfg.focus_primary_tickers}
+    optional_names = {str(t).upper() for t in cfg.focus_optional_tickers}
+    primary_flag = tickers.isin(primary_names).astype(float)
+    optional_flag = tickers.isin(optional_names).astype(float)
+    direct_flag = (primary_flag.add(optional_flag, fill_value=0.0) > 0).astype(float)
+    dynamic_leader = cross_sectional_robust_z(d, "dynamic_leader_score")
+    sector_leader = cross_sectional_robust_z(d, "sector_leader_score")
+    within_sector = cross_sectional_robust_z(d, "within_sector_leader_score")
+    emergence = cross_sectional_robust_z(d, "leader_emergence_score")
+    safety = cross_sectional_robust_z(d, "leader_safety_score")
+    valuation = cross_sectional_robust_z(d, "forward_value_score")
+    garp = cross_sectional_robust_z(d, "garp_score")
+    moat = cross_sectional_robust_z(d, "moat_proxy_score")
+    blueprint = cross_sectional_robust_z(d, "strategy_blueprint_score")
+    technical_blueprint = cross_sectional_robust_z(d, "technical_blueprint_score")
+    revision_blueprint = cross_sectional_robust_z(d, "revision_blueprint_score")
+    size_saturation = cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0)
+    macro_fit = row_mean(
+        [
+            cross_sectional_robust_z(d, "macro_momentum_regime_interaction"),
+            cross_sectional_robust_z(d, "macro_tech_leadership_interaction"),
+            cross_sectional_robust_z(d, "macro_semis_cycle_interaction"),
+            cross_sectional_robust_z(d, "macro_energy_oil_interaction"),
+            cross_sectional_robust_z(d, "macro_defensive_riskoff_interaction"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    benchmark_alpha_signal = row_mean(
+        [
+            cross_sectional_robust_z(d, "rs_benchmark_3m"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "rs_benchmark_12m"),
+            0.60 * cross_sectional_robust_z(d, "dd_gap_benchmark"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    systemic = numeric_series_or_default(d, "systemic_crisis_score", 0.0).clip(lower=0.0, upper=1.0)
+    carry_unwind = numeric_series_or_default(d, "carry_unwind_stress_score", 0.0).clip(lower=0.0, upper=1.0)
+    war_oil_rate = numeric_series_or_default(d, "war_oil_rate_shock_score", 0.0).clip(lower=0.0, upper=1.0)
+    defensive_rotation = numeric_series_or_default(d, "defensive_rotation_score", 0.0).clip(lower=0.0, upper=1.0)
+    growth_reentry = numeric_series_or_default(d, "growth_reentry_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_risk = numeric_series_or_default(d, "live_event_risk_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_systemic = numeric_series_or_default(d, "live_event_systemic_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_war = numeric_series_or_default(d, "live_event_war_oil_rate_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_defensive = numeric_series_or_default(d, "live_event_defensive_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_growth = numeric_series_or_default(d, "live_event_growth_reentry_score", 0.0).clip(lower=0.0, upper=1.0)
+    live_event_stress = np.maximum(live_event_risk, np.maximum(live_event_systemic, live_event_war))
+    neg_mid_mom = (
+        (numeric_series_or_default(d, "mom_3m", 0.0) < 0.0)
+        & (numeric_series_or_default(d, "mom_6m", 0.0) < 0.0)
+    )
+    emergence = emergence.where(
+        ~neg_mid_mom | (emergence <= 0),
+        emergence * (1.0 - float(cfg.focus_negative_momentum_emergence_penalty)),
+    )
+    dynamic_leader = dynamic_leader.where(
+        ~neg_mid_mom | (dynamic_leader <= 0),
+        dynamic_leader * 0.75,
+    )
+
+    direct_tie_break = float(cfg.focus_direct_ticker_tiebreak) * (primary_flag + 0.40 * optional_flag)
+    ai_infra_exposure = numeric_series_or_default(d, "ai_infra_exposure", 0.0).clip(lower=0.0, upper=1.0)
+    power_infra_exposure = numeric_series_or_default(d, "power_infra_exposure", 0.0).clip(lower=0.0, upper=1.0)
+    hedge_exposure = row_mean(
+        [
+            numeric_series_or_default(d, "defense_exposure", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "energy_hedge_exposure", 0.0).clip(lower=0.0, upper=1.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["focus_ai_infra_flag"] = (ai_infra_exposure > 0.5).astype(float)
+    d["focus_power_infra_flag"] = (power_infra_exposure > 0.5).astype(float)
+    d["focus_hedge_flag"] = (hedge_exposure > 0.5).astype(float)
+    d["focus_primary_flag"] = primary_flag
+    d["focus_optional_flag"] = optional_flag
+    d["focus_direct_flag"] = direct_flag
+    d["focus_ai_infra_score"] = 0.18 * ai_infra_exposure
+    d["focus_power_infra_score"] = 0.18 * power_infra_exposure
+    d["focus_hedge_score"] = 0.10 * hedge_exposure
+    d["focus_primary_score"] = direct_tie_break
+    d["focus_optional_score"] = 0.0
+    d["focus_benchmark_alpha_score"] = 0.16 * benchmark_alpha_signal
+    growth_regime_fit = row_mean(
+        [
+            benchmark_alpha_signal,
+            technical_blueprint,
+            revision_blueprint,
+            0.65 * dynamic_leader,
+            0.55 * pd.to_numeric(d["focus_ai_infra_score"], errors="coerce").fillna(0.0),
+            0.40 * pd.to_numeric(d["focus_power_infra_score"], errors="coerce").fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    defensive_regime_fit = row_mean(
+        [
+            moat,
+            safety,
+            macro_fit,
+            0.70 * pd.to_numeric(d["focus_hedge_score"], errors="coerce").fillna(0.0),
+            0.65 * robust_z(np.maximum(fundamental_reliability, 0.85 * market_confirmation_score)).fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["focus_growth_regime_score"] = float(cfg.growth_reentry_strength) * growth_reentry * growth_regime_fit
+    d["focus_defensive_regime_score"] = float(cfg.defensive_rotation_strength) * defensive_rotation * defensive_regime_fit
+    d["focus_live_event_growth_score"] = float(cfg.live_event_alert_strength) * live_event_growth * growth_regime_fit
+    d["focus_live_event_defensive_score"] = float(cfg.live_event_alert_strength) * live_event_defensive * defensive_regime_fit
+    d["focus_event_stress_penalty"] = 0.08 * np.maximum(systemic, carry_unwind) * np.clip(-benchmark_alpha_signal, 0.0, None)
+    d["focus_live_event_risk_penalty"] = (
+        0.60
+        * float(cfg.live_event_alert_strength)
+        * live_event_stress
+        * np.clip(-benchmark_alpha_signal + 0.25 * size_saturation, 0.0, None)
+    )
+    d["focus_megacap_hugging_penalty"] = (
+        float(cfg.benchmark_hugging_penalty)
+        * size_saturation
+        * np.clip(0.12 - benchmark_alpha_signal, 0.0, None)
+        * (
+            0.35
+            + 0.65
+            * np.maximum(
+                np.maximum(defensive_rotation, np.maximum(systemic, war_oil_rate)),
+                live_event_stress,
+            )
+        )
+    )
+    d["benchmark_beating_focus_score"] = (
+        0.36 * dynamic_leader
+        + 0.16 * sector_leader
+        + 0.14 * within_sector
+        + 0.12 * emergence
+        + 0.06 * safety
+        + 0.08 * valuation
+        + 0.05 * macro_fit
+        + 0.09 * moat
+        + 0.12 * garp
+        + 0.12 * blueprint
+        + 0.05 * technical_blueprint
+        + 0.04 * revision_blueprint
+        + pd.to_numeric(d["focus_benchmark_alpha_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_growth_regime_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_defensive_regime_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_live_event_growth_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_live_event_defensive_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_ai_infra_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_power_infra_score"], errors="coerce").fillna(0.0)
+        + pd.to_numeric(d["focus_hedge_score"], errors="coerce").fillna(0.0)
+        + 0.02 * size_saturation
+        + direct_tie_break
+    )
+    sector = d.get("sector", pd.Series("Unknown", index=d.index, dtype=str)).fillna("Unknown").astype(str)
+    sector_focus_mean = pd.Series(d["benchmark_beating_focus_score"], index=d.index, dtype=float).groupby(sector).transform("mean")
+    sector_counts = sector.map(sector.value_counts()).astype(float)
+    crowding = (
+        0.70 * robust_z(sector_focus_mean).fillna(0.0).clip(lower=0.0)
+        + 0.30 * robust_z(sector_counts).fillna(0.0).clip(lower=0.0)
+    )
+    d["sector_crowding_penalty"] = float(cfg.focus_sector_crowding_penalty) * crowding
+    d["benchmark_beating_focus_score"] = (
+        d["benchmark_beating_focus_score"]
+        - float(cfg.focus_missing_fundamental_penalty)
+        * np.clip(0.40 - np.maximum(fundamental_confirmation_score, 0.85 * market_confirmation_score), 0.0, None)
+        - d["sector_crowding_penalty"]
+        - pd.to_numeric(d["focus_event_stress_penalty"], errors="coerce").fillna(0.0)
+        - pd.to_numeric(d["focus_live_event_risk_penalty"], errors="coerce").fillna(0.0)
+        - pd.to_numeric(d["focus_megacap_hugging_penalty"], errors="coerce").fillna(0.0)
+    )
+    d["focus_bucket"] = np.select(
+        [
+            live_event_systemic >= cfg.live_event_risk_threshold,
+            live_event_war >= max(0.48, cfg.live_event_risk_threshold - 0.05),
+            live_event_growth >= cfg.live_event_growth_threshold,
+            growth_reentry >= 0.60,
+            defensive_rotation >= 0.55,
+            pd.to_numeric(d["leader_emergence_score"], errors="coerce").fillna(0.0) > 0.40,
+            pd.to_numeric(d["sector_leader_score"], errors="coerce").fillna(0.0) > 0.35,
+            pd.to_numeric(d["leader_safety_score"], errors="coerce").fillna(0.0) > 0.25,
+        ],
+        [
+            "systemic_alert",
+            "war_oil_rate_alert",
+            "growth_reentry_alert",
+            "growth_reentry",
+            "defensive_rotation",
+            "emerging_leader",
+            "sector_leader",
+            "defensive_leader",
+        ],
+        default="neutral",
+    )
+    return d
