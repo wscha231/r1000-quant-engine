@@ -968,10 +968,356 @@ CORE_FUNDAMENTAL_MINIMUM_FIELDS = [
     "liabilities",
 ]
 
+# =====================================================================
+# Stage 1c (2026-04-20): SEC/yfinance schema + sector/industry maps
+# =====================================================================
+# Extracted from r1000_top30_institutional.py lines 185-520 (pre-move).
+# 14 constants including YF_INDUSTRY_TO_GICS_GROUP (largest single dict in
+# the codebase), SAGE_SECTOR_MAP, FSDS_TAG_* SEC-tag dispatch tables.
+# Uses `Any` from typing module for polymorphic tuple-key annotations.
+
+
+REGIME_LABEL_NEAREST_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "growth_reentry_alert": ("growth_reentry",),
+    "growth_reentry": ("growth_reentry_alert",),
+    "systemic_alert": ("systemic_crisis", "risk_off_alert"),
+    "systemic_crisis": ("systemic_alert", "risk_off_alert"),
+    "war_oil_rate_alert": ("war_oil_rate_shock", "risk_off_alert"),
+    "war_oil_rate_shock": ("war_oil_rate_alert", "risk_off_alert"),
+    "risk_off_alert": ("carry_unwind", "stagflation"),
+    "carry_unwind": ("risk_off_alert", "stagflation"),
+    "stagflation": ("risk_off_alert", "carry_unwind"),
+}
+
+YF_OVERRIDES = {
+    "BRKB": "BRK-B",
+    "BRKA": "BRK-A",
+    "BFB": "BF-B",
+    "BFA": "BF-A",
+    "UHALB": "UHAL-B",
+    "UHALA": "UHAL-A",
+}
+
+HEADERS_ISHARES = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+SCAN_PATTERNS = {
+    "leakage": [
+        r"earn_post_5d",
+        r"earn_post_20d",
+        r"forward_return\(",
+    ],
+    "pit": [
+        r"accepted",
+        r"feature_date",
+        r"merge\(",
+    ],
+    "validation": [
+        r"build_universe",
+        r"IWB_PAGE",
+        r"train_models",
+        r"build_targets",
+    ],
+}
+
+FSDS_TAGS = {
+    "assets": "Assets",
+    "liabilities": "Liabilities",
+    "revenues": "Revenues",
+    "cost_of_revenue": "CostOfRevenue",
+    "gross_profit": "GrossProfit",
+    "op_income": "OperatingIncomeLoss",
+    "net_income": "NetIncomeLoss",
+    "ocf": "NetCashProvidedByUsedInOperatingActivities",
+    "capex": "PaymentsToAcquirePropertyPlantAndEquipment",
+    "shares": "CommonStockSharesOutstanding",
+    # SAGE additions — collected from companyfacts.zip (already present in bulk archive)
+    "sbc": "ShareBasedCompensation",
+    "rd_expense": "ResearchAndDevelopmentExpense",
+    "interest_expense": "InterestExpense",
+    "equity": "StockholdersEquity",
+    "inventory": "InventoryNet",
+    "long_term_debt": "LongTermDebt",
+    "current_liabilities": "LiabilitiesCurrent",
+    "cash": "CashAndCashEquivalentsAtCarryingValue",
+}
+
+FSDS_TAG_ALIASES = {
+    "assets": ["Assets"],
+    "liabilities": ["Liabilities"],
+    "revenues": [
+        "Revenues",
+        "RevenueFromContractWithCustomer",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "SalesRevenueNet",
+        "SalesRevenueServicesNet",
+        "SalesRevenueGoodsNet",
+        "SalesRevenueGoodsGross",
+        "OperatingRevenue",
+        "NetSales",
+        "RevenueFromContractWithCustomerExcludingTax",
+    ],
+    "cost_of_revenue": [
+        "CostOfRevenue",
+        "CostOfGoodsSold",
+        "CostOfGoodsAndServicesSold",
+        "CostOfSales",
+        "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization",
+    ],
+    "gross_profit": [
+        "GrossProfit",
+        "GrossProfitIncludingLeaseAndRentalRevenue",
+    ],
+    "op_income": [
+        "OperatingIncomeLoss",
+        "OperatingIncome",
+        "OperatingProfitLoss",
+        "IncomeFromOperations",
+        "IncomeLossFromOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromOperationsBeforeIncomeTaxesMinorityInterest",
+        "ProfitLossFromOperatingActivities",
+        "OperatingEarningsLoss",
+    ],
+    "net_income": [
+        "NetIncomeLoss",
+        "ProfitLoss",
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "NetIncomeLossAvailableToCommonStockholdersDiluted",
+    ],
+    "ocf": [
+        "NetCashProvidedByUsedInOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+        "NetCashProvidedByUsedInContinuingOperations",
+    ],
+    "capex": [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "CapitalExpendituresIncurredButNotYetPaid",
+        "CapitalExpendituresIncurredButNotYetPaidAcquisitions",
+    ],
+    "shares": ["CommonStockSharesOutstanding", "EntityCommonStockSharesOutstanding"],
+    "sbc": [
+        "ShareBasedCompensation",
+        "AllocatedShareBasedCompensationExpense",
+        "EmployeeBenefitsAndShareBasedCompensation",
+    ],
+    "rd_expense": [
+        "ResearchAndDevelopmentExpense",
+        "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
+        "ResearchAndDevelopmentExpenseNet",
+    ],
+    "interest_expense": [
+        "InterestExpense",
+        "InterestExpenseDebt",
+        "InterestAndDebtExpense",
+        "InterestExpenseNet",
+    ],
+    "equity": [
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+    ],
+    "inventory": [
+        "InventoryNet",
+        "Inventories",
+        "InventoryFinishedGoodsAndWorkInProcess",
+    ],
+    "long_term_debt": [
+        "LongTermDebt",
+        "LongTermDebtNoncurrent",
+        "LongTermDebtAndCapitalLeaseObligations",
+    ],
+    "current_liabilities": [
+        "LiabilitiesCurrent",
+        "LiabilitiesCurrentOther",
+    ],
+    "cash": [
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashCashEquivalentsAndShortTermInvestments",
+        "CashAndCashEquivalents",
+    ],
+}
+
+FSDS_TAG_CANON = {
+    alias: FSDS_TAGS[key]
+    for key, aliases in FSDS_TAG_ALIASES.items()
+    for alias in aliases
+}
+
+BAL_TAGS = {
+    FSDS_TAGS["assets"], FSDS_TAGS["liabilities"], FSDS_TAGS["shares"],
+    FSDS_TAGS["equity"], FSDS_TAGS["inventory"], FSDS_TAGS["long_term_debt"],
+    FSDS_TAGS["current_liabilities"], FSDS_TAGS["cash"],
+}
+FLOW_TAGS = {
+    FSDS_TAGS["revenues"],
+    FSDS_TAGS["cost_of_revenue"],
+    FSDS_TAGS["gross_profit"],
+    FSDS_TAGS["op_income"],
+    FSDS_TAGS["net_income"],
+    FSDS_TAGS["ocf"],
+    FSDS_TAGS["capex"],
+    FSDS_TAGS["sbc"],
+    FSDS_TAGS["rd_expense"],
+    FSDS_TAGS["interest_expense"],
+}
+NEEDED_TAGS = set(FSDS_TAG_CANON.keys())
+
+YF_QUARTERLY_COL_MAP = {
+    "Total Revenue": "revenues",
+    "Revenue": "revenues",
+    "TotalRevenue": "revenues",
+    "Cost Of Revenue": "cost_of_revenue",
+    "CostOfRevenue": "cost_of_revenue",
+    "Gross Profit": "gross_profit",
+    "GrossProfit": "gross_profit",
+    "Operating Income": "op_income",
+    "OperatingIncome": "op_income",
+    "Net Income": "net_income",
+    "NetIncome": "net_income",
+    "Net Income Common Stockholders": "net_income",
+    "NetIncomeCommonStockholders": "net_income",
+    "Total Assets": "assets",
+    "TotalAssets": "assets",
+    "Total Liabilities Net Minority Interest": "liabilities",
+    "TotalLiabilitiesNetMinorityInterest": "liabilities",
+    "Ordinary Shares Number": "shares",
+    "OrdinarySharesNumber": "shares",
+    "Share Issued": "shares",
+    "ShareIssued": "shares",
+    "Operating Cash Flow": "ocf",
+    "OperatingCashFlow": "ocf",
+    "Capital Expenditure": "capex",
+    "CapitalExpenditure": "capex",
+    # SAGE additions — yfinance field names for new SEC tags
+    "Stock Based Compensation": "sbc",
+    "StockBasedCompensation": "sbc",
+    "Share Based Compensation": "sbc",
+    "ShareBasedCompensation": "sbc",
+    "Research And Development": "rd_expense",
+    "ResearchAndDevelopment": "rd_expense",
+    "Research Development": "rd_expense",
+    "ResearchDevelopment": "rd_expense",
+    "Interest Expense": "interest_expense",
+    "InterestExpense": "interest_expense",
+    "Interest Expense Non Operating": "interest_expense",
+    "Stockholders Equity": "equity",
+    "StockholdersEquity": "equity",
+    "Total Equity Gross Minority Interest": "equity",
+    "TotalEquityGrossMinorityInterest": "equity",
+    "Inventory": "inventory",
+    "Inventories": "inventory",
+    "Long Term Debt": "long_term_debt",
+    "LongTermDebt": "long_term_debt",
+    "Long Term Debt And Capital Lease Obligation": "long_term_debt",
+    "LongTermDebtAndCapitalLeaseObligation": "long_term_debt",
+    "Current Liabilities": "current_liabilities",
+    "CurrentLiabilities": "current_liabilities",
+    "Cash And Cash Equivalents": "cash",
+    "CashAndCashEquivalents": "cash",
+    "Cash Cash Equivalents And Short Term Investments": "cash",
+    "CashCashEquivalentsAndShortTermInvestments": "cash",
+}
+
+ACCEPTED_SEC_FORMS = {
+    "10-Q",
+    "10-Q/A",
+    "10-K",
+    "10-K/A",
+    "20-F",
+    "20-F/A",
+    "6-K",
+    "6-K/A",
+}
+
+# Stage 1b (2026-04-20): CRISIS_SECTOR_BENEFICIARIES + CORE_FUNDAMENTAL_COLUMNS
+# + MACRO_* + DEFAULT_FEATURES + PILLAR/SEC/LATEST/ACTUAL/SLEEVE/SATELLITE/
+# CRITICAL/COMPREHENSIVE/HISTORICAL/FORWARD/CORE_FUNDAMENTAL_MINIMUM_FIELDS
+# moved to r1000_config.py. Import block at file top is extended accordingly.
+
+
+SECTOR_GATE_FINANCIAL_KEYWORDS = ("FINANCIAL",)
+SECTOR_GATE_REAL_ASSET_KEYWORDS = ("REAL ESTATE", "UTILITY")
+SECTOR_GATE_RESOURCE_KEYWORDS = ("ENERGY", "MATERIAL")
+
+# SAGE: Sector-Adaptive Growth Engine — 8-bucket sector classification.
+# Matched against normalized (uppercased) sector labels from the universe.
+# Priority order matters: first match wins (most specific listed first).
+SAGE_SECTOR_MAP: list[tuple[str, tuple[str, ...]]] = [
+    ("Semiconductor", ("SEMICONDUCTOR", "MICROELECTRONIC")),
+    ("Software",      ("INFORMATION TECHNOLOGY", "SOFTWARE", "INTERNET", "COMMUNICATION SERVICES", "TECH")),
+    ("MedTech",       ("HEALTH CARE", "HEALTHCARE", "MEDICAL", "DIAGNOSTIC", "BIOTECH", "PHARMACEUTICAL", "LIFE SCIENCE")),
+    ("Banking",       ("FINANCIAL", "BANK", "CAPITAL MARKET", "ASSET MANAGEMENT", "BROKERAGE", "INSURANCE")),
+    ("Industrial",    ("INDUSTRIAL", "AEROSPACE", "DEFENSE", "ELECTRICAL", "AUTOMATION", "MACHINERY")),
+    ("Consumer",      ("CONSUMER", "RETAIL", "APPAREL", "RESTAURANT", "HOTEL", "LEISURE", "FOOD", "BEVERAGE", "HOUSEHOLD")),
+    ("Energy",        ("ENERGY", "OIL", "GAS", "COAL", "MINING", "METAL", "CHEMICAL", "MATERIAL", "REAL ESTATE", "UTILITY")),
+    ("General",       ()),   # catch-all — always last
+]
+
+# =====================================================================
+# Phase 2.2: yfinance industry → coarse GICS-style industry-group map
+# =====================================================================
+# yfinance's `info["industry"]` strings are far more granular than the GICS
+# Industry Groups (25 buckets) we want for cross-sectional industry-RS work.
+# This map takes the most common yfinance industry labels seen in the
+# Russell-1000 universe and folds them up to a stable 24-bucket taxonomy
+# (close to GICS Industry Group + a few aggregated leaf cases) so we can
+# compute meaningful within-group relative strength even when only ~10-30
+# names share the same group.  Anything not matched falls back to "Other".
+#
+# Match rule: case-insensitive substring search against the yfinance industry
+# string — first match in the list wins, so put more specific entries first.
+YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
+    # --- Technology Hardware & Semiconductors -------------------------
+    ("Semiconductors",                     ("SEMICONDUCTOR EQUIPMENT", "SEMICONDUCTOR", "MICROELECTRONIC")),
+    ("Tech Hardware & Storage",            ("COMPUTER HARDWARE", "ELECTRONIC COMPONENT", "ELECTRONIC EQUIPMENT", "DATA STORAGE", "SOLAR")),
+    # --- Software & Services ------------------------------------------
+    ("Software - Infrastructure",          ("SOFTWARE - INFRASTRUCTURE", "INFORMATION TECHNOLOGY SERVICES")),
+    ("Software - Application",             ("SOFTWARE - APPLICATION", "SOFTWARE—APPLICATION")),
+    ("Internet Content & Information",     ("INTERNET CONTENT", "INTERNET RETAIL")),
+    ("Communication Equipment",            ("COMMUNICATION EQUIPMENT", "TELECOM SERVICES", "TELECOMMUNICATIONS")),
+    # --- Healthcare ----------------------------------------------------
+    ("Biotechnology",                      ("BIOTECHNOLOGY", "GENETIC", "DRUG MANUFACTURERS - SPECIALTY")),
+    ("Pharmaceuticals",                    ("DRUG MANUFACTURERS", "PHARMACEUTICAL")),
+    ("Medical Devices",                    ("MEDICAL DEVICES", "MEDICAL INSTRUMENTS", "MEDICAL APPLIANCES")),
+    ("Diagnostics & Research",             ("DIAGNOSTICS", "MEDICAL CARE FACILITIES", "MEDICAL DISTRIBUTION", "HEALTH INFORMATION", "HEALTH PLANS", "HEALTHCARE PLANS")),
+    # --- Financials ----------------------------------------------------
+    ("Banks - Diversified",                ("BANKS - DIVERSIFIED", "BANKS—DIVERSIFIED", "BANK - DIVERSIFIED")),
+    ("Banks - Regional",                   ("BANKS - REGIONAL", "BANKS—REGIONAL", "BANK - REGIONAL", "REGIONAL BANK")),
+    ("Capital Markets",                    ("CAPITAL MARKETS", "ASSET MANAGEMENT", "FINANCIAL DATA", "FINANCIAL CONGLOMERATES")),
+    ("Insurance",                          ("INSURANCE", "REINSURANCE")),
+    ("Consumer Finance",                   ("CREDIT SERVICES", "MORTGAGE FINANCE", "FINANCIAL - CREDIT", "PAYMENT")),
+    # --- Consumer Discretionary ---------------------------------------
+    ("Auto Manufacturers & Parts",         ("AUTO MANUFACTURERS", "AUTO PARTS", "AUTO & TRUCK DEALERSHIPS", "RECREATIONAL VEHICLES")),
+    ("Apparel & Luxury",                   ("APPAREL", "FOOTWEAR", "LUXURY GOODS", "TEXTILE", "PACKAGING & CONTAINERS")),
+    ("Specialty Retail",                   ("SPECIALTY RETAIL", "DEPARTMENT STORES", "HOME IMPROVEMENT RETAIL", "AUTO PARTS RETAIL", "LEISURE")),
+    ("Hotels Restaurants & Leisure",       ("RESTAURANTS", "LODGING", "GAMBLING", "RESORTS")),
+    # --- Consumer Staples ---------------------------------------------
+    ("Food Beverage & Tobacco",            ("BEVERAGES", "PACKAGED FOODS", "TOBACCO", "FARM PRODUCTS", "CONFECTIONERS")),
+    ("Household & Personal Products",      ("HOUSEHOLD", "PERSONAL PRODUCTS", "PERSONAL SERVICES")),
+    ("Food & Staples Retailing",           ("DISCOUNT STORES", "GROCERY STORES", "FOOD DISTRIBUTION")),
+    # --- Industrials --------------------------------------------------
+    ("Aerospace & Defense",                ("AEROSPACE", "DEFENSE")),
+    ("Capital Goods - Machinery",          ("FARM & HEAVY CONSTRUCTION MACHINERY", "INDUSTRIAL DISTRIBUTION", "SPECIALTY INDUSTRIAL MACHINERY", "TOOLS & ACCESSORIES", "ELECTRICAL EQUIPMENT")),
+    ("Construction & Engineering",         ("ENGINEERING & CONSTRUCTION", "BUILDING PRODUCTS", "BUILDING MATERIALS", "INFRASTRUCTURE OPERATIONS")),
+    ("Transportation & Logistics",         ("AIRLINES", "RAILROAD", "TRUCKING", "MARINE SHIPPING", "INTEGRATED FREIGHT", "AIRPORTS")),
+    ("Commercial Services",                ("BUSINESS SERVICES", "STAFFING", "CONSULTING", "RENTAL", "WASTE MANAGEMENT", "SECURITY")),
+    # --- Energy & Materials -------------------------------------------
+    ("Oil Gas & Consumable Fuels",         ("OIL & GAS", "THERMAL COAL", "URANIUM", "GAS UTILITIES")),
+    ("Metals & Mining",                    ("GOLD", "SILVER", "COPPER", "STEEL", "ALUMINUM", "OTHER PRECIOUS METALS", "MINING")),
+    ("Chemicals",                          ("CHEMICALS", "AGRICULTURAL INPUTS")),
+    # --- Real Estate & Utilities --------------------------------------
+    ("Equity REITs",                       ("REIT", "REAL ESTATE")),
+    ("Utilities",                          ("UTILITIES", "WATER UTILITIES", "RENEWABLE UTILITIES", "INDEPENDENT POWER")),
+    # --- Catch-all -----------------------------------------------------
+    ("Other",                              ()),
+]
+
 __all__ = [
-    "PHASE1_ALPHA_COLUMNS",
     "PHASE2_INDUSTRY_COLUMNS",
     "PHASE5_LEADER_LAGGARD_COLUMNS",
+    "PHASE1_ALPHA_COLUMNS",
     "PHASE8B_LONG_LOOKBACK_COLUMNS",
     "PHASE9_C3_TURNAROUND_COLUMNS",
     "CRISIS_SECTOR_BENEFICIARIES",
@@ -1014,4 +1360,21 @@ __all__ = [
     "FORWARD_RETURN_COVERAGE_COLUMNS",
     "HISTORICAL_DATA_QUALITY_COLUMNS",
     "CORE_FUNDAMENTAL_MINIMUM_FIELDS",
+    "REGIME_LABEL_NEAREST_FALLBACKS",
+    "YF_OVERRIDES",
+    "HEADERS_ISHARES",
+    "SCAN_PATTERNS",
+    "FSDS_TAGS",
+    "FSDS_TAG_ALIASES",
+    "FSDS_TAG_CANON",
+    "BAL_TAGS",
+    "FLOW_TAGS",
+    "NEEDED_TAGS",
+    "YF_QUARTERLY_COL_MAP",
+    "ACCEPTED_SEC_FORMS",
+    "SECTOR_GATE_FINANCIAL_KEYWORDS",
+    "SECTOR_GATE_REAL_ASSET_KEYWORDS",
+    "SECTOR_GATE_RESOURCE_KEYWORDS",
+    "SAGE_SECTOR_MAP",
+    "YF_INDUSTRY_TO_GICS_GROUP",
 ]
