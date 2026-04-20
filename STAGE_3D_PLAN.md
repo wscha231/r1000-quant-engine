@@ -26,26 +26,47 @@ for each sub-stage.
 Cumulative main engine reduction vs pre-refactor: **27,838 → 21,043 (-24.4%)**.
 r1000_features.py: 1,923 → 4,598 lines.
 
-### 3d-ii-b DEFERRED
+### 3d-ii-b CLOSED (2026-04-20) — "correctly lives in pipeline.py"
 
-The big macro builders (`load_fred_series`, `build_macro_regime_table` 417L,
-`build_live_event_alert_table` 187L, merge helpers) were NOT moved in this
-pass because they cascade into 5 main-file helpers that still need to
-migrate to helpers.py first:
+Post-Stage-5 architectural review: these 8 macro builders were originally
+planned for `r1000_features.py`, but investigation reveals they are
+**data loaders + orchestration**, not pure feature transforms:
 
-- `ensure_prices_cached_incremental` (95L) -> helpers or features (price fetch cascade)
-- `load_px` (12L) -> helpers (price cache reader)
-- `macro_cache_file` (2L) -> helpers (path helper)
-- `price_close_series` (9L) -> helpers (close series extractor)
-- `write_stage_coverage_report` (15L) -> helpers (IO report writer)
+| Function | Size | Why it's orchestration not "feature" |
+|---|---|---|
+| `load_fred_series` | 70L | HTTP fetch from FRED API |
+| `load_cnn_fear_greed_table` | 56L | HTTP scrape from CNN |
+| `build_live_event_alert_table` | 187L | orchestrates FRED + price + benchmark |
+| `build_macro_regime_table` | 417L | orchestrates all of the above + scoring |
+| `merge_benchmark_relative_features` | 34L | calls `build_benchmark_feature_table` (pipeline) |
+| `attach_benchmark_forward_returns` | 32L | calls `load_benchmark_price_series` (pipeline) |
+| `merge_live_event_alert_features` | 33L | calls `build_live_event_alert_table` (same file) |
+| `merge_macro_regime_features` | 33L | calls `build_macro_regime_table` (same file) |
 
-These in turn cascade into `load_fail_tickers` / `save_fail_tickers` /
-`update_one_ticker_incremental` / `download_yf_price_batch` /
-`merge_price_cache_frame` / `chunked` (already moved). Best tackled
-as a dedicated "price cache cascade" prep commit before 3d-ii-b.
+All 8 cascade into the price-cache infrastructure (`ensure_prices_cached_incremental`,
+`load_px`, `macro_cache_file`, `load_benchmark_price_series`, `load_fail_tickers`,
+`update_one_ticker_incremental`, `download_yf_price_batch`, `merge_price_cache_frame`)
+which lives in `r1000_pipeline.py` and is fundamentally pipeline-layer
+(orchestration + external API calls + cache management). Moving the macro
+builders to features.py while leaving cascade in pipeline.py would create a
+forbidden circular import (features → pipeline).
 
-Estimated 3d-ii-b work: 1-2h. Main impact: -850L to -1,000L. Safe to defer
-to post-verify since it doesn't block Stage 4 (signals) or Stage 5 (pipeline).
+Moving the entire cascade (~1,500L) to helpers.py would be substantial work
+for marginal value — these functions are NOT pure transforms anyway; they
+fetch live data.
+
+**Conclusion**: `r1000_pipeline.py` is the correct home for data-loading
+orchestration. `r1000_features.py` is reserved for **pure transforms**
+(DataFrame in, DataFrame out, no IO). The post-refactor architecture
+correctly keeps this separation:
+
+- `features.py`:  44 pure transforms (industry / fund panel deriv /
+                  blueprint / pillar / minervini)
+- `pipeline.py`:  orchestration (build_universe_monthly, build_feature_store,
+                  train_walkforward, backtest_portfolio, export_outputs,
+                  macro loaders, price cache, run_all, validate_config)
+
+Stage 3d-ii-b is therefore **CLOSED**. No further migration needed.
 
 ---
 
