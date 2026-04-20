@@ -68,6 +68,7 @@ from r1000_config import (
     MOAT_PROXY_COLUMNS,
     PHASE5_LEADER_LAGGARD_COLUMNS,
     PHASE9_C3_TURNAROUND_COLUMNS,
+    PILLAR_SCORE_COLUMNS,
     REGIME_ROTATION_COLUMNS,
     SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
@@ -1943,6 +1944,9 @@ __all__ = [
     "apply_manual_ticker_overlays",
     "compute_three_level_relative_strength",
     "compute_crisis_sector_fit",
+    "compute_strategy_blueprint_columns",
+    "compute_multidimensional_pillar_scores",
+    "compute_minervini_momentum_overlay",
 ]
 
 
@@ -3313,4 +3317,1282 @@ def compute_crisis_sector_fit(df: pd.DataFrame) -> pd.DataFrame:
                     regime_strength.loc[mask] * sector_weight
                 )
     d["crisis_sector_beneficiary_score"] = d["crisis_sector_beneficiary_score"].clip(upper=1.0)
+    return d
+
+
+# =====================================================================
+# Stage 3d-iv: strategy blueprint + pillar + minervini (2026-04-20)
+# =====================================================================
+# Moved from r1000_top30_institutional.py:
+#   compute_strategy_blueprint_columns       (was 4259-5184, 926L)
+#   compute_multidimensional_pillar_scores   (was 5187-5372, 186L)
+#   compute_minervini_momentum_overlay       (was 5988-6131, 144L)
+#
+# compute_strategy_blueprint_columns is the LARGEST function in the codebase.
+# Phase 1 alpha (turnaround + value + uptrend) scoring lives here. It has
+# nested helper sector_median that stays encapsulated.
+#
+# Sleeve/portfolio functions that lived between blueprint and minervini
+# (compute_regime_portfolio_controls, compute_benchmark_beating_focus_overlay)
+# remain in main -- they are Stage 4 (sleeve composition) targets, not 3d.
+
+def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
+    d = apply_manual_ticker_overlays(df.copy(), cfg)
+    if d.empty:
+        for c in [
+            "revision_blueprint_score",
+            "growth_blueprint_score",
+            "valuation_blueprint_score",
+            "moat_quality_blueprint_score",
+            "technical_blueprint_score",
+            "profitability_inflection_score",
+            "anticipatory_growth_confirmation",
+            "anticipatory_growth_score",
+            "archetype_emerging_growth_score",
+            "archetype_compounder_score",
+            "archetype_cyclical_recovery_score",
+            "archetype_defensive_value_score",
+            "archetype_alignment_score",
+            "dominant_archetype_score",
+            "dominant_archetype_confidence",
+            "dominant_archetype_label",
+            "future_winner_scout_score",
+            "long_hold_compounder_score",
+            "macro_hedge_score",
+            "strategy_blueprint_score",
+            "watchlist_quality_penalty",
+            # Phase 1 new alpha signals
+            "fundamental_turnaround_acceleration_score",
+            "cashflow_inflection_under_loss_score",
+            "value_inflection_score",
+            "uptrend_continuation_score",
+            "uptrend_breakdown_penalty",
+        ]:
+            d[c] = np.nan
+        return d
+
+    if "sector" not in d.columns:
+        d["sector"] = "Unknown"
+    d["sector"] = d["sector"].fillna("Unknown").astype(str)
+    if "rebalance_date" in d.columns:
+        d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    groupers: list[pd.Series] = [d["sector"]]
+    if "rebalance_date" in d.columns and d["rebalance_date"].notna().any():
+        groupers = [d["rebalance_date"], d["sector"]]
+
+    def sector_median(col: str) -> pd.Series:
+        if col not in d.columns:
+            return pd.Series(np.nan, index=d.index, dtype=float)
+        s = pd.to_numeric(d[col], errors="coerce")
+        return s.groupby(groupers).transform("median")
+
+    forward_pe = numeric_series_or_default(d, "forward_pe_final", np.nan).replace(0, np.nan)
+    ev_to_ebitda = numeric_series_or_default(d, "ev_to_ebitda_final", np.nan).replace(0, np.nan)
+    fcf_yield = numeric_series_or_default(d, "fcfy_ttm", np.nan)
+    sector_pe_med = sector_median("forward_pe_final").replace(0, np.nan)
+    sector_ev_med = sector_median("ev_to_ebitda_final").replace(0, np.nan)
+    sector_fcf_med = sector_median("fcfy_ttm")
+
+    pe_rel = np.log(forward_pe / sector_pe_med)
+    ev_rel = np.log(ev_to_ebitda / sector_ev_med)
+    fcf_rel = fcf_yield - sector_fcf_med
+
+    target_support = row_mean(
+        [
+            cross_sectional_robust_z(d, "target_upside_pct"),
+            -cross_sectional_robust_z(d, "recommendation_mean"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    guidance_proxy = row_mean(
+        [
+            cross_sectional_robust_z(d, "actual_results_score"),
+            cross_sectional_robust_z(d, "earn_gap_1d"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    revision_proxy = row_mean(
+        [
+            cross_sectional_robust_z(d, "eps_revision_proxy"),
+            cross_sectional_robust_z(d, "eps_est_fy1"),
+            cross_sectional_robust_z(d, "eps_est_fy2"),
+            cross_sectional_robust_z(d, "rev_est_fy1"),
+            cross_sectional_robust_z(d, "rev_est_fy2"),
+            cross_sectional_robust_z(d, "revision_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    revision_cov = numeric_series_or_default(d, "revision_coverage_ratio", 0.0).clip(lower=0.0, upper=1.0)
+    d["revision_blueprint_score"] = (
+        0.60 * revision_proxy
+        + 0.20 * target_support
+        + 0.20 * guidance_proxy
+    ) * (0.55 + 0.45 * revision_cov)
+
+    d["growth_blueprint_score"] = (
+        # Use _cagr_best (3y preferred, falls back to 2y then 1y) for broader coverage
+        0.10 * cross_sectional_robust_z(d, "sales_cagr_best")
+        + 0.06 * cross_sectional_robust_z(d, "sales_cagr_5y")
+        + 0.08 * cross_sectional_robust_z(d, "op_income_cagr_best")
+        + 0.05 * cross_sectional_robust_z(d, "op_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "net_income_cagr_best")
+        + 0.04 * cross_sectional_robust_z(d, "net_income_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "ocf_cagr_best")
+        + 0.03 * cross_sectional_robust_z(d, "ocf_cagr_5y")
+        + 0.05 * cross_sectional_robust_z(d, "eps_cagr_best")
+        + 0.05 * cross_sectional_robust_z(d, "fcf_cagr_best")
+        + 0.14 * cross_sectional_robust_z(d, "revenue_growth_final")
+        + 0.12 * cross_sectional_robust_z(d, "earnings_growth_final")
+        + 0.06 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.04 * cross_sectional_robust_z(d, "ocf_growth_yoy")
+        + 0.06 * cross_sectional_robust_z(d, "actual_results_score")
+    ).fillna(0.0)
+
+    d["valuation_blueprint_score"] = (
+        0.24 * -robust_z(pe_rel).fillna(0.0)
+        + 0.22 * -robust_z(ev_rel).fillna(0.0)
+        + 0.20 * robust_z(fcf_rel).fillna(0.0)
+        + 0.20 * -cross_sectional_robust_z(d, "peg_final")
+        + 0.14 * -cross_sectional_robust_z(d, "forward_ps_final")
+    ).fillna(0.0)
+
+    moat_manual_raw = numeric_series_or_default(d, "moat_score_manual", np.nan)
+    moat_manual_score = robust_z(moat_manual_raw).fillna(0.0)
+    moat_proxy_score = cross_sectional_robust_z(d, "moat_proxy_score").fillna(0.0)
+    moat_anchor = pd.Series(
+        np.where(moat_manual_raw.notna(), 0.60 * moat_manual_score + 0.40 * moat_proxy_score, moat_proxy_score),
+        index=d.index,
+        dtype=float,
+    )
+    d["moat_quality_blueprint_score"] = (
+        0.30 * moat_anchor
+        + 0.18 * cross_sectional_robust_z(d, "op_margin_ttm")
+        + 0.14 * cross_sectional_robust_z(d, "gp_to_assets_ttm")
+        + 0.14 * cross_sectional_robust_z(d, "roe_proxy")
+        + 0.12 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.06 * cross_sectional_robust_z(d, "margin_stability_8q")
+        + 0.06 * cross_sectional_robust_z(d, "pricing_power_score")
+        - 0.10 * cross_sectional_robust_z(d, "debt_to_equity")
+    ).fillna(0.0)
+
+    breadth_regime = numeric_series_or_default(d, "market_breadth_regime_score", 0.50).clip(lower=0.0, upper=1.0)
+    sector_participation = numeric_series_or_default(d, "market_sector_participation", 0.35).clip(lower=0.0, upper=1.0)
+    leadership_narrowing = numeric_series_or_default(d, "market_leadership_narrowing", 0.50).clip(lower=0.0, upper=1.0)
+    market_overheat = numeric_series_or_default(d, "market_overheat_ratio", 0.0).clip(lower=0.0, upper=1.0)
+    systemic_crisis = numeric_series_or_default(d, "systemic_crisis_score", 0.0).clip(lower=0.0, upper=1.0)
+    carry_unwind = numeric_series_or_default(d, "carry_unwind_stress_score", 0.0).clip(lower=0.0, upper=1.0)
+    war_oil_rate = numeric_series_or_default(d, "war_oil_rate_shock_score", 0.0).clip(lower=0.0, upper=1.0)
+    defensive_rotation = numeric_series_or_default(d, "defensive_rotation_score", 0.0).clip(lower=0.0, upper=1.0)
+    growth_reentry = numeric_series_or_default(d, "growth_reentry_score", 0.0).clip(lower=0.0, upper=1.0)
+    inflation_reaccel = numeric_series_or_default(d, "inflation_reacceleration_score", 0.0).clip(lower=0.0, upper=1.0)
+    upstream_cost = numeric_series_or_default(d, "upstream_cost_pressure_score", 0.0).clip(lower=0.0, upper=1.0)
+    labor_softening = numeric_series_or_default(d, "labor_softening_score", 0.0).clip(lower=0.0, upper=1.0)
+    stagflation = numeric_series_or_default(d, "stagflation_score", 0.0).clip(lower=0.0, upper=1.0)
+    growth_liquidity = numeric_series_or_default(d, "growth_liquidity_reentry_score", 0.0).clip(lower=0.0, upper=1.0)
+    benchmark_alpha = row_mean(
+        [
+            cross_sectional_robust_z(d, "rs_benchmark_3m"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "rs_benchmark_12m"),
+            0.60 * cross_sectional_robust_z(d, "dd_gap_benchmark"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    rsi_penalty = ((numeric_series_or_default(d, "rsi14", np.nan) - 75.0) / 10.0).clip(lower=0.0).fillna(0.0)
+    timing_confirmation = row_mean(
+        [
+            numeric_series_or_default(d, "price_above_ma20", 0.0),
+            numeric_series_or_default(d, "ma20_above_ma50", 0.0),
+            numeric_series_or_default(d, "golden_cross_fresh_20d", 0.0),
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0),
+            cross_sectional_robust_z(d, "breakout_volume_z"),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0),
+            cross_sectional_robust_z(d, "volume_dryup_20d"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    breakdown_penalty = row_mean(
+        [
+            numeric_series_or_default(d, "death_cross_recent_20d", 0.0),
+            cross_sectional_robust_z(d, "atr14_pct").clip(lower=0.0).fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    trend_template_weight = 0.14 + 0.06 * breadth_regime + 0.02 * sector_participation
+    high_tight_weight = (0.06 + 0.06 * breadth_regime - 0.03 * leadership_narrowing).clip(lower=0.02)
+    overheat_penalty_weight = (
+        0.04
+        + 0.10 * leadership_narrowing
+        + 0.08 * market_overheat
+        + 0.06 * np.clip(0.50 - breadth_regime, 0.0, None)
+    )
+    d["technical_blueprint_score"] = (
+        0.18 * cross_sectional_robust_z(d, "mom_6m")
+        + 0.16 * cross_sectional_robust_z(d, "mom_12m")
+        + 0.14 * cross_sectional_robust_z(d, "rs_sector_6m")
+        + 0.14 * cross_sectional_robust_z(d, "near_52w_high_pct")
+        + 0.10 * benchmark_alpha
+        + trend_template_weight * numeric_series_or_default(d, "trend_template_relaxed", 0.0)
+        + 0.10 * numeric_series_or_default(d, "trend_template_full", 0.0)
+        + high_tight_weight * numeric_series_or_default(d, "high_tight_30_bonus", 0.0)
+        + 0.10 * timing_confirmation
+        + float(cfg.growth_reentry_strength)
+        * growth_reentry
+        * row_mean(
+            [
+                cross_sectional_robust_z(d, "rs_benchmark_3m"),
+                cross_sectional_robust_z(d, "rs_benchmark_6m"),
+                cross_sectional_robust_z(d, "mom_6m"),
+                0.60 * cross_sectional_robust_z(d, "revision_score"),
+            ],
+            d.index,
+        ).fillna(0.0)
+        - 0.06 * rsi_penalty
+        - overheat_penalty_weight * numeric_series_or_default(d, "overheat_penalty", 0.0)
+        - 0.06 * breakdown_penalty
+        - 0.08 * defensive_rotation * cross_sectional_robust_z(d, "vol_252d").clip(lower=0.0).fillna(0.0)
+    ).fillna(0.0)
+
+    negative_margin = np.clip(-numeric_series_or_default(d, "op_margin_ttm", 0.0), 0.0, None)
+    deep_negative_margin_penalty = robust_z(negative_margin).clip(lower=0.0).fillna(0.0)
+    leverage_penalty = cross_sectional_robust_z(d, "debt_to_equity").clip(lower=0.0).fillna(0.0)
+    d["profitability_inflection_score"] = (
+        0.24 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.18 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.14 * cross_sectional_robust_z(d, "event_reaction_score")
+        + 0.12 * cross_sectional_robust_z(d, "earn_gap_1d")
+        + 0.12 * cross_sectional_robust_z(d, "ocf_ni_quality_4q")
+        + 0.10 * cross_sectional_robust_z(d, "actual_results_score")
+        + 0.10 * benchmark_alpha
+        - 0.08 * deep_negative_margin_penalty
+        - 0.08 * leverage_penalty
+    ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.1+1.2: Turnaround / cash-flow inflection scores
+    # =====================================================================
+    # These scores hunt for the WDC/LITE-style setup the system was missing
+    # before: revenue still growing AND a real loss-to-profit transition (or
+    # loss-narrowing) on the operating-income / OCF / FCF / EBITDA lines, with
+    # leverage improving and accruals quality holding up.  We rely on the
+    # panel-level sign-flip and loss-narrowing features added in
+    # `add_fundamental_features` (op_income_sign_flip_pos, ocf_sign_flip_pos,
+    # fcf_sign_flip_pos, ni_sign_flip_pos, op_income_loss_narrowing_4q,
+    # ocf_loss_narrowing_4q, fcf_loss_narrowing_4q, ocf_under_loss_growth,
+    # fcf_under_loss_growth) which carry through the standard fundamental
+    # ffill pipeline.
+    op_inc_flip = numeric_series_or_default(d, "op_income_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    ocf_flip = numeric_series_or_default(d, "ocf_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    fcf_flip = numeric_series_or_default(d, "fcf_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    ni_flip = numeric_series_or_default(d, "ni_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    gp_flip = numeric_series_or_default(d, "gp_sign_flip_pos", 0.0).clip(0.0, 1.0)
+    op_inc_narrowing = numeric_series_or_default(d, "op_income_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    fcf_narrowing = numeric_series_or_default(d, "fcf_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ocf_narrowing = numeric_series_or_default(d, "ocf_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ni_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0).clip(-1.0, 2.0)
+    ocf_under_loss = numeric_series_or_default(d, "ocf_under_loss_growth", 0.0).clip(0.0, 1.0)
+    fcf_under_loss = numeric_series_or_default(d, "fcf_under_loss_growth", 0.0).clip(0.0, 1.0)
+
+    sales_yoy_v = numeric_series_or_default(d, "sales_growth_yoy", 0.0).fillna(0.0)
+    rev_growth_pos = (sales_yoy_v > 0.0).astype(float)
+    rev_growth_strong = (sales_yoy_v > 0.10).astype(float)
+
+    # Gate sign-flips on the existence of revenue growth so we don't reward
+    # cost-cutting-only profitability swings (those are not turnarounds we
+    # want to ride).
+    op_flip_gated = op_inc_flip * rev_growth_pos
+    ocf_flip_gated = ocf_flip * rev_growth_pos
+    fcf_flip_gated = fcf_flip * rev_growth_pos
+    ni_flip_gated = ni_flip * rev_growth_pos
+    gp_flip_gated = gp_flip * rev_growth_pos
+
+    # === Fundamental turnaround acceleration score ===========================
+    # Captures: revenue acceleration + multi-line P&L loss-to-profit flip +
+    # narrowing losses + improving leverage + earnings revisions confirming.
+    revision_alpha = cross_sectional_robust_z(d, "revision_score").fillna(0.0)
+    margin_expansion_at_growth = cross_sectional_robust_z(d, "margin_expansion_at_growth").fillna(0.0)
+    deleveraging_alpha = (-cross_sectional_robust_z(d, "debt_to_equity_delta_4q")).fillna(0.0)
+    accruals_quality_alpha = cross_sectional_robust_z(d, "ocf_ni_quality_4q").fillna(0.0)
+
+    d["fundamental_turnaround_acceleration_score"] = (
+        0.18 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.13 * robust_z(op_flip_gated).fillna(0.0)
+        + 0.10 * robust_z(ni_flip_gated).fillna(0.0)
+        + 0.08 * robust_z(gp_flip_gated).fillna(0.0)
+        + 0.10 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.07 * robust_z(op_inc_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * robust_z(ni_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.06 * cross_sectional_robust_z(d, "growth_inflection_signal")
+        + 0.05 * margin_expansion_at_growth
+        + 0.05 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
+        + 0.04 * cross_sectional_robust_z(d, "roe_trend_4q")
+        + 0.05 * deleveraging_alpha
+        + 0.04 * accruals_quality_alpha
+        + 0.04 * revision_alpha
+        - 0.06 * deep_negative_margin_penalty
+        - 0.04 * leverage_penalty
+    ).fillna(0.0)
+
+    # === Cashflow inflection under loss score ================================
+    # OCF/FCF turning positive (or sharply improving) while net income is
+    # still negative — the classic Lynch/O'Neil "cash flow leads earnings"
+    # leading indicator of a turnaround.  Also rewards firms with high
+    # OCF/NI quality already running cash-positive while consensus still
+    # treats them as loss-makers.
+    ocf_quality_v = numeric_series_or_default(d, "ocf_ni_quality_4q", 0.0).fillna(0.0)
+    cashflow_quality_inflection = (
+        (ocf_quality_v > 1.0).astype(float) * ocf_quality_v.clip(0.0, 3.0)
+    )
+    fcf_pos_growing = (
+        (numeric_series_or_default(d, "fcf_ttm", 0.0) > 0.0).astype(float)
+        * rev_growth_strong
+    )
+    op_yoy_alpha = cross_sectional_robust_z(d, "op_income_growth_yoy").fillna(0.0)
+    ocf_yoy_alpha = cross_sectional_robust_z(d, "ocf_growth_yoy").fillna(0.0)
+    fcf_yoy_alpha = cross_sectional_robust_z(d, "fcf_growth_yoy").fillna(0.0)
+
+    d["cashflow_inflection_under_loss_score"] = (
+        0.18 * robust_z(ocf_under_loss).fillna(0.0)
+        + 0.16 * robust_z(fcf_under_loss).fillna(0.0)
+        + 0.10 * robust_z(ocf_flip_gated).fillna(0.0)
+        + 0.10 * robust_z(fcf_flip_gated).fillna(0.0)
+        + 0.08 * robust_z(fcf_pos_growing).fillna(0.0)
+        + 0.08 * accruals_quality_alpha
+        + 0.06 * robust_z(cashflow_quality_inflection).fillna(0.0)
+        + 0.05 * robust_z(ocf_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * robust_z(fcf_narrowing.clip(lower=0.0)).fillna(0.0)
+        + 0.05 * ocf_yoy_alpha
+        + 0.05 * fcf_yoy_alpha
+        + 0.04 * op_yoy_alpha
+        + 0.04 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        - 0.06 * leverage_penalty
+    ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.3: Value inflection score (cheap + growing + reversing)
+    # =====================================================================
+    # Targets the setup the user described: a stock whose PE is
+    # compressing because earnings/revenue are growing faster than the
+    # price (or the price has been beaten down), AND the chart has just
+    # started to reverse from oversold / Stage 1 base.  Hunts for the
+    # "expectations gap closing" trade — a value-and-growth combination
+    # that classic momentum-only models miss.
+    near_high = numeric_series_or_default(d, "near_52w_high_pct", 0.0)
+    dd_1y_v = numeric_series_or_default(d, "dd_1y", 0.0).clip(lower=0.0, upper=1.5)
+    mom_1m_v = numeric_series_or_default(d, "mom_1m", 0.0)
+    mom_3m_v = numeric_series_or_default(d, "mom_3m", 0.0)
+    mom_6m_v = numeric_series_or_default(d, "mom_6m", 0.0)
+    price_above_ma50_v = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(0.0, 1.0)
+    price_above_ma200_v = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(0.0, 1.0)
+    ma50_above_ma200_v = numeric_series_or_default(d, "ma50_above_ma200", 0.0).clip(0.0, 1.0)
+
+    eps_growth_yoy_v = numeric_series_or_default(d, "eps_growth_yoy", np.nan)
+    op_inc_growth_yoy_v = numeric_series_or_default(d, "op_income_growth_yoy", np.nan)
+    fcf_growth_yoy_v = numeric_series_or_default(d, "fcf_growth_yoy", np.nan)
+
+    # Cheapness: high earnings yield (low PE), low EV/EBITDA, low forward PE
+    cheapness = row_mean(
+        [
+            cross_sectional_robust_z(d, "ep_ttm"),
+            -cross_sectional_robust_z(d, "forward_pe_final"),
+            -cross_sectional_robust_z(d, "ev_to_ebitda_final"),
+            cross_sectional_robust_z(d, "fcfy_ttm"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    # Earnings catching up to price: positive growth on multiple lines
+    earnings_catchup = row_mean(
+        [
+            cross_sectional_robust_z(d, "eps_growth_yoy"),
+            cross_sectional_robust_z(d, "op_income_growth_yoy"),
+            cross_sectional_robust_z(d, "fcf_growth_yoy"),
+            cross_sectional_robust_z(d, "rev_growth_accel_4q"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    # Earnings-up-while-price-still-down (the heart of "PE shrinking"):
+    # any positive growth combined with currently being below 52w high.
+    fundamentals_growing = (
+        ((eps_growth_yoy_v > 0.0) | (op_inc_growth_yoy_v > 0.0) | (fcf_growth_yoy_v > 0.0)).astype(float)
+    )
+    price_beaten_down = (near_high < -0.15).astype(float)
+    pe_compression_setup = fundamentals_growing * price_beaten_down
+
+    # Reversal: oversold previously (deep dd) but now the most recent
+    # 1m / 3m momentum has flipped positive, ideally with the price
+    # reclaiming MA50.
+    oversold_recovery = (
+        (dd_1y_v > 0.20).astype(float)
+        * ((mom_1m_v > 0.0).astype(float) + (mom_3m_v > 0.0).astype(float))
+    ).clip(upper=2.0)
+    stage_one_to_two_transition = (
+        (price_above_ma200_v > 0.5).astype(float)
+        * (price_above_ma50_v > 0.5).astype(float)
+        * (ma50_above_ma200_v > 0.5).astype(float)
+        * (near_high < -0.10).astype(float)  # not yet at the high → early stage 2
+    )
+
+    # Quality / safety filters — avoid value traps with crumbling fundamentals.
+    not_deep_negative_margin = (
+        numeric_series_or_default(d, "op_margin_ttm", 0.0) > -0.05
+    ).astype(float)
+    not_high_leverage = (
+        numeric_series_or_default(d, "debt_to_equity", 0.0).clip(lower=0.0) < 3.0
+    ).astype(float)
+    quality_floor = (not_deep_negative_margin * not_high_leverage).clip(0.0, 1.0)
+
+    d["value_inflection_score"] = (
+        (
+            0.20 * cheapness
+            + 0.18 * earnings_catchup
+            + 0.12 * robust_z(pe_compression_setup).fillna(0.0)
+            + 0.10 * robust_z(oversold_recovery).fillna(0.0)
+            + 0.10 * robust_z(stage_one_to_two_transition).fillna(0.0)
+            + 0.08 * cross_sectional_robust_z(d, "ocf_ni_quality_4q")
+            + 0.06 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+            + 0.06 * cross_sectional_robust_z(d, "margin_trend_4q")
+            + 0.05 * cross_sectional_robust_z(d, "revision_score")
+            + 0.05 * cross_sectional_robust_z(d, "actual_results_score")
+            - 0.06 * deep_negative_margin_penalty
+            - 0.04 * leverage_penalty
+        )
+        * (0.30 + 0.70 * quality_floor)
+    ).fillna(0.0)
+
+    # =====================================================================
+    # Phase 1.4: Uptrend continuation score + uptrend breakdown penalty
+    # =====================================================================
+    # User mandate: keep names that are at the 52w high with MAs aligned and
+    # earnings still beating; aggressively penalise those names the moment a
+    # leg of the thesis cracks (price loses MA50/MA200, earnings disappoint,
+    # revisions roll over).  This is the defensive-overlay for our existing
+    # winners.
+    above_ma20_v = numeric_series_or_default(d, "price_above_ma20", 0.0).clip(0.0, 1.0)
+    above_ma150_v = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(0.0, 1.0)
+    ma150_above_ma200_v = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(0.0, 1.0)
+    ma20_above_ma50_v = numeric_series_or_default(d, "ma20_above_ma50", 0.0).clip(0.0, 1.0)
+    ma50_above_ma150_v = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(0.0, 1.0)
+
+    actual_results_v = numeric_series_or_default(d, "actual_results_score", 0.0)
+    revision_score_v = numeric_series_or_default(d, "revision_score", 0.0)
+    earn_gap_v = numeric_series_or_default(d, "earn_gap_1d", 0.0)
+    rs_bench_3m_v = numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+    rs_bench_6m_v = numeric_series_or_default(d, "rs_benchmark_6m", 0.0)
+    death_cross_v = numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(0.0, 1.0)
+
+    full_trend_alignment = (
+        above_ma20_v
+        * ma20_above_ma50_v
+        * price_above_ma50_v
+        * ma50_above_ma150_v
+        * above_ma150_v
+        * ma150_above_ma200_v
+    ).clip(0.0, 1.0)
+
+    near_high_strong = ((near_high >= -0.10).astype(float)).clip(0.0, 1.0)
+    momentum_intact = (
+        (mom_3m_v > 0.0).astype(float)
+        + (mom_6m_v > 0.0).astype(float)
+        + (rs_bench_3m_v > 0.0).astype(float)
+        + (rs_bench_6m_v > 0.0).astype(float)
+    ) / 4.0
+    earnings_intact = (
+        (actual_results_v > 0.0).astype(float)
+        + (revision_score_v > 0.0).astype(float)
+        + (earn_gap_v > -0.02).astype(float)
+    ) / 3.0
+    fundamentals_compounding = (
+        ((sales_yoy_v > 0.05).astype(float))
+        * ((eps_growth_yoy_v > 0.0).fillna(False).astype(float))
+    )
+
+    d["uptrend_continuation_score"] = (
+        0.22 * robust_z(full_trend_alignment).fillna(0.0)
+        + 0.16 * robust_z(near_high_strong).fillna(0.0)
+        + 0.14 * robust_z(momentum_intact).fillna(0.0)
+        + 0.12 * robust_z(earnings_intact).fillna(0.0)
+        + 0.10 * robust_z(fundamentals_compounding).fillna(0.0)
+        + 0.08 * cross_sectional_robust_z(d, "rs_benchmark_6m")
+        + 0.06 * cross_sectional_robust_z(d, "minervini_momentum_alive_score")
+        + 0.06 * numeric_series_or_default(d, "trend_template_full", 0.0)
+        + 0.04 * cross_sectional_robust_z(d, "revision_score")
+    ).fillna(0.0)
+
+    # Uptrend breakdown penalty — fires when a previously-strong name cracks.
+    # Components: (a) was strong/near high (uses near_high relaxed) but now
+    # below MA50 or below MA200; (b) negative earnings event (gap-down or
+    # revision rolling over); (c) momentum has flipped negative.
+    was_strong = (near_high >= -0.20).astype(float)  # within 20% of 52w high
+    lost_ma50 = (price_above_ma50_v <= 0.0).astype(float)
+    lost_ma200 = (price_above_ma200_v <= 0.0).astype(float)
+    earnings_disappointment = (
+        ((earn_gap_v < -0.05).astype(float))
+        + ((actual_results_v < -0.5).astype(float))
+        + ((revision_score_v < -0.5).astype(float))
+    ).clip(upper=2.0) / 2.0
+    momentum_rollover = (
+        ((mom_3m_v < 0.0).astype(float))
+        + ((rs_bench_3m_v < 0.0).astype(float))
+        + ((mom_1m_v < -0.05).astype(float))
+    ).clip(upper=2.0) / 2.0
+
+    breakdown_components = row_mean(
+        [
+            was_strong * lost_ma50,
+            was_strong * lost_ma200,
+            earnings_disappointment,
+            momentum_rollover,
+            0.50 * death_cross_v,
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["uptrend_breakdown_penalty"] = breakdown_components.clip(lower=0.0, upper=1.5)
+
+    # ---------------------------------------------------------------------
+    # Phase 1 A/B toggle.  When PHASE_PHASE1_ALPHA_ENABLED=0 we keep the
+    # column schema intact but zero the 5 new alpha scores so we can
+    # measure Phase 1's marginal contribution by running the same cfg twice.
+    # Intermediate locals above (e.g. `quality_floor`, `revision_alpha`) are
+    # preserved because they're re-used elsewhere in this function.
+    # ---------------------------------------------------------------------
+    if not phase_is_enabled("phase1_alpha", default=True):
+        for _p1_col in (
+            "fundamental_turnaround_acceleration_score",
+            "cashflow_inflection_under_loss_score",
+            "value_inflection_score",
+            "uptrend_continuation_score",
+            "uptrend_breakdown_penalty",
+        ):
+            if _p1_col in d.columns:
+                d[_p1_col] = 0.0
+
+    anticipatory_market_confirmation = row_mean(
+        [
+            (numeric_series_or_default(d, "event_reaction_score", 0.0) > 0.0).astype(float),
+            (benchmark_alpha > 0.0).astype(float),
+            (numeric_series_or_default(d, "dynamic_leader_score", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "revision_score", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["anticipatory_growth_confirmation"] = np.maximum(
+        numeric_series_or_default(d, "fundamental_reliability_score", 0.0).clip(lower=0.0, upper=1.0),
+        0.75 * anticipatory_market_confirmation,
+    )
+    # Growth onset composite for ten-bagger detection
+    log_mktcap = pd.to_numeric(d.get("log_mktcap", d.get("mktcap", pd.Series(np.nan, index=d.index))), errors="coerce")
+    if "log_mktcap" not in d.columns and "mktcap" in d.columns:
+        log_mktcap = np.log(pd.to_numeric(d["mktcap"], errors="coerce").clip(lower=1e6))
+    small_base_high_growth = (
+        np.clip(1.0 - (log_mktcap - 9.0) / 3.0, 0.0, 1.0)
+        * np.maximum(0.0, numeric_series_or_default(d, "sales_growth_yoy", 0.0))
+    ).fillna(0.0)
+    # EPS/FCF acceleration — captures profit inflection better than revenue alone
+    eps_accel = cross_sectional_robust_z(d, "eps_growth_yoy").fillna(0.0)
+    fcf_accel = cross_sectional_robust_z(d, "fcf_growth_yoy").fillna(0.0)
+    earnings_momentum = row_mean([eps_accel, fcf_accel], d.index).fillna(0.0)
+    d["growth_onset_composite"] = (
+        0.18 * cross_sectional_robust_z(d, "revenue_accel_2nd_deriv")
+        + 0.18 * numeric_series_or_default(d, "growth_inflection_signal", 0.0)
+        + 0.15 * numeric_series_or_default(d, "margin_expansion_at_growth", 0.0)
+        + 0.12 * robust_z(small_base_high_growth).fillna(0.0)
+        + 0.12 * cross_sectional_robust_z(d, "rs_market_acceleration")
+        + 0.15 * earnings_momentum
+        + 0.10 * cross_sectional_robust_z(d, "breakout_volume_z")
+    ).fillna(0.0)
+
+    # Multi-dimensional growth composite: revenue + earnings + cashflow
+    multi_growth_z = row_mean(
+        [
+            cross_sectional_robust_z(d, "sales_cagr_3y"),
+            cross_sectional_robust_z(d, "eps_cagr_3y"),
+            cross_sectional_robust_z(d, "fcf_cagr_3y"),
+            cross_sectional_robust_z(d, "op_income_cagr_3y"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    multi_growth_5y_z = row_mean(
+        [
+            cross_sectional_robust_z(d, "sales_cagr_5y"),
+            cross_sectional_robust_z(d, "eps_cagr_5y"),
+            cross_sectional_robust_z(d, "fcf_cagr_5y"),
+            cross_sectional_robust_z(d, "op_income_cagr_5y"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    # Supply-demand proxy: volume confirmation + institutional flow
+    supply_demand_signal = row_mean(
+        [
+            cross_sectional_robust_z(d, "breakout_volume_z"),
+            cross_sectional_robust_z(d, "obv_trend"),
+            numeric_series_or_default(d, "institutional_flow_signal_score", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    # Macro-aligned growth boost: stronger when macro is expansionary
+    macro_growth_boost = (
+        0.50 * growth_reentry
+        + 0.30 * numeric_series_or_default(d, "growth_liquidity_reentry_score", 0.0)
+        + 0.20 * numeric_series_or_default(d, "liquidity_impulse_score", 0.0)
+    )
+    anticipatory_raw = (
+        0.11 * cross_sectional_robust_z(d, "rev_growth_accel_4q")
+        + 0.09 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.09 * multi_growth_z
+        + 0.05 * multi_growth_5y_z
+        + 0.09 * benchmark_alpha
+        + 0.11 * cross_sectional_robust_z(d, "growth_onset_composite")
+        + 0.07 * cross_sectional_robust_z(d, "technical_blueprint_score")
+        + 0.06 * cross_sectional_robust_z(d, "event_reaction_score")
+        + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
+        + 0.05 * cross_sectional_robust_z(d, "leader_emergence_score")
+        + 0.05 * cross_sectional_robust_z(d, "revision_blueprint_score")
+        + 0.06 * numeric_series_or_default(d, "profitability_inflection_score", 0.0)
+        + 0.06 * supply_demand_signal
+        + 0.05 * macro_growth_boost * row_mean(
+            [
+                cross_sectional_robust_z(d, "rs_benchmark_3m"),
+                cross_sectional_robust_z(d, "rs_benchmark_6m"),
+                cross_sectional_robust_z(d, "mom_3m"),
+            ],
+            d.index,
+        ).fillna(0.0)
+        - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
+        - 0.05 * leverage_penalty
+    ).fillna(0.0)
+    d["anticipatory_growth_score"] = (
+        anticipatory_raw
+        * (0.60 + 0.40 * numeric_series_or_default(d, "anticipatory_growth_confirmation", 0.0))
+    ).fillna(0.0)
+
+    low_vol_quality = row_mean(
+        [
+            -cross_sectional_robust_z(d, "vol_252d"),
+            -cross_sectional_robust_z(d, "dd_1y"),
+            cross_sectional_robust_z(d, "fundamental_reliability_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    structural_value_bias = row_mean(
+        [
+            cross_sectional_robust_z(d, "valuation_blueprint_score"),
+            0.75 * cross_sectional_robust_z(d, "garp_score"),
+            cross_sectional_robust_z(d, "structural_value_exposure"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["archetype_emerging_growth_score"] = (
+        0.22 * cross_sectional_robust_z(d, "anticipatory_growth_score")
+        + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
+        + 0.16 * cross_sectional_robust_z(d, "technical_blueprint_score")
+        + 0.10 * cross_sectional_robust_z(d, "revision_blueprint_score")
+        + 0.08 * cross_sectional_robust_z(d, "dynamic_leader_score")
+        + 0.07 * benchmark_alpha
+        + 0.06 * cross_sectional_robust_z(d, "leader_emergence_score")
+        + 0.06 * earnings_momentum
+        + 0.05 * supply_demand_signal
+        + 0.04 * cross_sectional_robust_z(d, "relative_strength_composite")
+        - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
+        - 0.05 * leverage_penalty
+    ).fillna(0.0)
+    d["archetype_compounder_score"] = (
+        0.20 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
+        + 0.14 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.12 * cross_sectional_robust_z(d, "growth_blueprint_score")
+        + 0.10 * multi_growth_5y_z
+        + 0.08 * cross_sectional_robust_z(d, "op_margin_ttm")
+        + 0.08 * cross_sectional_robust_z(d, "margin_stability_8q")
+        + 0.08 * benchmark_alpha
+        + 0.06 * cross_sectional_robust_z(d, "fundamental_reliability_score")
+        + 0.06 * low_vol_quality
+        + 0.04 * cross_sectional_robust_z(d, "fcf_cagr_5y")
+        + 0.04 * cross_sectional_robust_z(d, "eps_cagr_5y")
+        - 0.06 * leverage_penalty
+    ).fillna(0.0)
+    d["archetype_cyclical_recovery_score"] = (
+        0.20 * cross_sectional_robust_z(d, "valuation_blueprint_score")
+        + 0.16 * cross_sectional_robust_z(d, "profitability_inflection_score")
+        + 0.12 * cross_sectional_robust_z(d, "margin_trend_4q")
+        + 0.10 * cross_sectional_robust_z(d, "sales_growth_yoy")
+        + 0.10 * cross_sectional_robust_z(d, "event_reaction_score")
+        + 0.08 * cross_sectional_robust_z(d, "actual_results_score")
+        + 0.08 * benchmark_alpha
+        + 0.08 * cross_sectional_robust_z(d, "energy_hedge_exposure")
+        + 0.08 * structural_value_bias
+        - 0.08 * numeric_series_or_default(d, "overheat_penalty", 0.0)
+    ).fillna(0.0)
+    balance_resilience = row_mean(
+        [
+            -cross_sectional_robust_z(d, "vol_252d"),
+            -cross_sectional_robust_z(d, "dd_1y"),
+            -cross_sectional_robust_z(d, "debt_to_equity"),
+            cross_sectional_robust_z(d, "fundamental_reliability_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    dividend_support = cross_sectional_robust_z(d, "dividend_policy_score").clip(lower=0.0).fillna(0.0)
+    valuation_support = pd.to_numeric(d["valuation_blueprint_score"], errors="coerce").clip(lower=0.0).fillna(0.0)
+    moat_support = pd.to_numeric(d["moat_quality_blueprint_score"], errors="coerce").clip(lower=0.0).fillna(0.0)
+    d["macro_hedge_score"] = (
+        0.25 * numeric_series_or_default(d, "ai_infra_exposure", 0.0)
+        + 0.25 * numeric_series_or_default(d, "power_infra_exposure", 0.0)
+        + 0.20 * numeric_series_or_default(d, "defense_exposure", 0.0)
+        + 0.15 * numeric_series_or_default(d, "energy_hedge_exposure", 0.0)
+        + 0.15 * balance_resilience
+        + 0.10 * defensive_rotation * balance_resilience
+        + 0.06 * war_oil_rate * numeric_series_or_default(d, "energy_hedge_exposure", 0.0)
+        + 0.05 * systemic_crisis * numeric_series_or_default(d, "defense_exposure", 0.0)
+        + 0.10 * stagflation * dividend_support
+        + 0.08 * np.maximum(war_oil_rate, stagflation) * valuation_support
+        + 0.06 * labor_softening * moat_support
+    ).fillna(0.0)
+    d["archetype_defensive_value_score"] = (
+        0.22 * cross_sectional_robust_z(d, "macro_hedge_score")
+        + 0.18 * cross_sectional_robust_z(d, "valuation_blueprint_score")
+        + 0.16 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
+        + 0.12 * cross_sectional_robust_z(d, "dividend_policy_score")
+        + 0.10 * low_vol_quality
+        + 0.08 * cross_sectional_robust_z(d, "defense_exposure")
+        + 0.08 * cross_sectional_robust_z(d, "energy_hedge_exposure")
+        + 0.08 * benchmark_alpha
+        - 0.08 * cross_sectional_robust_z(d, "mom_1m").clip(lower=0.0).fillna(0.0)
+    ).fillna(0.0)
+    archetype_growth_mode = pd.Series(np.maximum(growth_reentry, growth_liquidity), index=d.index, dtype=float)
+    archetype_defense_mode = pd.Series(
+        np.maximum.reduce(
+            [
+                defensive_rotation.values,
+                systemic_crisis.values,
+                carry_unwind.values,
+                war_oil_rate.values,
+                stagflation.values,
+            ]
+        ),
+        index=d.index,
+        dtype=float,
+    )
+    archetype_balance_mode = pd.Series(
+        np.clip(1.0 - np.maximum(archetype_growth_mode, archetype_defense_mode), 0.0, 1.0),
+        index=d.index,
+        dtype=float,
+    )
+    archetype_growth_weight = 0.25 + 0.75 * archetype_growth_mode
+    archetype_compounder_weight = 0.45 + 0.20 * breadth_regime + 0.15 * sector_participation + 0.10 * archetype_balance_mode
+    archetype_cyclical_weight = 0.20 + 0.45 * np.maximum(war_oil_rate, upstream_cost) + 0.15 * structural_value_bias.clip(lower=0.0)
+    archetype_defensive_weight = 0.20 + 0.55 * archetype_defense_mode + 0.15 * labor_softening
+    archetype_weight_sum = (
+        archetype_growth_weight
+        + archetype_compounder_weight
+        + archetype_cyclical_weight
+        + archetype_defensive_weight
+    )
+    d["archetype_alignment_score"] = (
+        archetype_growth_weight * d["archetype_emerging_growth_score"]
+        + archetype_compounder_weight * d["archetype_compounder_score"]
+        + archetype_cyclical_weight * d["archetype_cyclical_recovery_score"]
+        + archetype_defensive_weight * d["archetype_defensive_value_score"]
+    ) / np.where(archetype_weight_sum == 0, 1.0, archetype_weight_sum)
+    d["archetype_alignment_score"] = pd.to_numeric(d["archetype_alignment_score"], errors="coerce").fillna(0.0)
+    archetype_cols = [
+        "archetype_emerging_growth_score",
+        "archetype_compounder_score",
+        "archetype_cyclical_recovery_score",
+        "archetype_defensive_value_score",
+    ]
+    archetype_labels = np.array(
+        [
+            "emerging_growth",
+            "compounder",
+            "cyclical_recovery",
+            "defensive_value",
+        ],
+        dtype=object,
+    )
+    archetype_matrix = d[archetype_cols].apply(pd.to_numeric, errors="coerce").fillna(-np.inf).to_numpy(dtype=float)
+    archetype_top_idx = np.argmax(archetype_matrix, axis=1)
+    archetype_top = archetype_matrix[np.arange(len(d)), archetype_top_idx]
+    archetype_second = np.partition(archetype_matrix, -2, axis=1)[:, -2]
+    d["dominant_archetype_score"] = pd.Series(archetype_top, index=d.index).replace(-np.inf, np.nan).fillna(0.0)
+    d["dominant_archetype_confidence"] = (
+        pd.Series(archetype_top - archetype_second, index=d.index).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    )
+    d["dominant_archetype_label"] = pd.Series(archetype_labels[archetype_top_idx], index=d.index, dtype=object)
+    history_depth_raw = numeric_series_or_default(d, "fund_history_quarters_available", 0.0).astype(float)
+    history_depth = pd.Series(
+        np.clip(history_depth_raw.to_numpy(dtype=float), 0.0, 20.0) / 20.0,
+        index=d.index,
+        dtype=float,
+    )
+    long_base_quality = row_mean(
+        [
+            cross_sectional_robust_z(d, "technical_blueprint_score"),
+            0.80 * benchmark_alpha,
+            0.75 * cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
+            0.70 * cross_sectional_robust_z(d, "sales_cagr_5y"),
+            0.55 * cross_sectional_robust_z(d, "op_income_cagr_5y"),
+            0.50 * cross_sectional_robust_z(d, "net_income_cagr_5y"),
+            0.70 * cross_sectional_robust_z(d, "archetype_alignment_score"),
+            0.40 * cross_sectional_robust_z(d, "near_52w_high_pct"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    overextended_penalty = row_mean(
+        [
+            numeric_series_or_default(d, "overheat_penalty", 0.0),
+            cross_sectional_robust_z(d, "mom_12m").clip(lower=0.0).fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["long_hold_compounder_score"] = (
+        0.30 * cross_sectional_robust_z(d, "archetype_compounder_score")
+        + 0.18 * cross_sectional_robust_z(d, "moat_quality_blueprint_score")
+        + 0.14 * cross_sectional_robust_z(d, "quality_trend_score")
+        + 0.10 * multi_growth_5y_z
+        + 0.08 * cross_sectional_robust_z(d, "margin_stability_8q")
+        + 0.08 * benchmark_alpha
+        + 0.06 * cross_sectional_robust_z(d, "fcf_cagr_5y")
+        + 0.06 * cross_sectional_robust_z(d, "eps_cagr_5y")
+        - 0.06 * leverage_penalty
+    ).fillna(0.0)
+    # === FUTURE WINNER SCOUT: combines all signals to detect next big winner ===
+    # Core philosophy: "Future > Past" — weight technical, macro, supply-demand
+    # more than pure financial metrics. Financials confirm; price/flow leads.
+    d["future_winner_scout_score"] = (
+        (0.60 + 0.40 * np.maximum(history_depth, numeric_series_or_default(d, "fundamental_reliability_score", 0.0)))
+        * (
+            # --- Forward-looking: technical + macro + supply-demand (55%) ---
+            0.14 * cross_sectional_robust_z(d, "anticipatory_growth_score")
+            + 0.12 * cross_sectional_robust_z(d, "growth_onset_composite")
+            + 0.10 * cross_sectional_robust_z(d, "technical_blueprint_score")
+            + 0.07 * cross_sectional_robust_z(d, "relative_strength_composite")
+            + 0.06 * supply_demand_signal
+            + 0.06 * macro_growth_boost
+            # --- Quality confirmation (30%) ---
+            + 0.10 * cross_sectional_robust_z(d, "archetype_alignment_score")
+            + 0.08 * cross_sectional_robust_z(d, "long_hold_compounder_score")
+            + 0.06 * cross_sectional_robust_z(d, "revision_blueprint_score")
+            + 0.06 * cross_sectional_robust_z(d, "dynamic_leader_score")
+            # --- Catalysts (15%) ---
+            + 0.05 * long_base_quality
+            + 0.05 * cross_sectional_robust_z(d, "event_reaction_score")
+            + 0.05 * earnings_momentum
+            # --- Penalties ---
+            - 0.10 * overextended_penalty
+            - 0.05 * leverage_penalty
+        )
+    ).fillna(0.0)
+
+    watchlist_flag = (
+        d.get("ticker", pd.Series("", index=d.index, dtype=str))
+        .astype(str)
+        .str.upper()
+        .isin({str(t).upper() for t in cfg.focus_watchlist_tickers})
+        .astype(float)
+    )
+    d["watchlist_quality_penalty"] = float(cfg.watchlist_penalty_scale) * watchlist_flag * (
+        0.60 * np.clip(-d["valuation_blueprint_score"], 0.0, None)
+        + 0.40 * np.clip(cross_sectional_robust_z(d, "debt_to_equity"), 0.0, None)
+    )
+    size_saturation = cross_sectional_robust_z(d, "size_saturation_score").clip(lower=0.0).fillna(0.0)
+    benchmark_hugging_penalty = (
+        float(cfg.benchmark_hugging_penalty)
+        * size_saturation
+        * np.clip(0.10 - benchmark_alpha, 0.0, None)
+        * (0.35 + 0.65 * np.maximum(defensive_rotation, systemic_crisis))
+    )
+    growth_weight = (
+        0.22
+        + 0.04 * np.clip(breadth_regime - 0.55, 0.0, None)
+        - 0.03 * np.clip(leadership_narrowing - 0.60, 0.0, None)
+        + float(cfg.growth_reentry_strength) * np.clip(growth_reentry - 0.45, 0.0, None)
+        - 0.08 * np.maximum(defensive_rotation, systemic_crisis)
+        - 0.06 * stagflation
+        - 0.03 * labor_softening
+    )
+    moat_weight = (
+        0.20
+        + 0.05 * np.clip(leadership_narrowing - 0.55, 0.0, None)
+        + 0.06 * defensive_rotation
+        + 0.04 * labor_softening
+    )
+    valuation_weight = (
+        0.16
+        + 0.03 * np.clip(leadership_narrowing - 0.55, 0.0, None)
+        + 0.04 * war_oil_rate
+        + 0.05 * stagflation
+        + 0.03 * upstream_cost
+    )
+    technical_weight = (
+        0.14
+        + 0.06 * np.clip(breadth_regime - 0.55, 0.0, None)
+        - 0.04 * np.clip(leadership_narrowing - 0.60, 0.0, None)
+        + 0.05 * growth_reentry
+        + 0.03 * growth_liquidity
+        - 0.05 * np.maximum(systemic_crisis, carry_unwind)
+        - 0.04 * stagflation
+    )
+    macro_weight = (
+        0.04
+        + 0.03 * np.clip(leadership_narrowing - 0.55, 0.0, None)
+        + float(cfg.defensive_rotation_strength) * defensive_rotation
+        + 0.05 * carry_unwind
+        + 0.07 * stagflation
+        + 0.03 * labor_softening
+    )
+    anticipatory_weight = (
+        0.12
+        + 0.04 * np.clip(breadth_regime - 0.50, 0.0, None)
+        + 0.04 * growth_reentry
+        + 0.03 * growth_liquidity
+        - 0.04 * np.maximum(defensive_rotation, systemic_crisis)
+        - 0.04 * stagflation
+    )
+    d["strategy_blueprint_score"] = (
+        0.24 * d["revision_blueprint_score"]
+        + growth_weight * d["growth_blueprint_score"]
+        + moat_weight * d["moat_quality_blueprint_score"]
+        + valuation_weight * d["valuation_blueprint_score"]
+        + technical_weight * d["technical_blueprint_score"]
+        + anticipatory_weight * d["anticipatory_growth_score"]
+        + macro_weight * d["macro_hedge_score"]
+        - d["watchlist_quality_penalty"]
+        - benchmark_hugging_penalty
+    ).fillna(0.0)
+    return d
+
+
+def compute_multidimensional_pillar_scores(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        for c in PILLAR_SCORE_COLUMNS:
+            d[c] = np.nan
+        return d
+
+    market_cap = numeric_series_or_default(d, "market_cap_live", np.nan)
+    market_cap = market_cap.fillna(numeric_series_or_default(d, "mktcap", np.nan)).replace(0, np.nan)
+    shares_out = numeric_series_or_default(d, "shares", np.nan).replace(0, np.nan)
+
+    inst_actual_available = (
+        numeric_series_or_default(d, "institutional_actual_available", 0.0).fillna(0.0) > 0
+    ).astype(float)
+    insider_actual_available = (
+        numeric_series_or_default(d, "insider_actual_available", 0.0).fillna(0.0) > 0
+    ).astype(float)
+
+    sec13f_hold_ratio_actual = numeric_series_or_default(d, "institutional_holding_intensity_actual", np.nan)
+    if sec13f_hold_ratio_actual.notna().sum() == 0:
+        sec13f_hold_ratio_actual = numeric_series_or_default(d, "sec13f_shares", np.nan) / shares_out
+    sec13f_value_ratio_actual = numeric_series_or_default(d, "institutional_ownership_actual", np.nan)
+    if sec13f_value_ratio_actual.notna().sum() == 0:
+        sec13f_value_ratio_actual = numeric_series_or_default(d, "sec13f_value", np.nan) / market_cap
+    sec13f_delta_share_ratio_actual = numeric_series_or_default(d, "institutional_delta_shares_ratio_actual", np.nan)
+    if sec13f_delta_share_ratio_actual.notna().sum() == 0:
+        sec13f_delta_share_ratio_actual = numeric_series_or_default(d, "sec13f_delta_shares", np.nan) / shares_out
+    sec13f_delta_value_ratio_actual = numeric_series_or_default(d, "institutional_delta_value_ratio_actual", np.nan)
+    if sec13f_delta_value_ratio_actual.notna().sum() == 0:
+        sec13f_delta_value_ratio_actual = numeric_series_or_default(d, "sec13f_delta_value", np.nan) / market_cap
+    sec13f_count_actual = numeric_series_or_default(d, "sec13f_holders_count", np.nan)
+
+    insider_net_ratio_actual = numeric_series_or_default(d, "insider_net_shares_ratio_actual", np.nan)
+    if insider_net_ratio_actual.notna().sum() == 0:
+        insider_net_ratio_actual = numeric_series_or_default(d, "sec_form345_net_shares", np.nan) / shares_out
+    insider_buy_ratio_actual = numeric_series_or_default(d, "sec_form345_buy_ratio", np.nan)
+    insider_buy_balance_actual = (2.0 * insider_buy_ratio_actual) - 1.0
+    insider_txn_actual = np.log1p(
+        numeric_series_or_default(d, "sec_form345_txn_count", np.nan).clip(lower=0.0)
+    )
+
+    institutional_hold_component = row_mean(
+        [
+            robust_z(sec13f_hold_ratio_actual).fillna(0.0),
+            robust_z(sec13f_value_ratio_actual).fillna(0.0),
+            robust_z(sec13f_count_actual).fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    institutional_delta_component = row_mean(
+        [
+            robust_z(sec13f_delta_share_ratio_actual).fillna(0.0),
+            robust_z(sec13f_delta_value_ratio_actual).fillna(0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    institutional_flow_actual = (
+        0.60 * institutional_delta_component + 0.40 * institutional_hold_component
+    ).where(inst_actual_available > 0, np.nan)
+
+    insider_flow_actual = (
+        0.55 * robust_z(insider_net_ratio_actual).fillna(0.0)
+        + 0.30 * robust_z(insider_buy_balance_actual).fillna(0.0)
+        + 0.15 * robust_z(insider_txn_actual).fillna(0.0)
+    ).where(insider_actual_available > 0, np.nan)
+
+    institutional_flow_live = numeric_series_or_default(d, "institutional_flow_score", np.nan)
+    insider_flow_live = numeric_series_or_default(d, "insider_flow_score", np.nan)
+
+    d["institutional_flow_actual_score"] = institutional_flow_actual
+    d["insider_flow_actual_score"] = insider_flow_actual
+    d["institutional_flow_signal_score"] = institutional_flow_actual.where(
+        inst_actual_available > 0,
+        institutional_flow_live,
+    ).fillna(0.0)
+    d["insider_flow_signal_score"] = insider_flow_actual.where(
+        insider_actual_available > 0,
+        insider_flow_live,
+    ).fillna(0.0)
+
+    holding_intensity_signal = sec13f_hold_ratio_actual.where(
+        sec13f_hold_ratio_actual.notna(),
+        numeric_series_or_default(d, "institutional_holding_intensity", np.nan),
+    )
+    insider_net_signal = insider_net_ratio_actual.where(
+        insider_net_ratio_actual.notna(),
+        numeric_series_or_default(d, "insider_net_shares_ratio", np.nan),
+    )
+    actual_depth = row_mean(
+        [
+            numeric_series_or_default(d, "actual_report_available", 0.0).clip(lower=0.0, upper=1.0),
+            inst_actual_available,
+            insider_actual_available,
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["ownership_flow_pillar_score"] = (
+        0.80
+        * row_mean(
+            [
+                robust_z(pd.to_numeric(d["institutional_flow_signal_score"], errors="coerce")).fillna(0.0),
+                robust_z(pd.to_numeric(d["insider_flow_signal_score"], errors="coerce")).fillna(0.0),
+                0.60 * robust_z(holding_intensity_signal).fillna(0.0),
+                0.40 * robust_z(insider_net_signal).fillna(0.0),
+            ],
+            d.index,
+        ).fillna(0.0)
+        + 0.20 * actual_depth
+    ).fillna(0.0)
+
+    d["fundamental_pillar_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "quality_trend_score"),
+            cross_sectional_robust_z(d, "garp_score"),
+            cross_sectional_robust_z(d, "capital_efficiency_score"),
+            cross_sectional_robust_z(d, "sector_adjusted_quality_score"),
+            0.75 * cross_sectional_robust_z(d, "actual_results_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["technical_pillar_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "technical_blueprint_score"),
+            cross_sectional_robust_z(d, "dynamic_leader_score"),
+            cross_sectional_robust_z(d, "sector_leader_score"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "mom_6m"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["event_revision_pillar_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "event_reaction_score"),
+            cross_sectional_robust_z(d, "revision_blueprint_score"),
+            cross_sectional_robust_z(d, "actual_results_score"),
+            0.60 * cross_sectional_robust_z(d, "forward_value_score"),
+            0.50 * cross_sectional_robust_z(d, "earn_gap_1d"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["macro_pillar_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "macro_hedge_score"),
+            cross_sectional_robust_z(d, "macro_momentum_regime_interaction"),
+            cross_sectional_robust_z(d, "macro_tech_leadership_interaction"),
+            cross_sectional_robust_z(d, "macro_semis_cycle_interaction"),
+            cross_sectional_robust_z(d, "macro_defensive_riskoff_interaction"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["compounder_pillar_score"] = row_mean(
+        [
+            cross_sectional_robust_z(d, "future_winner_scout_score"),
+            cross_sectional_robust_z(d, "long_hold_compounder_score"),
+            cross_sectional_robust_z(d, "archetype_alignment_score"),
+            cross_sectional_robust_z(d, "moat_quality_blueprint_score"),
+            0.50 * cross_sectional_robust_z(d, "anticipatory_growth_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["multidimensional_breadth_score"] = row_mean(
+        [
+            (pd.to_numeric(d["fundamental_pillar_score"], errors="coerce") > 0.10).astype(float),
+            (pd.to_numeric(d["technical_pillar_score"], errors="coerce") > 0.10).astype(float),
+            (pd.to_numeric(d["event_revision_pillar_score"], errors="coerce") > 0.05).astype(float),
+            (pd.to_numeric(d["ownership_flow_pillar_score"], errors="coerce") > 0.05).astype(float),
+            (pd.to_numeric(d["macro_pillar_score"], errors="coerce") > 0.0).astype(float),
+            (pd.to_numeric(d["compounder_pillar_score"], errors="coerce") > 0.10).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    d["multidimensional_confirmation_score"] = row_mean(
+        [
+            pd.to_numeric(d["multidimensional_breadth_score"], errors="coerce").clip(lower=0.0, upper=1.0),
+            (pd.to_numeric(d["fundamental_pillar_score"], errors="coerce") > 0.25).astype(float),
+            (pd.to_numeric(d["technical_pillar_score"], errors="coerce") > 0.20).astype(float),
+            (pd.to_numeric(d["event_revision_pillar_score"], errors="coerce") > 0.10).astype(float),
+            (pd.to_numeric(d["ownership_flow_pillar_score"], errors="coerce") > 0.10).astype(float),
+            (pd.to_numeric(d["compounder_pillar_score"], errors="coerce") > 0.15).astype(float),
+            0.75 * actual_depth,
+        ],
+        d.index,
+    ).fillna(0.0)
+    return d
+
+
+def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
+    if d.empty:
+        return d
+
+    price_above_ma50 = numeric_series_or_default(d, "price_above_ma50", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma150 = numeric_series_or_default(d, "price_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    price_above_ma200 = numeric_series_or_default(d, "price_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma50_above_ma150 = numeric_series_or_default(d, "ma50_above_ma150", 0.0).clip(lower=0.0, upper=1.0)
+    ma150_above_ma200 = numeric_series_or_default(d, "ma150_above_ma200", 0.0).clip(lower=0.0, upper=1.0)
+    ma200_slope_positive = (numeric_series_or_default(d, "ma200_slope_1m", 0.0) > 0.0).astype(float)
+    ma_order_score = row_mean(
+        [
+            price_above_ma50,
+            price_above_ma150,
+            price_above_ma200,
+            ma50_above_ma150,
+            ma150_above_ma200,
+            ma200_slope_positive,
+        ],
+        d.index,
+    ).fillna(0.0)
+    near_high = numeric_series_or_default(d, "near_52w_high_pct", -1.0)
+    near_high_score = ((near_high + 0.30) / 0.30).clip(lower=0.0, upper=1.0).fillna(0.0)
+    trend_template_score = row_mean(
+        [
+            numeric_series_or_default(d, "trend_template_full", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "trend_template_relaxed", 0.0).clip(lower=0.0, upper=1.0),
+            ma_order_score,
+            near_high_score,
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    absolute_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "mom_3m"),
+            cross_sectional_robust_z(d, "mom_6m"),
+            cross_sectional_robust_z(d, "mom_12m"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    relative_momentum = row_mean(
+        [
+            cross_sectional_robust_z(d, "rs_benchmark_3m"),
+            cross_sectional_robust_z(d, "rs_benchmark_6m"),
+            cross_sectional_robust_z(d, "rs_benchmark_12m"),
+            0.80 * cross_sectional_robust_z(d, "relative_strength_composite"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volume_breakout = row_mean(
+        [
+            0.80 * cross_sectional_robust_z(d, "breakout_volume_z"),
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            0.50 * cross_sectional_robust_z(d, "obv_trend"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    volatility_setup = row_mean(
+        [
+            cross_sectional_robust_z(d, "volume_dryup_20d"),
+            cross_sectional_robust_z(d, "volatility_contraction_score"),
+        ],
+        d.index,
+    ).fillna(0.0)
+    positive_rs_consistency = row_mean(
+        [
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_12m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_3m", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", np.nan)
+    rsi_not_extended = (1.0 - ((rsi14 - 82.0) / 10.0).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    bb_pb = numeric_series_or_default(d, "bb_pb", np.nan)
+    bollinger_not_extended = (1.0 - ((bb_pb - 1.05) / 0.25).clip(lower=0.0, upper=1.0)).fillna(0.65)
+    breakout_follow_through = row_mean(
+        [
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0).clip(lower=0.0, upper=1.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "breakout_volume_z", 0.0) > 0.0).astype(float),
+            (numeric_series_or_default(d, "obv_trend", 0.0) > 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    broken_trend = row_mean(
+        [
+            (price_above_ma50 <= 0.0).astype(float),
+            (price_above_ma150 <= 0.0).astype(float),
+            (price_above_ma200 <= 0.0).astype(float),
+            (ma150_above_ma200 <= 0.0).astype(float),
+            numeric_series_or_default(d, "death_cross_recent_20d", 0.0).clip(lower=0.0, upper=1.0),
+            (numeric_series_or_default(d, "mom_3m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "mom_6m", 0.0) < 0.0).astype(float),
+            (numeric_series_or_default(d, "rs_benchmark_3m", 0.0) < 0.0).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    atr_high_penalty = cross_sectional_robust_z(d, "atr14_pct").clip(lower=0.0).fillna(0.0)
+    setup_quality_raw = row_mean(
+        [
+            1.15 * trend_template_score,
+            1.00 * positive_rs_consistency,
+            0.85 * near_high_score,
+            0.70 * breakout_follow_through,
+            0.55 * robust_z(volatility_setup).fillna(0.0).clip(lower=-1.0, upper=2.0),
+            0.50 * rsi_not_extended,
+            0.45 * bollinger_not_extended,
+        ],
+        d.index,
+    ).fillna(0.0)
+    setup_quality_score = (setup_quality_raw - 0.55 * broken_trend - 0.18 * atr_high_penalty).clip(
+        lower=-2.0,
+        upper=2.5,
+    )
+    minervini_raw = (
+        0.33 * robust_z(trend_template_score).fillna(0.0)
+        + 0.23 * relative_momentum
+        + 0.15 * absolute_momentum
+        + 0.14 * robust_z(setup_quality_score).fillna(0.0)
+        + 0.09 * volume_breakout
+        + 0.06 * volatility_setup
+    )
+    d["minervini_trend_template_score"] = trend_template_score.clip(lower=0.0, upper=1.0)
+    d["momentum_alive_relative_score"] = relative_momentum
+    d["momentum_alive_absolute_score"] = absolute_momentum
+    d["momentum_alive_volume_score"] = volume_breakout
+    d["broken_momentum_penalty"] = broken_trend.clip(lower=0.0, upper=1.0)
+    d["breakout_setup_quality_score"] = setup_quality_score
+    d["minervini_momentum_alive_score"] = (minervini_raw - 0.65 * d["broken_momentum_penalty"]).clip(
+        lower=-4.0,
+        upper=4.0,
+    )
+    d["minervini_trend_pass"] = (
+        (d["minervini_trend_template_score"] >= 0.75)
+        & (near_high >= -0.30)
+        & (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0)
+    ).astype(float)
     return d
