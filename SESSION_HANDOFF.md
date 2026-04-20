@@ -6,14 +6,19 @@
 
 ---
 
-## 0. TL;DR — Refactor Phase A IN PROGRESS (branch `refactor/phase-a-module-split`). Stages 0 + 1 + 2 + 3a-c + 3d (i/ii-min/iii/iv) DONE (18 commits). Stage 1 rollup byte-exact verify PENDING.
+## 0. TL;DR — Refactor Phase A IN PROGRESS (branch `refactor/phase-a-module-split`). Stages 0 + 1 + 2 + 3a-c + 3d (i/ii-min/iii/iv) + 4a + 4b (i + ii) DONE (22 commits). Rollup verify analyzed — not a refactor regression (data drift from end_date). Stage 4c + Stage 5 next.
 
-**Current HEAD = `b2f4331`** on branch `refactor/phase-a-module-split` (pushed to remote). **18 refactor commits** on top of last SHIP `6440957`. Main engine **27,838 → 21,043 lines (-24.4%)**. Three new modules: `r1000_config.py` (2,109L), `r1000_helpers.py` (967L), `r1000_features.py` (4,598L). Smoke tests **25/25 PASS** after each sub-stage.
+**Current HEAD = `b58dd51`** on branch `refactor/phase-a-module-split` (pushed to remote). **22 refactor commits** on top of last SHIP `6440957`. Main engine **27,838 → 17,589 lines (-36.8%)**. Four new modules: `r1000_config.py` (2,109L), `r1000_helpers.py` (967L), `r1000_features.py` (4,598L), `r1000_signals.py` (3,614L). Smoke tests **25/25 PASS** after each sub-stage.
 
-### What's done (18 commits, newest first)
+### What's done (22 commits, newest first)
 
 | Commit | Stage | Summary | Lines |
 |---|---|---|---|
+| `b58dd51` | **4b-ii** | `build_target_portfolio` (739L) + 21 portfolio helpers → signals.py | -1,495 main |
+| `14f2cef` | **4b-i** | `compute_regime_portfolio_controls` (349L) + `compute_benchmark_beating_focus_overlay` (260L) → signals.py | -607 main |
+| `a7aca61` | **4a** | NEW `r1000_signals.py`: `compute_portfolio_sleeve_columns` (1,028L with Phase 9 C1+C2+C3 gate) + `compute_portfolio_sleeve_policy` (222L) + 3 helpers | -1,358 main |
+| `a6014ab` | **docs** | rotate SESSION_HANDOFF after Stage 1 rollup FAIL analysis (data drift, NOT regression) | docs |
+| `b0ca4c1` | **docs** | rotate SESSION_HANDOFF + STAGE_3D_PLAN after Stage 3d commits | docs |
 | `b2f4331` | **3d-iv** | `compute_strategy_blueprint_columns` (926L) + `compute_multidimensional_pillar_scores` (186L) + `compute_minervini_momentum_overlay` (144L) → features.py | -1,246 main |
 | `54986f7` | **3d-iii** | 6 funcs: market_adaptation + dynamic_leadership (w/ within_group_z nested) + manual moat overrides + ticker overlays + three_level RS + crisis_sector_fit → features.py | -546 main |
 | `466ba27` | **3d-ii-min** | `compute_event_regime_features` + `sector_indicator` + `compute_macro_interaction_features` (pure transforms) → features.py | -194 main |
@@ -53,7 +58,24 @@
    - **Spot-behavior** (empty/small-input behavior for each moved function)
    - **Optional re-run with pinned `--end-date 2026-04-17 --no-collector`** at Stage 5 completion — will still drift due to stochastic training but metrics should be within 0.3pp CAGR tolerance if refactor is value-preserving.
 
-3. **Commits `2631e62..b2f4331` (Stage 3d-i-prep through 3d-iv)** — verified via smoke/identity/scope/spot-behavior only; byte-exact deferred per strategy pivot above.
+3. **Commits `2631e62..b58dd51` (Stage 3d-i-prep through 4b-ii)** — verified via smoke/identity/scope/spot-behavior only; byte-exact deferred per strategy pivot above.
+
+4. **Stage 4c pending** — concentrated grid + sleeve_cap_policy comparison. Dependency analysis shows this layer calls `backtest_portfolio` (Stage 5 target) via `compare_sleeve_cap_policy_backtests` + `compare_standalone_sleeve_topn_backtests`. This means:
+   - Only 3 concentrated-grid funcs (`select_concentrated_portfolio_topk`, `backtest_concentrated_portfolio`, `compare_concentrated_portfolio_backtests`) are movable to signals.py standalone — they have their own backtest loops.
+   - The grid/comparison layer (`compare_sleeve_cap_policy_backtests`, `compare_standalone_sleeve_topn_backtests`, `choose_sleeve_cap_policy`, `apply_sleeve_cap_policy_to_cfg`, `sleeve_cap_policy_objective`, `generate_sleeve_cap_policy_candidates` 248L, etc.) belongs in `r1000_pipeline.py` (Stage 5) since it orchestrates backtests.
+   - **Recommendation**: merge Stage 4c into Stage 5. Create `r1000_pipeline.py` with BOTH the grid-comparison layer AND the core pipeline (`train_walkforward`, `backtest_portfolio`, `export_outputs`, `run_all`, etc.).
+
+5. **Stage 5 planning** — expected scope ~5,000L across ~20 functions:
+   - `train_walkforward` (443L)
+   - `backtest_portfolio` (694L)
+   - `backtest_standalone_sleeve_topn` (?)
+   - `export_outputs` (1,622L) — LARGEST function remaining
+   - `run_all`, `run_default_pipeline`, `run_last_n_years_backtest`
+   - `build_feature_store` (224L), `build_universe_monthly` (321L)
+   - Stage 4c grid comparisons (~800L as noted above)
+   - Misc pipeline helpers
+   
+   Executable as 3-5 sub-stages (5a: universe + feature_store; 5b: train + backtest; 5c: concentrated grid; 5d: policy comparison; 5e: export_outputs + run_all). Each sub-stage ~1-2k lines, smoke+identity verified.
 3. **Stage 3d-ii-b (deferred)** — `load_fred_series` + `build_macro_regime_table` 417L + `build_live_event_alert_table` 187L + merge helpers (~850L). Blocked on moving 5 price-cache cascade helpers (`ensure_prices_cached_incremental` 95L + `load_px` + `macro_cache_file` + `price_close_series` + `write_stage_coverage_report`) to helpers.py first. See `STAGE_3D_PLAN.md` execution log for details.
 4. **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction. In-scope: `compute_portfolio_sleeve_columns` (1,028L), `compute_portfolio_sleeve_policy` (222L), `build_target_portfolio` (739L), `compute_regime_portfolio_controls` (349L), `compute_benchmark_beating_focus_overlay` (260L).
 5. **Stage 5**: `r1000_pipeline.py` — orchestration + facade re-exports. In-scope: `train_walkforward` (443L), `backtest_portfolio` (694L), `export_outputs` (1,622L), `run_all` + `run_default_pipeline` + `run_last_n_years_backtest`, `build_feature_store` (224L), `build_universe_monthly` (321L).
