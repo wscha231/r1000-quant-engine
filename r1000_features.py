@@ -36,7 +36,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -46,6 +46,7 @@ import yfinance as yf
 from r1000_helpers import (
     alpha_vantage_pause_seconds,
     cache_live_file,
+    LIVE_CACHE_ALPHA_PRESERVE_FIELDS,
     cache_live_statement_file,
     cross_sectional_robust_z,
     effective_alpha_vantage_refresh_tickers,
@@ -68,6 +69,7 @@ from r1000_config import (
     CORE_FUNDAMENTAL_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     DYNAMIC_LEADER_COLUMNS,
+    EngineConfig,
     FUND_TTM_FALLBACK_COLUMNS,
     LATEST_ONLY_SIGNAL_COLUMNS,
     MACRO_REGIME_COLUMNS,

@@ -39,10 +39,15 @@ import pandas as pd
 
 from r1000_helpers import (
     cross_sectional_robust_z,
+    cross_sectional_robust_z_by_sector,
+    hard_sanitize,
     numeric_series_or_default,
     phase_is_enabled,
+    robust_z,
+    rolling_robust_z,
     row_mean,
     safe_float,
+    squeeze_series,
     weighted_sleeve_composite,
     winsorize,
 )
@@ -50,8 +55,17 @@ from r1000_features import (
     compute_minervini_momentum_overlay,
 )
 from r1000_config import (
+    CASH_PROXY_TICKER,
+    CRISIS_SECTOR_BENEFICIARIES,
     EngineConfig,
+    FORWARD_RETURN_COVERAGE_COLUMNS,
     HISTORICAL_DATA_QUALITY_COLUMNS,
+    HISTORICAL_FUNDAMENTAL_CAGR_COLUMNS,
+    HISTORICAL_FUNDAMENTAL_CHANGE_COLUMNS,
+    HISTORICAL_FUNDAMENTAL_LEVEL_COLUMNS,
+    HISTORICAL_FUNDAMENTAL_QUALITY_COLUMNS,
+    SLEEVE_FACTOR_REGIME_MULTIPLIERS,
+    SLEEVE_FACTOR_REGIME_MULTIPLIER_CLAMP,
 )
 
 

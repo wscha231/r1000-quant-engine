@@ -50,7 +50,17 @@ import warnings
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+import pickle
+from typing import Any, Dict, Iterable, Mapping, Optional
+
+try:
+    from catboost import CatBoostClassifier, CatBoostRanker, CatBoostRegressor, Pool
+except Exception:  # catboost not strictly required at import time
+    CatBoostClassifier = CatBoostRanker = CatBoostRegressor = Pool = None  # type: ignore
+try:
+    from sklearn.preprocessing import StandardScaler
+except Exception:
+    StandardScaler = None  # type: ignore
 
 import numpy as np
 import pandas as pd
@@ -7106,7 +7116,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # Phase 11 (2026-04-20): add P(entry)/P(tp)/P(sl) columns. If sleeve disabled,
     # writes zeros so keep_cols whitelist never drops missing columns.
     try:
-        fs = compute_phase11_predictions(cfg_obj, fs, paths)
+        fs = compute_phase11_predictions(cfg, fs, paths)
     except Exception as exc:
         log(f"[Phase 11] predictions failed; falling back to zeros: {exc}")
         for c in ("phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss"):
