@@ -52,6 +52,7 @@ ENGINE_PATH = ROOT / "r1000_top30_institutional.py"
 CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
 HELPERS_PATH = ROOT / "r1000_helpers.py"  # Refactor Phase A Stage 2a onwards
 FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
+SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -130,6 +131,7 @@ _ENGINE_SRC: str | None = None
 _CONFIG_SRC: str | None = None
 _HELPERS_SRC: str | None = None
 _FEATURES_SRC: str | None = None
+_SIGNALS_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -170,10 +172,22 @@ def _features_src() -> str:
     return _FEATURES_SRC
 
 
+def _signals_src() -> str:
+    """Refactor Phase A Stage 4a onwards: sleeve composition + portfolio
+    construction live in r1000_signals.py (compute_portfolio_sleeve_columns
+    with Phase 9 C1+C2+C3 gate, compute_portfolio_sleeve_policy target weights).
+    Returns empty string if file absent."""
+    global _SIGNALS_SRC
+    if _SIGNALS_SRC is None:
+        _SIGNALS_SRC = SIGNALS_PATH.read_text(encoding="utf-8") if SIGNALS_PATH.exists() else ""
+    return _SIGNALS_SRC
+
+
 def _combined_src() -> str:
-    """Engine + config + helpers + features sources combined for regex searches
-    that should look across all refactored files (e.g. PHASE*_COLUMNS constant
-    existence, hard_sanitize body, cfg field definitions, carry_cols membership).
+    """Engine + config + helpers + features + signals sources combined for regex
+    searches that should look across all refactored files (e.g. PHASE*_COLUMNS
+    constant existence, hard_sanitize body, cfg field definitions, carry_cols
+    membership, Phase 9 gate wiring in compute_portfolio_sleeve_columns).
 
     Section separators use comment headers that cannot appear inside the
     actual source (the `# === r1000_*.py ===` pattern) so regex anchored
@@ -188,6 +202,8 @@ def _combined_src() -> str:
         + _helpers_src()
         + "\n\n# === r1000_features.py ===\n\n"
         + _features_src()
+        + "\n\n# === r1000_signals.py ===\n\n"
+        + _signals_src()
     )
 
 
@@ -734,8 +750,12 @@ def test_phase9_c3_gate_wired() -> None:
 
     Regression: without this wire-up, C3 toggle is dead code even when
     the feature-store columns are present.
+
+    Phase A Stage 4a (2026-04-20): compute_portfolio_sleeve_columns (which
+    owns the Phase 9 early-scout gate) moved to r1000_signals.py; grep
+    combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # _p9_c3_admit must appear in the _p9_early_elig definition
     m = re.search(
         r"_p9_early_elig\s*=\s*\([^)]*_p9_c3_admit[^)]*\)",
