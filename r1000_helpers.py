@@ -29,15 +29,31 @@ dependency graph acyclic.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
+import shutil
 import subprocess
 from datetime import datetime
-from pathlib import Path
-import pandas as pd
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Iterable, Optional
-from r1000_config import EngineConfig, ROBUST_Z_CLIP, ROBUST_Z_WINSOR_P
+
 import numpy as np
+import pandas as pd
+
+from r1000_config import (
+    CASH_PROXY_TICKER,
+    ENGINE_REUSE_VERSION,
+    EXCLUDE_NAME,
+    EngineConfig,
+    ROBUST_Z_CLIP,
+    ROBUST_Z_WINSOR_P,
+    SEC_COMPANYFACTS_MEMBER_RE,
+    TICKER_RE,
+    YF_OVERRIDES,
+)
 
 
 # ---------------------------------------------------------------------
@@ -468,6 +484,395 @@ def weighted_sleeve_composite(
         result = np.where(denom > 1e-8, total / denom, 0.0)
     return pd.Series(result, index=index, dtype=float).fillna(0.0)
 
+# ---------------------------------------------------------------------
+# IO + ticker + cache helpers (Stage 2d)
+# ---------------------------------------------------------------------
+# Mix of pure validators (ticker regex check, normalize_ticker), file-system
+# helpers (safe_mkdir, safe_read_*, append_history_parquet), cache cadence
+# calculators (is_cache_fresh, effective_*_refresh_*), run-identity bookkeeping
+# (current_git_commit, build_run_identity, archive_run_outputs), and robust
+# HTTP retry wrapper (_robust_retry, _http_get_inner). Mostly used during
+# collector setup + latest-scoring export.
+
+def mount_drive_if_colab() -> None:
+    try:
+        from google.colab import drive  # type: ignore
+        if not os.path.ismount("/content/drive"):
+            drive.mount("/content/drive")
+    except Exception:
+        pass
+
+
+def safe_mkdir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def append_history_parquet(
+    path: Path,
+    frame: pd.DataFrame,
+    dedupe_subset: Optional[list[str]] = None,
+    sort_columns: Optional[list[str]] = None,
+) -> None:
+    if frame is None or frame.empty:
+        return
+    combined = frame.copy()
+    if path.exists():
+        try:
+            existing = pd.read_parquet(path)
+        except Exception:
+            existing = pd.DataFrame()
+        if not existing.empty:
+            combined = pd.concat([existing, combined], ignore_index=True, sort=False)
+    if dedupe_subset:
+        keep_cols = [col for col in dedupe_subset if col in combined.columns]
+        if keep_cols:
+            combined = combined.drop_duplicates(subset=keep_cols, keep="last")
+    if sort_columns:
+        keep_sort = [col for col in sort_columns if col in combined.columns]
+        if keep_sort:
+            combined = combined.sort_values(keep_sort).reset_index(drop=True)
+    combined.to_parquet(path, index=False)
+
+
+def safe_read_json_file(path: Path, default: Any = None) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def safe_read_parquet_file(path: Path) -> pd.DataFrame:
+    if not isinstance(path, Path):
+        path = Path(path)
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def safe_run_token(value: Any, default: str = "na") -> str:
+    txt = str(value or "").strip()
+    if not txt:
+        txt = str(default)
+    txt = re.sub(r"[^A-Za-z0-9._-]+", "-", txt)
+    txt = txt.strip("-._")
+    return txt or str(default)
+
+
+def current_git_commit() -> str:
+    candidates = []
+    try:
+        candidates.append(Path.cwd())
+    except Exception:
+        pass
+    try:
+        candidates.append(Path(__file__).resolve().parent)
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for base in candidates:
+        for candidate in [base, *base.parents]:
+            txt = str(candidate)
+            if txt in seen:
+                continue
+            seen.add(txt)
+            try:
+                proc = subprocess.run(
+                    ["git", "-C", txt, "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5,
+                )
+            except Exception:
+                continue
+            if proc.returncode == 0:
+                sha = str(proc.stdout).strip()
+                if sha:
+                    return sha
+    return ""
+
+
+def build_run_identity(cfg: EngineConfig, *, scope: str = "run_archive") -> dict[str, str]:
+    run_ts = now_ts()
+    git_commit = current_git_commit()
+    engine_version = str(ENGINE_REUSE_VERSION)
+    config_fingerprint = reuse_fingerprint(cfg, scope)
+    run_id = "__".join(
+        [
+            safe_run_token(run_ts),
+            safe_run_token(git_commit[:7] if git_commit else "nogit"),
+            safe_run_token(engine_version),
+        ]
+    )
+    return {
+        "run_ts": run_ts,
+        "git_commit": git_commit,
+        "engine_version": engine_version,
+        "config_fingerprint": config_fingerprint,
+        "run_id": run_id,
+    }
+
+
+def archive_run_outputs(
+    paths: dict[str, Path],
+    *,
+    run_id: str,
+    manifest: Mapping[str, Any],
+    output_files: Mapping[str, Any],
+) -> dict[str, Any]:
+    archive_root = paths["out"] / "archive"
+    archive_dir = archive_root / safe_run_token(run_id)
+    safe_mkdir(archive_root)
+    safe_mkdir(archive_dir)
+
+    archived_files: dict[str, str] = {}
+    for key, raw_path in dict(output_files or {}).items():
+        if not raw_path:
+            continue
+        src = Path(str(raw_path))
+        if not src.exists() or src.is_dir():
+            continue
+        try:
+            rel = src.relative_to(paths["out"])
+            dst = archive_dir / rel
+        except Exception:
+            dst = archive_dir / "external" / src.name
+        safe_mkdir(dst.parent)
+        try:
+            shutil.copy2(src, dst)
+            archived_files[str(key)] = str(dst)
+        except Exception:
+            continue
+
+    manifest_payload = dict(manifest or {})
+    manifest_payload["archive_dir"] = str(archive_dir)
+    manifest_payload["archived_output_files"] = archived_files
+    manifest_path = archive_dir / "run_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+    latest_manifest_path = paths["out"] / "run_manifest.json"
+    latest_manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+    archived_files["run_manifest.json"] = str(manifest_path)
+    return {
+        "archive_dir": str(archive_dir),
+        "manifest_path": str(manifest_path),
+        "latest_manifest_path": str(latest_manifest_path),
+        "archived_output_files": archived_files,
+    }
+
+
+def get_paths(cfg: EngineConfig) -> dict[str, Path]:
+    base = Path(cfg.base_dir)
+    out = base / "outputs"
+    archive = out / "archive"
+    ops = out / "ops"
+    reports = out / "reports"
+    baseline = base / "baseline"
+    data_raw = base / "data_raw"
+    cache_prices = base / "cache_prices"
+    cache_fsds = base / "cache_fsds"
+    cache_misc = base / "cache_misc"
+    cache_macro = base / "cache_macro"
+    cache_live_fund = base / "cache_live_fund"
+    cache_sec_actual = base / "cache_sec_actual"
+    feature_store = base / "feature_store"
+    models = base / "models"
+    checkpoints = out / "checkpoints"
+    for p in [
+        base,
+        out,
+        archive,
+        ops,
+        reports,
+        baseline,
+        data_raw,
+        cache_prices,
+        cache_fsds,
+        cache_misc,
+        cache_macro,
+        cache_live_fund,
+        cache_sec_actual,
+        feature_store,
+        models,
+        checkpoints,
+    ]:
+        safe_mkdir(p)
+    return {
+        "base": base,
+        "out": out,
+        "archive": archive,
+        "ops": ops,
+        "reports": reports,
+        "baseline": baseline,
+        "data_raw": data_raw,
+        "cache_prices": cache_prices,
+        "cache_fsds": cache_fsds,
+        "cache_misc": cache_misc,
+        "cache_macro": cache_macro,
+        "cache_live_fund": cache_live_fund,
+        "cache_sec_actual": cache_sec_actual,
+        "feature_store": feature_store,
+        "models": models,
+        "checkpoints": checkpoints,
+    }
+
+
+def load_previous_live_weights(paths: dict[str, Path], latest_dt: Optional[pd.Timestamp] = None) -> dict[str, float]:
+    payload = load_previous_live_policy(paths, latest_dt=latest_dt)
+    if not isinstance(payload, dict):
+        return {}
+    holdings = payload.get("holdings") or {}
+    if not isinstance(holdings, dict):
+        return {}
+    prev_w: dict[str, float] = {}
+    for key, value in holdings.items():
+        ticker = normalize_ticker(key)
+        weight = safe_float(value)
+        if ticker and pd.notna(weight) and float(weight) > 1e-10:
+            prev_w[ticker] = float(weight)
+    total = float(sum(prev_w.values()))
+    if total > 0:
+        prev_w = {k: float(v / total) for k, v in prev_w.items()}
+    return prev_w
+
+
+def load_previous_live_policy(paths: dict[str, Path], latest_dt: Optional[pd.Timestamp] = None) -> dict[str, Any]:
+    payload = safe_read_json_file(paths["out"] / "weights_latest.json", default={})
+    if not isinstance(payload, dict):
+        return {}
+    prev_dt = pd.to_datetime(payload.get("rebalance_date"), errors="coerce")
+    if pd.notna(prev_dt) and pd.notna(latest_dt) and pd.Timestamp(prev_dt) >= pd.Timestamp(latest_dt):
+        return {}
+    return payload
+
+
+def _robust_retry(func, max_retries=3, backoff_factor=2.0):
+    """Wrap *func* with exponential-backoff retry on transient errors."""
+    from functools import wraps
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except requests.exceptions.HTTPError as exc:
+                # 404/401/403 등 영구적 에러는 재시도 불필요
+                if exc.response is not None and exc.response.status_code in (400, 401, 403, 404, 405, 410, 422):
+                    raise
+                last_exc = exc
+                wait = backoff_factor ** attempt
+                log(f"[WARN] {func.__name__} attempt {attempt + 1}/{max_retries} failed: {exc}. Retry in {wait:.1f}s")
+                time.sleep(wait)
+            except Exception as exc:
+                last_exc = exc
+                wait = backoff_factor ** attempt
+                log(f"[WARN] {func.__name__} attempt {attempt + 1}/{max_retries} failed: {exc}. Retry in {wait:.1f}s")
+                time.sleep(wait)
+        raise last_exc  # type: ignore[misc]
+    return wrapper
+
+
+def _http_get_inner(url: str, headers: Optional[dict[str, str]] = None, timeout: int = 120) -> requests.Response:
+    r = requests.get(url, headers=headers or {}, timeout=timeout)
+    r.raise_for_status()
+    return r
+
+
+http_get = _robust_retry(_http_get_inner, max_retries=3, backoff_factor=2.0)
+
+
+def normalize_ticker(t: Any) -> Optional[str]:
+    if pd.isna(t):
+        return None
+    return str(t).strip().upper().replace("/", "-").replace("\n", "").replace("\r", "")
+
+
+def is_valid_ticker(t: Optional[str]) -> bool:
+    return (t is not None) and (len(t) <= 12) and bool(TICKER_RE.match(t))
+
+
+def is_valid_price_symbol(t: Optional[str]) -> bool:
+    if t is None:
+        return False
+    txt = str(t).strip().upper()
+    if not txt or len(txt) > 16:
+        return False
+    if txt.startswith("^"):
+        return bool(re.match(r"^\^[A-Z0-9.-]{1,15}$", txt))
+    return is_valid_ticker(txt)
+
+
+def looks_like_noncommon(ticker: str, name: Optional[str] = None) -> bool:
+    if re.search(r"[A-Z]{1,3}\d{1,2}$", ticker):
+        return True
+    if re.search(r"\d", ticker) and len(ticker) >= 5:
+        return True
+    if ticker.endswith(("FUT", "-W", "-WS", "-RT")):
+        return True
+    if name and any(k in str(name).upper() for k in EXCLUDE_NAME):
+        return True
+    return False
+
+
+def px_cache_name(ticker: str) -> str:
+    return f"{hashlib.sha1(ticker.encode('utf-8')).hexdigest()[:16]}.parquet"
+
+
+def to_yf_symbol(ticker: str) -> str:
+    return YF_OVERRIDES.get(ticker, ticker.replace(".", "-"))
+
+
+# Stage 2c (2026-04-20): winsorize + robust_z + squeeze_series + hard_sanitize moved to r1000_helpers.py.
+
+
+def cache_live_file(paths: dict[str, Path], ticker: str) -> Path:
+    return paths["cache_live_fund"] / f"{ticker.upper()}.json"
+
+
+def cache_live_statement_file(paths: dict[str, Path], ticker: str) -> Path:
+    return paths["cache_live_fund"] / f"{ticker.upper()}_statement.json"
+
+
+def is_cache_fresh(path: Path, days: int) -> bool:
+    if not path.exists():
+        return False
+    mtime = datetime.fromtimestamp(path.stat().st_mtime)
+    return (datetime.now() - mtime).days < days
+
+
+def effective_alpha_vantage_refresh_tickers(cfg: EngineConfig) -> int:
+    limit = int(getattr(cfg, "max_alpha_vantage_refresh_tickers", 0))
+    if bool(getattr(cfg, "alpha_vantage_free_tier_mode", False)):
+        limit = min(limit, int(getattr(cfg, "alpha_vantage_free_refresh_tickers", limit)))
+    return max(limit, 0)
+
+
+def effective_latest_statement_repair_tickers(cfg: EngineConfig) -> int:
+    limit = int(getattr(cfg, "latest_statement_repair_tickers", 0))
+    if bool(getattr(cfg, "alpha_vantage_free_tier_mode", False)):
+        limit = min(limit, int(getattr(cfg, "alpha_vantage_free_statement_repair_tickers", limit)))
+    return max(limit, 0)
+
+
+def effective_latest_statement_refresh_days(cfg: EngineConfig) -> int:
+    days = int(getattr(cfg, "latest_statement_repair_refresh_days", 0))
+    if bool(getattr(cfg, "alpha_vantage_free_tier_mode", False)):
+        days = max(days, int(getattr(cfg, "alpha_vantage_free_statement_refresh_days", days)))
+    return max(days, 0)
+
+
+def alpha_vantage_pause_seconds(cfg: Optional[EngineConfig], statement: bool = False) -> float:
+    if cfg is not None and bool(getattr(cfg, "alpha_vantage_free_tier_mode", False)):
+        return 0.90 if statement else 0.75
+    return 0.20 if not statement else 0.15
+
+
+# Stage 2c (2026-04-20): safe_float moved to r1000_helpers.py.
 
 __all__ = [
     "_resolve_engine_commit_sha",
@@ -488,6 +893,33 @@ __all__ = [
     "rolling_robust_z",
     "row_mean",
     "weighted_sleeve_composite",
+    "mount_drive_if_colab",
+    "safe_mkdir",
+    "append_history_parquet",
+    "safe_read_json_file",
+    "safe_read_parquet_file",
+    "safe_run_token",
+    "current_git_commit",
+    "build_run_identity",
+    "archive_run_outputs",
+    "get_paths",
+    "load_previous_live_weights",
+    "load_previous_live_policy",
+    "_robust_retry",
+    "_http_get_inner",
+    "normalize_ticker",
+    "is_valid_ticker",
+    "is_valid_price_symbol",
+    "looks_like_noncommon",
+    "px_cache_name",
+    "to_yf_symbol",
+    "cache_live_file",
+    "cache_live_statement_file",
+    "is_cache_fresh",
+    "effective_alpha_vantage_refresh_tickers",
+    "effective_latest_statement_repair_tickers",
+    "effective_latest_statement_refresh_days",
+    "alpha_vantage_pause_seconds",
     "ENGINE_COMMIT_SHA",
     "LIVE_CACHE_ALPHA_PRESERVE_FIELDS",
 ]
