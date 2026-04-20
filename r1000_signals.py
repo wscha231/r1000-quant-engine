@@ -1475,12 +1475,23 @@ def compute_portfolio_sleeve_policy(
         scale = invested_share / exploratory_total
         future_target *= scale
         early_target *= scale
-    core_target = float(max(0.0, invested_share - future_target - early_target))
+    # Phase 11 (2026-04-20): carve out allocation_pct for multibagger_watch sleeve.
+    # Scales future + early proportionally so the 4 sleeves always sum to invested_share.
+    # When Phase 11 disabled, multibagger_watch_target = 0 (no effect).
+    multibagger_watch_target = 0.0
+    if bool(getattr(cfg, "phase11_multibagger_sleeve_enabled", False)):
+        mbw_pct = float(np.clip(float(getattr(cfg, "phase11_allocation_pct", 0.30)), 0.0, 0.90))
+        multibagger_watch_target = invested_share * mbw_pct
+        remaining_scale = 1.0 - mbw_pct
+        future_target *= remaining_scale
+        early_target *= remaining_scale
+    core_target = float(max(0.0, invested_share - future_target - early_target - multibagger_watch_target))
 
     return {
         "core_compounder_target": core_target,
         "future_winner_target": future_target,
         "early_scout_target": early_target,
+        "multibagger_watch_target": float(multibagger_watch_target),
         "invested_share": invested_share,
         "cash_target": float(np.clip(safe_float(cash_target), 0.0, 1.0)),
         "growth_signal": float(growth_signal),
@@ -2735,6 +2746,12 @@ def build_target_portfolio(
                 "core_compounder_target": core_frac * invested_share_override,
                 "future_winner_target": future_frac * invested_share_override,
                 "early_scout_target": early_frac * invested_share_override,
+                # Phase 11: preserve multibagger_watch share -- carve out of invested before
+                # redistributing core/future/early. If disabled, stays 0.
+                "multibagger_watch_target": (
+                    float(sleeve_policy.get("multibagger_watch_target", 0.0))
+                    * (invested_share_override / max(float(sleeve_policy.get("invested_share", 1.0)), 1e-8))
+                ),
                 "invested_share": invested_share_override,
                 "cash_target": capped_cash,
             }
@@ -2754,6 +2771,7 @@ def build_target_portfolio(
                 "core_compounder_target": float(sleeve_policy.get("core_compounder_target", 0.0)) * scale,
                 "future_winner_target": float(sleeve_policy.get("future_winner_target", 0.0)) * scale,
                 "early_scout_target": float(sleeve_policy.get("early_scout_target", 0.0)) * scale,
+                "multibagger_watch_target": float(sleeve_policy.get("multibagger_watch_target", 0.0)) * scale,
                 "invested_share": invested_share_override,
                 "cash_target": capped_cash,
             }
@@ -2780,6 +2798,13 @@ def build_target_portfolio(
         + 0.10 * numeric_series_or_default(pool, "sage_g_score", 0.0)
         + pool_fill_boost
     )
+    # Phase 11 (2026-04-20): multibagger_watch count
+    multibagger_target_share = float(sleeve_policy.get("multibagger_watch_target", 0.0))
+    multibagger_target_n = int(np.ceil(target_n * multibagger_target_share / invested_share)) if target_n > 0 and multibagger_target_share > 0 else 0
+    if multibagger_target_share > 0.0:
+        # Respect configured sleeve_size as a cap
+        mbw_size_cap = int(getattr(cfg, "phase11_sleeve_size", 5))
+        multibagger_target_n = min(multibagger_target_n, mbw_size_cap, max(target_n - 1, 0))
     future_target_n = int(np.ceil(target_n * future_target_share / invested_share)) if target_n > 0 else 0
     if future_target_share >= 0.15 and target_n >= 8:
         future_target_n = max(future_target_n, 2)
@@ -2796,19 +2821,24 @@ def build_target_portfolio(
         max_exploratory_n = max(target_n - 1, 0)
         future_target_n = min(max(future_target_n, 0), max_exploratory_n)
         early_target_n = min(max(early_target_n, 0), max_exploratory_n)
-        exploratory_n = future_target_n + early_target_n
+        multibagger_target_n = min(max(multibagger_target_n, 0), max_exploratory_n)
+        exploratory_n = future_target_n + early_target_n + multibagger_target_n
         while exploratory_n > max_exploratory_n:
-            if future_target_n >= early_target_n and future_target_n > 0:
+            # Trim multibagger last (higher-conviction sleeve)
+            if future_target_n >= early_target_n and future_target_n >= multibagger_target_n and future_target_n > 0:
                 future_target_n -= 1
-            elif early_target_n > 0:
+            elif early_target_n >= multibagger_target_n and early_target_n > 0:
                 early_target_n -= 1
+            elif multibagger_target_n > 0:
+                multibagger_target_n -= 1
             else:
                 break
-            exploratory_n = future_target_n + early_target_n
+            exploratory_n = future_target_n + early_target_n + multibagger_target_n
     else:
         future_target_n = 0
         early_target_n = 0
-    core_target_n = max(1, target_n - future_target_n - early_target_n) if target_n > 0 else 0
+        multibagger_target_n = 0
+    core_target_n = max(1, target_n - future_target_n - early_target_n - multibagger_target_n) if target_n > 0 else 0
 
     score_top_rank = pool["score"].rank(method="first", ascending=False) if "score" in pool.columns else pd.Series(np.inf, index=pool.index)
     future_engine_score = numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
@@ -2854,7 +2884,7 @@ def build_target_portfolio(
     )
     if early_target_n <= 1 and early_target_share >= 0.03 and target_n >= 10 and bool(top_score_early_mask.any()):
         early_target_n = 2
-        core_target_n = max(1, target_n - future_target_n - early_target_n)
+        core_target_n = max(1, target_n - future_target_n - early_target_n - multibagger_target_n)
     if target_n >= 8:
         max_core_ratio = 0.40
         if early_target_share >= 0.10:
@@ -2869,7 +2899,7 @@ def build_target_portfolio(
                 early_target_n += 1
             else:
                 future_target_n += 1
-            core_target_n = max(1, target_n - future_target_n - early_target_n)
+            core_target_n = max(1, target_n - future_target_n - early_target_n - multibagger_target_n)
     future_fallback_from_early = (
         sleeve_labels.eq("early_scout")
         & (score_top_rank <= max(target_n + 4, 14))
@@ -2931,13 +2961,37 @@ def build_target_portfolio(
             early_sel = early_sel.copy()
             early_sel["portfolio_sleeve_label"] = "early_scout"
 
+    # Phase 11 (2026-04-20): multibagger_watch selection block.
+    # Selects names pre-labeled "multibagger_watch" by compute_portfolio_sleeve_columns
+    # (via _apply_multibagger_watch_sleeve_override). Ranks by phase11_p_entry.
+    multibagger_sel = pd.DataFrame()
+    if multibagger_target_n > 0:
+        mbw_pool = _prepare_sleeve_pool(
+            pool,
+            sleeve_labels.eq("multibagger_watch"),
+            multibagger_target_n,
+            "phase11_p_entry" if "phase11_p_entry" in pool.columns else "portfolio_seed_score",
+        )
+        if not mbw_pool.empty:
+            mbw_pool["portfolio_seed_score"] = row_mean(
+                [
+                    numeric_series_or_default(mbw_pool, "portfolio_seed_score", 0.0),
+                    2.00 * numeric_series_or_default(mbw_pool, "phase11_p_entry", 0.0),
+                ],
+                mbw_pool.index,
+            ).fillna(0.0)
+            multibagger_sel = select_topn_with_sector_limits(cfg, mbw_pool, caps, target_n=multibagger_target_n)
+            if not multibagger_sel.empty:
+                multibagger_sel = multibagger_sel.copy()
+                multibagger_sel["portfolio_sleeve_label"] = "multibagger_watch"
+
     # If early-scout cannot fill its target seats, hand the deficit to future-winner
     # before falling back to the generic pool.
     early_shortfall_n = max(0, int(early_target_n) - int(len(early_sel)))
     if early_shortfall_n > 0:
         supplemental_future_pool = pool.copy()
         selected_tickers: set[str] = set()
-        for frame in [core_sel, future_sel, early_sel]:
+        for frame in [core_sel, future_sel, early_sel, multibagger_sel]:
             if not frame.empty and "ticker" in frame.columns:
                 selected_tickers.update(frame["ticker"].astype(str).tolist())
         if selected_tickers and "ticker" in supplemental_future_pool.columns:
@@ -2991,7 +3045,7 @@ def build_target_portfolio(
             core_sel["portfolio_sleeve_label"],
         )
 
-    sleeve_frames = [frame for frame in [core_sel, future_sel, early_sel] if not frame.empty]
+    sleeve_frames = [frame for frame in [core_sel, future_sel, early_sel, multibagger_sel] if not frame.empty]
     sel = pd.concat(sleeve_frames, ignore_index=True) if sleeve_frames else pd.DataFrame()
     if not sel.empty:
         sel = dedupe_same_company_rows(sel, score_col="portfolio_seed_score")
