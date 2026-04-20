@@ -29,6 +29,9 @@ COLUMN_OWNERSHIP registry for the full invariant.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Optional
 
 
 # =====================================================================
@@ -1334,6 +1337,705 @@ EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
 CASH_PROXY_TICKER = "CASH"
 SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IGNORECASE)
 
+
+# ---------------------------------------------------------------------
+# Helper collocated with EngineConfig (below): default_factory for the
+# `manual_regime_conditioned_sleeve_map` field. Not pure data (its a
+# function that returns a dict literal), but lives here because its sole
+# role is to seed EngineConfig's default. Also imported back into main
+# engine for 3 call sites that compose against user-overrides.
+# ---------------------------------------------------------------------
+def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
+    return {
+        "ALL": {"core": 0.22, "future": 0.46, "early": 0.24, "cash": 0.08, "policy_label": "manual_all_22_46_24_cash8"},
+        "balanced": {"core": 0.24, "future": 0.44, "early": 0.24, "cash": 0.08, "policy_label": "manual_balanced_24_44_24_cash8"},
+        "growth_reentry": {"core": 0.16, "future": 0.46, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_16_46_30_cash8"},
+        "growth_reentry_alert": {"core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_alert_14_48_30_cash8"},
+        "systemic_crisis": {"core": 0.18, "future": 0.24, "early": 0.08, "cash": 0.50, "policy_label": "manual_systemic_18_24_08_cash50"},
+        "carry_unwind": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_carry_22_34_14_cash30"},
+        "war_oil_rate_shock": {"core": 0.24, "future": 0.32, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_24_32_14_cash30"},
+        "stagflation": {"core": 0.24, "future": 0.34, "early": 0.12, "cash": 0.30, "policy_label": "manual_stagflation_24_34_12_cash30"},
+        "systemic_alert": {"core": 0.20, "future": 0.30, "early": 0.10, "cash": 0.40, "policy_label": "manual_systemic_alert_20_30_10_cash40"},
+        "war_oil_rate_alert": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_alert_22_34_14_cash30"},
+        "risk_off_alert": {"core": 0.18, "future": 0.36, "early": 0.18, "cash": 0.28, "policy_label": "manual_riskoff_18_36_18_cash28"},
+    }
+
+# =====================================================================
+# Stage 1d-ii (2026-04-20): EngineConfig dataclass (665 lines, biggest)
+# =====================================================================
+# Moved from main engine lines 605-1268. EngineConfig holds every tunable
+# knob: cache/refresh cadences, walk-forward windows, sleeve weights,
+# Phase 1..9 toggles (dual-gate: this cfg flag + PHASE_*_ENABLED env var),
+# concentrated grid candidates (CE v2 widened defaults), macro lag settings,
+# API keys/user-agents. References DEFAULT_FEATURES + SLEEVE_FACTOR_
+# REGIME_MULTIPLIERS already defined earlier in this file.
+
+@dataclass
+class EngineConfig:
+    base_dir: str = "/content/drive/MyDrive/r1000_top30_institutional"
+    sec_user_agent: str = "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+    alpha_vantage_api_key: str = "JOUOW3UV8ZV23AOZ"
+    fred_api_key: str = "8d92fb5a5de226657d912fe0284dfc00"
+    alpha_vantage_free_tier_mode: bool = True
+    alpha_vantage_free_refresh_tickers: int = 8
+    alpha_vantage_free_statement_repair_tickers: int = 6
+    alpha_vantage_free_statement_refresh_days: int = 14
+    start_date: str = "2016-01-01"
+    end_date: str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    universe_size: int = 1000
+    top_n: int = 30
+    min_price: float = 5.0
+    min_dollar_vol_20d: float = 20_000_000
+    min_mktcap: float = 2_000_000_000
+    max_vol_252: float = 0.60
+    max_dd_1y: float = 0.65
+    live_min_marketcap_proxy: float = 1_000_000_000
+    universe_mode: str = "historical_snapshot_preferred"
+    universe_membership_path: str = ""
+    universe_fallback_mode: str = "current_constituents"
+    archive_current_universe_snapshots: bool = True
+    auto_membership_snapshot_max_lag_days: int = 45
+
+    target_1m_days: int = 21
+    target_3m_days: int = 63
+    target_6m_days: int = 126
+    target_12m_days: int = 252
+    target_24m_days: int = 504
+    target_36m_days: int = 756
+    target_blend_1m: float = 0.10
+    target_blend_3m: float = 0.45
+    target_blend_6m: float = 0.45
+    future_target_blend_12m: float = 0.25
+    future_target_blend_24m: float = 0.45
+    future_target_blend_36m: float = 0.30
+    future_target_excess_weight: float = 0.65
+    train_lookback_years: int = 5
+    default_backtest_years: int = 8
+    backtest_window_comparison_years: list[int] = field(default_factory=lambda: [5, 8])
+    embargo_days: int = 126
+    min_train_samples: int = 3000
+
+    ridge_alpha: float = 8.0
+    logreg_c: float = 1.0
+    ensemble_linear_weight: float = 0.20
+    ensemble_cat_weight: float = 0.45
+    ensemble_rank_weight: float = 0.35
+    regime_ensemble_weights_enabled: bool = True
+    regime_ensemble_weights_min_months: int = 6
+    regime_ensemble_weights_strength: float = 0.50
+    cat_reg_iterations: int = 350
+    cat_cls_iterations: int = 350
+    cat_rank_iterations: int = 250
+    cat_depth: int = 6
+    cat_learning_rate: float = 0.05
+    ranking_enabled: bool = True
+    random_seed: int = 42
+
+    stock_weight_min: float = 0.01
+    stock_weight_max: float = 0.20
+    stock_weight_max_high_conviction: float = 0.50
+    stock_weight_max_no_ttm: float = 0.14
+    stock_weight_max_no_ttm_confirmed: float = 0.20
+    cash_buffer_enabled: bool = True
+    cash_weight_max: float = 0.60
+    cash_target_growth_cap: float = 0.03
+    cash_target_balanced_cap: float = 0.04
+    cash_target_mild_risk_cap: float = 0.08
+    core_compounder_sleeve_base_weight: float = 0.12
+    future_winner_sleeve_base_weight: float = 0.58
+    future_winner_sleeve_min_weight: float = 0.12
+    future_winner_sleeve_max_weight: float = 0.74
+    early_scout_sleeve_base_weight: float = 0.22
+    early_scout_sleeve_min_weight: float = 0.04
+    early_scout_sleeve_max_weight: float = 0.36
+    early_scout_growth_floor_weight: float = 0.18
+    early_scout_growth_floor_min_signal: float = 0.34
+    early_scout_growth_floor_max_risk: float = 0.60
+    early_scout_candidate_floor_min_share: float = 0.01
+    future_winner_entry_weight_cap: float = 0.12
+    future_winner_drift_weight_cap: float = 0.22
+    future_winner_hard_weight_cap: float = 0.32
+    early_scout_entry_weight_cap: float = 0.06
+    early_scout_drift_weight_cap: float = 0.12
+    early_scout_hard_weight_cap: float = 0.18
+    sleeve_drift_headroom_pct: float = 0.35
+    early_scout_promotion_edge_max: float = 0.04
+    early_scout_promotion_confidence_max: float = 0.06
+    early_scout_promotion_min_score: float = 0.84
+    portfolio_size_comparison_sizes: list[int] = field(default_factory=lambda: [1, 3, 5, 8, 12, 20, 30])
+    rebalance_interval_months: int = 1
+    sleeve_specific_rebalance_enabled: bool = True
+    core_compounder_rebalance_interval_months: int = 1
+    future_winner_rebalance_interval_months: int = 2
+    early_scout_rebalance_interval_months: int = 1
+    rebalance_interval_comparison_months: list[int] = field(default_factory=lambda: [1, 3, 6])
+    run_comparison_backtests: bool = True
+    run_portfolio_size_comparison: bool = True
+    run_rebalance_interval_comparison: bool = True
+    run_backtest_window_comparison: bool = True
+    run_sleeve_regime_comparison: bool = True
+    sleeve_regime_comparison_cash_max: float = 0.02
+    sleeve_regime_apply_champion: bool = True
+    regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
+    manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
+    run_regime_map_method_comparison: bool = True
+    run_sleeve_cap_policy_comparison: bool = True
+    run_ai_four_sleeve_comparison: bool = True
+    ai_four_sleeve_max_candidates: int = 8
+    sleeve_cap_policy_apply_champion: bool = True
+    sleeve_cap_policy_max_candidates: int = 6
+    sleeve_cap_policy_objective_excess_weight: float = 1.15
+    sleeve_cap_policy_objective_sharpe_weight: float = 1.0
+    sleeve_cap_policy_objective_sortino_weight: float = 0.50
+    sleeve_cap_policy_objective_drawdown_weight: float = 0.65
+    sleeve_cap_policy_objective_turnover_weight: float = 0.20
+    sleeve_cap_policy_objective_concentration_weight: float = 0.25
+    sleeve_cap_policy_objective_cash_drag_weight: float = 0.15
+    run_standalone_sleeve_backtest_comparison: bool = True
+    standalone_sleeve_top_n: int = 7
+    standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])
+    run_concentrated_backtest_comparison: bool = True
+    # Phase 9 CE (Concentrated Expansion, 2026-04-18): lifted N≤3 cap to
+    # challenge beyond 29.89% CAGR. Previous optimum was N=3 conviction_curve
+    # monthly (concentrated_backtest_metrics.json). New grid tests higher N,
+    # multi-month intervals, and score_power weighting. See CHANGELOG.
+    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5, 7, 10])
+    concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
+    concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
+    concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
+    concentrated_min_confirmation: float = 0.45
+    concentrated_score_future_weight: float = 0.95
+    concentrated_score_early_weight: float = 1.05
+    concentrated_score_sage_weight: float = 0.45
+    concentrated_score_confirmation_weight: float = 0.40
+    concentrated_score_breakout_weight: float = 0.30
+    concentrated_score_momentum_weight: float = 0.35
+    concentrated_score_exit_risk_penalty: float = 0.40
+    concentrated_max_single_name_weight: float = 1.00
+    concentrated_monitoring_review_days: int = 7
+    run_historical_data_quality_reports: bool = True
+    growth_history_confidence_penalty_weight: float = 0.18
+    growth_history_confidence_min_for_full_sleeve: float = 0.35
+    minervini_future_engine_weight: float = 0.65
+    minervini_portfolio_seed_weight: float = 0.40
+    minervini_broken_trend_penalty_weight: float = 0.50
+    # ------------------------------------------------------------------
+    # Phase 3: sleeve weight renormalization (A/B gated)
+    # ------------------------------------------------------------------
+    # row_mean averages N sleeve-composite terms into sum/N, which means
+    # every time Phase 1 or Phase 2 added new terms the PRE-EXISTING
+    # factors lost effective weight (the /N denominator grew). When
+    # renorm is enabled the composites become a true weighted average
+    # sum(w_i * z_i) / L1 where L1 = sum(|w_i|), so each factor's
+    # relative contribution stays proportional to its own weight
+    # regardless of how many other phases added terms.
+    # Both `sleeve_weight_renorm_enabled=True` AND the env var
+    # `PHASE_PHASE3_RENORM_ENABLED` (not set to 0/false/off/disabled)
+    # are required to flip on. Default OFF until A/B validates.
+    # `sleeve_weight_l1_target=0.0` means "use the sleeve's own L1 norm"
+    # (pure weighted average). A positive value lets you target a
+    # specific L1 magnitude (e.g. match the pre-Phase-1+2 core L1 of
+    # ~7.32) so the downstream winsorize/clip(-6,+6) receives the same
+    # magnitude range as the legacy path.
+    sleeve_weight_renorm_enabled: bool = False
+    sleeve_weight_l1_target: float = 0.0
+    # ------------------------------------------------------------------
+    # Phase 4: regime-conditional dynamic sleeve weights (PHASE_ROADMAP §2.4).
+    # ------------------------------------------------------------------
+    # The sleeve composites in `compute_portfolio_sleeve_columns` today
+    # use static factor weights that are identical across every regime
+    # (balanced, growth_reentry, stagflation, systemic_crisis, ...). The
+    # right emphasis for `uptrend_continuation_score` in a risk-on bull
+    # market is however very different from the right emphasis in a
+    # systemic-crisis regime. Phase 4 multiplies the final per-sleeve
+    # composite by a regime-specific scalar (keyed on `event_regime_label`)
+    # so the same factor table can produce differentiated risk
+    # emphasis per regime without re-weighting individual factors.
+    #
+    # Both `regime_dynamic_sleeve_weights_enabled=True` AND the env var
+    # `PHASE_PHASE4_REGIME_WEIGHTS_ENABLED` (not 0/false/off/disabled)
+    # are required to flip on. Default OFF until A/B validates.
+    #
+    # `regime_sleeve_multiplier_table=None` means "use the built-in
+    # `SLEEVE_FACTOR_REGIME_MULTIPLIERS` default". Supply a dict of the
+    # same shape `{regime_label: {"core": float, "future": float,
+    # "early": float}}` to override only specific regimes; missing
+    # entries fall through to the built-in default (which is identity
+    # 1.0 for unknown regimes).
+    regime_dynamic_sleeve_weights_enabled: bool = False
+    regime_sleeve_multiplier_table: Optional[dict[str, dict[str, float]]] = None
+    # ------------------------------------------------------------------
+    # Phase 5: sub-industry leader/laggard pair signals (PHASE_ROADMAP §2.5).
+    # ------------------------------------------------------------------
+    # Within a strong industry_group, the top-quartile names earn a
+    # bonus and the bottom-quartile names earn a symmetric penalty.
+    # This is the IBD / O'Neil empirical regularity ("leaders pull
+    # away, laggards get left behind in a rotating group"). Unlike
+    # Phase 3 / Phase 4 which are default OFF, Phase 5 is default ON
+    # per PHASE_ROADMAP because the signals are purely additive to the
+    # existing factor tables: when disabled via env var the three new
+    # columns are zero-filled so downstream sleeve composites are
+    # unaffected. Default ON means the next FULL rebuild bakes the
+    # signals into `feature_store_latest.parquet` immediately.
+    #
+    # `sub_industry_min_group_size=6` skips groups with fewer than 6
+    # names to avoid spurious quartile ranking on tiny groups.
+    # `sub_industry_leader_gap_threshold=0.8` is the std-units gap the
+    # within-group top-quartile has to exceed the median by before the
+    # bonus fires (a "clear separation" guard).
+    # Phase 5 default flipped to False on 2026-04-17 after factor IC
+    # measurement (DIAGNOSIS_FACTOR_IC.md) showed industry_leader_bonus_score
+    # and industry_leader_gap both have IC near zero (~-0.006 / -0.001) over
+    # 83 months. The signal has no alpha even after the dilution fix in
+    # commit c4d50fd. Keep the infrastructure + toggle so future re-enable
+    # via PHASE_PHASE5_LEADER_LAGGARD_ENABLED=1 + cfg override is trivial.
+    sub_industry_leader_laggard_enabled: bool = False
+    sub_industry_min_group_size: int = 6
+    sub_industry_leader_gap_threshold: float = 0.8
+    export_extended_outputs: bool = True
+    export_explain_outputs: bool = True
+    turnover_cap_monthly: float = 0.55
+    trade_cost_bps_per_side: float = 25.0
+    roundtrip_cost_bps: float = 50.0
+    starting_capital_usd: float = 100000.0
+    min_port_names: int = 5
+    min_dynamic_port_names: int = 12
+    alert_review_days: int = 7
+
+    cap_leader_weight: float = 0.60
+    cap_base_weight: float = 0.40
+    cap_overheated_weight: float = 0.30
+    cap_lagger_weight: float = 0.22
+    leader_n_sectors: int = 3
+    lagger_n_sectors: int = 3
+    overheat_thr: float = 0.15
+    overheat_penalty_scale: float = 0.35
+    overheat_penalty_trigger: float = 0.55
+    overheat_penalty_seed_weight: float = 0.40
+    overheat_rsi_threshold: float = 68.0
+    overheat_bb_pb_threshold: float = 0.92
+    strategy_blueprint_weight: float = 0.22
+    min_live_estimate_coverage: float = 0.25
+    watchlist_penalty_scale: float = 0.12
+    manual_moat_path: str = ""
+    manual_moat_half_life_days: int = 365
+    archetype_mixture_weight: float = 0.10
+
+    risk_penalty_scale: float = 0.65
+    weight_score_power: float = 1.20
+    weight_invvol_power: float = 0.12
+    optimizer_risk_aversion: float = 0.90
+    optimizer_turnover_penalty: float = 0.30
+    optimizer_liquidity_reward: float = 0.20
+    max_names_per_cik: int = 1
+    benchmark_ticker: str = "^GSPC"
+    benchmark_history_source: str = "fred_sp500"
+    target_excess_weight: float = 0.70
+    defensive_rotation_strength: float = 0.40
+    growth_reentry_strength: float = 0.38
+    benchmark_hugging_penalty: float = 0.10
+    event_regime_sensitivity: float = 0.55
+    live_event_alert_strength: float = 0.35
+    live_event_risk_threshold: float = 0.50
+    live_event_growth_threshold: float = 0.55
+
+    yf_retry: int = 2
+    yf_sleep: float = 0.05
+    yf_enable_batch_download: bool = True
+    yf_batch_download_size: int = 64
+    sec_sleep: float = 0.20
+    fsds_quarters_backfill: int = 60
+    fsds_quarters_each_run: int = 24
+    price_history_years: int = 15
+    max_new_yf_info: int = 300
+    live_refresh_days: int = 2
+    max_live_refresh_tickers: int = 1000
+    # Phase 2: yfinance industry metadata refresh budget
+    industry_metadata_max_new_per_run: int = 250
+    industry_metadata_refresh_days: int = 60
+    max_alpha_vantage_refresh_tickers: int = 60
+    latest_statement_repair_enabled: bool = True
+    latest_statement_repair_tickers: int = 60
+    latest_statement_repair_refresh_days: int = 7
+    companyfacts_refresh_days: int = 3
+    companyfacts_max_retries: int = 4
+    companyfacts_retry_backoff: float = 1.0
+    use_sec_companyfacts_bulk_local: bool = True
+    sec_companyfacts_bulk_path: str = ""
+    macro_refresh_days: int = 3
+    macro_m2_release_lag_months: int = 1
+    macro_slow_release_lag_months: int = 1
+    fund_panel_repair_quarters: int = 12
+    force_full_fund_panel_rebuild: bool = False
+    fund_ttm_ffill_quarters: int = 2
+    fund_balance_ffill_quarters: int = 4
+    fund_ttm_fallback_max_age_days: int = 180
+    targeted_repair_only_weak_ciks: bool = True
+    targeted_repair_max_ciks: int = 300
+    targeted_repair_flow_cov_threshold: float = 0.50
+    targeted_repair_stale_days: int = 220
+
+    baseline_v42_code: str = ""
+    features: list[str] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
+    use_wikipedia_lists: bool = False
+    w_quality_trend: float = 0.20
+    w_forward_revision: float = 0.25
+    w_event_reaction: float = 0.10
+    w_institutional_flow: float = 0.10
+    w_insider_flow: float = 0.08
+    w_actual_results: float = 0.18
+    w_garp: float = 0.14
+    w_multidimensional_confirmation: float = 0.08
+    anticipatory_growth_weight: float = 0.16
+    future_winner_scout_weight: float = 0.12
+    future_winner_model_weight: float = 0.08
+    actual_results_fresh_days: int = 150
+    proxy_decay_after_actual: float = 0.75
+    use_sec_actual_data: bool = True
+    sec_actual_local_dir: str = ""
+    rank_eval_top_k: int = 20
+    reuse_phase4_models_for_latest_recommendations: bool = True
+    require_historical_membership_for_backtest: bool = True
+    min_ttm_feature_coverage: float = 0.70
+    min_valuation_feature_coverage: float = 0.60
+    min_core_fundamental_fields_required: int = 4
+    sector_adjusted_gate_enabled: bool = True
+    sector_adjusted_financial_min_fields: int = 3
+    sector_adjusted_realasset_min_fields: int = 4
+    sector_adjusted_resource_min_fields: int = 4
+    partial_scout_gate_enabled: bool = True
+    partial_scout_min_fields: int = 2
+    partial_scout_confirmation_min: float = 0.55
+    partial_scout_score_floor: float = 2.25
+    future_winner_min_fundamental_fields_required: int = 3
+    future_winner_confirmation_min: float = 0.42
+    future_winner_fundamental_presence_min: float = 0.32
+    future_winner_fundamental_reliability_min: float = 0.36
+    early_scout_min_fundamental_fields_required: int = 2
+    early_scout_confirmation_min: float = 0.34
+    early_scout_fundamental_presence_min: float = 0.18
+    early_scout_fundamental_reliability_min: float = 0.24
+    stock_weight_max_sector_adjusted: float = 0.08
+    stock_weight_max_partial_scout: float = 0.04
+    partial_scout_total_weight_cap: float = 0.10
+    speculative_stop_loss_pct: float = 0.25
+    speculative_weight_max: float = 0.04
+    speculative_total_weight_max: float = 0.15
+    speculative_min_rs_composite: float = 0.0
+    run_engine_diagnostics_report: bool = True
+    engine_diagnostics_top_n: int = 7
+    universe_change_warn_count: int = 10
+    use_macro_regime_features: bool = True
+    optimizer_regime_sensitivity: float = 0.35
+    reuse_existing_artifacts: bool = True
+    resume_partial_walkforward: bool = True
+    walkforward_checkpoint_every: int = 6
+    walkforward_retrain_frequency_months: int = 3
+    cat_validation_months: int = 6
+    cat_early_stopping_rounds: int = 40
+    use_benchmark_beating_focus_overlay: bool = True
+    focus_overlay_strength: float = 0.42
+    focus_sector_crowding_penalty: float = 0.12
+    focus_target_n: int = 18
+    focus_riskoff_target_n: int = 7
+    focus_portfolio_utility_boost: float = 0.0
+    focus_direct_ticker_tiebreak: float = 0.0
+    focus_no_ttm_bonus_cap_weak: float = 2.5
+    focus_no_ttm_bonus_cap_confirmed: float = 4.5
+    focus_negative_momentum_emergence_penalty: float = 0.65
+    portfolio_confirmation_utility_boost: float = 0.0
+    portfolio_confirmation_conviction_boost: float = 0.0
+    portfolio_seed_confirmation_boost: float = 0.0
+    portfolio_midterm_utility_boost: float = 0.0
+    portfolio_seed_midterm_boost: float = 0.0
+    portfolio_garp_utility_boost: float = 0.0
+    portfolio_anticipatory_utility_boost: float = 0.0
+    portfolio_seed_anticipatory_boost: float = 0.0
+    portfolio_top1_conviction_boost: float = 0.0
+    portfolio_top2_conviction_boost: float = 0.0
+    fear_greed_live_overlay_weight: float = 0.03
+    adaptive_rebalance_enabled: bool = True
+    adaptive_rebalance_growth_months: int = 1
+    adaptive_rebalance_balanced_months: int = 3
+    adaptive_rebalance_riskoff_months: int = 6
+    adaptive_rebalance_distance_penalty: float = 0.75
+    adaptive_rebalance_risk_threshold: float = 0.60
+    adaptive_rebalance_growth_threshold: float = 0.60
+    adaptive_rebalance_hold_until_due: bool = True
+    adaptive_ensemble_enabled: bool = True
+    adaptive_ensemble_lookback_months: int = 12
+    adaptive_ensemble_min_months: int = 6
+    adaptive_ensemble_strength: float = 0.65
+    adaptive_ensemble_floor_weight: float = 0.10
+    adaptive_ensemble_temperature: float = 4.0
+    adaptive_ensemble_rank_ic_weight: float = 0.70
+    adaptive_ensemble_recent_half_life_months: float = 4.0
+    ops_min_realized_coverage: float = 0.90
+    cash_release_max_per_rebalance: float = 0.20
+    portfolio_hold_policy_enabled: bool = True
+    portfolio_hold_policy_seed_weight: float = 0.14
+    portfolio_hold_policy_weight: float = 0.18
+    portfolio_hold_policy_prev_weight_bonus: float = 0.06
+    portfolio_hold_policy_exit_penalty_weight: float = 0.12
+    portfolio_low_growth_penalty: float = 0.10
+    portfolio_long_hold_bonus_weight: float = 0.14
+    dividend_policy_yield_only_weight: float = 0.35
+    dividend_quality_trend_weight: float = 0.20
+    dividend_presence_weight: float = 0.03
+    dividend_growth_gate_floor: float = 0.15
+    w_fundamental_reliability: float = 0.08
+    score_missing_fundamental_penalty: float = 0.12
+    focus_missing_fundamental_penalty: float = 0.20
+    portfolio_fundamental_utility_boost: float = 0.0
+    show_output_previews_after_run: bool = True
+    strict_live_backtest_alignment: bool = True
+    require_acceptance_for_portfolio_export: bool = True
+    focus_primary_tickers: list[str] = field(default_factory=list)
+    focus_optional_tickers: list[str] = field(default_factory=list)
+    focus_ai_infra_tickers: list[str] = field(default_factory=list)
+    focus_power_infra_tickers: list[str] = field(default_factory=list)
+    focus_hedge_tickers: list[str] = field(default_factory=list)
+    focus_defense_tickers: list[str] = field(default_factory=list)
+    focus_energy_hedge_tickers: list[str] = field(default_factory=list)
+    focus_watchlist_tickers: list[str] = field(default_factory=list)
+    yf_quarterly_cache_enabled: bool = True
+    yf_quarterly_refresh_days: int = 7
+    yf_quarterly_max_tickers_per_run: int = 1000
+    yf_quarterly_refresh_only_poor_coverage: bool = True
+    # --------------- conviction hold (hold winners longer) ---------------
+    conviction_hold_cum_return_threshold: float = 0.25  # position must be up 25%+ (inferred from drift)
+    conviction_hold_seed_bonus: float = 0.35            # extra seed bonus for conviction-hold names
+    conviction_hold_utility_bonus: float = 0.30         # extra utility bonus for conviction-hold names
+    conviction_hold_min_months: int = 2                 # minimum months held before conviction status
+    # --------------- winner scaling (add to winners, cut losers) ---------------
+    winner_scale_top_quartile_boost: float = 1.20       # multiply weight by 1.20 for top performers
+    winner_scale_bottom_quartile_cut: float = 0.70      # multiply weight by 0.70 for bottom performers
+    # --------------- revision acceleration ---------------
+    revision_seed_score_weight: float = 0.22            # revision_blueprint_score weight in seed_score
+    # --------------- valuation extreme penalty ---------------
+    valuation_extreme_pe_threshold: float = 80.0        # forward PE above this triggers penalty
+    valuation_extreme_penalty_weight: float = 0.20      # seed_score penalty for extreme valuation
+    # --------------- drawdown circuit breaker (legacy single-threshold; kept for backward compat) ---------------
+    drawdown_circuit_breaker_threshold: float = 0.20    # portfolio drawdown that triggers cash raise
+    drawdown_circuit_breaker_cash_target: float = 0.50  # force cash to 50% in drawdown
+    drawdown_circuit_breaker_recovery: float = 0.10     # drawdown recovers below this to exit breaker
+    # ---------------
+    # Phase 6a: 3-level drawdown circuit breaker (PHASE_ROADMAP §2.6)
+    # ---------------
+    # Expands the legacy single-threshold breaker into an asymmetric
+    # 3-level ladder. When a level is tripped, the portfolio's cash
+    # weight is floored at `level_N_cash_floor` AND non-cash weights
+    # are shrunk by `level_N_scale`. Recovery uses equity-level tracking
+    # (not drawdown percentage) to avoid oscillation: after level N
+    # trips at `dd_trigger_equity`, the breaker only steps down when
+    # `running_equity >= dd_trigger_equity * (1 + recovery_buffer)`.
+    # Default ON per PHASE_ROADMAP §2.6. When disabled via env var or
+    # cfg flag the active path reverts to the legacy single-threshold
+    # breaker so prior runs remain reproducible.
+    drawdown_breaker_multilevel_enabled: bool = True
+    drawdown_breaker_level_1_threshold: float = 0.08    # -8% peak-to-running DD
+    drawdown_breaker_level_1_cash_floor: float = 0.15
+    drawdown_breaker_level_1_scale: float = 0.90
+    drawdown_breaker_level_2_threshold: float = 0.15    # -15%
+    drawdown_breaker_level_2_cash_floor: float = 0.35
+    drawdown_breaker_level_2_scale: float = 0.70
+    drawdown_breaker_level_3_threshold: float = 0.25    # -25%
+    drawdown_breaker_level_3_cash_floor: float = 0.60
+    drawdown_breaker_level_3_scale: float = 0.40
+    drawdown_breaker_recovery_buffer: float = 0.03      # require equity to overshoot trigger by 3% before stepping down
+    # ---------------
+    # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6 + PROPOSAL §3)
+    # ---------------
+    # VIX-level-triggered cash floor, applied inside
+    # `compute_regime_portfolio_controls()` right before the final
+    # `np.clip(cash_target, ...)`. Four tiers escalate the cash floor
+    # based on absolute VIX level:
+    #   VIX >= 22 -> cash >= 10%
+    #   VIX >= 28 -> cash >= 25%
+    #   VIX >= 35 -> cash >= 40%
+    #   VIX >= 45 -> cash >= 55%
+    # This catches fast VIX spikes that the 63-day z-score regime
+    # detection lags. Composes via max() with other cash-target
+    # controls (regime policy + Phase 6a breaker) so the MORE
+    # defensive floor always wins.
+    # Default ON per PHASE_ROADMAP §2.6. When toggled off the
+    # `vix_level_guard_enabled` flag or the env gate skips the
+    # VIX-floor step, leaving cash_target at the regime-policy value.
+    vix_level_guard_enabled: bool = True
+    vix_level_tier1_threshold: float = 22.0
+    vix_level_tier1_cash_floor: float = 0.10
+    vix_level_tier2_threshold: float = 28.0
+    vix_level_tier2_cash_floor: float = 0.25
+    vix_level_tier3_threshold: float = 35.0
+    vix_level_tier3_cash_floor: float = 0.40
+    vix_level_tier4_threshold: float = 45.0
+    vix_level_tier4_cash_floor: float = 0.55
+    # ---------------
+    # Phase 6c: volatility targeting (PHASE_ROADMAP §2.6 + PROPOSAL §7)
+    # ---------------
+    # Tracks realized portfolio volatility over a rolling window of
+    # monthly net returns and scales non-cash weights down when vol
+    # exceeds target. Formula:
+    #   vol_scale = clip(target_vol / max(realized_vol, target_vol),
+    #                    vol_scale_floor, vol_scale_ceiling)
+    # `target_vol` is ANNUALIZED. The floor of 0.5 means we never
+    # shrink non-cash below 50% of its constructed weight; the ceiling
+    # of 1.0 means we never LEVER up (would need margin anyway).
+    # Default OFF per PHASE_ROADMAP §2.6 — vol targeting can hurt
+    # CAGR in calm markets, so user must explicitly opt in.
+    volatility_targeting_enabled: bool = False
+    vol_target_annualized: float = 0.12
+    vol_lookback_months: int = 6
+    vol_scale_floor: float = 0.50
+    vol_scale_ceiling: float = 1.00
+    # ---------------
+    # Phase 7a: Insider flow + accruals quality sleeve wiring (PHASE_ROADMAP §Phase 7 candidates)
+    # ---------------
+    # `insider_flow_signal_score` is already computed end-to-end in the
+    # engine (yfinance `insider_transactions` -> optional SEC Form 3/4/5
+    # actual-data override -> z-scored composite in `build_live_factor_overlay`)
+    # and is already consumed by the main `total_score` via the
+    # pre-existing `w_insider_flow` weight. Phase 7a adds it to the
+    # sleeve composites (future/early) so the sleeve-specific tilt also
+    # captures insider conviction.
+    # `accruals_to_assets` = (NI_ttm - OCF_ttm) / assets is computed
+    # automatically in the fundamentals pipeline (line ~11760). High
+    # accruals = earnings-quality risk (Sloan effect) -> negative
+    # contribution on the `core` compounder sleeve.
+    # Default OFF per the plan — A/B measurement first.
+    phase7a_insider_accruals_enabled: bool = False
+    phase7a_insider_early_weight: float = 0.25   # insider flow bonus on early_scout
+    phase7a_insider_future_weight: float = 0.15  # insider flow bonus on future_winner
+    phase7a_accruals_core_weight: float = -0.20  # negative = high accruals penalised on core
+
+    # --------------- Phase 8a.4: hold persistence bonus ---------------
+    # Reduces turnover (measured at 49.5%/mo -> target 25%/mo) by adding
+    # a composite bonus to held names that are still trending. See
+    # compute_portfolio_sleeve_columns for the formula. Default ON.
+    phase8a_hold_persistence_enabled: bool = True
+    phase8a_hold_persistence_weight: float = 0.90    # weight of bonus in each sleeve composite
+
+    # --------------- Phase 8b.1: long-lookback momentum ---------------
+    # Adds mom_18m / mom_24m / mom_36m and two composites
+    # (multi_year_winner_score, persistence_trend_24m) so the engine can
+    # identify multi-year trend names (NVDA/AVGO/MU pattern).
+    phase8b_long_lookback_enabled: bool = True
+    phase8b_multi_year_future_weight: float = 0.90   # weight on future sleeve
+    phase8b_multi_year_early_weight: float = 0.60    # weight on early sleeve (lower — early is bottom-fishing focused)
+    phase8b_multi_year_core_weight: float = 0.40     # weight on core sleeve (moderate — compounders benefit less)
+    phase8b_persistence_trend_future_weight: float = 0.50  # binary-flag boost on future
+    phase8b_persistence_trend_core_weight: float = 0.30    # binary-flag boost on core
+
+    # --------------- Phase 8c.1: mega-cap future-sleeve override ---------------
+    # When a name is mega-cap (>$50B) AND has strong revenue growth (>25%)
+    # AND is a multi-year trend winner (multi_year_winner_score>1.0),
+    # force-classify it into future_winner sleeve so it gets the full
+    # 58% sleeve allocation instead of being stranded in core's 12%.
+    phase8c_megacap_future_override_enabled: bool = True
+    phase8c_megacap_threshold_usd: float = 50.0e9            # market cap floor for override
+    phase8c_megacap_min_revenue_growth: float = 0.25         # rev-growth gate
+    phase8c_megacap_min_multi_year_score: float = 1.0        # multi_year_winner_score gate (top-quartile)
+
+    # --------------- Phase 8c.2: growth-adjusted valuation dampen ---------------
+    # Zero out the valuation PENALTY when a name has strong revenue
+    # growth. High P/E is justified for high-growth names — penalising
+    # them is what caused NVDA to rank 23 during its best 2024-01 month.
+    phase8c_growth_adj_valuation_enabled: bool = True
+
+    # --------------- Phase 8d.1: IC-proportional sleeve weight boost ---------------
+    # Boost 2 specific underweighted factors whose factor IC is top-tier
+    # in their sleeves (strategy_blueprint 0.017, industry_group_strength 0.016).
+    # When active: strategy_blueprint core 0.25->1.00; industry_group_strength
+    # core 0.10->0.50, future 0.30->0.60. When inactive: legacy weights.
+    phase8d_ic_reweight_enabled: bool = True
+
+    # --------------- Phase 8d.2: long-horizon alpha composite ---------------
+    # Aggregates the 5 best r_12m-IC fundamental factors (ep_ttm, fcfy_ttm,
+    # sp_ttm, roe_proxy, sage_composite_score) into a single composite
+    # and wires it into sleeve tables with meaningful weights. Bypasses
+    # the walk-forward ML ensemble's r_1m training myopia (which under-
+    # weights factors whose alpha materialises over longer horizons).
+    # "Phase 8e lite" without the walk-forward refactor risk of proper
+    # r_12m ML retraining.
+    phase8d_long_horizon_alpha_enabled: bool = True
+    phase8d_long_horizon_alpha_core_weight: float = 1.00      # full weight on core (quality+value thesis)
+    phase8d_long_horizon_alpha_future_weight: float = 0.60    # moderate on future (momentum-first sleeve)
+    phase8d_long_horizon_alpha_early_weight: float = 0.50     # moderate on early (inflection-first sleeve)
+
+    # --------------- Phase 9 C1: Phase 8b multi_year weight rebalance ---------------
+    # Phase 8 measured run (d87160d) showed Future sleeve absorbing ~72% of
+    # portfolio (target 45%) and Early sleeve collapsing to 0 names. The
+    # multi_year_winner_score sleeve weights (future 0.90, early 0.60, core 0.40)
+    # were too future-heavy. Rebalanced to:
+    #   future 0.50 (-44%)  reduce future absorption of multi-year trends
+    #   early  0.80 (+33%)  let multi-year early candidates surface
+    #   core   0.30 (-25%)  mega-cap auto-catch (Phase 9 C2) means core 가중치 작음
+    # Net L1: 1.90 -> 1.60 (signal preserved, dominance rebalanced).
+    # Override the legacy phase8b_multi_year_*_weight defaults above.
+    # When Phase 9 C1 disabled (env or cfg), legacy values restore.
+    phase9_c1_rebalance_enabled: bool = True
+    phase9_c1_multi_year_future_weight: float = 0.50
+    phase9_c1_multi_year_early_weight: float = 0.80
+    phase9_c1_multi_year_core_weight: float = 0.30
+
+    # --------------- Phase 9 C2: Sleeve thesis-gate (percentile-based) ---------------
+    # Replaces argmax-of-3-sleeve-scores assignment with EXPLICIT THESIS GATES.
+    # Solves the structural problem documented in ARCHITECTURE_REVIEW.md §6b
+    # ("sleeve taxonomy collapsed — early scout 0 names, sleeve labels lost
+    # archetype meaning"). Uses CROSS-SECTIONAL PERCENTILES (not absolute $)
+    # so thresholds remain valid as market grows over time (user feedback:
+    # "$500B 도 10년 후엔 작을 수 있다 — 능동적으로 분리").
+    #
+    # Validated by 2026-04-17 simulation on 610-name universe:
+    #   CORE eligible:    58 names ( 9.5%)  mega 31 + quality 36
+    #   FUTURE eligible:  54 names ( 8.9%)
+    #   EARLY eligible:   55 names ( 9.0%)
+    #   UNASSIGNED:      443 names (72.6%)  ← thesis-less names auto-dropped
+    #
+    # Percentile thresholds (top X% by mktcap rank within rebalance_date):
+    phase9_thesis_gate_enabled: bool = True
+    phase9_core_megacap_percentile: float = 0.95           # top 5%  -> mega-cap auto-core
+    phase9_core_quality_size_percentile: float = 0.70      # top 30% size for "quality" core
+    phase9_future_size_lower_percentile: float = 0.30      # bottom of future band
+    phase9_future_size_upper_percentile: float = 0.95      # top of future band (mega excluded)
+    phase9_early_size_upper_percentile: float = 0.70       # bottom 70% (excludes top 30% large-mega)
+    # Quality thresholds for core "rule 2"
+    phase9_core_quality_min_roe: float = 0.15
+    phase9_core_quality_min_margin: float = 0.10           # net OR op margin
+    phase9_core_quality_rev_growth_min: float = 0.02       # 안정 성장 하한
+    phase9_core_quality_rev_growth_max: float = 0.30       # hyper-grow 는 future
+    # Future criteria
+    phase9_future_min_rev_growth: float = 0.20
+    phase9_future_min_mom_24m: float = 0.50                # 2-year mom OR rev growth gate
+    # Early signal thresholds (data-validated; Phase 1 inflection scores
+    # rarely reach > 1.0 cross-sectionally so calibrated to 0.3 / 0.5)
+    phase9_early_inflection_threshold: float = 0.3         # turnaround / cf_inflection
+    phase9_early_value_inflection_threshold: float = 0.5   # value_inflection_score
+    phase9_early_breakout_threshold: float = 0.5           # breakout_fresh_20d
+    phase9_early_golden_cross_threshold: float = 0.3       # golden_cross_fresh_20d
+
+    # --------------- Phase 9 C3: EPS turn-positive gate ---------------
+    # Adds 2 new admission branches to the early-scout gate (inside the
+    # Phase 9 C2 thesis-gate block):
+    #   (1) _p9_eps_turn_positive: any of profit/cashflow/roe turn-positive
+    #       flag > 0.5 (binary, from fund_panel _sign_flip_pos helper).
+    #   (2) _p9_still_loss_but_improving: net_income_ttm < 0 AND
+    #       (ocf_under_loss_growth > threshold OR fcf_under_loss_growth >
+    #       threshold OR ni_loss_narrowing_4q > threshold).
+    # Encodes the user definition of early sleeve exactly: "eps 적자거나
+    # 양전환 막 하거나" (still losing OR just turned positive). C3 is
+    # DEPENDENT on C2 (ships together when C2 active); disabling this
+    # toggle reverts to pure C2 (inflect/breakout) gate.
+    phase9_c3_turnaround_enabled: bool = True
+    phase9_c3_loss_narrowing_threshold: float = 0.3
+
+    # --------------- breakout entry gate ---------------
+    early_scout_breakout_min_score: float = 0.15        # minimum breakout_setup_quality for scout entry
+    # --------------- fast mode ---------------
+    fast_mode: bool = False  # set True to cut Phase 4+5 runtime by ~60%
+
+
 __all__ = [
     "PHASE2_INDUSTRY_COLUMNS",
     "PHASE5_LEADER_LAGGARD_COLUMNS",
@@ -1402,4 +2104,6 @@ __all__ = [
     "EXCLUDE_NAME",
     "CASH_PROXY_TICKER",
     "SEC_COMPANYFACTS_MEMBER_RE",
+    "default_manual_regime_conditioned_sleeve_map",
+    "EngineConfig",
 ]

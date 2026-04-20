@@ -313,8 +313,11 @@ def test_phase9_dual_gate() -> None:
     `phase*_enabled: bool` cfg field so programmatic callers can override
     without touching os.environ. This test locks in the dual-gate invariant
     for phases that intentionally adopt it.
+
+    Phase A Stage 1d-ii (2026-04-20): EngineConfig moved to r1000_config.py;
+    grep combined sources so test works whether cfg fields live in main or config.
     """
-    src = _engine_src()
+    src = _combined_src()
     cfg_fields = set(re.findall(r"^\s*(phase\w+_enabled)\s*:\s*bool", src, re.MULTILINE))
     # These are the phases we expect to have BOTH a cfg field AND a
     # phase_is_enabled call (dual-gate pattern established in Phase 8+).
