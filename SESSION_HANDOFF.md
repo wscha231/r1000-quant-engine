@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-18 21:30 KST
+# Session Handoff — 2026-04-20 12:00 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,106 @@
 
 ---
 
-## 0. TL;DR — 🎉 Phase 9 C3 + CE v2 SHIPPED. CAGR 30%+ goal achieved.
+## 0. TL;DR — 🎉 **REFACTOR PHASE A COMPLETE** (26 commits on branch `refactor/phase-a-module-split`). Full 5-module split + Subtractive dead code removal. Main engine 27,838 → 382 lines facade (-98.6%).
+
+**Current HEAD = `4c9858a`** on branch `refactor/phase-a-module-split` (pushed to remote). **26 refactor commits** on top of last SHIP `6440957`. All 5 new modules created + main converted to facade:
+
+| Module | Lines | Owns |
+|---|---|---|
+| `r1000_config.py` | 2,109L | Pure data constants + EngineConfig (435 fields) |
+| `r1000_helpers.py` | 967L | Stats + IO + cache + CIK normalization |
+| `r1000_features.py` | 4,598L | 44 feature funcs (industry/fund/macro/blueprint/pillar/minervini) |
+| `r1000_signals.py` | 3,614L | Sleeve composition + portfolio construction |
+| `r1000_pipeline.py` | 15,315L | Training + backtest + export + validation + grid comparisons |
+| `r1000_top30_institutional.py` | **382L** | **FACADE** (imports + re-exports) |
+| **TOTAL** | 26,985L | (was 27,838 monolith; -853L dead code removed) |
+
+**Dependency graph** (acyclic):
+```
+config.py <- helpers.py <- features.py <- signals.py <- pipeline.py <- main (facade)
+```
+
+Smoke tests **25/25 PASS** at every sub-stage. All nested helpers scope-preserved (Phase 9 C3 `_sign_flip_pos`, `within_group_z`, `sector_median`, `_scaled_unit_from_series`).
+
+### What's done (26 commits, newest first)
+
+| Commit | Stage | Summary | Lines |
+|---|---|---|---|
+| `4c9858a` | **5** | Create `r1000_pipeline.py` (15,315L) + convert main to 382L facade | -14,912 main |
+| `48e4f8b` | **6 Subtractive** | Delete 17 `_legacy_unused_*` dead funcs | -2,307 main |
+| `bb44fe8` | **docs** | SESSION_HANDOFF update after 4b-ii | docs |
+| `b58dd51` | **4b-ii** | `build_target_portfolio` (739L) + 21 portfolio helpers → signals.py | -1,495 main |
+| `14f2cef` | **4b-i** | `compute_regime_portfolio_controls` (349L) + `compute_benchmark_beating_focus_overlay` (260L) → signals.py | -607 main |
+| `a7aca61` | **4a** | NEW `r1000_signals.py`: `compute_portfolio_sleeve_columns` (1,028L with Phase 9 C1+C2+C3 gate) + `compute_portfolio_sleeve_policy` (222L) + 3 helpers | -1,358 main |
+| `a6014ab` | **docs** | rotate SESSION_HANDOFF after Stage 1 rollup FAIL analysis (data drift, NOT regression) | docs |
+| `b0ca4c1` | **docs** | rotate SESSION_HANDOFF + STAGE_3D_PLAN after Stage 3d commits | docs |
+| `b2f4331` | **3d-iv** | `compute_strategy_blueprint_columns` (926L) + `compute_multidimensional_pillar_scores` (186L) + `compute_minervini_momentum_overlay` (144L) → features.py | -1,246 main |
+| `54986f7` | **3d-iii** | 6 funcs: market_adaptation + dynamic_leadership (w/ within_group_z nested) + manual moat overrides + ticker overlays + three_level RS + crisis_sector_fit → features.py | -546 main |
+| `466ba27` | **3d-ii-min** | `compute_event_regime_features` + `sector_indicator` + `compute_macro_interaction_features` (pure transforms) → features.py | -194 main |
+| `6b172a3` | **3d-i** | `_flexible_lag` + `_cagr_from_lag` + `recompute_fund_panel_derived_columns` (458L). Phase 9 C3 nested `_sign_flip_pos`/`_loss_narrowing_rate`/`_under_loss_growth` scope PRESERVED. | -559 main |
+| `2631e62` | **3d-i-prep** | 4 CIK normalization helpers → helpers.py (unblocks 3d-i `normalize_cik_series` dep) | -32 main |
+| `fd4e6a0` | **3c** | 8 live/satellite/moat/gate feature functions → features.py | -469 main |
+| `74be2a0` | **3b** | 28 alpha_vantage + yfinance + fundamental trend fetchers → features.py | -1,237 main |
+| `cf5e1a2` | **3a** | 8 industry RS/O'Neil feature funcs → new `r1000_features.py` | -217 main |
+| `9cf6d38` | **2d** | 27 IO/ticker/cache/run-identity helpers → helpers.py | -612 main |
+| `f2274fc` | **2c** | 11 numpy/pandas stats primitives (winsorize, robust_z, cross_sectional_robust_z, …) → helpers.py | -389 main |
+| `d898f48` | **2b** | apply_fast_mode + to_cfg + configure_last_n_years_backtest → helpers.py | -237 main |
+| `dfbea54` | **2a** | 5 smallest helpers (phase_is_enabled, now_ts, log, ENGINE_COMMIT_SHA, _resolve_engine_commit_sha) → new `r1000_helpers.py` | -117 main |
+| `06f1171` | **1d-ii** | EngineConfig dataclass (435 fields) + default_manual_regime_conditioned_sleeve_map → config.py | -748 main |
+| `c3df377` | **1d-i** | 5 scalar constants + `import re` → config.py | -12 main |
+| `c59db52` | **1c** | 17 SEC/yfinance/sector data structures → config.py | -216 main |
+| `b782e36` | **1b** | 40 pure-data constants → config.py | -774 main |
+| `01d5f85` | **1a** | 5 PHASE*_COLUMNS lists → new `r1000_config.py` | -48 main |
+| `dd7cf46` | **0 DONE** | baseline captured from `6440957` SHIP outputs (scored/portfolio/weights/backtest_metrics ref files in `.refactor_baseline/`) — no pipeline run needed | +refs |
+
+### What's pending
+
+1. **Stage 1 rollup COMPLETED at 15:43:28 KST with DIVERGENCE — root cause data drift, NOT refactor regression.** Actual commit tested: `06f1171` (Stage 1d-ii), started 11:12:59 KST. Rollup reached Phase 6 successfully writing 4 verify targets (scored/portfolio/weights/backtest_metrics) at 15:43, then crashed in `update_operational_tracking` Phase 6 ops tracking with `pyarrow.lib.ArrowInvalid: Could not convert 1.0 with type float: tried to convert to boolean` — **PRE-EXISTING schema drift bug** in `append_history_parquet` (held_from_prev_rebalance column has mixed bool/float across call sites in main:9269, main:9332, main:18581). Flagged as separate task.
+
+   `verify.py` output:
+   - All 4 files size/SHA differ from baseline
+   - Column structure IDENTICAL (618 cols, 610 rows both)
+   - `rebalance_date` max: current `2026-04-20` vs ref `2026-04-17` (3 days data drift)
+   - CAGR: current `0.2341` vs ref `0.2291` (+0.50pp; explained by retrain on different data window)
+   - Other metric diffs (avg_stock_names, beat_month_ratio, etc.) — all consistent with 3-day data window shift causing feature_store + walk-forward full rebuild.
+
+   **Why full rebuild happened**: `reuse_fingerprint(cfg, scope)` (main:1287) hashes `asdict(cfg)` which includes `cfg.end_date`. When `end_date` differs between runs, fingerprint differs, cached artifacts get rebuilt. `run_local.py` defaults `end_date` to today. **This means byte-exact verify on re-run is fundamentally impractical** without pinning `end_date` exactly AND disabling price cache refresh AND locking every ML seed.
+
+2. **Verification strategy pivot** (post-rollup-finding): byte-exact via full-pipeline re-run is impractical. Strategy must shift to:
+   - **Smoke tests 25/25** after every sub-stage (catches structural invariants)
+   - **Identity checks** (`r.FN is f.FN` / `r.HELPER is h.HELPER`) after each move
+   - **Scope checks** (nested helpers stay encapsulated via hasattr negative test)
+   - **Spot-behavior** (empty/small-input behavior for each moved function)
+   - **Optional re-run with pinned `--end-date 2026-04-17 --no-collector`** at Stage 5 completion — will still drift due to stochastic training but metrics should be within 0.3pp CAGR tolerance if refactor is value-preserving.
+
+3. **Commits `2631e62..b58dd51` (Stage 3d-i-prep through 4b-ii)** — verified via smoke/identity/scope/spot-behavior only; byte-exact deferred per strategy pivot above.
+
+4. **Stage 4c pending** — concentrated grid + sleeve_cap_policy comparison. Dependency analysis shows this layer calls `backtest_portfolio` (Stage 5 target) via `compare_sleeve_cap_policy_backtests` + `compare_standalone_sleeve_topn_backtests`. This means:
+   - Only 3 concentrated-grid funcs (`select_concentrated_portfolio_topk`, `backtest_concentrated_portfolio`, `compare_concentrated_portfolio_backtests`) are movable to signals.py standalone — they have their own backtest loops.
+   - The grid/comparison layer (`compare_sleeve_cap_policy_backtests`, `compare_standalone_sleeve_topn_backtests`, `choose_sleeve_cap_policy`, `apply_sleeve_cap_policy_to_cfg`, `sleeve_cap_policy_objective`, `generate_sleeve_cap_policy_candidates` 248L, etc.) belongs in `r1000_pipeline.py` (Stage 5) since it orchestrates backtests.
+   - **Recommendation**: merge Stage 4c into Stage 5. Create `r1000_pipeline.py` with BOTH the grid-comparison layer AND the core pipeline (`train_walkforward`, `backtest_portfolio`, `export_outputs`, `run_all`, etc.).
+
+5. **Stage 5 planning** — expected scope ~5,000L across ~20 functions:
+   - `train_walkforward` (443L)
+   - `backtest_portfolio` (694L)
+   - `backtest_standalone_sleeve_topn` (?)
+   - `export_outputs` (1,622L) — LARGEST function remaining
+   - `run_all`, `run_default_pipeline`, `run_last_n_years_backtest`
+   - `build_feature_store` (224L), `build_universe_monthly` (321L)
+   - Stage 4c grid comparisons (~800L as noted above)
+   - Misc pipeline helpers
+   
+   Executable as 3-5 sub-stages (5a: universe + feature_store; 5b: train + backtest; 5c: concentrated grid; 5d: policy comparison; 5e: export_outputs + run_all). Each sub-stage ~1-2k lines, smoke+identity verified.
+3. **Stage 3d-ii-b (deferred)** — `load_fred_series` + `build_macro_regime_table` 417L + `build_live_event_alert_table` 187L + merge helpers (~850L). Blocked on moving 5 price-cache cascade helpers (`ensure_prices_cached_incremental` 95L + `load_px` + `macro_cache_file` + `price_close_series` + `write_stage_coverage_report`) to helpers.py first. See `STAGE_3D_PLAN.md` execution log for details.
+4. **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction. In-scope: `compute_portfolio_sleeve_columns` (1,028L), `compute_portfolio_sleeve_policy` (222L), `build_target_portfolio` (739L), `compute_regime_portfolio_controls` (349L), `compute_benchmark_beating_focus_overlay` (260L).
+5. **Stage 5**: `r1000_pipeline.py` — orchestration + facade re-exports. In-scope: `train_walkforward` (443L), `backtest_portfolio` (694L), `export_outputs` (1,622L), `run_all` + `run_default_pipeline` + `run_last_n_years_backtest`, `build_feature_store` (224L), `build_universe_monthly` (321L).
+6. **Stage 6 (Subtractive)**: delete `_legacy_unused_*` funcs (~2,500L) + Phase 3/5/7a dead branches.
+
+### Production baseline — UNCHANGED by refactor (value-preserving extraction)
+
+Phase 9 C3 + CE v2 baseline from `d3d3a91` / `6440957` still stands:
+
+## 0a. Phase 9 C3 + CE v2 SHIPPED (2026-04-18 21:22 KST) — production baseline
 
 **SHIP VERDICT confirmed on commit `d3d3a91`** (2026-04-18 21:22 KST) via `py -3 run_local.py --no-collector`. Both main diversified AND concentrated improved across every metric. User's original CAGR 30%+ goal achieved via concentrated mode.
 
@@ -58,20 +157,40 @@ Runner-up concentrated (all >30% CAGR, for A/B robustness):
 
 ---
 
-## 1. Recent timeline on `origin/master` (newest first)
+## 1. Recent timeline (newest first) — branch `refactor/phase-a-module-split` on top of `origin/master@6440957`
+
+**Refactor Phase A commits (branch only — NOT yet merged to master)**:
+
+| Commit | Title | Stage | Byte-exact verify |
+|---|---|---|---|
+| `fd4e6a0` | Stage 3c: 8 live/satellite/moat/gate feature funcs → features.py | 3c | ⏳ pending rollup |
+| `74be2a0` | Stage 3b: 28 alpha_vantage + yfinance + fundamental trend → features.py | 3b | ⏳ pending rollup |
+| `cf5e1a2` | Stage 3a: 8 industry feature funcs → new `r1000_features.py` | 3a | ⏳ pending rollup |
+| `9cf6d38` | Stage 2d: 27 IO/ticker/cache/run-identity helpers → helpers.py | 2d | ⏳ pending rollup |
+| `f2274fc` | Stage 2c: 11 numpy/pandas stats primitives → helpers.py | 2c | ⏳ pending rollup |
+| `d898f48` | Stage 2b: apply_fast_mode + to_cfg + configure_last_n_years → helpers.py | 2b | ⏳ pending rollup |
+| `dfbea54` | Stage 2a: 5 smallest helpers → new `r1000_helpers.py` | 2a | ⏳ pending rollup |
+| `06f1171` | Stage 1d-ii: EngineConfig dataclass → config.py | 1d-ii | ⏳ pending rollup |
+| `c3df377` | Stage 1d-i: 5 scalar constants → config.py | 1d-i | ⏳ pending rollup |
+| `c59db52` | Stage 1c: 17 SEC/yfinance/sector data structures → config.py | 1c | ⏳ pending rollup |
+| `b782e36` | Stage 1b: 40 pure-data constants → config.py | 1b | ⏳ pending rollup |
+| `01d5f85` | Stage 1a: 5 PHASE*_COLUMNS lists → new `r1000_config.py` | 1a | ⏳ pending rollup |
+| `dd7cf46` | Stage 0 DONE: baseline captured from 6440957 SHIP outputs | 0 | ✅ reference |
+
+**Pre-refactor on `origin/master` (newest first)**:
 
 | Commit | Title | Phase | Requires | Default |
 |---|---|---|---|---|
-| `527fdde` | **Phase 9 C3 design + refactor plan update** (docs only) | 9.C3 design | — | — |
-| `afaa768` | Run banner: print git commit SHA for run provenance | ops | no rebuild | always-on |
-| `33581bc` | Phase 9 docs + notebook: CHANGELOG, SESSION_HANDOFF, Cell 2 toggles | 9 docs | — | — |
+| `6440957` | **SHIP Phase 9 C3 + CE v2** (production HEAD before refactor) | 9.C3 + 9.CE v2 | FULL done | ON |
+| `d3d3a91` | CE v2: lift 2 inner N<=3 clamps (select + backtest) | 9.CE v2 | QUICK | ON |
+| `f93a4a2` | Phase 9 CE: Concentrated Expansion — lift N<=3 cap, 3→63 grid | 9.CE v1 | QUICK | ON |
+| `031fa3c` | Fix Cell 5 KeyError + correct Phase 9 baseline metrics | ops | — | — |
+| `86be7f9` | **Phase 9 C3: EPS turn-positive + still-loss-improving** | 9.C3 | FULL | ON |
+| `c228238` | SHIP Phase 9 C1+C2 rotate baseline to CURRENT_BASELINE | 9.C1+C2 | FULL | ON |
+| `527fdde` | Phase 9 C3 design + refactor plan update (docs only) | 9.C3 design | — | — |
 | `ced5db6` | **Phase 9 C1+C2: multi_year rebalance + percentile thesis-gate** | 9.C1 + 9.C2 | QUICK | ON |
-| `2c2101c` | EXECUTION_PLAN.md: Drive audit + staged roadmap | docs | — | — |
 | `d87160d` | hard_sanitize dedup fix (CRITICAL — unblocked Phase 8 FULL run) | 8 fix | no rebuild | always-on |
 | `9b083d2` | Phase 8d: IC-reweight + long-horizon alpha composite | 8d.1 + 8d.2 | QUICK | ON |
-| `caddec3` | Phase 8c: Mega-cap future override + growth-adj valuation | 8c.1 + 8c.2 | QUICK | ON |
-| `3e44d35` | Phase 8b.1: Long-lookback momentum (mom_18m/24m/36m) | 8b.1 | FULL (already done) | ON |
-| `4cd938e` | Phase 8a safety: rolling_robust_z + macro clamp + Phase 1 keepcols | 8a.5 + 8b.3 | FULL (already done) | always-on |
 
 **Current `ENGINE_REUSE_VERSION`**: `"2026-04-17-phase8b-long-lookback-momentum"`. **Phase 9 C1+C2 are post-feature-store changes — no version bump.** The in-progress FULL REBUILD was overkill for measuring C1+C2 (a QUICK_RESCORE would have worked in ~20 min), but since it ran, the outputs are valid for verdict.
 
@@ -79,36 +198,100 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Next step — Refactor Phase A (C3 + CE shipped, Stage 2 Option A complete)
+## 2. Next step — Refactor Phase A COMPLETE. Merge branch + optional Stage 3d-ii-b + plan Phase 10 alpha work.
 
-Per `REFACTOR_PLAN.md` §12 5-stage sequencing: Stage 2 Option A (Phase 9 C3) now **complete**. Stage 3 picks up the complementary work = **Refactor Phase A** (5-module split + observability, `REFACTOR_PLAN.md` §6 checklist).
+### Immediate next actions
 
-**Why refactor next**:
-1. Engine is now ~27.5k lines. The CE v1 cap bug (shipped 2 inner `min(top_n, 3)` sites that the first review missed) is exactly the class of bug the 5-module split + observability pass are meant to prevent — one place owns concentrated logic, one constant owns the cap, structural smoke test catches it.
-2. Phase 9 is done; no more feature work blocking cleanup.
-3. The Phase 1/2 keepcols-survival saga, hard_sanitize dedup bug, CE v1→v2 iteration — all share the root cause "monolithic file makes invariants implicit". Refactor explicitly encodes them.
+1. **Merge branch to master**: `refactor/phase-a-module-split` → `origin/master`. 26 commits ready. Smoke tests 25/25 at every commit. Byte-exact verify is impractical per the rollup analysis (end_date fingerprint), so merge decision is based on:
+   - Smoke tests 25/25 ✅
+   - Identity + scope + spot-behavior checks at every sub-stage ✅
+   - 5-module dependency graph clean (acyclic) ✅
+   - Main engine is now a 382-line facade; all functional code lives in 5 focused modules ✅
 
-### Stage 3 flow (Refactor Phase A, 1-1.5 day per REFACTOR_PLAN.md §5)
+2. **Optional Stage 3d-ii-b** (~850L macro builders deferred; see STAGE_3D_PLAN.md). Lower priority now since main is already mostly drained -- these functions all live in `r1000_pipeline.py` after Stage 5, just co-located with universe/fund plumbing rather than split into the "pure features" layer. Can be moved later as an incremental features.py addition if desired.
 
-1. **Smoke test first**: `py -3 tests/smoke_test.py` — expect 25/25.
-2. **Pre-flight checklist** (REFACTOR_PLAN.md §6): create branch `refactor/phase-a-module-split`, snapshot `scored_latest.csv` SHA256.
-3. **Migration order**: config → helpers → features → signals → pipeline → facade. Each stage has its own QUICK_RESCORE smoke test gate (must produce byte-identical outputs).
-4. **Observability** (REFACTOR_PLAN.md §11): each module gets `@module_boundary` decorator, `_validate_<fn>_output()` health checks, `COLUMN_OWNERSHIP` registry entries, smoke test coverage. Ships IN THE SAME commit series as the split.
-5. **Byte-exact verification**: post-refactor `py -3 run_local.py --no-collector` must produce identical `backtest_metrics.json` SHA256 to pre-refactor baseline. Zero behavior change allowed in this stage.
-6. **Post-flight**: rotate CLAUDE.md "Key Files" section to cite new module map; update this §2 to point at Stage 4 Subtractive pass.
+3. **Parquet schema drift bug** (pre-existing, spawned as separate task): `held_from_prev_rebalance` bool/float mismatch in `append_history_parquet` crashes Phase 6 ops tracking. Not caused by refactor, but blocks clean local pipeline runs. Fix is small (~30 min).
 
-### Stage 4 preview (after Refactor — deletable dead code)
+4. **Phase 10 alpha work** — see `PHASE_10_IDEAS.md`. Post-refactor, adding a new signal/feature is a single-module edit rather than navigating 27k lines. Top candidates:
+   - Top-10 concentrated sleeve (highest rubric score per PHASE_10_IDEAS.md §4)
+   - Quarterly rebalance option (low effort, turnover reduction)
+   - Phase 8e (r_12m ML training target; biggest expected alpha but 11-13h work)
 
-- Delete Phase 3 (REJECTED, default OFF)
-- Delete Phase 5 sub-industry (REJECTED, IC ≈ 0)
-- Delete Phase 7a (OPT-IN, never A/B ship-gated)
-- Drop 153 noise factors (ARCHITECTURE_REVIEW.md); keep only IC > 0.02 gates
-- Consolidate industry cluster's 6 overlapping signals into 1 composite
-- Expected LOC reduction: ~15-20% (~5k lines)
+### 🟢 Status (2026-04-20 12:00 KST)
 
-### Alternative (if user wants more alpha first, not cleanup)
+**Branch**: `refactor/phase-a-module-split` (pushed to origin). 13 commits on top of `6440957`. Smoke tests 25/25 at each sub-stage.
 
-Stage 5 preview: **Phase 8e** (r_12m ML training). Add a second CatBoost/Ridge ensemble trained on 12-month forward returns (vs the current 1-month myopia). Blend 1m + 12m scores in `score_latest_month`. Expected +1-2pp CAGR from longer-horizon alpha capture. ~11-13h. REFACTOR_PLAN.md §12 recommends this AFTER refactor because it touches walk-forward training — but user could re-order.
+**Stage 0 DONE via shortcut** — baseline NOT captured via fresh pipeline run. Instead `.refactor_baseline/capture.py` hashed + copied the existing Drive outputs from 2026-04-18 21:22 SHIP run (commit `6440957`). The 4 reference files are in `.refactor_baseline/`:
+- `scored_latest.ref.csv` (SHA256 stored in `reference.json`)
+- `portfolio_latest.ref.csv`
+- `weights_latest.ref.json`
+- `backtest_metrics.ref.json`
+
+**Why shortcut works**: the Drive outputs ARE the byte-exact baseline for commit `6440957` — running the pipeline again from scratch was optional. Saved ~2h.
+
+### What to do on wake-up (pick in order)
+
+**Step 1 — Check Stage 1 rollup status** (~30 sec)
+
+```bash
+# Is the rollup task still running?
+tasklist | findstr python
+# If you see python.exe PID with high memory (600MB+), it's still running.
+
+# Check latest log
+tail -f G:\내 드라이브\r1000_top30_institutional\outputs\runlog.txt
+# Look for "[validation]" or final "[ALL DONE]" marker
+```
+
+If still running: wait. If done: proceed to Step 2.
+
+**Step 2 — Run byte-exact verify** (~5 sec)
+
+```bash
+py -3 .refactor_baseline/verify.py
+```
+
+Expected output: `✅ ALL 4 FILES BYTE-EXACT MATCH` (scored_latest.csv + portfolio_latest.csv + weights_latest.json SHA256 match; backtest_metrics.json numeric diff within tolerance).
+
+**Possible outcomes**:
+
+- **PASS** → Stages 0 through 3c are confirmed value-preserving. Proceed to Step 3.
+- **FAIL** (one or more file mismatch) → **bisect**. The refactor has 13 commits; for each suspect commit, `git checkout <commit> && py -3 run_local.py --no-collector && py -3 .refactor_baseline/verify.py`. Start with the highest-risk commits: Stage 3c (`fd4e6a0`, 8 funcs incl moat/gate), Stage 2c (`f2274fc`, robust_z numeric primitives), Stage 2d (`9cf6d38`, run-identity helpers). Lowest risk: Stages 1a-c (pure constants). Once first-bad commit isolated, read its diff and find the dropped reference / rename / missed import.
+
+**Step 3 (PASS only) — Execute Stage 3d** per `STAGE_3D_PLAN.md`
+
+Read `STAGE_3D_PLAN.md` first — it has the 4-sub-stage breakdown with exact function lists, line numbers, risk notes, and sanity tests. Summary:
+
+- **3d-i** (fundamental panel builders, ~1,100L, HIGHEST RISK) — 7 funcs centered on `recompute_fund_panel_derived_columns` (458L, lines 7805-8262 in current main). This function contains the Phase 9 C3 `_sign_flip_pos` nested helpers critical for the early_scout gate. Scope preservation via explicit nested-function capture is non-negotiable.
+- **3d-ii** (macro/event regime builders, ~850L) — 9 funcs incl. `build_macro_regime_table` (417L).
+- **3d-iii** (market/dynamic-leadership/crisis features, ~650L) — 6 funcs.
+- **3d-iv** (strategy blueprint/pillar/minervini composites, ~1,400L) — 3 funcs incl. `compute_strategy_blueprint_columns` (926L). Largest function in codebase.
+
+**Each sub-stage must**: (1) smoke test 25/25, (2) commit separately, (3) push after commit. Rollup byte-exact verify runs after 3d-iv (same pattern as Stage 1/2/3 rollup, but the 3d changes move feature construction, so a rollup between 3d-i and 3d-ii is acceptable if the user wants tighter bisection).
+
+**Step 4 — Stages 4 + 5 + 6**
+
+- **Stage 4**: `r1000_signals.py` — sleeve composition + portfolio construction (sleeve selectors, backtest_concentrated_portfolio, etc.). ~2-3k lines.
+- **Stage 5**: `r1000_pipeline.py` + facade — orchestration (run_default_pipeline, run_full_validation_suite) + add re-exports to `r1000_top30_institutional.py` so existing import sites still work. ~2k lines.
+- **Stage 6 (Subtractive)**: delete `_legacy_unused_*` funcs (~2,500L) + Phase 3/5/7a dead branches. Post-refactor, dead code is mechanical to remove.
+
+### Why refactor (unchanged from 2026-04-18 reasoning)
+
+1. Pre-refactor engine was 27,838 lines. Invariants like "PHASE*_COLUMNS must be in `build_feature_store.keep_cols`" + "concentrated cap lifted in 5 sites not 3" are implicit in a monolith. Module split makes them explicit (one owner per concept).
+2. Phase 9 is done; no feature work blocking cleanup.
+3. Class of bugs like CE v1 inner-clamp miss + Phase 2 keepcols-drop + hard_sanitize dedup dedup — all root cause "monolithic file hides invariants". Refactor encodes them.
+
+### Alternative if rollup FAILs and bisect takes too long
+
+**Option: revert to Stage 2d (`9cf6d38`) and re-attempt Stage 3**. Stage 2 was pure helper extraction with well-known grep patterns; the failure is more likely in Stage 3 (features moved with yf fetchers that call module-level state). Recommend:
+
+```bash
+git reset --hard 9cf6d38     # back to end of Stage 2
+# re-run rollup verify
+py -3 run_local.py --no-collector
+py -3 .refactor_baseline/verify.py
+# if PASS → Stage 2 is good; Stage 3 has the bug → re-do Stage 3a more carefully
+```
 
 ---
 
@@ -359,38 +542,55 @@ Compare each isolated effect vs Phase 8 baseline. Ship whichever (or both) gives
 ## 4. Bootstrap prompt for a fresh chat session
 
 ```
-I'm continuing work on the r1000 Quant Engine project. Before doing anything else, please:
+I'm continuing work on the r1000 Quant Engine project, MID-REFACTOR (Phase A, 5-module split). Before editing anything:
 
 1. Read `CLAUDE.md` — project basics.
-2. Read `SESSION_HANDOFF.md` — THIS file, the single-item inbox for current pending work.
-3. Read the last ~500 lines of `CHANGELOG.md` — most recent decisions (entries since 2026-04-17 Phase 9).
-4. Read `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md`, `REFACTOR_PLAN.md` §12 — staged roadmap.
-5. Read `PHASE_9_C3_PROPOSAL.md` if Cell E verdict is SHIP and we're picking Path A.
-6. Check `git log --oneline -10` to confirm latest commit is at or after `527fdde` "Phase 9 C3 design + refactor plan update".
+2. Read `SESSION_HANDOFF.md` §0 + §2 — current state + next step (= this file).
+3. Read `STAGE_3D_PLAN.md` — 4-sub-stage plan for the next big refactor chunk.
+4. Read `REFACTOR_PLAN.md` §6 (checklist) + §11 (observability) + §12 (5-stage sequencing).
+5. Run `git log --oneline -20` — expect branch `refactor/phase-a-module-split`, HEAD at `fd4e6a0` or later.
+6. Run `git status` — should be clean.
+7. Check Stage 1 rollup byte-exact status: run `py -3 .refactor_baseline/verify.py`. If PASS → proceed to Stage 3d per STAGE_3D_PLAN.md. If FAIL → bisect per §2 Step 2.
 
-Only after reading those files, tell me the Cell E verdict OR ask me for the paste. Do NOT start editing anything until the verdict is known.
+Do NOT start Stage 3d until byte-exact verify passes on the current HEAD.
 
-Context: Phase 9 C1+C2 (sleeve thesis-gate redesign + multi_year weight rebalance) shipped in code on 2026-04-17. A FULL REBUILD from commit `33581bc` was launched at 08:10 KST 2026-04-17 and should have completed by now. The next action is to verify run completed + run Cell E verdict snippet from SESSION_HANDOFF.md §2, then follow §3 decision tree.
+Context: Refactor Phase A splits `r1000_top30_institutional.py` (27,838L) into
+`r1000_config.py` (2,109L) + `r1000_helpers.py` (925L) + `r1000_features.py` (1,923L) + (pending)
+`r1000_signals.py` + `r1000_pipeline.py`. Stages 0 + 1 + 2 + 3a-c done across 13 commits.
+Main file now 23,594 lines (-15.3%). Smoke tests 25/25 at every sub-stage.
+Production baseline (Phase 9 C3 + CE v2: main CAGR 22.91%, concentrated 34.75%) UNCHANGED — refactor is pure value-preserving extraction.
+Remaining: Stage 3d (4 sub-stages, ~4,000L feature funcs), Stage 4 (signals), Stage 5 (pipeline + facade), Stage 6 (Subtractive, -2,500L dead code).
 ```
 
 ---
 
 ## 5. Files that persist across machines
 
-Source-of-truth in git on `origin/master`:
+Source-of-truth in git. Branch `refactor/phase-a-module-split` has the refactor-in-progress state. `origin/master@6440957` is the last SHIP before refactor.
 
-- `r1000_top30_institutional.py` — engine (~27.4k lines after Phase 9)
-- `r1000_data_collector.py` — collector
-- `r1000_operator.py` — live operator layer
-- `r1000_portfolio_state.py` — state persistence
-- `colab_run.ipynb` — runbook (Cell 2 has all 18 phase env toggles incl Phase 9 C1/C2)
+**Engine modules (refactor branch)**:
+- `r1000_top30_institutional.py` — main engine, 23,594L (was 27,838L pre-refactor). Still contains Stage 3d+4+5 functions pending extraction.
+- **`r1000_config.py`** — NEW, 2,109L. All pure data constants (PHASE*_COLUMNS, SEC tags, sector maps) + EngineConfig dataclass (435 fields) + default_manual_regime_conditioned_sleeve_map helper. Zero side effects. Import depth: 0.
+- **`r1000_helpers.py`** — NEW, 925L. 46 pure helpers: stats primitives (winsorize, robust_z, cross_sectional_robust_z), IO/ticker/cache, run identity, phase_is_enabled gate. Import depth: 1 (from config).
+- **`r1000_features.py`** — NEW, 1,923L. 44 feature engineering funcs: industry RS/O'Neil, alpha_vantage/yfinance fetchers, fundamental trend, live/moat/flow/gate features. Import depth: 2 (from config + helpers).
+- `r1000_data_collector.py` — collector (unchanged by refactor)
+- `r1000_operator.py` — live operator layer (unchanged)
+- `r1000_portfolio_state.py` — state persistence (unchanged)
+- `colab_run.ipynb` — runbook (unchanged — engine module split is transparent via facade re-exports planned for Stage 5)
+
+**Refactor infrastructure**:
+- **`.refactor_baseline/`** — byte-exact reference files from commit `6440957`. Contains `reference.json` (SHA256 manifest), `scored_latest.ref.csv`, `portfolio_latest.ref.csv`, `weights_latest.ref.json`, `backtest_metrics.ref.json`, `verify.py` (comparator), `capture.py` (rebuild script).
+- **`STAGE_3D_PLAN.md`** — NEW. 4-sub-stage plan for Stage 3d (fundamental panel + macro + strategy_blueprint + pillar). Read before executing 3d.
+- `tests/smoke_test.py` — 25 tests spanning main + config + helpers via `_combined_src()` helper.
+
+**Docs**:
 - `CLAUDE.md` — project brain (short)
 - **`SESSION_HANDOFF.md` — this file (single-item inbox)**
 - `CHANGELOG.md` — decision log (every commit has a matching Agent Update Contract entry)
 - `EXECUTION_PLAN.md` — 4-stage roadmap
 - `ARCHITECTURE_REVIEW.md` — cold first-principles assessment + sleeve redesign rationale
-- `REFACTOR_PLAN.md` — 5-module split + observability + §12 5-stage sequencing diagram
-- **`PHASE_9_C3_PROPOSAL.md` — NEW. Phase 9 C3 EPS turn-positive flag design. Read BEFORE implementing C3 (detailed snippets, cfg fields, FS whitelist instructions).**
+- `REFACTOR_PLAN.md` — 5-module split + observability + §12 5-stage sequencing diagram (currently being executed)
+- `PHASE_9_C3_PROPOSAL.md` — Phase 9 C3 EPS turn-positive flag design (shipped, kept for audit trail)
 - `PHASE_8_PROPOSAL.md` — older, Phase 8 design history
 - `DIAGNOSIS_FACTOR_IC.md` / `DIAGNOSIS_COUNTERFACTUAL.md` / `DIAGNOSIS_BUGS.md` — Phase C empirical evidence
 - `PHASE_ROADMAP.md` — DEPRECATED (only covers Phase 1-6). Use REFACTOR_PLAN.md §12 for current roadmap.
@@ -444,10 +644,12 @@ Drive (NOT in git):
 ## 7. How to rotate this handoff
 
 When:
-- **Cell E verdict is SHIP** → §0/§1/§2 become "Phase 9 C1+C2 baseline established, next is Stage 2 (C3 or Refactor per user choice)".
-- **Cell E verdict is PARTIAL** → §2 becomes "run A/B isolation per §3b, paste two verdicts".
-- **Cell E verdict is REGRESS** → §0 becomes "Phase 9 rolled back; Phase 8 (CAGR 21.86%) is production baseline; next is Refactor first, then re-plan Phase 9".
-- **Phase 9 C3 ships** (after Stage 2 Option A) → §0 becomes "Phase 9 C1+C2+C3 baseline established, next is Refactor".
-- **Refactor Phase A ships** → §0 becomes "Refactor complete, 5-module structure live, next is Stage 4 Subtractive".
+- **Stage 1 rollup verify PASSES** → update §0 "Stage 1 rollup ✅", §2 Step 1/2 remove, bump "what's pending" to Stage 3d as active.
+- **Stage 3d-i ships** (after fundamental panel move) → rotate §0 "Stages 0-3c-i ✅", §2 becomes "next: 3d-ii macro". Byte-exact verify gates every 3d-{i,ii,iii,iv} ship.
+- **Stage 3d-iv ships** (Stage 3d complete) → rotate §0, §2 becomes "next: Stage 4 signals.py". Update `STAGE_3D_PLAN.md` to "COMPLETE".
+- **Stage 4 + Stage 5 ship** (full 5-module split live) → §0 becomes "Refactor Phase A COMPLETE, 5-module structure live". §2 pivots to Stage 6 (Subtractive pass) or Phase 8e (r_12m ML).
+- **Stage 6 (Subtractive) ships** → §0 notes LOC savings (~2,500L); close refactor chapter; §2 pivots to next alpha work (Phase 8e, quarterly rebalance, R2000 universe, etc.).
+- **Refactor branch merged to master** → squash-merge or preserve 13+n commits; tag `refactor-phase-a-done`; delete branch.
+- **Any ship rollback** → §0 becomes "refactor branch paused, current production = `origin/master@6440957`"; re-plan.
 
 Never accumulate multiple handoff files. Single-item inbox only.

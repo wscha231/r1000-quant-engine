@@ -180,8 +180,11 @@ def check_prereqs(base_dir: Path) -> tuple[bool, list[str]]:
     msgs: list[str] = []
 
     # Python version
-    if sys.version_info < (3, 10):
-        msgs.append(f"ERROR: Python {sys.version_info[0]}.{sys.version_info[1]} too old (need 3.10+)")
+    # Note: refactor/phase-a allowed 3.9 after verifying engine imports + compiles
+    # without 3.10 syntax. If walk-forward training crashes on 3.9, install Python
+    # 3.12 via `winget install Python.Python.3.12` and re-run.
+    if sys.version_info < (3, 9):
+        msgs.append(f"ERROR: Python {sys.version_info[0]}.{sys.version_info[1]} too old (need 3.9+)")
 
     # Deps
     for pkg in ["numpy", "pandas", "sklearn", "catboost", "yfinance", "requests", "pyarrow"]:

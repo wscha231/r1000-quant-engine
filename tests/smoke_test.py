@@ -49,6 +49,11 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE_PATH = ROOT / "r1000_top30_institutional.py"
+CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
+HELPERS_PATH = ROOT / "r1000_helpers.py"  # Refactor Phase A Stage 2a onwards
+FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
+SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
+PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -124,6 +129,11 @@ def test_notebook_json() -> None:
 # ======================================================================
 
 _ENGINE_SRC: str | None = None
+_CONFIG_SRC: str | None = None
+_HELPERS_SRC: str | None = None
+_FEATURES_SRC: str | None = None
+_SIGNALS_SRC: str | None = None
+_PIPELINE_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -133,21 +143,105 @@ def _engine_src() -> str:
     return _ENGINE_SRC
 
 
+def _config_src() -> str:
+    """Refactor Phase A Stage 1a onwards: PHASE*_COLUMNS + other pure-data
+    constants live in r1000_config.py. Returns empty string if file absent
+    so tests run on pre-refactor commits too."""
+    global _CONFIG_SRC
+    if _CONFIG_SRC is None:
+        _CONFIG_SRC = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ""
+    return _CONFIG_SRC
+
+
+def _helpers_src() -> str:
+    """Refactor Phase A Stage 2a onwards: pure utility helpers live in
+    r1000_helpers.py (phase_is_enabled, log, hard_sanitize, etc.).
+    Returns empty string if file absent."""
+    global _HELPERS_SRC
+    if _HELPERS_SRC is None:
+        _HELPERS_SRC = HELPERS_PATH.read_text(encoding="utf-8") if HELPERS_PATH.exists() else ""
+    return _HELPERS_SRC
+
+
+def _features_src() -> str:
+    """Refactor Phase A Stage 3a onwards: feature engineering funcs live in
+    r1000_features.py (industry RS, alpha_vantage/yfinance fetchers, fund
+    panel derivators incl. recompute_fund_panel_derived_columns + carry_cols).
+    Returns empty string if file absent."""
+    global _FEATURES_SRC
+    if _FEATURES_SRC is None:
+        _FEATURES_SRC = FEATURES_PATH.read_text(encoding="utf-8") if FEATURES_PATH.exists() else ""
+    return _FEATURES_SRC
+
+
+def _signals_src() -> str:
+    """Refactor Phase A Stage 4a onwards: sleeve composition + portfolio
+    construction live in r1000_signals.py (compute_portfolio_sleeve_columns
+    with Phase 9 C1+C2+C3 gate, compute_portfolio_sleeve_policy target weights).
+    Returns empty string if file absent."""
+    global _SIGNALS_SRC
+    if _SIGNALS_SRC is None:
+        _SIGNALS_SRC = SIGNALS_PATH.read_text(encoding="utf-8") if SIGNALS_PATH.exists() else ""
+    return _SIGNALS_SRC
+
+
+def _pipeline_src() -> str:
+    """Refactor Phase A Stage 5 onwards: pipeline orchestration (train_walkforward,
+    backtest_portfolio, export_outputs, run_all, validate_config, concentrated
+    grid, sleeve_cap_policy comparison) lives in r1000_pipeline.py.
+    Returns empty string if file absent."""
+    global _PIPELINE_SRC
+    if _PIPELINE_SRC is None:
+        _PIPELINE_SRC = PIPELINE_PATH.read_text(encoding="utf-8") if PIPELINE_PATH.exists() else ""
+    return _PIPELINE_SRC
+
+
+def _combined_src() -> str:
+    """Engine + config + helpers + features + signals + pipeline sources combined
+    for regex searches that should look across all refactored files (e.g.
+    PHASE*_COLUMNS constant existence, hard_sanitize body, cfg field definitions,
+    carry_cols membership, Phase 9 gate wiring, CE cap lifts in backtest_concentrated).
+
+    Section separators use comment headers that cannot appear inside the
+    actual source (the `# === r1000_*.py ===` pattern) so regex anchored
+    to ^def or ^class can still find real definitions without capturing
+    the header text as spurious matches.
+    """
+    return (
+        _engine_src()
+        + "\n\n# === r1000_config.py ===\n\n"
+        + _config_src()
+        + "\n\n# === r1000_helpers.py ===\n\n"
+        + _helpers_src()
+        + "\n\n# === r1000_features.py ===\n\n"
+        + _features_src()
+        + "\n\n# === r1000_signals.py ===\n\n"
+        + _signals_src()
+        + "\n\n# === r1000_pipeline.py ===\n\n"
+        + _pipeline_src()
+    )
+
+
 @_test("structural.phase_columns_referenced_in_feature_store")
 def test_phase_columns_in_keep_cols() -> None:
     """Every top-level PHASE*_COLUMNS constant must be spliced into build_feature_store.
 
     Regression for: Phase 2 keepcols-fix (commit 1d4fb40), Phase 1 keepcols-fix (4cd938e).
+
+    Phase A Stage 1a (2026-04-20): PHASE*_COLUMNS moved to r1000_config.py.
+    Phase A Stage 5 (2026-04-20): build_feature_store moved to r1000_pipeline.py.
+    This test now greps combined sources for both the constants and the
+    build_feature_store body.
     """
-    src = _engine_src()
-    # Find all PHASE*_COLUMNS module-level constants
-    constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", src, re.MULTILINE)
+    combined = _combined_src()
+    # Find all PHASE*_COLUMNS module-level constants (main OR config file)
+    constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", combined, re.MULTILINE)
     assert constants, "no PHASE*_COLUMNS constants found -- regex or repo broken"
 
     # Extract build_feature_store body (up to the next top-level def)
     m = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
-        src,
+        combined,
         re.DOTALL | re.MULTILINE,
     )
     assert m, "build_feature_store function not found"
@@ -165,8 +259,11 @@ def test_phase_is_enabled_keys() -> None:
     """phase_is_enabled() keys must be snake_case -- env name derives from uppercasing.
 
     Regression for: env-name mismatch bugs in Phase 8 toggle wiring.
+
+    Phase A Stage 5 (2026-04-20): phase_is_enabled() calls now live across
+    pipeline.py + signals.py + features.py; grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     keys = re.findall(r'phase_is_enabled\s*\(\s*["\'](\w+)["\']', src)
     assert keys, "no phase_is_enabled() calls found -- regex or repo broken"
     for key in set(keys):
@@ -177,8 +274,12 @@ def test_phase_is_enabled_keys() -> None:
 
 @_test("structural.engine_reuse_version_format")
 def test_engine_reuse_version() -> None:
-    """ENGINE_REUSE_VERSION must be YYYY-MM-DD-description -- bumping triggers FS rebuild."""
-    src = _engine_src()
+    """ENGINE_REUSE_VERSION must be YYYY-MM-DD-description -- bumping triggers FS rebuild.
+
+    Phase A Stage 1d-i (2026-04-20): ENGINE_REUSE_VERSION moved to r1000_config.py.
+    Grep combined sources so test works whether constant lives in main or config.
+    """
+    src = _combined_src()
     m = re.search(r'^ENGINE_REUSE_VERSION\s*=\s*["\'](.*?)["\']', src, re.MULTILINE)
     assert m, "ENGINE_REUSE_VERSION constant not found"
     val = m.group(1)
@@ -194,8 +295,11 @@ def test_hard_sanitize_dedup() -> None:
     Regression for: commit d87160d -- FULL rebuild crashed with
     'ValueError: Columns must be same length as key' when DEFAULT_FEATURES and
     PHASE*_COLUMNS overlapped. Fix: `cols = [c for c in dict.fromkeys(cols) ...]`.
+
+    Phase A Stage 2c (2026-04-20): hard_sanitize moved to r1000_helpers.py;
+    grep combined sources so test finds it in either location.
     """
-    src = _engine_src()
+    src = _combined_src()
     m = re.search(
         r"^def hard_sanitize\b.*?(?=^def |\Z)",
         src,
@@ -215,10 +319,13 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
 
     Regression guard: Phase 9 C3 adds 8 feature-store columns that would
     silently disappear without the whitelist (same trap as Phase 1/2 keepcols-fix).
+
+    Phase A Stage 1a (2026-04-20): constant now lives in r1000_config.py.
+    Phase A Stage 5 (2026-04-20): build_feature_store now lives in r1000_pipeline.py.
     """
-    src = _engine_src()
-    # Constant exists and has the expected 8 names
-    assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in src, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
+    combined = _combined_src()
+    # Constant exists (main or config) and has the expected 8 names
+    assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in combined, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
     required = [
         "profit_turn_positive_4q",
         "cashflow_turn_positive_4q",
@@ -229,18 +336,18 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
         "fcf_under_loss_growth",
         "ni_loss_narrowing_4q",
     ]
-    # Extract the constant body
-    m = re.search(r"PHASE9_C3_TURNAROUND_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    # Extract the constant body from wherever it lives
+    m = re.search(r"PHASE9_C3_TURNAROUND_COLUMNS\s*=\s*\[(.*?)\]", combined, re.DOTALL)
     assert m, "Failed to parse PHASE9_C3_TURNAROUND_COLUMNS body"
     body = m.group(1)
     missing = [c for c in required if f'"{c}"' not in body]
     assert not missing, f"PHASE9_C3_TURNAROUND_COLUMNS missing names: {missing}"
 
-    # Build feature store function body must reference the constant twice
-    # (once in keep_cols, once in hard_sanitize call)
+    # Build feature store function body (now in r1000_pipeline.py) must reference
+    # the constant twice (once in keep_cols, once in hard_sanitize call)
     fn = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
-        src,
+        combined,
         re.DOTALL | re.MULTILINE,
     )
     assert fn, "build_feature_store function not found"
@@ -258,8 +365,12 @@ def test_sign_flip_pos_pattern() -> None:
 
     Phase 9 C3 (PHASE_9_C3_PROPOSAL.md) exposes these flags to feature_store
     via alias columns. Any change to this pattern silently breaks C3's gate.
+
+    Phase A Stage 3d-i (2026-04-20): recompute_fund_panel_derived_columns
+    (which contains _sign_flip_pos) moved to r1000_features.py; grep combined
+    sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # Find _sign_flip_pos definition (nested inside recompute_fund_panel_derived_columns)
     m = re.search(
         r"def _sign_flip_pos\b.*?return flip\.fillna\(0\.0\)",
@@ -282,8 +393,11 @@ def test_phase9_dual_gate() -> None:
     `phase*_enabled: bool` cfg field so programmatic callers can override
     without touching os.environ. This test locks in the dual-gate invariant
     for phases that intentionally adopt it.
+
+    Phase A Stage 1d-ii (2026-04-20): EngineConfig moved to r1000_config.py;
+    grep combined sources so test works whether cfg fields live in main or config.
     """
-    src = _engine_src()
+    src = _combined_src()
     cfg_fields = set(re.findall(r"^\s*(phase\w+_enabled)\s*:\s*bool", src, re.MULTILINE))
     # These are the phases we expect to have BOTH a cfg field AND a
     # phase_is_enabled call (dual-gate pattern established in Phase 8+).
@@ -540,8 +654,12 @@ def test_sign_flip_cols_carried() -> None:
     Regression: without this they'd be dropped during ffill. Phase 9 C3
     (PHASE_9_C3_PROPOSAL.md) depends on these as the underlying flags for
     profit_turn_positive_4q / cashflow_turn_positive_4q aliases.
+
+    Phase A Stage 3d-i (2026-04-20): carry_cols lives inside
+    recompute_fund_panel_derived_columns (now in r1000_features.py);
+    grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # The carry_cols block in recompute_fund_panel_derived_columns
     m = re.search(r"carry_cols\s*=\s*\[(.*?)\]", src, re.DOTALL)
     assert m, "carry_cols list not found"
@@ -565,8 +683,12 @@ def test_phase9_c3_cols_carried() -> None:
     quarter boundaries but vanish between quarters — keep_cols whitelist
     alone isn't enough because build_universe_monthly merges fund_panel
     using the ffilled columns.
+
+    Phase A Stage 3d-i (2026-04-20): carry_cols lives inside
+    recompute_fund_panel_derived_columns (now in r1000_features.py);
+    grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     m = re.search(r"carry_cols\s*=\s*\[(.*?)\]", src, re.DOTALL)
     assert m, "carry_cols list not found"
     carry_block = m.group(1)
@@ -596,8 +718,11 @@ def test_ce_caps_lifted() -> None:
       - build_latest_concentrated_holdings: min(3, ...) -> min(30, ...)
       - select_concentrated_portfolio_topk (line ~24207): min(int(top_n), 3) -> 30
       - backtest_concentrated_portfolio (line ~24310): min(int(top_n), 3) -> 30
+
+    Phase A Stage 5 (2026-04-20): validate_config + concentrated backtest
+    funcs moved to r1000_pipeline.py; grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # Validator must reject > 30, NOT > 3
     assert "must be between 1 and 30" in src, (
         "EngineConfig validator still says `must be between 1 and 3` — CE cap not lifted."
@@ -645,8 +770,12 @@ def test_phase9_c3_gate_wired() -> None:
 
     Regression: without this wire-up, C3 toggle is dead code even when
     the feature-store columns are present.
+
+    Phase A Stage 4a (2026-04-20): compute_portfolio_sleeve_columns (which
+    owns the Phase 9 early-scout gate) moved to r1000_signals.py; grep
+    combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # _p9_c3_admit must appear in the _p9_early_elig definition
     m = re.search(
         r"_p9_early_elig\s*=\s*\([^)]*_p9_c3_admit[^)]*\)",
