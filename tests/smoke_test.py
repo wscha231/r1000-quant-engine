@@ -49,6 +49,7 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE_PATH = ROOT / "r1000_top30_institutional.py"
+CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -124,6 +125,7 @@ def test_notebook_json() -> None:
 # ======================================================================
 
 _ENGINE_SRC: str | None = None
+_CONFIG_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -133,18 +135,39 @@ def _engine_src() -> str:
     return _ENGINE_SRC
 
 
+def _config_src() -> str:
+    """Refactor Phase A Stage 1a onwards: PHASE*_COLUMNS + other pure-data
+    constants live in r1000_config.py. Returns empty string if file absent
+    so tests run on pre-refactor commits too."""
+    global _CONFIG_SRC
+    if _CONFIG_SRC is None:
+        _CONFIG_SRC = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.exists() else ""
+    return _CONFIG_SRC
+
+
+def _combined_src() -> str:
+    """Engine + config sources combined for regex searches that should look
+    across both files (e.g. PHASE*_COLUMNS constant existence)."""
+    return _engine_src() + "\n\n# === r1000_config.py ===\n\n" + _config_src()
+
+
 @_test("structural.phase_columns_referenced_in_feature_store")
 def test_phase_columns_in_keep_cols() -> None:
     """Every top-level PHASE*_COLUMNS constant must be spliced into build_feature_store.
 
     Regression for: Phase 2 keepcols-fix (commit 1d4fb40), Phase 1 keepcols-fix (4cd938e).
+
+    Phase A Stage 1a (2026-04-20): PHASE*_COLUMNS moved to r1000_config.py.
+    This test now greps BOTH files for constant definitions (either location
+    is valid), but the build_feature_store body must live in main engine.
     """
     src = _engine_src()
-    # Find all PHASE*_COLUMNS module-level constants
-    constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", src, re.MULTILINE)
+    combined = _combined_src()
+    # Find all PHASE*_COLUMNS module-level constants (main OR config file)
+    constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", combined, re.MULTILINE)
     assert constants, "no PHASE*_COLUMNS constants found -- regex or repo broken"
 
-    # Extract build_feature_store body (up to the next top-level def)
+    # Extract build_feature_store body from main engine (up to the next top-level def)
     m = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
         src,
@@ -215,10 +238,14 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
 
     Regression guard: Phase 9 C3 adds 8 feature-store columns that would
     silently disappear without the whitelist (same trap as Phase 1/2 keepcols-fix).
+
+    Phase A Stage 1a (2026-04-20): constant now lives in r1000_config.py;
+    keep_cols references stay in main engine.
     """
     src = _engine_src()
-    # Constant exists and has the expected 8 names
-    assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in src, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
+    combined = _combined_src()
+    # Constant exists (main or config) and has the expected 8 names
+    assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in combined, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
     required = [
         "profit_turn_positive_4q",
         "cashflow_turn_positive_4q",
@@ -229,15 +256,15 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
         "fcf_under_loss_growth",
         "ni_loss_narrowing_4q",
     ]
-    # Extract the constant body
-    m = re.search(r"PHASE9_C3_TURNAROUND_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    # Extract the constant body from wherever it lives
+    m = re.search(r"PHASE9_C3_TURNAROUND_COLUMNS\s*=\s*\[(.*?)\]", combined, re.DOTALL)
     assert m, "Failed to parse PHASE9_C3_TURNAROUND_COLUMNS body"
     body = m.group(1)
     missing = [c for c in required if f'"{c}"' not in body]
     assert not missing, f"PHASE9_C3_TURNAROUND_COLUMNS missing names: {missing}"
 
-    # Build feature store function body must reference the constant twice
-    # (once in keep_cols, once in hard_sanitize call)
+    # Build feature store function body (main engine only) must reference the
+    # constant twice (once in keep_cols, once in hard_sanitize call)
     fn = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
         src,
