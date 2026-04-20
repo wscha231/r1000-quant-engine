@@ -1210,6 +1210,62 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         index=d.index,
         dtype=bool,
     )
+    # Phase 11 (2026-04-20): Multibagger Watch sleeve override. Picks top-N by
+    # P(entry) that pass quality filter + P(sl)/P(tp) caps each rebalance_date
+    # and overrides their portfolio_sleeve_label to "multibagger_watch". This
+    # lifts the selected names into a dedicated sleeve with allocation_pct
+    # of the portfolio weight (see compute_portfolio_sleeve_policy).
+    d = _apply_multibagger_watch_sleeve_override(d, cfg)
+    return d
+
+
+def _apply_multibagger_watch_sleeve_override(
+    d: pd.DataFrame,
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    """Phase 11 helper: override portfolio_sleeve_label to 'multibagger_watch'
+    for the top-N qualified names by P(entry) at each rebalance_date.
+
+    No-op when cfg.phase11_multibagger_sleeve_enabled is False.
+    """
+    if not bool(getattr(cfg, "phase11_multibagger_sleeve_enabled", False)):
+        return d
+    required_cols = ("phase11_p_entry", "phase11_p_takeprofit", "phase11_p_stoploss",
+                     "mktcap", "revenues_ttm", "ticker", "rebalance_date")
+    if not all(c in d.columns for c in required_cols):
+        return d
+
+    size = max(int(getattr(cfg, "phase11_sleeve_size", 5)), 1)
+    p_entry_min = float(getattr(cfg, "phase11_p_entry_threshold", 0.30))
+    p_tp_max = float(getattr(cfg, "phase11_p_takeprofit_threshold", 0.50))
+    p_sl_max = float(getattr(cfg, "phase11_p_stoploss_select_threshold", 0.50))
+    min_mcap = float(getattr(cfg, "phase11_quality_min_mcap", 1e9))
+    min_rev = float(getattr(cfg, "phase11_quality_min_revenue", 1e8))
+
+    pe = pd.to_numeric(d["phase11_p_entry"], errors="coerce").fillna(0.0)
+    pt = pd.to_numeric(d["phase11_p_takeprofit"], errors="coerce").fillna(0.0)
+    ps = pd.to_numeric(d["phase11_p_stoploss"], errors="coerce").fillna(0.0)
+    mc = pd.to_numeric(d["mktcap"], errors="coerce").fillna(0.0)
+    rv = pd.to_numeric(d["revenues_ttm"], errors="coerce").fillna(0.0)
+
+    eligible = (pe >= p_entry_min) & (pt <= p_tp_max) & (ps <= p_sl_max) & (mc >= min_mcap) & (rv >= min_rev)
+    if not eligible.any():
+        return d
+
+    # Top-N by P(entry) per rebalance_date (stateless selection each month)
+    elig_df = d.loc[eligible, ["rebalance_date", "ticker"]].copy()
+    elig_df["__pe__"] = pe.loc[eligible].values
+    # Rank within each rebalance_date
+    elig_df["__rank__"] = elig_df.groupby("rebalance_date")["__pe__"].rank(method="first", ascending=False)
+    selected = elig_df[elig_df["__rank__"] <= size].index
+    if len(selected) == 0:
+        return d
+
+    # Override sleeve label
+    d.loc[selected, "portfolio_sleeve_label"] = "multibagger_watch"
+    # Flag that these were promoted by Phase 11 (distinct from early->future promotion)
+    if "portfolio_sleeve_promoted" in d.columns:
+        d.loc[selected, "portfolio_sleeve_promoted"] = True
     return d
 
 
