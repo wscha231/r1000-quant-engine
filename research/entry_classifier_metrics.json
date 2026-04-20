@@ -1,0 +1,19 @@
+{
+  "train_rows": 24406,
+  "test_rows": 27508,
+  "train_positives": 173,
+  "test_positives": 63,
+  "n_features": 260,
+  "lr_auc_train": 0.9809124279722701,
+  "lr_auc_test": 0.6875158686781933,
+  "lr_ap_test": 0.006066625452151344,
+  "cb_auc_train": 1.0,
+  "cb_auc_test": 0.8429835139253976,
+  "cb_ap_test": 0.10493610295752229,
+  "blend_auc_test": 0.7821675096224194,
+  "blend_ap_test": 0.04289972973184726,
+  "base_rate_test": 0.0022902428384469972,
+  "precision_top_1pct_blend": 0.025454545454545455,
+  "precision_top_5pct_blend": 0.012363636363636363,
+  "lift_top_1pct_blend": 11.114343434343434
+}
