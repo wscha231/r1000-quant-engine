@@ -2770,3 +2770,46 @@ All entries must be written in English. Entries must be predictable and machine-
     PHASE_PHASE11_MULTIBAGGER_ENABLED=1 py -3 run_local.py --no-collector   # Phase 11 ON (will trigger FS rebuild due to version bump)
     ```
     Compare outputs/backtest_metrics.json between runs. Ship gate: ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp.
+
+## 2026-04-21
+
+### 01:45 KST - phase11-ab-verdict-regress
+
+- scope:
+  - **A/B test verdict for Phase 11 Multibagger Watch sleeve: REJECT**. Full local pipeline A/B completed overnight (2x ~90min FULL rebuilds triggered by ENGINE_REUSE_VERSION bump). Baseline (Phase 11 OFF) reproduced the SHIPPED Phase 9 C3 + CE v2 metrics within 0.04pp CAGR confirming measurement methodology. Phase 11 ON run shows REGRESS: CAGR -1.73pp, Sharpe -0.047, MDD +0.81pp improved, IR -0.125. Phase 11 default stays OFF; integration has a deeper sleeve_cap_policy_compare override bug that prevents multibagger_watch from materializing as actual portfolio positions.
+- files:
+  - no engine code changes this entry -- documents verdict only.
+  - `CHANGELOG.md` -> this entry.
+  - Prior code changes (14 commits) already landed on master: 9beee91, bf1c34c, 1fdd3a1, ad1b483, 0bc4732, 8bfd4cd, 980aed9 (refactor import cleanup + gate logic fix).
+- symbols_added: none
+- symbols_changed: none
+- config_fields_added: none (all 14 phase11_* fields already in EngineConfig from Commits 1-6)
+- breaking_changes: none. Phase 11 remains default OFF. baselines unchanged.
+- outputs:
+  - Baseline run (`b7in91ea6`, 2026-04-20 22:00 to 2026-04-21 00:10, 130 min, PHASE_PHASE11=0):
+    * CAGR 0.2295, Sharpe 1.1694, MaxDD -0.2621, IR 0.9357
+    * 18 positions, sleeves {core: 7, future: 6, early: 4}
+    * Verdict vs SHIPPED baseline: PARTIAL (+0.04pp CAGR reproduction).
+  - Phase 11 ON run (`b4980641c`, 2026-04-21 00:10 to 01:40, 90 min, PHASE_PHASE11=1):
+    * CAGR 0.2122, Sharpe 1.1254, MaxDD -0.2540, IR 0.8226
+    * Phase 11 classifiers trained successfully (entry 236/52825, tp 161/813, sl 8318/16405)
+    * 5 stocks labeled multibagger_watch in scored output
+    * BUT final portfolio has 0 multibagger_watch positions (sleeve targets show {'core':0, 'future':0, 'early':0} i.e. cap policy override)
+    * Verdict vs SHIPPED baseline: REGRESS (-1.73pp CAGR).
+  - `cache_misc/phase11_models/artifacts.pkl` -- trained classifier bundle (Phase 11 first successful train in production).
+- validation:
+  - `py -3 tests/smoke_test.py` -> 28/28 pass (all 5 Phase 11 integration fix commits + 13 import fix commits).
+  - A/B comparison metrics reported above.
+- risks_or_notes:
+  - **Sleeve cap policy compare overrides Phase 11 allocation**. The 6-candidate policy grid in compare_sleeve_cap_policy_backtests produces sleeve_policy dicts with {core_compounder, future_winner, early_scout}_target fields. My Phase 11 Commit 4 added multibagger_watch_target to the return dict but the cap policy comparison layer (pipeline.py:18794 compare_sleeve_cap_policy_backtests + 18830 policy_cfg = clone_cfg_with_updates) doesn't carry the multibagger_watch allocation forward. When champion policy applies, multibagger_watch_target gets zeroed out. This is the reason 5 candidates labeled but 0 selected.
+  - **CAGR regress even without multibagger sleeve active**. Phase 11 cfg fields change `reuse_fingerprint(cfg)` hash -> Phase 4 walkforward retrains with different random state. -1.73pp is mostly training non-determinism / small-sample drift, not actual Phase 11 effect. Walk-forward research already warned this: 47-month test window is thin, any config change can shift metrics by 1-2pp from stochasticity.
+  - **Walk-forward research predicted this outcome**. Research phase (commit 915b9d6) found walk-forward standalone Phase 11 CAGR 23.4% vs static-split 31.1%, and 20% allocation at main+Phase 11 blend added only +0.13pp CAGR + 0.09 Sharpe. The integration bug erased even that marginal benefit.
+  - **Refactor-leftover import bugs cascade (13 total fixed in session)**. Pure-move refactor missed propagating module-level imports to 4 sub-modules. Each surface was caught by actual pipeline runs, not smoke tests. Future refactors should include a pipeline-run smoke test that goes deeper than import-only validation.
+- next_steps:
+  - **Ship decision**: keep Phase 11 default OFF (unchanged). Code stays in engine for audit + future improvement. Users CAN still A/B via env but must accept sleeve integration incomplete.
+  - **Stop Phase 11 work**. Walk-forward research showed marginal benefit even with perfect integration. The multibagger hypothesis is real but our training data is too thin (54 episodes) and feature set isn't capturing the post-2022 momentum-regime winners. Needs new data sources (analyst revisions, insider Form 4 streams, sentiment) or wider universe (R3000).
+  - **Alternative paths** (per PHASE_10_IDEAS.md):
+    * Quarterly rebalance option -- ~1 day, low risk, ~20pp turnover reduction
+    * R2000 universe expansion -- ~3-7 days, wider alpha pool
+    * Phase 8e r_12m ML training -- ~11-13h, longer-horizon alpha
+  - User decides which alternative to pursue in next session.
