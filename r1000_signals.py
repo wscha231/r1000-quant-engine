@@ -48,15 +48,22 @@ from r1000_helpers import (
     row_mean,
     safe_float,
     squeeze_series,
+    to_cfg,
     weighted_sleeve_composite,
     winsorize,
 )
 from r1000_features import (
     compute_minervini_momentum_overlay,
+    count_present_columns,
+    datetime_series_or_default,
+    has_present_value,
+    normalized_sector_labels,
+    sector_keyword_mask,
 )
 from r1000_config import (
     CASH_PROXY_TICKER,
     CRISIS_SECTOR_BENEFICIARIES,
+    default_manual_regime_conditioned_sleeve_map,
     EngineConfig,
     FORWARD_RETURN_COVERAGE_COLUMNS,
     HISTORICAL_DATA_QUALITY_COLUMNS,
@@ -2182,6 +2189,9 @@ def apply_portfolio_candidate_gate_filter(
     cfg: EngineConfig,
     context: str,
 ) -> pd.DataFrame:
+    # Late import to avoid signals -> pipeline circular import at module load time.
+    # annotate_portfolio_candidate_gate is defined in r1000_pipeline.py.
+    from r1000_pipeline import annotate_portfolio_candidate_gate
     d = annotate_portfolio_candidate_gate(df, cfg)
     if d.empty:
         return d
@@ -3703,6 +3713,13 @@ def resolve_regime_conditioned_sleeve_override(
     cfg: dict | EngineConfig,
     month_df: Optional[pd.DataFrame],
 ) -> tuple[Optional[dict[str, float]], dict[str, Any]]:
+    # Late imports to avoid signals -> pipeline circular import.
+    # These 3 helpers live in r1000_pipeline.py (regime policy orchestration layer).
+    from r1000_pipeline import (
+        apply_regime_policy_guardrails,
+        resolve_frame_regime_label,
+        resolve_regime_policy_selection,
+    )
     cfg_obj = to_cfg(cfg)
     if not bool(getattr(cfg_obj, "sleeve_regime_apply_champion", True)):
         return None, {}
