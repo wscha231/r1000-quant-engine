@@ -1,0 +1,13 @@
+{
+  "lr_auc_test": 0.6600989850895878,
+  "cb_auc_test": 0.779444931712818,
+  "blend_auc_test": 0.7451133943114899,
+  "blend_ap_test": 0.3965521059805973,
+  "base_rate_test": 0.20956719817767655,
+  "precision_top_5pct_blend": 0.47619047619047616,
+  "precision_top_10pct_blend": 0.37209302325581395,
+  "n_train": 535,
+  "n_test": 439,
+  "n_train_pos": 69,
+  "n_test_pos": 92
+}
