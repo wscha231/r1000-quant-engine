@@ -126,6 +126,9 @@ from r1000_helpers import (
     phase_is_enabled,
     now_ts,
     log,
+    apply_fast_mode,
+    to_cfg,
+    configure_last_n_years_backtest,
 )
 
 warnings.filterwarnings("ignore")
@@ -563,101 +566,16 @@ def add_industry_rotation_signal(monthly: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
-    """Apply runtime-reduction overrides when cfg.fast_mode is True.
-
-    Phase 1/2 savings:
-      - live fundamentals refresh limited to the highest-liquidity subset
-      - slower-changing statement supplements refreshed less often
-      - yfinance quarterly supplement capped to a smaller stale subset
-
-    Phase 4 savings:
-      - CatBoost iterations cut ~40%: reg 350→200, cls 350→200, rank 250→150
-      - ranking_enabled disabled: ~30% faster per retrain cycle
-      - retrain frequency halved: 3m→6m  (fewer training windows)
-
-    Phase 5 savings:
-      - regime-per-regime comparison disabled (-12 backtests)
-      - AI four-sleeve comparison disabled (-13 backtests)
-      - regime-map-method comparison disabled (-2 backtests)
-      - standalone sleeve comparison disabled (-6 backtests)
-      - sleeve-cap policy candidates reduced to 3 (-3 backtests vs default 6)
-    Net: ~5 backtests instead of ~44.  Estimated runtime: ~1.5h vs ~8h.
-    """
-    if not cfg.fast_mode:
-        return cfg
-    # Phase 1/2 — collector I/O and supplement refresh
-    cfg.live_refresh_days = max(int(cfg.live_refresh_days), 2)
-    cfg.max_live_refresh_tickers = min(int(cfg.max_live_refresh_tickers), 400)
-    cfg.latest_statement_repair_refresh_days = max(int(cfg.latest_statement_repair_refresh_days), 14)
-    cfg.yf_quarterly_refresh_days = max(int(cfg.yf_quarterly_refresh_days), 14)
-    cfg.yf_quarterly_max_tickers_per_run = min(int(cfg.yf_quarterly_max_tickers_per_run), 120)
-    # Phase 4 — model complexity
-    cfg.cat_reg_iterations = 200
-    cfg.cat_cls_iterations = 200
-    cfg.cat_rank_iterations = 150
-    cfg.ranking_enabled = False
-    cfg.walkforward_retrain_frequency_months = 6
-    cfg.cat_validation_months = 4
-    # Phase 5 — comparison suites
-    cfg.run_sleeve_regime_comparison = False
-    cfg.run_ai_four_sleeve_comparison = False
-    cfg.run_regime_map_method_comparison = False
-    cfg.run_standalone_sleeve_backtest_comparison = False
-    cfg.run_concentrated_backtest_comparison = True
-    # Phase 9 CE (2026-04-18): fast_mode used to strip concentrated grid to
-    # [N=1,2,3] × [monthly] × [conviction_curve] = 3 backtests. Expand to the
-    # CE grid so fast_mode runs still measure the full concentration ladder.
-    # Cost: 7 × 3 × 3 = 63 concentrated backtests × ~6s each = ~6.3 min extra,
-    # negligible next to walk-forward training time.
-    cfg.concentrated_top_n_candidates = [1, 2, 3, 4, 5, 7, 10]
-    cfg.concentrated_rebalance_intervals = [1, 2, 3]
-    cfg.concentrated_weighting_modes = ["conviction_curve", "winner_take_all", "score_power"]
-    cfg.sleeve_cap_policy_max_candidates = 3
-    log("[fast_mode] ON — lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.")
-    return cfg
+# Stage 2b (2026-04-20): apply_fast_mode moved to r1000_helpers.py.
 
 
 # Stage 2a (2026-04-20): now_ts + log moved to r1000_helpers.py.
 
 
-def to_cfg(cfg: Optional[dict | EngineConfig]) -> EngineConfig:
-    if cfg is None:
-        return EngineConfig()
-    if isinstance(cfg, EngineConfig):
-        return cfg
-    base = EngineConfig()
-    allowed = set(asdict(base).keys())
-    for k, v in cfg.items():
-        if k in allowed:
-            setattr(base, k, v)
-    if not base.alpha_vantage_api_key:
-        base.alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
-    if not base.sec_user_agent or "your_email" in base.sec_user_agent:
-        base.sec_user_agent = os.getenv("SEC_USER_AGENT", base.sec_user_agent)
-    return base
+# Stage 2b (2026-04-20): to_cfg moved to r1000_helpers.py.
 
 
-def configure_last_n_years_backtest(
-    cfg: Optional[dict | EngineConfig] = None,
-    years: int = 5,
-    *,
-    end_date: Optional[str] = None,
-    train_lookback_years: Optional[int] = None,
-) -> EngineConfig:
-    cfg_obj = to_cfg(cfg)
-    years = int(years)
-    if years < 1:
-        raise ValueError("years must be >= 1")
-    end_ts = pd.Timestamp(end_date or cfg_obj.end_date).normalize()
-    if pd.isna(end_ts):
-        raise ValueError("end_date could not be parsed")
-    start_ts = (end_ts - pd.DateOffset(years=years)).normalize()
-    cfg_obj.start_date = str(start_ts.date())
-    cfg_obj.end_date = str(end_ts.date())
-    if train_lookback_years is not None:
-        cfg_obj.train_lookback_years = int(train_lookback_years)
-    return cfg_obj
+# Stage 2b (2026-04-20): configure_last_n_years_backtest moved to r1000_helpers.py.
 
 
 def run_last_n_years_backtest(
