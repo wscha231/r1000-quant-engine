@@ -53,6 +53,7 @@ CONFIG_PATH = ROOT / "r1000_config.py"  # Refactor Phase A Stage 1a onwards
 HELPERS_PATH = ROOT / "r1000_helpers.py"  # Refactor Phase A Stage 2a onwards
 FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
 SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
+PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
@@ -132,6 +133,7 @@ _CONFIG_SRC: str | None = None
 _HELPERS_SRC: str | None = None
 _FEATURES_SRC: str | None = None
 _SIGNALS_SRC: str | None = None
+_PIPELINE_SRC: str | None = None
 
 
 def _engine_src() -> str:
@@ -183,11 +185,22 @@ def _signals_src() -> str:
     return _SIGNALS_SRC
 
 
+def _pipeline_src() -> str:
+    """Refactor Phase A Stage 5 onwards: pipeline orchestration (train_walkforward,
+    backtest_portfolio, export_outputs, run_all, validate_config, concentrated
+    grid, sleeve_cap_policy comparison) lives in r1000_pipeline.py.
+    Returns empty string if file absent."""
+    global _PIPELINE_SRC
+    if _PIPELINE_SRC is None:
+        _PIPELINE_SRC = PIPELINE_PATH.read_text(encoding="utf-8") if PIPELINE_PATH.exists() else ""
+    return _PIPELINE_SRC
+
+
 def _combined_src() -> str:
-    """Engine + config + helpers + features + signals sources combined for regex
-    searches that should look across all refactored files (e.g. PHASE*_COLUMNS
-    constant existence, hard_sanitize body, cfg field definitions, carry_cols
-    membership, Phase 9 gate wiring in compute_portfolio_sleeve_columns).
+    """Engine + config + helpers + features + signals + pipeline sources combined
+    for regex searches that should look across all refactored files (e.g.
+    PHASE*_COLUMNS constant existence, hard_sanitize body, cfg field definitions,
+    carry_cols membership, Phase 9 gate wiring, CE cap lifts in backtest_concentrated).
 
     Section separators use comment headers that cannot appear inside the
     actual source (the `# === r1000_*.py ===` pattern) so regex anchored
@@ -204,6 +217,8 @@ def _combined_src() -> str:
         + _features_src()
         + "\n\n# === r1000_signals.py ===\n\n"
         + _signals_src()
+        + "\n\n# === r1000_pipeline.py ===\n\n"
+        + _pipeline_src()
     )
 
 
@@ -214,19 +229,19 @@ def test_phase_columns_in_keep_cols() -> None:
     Regression for: Phase 2 keepcols-fix (commit 1d4fb40), Phase 1 keepcols-fix (4cd938e).
 
     Phase A Stage 1a (2026-04-20): PHASE*_COLUMNS moved to r1000_config.py.
-    This test now greps BOTH files for constant definitions (either location
-    is valid), but the build_feature_store body must live in main engine.
+    Phase A Stage 5 (2026-04-20): build_feature_store moved to r1000_pipeline.py.
+    This test now greps combined sources for both the constants and the
+    build_feature_store body.
     """
-    src = _engine_src()
     combined = _combined_src()
     # Find all PHASE*_COLUMNS module-level constants (main OR config file)
     constants = re.findall(r"^(PHASE\w+_COLUMNS)\s*=\s*\[", combined, re.MULTILINE)
     assert constants, "no PHASE*_COLUMNS constants found -- regex or repo broken"
 
-    # Extract build_feature_store body from main engine (up to the next top-level def)
+    # Extract build_feature_store body (up to the next top-level def)
     m = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
-        src,
+        combined,
         re.DOTALL | re.MULTILINE,
     )
     assert m, "build_feature_store function not found"
@@ -244,8 +259,11 @@ def test_phase_is_enabled_keys() -> None:
     """phase_is_enabled() keys must be snake_case -- env name derives from uppercasing.
 
     Regression for: env-name mismatch bugs in Phase 8 toggle wiring.
+
+    Phase A Stage 5 (2026-04-20): phase_is_enabled() calls now live across
+    pipeline.py + signals.py + features.py; grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     keys = re.findall(r'phase_is_enabled\s*\(\s*["\'](\w+)["\']', src)
     assert keys, "no phase_is_enabled() calls found -- regex or repo broken"
     for key in set(keys):
@@ -302,10 +320,9 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
     Regression guard: Phase 9 C3 adds 8 feature-store columns that would
     silently disappear without the whitelist (same trap as Phase 1/2 keepcols-fix).
 
-    Phase A Stage 1a (2026-04-20): constant now lives in r1000_config.py;
-    keep_cols references stay in main engine.
+    Phase A Stage 1a (2026-04-20): constant now lives in r1000_config.py.
+    Phase A Stage 5 (2026-04-20): build_feature_store now lives in r1000_pipeline.py.
     """
-    src = _engine_src()
     combined = _combined_src()
     # Constant exists (main or config) and has the expected 8 names
     assert "PHASE9_C3_TURNAROUND_COLUMNS = [" in combined, "PHASE9_C3_TURNAROUND_COLUMNS constant missing"
@@ -326,11 +343,11 @@ def test_phase9_c3_columns_in_keep_cols() -> None:
     missing = [c for c in required if f'"{c}"' not in body]
     assert not missing, f"PHASE9_C3_TURNAROUND_COLUMNS missing names: {missing}"
 
-    # Build feature store function body (main engine only) must reference the
-    # constant twice (once in keep_cols, once in hard_sanitize call)
+    # Build feature store function body (now in r1000_pipeline.py) must reference
+    # the constant twice (once in keep_cols, once in hard_sanitize call)
     fn = re.search(
         r"^def build_feature_store\b.*?(?=^def |\Z)",
-        src,
+        combined,
         re.DOTALL | re.MULTILINE,
     )
     assert fn, "build_feature_store function not found"
@@ -701,8 +718,11 @@ def test_ce_caps_lifted() -> None:
       - build_latest_concentrated_holdings: min(3, ...) -> min(30, ...)
       - select_concentrated_portfolio_topk (line ~24207): min(int(top_n), 3) -> 30
       - backtest_concentrated_portfolio (line ~24310): min(int(top_n), 3) -> 30
+
+    Phase A Stage 5 (2026-04-20): validate_config + concentrated backtest
+    funcs moved to r1000_pipeline.py; grep combined sources.
     """
-    src = _engine_src()
+    src = _combined_src()
     # Validator must reject > 30, NOT > 3
     assert "must be between 1 and 30" in src, (
         "EngineConfig validator still says `must be between 1 and 3` — CE cap not lifted."
