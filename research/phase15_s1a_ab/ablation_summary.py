@@ -23,6 +23,7 @@ VARIANTS = [
     ("drop_ft only (A)", ABL / "A_ft_backtest_metrics.json", ABL / "A_ft_concentrated_backtest_metrics.json"),
     ("drop_cf only (B)", ABL / "B_cf_backtest_metrics.json", ABL / "B_cf_concentrated_backtest_metrics.json"),
     ("drop_ub only (C)", ABL / "C_ub_backtest_metrics.json", ABL / "C_ub_concentrated_backtest_metrics.json"),
+    ("drop_cf+ub, keep_ft (D)", ABL / "D_cfub_backtest_metrics.json", ABL / "D_cfub_concentrated_backtest_metrics.json"),
 ]
 
 
