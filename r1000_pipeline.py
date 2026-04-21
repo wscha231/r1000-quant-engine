@@ -14286,6 +14286,42 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
     research_portfolio_operational = _build_operational_view(research_only_portfolio, include_selected=False)
+    # Phase 12 cold-start fix (2026-04-21): state prep must run BEFORE the first
+    # _enrich_with_live_state call so the FIRST-EVER run populates portfolio_latest.csv
+    # with real avg_cost/shares/held_days instead of NaN. Previously these ran AFTER
+    # both enrichments (~L14863 pre-refresh + L14879 Phase 12B apply), producing NaN
+    # on cold start.
+    _weights_latest_path = paths["out"] / "weights_latest.json"
+    try:
+        if _weights_latest_path.exists():
+            _old_weights = json.loads(_weights_latest_path.read_text(encoding="utf-8"))
+            if isinstance(_old_weights, dict) and _old_weights.get("holdings"):
+                from r1000_portfolio_state import ensure_live_portfolio_state as _ensure_state
+                _ensure_state(
+                    paths,
+                    weights_payload=_old_weights,
+                    strategy_version=ENGINE_REUSE_VERSION,
+                    force_refresh=True,
+                )
+    except Exception:
+        pass
+
+    try:
+        from r1000_portfolio_state import (
+            apply_manual_positions_from_yaml,
+            write_manual_positions_template,
+            manual_positions_path as _mpos_path,
+        )
+        _mpos_file = _mpos_path(paths)
+        if not _mpos_file.exists():
+            write_manual_positions_template(paths)
+            log(f"[Phase 12B] wrote manual_positions.yaml template at {_mpos_file}")
+        _, _applied = apply_manual_positions_from_yaml(paths)
+        if _applied:
+            log(f"[Phase 12B] applied manual positions from {_mpos_file}")
+    except Exception as exc:
+        log(f"[Phase 12B] manual_positions.yaml apply skipped: {exc}")
+
     # Phase 12A (2026-04-21): enrich portfolio_latest with live state (entry_date,
     # entry_price, held_days, unrealized_return). User sees buy info directly
     # in portfolio_latest.csv instead of digging through ops/live_*.parquet.
@@ -14860,42 +14896,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "portfolio_sage_by_sleeve": _frame_sage_by_sleeve(portfolio_latest),
     }
 
-    # Pre-refresh live state from the PREVIOUS weights before overwriting,
-    # so the operator compares old holdings vs new targets correctly.
-    try:
-        if weights_path.exists():
-            _old_weights = json.loads(weights_path.read_text(encoding="utf-8"))
-            if isinstance(_old_weights, dict) and _old_weights.get("holdings"):
-                from r1000_portfolio_state import ensure_live_portfolio_state as _ensure_state
-                _ensure_state(
-                    paths,
-                    weights_payload=_old_weights,
-                    strategy_version=ENGINE_REUSE_VERSION,
-                    force_refresh=True,
-                )
-    except Exception:
-        pass
-
-    # Phase 12B (2026-04-21): apply manual_positions.yaml if present.
-    # User-edited file with real broker info (avg_cost, shares, entry_date)
-    # overrides the bootstrap state so portfolio_latest.csv shows actual buy data.
-    # Template auto-written on first run so user knows where to edit.
-    try:
-        from r1000_portfolio_state import (
-            apply_manual_positions_from_yaml,
-            write_manual_positions_template,
-            manual_positions_path as _mpos_path,
-        )
-        _mpos_file = _mpos_path(paths)
-        if not _mpos_file.exists():
-            write_manual_positions_template(paths)
-            log(f"[Phase 12B] wrote manual_positions.yaml template at {_mpos_file}")
-        _, _applied = apply_manual_positions_from_yaml(paths)
-        if _applied:
-            log(f"[Phase 12B] applied manual positions from {_mpos_file}")
-    except Exception as exc:
-        log(f"[Phase 12B] manual_positions.yaml apply skipped: {exc}")
-
+    # Phase 12B cold-start fix (2026-04-21): state prep (ensure_live_portfolio_state
+    # pre-refresh + apply_manual_positions_from_yaml) was moved up to BEFORE the first
+    # _enrich_with_live_state call. See comment near the first enrichment.
     weights_payload = {
         "run_id": run_identity["run_id"],
         "run_ts": run_identity["run_ts"],
