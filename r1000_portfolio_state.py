@@ -486,8 +486,15 @@ def load_manual_positions_yaml(
 
 def apply_manual_positions_from_yaml(
     base_dir_or_paths: str | Path | Mapping[str, Any],
+    *,
+    portfolio_latest: Optional[pd.DataFrame] = None,
 ) -> tuple[dict[str, str], bool]:
     """If manual_positions.yaml exists, parse it and apply via apply_actual_holdings.
+
+    When *portfolio_latest* is provided with a price column (current_price_live /
+    px / open_px), fills in reference_price on any position that's missing it.
+    This is critical for Phase 12C lifetime computation, which needs
+    shares * reference_price to extend the backtest equity curve into live.
 
     Returns (paths_dict, applied_bool). applied=False when YAML missing or empty,
     so callers know to fall back to bootstrap.
@@ -495,9 +502,43 @@ def apply_manual_positions_from_yaml(
     payload = load_manual_positions_yaml(base_dir_or_paths)
     if not payload:
         return {}, False
+    positions = dict(payload["positions"])
+    # Phase 12 fix (2026-04-21): enrich missing reference_price from
+    # portfolio_latest. The auto-bootstrap YAML only writes avg_cost; without
+    # reference_price, live_portfolio_state.json has NaN and lifetime_metrics
+    # degrades to live_value_method="no_live_data" (no live extension row).
+    price_lookup: dict[str, float] = {}
+    if portfolio_latest is not None and not portfolio_latest.empty and "ticker" in portfolio_latest.columns:
+        latest = portfolio_latest.copy()
+        latest["ticker"] = latest["ticker"].astype(str).str.upper()
+        latest = latest.drop_duplicates(subset=["ticker"], keep="first")
+        price_col = None
+        for col in ("current_price_live", "px", "open_px"):
+            if col in latest.columns and pd.to_numeric(latest[col], errors="coerce").notna().any():
+                price_col = col
+                break
+        if price_col:
+            for _, row in latest.iterrows():
+                t = str(row["ticker"])
+                v = _safe_float(row.get(price_col), default=np.nan)
+                if np.isfinite(v):
+                    price_lookup[t] = float(v)
+    if price_lookup:
+        enriched: dict[str, Any] = {}
+        for ticker_key, raw_val in positions.items():
+            t = _normalize_ticker(ticker_key)
+            if t and t in price_lookup and isinstance(raw_val, Mapping):
+                rp = _safe_float(raw_val.get("reference_price"), default=np.nan)
+                if not np.isfinite(rp):
+                    new_val = dict(raw_val)
+                    new_val["reference_price"] = price_lookup[t]
+                    enriched[ticker_key] = new_val
+                    continue
+            enriched[ticker_key] = raw_val
+        positions = enriched
     paths = apply_actual_holdings(
         base_dir_or_paths,
-        payload["positions"],
+        positions,
         as_of_date=payload.get("as_of_date"),
         strategy_version=payload.get("strategy_version", ""),
     )

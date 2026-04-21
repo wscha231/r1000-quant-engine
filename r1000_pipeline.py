@@ -14122,8 +14122,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                     joined[live_col] = joined[other].fillna(joined.get(live_col, "")).astype(str)
                 joined = joined.drop(columns=[other])
         # Compute derived columns
+        # Phase 12 fix (2026-04-21): tz-naive normalize to match entry_date's
+        # tz-naive parse. Without tz_localize(None), utcnow() is tz-aware in
+        # pandas 2.x and (today - entry_dt) raises, leaving held_days = NaN.
+        # Same pattern as the 1642b66 Phase 12C fix.
         try:
-            today = pd.Timestamp.utcnow().normalize()
+            today = pd.Timestamp.utcnow().tz_localize(None).normalize()
             entry_dt = pd.to_datetime(joined["entry_date"], errors="coerce")
             joined["held_days"] = (today - entry_dt).dt.days
         except Exception:
@@ -14300,6 +14304,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 _ensure_state(
                     paths,
                     weights_payload=_old_weights,
+                    portfolio_latest=portfolio_latest,
                     strategy_version=ENGINE_REUSE_VERSION,
                     force_refresh=True,
                 )
@@ -14316,7 +14321,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if not _mpos_file.exists():
             write_manual_positions_template(paths)
             log(f"[Phase 12B] wrote manual_positions.yaml template at {_mpos_file}")
-        _, _applied = apply_manual_positions_from_yaml(paths)
+        _, _applied = apply_manual_positions_from_yaml(
+            paths, portfolio_latest=portfolio_latest
+        )
         if _applied:
             log(f"[Phase 12B] applied manual positions from {_mpos_file}")
     except Exception as exc:
