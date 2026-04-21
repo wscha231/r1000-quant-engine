@@ -470,9 +470,11 @@ def test_phase15_s1a_dual_gate() -> None:
                  "_w_uptrend_breakdown_future"):
         assert re.search(rf"{name}\s*=\s*0\.0\s+if\s+_phase15_s1a_active", src), \
             f"Phase 15-S1a gate variable {name} missing or not wired to _phase15_s1a_active"
-    # Env-var wiring
-    assert 'phase_is_enabled("phase15_s1a_future_prune"' in src, \
-        "phase_is_enabled(\"phase15_s1a_future_prune\") call missing from signals.py"
+    # Env-var wiring. Must use default=_phase15_s1a_cfg so env overrides cfg
+    # default (Phase 11 fix pattern, commit 980aed9) — not bool AND.
+    assert re.search(r'phase_is_enabled\("phase15_s1a_future_prune",\s*default=_phase15_s1a_cfg\)', src), \
+        "phase15_s1a gate must use env-overrides-cfg pattern " \
+        "(phase_is_enabled(\"phase15_s1a_future_prune\", default=_phase15_s1a_cfg)), not AND"
 
 
 # ======================================================================

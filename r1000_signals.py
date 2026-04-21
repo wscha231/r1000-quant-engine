@@ -375,9 +375,11 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # composite. Dual-gate A/B pattern (cfg + env). Default OFF.
     # Core and early sleeves keep their original weights (only future audited).
     # -------------------------------------------------------------------
-    _phase15_s1a_env = phase_is_enabled("phase15_s1a_future_prune", default=False)
+    # Gate semantics: env var OVERRIDES cfg default (matches Phase 11 fix 980aed9).
+    # env=1 -> active regardless of cfg; env=0 -> inactive regardless of cfg;
+    # env unset -> use cfg default. Lets A/B runs flip via env without editing cfg.
     _phase15_s1a_cfg = bool(getattr(cfg, "phase15_s1a_future_prune_enabled", False)) if cfg is not None else False
-    _phase15_s1a_active = bool(_phase15_s1a_env and _phase15_s1a_cfg)
+    _phase15_s1a_active = phase_is_enabled("phase15_s1a_future_prune", default=_phase15_s1a_cfg)
     _w_fund_turnaround_future = 0.0 if _phase15_s1a_active else 0.50
     _w_cashflow_inflection_future = 0.0 if _phase15_s1a_active else 0.35
     _w_uptrend_breakdown_future = 0.0 if _phase15_s1a_active else -0.30
