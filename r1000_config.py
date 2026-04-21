@@ -1732,6 +1732,15 @@ class EngineConfig:
     speculative_weight_max: float = 0.04
     speculative_total_weight_max: float = 0.15
     speculative_min_rs_composite: float = 0.0
+    # Phase 15-R1 (2026-04-21): trailing stop from peak on early_scout positions.
+    # Complements the entry-point -25% hard stop with a peak-relative exit so
+    # the engine preserves realized gains when a held position rolls over.
+    # Dual-gate: both cfg flag AND env var PHASE_PHASE15_R1_TRAILING_ENABLED
+    # must be truthy for the trailing stop to activate — default OFF until A/B
+    # ship gate passes.
+    trailing_stop_enabled: bool = False
+    trailing_stop_early_scout_pct: float = 0.15
+    trailing_stop_future_winner_pct: float = 0.0  # 0 = disabled; A/B cell D tests 0.15
     run_engine_diagnostics_report: bool = True
     engine_diagnostics_top_n: int = 7
     universe_change_warn_count: int = 10

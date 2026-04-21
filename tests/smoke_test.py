@@ -418,6 +418,32 @@ def test_phase9_dual_gate() -> None:
     )
 
 
+@_test("structural.phase15_r1_trailing_stop_cfg_fields")
+def test_phase15_r1_trailing_stop_cfg() -> None:
+    """Phase 15-R1 (2026-04-21): trailing stop config fields + safe defaults.
+
+    The trailing stop extends the -25% hard stop with a peak-relative exit for
+    early_scout. To keep it A/B-gated, the toggle (`trailing_stop_enabled`) must
+    default to False — enabling happens only when both the cfg flag AND the
+    PHASE_PHASE15_R1_TRAILING_ENABLED env var are on (dual-gate).
+
+    This test locks: (a) the fields exist, (b) enable flag defaults to False,
+    (c) future_winner pct defaults to 0.0 (i.e. only early_scout trails out of
+    the box — A/B cell D has to opt-in).
+    """
+    src = _combined_src()
+    # Field existence (check for the full typed declaration to catch typos)
+    assert re.search(r"^\s*trailing_stop_enabled\s*:\s*bool\s*=\s*False",
+                     src, re.MULTILINE), \
+        "trailing_stop_enabled: bool = False missing from EngineConfig"
+    assert re.search(r"^\s*trailing_stop_early_scout_pct\s*:\s*float\s*=",
+                     src, re.MULTILINE), \
+        "trailing_stop_early_scout_pct field missing"
+    assert re.search(r"^\s*trailing_stop_future_winner_pct\s*:\s*float\s*=\s*0\.0",
+                     src, re.MULTILINE), \
+        "trailing_stop_future_winner_pct must default to 0.0 (opt-in for cell D)"
+
+
 # ======================================================================
 # Group 3: import -- requires numpy/pandas load, ~3-5s
 # ======================================================================
