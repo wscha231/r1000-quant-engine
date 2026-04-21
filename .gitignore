@@ -2,3 +2,4 @@ __pycache__/
 *.bak.py
 .tmp_*/
 *.pyc
+catboost_info/
