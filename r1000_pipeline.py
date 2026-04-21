@@ -14757,6 +14757,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     except Exception:
         pass
 
+    # Phase 12B (2026-04-21): apply manual_positions.yaml if present.
+    # User-edited file with real broker info (avg_cost, shares, entry_date)
+    # overrides the bootstrap state so portfolio_latest.csv shows actual buy data.
+    # Template auto-written on first run so user knows where to edit.
+    try:
+        from r1000_portfolio_state import (
+            apply_manual_positions_from_yaml,
+            write_manual_positions_template,
+            manual_positions_path as _mpos_path,
+        )
+        _mpos_file = _mpos_path(paths)
+        if not _mpos_file.exists():
+            write_manual_positions_template(paths)
+            log(f"[Phase 12B] wrote manual_positions.yaml template at {_mpos_file}")
+        _, _applied = apply_manual_positions_from_yaml(paths)
+        if _applied:
+            log(f"[Phase 12B] applied manual positions from {_mpos_file}")
+    except Exception as exc:
+        log(f"[Phase 12B] manual_positions.yaml apply skipped: {exc}")
+
     weights_payload = {
         "run_id": run_identity["run_id"],
         "run_ts": run_identity["run_ts"],

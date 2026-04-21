@@ -342,11 +342,17 @@ def apply_actual_holdings(
         ticker = _normalize_ticker(raw_ticker)
         if not ticker:
             continue
+        user_entry_date = ""
+        user_notes = ""
+        user_thesis = ""
         if isinstance(raw_val, Mapping):
             weight = _safe_float(raw_val.get("weight"), default=0.0)
             avg_cost = _safe_float(raw_val.get("avg_cost"), default=np.nan)
             shares = _safe_float(raw_val.get("shares"), default=np.nan)
             ref_price = _safe_float(raw_val.get("reference_price"), default=np.nan)
+            user_entry_date = str(raw_val.get("entry_date") or "").strip()
+            user_notes = str(raw_val.get("notes") or "").strip()
+            user_thesis = str(raw_val.get("thesis_status") or "").strip()
         else:
             weight = _safe_float(raw_val, default=0.0)
             avg_cost = np.nan
@@ -355,6 +361,13 @@ def apply_actual_holdings(
         if weight <= 1e-10:
             continue
         old = old_lookup.get(ticker, {})
+        # Phase 12B (2026-04-21): user-provided entry_date / notes / thesis_status
+        # from manual_positions.yaml take precedence over old state and date_str.
+        # This is critical for backtest <-> live continuity (Phase 12C) so the
+        # entry_date reflects the actual trade date, not the YAML edit date.
+        resolved_entry_date = user_entry_date or old.get("entry_date") or date_str
+        resolved_notes = user_notes or f"Manual holdings update {date_str}"
+        resolved_thesis = user_thesis or "active"
         rows.append({
             "ticker": ticker,
             "shares": shares if np.isfinite(shares) else old.get("shares", np.nan),
@@ -362,16 +375,148 @@ def apply_actual_holdings(
             "target_weight": float(weight),
             "avg_cost": avg_cost if np.isfinite(avg_cost) else old.get("avg_cost", np.nan),
             "reference_price": ref_price if np.isfinite(ref_price) else old.get("reference_price", np.nan),
-            "entry_date": old.get("entry_date") or date_str,
+            "entry_date": resolved_entry_date,
             "last_trade_date": date_str,
             "manual_lock": old.get("manual_lock", False),
             "min_hold_until": old.get("min_hold_until"),
-            "thesis_status": "active",
+            "thesis_status": resolved_thesis,
             "source": "manual_actual",
-            "notes": f"Manual holdings update {date_str}",
+            "notes": resolved_notes,
         })
     state["positions"] = positions_frame_from_state({"positions": rows}).to_dict(orient="records")
     state["state_source"] = "manual_actual"
     state["strategy_version"] = str(strategy_version or state.get("strategy_version", ""))
     state["as_of_date"] = date_str
     return save_live_portfolio_state(base_dir_or_paths, state, snapshot_reason="manual_actual_holdings")
+
+
+# =====================================================================
+# Phase 12B (2026-04-21): manual_positions.yaml input UX
+# =====================================================================
+# Schema documented in MANUAL_POSITIONS_SCHEMA below. User edits a YAML file
+# at base_dir/manual_positions.yaml with their actual broker positions
+# (avg_cost, shares, entry_date). Engine reads it on each run and updates
+# live_portfolio_state.json so portfolio_latest.csv shows real buy info.
+
+MANUAL_POSITIONS_FILENAME = "manual_positions.yaml"
+
+MANUAL_POSITIONS_SCHEMA = """\
+# manual_positions.yaml — record your actual broker holdings here.
+# Engine reads this on every run and merges into live_portfolio_state.json.
+# Drop file at base_dir (G:\\내 드라이브\\r1000_top30_institutional\\).
+#
+# All fields are optional EXCEPT weight. Engine fills NaN/empty for the rest.
+# Use either:
+#   (1) Simple form -- just weight:    NVDA: 0.14
+#   (2) Full form -- with buy info:    NVDA: {weight: 0.14, shares: 75, avg_cost: 172.50, entry_date: "2024-08-15"}
+#
+# Example:
+# ---
+# as_of_date: "2026-04-21"               # optional, defaults to today
+# strategy_version: "phase9_c3_ce_v2"    # optional, free-text label
+# positions:
+#   NVDA:
+#     weight: 0.14
+#     shares: 75
+#     avg_cost: 172.50
+#     entry_date: "2024-08-15"
+#     notes: "first AI conviction add"
+#   GOOG:
+#     weight: 0.14
+#     shares: 100
+#     avg_cost: 158.20
+#     entry_date: "2025-02-10"
+#   AVGO: 0.082                  # simple form, no buy info (NaN stays)
+"""
+
+
+def manual_positions_path(base_dir_or_paths: str | Path | Mapping[str, Any]) -> Path:
+    """Return the canonical path for manual_positions.yaml.
+
+    Prefers the engine base_dir (G:/내 드라이브/r1000_top30_institutional/manual_positions.yaml)
+    so users can edit it without diving into outputs/ops/. Falls back to ops_dir
+    if base_dir cannot be resolved.
+    """
+    if isinstance(base_dir_or_paths, Mapping):
+        for key in ("base", "base_dir"):
+            if key in base_dir_or_paths and base_dir_or_paths[key]:
+                return Path(base_dir_or_paths[key]) / MANUAL_POSITIONS_FILENAME
+        # Derive from out_dir parent if base not provided
+        if "out" in base_dir_or_paths:
+            return Path(base_dir_or_paths["out"]).parent / MANUAL_POSITIONS_FILENAME
+        if "ops" in base_dir_or_paths:
+            return Path(base_dir_or_paths["ops"]).parent.parent / MANUAL_POSITIONS_FILENAME
+    else:
+        return Path(base_dir_or_paths) / MANUAL_POSITIONS_FILENAME
+    # Last-resort fallback: drop into ops dir
+    state_paths = resolve_live_state_paths(base_dir_or_paths)
+    return state_paths["ops"] / MANUAL_POSITIONS_FILENAME
+
+
+def load_manual_positions_yaml(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Read base_dir/manual_positions.yaml. Returns None if missing or invalid."""
+    p = manual_positions_path(base_dir_or_paths)
+    if not p.exists():
+        return None
+    try:
+        import yaml  # PyYAML is a dep already (used elsewhere)
+    except Exception:
+        try:
+            payload = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    else:
+        try:
+            payload = yaml.safe_load(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    if not isinstance(payload, Mapping):
+        return None
+    positions = payload.get("positions") or {}
+    if not isinstance(positions, Mapping) or not positions:
+        return None
+    return {
+        "as_of_date": payload.get("as_of_date"),
+        "strategy_version": str(payload.get("strategy_version", "") or ""),
+        "positions": dict(positions),
+    }
+
+
+def apply_manual_positions_from_yaml(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+) -> tuple[dict[str, str], bool]:
+    """If manual_positions.yaml exists, parse it and apply via apply_actual_holdings.
+
+    Returns (paths_dict, applied_bool). applied=False when YAML missing or empty,
+    so callers know to fall back to bootstrap.
+    """
+    payload = load_manual_positions_yaml(base_dir_or_paths)
+    if not payload:
+        return {}, False
+    paths = apply_actual_holdings(
+        base_dir_or_paths,
+        payload["positions"],
+        as_of_date=payload.get("as_of_date"),
+        strategy_version=payload.get("strategy_version", ""),
+    )
+    return paths, True
+
+
+def write_manual_positions_template(
+    base_dir_or_paths: str | Path | Mapping[str, Any],
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a commented template YAML if file doesn't exist (or overwrite=True).
+
+    Used to bootstrap user UX: first run creates the template so user knows
+    where to edit.
+    """
+    p = manual_positions_path(base_dir_or_paths)
+    if p.exists() and not overwrite:
+        return p
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(MANUAL_POSITIONS_SCHEMA, encoding="utf-8")
+    return p
