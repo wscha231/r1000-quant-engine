@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-21 21:15 KST
+# Session Handoff — 2026-04-22 morning
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,29 +6,50 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-21 evening) — Phase 12 shipped, 15-S1a A/B done, ablation running
+## 🟢 LATEST STATE (2026-04-22 morning) — Phase 12 shipped, 15-S1a ablation complete
 
-**Current HEAD = `2cc2a76`** on `master`.
+**Current HEAD = `e182d84`** on `master`. Pending commits on worktree for this session.
 
-### Ablation run in progress (`bbl6mkuiq`, ~60-90min, started 21:15 KST)
-Sequential A/B: drop each of 3 toxic factors individually to isolate which hurt main CAGR.
-Outputs will land in `research/phase15_s1a_ab/ablation/{A,B,C}_*`. Next session agent:
-run `py -3 scripts/ablation_summary.py` (not yet written — compose after ablation completes)
-OR read the ablation JSONs directly and compute ΔCAGR per variant.
+### Ablation COMPLETE (`bbl6mkuiq` + `bhyyse6xs`)
 
-### Verdict (full 3-factor drop A/B, run `b2zq3xkam`)
-| Metric | Baseline | 15-S1a ON | Δ |
-|---|---|---|---|
-| Main CAGR | 22.95% | 22.49% | **-0.46pp FAIL** |
-| Main Sharpe | 1.169 | 1.148 | -0.022 pass |
-| Main MaxDD | -26.21% | -22.18% | **+4.03pp BIG WIN** |
-| Concentrated CAGR | 33.17% | **36.42%** | **+3.25pp PASS** |
-| Concentrated Sharpe | 1.180 | 1.298 | **+0.118 PASS** |
-| Concentrated MaxDD | -27.10% | -27.16% | ~0 |
+| Variant | Main ΔCAGR | Main MaxDD | Conc ΔCAGR | Conc Sharpe | Verdict |
+|---|---|---|---|---|---|
+| full_prune (all 3) | -0.46pp | +4.03pp | +3.25pp | +0.118 | main FAIL |
+| drop_ft only | -0.12pp | +4.01pp | +2.97pp | +0.111 | main FAIL |
+| drop_cf only | +0.15pp | -0.08pp | +0.80pp | +0.022 | FLAT |
+| **drop_ub only** | **+0.36pp** | -0.08pp | +0.77pp | +0.021 | **FLAT (best)** |
+| drop_cf+ub | +0.16pp | -0.19pp | +0.80pp | +0.022 | FLAT |
 
-Full write-up: `research/phase15_s1a_ab/VERDICT.md`.
+**Decision**: strict ship gate (+0.5pp) not cleared by any variant. All cfg defaults remain OFF.
 
-Gate defaults to OFF — production baseline preserved. Env var `PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED=1` activates full prune. New sub-toggles (`DROP_FT`, `DROP_CF`, `DROP_UB`) activate individually.
+**Insights**:
+- FT alone drives 91% of concentrated +3.25pp AND all of main MaxDD +4pp win — but costs -0.12pp main CAGR.
+- CF + UB combined ≈ UB alone (sub-additive, correlated noise).
+- drop_ub best single-factor pick (+0.36pp main, +0.77pp conc, MaxDD flat).
+
+Full write-up: `research/phase15_s1a_ab/VERDICT_ADDENDUM_ABLATION.md`.
+
+### Recommended next step (for next agent session)
+
+1. **Concentrated-exclusive FT drop** (~1-2h code work, then QUICK A/B):
+   - Modify `concentrated_score` computation at r1000_pipeline.py:11939 to use a second "pruned" future_winner composite with FT zeroed. Main composite untouched.
+   - Expected: main neutral, concentrated +2.97pp (matches variant A).
+   - Cleanly ships biggest concentrated win without main regression.
+
+2. OR **Phase 15-S1b horizon realign** (FULL rebuild, 2-3h):
+   - Train `pred_future_winner_ret` on `r_3m` target instead of `r_1m`.
+   - IC audit root finding: future_winner composite factors are 3m alpha, not 1m.
+   - Higher expected impact but bigger cycle.
+
+3. OR **15-R1 Trailing stop** (cfg fields already prepped in dfbfaed):
+   - Wire the backtest loop (r1000_pipeline.py:9831-9864 speculative stop area) to track peak + drawdown per early_scout position.
+   - 4-cell A/B (baseline / 0.15 early / 0.20 early / 0.15 both sleeves).
+   - Independent of 15-S1 path.
+
+### Gate semantics currently shipped
+- Master: `PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED=1` drops all 3 factors.
+- Sub-toggles: `DROP_FT`, `DROP_CF`, `DROP_UB` drop individually.
+- Cfg default: all False (production unchanged). Env var overrides.
 
 **NEW TARGETS** (user set 2026-04-21 PM): main 22.95% → **25% CAGR**, concentrated 33.17% → **40% CAGR**.
 
