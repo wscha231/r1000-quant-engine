@@ -14058,11 +14058,87 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "backtest_usable",
             "research_only_backtest",
             "research_only_output",
+            # Phase 12A (2026-04-21): live-state columns enriched after this view
+            "entry_date", "entry_price", "reference_price", "shares_held",
+            "last_trade_date", "thesis_status", "manual_lock",
+            "held_days", "unrealized_return",
         ]
         if not include_selected:
             cols = [c for c in cols if c != "selected_for_portfolio"]
         cols = [c for c in cols if c in out.columns]
         return out[cols].copy()
+
+    def _enrich_with_live_state(frame: pd.DataFrame) -> pd.DataFrame:
+        """Phase 12A (2026-04-21): merge live_portfolio_state.json positions into
+        portfolio output frame. Adds: entry_date, entry_price (avg_cost),
+        reference_price, last_trade_date, thesis_status, manual_lock,
+        held_days, unrealized_return.
+
+        Failsafe: if state JSON missing or ticker not in state, columns get NaN
+        (so the new columns always exist for downstream consumers).
+        """
+        out = frame.copy()
+        # Ensure columns exist even when state is empty/missing
+        for col in ("entry_date", "last_trade_date", "thesis_status"):
+            if col not in out.columns:
+                out[col] = ""
+        for col in ("entry_price", "reference_price", "shares_held",
+                    "held_days", "unrealized_return"):
+            if col not in out.columns:
+                out[col] = np.nan
+        if "manual_lock" not in out.columns:
+            out["manual_lock"] = False
+        if out.empty or "ticker" not in out.columns:
+            return out
+        try:
+            from r1000_portfolio_state import load_live_portfolio_state, positions_frame_from_state
+            state_payload = load_live_portfolio_state(paths)
+            pos_df = positions_frame_from_state(state_payload)
+        except Exception as exc:
+            log(f"[Phase 12A] live state unavailable: {exc}")
+            return out
+        if pos_df is None or pos_df.empty:
+            return out
+        merge_cols = ["ticker", "shares", "avg_cost", "reference_price",
+                      "entry_date", "last_trade_date", "manual_lock", "thesis_status"]
+        merge_cols = [c for c in merge_cols if c in pos_df.columns]
+        joined = out.merge(
+            pos_df[merge_cols].rename(columns={"shares": "shares_held",
+                                               "avg_cost": "entry_price"}),
+            on="ticker", how="left", suffixes=("", "__live"),
+        )
+        # Prefer live values where available
+        for live_col in ("entry_price", "reference_price", "shares_held",
+                         "entry_date", "last_trade_date", "manual_lock", "thesis_status"):
+            other = f"{live_col}__live"
+            if other in joined.columns:
+                if live_col in ("entry_price", "reference_price", "shares_held"):
+                    joined[live_col] = pd.to_numeric(joined[other], errors="coerce").combine_first(
+                        pd.to_numeric(joined.get(live_col), errors="coerce")
+                    )
+                elif live_col == "manual_lock":
+                    joined[live_col] = joined[other].fillna(False).astype(bool)
+                else:
+                    joined[live_col] = joined[other].fillna(joined.get(live_col, "")).astype(str)
+                joined = joined.drop(columns=[other])
+        # Compute derived columns
+        try:
+            today = pd.Timestamp.utcnow().normalize()
+            entry_dt = pd.to_datetime(joined["entry_date"], errors="coerce")
+            joined["held_days"] = (today - entry_dt).dt.days
+        except Exception:
+            joined["held_days"] = np.nan
+        # Unrealized return: prefer live current_price_live / market_cap-derived price
+        cur_price_col = None
+        for c in ("current_price_live", "px", "open_px", "reference_price"):
+            if c in joined.columns and pd.to_numeric(joined[c], errors="coerce").notna().any():
+                cur_price_col = c
+                break
+        if cur_price_col is not None:
+            cur = pd.to_numeric(joined[cur_price_col], errors="coerce")
+            ent = pd.to_numeric(joined["entry_price"], errors="coerce")
+            joined["unrealized_return"] = (cur / ent - 1.0).where(ent > 0, np.nan)
+        return joined
 
     coef = model_bundle.linear_feature_weights
     portfolio_latest = _normalize_portfolio_frame(current_portfolio)
@@ -14091,6 +14167,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
     research_portfolio_operational = _build_operational_view(research_only_portfolio, include_selected=False)
+    # Phase 12A (2026-04-21): enrich portfolio_latest with live state (entry_date,
+    # entry_price, held_days, unrealized_return). User sees buy info directly
+    # in portfolio_latest.csv instead of digging through ops/live_*.parquet.
+    portfolio_operational = _enrich_with_live_state(portfolio_operational)
+    research_portfolio_operational = _enrich_with_live_state(research_portfolio_operational)
 
     top30_path = paths["out"] / "top30_latest.csv"
     top20_path = paths["out"] / "top20_latest.csv"
@@ -14526,6 +14607,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
     research_portfolio_operational = _build_operational_view(research_only_portfolio, include_selected=False)
+    # Phase 12A (2026-04-21): same enrichment for the rebalance-policy export path
+    portfolio_operational = _enrich_with_live_state(portfolio_operational)
+    research_portfolio_operational = _enrich_with_live_state(research_portfolio_operational)
 
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
