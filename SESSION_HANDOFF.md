@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-21 16:30 KST
+# Session Handoff — 2026-04-21 21:15 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,9 +6,29 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-21 afternoon) — Phase 12 bugs fixed, Phase 15 planning
+## 🟢 LATEST STATE (2026-04-21 evening) — Phase 12 shipped, 15-S1a A/B done, ablation running
 
-**Current HEAD = `21f1979`** on `master`.
+**Current HEAD = `2cc2a76`** on `master`.
+
+### Ablation run in progress (`bbl6mkuiq`, ~60-90min, started 21:15 KST)
+Sequential A/B: drop each of 3 toxic factors individually to isolate which hurt main CAGR.
+Outputs will land in `research/phase15_s1a_ab/ablation/{A,B,C}_*`. Next session agent:
+run `py -3 scripts/ablation_summary.py` (not yet written — compose after ablation completes)
+OR read the ablation JSONs directly and compute ΔCAGR per variant.
+
+### Verdict (full 3-factor drop A/B, run `b2zq3xkam`)
+| Metric | Baseline | 15-S1a ON | Δ |
+|---|---|---|---|
+| Main CAGR | 22.95% | 22.49% | **-0.46pp FAIL** |
+| Main Sharpe | 1.169 | 1.148 | -0.022 pass |
+| Main MaxDD | -26.21% | -22.18% | **+4.03pp BIG WIN** |
+| Concentrated CAGR | 33.17% | **36.42%** | **+3.25pp PASS** |
+| Concentrated Sharpe | 1.180 | 1.298 | **+0.118 PASS** |
+| Concentrated MaxDD | -27.10% | -27.16% | ~0 |
+
+Full write-up: `research/phase15_s1a_ab/VERDICT.md`.
+
+Gate defaults to OFF — production baseline preserved. Env var `PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED=1` activates full prune. New sub-toggles (`DROP_FT`, `DROP_CF`, `DROP_UB`) activate individually.
 
 **NEW TARGETS** (user set 2026-04-21 PM): main 22.95% → **25% CAGR**, concentrated 33.17% → **40% CAGR**.
 
