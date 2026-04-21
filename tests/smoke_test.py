@@ -444,6 +444,37 @@ def test_phase15_r1_trailing_stop_cfg() -> None:
         "trailing_stop_future_winner_pct must default to 0.0 (opt-in for cell D)"
 
 
+@_test("structural.phase15_s1a_future_prune_dual_gate")
+def test_phase15_s1a_dual_gate() -> None:
+    """Phase 15-S1a (2026-04-21): dual-gate for future_winner composite prune.
+
+    The IC audit (research/phase15_s1_future_winner_factor_ic.csv) flagged
+    three factors with negative IR at BOTH 1m and 3m horizons. Removing them
+    requires both the cfg flag `phase15_s1a_future_prune_enabled` AND the env
+    var PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED (dual-gate pattern, same as
+    phase8a_neg_ic_drop and phase9_c1).
+
+    This test locks:
+      (a) cfg field present with default=False (pre-ship, no production impact)
+      (b) the three future-only weight variables exist in r1000_signals.py
+          and are gated via _phase15_s1a_active
+      (c) phase_is_enabled("phase15_s1a_future_prune", ...) wired into signals
+    """
+    src = _combined_src()
+    assert re.search(r"^\s*phase15_s1a_future_prune_enabled\s*:\s*bool\s*=\s*False",
+                     src, re.MULTILINE), \
+        "phase15_s1a_future_prune_enabled: bool = False missing (must default False pre-ship)"
+    # Gate variables
+    for name in ("_w_fund_turnaround_future",
+                 "_w_cashflow_inflection_future",
+                 "_w_uptrend_breakdown_future"):
+        assert re.search(rf"{name}\s*=\s*0\.0\s+if\s+_phase15_s1a_active", src), \
+            f"Phase 15-S1a gate variable {name} missing or not wired to _phase15_s1a_active"
+    # Env-var wiring
+    assert 'phase_is_enabled("phase15_s1a_future_prune"' in src, \
+        "phase_is_enabled(\"phase15_s1a_future_prune\") call missing from signals.py"
+
+
 # ======================================================================
 # Group 3: import -- requires numpy/pandas load, ~3-5s
 # ======================================================================

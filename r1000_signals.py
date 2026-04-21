@@ -364,6 +364,25 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     _w_industry_rotation_early = 0.0 if _phase8a_neg_ic_drop else 0.45
 
     # -------------------------------------------------------------------
+    # Phase 15-S1a (2026-04-21): drop 3 factors from future_winner composite
+    # whose 94-month rank-IC is negative at BOTH 1m and 3m horizons
+    # (research/phase15_s1_future_winner_factor_ic.csv):
+    #   fundamental_turnaround_acceleration_score (w=0.50, IR_1m=-0.19, IR_3m=-0.27)
+    #   cashflow_inflection_under_loss_score      (w=0.35, IR_1m=-0.15, IR_3m=-0.20)
+    #   uptrend_breakdown_penalty                 (w=-0.30, IR_3m=-2.03 sign flip)
+    # future_winner topn_cagr_1m = 16.08% (weakest sleeve). These factors
+    # add noise across horizons; removing them should cleanly tighten the
+    # composite. Dual-gate A/B pattern (cfg + env). Default OFF.
+    # Core and early sleeves keep their original weights (only future audited).
+    # -------------------------------------------------------------------
+    _phase15_s1a_env = phase_is_enabled("phase15_s1a_future_prune", default=False)
+    _phase15_s1a_cfg = bool(getattr(cfg, "phase15_s1a_future_prune_enabled", False)) if cfg is not None else False
+    _phase15_s1a_active = bool(_phase15_s1a_env and _phase15_s1a_cfg)
+    _w_fund_turnaround_future = 0.0 if _phase15_s1a_active else 0.50
+    _w_cashflow_inflection_future = 0.0 if _phase15_s1a_active else 0.35
+    _w_uptrend_breakdown_future = 0.0 if _phase15_s1a_active else -0.30
+
+    # -------------------------------------------------------------------
     # Phase 8a.4 (2026-04-17): hold persistence bonus.
     # The 2026-04-17 FULL rebuild measured avg_turnover_monthly = 49.5%
     # (~600%/yr) with an estimated 3pp/yr CAGR cost in round-trip trading
@@ -654,8 +673,9 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         (0.60, cross_sectional_robust_z(d, "target_upside_pct")),
         (0.55, cross_sectional_robust_z(d, "revenue_growth_final")),
         (0.45, cross_sectional_robust_z(d, "earnings_growth_final")),
-        (0.50, cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")),
-        (0.35, cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")),
+        # Phase 15-S1a: gated (default 0.50 / 0.35) — IR_1m -0.19 / -0.15
+        (_w_fund_turnaround_future, cross_sectional_robust_z(d, "fundamental_turnaround_acceleration_score")),
+        (_w_cashflow_inflection_future, cross_sectional_robust_z(d, "cashflow_inflection_under_loss_score")),
         (minervini_future_engine_weight, cross_sectional_robust_z(d, "minervini_momentum_alive_score")),
         (0.35, cross_sectional_robust_z(d, "breakout_setup_quality_score")),
         (0.36, sage_composite_rank),
@@ -666,7 +686,8 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
         # Phase 1.3 + 1.4: value-and-growth catch-up + uptrend defense.
         (0.45, cross_sectional_robust_z(d, "value_inflection_score")),
         (0.30, cross_sectional_robust_z(d, "uptrend_continuation_score")),
-        (-0.30, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
+        # Phase 15-S1a: gated (default -0.30) — IR_3m=-2.03, penalty sign flipped
+        (_w_uptrend_breakdown_future, numeric_series_or_default(d, "uptrend_breakdown_penalty", 0.0)),
         # Phase 2.7: industry leadership + group strength + rotation.
         # Future-winner sleeve gets the highest weight on these because
         # finding "the best name in the strongest group" is the core

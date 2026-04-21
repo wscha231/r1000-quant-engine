@@ -1741,6 +1741,20 @@ class EngineConfig:
     trailing_stop_enabled: bool = False
     trailing_stop_early_scout_pct: float = 0.15
     trailing_stop_future_winner_pct: float = 0.0  # 0 = disabled; A/B cell D tests 0.15
+    # Phase 15-S1a (2026-04-21): prune three factors from the future_winner
+    # composite whose per-factor rank-IC is negative at BOTH 1-month and
+    # 3-month horizons over 94 OOS months (see
+    # research/phase15_s1_future_winner_factor_ic.csv):
+    #   fundamental_turnaround_acceleration_score  IR_1m=-0.19 IR_3m=-0.27
+    #   cashflow_inflection_under_loss_score       IR_1m=-0.15 IR_3m=-0.20
+    #   uptrend_breakdown_penalty                  IR_3m=-2.03 (sign flipped)
+    # These add noise regardless of rebalance horizon. Dual-gate: cfg flag AND
+    # env var PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED must both be truthy.
+    # Default OFF — A/B via run_local.py with the env var to measure ship gate.
+    # Only the future_winner weight_pairs are gated; core and early sleeves
+    # keep their original weights (IC drag there may be offset by other
+    # sleeve-specific factors, untested).
+    phase15_s1a_future_prune_enabled: bool = False
     run_engine_diagnostics_report: bool = True
     engine_diagnostics_top_n: int = 7
     universe_change_warn_count: int = 10
