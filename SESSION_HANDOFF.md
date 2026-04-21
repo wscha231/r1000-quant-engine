@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-20 12:00 KST
+# Session Handoff — 2026-04-21 13:00 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,57 @@
 
 ---
 
-## 0. TL;DR — 🎉 **REFACTOR PHASE A COMPLETE** (26 commits on branch `refactor/phase-a-module-split`). Full 5-module split + Subtractive dead code removal. Main engine 27,838 → 382 lines facade (-98.6%).
+## 🟢 LATEST STATE (2026-04-21) — Phase 12 shipped, Phase 13 deferred
+
+**Current HEAD = `1642b66`** on `master`.
+
+### Just finished
+- **Phase 12 (Live Portfolio Continuity) SHIPPED** in 4 sub-stages:
+  - `4a0c12d` 12A: portfolio_latest.csv enriched with 9 live-state columns (entry_date, entry_price, held_days, unrealized_return, etc.)
+  - `675dc63` 12B: manual_positions.yaml input UX (user records real broker holdings)
+  - `a9234ea` 12C: lifetime_equity_curve.csv + lifetime_metrics.json (backtest + live concat)
+  - `d63b80e` 12D: Cell E verdict now prints lifetime CAGR section
+  - `1642b66` Post-12 fix: tz-naive vs tz-aware timestamp bug in Phase 12C
+
+- **Auto-bootstrap manual_positions.yaml** from current 17 positions (agent treats "today's recommendation at current prices" as inception). Pipeline b84oo5xrv ran 83 min, reproduced baseline CAGR 22.95%.
+
+### 2 KNOWN ISSUES
+1. **Cold-start order** (non-fatal): first-ever run populates portfolio_latest.csv with NaN avg_cost/shares because `_enrich_with_live_state` (line 14292/14730) runs BEFORE `apply_manual_positions_from_yaml` (line 14893). Second run onwards: state carries over, CSV shows real values. **Fix option**: move manual_positions apply BEFORE enrichment, OR re-enrich right before to_csv (5 min code).
+2. **Phase 12C lifetime artifacts not generated yet**: tz bug blocked lifetime_equity_curve.csv + lifetime_metrics.json creation in run b84oo5xrv. Fix committed (`1642b66`). **Next QUICK pipeline run (20-30min) will produce them**.
+
+### USER'S OPEN QUESTIONS (2026-04-21 afternoon)
+
+User is thinking about a subscription service product:
+- 정석 portfolio (FREE tier) = main diversified (18 names), currently shipped as portfolio_latest.csv
+- 성장주 (PAID tier) = concentrated N=5/1m/score_power champion, currently shipped as concentrated_portfolio_latest.csv
+- Subscribers follow agent recommendations through own broker
+- Agent is the one "paper-trading", not the user
+
+User explicitly asked:
+1. **Phase 13 agent ledger** (PHASE_13_PLAN.md was written) → **user said too complex, scope down**
+2. **Dividend handling**: backtest uses Adj Close so dividends are IMPLICIT in total return. Live cash dividend tracking is NOT implemented. Phase 14 candidate (1-2 days).
+3. **Russell 2000 expansion**: 3-4x compute cost (90min → 4-6h FULL). Possible with liquidity filter.
+4. **Rebalance frequency**: current monthly. Quarterly option not yet A/B tested for main diversified (CE grid tests concentrated only).
+5. **Market-shock detection**: existing signals cover VIX/drawdown/regime, but no news/sentiment/credit-spread ingestion.
+6. **Automation**: feasible via Windows Task Scheduler (local) or AWS cron (cloud) for subscription service.
+
+**Summary document**: `PHASE_13_PLAN.md` (419 lines) has the full design for the over-engineered version. Recommended **DISCARD** and replace with a 3-hour scoped-down version: apply Phase 12A enrichment to concentrated_portfolio_latest.csv + current_portfolio_summary.json + recent_trades.json.
+
+---
+
+## 0. Production Baseline + recent verdicts
+
+**Phase 9 C3 + CE v2** (SHIPPED 2026-04-18 21:22 KST, still active):
+- Main diversified: CAGR 22.91%, Sharpe 1.17, MaxDD -26.26%, 18 positions
+- Concentrated champion: N=5/1m/score_power → CAGR 34.75%, Sharpe 1.254
+
+**Phase 11** (multibagger) A/B **REJECTED** 2026-04-21: -1.73pp CAGR. Default OFF.
+
+**Phase 12** (live continuity) **SHIPPED** 2026-04-21.
+
+---
+
+## 0a. TL;DR — 🎉 **REFACTOR PHASE A COMPLETE** (26 commits on branch `refactor/phase-a-module-split`). Full 5-module split + Subtractive dead code removal. Main engine 27,838 → 382 lines facade (-98.6%).
 
 **Current HEAD = `4c9858a`** on branch `refactor/phase-a-module-split` (pushed to remote). **26 refactor commits** on top of last SHIP `6440957`. All 5 new modules created + main converted to facade:
 
@@ -198,24 +248,51 @@ See `EXECUTION_PLAN.md`, `ARCHITECTURE_REVIEW.md` (incl §6b sleeve taxonomy red
 
 ---
 
-## 2. Next step — Refactor Phase A COMPLETE. Merge branch + optional Stage 3d-ii-b + plan Phase 10 alpha work.
+## 2. Next step — Phase 12 SHIPPED. Choose next direction from prioritized candidates.
 
-### Immediate next actions
+### Immediate small fix (recommended first, ~35 min)
 
-1. **Merge branch to master**: `refactor/phase-a-module-split` → `origin/master`. 26 commits ready. Smoke tests 25/25 at every commit. Byte-exact verify is impractical per the rollup analysis (end_date fingerprint), so merge decision is based on:
-   - Smoke tests 25/25 ✅
-   - Identity + scope + spot-behavior checks at every sub-stage ✅
-   - 5-module dependency graph clean (acyclic) ✅
-   - Main engine is now a 382-line facade; all functional code lives in 5 focused modules ✅
+**Cold-start fix for Phase 12A**: currently `_enrich_with_live_state` (line 14292/14730 in r1000_pipeline.py) runs BEFORE `apply_manual_positions_from_yaml` (line 14893). On FIRST run after filling manual_positions.yaml, portfolio_latest.csv shows NaN for avg_cost/shares/unrealized_return. Second run onwards works correctly because state carries over.
 
-2. **Optional Stage 3d-ii-b** (~850L macro builders deferred; see STAGE_3D_PLAN.md). Lower priority now since main is already mostly drained -- these functions all live in `r1000_pipeline.py` after Stage 5, just co-located with universe/fund plumbing rather than split into the "pure features" layer. Can be moved later as an incremental features.py addition if desired.
+**Fix**: move the Phase 12B + ensure_live_portfolio_state blocks (line ~14878-14897) to BEFORE the first `_enrich_with_live_state` call. OR re-enrich right before `portfolio_operational.to_csv(portfolio_path)` at line 14353 + 14735.
 
-3. **Parquet schema drift bug** (pre-existing, spawned as separate task): `held_from_prev_rebalance` bool/float mismatch in `append_history_parquet` crashes Phase 6 ops tracking. Not caused by refactor, but blocks clean local pipeline runs. Fix is small (~30 min).
+After fix, run QUICK pipeline once (~20-30 min) to validate:
+- portfolio_latest.csv all 9 enrichment columns populated
+- lifetime_equity_curve.csv generated (84 rows = 83 backtest + 1 live)
+- lifetime_metrics.json with live_value_method=shares_x_reference_price
+- verdict shows lifetime CAGR section
 
-4. **Phase 10 alpha work** — see `PHASE_10_IDEAS.md`. Post-refactor, adding a new signal/feature is a single-module edit rather than navigating 27k lines. Top candidates:
-   - Top-10 concentrated sleeve (highest rubric score per PHASE_10_IDEAS.md §4)
-   - Quarterly rebalance option (low effort, turnover reduction)
-   - Phase 8e (r_12m ML training target; biggest expected alpha but 11-13h work)
+### Prioritized next candidates (user decision needed)
+
+**A. Quarterly Rebalance A/B** (~3-4h) — high-value efficiency improvement
+  - Add `cfg.rebalance_interval_months: int = 1` field (default monthly, switch to 3 for quarterly)
+  - Modify `backtest_portfolio` to honor interval (concentrated code already has this)
+  - A/B test monthly vs quarterly on main diversified
+  - Expected: turnover -50% (43% → ~20%), CAGR -0.5-1pp (minor hit), tax efficiency large gain
+  - Ship gate: ΔCAGR ≥ -1pp AND Δturnover ≤ -20pp (efficiency gate, not alpha gate)
+
+**B. Phase 13 scope-down** (~3-4h) — frontend-ready for subscription service
+  - PHASE_13_PLAN.md (419 lines) is over-engineered; user pushed back on complexity
+  - Scoped down version: apply `_enrich_with_live_state` to concentrated_portfolio_latest.csv + write `current_portfolio_summary.json` + `recent_trades.json`
+  - Agent's entry_date/avg_cost = first recommendation date/price (already in live_portfolio_state_history.parquet, 152 snapshots accumulated)
+  - Sufficient for frontend subscription product (정석 FREE, 성장주 PAID)
+
+**C. Dividend tracking** (~1-2일) — Phase 14 candidate
+  - Backtest: yfinance Adj Close already includes dividends (reinvested total return)
+  - Live: no separate cash dividend tracking
+  - Add: `next_ex_div_date`, `next_pay_date`, `next_div_per_share` columns + cash accumulator
+  - Priority: MEDIUM (live tracking accuracy)
+
+**D. Russell 2000 expansion** (~3-7일) — alpha universe widening
+  - 1000 → 3000 tickers (with liquidity filter to 1500-2000 effective)
+  - Compute cost 3-4x (90min FULL → 4-6h FULL)
+  - Daily QUICK still 30-60min (automatable)
+  - Need: universe builder + liquidity filter + R3000 constituent list
+
+**E. Automation setup** (~1주) — subscription service infra
+  - Local: Windows Task Scheduler (daily + monthly + quarterly triggers)
+  - Cloud: AWS Lambda + S3 + SNS for subscriber alerts
+  - Priority: after product decisions locked
 
 ### 🟢 Status (2026-04-20 12:00 KST)
 
@@ -542,24 +619,39 @@ Compare each isolated effect vs Phase 8 baseline. Ship whichever (or both) gives
 ## 4. Bootstrap prompt for a fresh chat session
 
 ```
-I'm continuing work on the r1000 Quant Engine project, MID-REFACTOR (Phase A, 5-module split). Before editing anything:
+I'm continuing work on the r1000 Quant Engine project. Before editing anything:
 
-1. Read `CLAUDE.md` — project basics.
-2. Read `SESSION_HANDOFF.md` §0 + §2 — current state + next step (= this file).
-3. Read `STAGE_3D_PLAN.md` — 4-sub-stage plan for the next big refactor chunk.
-4. Read `REFACTOR_PLAN.md` §6 (checklist) + §11 (observability) + §12 (5-stage sequencing).
-5. Run `git log --oneline -20` — expect branch `refactor/phase-a-module-split`, HEAD at `fd4e6a0` or later.
-6. Run `git status` — should be clean.
-7. Check Stage 1 rollup byte-exact status: run `py -3 .refactor_baseline/verify.py`. If PASS → proceed to Stage 3d per STAGE_3D_PLAN.md. If FAIL → bisect per §2 Step 2.
+1. Read SESSION_HANDOFF.md top section (🟢 LATEST STATE 2026-04-21).
+2. Read CLAUDE.md — project basics.
+3. Run `git log --oneline -15` — HEAD should be `1642b66` or later on master.
+4. Run `git status` — should be clean.
+5. Read PHASE_13_PLAN.md ONLY if you're going to implement the scoped-down version.
 
-Do NOT start Stage 3d until byte-exact verify passes on the current HEAD.
+Current state summary:
+  - Refactor Phase A complete (33 commits pre-session, merged to master)
+  - Phase 11 multibagger A/B REJECTED (default OFF)
+  - Phase 12 live continuity SHIPPED (4 sub-stages) + 1 tz fix committed
+  - Pipeline b84oo5xrv ran 83 min, reproduced baseline CAGR 22.95%
+  - 2 known issues in SESSION_HANDOFF §LATEST STATE
+  - User explicitly said Phase 13 as designed (PHASE_13_PLAN.md) is over-engineered; scope down
 
-Context: Refactor Phase A splits `r1000_top30_institutional.py` (27,838L) into
-`r1000_config.py` (2,109L) + `r1000_helpers.py` (925L) + `r1000_features.py` (1,923L) + (pending)
-`r1000_signals.py` + `r1000_pipeline.py`. Stages 0 + 1 + 2 + 3a-c done across 13 commits.
-Main file now 23,594 lines (-15.3%). Smoke tests 25/25 at every sub-stage.
-Production baseline (Phase 9 C3 + CE v2: main CAGR 22.91%, concentrated 34.75%) UNCHANGED — refactor is pure value-preserving extraction.
-Remaining: Stage 3d (4 sub-stages, ~4,000L feature funcs), Stage 4 (signals), Stage 5 (pipeline + facade), Stage 6 (Subtractive, -2,500L dead code).
+Production baseline (unchanged): Phase 9 C3 + CE v2
+  Main: CAGR 22.91% / Sharpe 1.17 / MDD -26.26%
+  Concentrated: N=5/1m/score_power → CAGR 34.75% / Sharpe 1.254
+
+User has open questions (SESSION_HANDOFF §LATEST STATE → USER'S OPEN QUESTIONS):
+  1. Scope-down Phase 13 (3-4h)
+  2. Dividend tracking (Phase 14 candidate)
+  3. Russell 2000 expansion
+  4. Quarterly rebalance A/B (3-4h, highest-value quick win)
+  5. Market shock detection gaps (no news/sentiment yet)
+  6. Automation (Windows Task Scheduler / AWS cron)
+
+Recommended first action (per SESSION_HANDOFF §2):
+  Cold-start fix for Phase 12A (35 min code + 20-30 min QUICK validation run).
+  Then user chooses next candidate: Quarterly A/B (A) or Phase 13 scope-down (B) or other.
+
+Do NOT start new work until user confirms priority from SESSION_HANDOFF §2 candidates.
 ```
 
 ---
