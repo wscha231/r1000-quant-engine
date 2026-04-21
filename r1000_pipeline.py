@@ -14221,8 +14221,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 meta["live_only_return"] = float(live_only_ret)
 
         meta["live_value_method"] = live_method
-        as_of = pd.Timestamp.utcnow().normalize()
-        if as_of > anchor_date and live_method != "no_live_data":
+        # Phase 12C: ensure tz-naive for comparison with backtest dates (which are tz-naive)
+        as_of = pd.Timestamp.utcnow().tz_localize(None).normalize()
+        anchor_date_naive = anchor_date.tz_localize(None) if anchor_date.tzinfo else anchor_date
+        if as_of > anchor_date_naive and live_method != "no_live_data":
             live_rows.append({
                 "rebalance_date": as_of,
                 "equity": float(live_value),
@@ -14244,6 +14246,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             final_eq = float(lifetime["equity"].iloc[-1])
             initial_dt = lifetime["rebalance_date"].iloc[0]
             final_dt = lifetime["rebalance_date"].iloc[-1]
+            # Defensive tz strip
+            initial_dt = initial_dt.tz_localize(None) if hasattr(initial_dt, 'tzinfo') and initial_dt.tzinfo else initial_dt
+            final_dt = final_dt.tz_localize(None) if hasattr(final_dt, 'tzinfo') and final_dt.tzinfo else final_dt
             years = max((final_dt - initial_dt).days / 365.25, 1e-6)
             total_ret = (final_eq / initial_eq) - 1.0
             cagr = (final_eq / initial_eq) ** (1.0 / years) - 1.0 if final_eq > 0 else np.nan
@@ -14251,7 +14256,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             meta["lifetime_cagr"] = float(cagr)
             meta["lifetime_years"] = float(years)
             if live_method != "no_live_data":
-                meta["live_only_days"] = int((as_of - anchor_date).days)
+                meta["live_only_days"] = int((as_of - anchor_date_naive).days)
         return lifetime, meta
 
     coef = model_bundle.linear_feature_weights
