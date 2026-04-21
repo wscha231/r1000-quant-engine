@@ -343,6 +343,42 @@ def print_verdict(base_dir: Path) -> int:
     else:
         print(f"\n  --> REGRESS vs {CURRENT_BASELINE['name']}. See SESSION_HANDOFF.md §3c (rollback).")
 
+    # Phase 12D (2026-04-21): print lifetime metrics if available.
+    # Connects backtest CAGR to live CAGR continuity (Phase 12C produces these).
+    lifetime_metrics_path = out_dir / "lifetime_metrics.json"
+    if lifetime_metrics_path.exists():
+        try:
+            lm = json.loads(lifetime_metrics_path.read_text(encoding="utf-8"))
+            print("\n" + "=" * 70)
+            print("LIFETIME PERFORMANCE (backtest + live, Phase 12D)")
+            print("=" * 70)
+            anchor = lm.get("anchor_date", "?")
+            anchor_eq = lm.get("anchor_equity", float("nan"))
+            l_cagr = lm.get("lifetime_cagr", float("nan"))
+            l_total = lm.get("lifetime_total_return", float("nan"))
+            l_years = lm.get("lifetime_years", float("nan"))
+            l_method = lm.get("live_value_method", "n/a")
+            l_only_ret = lm.get("live_only_return", float("nan"))
+            l_only_days = lm.get("live_only_days", 0)
+            print(f"  Backtest anchor: {anchor} at equity {anchor_eq:.4f}")
+            if isinstance(l_cagr, (int, float)) and l_cagr == l_cagr:  # not NaN
+                print(f"  Lifetime CAGR:   {l_cagr:.2%} over {l_years:.2f} years")
+                print(f"  Lifetime total:  {l_total:.2%}")
+                bt_cagr = CURRENT_BASELINE.get("cagr")
+                if isinstance(bt_cagr, (int, float)):
+                    delta_to_baseline = (l_cagr - bt_cagr) * 100
+                    print(f"  vs baseline CAGR ({bt_cagr:.2%}): {delta_to_baseline:+.2f}pp")
+            else:
+                print(f"  Lifetime CAGR:   n/a (live extension inactive)")
+            print(f"  Live extension:  method={l_method}, days={l_only_days}, "
+                  f"return={(l_only_ret * 100):+.2f}%" if isinstance(l_only_ret, (int, float)) and l_only_ret == l_only_ret
+                  else f"  Live extension:  method={l_method} (no live data yet)")
+            if l_method == "no_live_data":
+                print("  HINT: edit base_dir/manual_positions.yaml with real broker holdings")
+                print("        (avg_cost, shares, entry_date) to activate lifetime CAGR.")
+        except Exception as exc:
+            print(f"  [Phase 12D] failed to read lifetime_metrics.json: {exc}")
+
     return 0
 
 
