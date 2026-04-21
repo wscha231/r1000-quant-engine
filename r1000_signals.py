@@ -380,9 +380,18 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # env unset -> use cfg default. Lets A/B runs flip via env without editing cfg.
     _phase15_s1a_cfg = bool(getattr(cfg, "phase15_s1a_future_prune_enabled", False)) if cfg is not None else False
     _phase15_s1a_active = phase_is_enabled("phase15_s1a_future_prune", default=_phase15_s1a_cfg)
-    _w_fund_turnaround_future = 0.0 if _phase15_s1a_active else 0.50
-    _w_cashflow_inflection_future = 0.0 if _phase15_s1a_active else 0.35
-    _w_uptrend_breakdown_future = 0.0 if _phase15_s1a_active else -0.30
+    # Phase 15-S1a ablation sub-toggles (2026-04-21 PM): A/B main FAIL verdict
+    # showed -0.46pp CAGR when all three factors dropped together, yet concentrated
+    # gained +3.25pp. To isolate WHICH factor is responsible, each factor gets
+    # its own env var. Default inherits master toggle, so existing A/B behavior
+    # (flip PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED=1 to drop all three) is
+    # preserved byte-identically; ablation runs override individually.
+    _drop_ft = phase_is_enabled("phase15_s1a_drop_ft", default=_phase15_s1a_active)
+    _drop_cf = phase_is_enabled("phase15_s1a_drop_cf", default=_phase15_s1a_active)
+    _drop_ub = phase_is_enabled("phase15_s1a_drop_ub", default=_phase15_s1a_active)
+    _w_fund_turnaround_future = 0.0 if _drop_ft else 0.50
+    _w_cashflow_inflection_future = 0.0 if _drop_cf else 0.35
+    _w_uptrend_breakdown_future = 0.0 if _drop_ub else -0.30
 
     # -------------------------------------------------------------------
     # Phase 8a.4 (2026-04-17): hold persistence bonus.

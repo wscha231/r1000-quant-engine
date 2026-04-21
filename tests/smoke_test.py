@@ -464,16 +464,27 @@ def test_phase15_s1a_dual_gate() -> None:
     assert re.search(r"^\s*phase15_s1a_future_prune_enabled\s*:\s*bool\s*=\s*False",
                      src, re.MULTILINE), \
         "phase15_s1a_future_prune_enabled: bool = False missing (must default False pre-ship)"
-    # Gate variables
-    for name in ("_w_fund_turnaround_future",
-                 "_w_cashflow_inflection_future",
-                 "_w_uptrend_breakdown_future"):
-        assert re.search(rf"{name}\s*=\s*0\.0\s+if\s+_phase15_s1a_active", src), \
-            f"Phase 15-S1a gate variable {name} missing or not wired to _phase15_s1a_active"
-    # Env-var wiring. Must use default=_phase15_s1a_cfg so env overrides cfg
-    # default (Phase 11 fix pattern, commit 980aed9) — not bool AND.
+    # Gate variables — ablation refactor (2026-04-21 PM) splits master toggle
+    # into three per-factor sub-toggles (_drop_ft / _drop_cf / _drop_ub) so
+    # individual factors can be dropped independently for A/B analysis.
+    # Master toggle still works: _phase15_s1a_active feeds each sub-toggle as
+    # default, so PHASE_PHASE15_S1A_FUTURE_PRUNE_ENABLED=1 drops all three.
+    for weight_var, drop_var in [
+        ("_w_fund_turnaround_future", "_drop_ft"),
+        ("_w_cashflow_inflection_future", "_drop_cf"),
+        ("_w_uptrend_breakdown_future", "_drop_ub"),
+    ]:
+        assert re.search(rf"{weight_var}\s*=\s*0\.0\s+if\s+{drop_var}", src), \
+            f"Phase 15-S1a gate variable {weight_var} must be gated on {drop_var} " \
+            "(ablation sub-toggle; default = _phase15_s1a_active for backward compat)"
+    # Each sub-toggle must use env-overrides-cfg pattern inheriting master default
+    for key in ("phase15_s1a_drop_ft", "phase15_s1a_drop_cf", "phase15_s1a_drop_ub"):
+        assert re.search(rf'phase_is_enabled\("{key}",\s*default=_phase15_s1a_active\)', src), \
+            f"Phase 15-S1a sub-toggle {key} must inherit master default via " \
+            f"phase_is_enabled(\"{key}\", default=_phase15_s1a_active)"
+    # Master toggle itself must still use env-overrides-cfg (Phase 11 fix 980aed9)
     assert re.search(r'phase_is_enabled\("phase15_s1a_future_prune",\s*default=_phase15_s1a_cfg\)', src), \
-        "phase15_s1a gate must use env-overrides-cfg pattern " \
+        "phase15_s1a master gate must use env-overrides-cfg pattern " \
         "(phase_is_enabled(\"phase15_s1a_future_prune\", default=_phase15_s1a_cfg)), not AND"
 
 
