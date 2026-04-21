@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-21 13:00 KST
+# Session Handoff — 2026-04-21 16:30 KST
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,41 +6,67 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-21) — Phase 12 shipped, Phase 13 deferred
+## 🟢 LATEST STATE (2026-04-21 afternoon) — Phase 12 bugs fixed, Phase 15 planning
 
-**Current HEAD = `1642b66`** on `master`.
+**Current HEAD = `21f1979`** on `master`.
 
-### Just finished
-- **Phase 12 (Live Portfolio Continuity) SHIPPED** in 4 sub-stages:
-  - `4a0c12d` 12A: portfolio_latest.csv enriched with 9 live-state columns (entry_date, entry_price, held_days, unrealized_return, etc.)
-  - `675dc63` 12B: manual_positions.yaml input UX (user records real broker holdings)
-  - `a9234ea` 12C: lifetime_equity_curve.csv + lifetime_metrics.json (backtest + live concat)
-  - `d63b80e` 12D: Cell E verdict now prints lifetime CAGR section
-  - `1642b66` Post-12 fix: tz-naive vs tz-aware timestamp bug in Phase 12C
+**NEW TARGETS** (user set 2026-04-21 PM): main 22.95% → **25% CAGR**, concentrated 33.17% → **40% CAGR**.
 
-- **Auto-bootstrap manual_positions.yaml** from current 17 positions (agent treats "today's recommendation at current prices" as inception). Pipeline b84oo5xrv ran 83 min, reproduced baseline CAGR 22.95%.
+### Just finished (afternoon session)
+- `6a5491d` chore: gitignore catboost_info/ training artifact
+- `24992c7` fix: Phase 12B+ensure_live_portfolio_state moved BEFORE first enrichment (cold-start fix — solves the 2-known-issues #1 from morning handoff)
+- `a5a5271` fix: Phase 12A held_days tz bug (utcnow tz-aware vs entry_date tz-naive) + reference_price auto-fill in apply_manual_positions_from_yaml (no more "no_live_data" in lifetime_metrics.json)
+- `dfbfaed` prep(phase15-r1): trailing_stop_enabled + trailing_stop_early_scout_pct cfg fields (default OFF, A/B-ready) + structural smoke test
+- `21f1979` research(phase15-s1): per-factor rank-IC audit on future_winner composite. **KEY FINDING** (see below).
 
-### 2 KNOWN ISSUES
-1. **Cold-start order** (non-fatal): first-ever run populates portfolio_latest.csv with NaN avg_cost/shares because `_enrich_with_live_state` (line 14292/14730) runs BEFORE `apply_manual_positions_from_yaml` (line 14893). Second run onwards: state carries over, CSV shows real values. **Fix option**: move manual_positions apply BEFORE enrichment, OR re-enrich right before to_csv (5 min code).
-2. **Phase 12C lifetime artifacts not generated yet**: tz bug blocked lifetime_equity_curve.csv + lifetime_metrics.json creation in run b84oo5xrv. Fix committed (`1642b66`). **Next QUICK pipeline run (20-30min) will produce them**.
+### VALIDATION in progress (background `b0r5er6bz`)
+QUICK pipeline re-run with `PHASE_PHASE11_MULTIBAGGER_ENABLED=0 py -3 run_local.py --no-collector` to verify both Phase 12 fixes land. Expected: 9/9 enrichment columns populated (vs 6/9 on `24992c7`-only run), lifetime_equity_curve.csv = 84 rows (83 backtest + 1 live extension), live_value_method = "shares_x_reference_price".
 
-### USER'S OPEN QUESTIONS (2026-04-21 afternoon)
+### 🔥 KEY RESEARCH FINDING — future_winner 1m composite has no factor-level alpha
 
-User is thinking about a subscription service product:
-- 정석 portfolio (FREE tier) = main diversified (18 names), currently shipped as portfolio_latest.csv
-- 성장주 (PAID tier) = concentrated N=5/1m/score_power champion, currently shipped as concentrated_portfolio_latest.csv
-- Subscribers follow agent recommendations through own broker
-- Agent is the one "paper-trading", not the user
+`research/phase15_s1_future_winner_factor_ic.csv` audit of 21 factors at 1m vs 3m horizons:
 
-User explicitly asked:
-1. **Phase 13 agent ledger** (PHASE_13_PLAN.md was written) → **user said too complex, scope down**
-2. **Dividend handling**: backtest uses Adj Close so dividends are IMPLICIT in total return. Live cash dividend tracking is NOT implemented. Phase 14 candidate (1-2 days).
-3. **Russell 2000 expansion**: 3-4x compute cost (90min → 4-6h FULL). Possible with liquidity filter.
-4. **Rebalance frequency**: current monthly. Quarterly option not yet A/B tested for main diversified (CE grid tests concentrated only).
-5. **Market-shock detection**: existing signals cover VIX/drawdown/regime, but no news/sentiment/credit-spread ingestion.
-6. **Automation**: feasible via Windows Task Scheduler (local) or AWS cron (cloud) for subscription service.
+| Factor | Weight | IC_1m IR | IC_3m IR |
+|---|---|---|---|
+| leader_emergence_score | 0.90 | +0.04 | **+2.54** |
+| anticipatory_growth_score | 0.95 | +0.00 | **+2.25** |
+| future_winner_scout_score | 1.10 | -0.01 | **+2.22** |
+| dynamic_leader_score | 0.95 | -0.03 | **+1.71** |
+| uptrend_continuation_score | 0.30 | +0.01 | +1.53 |
+| rs_industry_6m | 0.25 | +0.06 | +1.50 |
+| fundamental_turnaround_acceleration_score | 0.50 | -0.19 | -0.27 (toxic!) |
+| cashflow_inflection_under_loss_score | 0.35 | -0.15 | -0.20 (toxic!) |
+| uptrend_breakdown_penalty | -0.30 | +0.03 | -2.03 (sign mismatch!) |
 
-**Summary document**: `PHASE_13_PLAN.md` (419 lines) has the full design for the over-engineered version. Recommended **DISCARD** and replace with a 3-hour scoped-down version: apply Phase 12A enrichment to concentrated_portfolio_latest.csv + current_portfolio_summary.json + recent_trades.json.
+**Interpretation**: 17/17 factors are "1m prune candidates" but >10 have IR_3m > +1.5. The composite factors **are 3-month alpha disguised as 1-month decisions**. Future_winner standalone CAGR 16.08% (topn_cagr_1m) is the cost of this horizon mismatch.
+
+**Implications for 15-S1 redesign** (from naive "prune composite" to "realign horizon"):
+1. Train `pred_future_winner_ret` ML target on `r_3m` (not `r_1m`)
+2. A/B future_winner rebalance interval {2m→3m}
+3. Remove the 3 genuinely-toxic factors (negative at BOTH horizons)
+4. Expected lift: future_winner 16% → 22-25% standalone (+main blend +0.5-1pp, +concentrated +2-3pp)
+
+### USER'S SEQUENCING DECISIONS (2026-04-21 PM)
+- **Phase 13** full ledger (PHASE_13_PLAN.md, 8h) → **discard**. Replace with Phase 13-lite (Option B yaml split, 3h, anytime).
+- **R2000 expansion** → **defer indefinitely** (regime-amplification risk during Energy bull).
+- **Sector concentration cap (B9)** → **rejected** ("시그널이 그 섹터라고 외치면 믿자"). Keep cap-free, compensate with EXIT discipline (trailing stop, RS break, revision break).
+- **Phase 15 ordering** → stability-first, priority-first:
+  - Tier 1: Phase 12 bug fix (running)
+  - Tier 2: exit discipline (15-R1 trailing / 15-R2 revision break / 15-R3 RS break / 15-R4 weekly monitor)
+  - Tier 3: sleeve strengthening (15-S1 future_winner horizon realign / 15-S2 core quality gates / 15-S3 early_scout hardening)
+  - Tier 4: 15-S4 sleeve-specific rebalance A/B
+  - Tier 5: 15-S5 concentrated regrid
+  - Orthogonal: Phase 13-lite (export infra)
+- **Deferred**: dividend handling (Phase 14), market-shock detection, automation.
+
+### NEXT AGENT — start here when validation completes
+1. Check `/tmp/phase12_bugfix_validation.log` or `G:\내 드라이브\r1000_top30_institutional\outputs\lifetime_metrics.json` for `live_value_method` value.
+2. Verify `portfolio_latest.csv` has all 9 enrichment columns populated (not just 6/9).
+3. If verdict OK → start **15-R1 trailing stop implementation** in `backtest_portfolio` around line 9831:
+   - Mirror `speculative_cum_ret` logic with `trailing_peak_ret` + drawdown-from-peak check
+   - Gate on `cfg.trailing_stop_enabled AND phase_is_enabled("phase15_r1_trailing")`
+   - A/B matrix: baseline / 0.15 early / 0.20 early / 0.15 both sleeves
+4. If validation surfaces additional bugs → fix first before 15-R1.
 
 ---
 
