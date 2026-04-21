@@ -14140,6 +14140,120 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             joined["unrealized_return"] = (cur / ent - 1.0).where(ent > 0, np.nan)
         return joined
 
+    def _build_lifetime_equity_curve(
+        backtest_eq: pd.DataFrame,
+        portfolio_frame: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Phase 12C (2026-04-21): extend backtest equity_curve.csv with live
+        portfolio value snapshots so users see ONE continuous equity timeline
+        from backtest start through today.
+
+        Approach:
+          1. Backtest equity (rebalance_date + equity column, 83 months) is the
+             historical anchor. Last row's equity = baseline_eq, last date = anchor_date.
+          2. Live extension: for each snapshot date AFTER anchor_date in
+             live_portfolio_state_history.parquet, compute portfolio_value =
+             sum(shares * current_reference_price). If shares/avg_cost are NaN
+             (bootstrap state), live_equity stays at baseline_eq -- degenerate
+             but consistent until user fills manual_positions.yaml.
+          3. Output: lifetime_equity_curve.csv with two phases (backtest, live),
+             plus lifetime_metrics dict (lifetime_cagr, lifetime_total_return,
+             lifetime_years, anchor_date, live_only_return).
+        """
+        from r1000_portfolio_state import load_live_portfolio_state, positions_frame_from_state
+        # Failsafe defaults
+        meta = {
+            "anchor_date": None,
+            "anchor_equity": float(np.nan),
+            "lifetime_cagr": float(np.nan),
+            "lifetime_total_return": float(np.nan),
+            "lifetime_years": float(np.nan),
+            "live_only_return": float(np.nan),
+            "live_only_days": 0,
+            "live_value_method": "n/a",
+        }
+        if backtest_eq is None or backtest_eq.empty or "equity" not in backtest_eq.columns:
+            return pd.DataFrame(), meta
+        bt = backtest_eq.copy()
+        bt["rebalance_date"] = pd.to_datetime(bt["rebalance_date"], errors="coerce")
+        bt = bt.dropna(subset=["rebalance_date"]).sort_values("rebalance_date").reset_index(drop=True)
+        if bt.empty:
+            return pd.DataFrame(), meta
+        anchor_date = bt["rebalance_date"].iloc[-1]
+        anchor_eq = float(bt["equity"].iloc[-1])
+        meta["anchor_date"] = str(anchor_date.date())
+        meta["anchor_equity"] = anchor_eq
+
+        # Build live extension rows
+        live_rows: list[dict[str, Any]] = []
+        try:
+            state = load_live_portfolio_state(paths)
+            pos_df = positions_frame_from_state(state)
+        except Exception as exc:
+            log(f"[Phase 12C] live state read failed: {exc}")
+            pos_df = pd.DataFrame()
+
+        # Compute live portfolio value: sum(shares * reference_price)
+        live_value = anchor_eq
+        live_method = "no_live_data"
+        if not pos_df.empty:
+            shares = pd.to_numeric(pos_df.get("shares"), errors="coerce")
+            ref = pd.to_numeric(pos_df.get("reference_price"), errors="coerce")
+            avg_cost = pd.to_numeric(pos_df.get("avg_cost"), errors="coerce")
+            weight = pd.to_numeric(pos_df.get("weight"), errors="coerce").fillna(0.0)
+            if shares.notna().any() and ref.notna().any():
+                # Method A: shares × reference_price + cash
+                holding_value = (shares.fillna(0.0) * ref.fillna(0.0)).sum()
+                # Cash residual: assume initial book = sum(shares * avg_cost) when avail
+                book = (shares.fillna(0.0) * avg_cost.fillna(0.0)).sum()
+                if book > 0:
+                    live_only_ret = (holding_value / book) - 1.0
+                    live_value = anchor_eq * (1.0 + live_only_ret)
+                    live_method = "shares_x_reference_price"
+                    meta["live_only_return"] = float(live_only_ret)
+            elif weight.sum() > 0 and ref.notna().any() and avg_cost.notna().any():
+                # Method B: weighted return per ticker
+                ret_per_t = (ref.fillna(0.0) / avg_cost.replace(0, np.nan) - 1.0).fillna(0.0)
+                w = (weight / weight.sum()).fillna(0.0)
+                live_only_ret = float((w * ret_per_t).sum())
+                live_value = anchor_eq * (1.0 + live_only_ret)
+                live_method = "weighted_ticker_returns"
+                meta["live_only_return"] = float(live_only_ret)
+
+        meta["live_value_method"] = live_method
+        as_of = pd.Timestamp.utcnow().normalize()
+        if as_of > anchor_date and live_method != "no_live_data":
+            live_rows.append({
+                "rebalance_date": as_of,
+                "equity": float(live_value),
+                "equity_value_usd": float(live_value * 100000.0),
+                "phase": "live",
+            })
+        # Tag backtest rows
+        bt["phase"] = "backtest"
+        # Compose lifetime
+        lifetime_cols = ["rebalance_date", "equity", "equity_value_usd", "phase"]
+        bt_subset = bt.reindex(columns=lifetime_cols)
+        live_df = pd.DataFrame(live_rows)
+        lifetime = pd.concat([bt_subset, live_df], ignore_index=True) if not live_df.empty else bt_subset
+        lifetime["rebalance_date"] = pd.to_datetime(lifetime["rebalance_date"], errors="coerce")
+
+        # Lifetime metrics
+        if not lifetime.empty and lifetime["equity"].iloc[0] > 0:
+            initial_eq = float(lifetime["equity"].iloc[0])
+            final_eq = float(lifetime["equity"].iloc[-1])
+            initial_dt = lifetime["rebalance_date"].iloc[0]
+            final_dt = lifetime["rebalance_date"].iloc[-1]
+            years = max((final_dt - initial_dt).days / 365.25, 1e-6)
+            total_ret = (final_eq / initial_eq) - 1.0
+            cagr = (final_eq / initial_eq) ** (1.0 / years) - 1.0 if final_eq > 0 else np.nan
+            meta["lifetime_total_return"] = float(total_ret)
+            meta["lifetime_cagr"] = float(cagr)
+            meta["lifetime_years"] = float(years)
+            if live_method != "no_live_data":
+                meta["live_only_days"] = int((as_of - anchor_date).days)
+        return lifetime, meta
+
     coef = model_bundle.linear_feature_weights
     portfolio_latest = _normalize_portfolio_frame(current_portfolio)
     research_only_portfolio = _normalize_portfolio_frame(research_only_portfolio_artifact)
@@ -14889,6 +15003,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     weights_path.write_text(json.dumps(weights_payload, indent=2))
     bt_metrics_path.write_text(json.dumps(bt.metrics, indent=2))
     bt.equity_curve.to_csv(equity_path, index=False)
+
+    # Phase 12C (2026-04-21): build lifetime equity curve (backtest + live).
+    # Failsafe: errors get logged but don't kill pipeline.
+    try:
+        lifetime_eq_df, lifetime_meta = _build_lifetime_equity_curve(
+            bt.equity_curve, portfolio_operational
+        )
+        lifetime_path = paths["out"] / "lifetime_equity_curve.csv"
+        lifetime_metrics_path = paths["out"] / "lifetime_metrics.json"
+        if lifetime_eq_df is not None and not lifetime_eq_df.empty:
+            lifetime_eq_df.to_csv(lifetime_path, index=False)
+            lifetime_metrics_path.write_text(json.dumps(lifetime_meta, indent=2, default=str))
+            log(
+                f"[Phase 12C] lifetime equity curve: {len(lifetime_eq_df)} rows, "
+                f"CAGR {lifetime_meta.get('lifetime_cagr', float('nan')):.2%} over "
+                f"{lifetime_meta.get('lifetime_years', 0):.2f} years "
+                f"(live_method={lifetime_meta.get('live_value_method')})"
+            )
+    except Exception as exc:
+        log(f"[Phase 12C] lifetime equity curve build failed: {exc}")
     ops_output_files = update_operational_tracking(
         cfg,
         paths,
