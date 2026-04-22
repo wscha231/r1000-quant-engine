@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-22 afternoon
+# Session Handoff — 2026-04-22 evening (overnight full QUICK in flight)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,9 +6,42 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-22 PM) — Tier 0/1/2 implementations shipped, A/B grid armed
+## 🟢 LATEST STATE (2026-04-22 evening) — 9-cell grid done, baseline regression to investigate
 
-**Current HEAD = `aba097c`** on `master`.
+**Current HEAD = `b4e3bab`** on `master`. 41 commits today.
+
+### ⚠️ **NEXT-AGENT PRIORITY** — Baseline regression investigation
+
+```
+OLD baseline (2026-04-21 morning, b0r5er6bz):  CAGR 22.95%
+NEW baseline (2026-04-22 evening, bi4d0bmfu):  CAGR 16.08%  (-6.87pp!)
+```
+
+Suspected cause: the caching / retrain chain of 2026-04-22 today contaminated
+the ML model state. Possibly:
+- br1ldkl6w ML retraining was done with `PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED=1`
+  set in env. This means macro_hedge_score = 0 during training, baking a
+  wrong assumption into the model.
+- Or Tier 0a mktcap clip change (1e12 → 1e14) affected mega-cap scoring.
+
+**Action**: revert Tier 0a + rebuild ML from scratch (FULL mode ~3h), then
+re-measure baseline. OR: delete feature_store + scored_oos caches and rebuild
+from scratch WITH clean env vars (no 15-A1).
+
+### Tier 2 grid verdict (9-cell, `b4e3bab`)
+See `research/phase15_tier2_ab/VERDICT_OVERNIGHT.md`.
+
+- R1/R2/R3 trailing/revision/RS break exits: **zero delta** (threshold never
+  triggers in 83-month sample). Safe to ship as future insurance.
+- Phase 4 regime sleeve weights: **-0.25pp FAIL**. Keep default OFF.
+- Phase 6c vol targeting: **zero delta** (dormant). Safe to ship.
+- 15-A1 negative features drop: **zero delta** because cache-blocked.
+  Requires FULL rebuild for valid A/B.
+- Concentrated outputs: all NaN (--ab-quick disables concentrated grid).
+
+### In-flight
+`bl49bkdrv` full QUICK (no --ab-quick) baseline — will produce concentrated
+grid results. 30-60min. Results saved to `outputs/` on Drive.
 
 ### Massive Tier 0/1/2 ship batch (26 commits today)
 
