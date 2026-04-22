@@ -14652,6 +14652,13 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         concentrated_compare=concentrated_compare,
     )
     if not concentrated_latest_holdings.empty:
+        # Phase 13-lite (2026-04-22): apply same Phase 12A enrichment to
+        # concentrated CSV so subscribers see entry_date / entry_price /
+        # held_days / unrealized_return for the paid-tier picks too. The
+        # enrichment is idempotent and respects manual_positions.yaml. A
+        # second yaml `manual_positions_concentrated.yaml` (Option B) would
+        # be wired here if/when split-yaml mode is adopted.
+        concentrated_latest_holdings = _enrich_with_live_state(concentrated_latest_holdings)
         concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
         concentrated_top1_path.write_text(
             concentrated_latest_holdings.head(1).to_csv(index=False),
@@ -15242,6 +15249,69 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             )
     except Exception as exc:
         log(f"[Phase 12C] lifetime equity curve build failed: {exc}")
+
+    # Phase 13-lite (2026-04-22): frontend-friendly portfolio summary JSON for
+    # subscription service. Pure projection from already-enriched
+    # portfolio_operational + lifetime_metrics. Failsafe.
+    try:
+        _summary_path = paths["out"] / "current_portfolio_summary.json"
+        _conc_summary_path = paths["out"] / "current_concentrated_portfolio_summary.json"
+
+        def _build_portfolio_summary(frame: pd.DataFrame, tier_label: str, lifetime_payload: dict | None) -> dict:
+            positions: list[dict] = []
+            if frame is not None and not frame.empty:
+                for _, _r in frame.iterrows():
+                    _t = str(_r.get("ticker", "") or "").strip()
+                    if not _t or _t.upper() == CASH_PROXY_TICKER:
+                        continue
+                    positions.append({
+                        "rank": int(_r["rank"]) if "rank" in frame.columns and pd.notna(_r.get("rank")) else len(positions) + 1,
+                        "ticker": _t,
+                        "name": str(_r.get("Name", "") or ""),
+                        "sector": str(_r.get("sector", "") or ""),
+                        "weight": float(_r.get("weight", 0.0) or 0.0),
+                        "entry_date": str(_r.get("entry_date", "") or ""),
+                        "entry_price": float(_r["entry_price"]) if "entry_price" in frame.columns and pd.notna(_r.get("entry_price")) else None,
+                        "reference_price": float(_r["reference_price"]) if "reference_price" in frame.columns and pd.notna(_r.get("reference_price")) else None,
+                        "shares_held": float(_r["shares_held"]) if "shares_held" in frame.columns and pd.notna(_r.get("shares_held")) else None,
+                        "held_days": int(_r["held_days"]) if "held_days" in frame.columns and pd.notna(_r.get("held_days")) else None,
+                        "unrealized_return": float(_r["unrealized_return"]) if "unrealized_return" in frame.columns and pd.notna(_r.get("unrealized_return")) else None,
+                        "thesis_status": str(_r.get("thesis_status", "active") or "active"),
+                    })
+            cash_w = 0.0
+            if frame is not None and not frame.empty and "ticker" in frame.columns:
+                _cash_rows = frame[frame["ticker"].astype(str).str.upper() == CASH_PROXY_TICKER]
+                if not _cash_rows.empty and "weight" in _cash_rows.columns:
+                    cash_w = float(pd.to_numeric(_cash_rows["weight"], errors="coerce").fillna(0.0).sum())
+            return {
+                "tier": tier_label,
+                "as_of_utc": pd.Timestamp.utcnow().tz_localize(None).isoformat(),
+                "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+                "engine_version": ENGINE_REUSE_VERSION,
+                "engine_commit_sha": ENGINE_COMMIT_SHA,
+                "n_positions": len(positions),
+                "cash_weight": cash_w,
+                "lifetime_cagr": float(lifetime_payload.get("lifetime_cagr")) if lifetime_payload and pd.notna(lifetime_payload.get("lifetime_cagr")) else None,
+                "lifetime_years": float(lifetime_payload.get("lifetime_years")) if lifetime_payload and pd.notna(lifetime_payload.get("lifetime_years")) else None,
+                "lifetime_total_return": float(lifetime_payload.get("lifetime_total_return")) if lifetime_payload and pd.notna(lifetime_payload.get("lifetime_total_return")) else None,
+                "live_value_method": str(lifetime_payload.get("live_value_method")) if lifetime_payload else "n/a",
+                "positions": positions,
+            }
+
+        _lifetime_payload = locals().get("lifetime_meta", None)
+        _main_summary = _build_portfolio_summary(portfolio_operational, "main", _lifetime_payload)
+        _summary_path.write_text(json.dumps(_main_summary, indent=2, default=str))
+        # Concentrated summary uses concentrated_latest_holdings (already enriched above)
+        _conc_summary = _build_portfolio_summary(
+            concentrated_latest_holdings if not concentrated_latest_holdings.empty else pd.DataFrame(),
+            "concentrated",
+            None,  # concentrated has no separate lifetime metric yet
+        )
+        _conc_summary_path.write_text(json.dumps(_conc_summary, indent=2, default=str))
+        log(f"[Phase 13-lite] portfolio summaries written: main n={_main_summary['n_positions']}, conc n={_conc_summary['n_positions']}")
+    except Exception as exc:
+        log(f"[Phase 13-lite] portfolio summary build failed: {exc}")
+
     ops_output_files = update_operational_tracking(
         cfg,
         paths,
