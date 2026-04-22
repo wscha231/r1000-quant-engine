@@ -51,3 +51,8 @@ run_cell H_p6c_only "PHASE_PHASE6C_VOLTARGET_ENABLED=1"
 run_cell I_full_stack "PHASE_PHASE15_R1_TRAILING_ENABLED=1 PHASE_PHASE15_R2_REVISION_BREAK_ENABLED=1 PHASE_PHASE15_R3_RS_BREAK_ENABLED=1 PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED=1 PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1 PHASE_PHASE6C_VOLTARGET_ENABLED=1"
 
 echo "ALL 9 CELLS DONE (~45min). Run analyze_tier2.py for delta table."
+echo ""
+echo "OPTIONAL EXTRA CELLS (manual run, not in default grid):"
+echo "  J 15-S2b 2x conviction:  python -c \"import os; os.environ['CFG_OVERRIDE_conviction_hold_seed_bonus']='0.70'\" && py -3 run_local.py --no-collector --ab-quick"
+echo "  K 15-S2b 3x conviction:  similar with 1.05"
+echo "  These test 'core conviction lock' (longer-hold compounders) per user 장기 홀딩 vision."
