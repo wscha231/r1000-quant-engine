@@ -15312,6 +15312,70 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     except Exception as exc:
         log(f"[Phase 13-lite] portfolio summary build failed: {exc}")
 
+    # Phase 13-lite (2026-04-22): recent trades JSON for frontend.
+    # Diffs consecutive snapshots in live_portfolio_state_history.parquet to
+    # detect NEW_BUY / EXIT / ADD / TRIM events. Window: last 90 days.
+    # Failsafe — empty trades array if history missing or has only one snapshot.
+    try:
+        _recent_trades_path = paths["out"] / "recent_trades.json"
+        _state_history_path = paths["ops"] / "live_portfolio_state_history.parquet"
+        _trade_events: list[dict] = []
+        if _state_history_path.exists():
+            _hist = pd.read_parquet(_state_history_path)
+            if not _hist.empty and "snapshot_timestamp_utc" in _hist.columns:
+                _hist["snapshot_timestamp_utc"] = pd.to_datetime(_hist["snapshot_timestamp_utc"], errors="coerce", utc=True).dt.tz_localize(None)
+                _cutoff = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=90)
+                _hist = _hist[_hist["snapshot_timestamp_utc"] >= _cutoff].copy()
+                _snaps = sorted(_hist["snapshot_timestamp_utc"].dropna().unique())
+                _prev_weights: dict[str, float] = {}
+                _prev_ts = None
+                for _ts in _snaps:
+                    _snap = _hist[_hist["snapshot_timestamp_utc"] == _ts]
+                    _cur_weights = {
+                        str(_r["ticker"]).upper(): float(pd.to_numeric(_r.get("weight"), errors="coerce") or 0.0)
+                        for _, _r in _snap.iterrows()
+                        if str(_r.get("ticker", "")).strip()
+                    }
+                    if _prev_ts is None:
+                        _prev_weights = _cur_weights
+                        _prev_ts = _ts
+                        continue
+                    # Detect changes
+                    _all_tickers = set(_prev_weights.keys()) | set(_cur_weights.keys())
+                    for _t in _all_tickers:
+                        _w_prev = _prev_weights.get(_t, 0.0)
+                        _w_cur = _cur_weights.get(_t, 0.0)
+                        _delta = _w_cur - _w_prev
+                        if abs(_delta) < 1e-4:
+                            continue
+                        if _w_prev <= 1e-6 and _w_cur > 1e-6:
+                            _action = "NEW_BUY"
+                        elif _w_prev > 1e-6 and _w_cur <= 1e-6:
+                            _action = "EXIT"
+                        elif _delta > 0:
+                            _action = "ADD"
+                        else:
+                            _action = "TRIM"
+                        _trade_events.append({
+                            "snapshot_timestamp_utc": str(_ts),
+                            "ticker": _t,
+                            "action": _action,
+                            "weight_before": round(_w_prev, 6),
+                            "weight_after": round(_w_cur, 6),
+                            "weight_delta": round(_delta, 6),
+                        })
+                    _prev_weights = _cur_weights
+                    _prev_ts = _ts
+        _recent_trades_path.write_text(json.dumps({
+            "as_of_utc": pd.Timestamp.utcnow().tz_localize(None).isoformat(),
+            "lookback_days": 90,
+            "n_events": len(_trade_events),
+            "trades": _trade_events,
+        }, indent=2, default=str))
+        log(f"[Phase 13-lite] recent_trades.json written: {len(_trade_events)} events in last 90d")
+    except Exception as exc:
+        log(f"[Phase 13-lite] recent_trades build failed: {exc}")
+
     ops_output_files = update_operational_tracking(
         cfg,
         paths,
