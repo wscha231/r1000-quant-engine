@@ -21,6 +21,9 @@ CELLS = [
     "D_r3_only",
     "E_all_r",
     "F_r_plus_a1",
+    "G_p4_only",
+    "H_p6c_only",
+    "I_full_stack",
 ]
 
 

@@ -42,5 +42,12 @@ run_cell C_r2_only "PHASE_PHASE15_R2_REVISION_BREAK_ENABLED=1"
 run_cell D_r3_only "PHASE_PHASE15_R3_RS_BREAK_ENABLED=1"
 run_cell E_all_r   "PHASE_PHASE15_R1_TRAILING_ENABLED=1 PHASE_PHASE15_R2_REVISION_BREAK_ENABLED=1 PHASE_PHASE15_R3_RS_BREAK_ENABLED=1"
 run_cell F_r_plus_a1 "PHASE_PHASE15_R1_TRAILING_ENABLED=1 PHASE_PHASE15_R2_REVISION_BREAK_ENABLED=1 PHASE_PHASE15_R3_RS_BREAK_ENABLED=1 PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED=1"
+# 2026-04-22: also run Phase 4 (regime sleeve weights) + Phase 6c (vol targeting)
+# in same harness — these are previously-shipped opt-in phases that have no
+# A/B verdict on record. Newly-fixed gate (env-overrides-cfg, commit 04503fd)
+# allows env-only activation.
+run_cell G_p4_only "PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1"
+run_cell H_p6c_only "PHASE_PHASE6C_VOLTARGET_ENABLED=1"
+run_cell I_full_stack "PHASE_PHASE15_R1_TRAILING_ENABLED=1 PHASE_PHASE15_R2_REVISION_BREAK_ENABLED=1 PHASE_PHASE15_R3_RS_BREAK_ENABLED=1 PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED=1 PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1 PHASE_PHASE6C_VOLTARGET_ENABLED=1"
 
-echo "ALL TIER 2 CELLS DONE. Run analyze_tier2.py for delta table."
+echo "ALL 9 CELLS DONE (~45min). Run analyze_tier2.py for delta table."
