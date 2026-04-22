@@ -9472,6 +9472,21 @@ def backtest_portfolio(
     speculative_cum_ret: dict[str, float] = {}  # ticker -> cumulative return since entry
     stopped_out_tickers: set[str] = set()  # tickers stopped out this cycle
     stop_loss_pct = float(getattr(cfg, "speculative_stop_loss_pct", 0.25))
+    # -----------------------------------------------------------------
+    # Phase 15-R1 (2026-04-22): trailing stop from peak per sleeve.
+    # Independent of speculative_cum_ret (which only tracks _is_speculative
+    # subset). Tracks ALL early_scout / future_winner positions so the
+    # trailing stop applies broadly. Default OFF — env gate
+    # PHASE_PHASE15_R1_TRAILING_ENABLED=1 or cfg.trailing_stop_enabled=True
+    # activates. Per-sleeve threshold via cfg.trailing_stop_early_scout_pct
+    # and cfg.trailing_stop_future_winner_pct (0 = disabled per sleeve).
+    # -----------------------------------------------------------------
+    _p15r1_cfg_on = bool(getattr(cfg, "trailing_stop_enabled", False))
+    _p15r1_active = phase_is_enabled("phase15_r1_trailing", default=_p15r1_cfg_on)
+    _p15r1_es_pct = float(getattr(cfg, "trailing_stop_early_scout_pct", 0.15))
+    _p15r1_fw_pct = float(getattr(cfg, "trailing_stop_future_winner_pct", 0.0))
+    trailing_position_cum_ret: dict[str, float] = {}
+    trailing_position_peak_ret: dict[str, float] = {}
     running_equity = 1.0
     portfolio_peak = 1.0
     circuit_breaker_active = False
@@ -9910,6 +9925,58 @@ def backtest_portfolio(
             # Clear stopped_out set at rebalance (allow re-entry if signals improve)
             if rebalance_action in ("rebalance", "initial_rebalance") or str(rebalance_action).startswith("partial_rebalance:"):
                 stopped_out_tickers.clear()
+        # Phase 15-R1: trailing stop from peak (per sleeve). Default OFF.
+        # When active, exits any held early_scout (and optionally future_winner)
+        # position whose cumulative return drops more than _pct from its peak.
+        # Operates on parallel cum_ret tracker so it covers ALL sleeve members,
+        # not just _is_speculative subset that the -25% hard stop covers.
+        if _p15r1_active and (_p15r1_es_pct > 0 or _p15r1_fw_pct > 0):
+            p15r1_sleeve_map: dict[str, str] = {}
+            if not current_portfolio.empty and "portfolio_sleeve_label" in current_portfolio.columns:
+                for _, _r in current_portfolio.iterrows():
+                    _t = str(_r.get("ticker", ""))
+                    if _t:
+                        p15r1_sleeve_map[_t] = str(_r.get("portfolio_sleeve_label", ""))
+            # Update cum return for currently held positions
+            new_p15r1_cum: dict[str, float] = {}
+            for tkr in list(current_w.keys()):
+                if tkr == CASH_PROXY_TICKER:
+                    continue
+                r_m = ticker_month_returns.get(tkr, 0.0)
+                prior = trailing_position_cum_ret.get(tkr, 0.0)
+                new_p15r1_cum[tkr] = (1 + prior) * (1 + r_m) - 1
+            trailing_position_cum_ret = new_p15r1_cum
+            for tkr, cum_r in trailing_position_cum_ret.items():
+                trailing_position_peak_ret[tkr] = max(trailing_position_peak_ret.get(tkr, 0.0), cum_r)
+            # Check trailing stop per sleeve
+            for tkr in list(current_w.keys()):
+                if tkr == CASH_PROXY_TICKER:
+                    continue
+                _sleeve = p15r1_sleeve_map.get(tkr, "")
+                if _sleeve == "early_scout":
+                    _pct = _p15r1_es_pct
+                elif _sleeve == "future_winner":
+                    _pct = _p15r1_fw_pct
+                else:
+                    continue
+                if _pct <= 0:
+                    continue
+                _peak = trailing_position_peak_ret.get(tkr, 0.0)
+                _cur = trailing_position_cum_ret.get(tkr, 0.0)
+                if _peak > 1e-6:  # only meaningful when position has been positive
+                    _drawdown = (1 + _cur) / (1 + _peak) - 1
+                    if _drawdown <= -_pct:
+                        stopped_out_tickers.add(tkr)
+                        if tkr in current_w:
+                            _released = float(current_w.pop(tkr, 0.0))
+                            current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + _released
+                        trailing_position_cum_ret.pop(tkr, None)
+                        trailing_position_peak_ret.pop(tkr, None)
+            # Cleanup tickers no longer held
+            for tkr in list(trailing_position_cum_ret.keys()):
+                if tkr not in current_w:
+                    trailing_position_cum_ret.pop(tkr, None)
+                    trailing_position_peak_ret.pop(tkr, None)
         if current_w:
             current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if current_total > 0 and abs(current_total - 1.0) > 1e-8:
