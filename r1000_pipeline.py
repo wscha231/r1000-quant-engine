@@ -1352,6 +1352,12 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
     "trailing_stop_enabled",
     "trailing_stop_early_scout_pct",
     "trailing_stop_future_winner_pct",
+    "revision_break_exit_enabled",
+    "revision_break_consecutive_months",
+    "revision_break_score_threshold",
+    "rs_break_exit_enabled",
+    "rs_break_min_peak_pctile",
+    "rs_break_drop_to_pctile",
 }
 
 
@@ -9487,6 +9493,25 @@ def backtest_portfolio(
     _p15r1_fw_pct = float(getattr(cfg, "trailing_stop_future_winner_pct", 0.0))
     trailing_position_cum_ret: dict[str, float] = {}
     trailing_position_peak_ret: dict[str, float] = {}
+    # -----------------------------------------------------------------
+    # Phase 15-R2 (2026-04-22): exit a position when analyst revision is
+    # negative for N consecutive months. Default OFF.
+    # -----------------------------------------------------------------
+    _p15r2_cfg_on = bool(getattr(cfg, "revision_break_exit_enabled", False))
+    _p15r2_active = phase_is_enabled("phase15_r2_revision_break", default=_p15r2_cfg_on)
+    _p15r2_streak_threshold = int(max(1, int(getattr(cfg, "revision_break_consecutive_months", 2))))
+    _p15r2_score_threshold = float(getattr(cfg, "revision_break_score_threshold", 0.0))
+    revision_break_streak: dict[str, int] = {}
+    # -----------------------------------------------------------------
+    # Phase 15-R3 (2026-04-22): exit a position that was once top decile
+    # by relative_strength_composite and has since dropped to bottom 30%.
+    # Default OFF.
+    # -----------------------------------------------------------------
+    _p15r3_cfg_on = bool(getattr(cfg, "rs_break_exit_enabled", False))
+    _p15r3_active = phase_is_enabled("phase15_r3_rs_break", default=_p15r3_cfg_on)
+    _p15r3_peak_pctile = float(np.clip(safe_float(getattr(cfg, "rs_break_min_peak_pctile", 0.85), 0.85), 0.0, 1.0))
+    _p15r3_drop_pctile = float(np.clip(safe_float(getattr(cfg, "rs_break_drop_to_pctile", 0.30), 0.30), 0.0, 1.0))
+    rs_break_max_pctile: dict[str, float] = {}
     running_equity = 1.0
     portfolio_peak = 1.0
     circuit_breaker_active = False
@@ -9977,6 +10002,57 @@ def backtest_portfolio(
                 if tkr not in current_w:
                     trailing_position_cum_ret.pop(tkr, None)
                     trailing_position_peak_ret.pop(tkr, None)
+        # Phase 15-R2: revision break exit. Default OFF.
+        # Track per-ticker streak of consecutive negative revision_score months.
+        # When streak >= threshold, exit -> CASH.
+        if _p15r2_active and not mm.empty and "revision_score" in mm.columns and "ticker" in mm.columns:
+            _rev_lookup = dict(zip(mm["ticker"].astype(str), pd.to_numeric(mm["revision_score"], errors="coerce")))
+            for tkr in list(current_w.keys()):
+                if tkr == CASH_PROXY_TICKER:
+                    continue
+                _rev = _rev_lookup.get(tkr)
+                if _rev is None or pd.isna(_rev):
+                    continue
+                if float(_rev) < _p15r2_score_threshold:
+                    revision_break_streak[tkr] = revision_break_streak.get(tkr, 0) + 1
+                else:
+                    revision_break_streak[tkr] = 0
+                if revision_break_streak[tkr] >= _p15r2_streak_threshold:
+                    stopped_out_tickers.add(tkr)
+                    if tkr in current_w:
+                        _rel = float(current_w.pop(tkr, 0.0))
+                        current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + _rel
+                    revision_break_streak.pop(tkr, None)
+            # Cleanup tickers no longer held
+            for tkr in list(revision_break_streak.keys()):
+                if tkr not in current_w:
+                    revision_break_streak.pop(tkr, None)
+        # Phase 15-R3: stock RS break exit. Default OFF.
+        # Track each ticker's peak RS percentile (cross-sectional). When current
+        # RS percentile drops from a once-high peak to <= drop threshold, exit.
+        if _p15r3_active and not mm.empty and "relative_strength_composite" in mm.columns and "ticker" in mm.columns:
+            _rs_series = pd.to_numeric(mm["relative_strength_composite"], errors="coerce")
+            _rs_pctile = _rs_series.rank(method="average", ascending=True, pct=True)  # 1.0 = highest
+            _rs_lookup = dict(zip(mm["ticker"].astype(str), _rs_pctile.fillna(0.5)))
+            for tkr in list(current_w.keys()):
+                if tkr == CASH_PROXY_TICKER:
+                    continue
+                _cur_pct = _rs_lookup.get(tkr)
+                if _cur_pct is None or pd.isna(_cur_pct):
+                    continue
+                _cur_pct = float(_cur_pct)
+                _peak = max(rs_break_max_pctile.get(tkr, 0.0), _cur_pct)
+                rs_break_max_pctile[tkr] = _peak
+                if _peak >= _p15r3_peak_pctile and _cur_pct <= _p15r3_drop_pctile:
+                    stopped_out_tickers.add(tkr)
+                    if tkr in current_w:
+                        _rel = float(current_w.pop(tkr, 0.0))
+                        current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + _rel
+                    rs_break_max_pctile.pop(tkr, None)
+            # Cleanup tickers no longer held
+            for tkr in list(rs_break_max_pctile.keys()):
+                if tkr not in current_w:
+                    rs_break_max_pctile.pop(tkr, None)
         if current_w:
             current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if current_total > 0 and abs(current_total - 1.0) > 1e-8:

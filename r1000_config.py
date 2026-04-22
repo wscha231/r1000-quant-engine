@@ -1741,6 +1741,18 @@ class EngineConfig:
     trailing_stop_enabled: bool = False
     trailing_stop_early_scout_pct: float = 0.15
     trailing_stop_future_winner_pct: float = 0.0  # 0 = disabled; A/B cell D tests 0.15
+    # Phase 15-R2 (2026-04-22): force-exit a position when its analyst revision
+    # score is negative for N consecutive months. Triggers AFTER fundamental
+    # thesis breaks but BEFORE -25% hard stop. Default OFF.
+    revision_break_exit_enabled: bool = False
+    revision_break_consecutive_months: int = 2
+    revision_break_score_threshold: float = 0.0  # < this counts as negative
+    # Phase 15-R3 (2026-04-22): force-exit a position whose RS percentile
+    # was once top X% and has since dropped below Y%. Catches "growth fade"
+    # earlier than monthly score-based rotation. Default OFF.
+    rs_break_exit_enabled: bool = False
+    rs_break_min_peak_pctile: float = 0.85   # was once at >= 85th pctile (top 15%)
+    rs_break_drop_to_pctile: float = 0.30    # now at <= 30th pctile
     # Phase 15-S1a (2026-04-21): prune three factors from the future_winner
     # composite whose per-factor rank-IC is negative at BOTH 1-month and
     # 3-month horizons over 94 OOS months (see
