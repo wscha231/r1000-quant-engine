@@ -1,0 +1,39 @@
+{
+  "cagr": 0.19777719591401088,
+  "sharpe": 1.0226705827884184,
+  "sortino": 1.6815593841227339,
+  "max_dd": -0.2774645736449636,
+  "calmar": 0.7128016139713801,
+  "ir": 0.6029462325545566,
+  "vol_ann": 0.19644174826499425,
+  "avg_turnover_monthly": 0.43766269325934803,
+  "avg_cash_weight": 0.007618995689178838,
+  "trade_cost_bps_per_side": 25.0,
+  "cost_bps_roundtrip": 50.0,
+  "months": 83,
+  "target_n_override": null,
+  "rebalance_interval_months": 1,
+  "avg_rebalance_interval_months": 1.0,
+  "adaptive_rebalance_policy": false,
+  "sleeve_specific_rebalance_enabled": true,
+  "sleeve_rebalance_interval_map": {
+    "core_compounder": 1,
+    "future_winner": 2,
+    "early_scout": 1
+  },
+  "sleeve_rebalance_counts": {
+    "core_compounder": 83,
+    "future_winner": 53,
+    "early_scout": 83
+  },
+  "rebalance_count": 83,
+  "rebalanced_month_ratio": 1.0,
+  "benchmark_source": "FRED:SP500 (fallback ^GSPC)",
+  "starting_capital_usd": 100000.0,
+  "benchmark_cagr": 0.134941878163221,
+  "excess_cagr": 0.06283531775078988,
+  "beat_month_ratio": 0.5421686746987951,
+  "benchmark_ending_capital_usd": 240012.69535677793,
+  "ending_capital_usd": 348418.29112787393,
+  "avg_stock_names": 20.542168674698797
+}
