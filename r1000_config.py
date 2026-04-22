@@ -1767,6 +1767,12 @@ class EngineConfig:
     # Dual-gate: cfg flag AND env var PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED
     # must both be truthy. Default OFF — A/B via env var.
     phase15_a1_drop_negative_features_enabled: bool = False
+    # 2026-04-22: --ab-quick mode flag. When True, apply_fast_mode disables
+    # ALL comparison grids (concentrated, sleeve_cap, portfolio_size,
+    # rebalance_interval, backtest_window) so the pipeline runs main backtest
+    # only — ~2-5 min for fast A/B iteration. Default False (regular fast_mode
+    # behavior preserved).
+    ab_quick_mode: bool = False
     run_engine_diagnostics_report: bool = True
     engine_diagnostics_top_n: int = 7
     universe_change_warn_count: int = 10

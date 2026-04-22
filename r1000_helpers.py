@@ -195,7 +195,19 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
     cfg.concentrated_rebalance_intervals = [1, 2, 3]
     cfg.concentrated_weighting_modes = ["conviction_curve", "winner_take_all", "score_power"]
     cfg.sleeve_cap_policy_max_candidates = 3
-    log("[fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.")
+    # 2026-04-22: --ab-quick override. Pipeline call site can opt into the
+    # fastest possible A/B path (main backtest only) by setting
+    # cfg.ab_quick_mode=True. This forces ALL comparison grids OFF
+    # (overrides the run_concentrated_backtest_comparison=True above).
+    if bool(getattr(cfg, "ab_quick_mode", False)):
+        cfg.run_concentrated_backtest_comparison = False
+        cfg.run_sleeve_cap_policy_comparison = False
+        cfg.run_portfolio_size_comparison = False
+        cfg.run_rebalance_interval_comparison = False
+        cfg.run_backtest_window_comparison = False
+        log("[fast_mode + ab_quick] ALL comparison grids disabled (concentrated, sleeve_cap, portfolio_size, rebalance_interval, backtest_window). Main backtest only — expected ~2-5 min.")
+    else:
+        log("[fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.")
     return cfg
 
 def to_cfg(cfg: Optional[dict | EngineConfig]) -> EngineConfig:

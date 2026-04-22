@@ -510,8 +510,9 @@ def main() -> int:
         pipeline_cfg["industry_metadata_refresh_days"] = 60
     if args.ab_quick:
         # 2026-04-22: disable 7 comparison grids for fast-iter A/B runs.
-        # Main backtest + latest concentrated pick still produced.
-        # Use default QUICK (drop --ab-quick) when full grid needed.
+        # Main backtest only. Set ab_quick_mode flag so apply_fast_mode honors
+        # the override (otherwise apply_fast_mode forces concentrated back ON).
+        pipeline_cfg["ab_quick_mode"] = True
         pipeline_cfg["run_portfolio_size_comparison"] = False
         pipeline_cfg["run_rebalance_interval_comparison"] = False
         pipeline_cfg["run_backtest_window_comparison"] = False
@@ -519,7 +520,7 @@ def main() -> int:
         pipeline_cfg["run_sleeve_cap_policy_comparison"] = False
         pipeline_cfg["run_standalone_sleeve_backtest_comparison"] = False
         pipeline_cfg["run_concentrated_backtest_comparison"] = False
-        print(f"[{now_kst()}]   --ab-quick: 7 comparison grids DISABLED (fast A/B mode)")
+        print(f"[{now_kst()}]   --ab-quick: ALL comparison grids DISABLED (main backtest only, ~2-5 min)")
 
     try:
         result = run_default_pipeline(pipeline_cfg)
