@@ -287,13 +287,16 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Dual-gate toggle (cfg + env), both must be on. Default OFF until
     # A/B measurement validates positive CAGR+Sharpe contribution.
     # -------------------------------------------------------------------
+    # Gate fix (2026-04-22): use env-overrides-cfg pattern (Phase 11 fix
+    # pattern, commit 980aed9) so PHASE_PHASE4_REGIME_WEIGHTS_ENABLED=1 can
+    # activate Phase 4 without flipping cfg default. Previous bool AND locked
+    # out env-only A/B.
     _phase4_cfg_on = (
         bool(getattr(cfg, "regime_dynamic_sleeve_weights_enabled", False))
         if cfg is not None
         else False
     )
-    _phase4_env_on = phase_is_enabled("phase4_regime_weights", default=False)
-    _phase4_regime_active = bool(_phase4_cfg_on and _phase4_env_on)
+    _phase4_regime_active = phase_is_enabled("phase4_regime_weights", default=_phase4_cfg_on)
     _phase4_user_table = (
         getattr(cfg, "regime_sleeve_multiplier_table", None) if cfg is not None else None
     )
@@ -303,13 +306,14 @@ def compute_portfolio_sleeve_columns(df: pd.DataFrame, cfg: Optional[EngineConfi
     # Default OFF. Pulls weights from cfg so they can be tuned without
     # editing the weight-pair tables directly.
     # -------------------------------------------------------------------
+    # Gate fix (2026-04-22): env-overrides-cfg (Phase 11 pattern, 980aed9)
+    # so PHASE_PHASE7A_INSIDER_ACCRUALS_ENABLED=1 can activate without cfg flip.
     _phase7a_cfg_on = (
         bool(getattr(cfg, "phase7a_insider_accruals_enabled", False))
         if cfg is not None
         else False
     )
-    _phase7a_env_on = phase_is_enabled("phase7a_insider_accruals", default=False)
-    _phase7a_active = bool(_phase7a_cfg_on and _phase7a_env_on)
+    _phase7a_active = phase_is_enabled("phase7a_insider_accruals", default=_phase7a_cfg_on)
     _p7a_w_insider_early = float(
         getattr(cfg, "phase7a_insider_early_weight", 0.25) if cfg is not None else 0.25
     )

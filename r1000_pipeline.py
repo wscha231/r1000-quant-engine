@@ -9466,9 +9466,10 @@ def backtest_portfolio(
     # cfg.volatility_targeting_enabled=True AND
     # PHASE_PHASE6C_VOLTARGET_ENABLED=1.
     # -----------------------------------------------------------------
+    # Gate fix (2026-04-22): env-overrides-cfg (Phase 11 pattern, 980aed9)
+    # so PHASE_PHASE6C_VOLTARGET_ENABLED=1 can activate without cfg flip.
     _phase6c_cfg_on = bool(getattr(cfg, "volatility_targeting_enabled", False))
-    _phase6c_env_on = phase_is_enabled("phase6c_voltarget", default=False)
-    _phase6c_active = bool(_phase6c_cfg_on and _phase6c_env_on)
+    _phase6c_active = phase_is_enabled("phase6c_voltarget", default=_phase6c_cfg_on)
     _p6c_target_vol = float(max(safe_float(getattr(cfg, "vol_target_annualized", 0.12), 0.12), 1e-4))
     _p6c_lookback = int(max(int(getattr(cfg, "vol_lookback_months", 6) or 6), 3))
     _p6c_floor = float(np.clip(safe_float(getattr(cfg, "vol_scale_floor", 0.50), 0.50), 0.0, 1.0))
@@ -10077,7 +10078,11 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         apply_statement_repair=True,
         add_fundamental_flags=False,
     )
-    latest_df = hard_sanitize(latest_df, model_features + ["mktcap"], clip=1e12)
+    # Tier-0a (2026-04-22): raise mktcap clip from 1e12 ($1T) to 1e14 ($100T)
+    # so mega-caps (NVDA ~$4.3T, AAPL ~$3.7T, GOOG/AVGO ~$1.5-2T, MSFT/WMT)
+    # retain their true size. Previous 1e12 cap collapsed 11 mega-caps into
+    # one tier, destroying log_mktcap / size_saturation signal differentiation.
+    latest_df = hard_sanitize(latest_df, model_features + ["mktcap"], clip=1e14)
 
     hist = clear_latest_only_signal_columns(d)
     hist = compute_live_factor_columns(hist, cfg)
