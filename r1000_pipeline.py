@@ -11900,6 +11900,15 @@ def build_latest_standalone_sleeve_holdings(
             continue
 
         selected = selected.sort_values(["sleeve_standalone_score", "score"], ascending=[False, False]).reset_index(drop=True).copy()
+        # Tier-0c (2026-04-22): tag rows with sleeve_test so the downstream
+        # split into core_compounder_latest_standalone.csv /
+        # future_winner_latest_standalone.csv / early_scout_latest_standalone.csv
+        # at r1000_pipeline.py:14437 actually produces non-empty files.
+        # Previously these 3 files were 2 bytes (empty) because the filter
+        # `latest_standalone_sleeve_holdings["sleeve_test"]` referenced a
+        # column that build_latest_standalone_sleeve_holdings forgot to add.
+        selected["sleeve_test"] = str(sleeve)
+        selected["sleeve_role"] = SLEEVE_STANDALONE_ROLE_MAP.get(sleeve, sleeve)
         selected["rank"] = np.arange(1, len(selected) + 1)
         selected["standalone_weight"] = 1.0 / max(len(selected), 1)
         selected["weight"] = selected["standalone_weight"]
