@@ -1324,11 +1324,46 @@ def save_walkforward_progress(
     walkforward_progress_path(paths).write_text(json.dumps(payload, indent=2))
 
 
+# 2026-04-22: cfg fields that are RUNTIME-only (affect downstream comparison
+# grids or post-model composite scoring) and MUST NOT participate in
+# reuse_fingerprint. Otherwise adding any new such field invalidates cache
+# every time -> phase4_modeling rebuilds (~30-60 min) on every QUICK run,
+# defeating the entire QUICK_RESCORE design.
+#
+# Rule: include here ANY field whose change does NOT affect feature_store
+# computation or ML training inputs. Phase toggle fields, comparison-grid
+# flags, fast_mode, ab_quick_mode all qualify.
+_REUSE_FINGERPRINT_EXCLUDE: set[str] = {
+    "ab_quick_mode",
+    "fast_mode",
+    "run_comparison_backtests",
+    "run_portfolio_size_comparison",
+    "run_rebalance_interval_comparison",
+    "run_backtest_window_comparison",
+    "run_sleeve_regime_comparison",
+    "run_sleeve_cap_policy_comparison",
+    "run_standalone_sleeve_backtest_comparison",
+    "run_concentrated_backtest_comparison",
+    "run_ai_four_sleeve_comparison",
+    "run_regime_map_method_comparison",
+    # Phase 15 post-ML composite gates (downstream of cached model predictions)
+    "phase15_a1_drop_negative_features_enabled",
+    "phase15_s1a_future_prune_enabled",
+    "trailing_stop_enabled",
+    "trailing_stop_early_scout_pct",
+    "trailing_stop_future_winner_pct",
+}
+
+
 def reuse_fingerprint(cfg: EngineConfig, scope: str) -> str:
+    cfg_dict = asdict(cfg)
+    # Strip runtime-only fields so adding/changing them does not invalidate
+    # cached feature_store / ML predictions.
+    cfg_dict = {k: v for k, v in cfg_dict.items() if k not in _REUSE_FINGERPRINT_EXCLUDE}
     payload = {
         "engine_version": ENGINE_REUSE_VERSION,
         "scope": str(scope),
-        "config": asdict(cfg),
+        "config": cfg_dict,
     }
     raw = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
