@@ -205,7 +205,7 @@ def apply_fast_mode(cfg: "EngineConfig") -> "EngineConfig":
         cfg.run_portfolio_size_comparison = False
         cfg.run_rebalance_interval_comparison = False
         cfg.run_backtest_window_comparison = False
-        log("[fast_mode + ab_quick] ALL comparison grids disabled (concentrated, sleeve_cap, portfolio_size, rebalance_interval, backtest_window). Main backtest only — expected ~2-5 min.")
+        log("[fast_mode + ab_quick] ALL comparison grids disabled (concentrated, sleeve_cap, portfolio_size, rebalance_interval, backtest_window). Main backtest only - expected ~2-5 min.")
     else:
         log("[fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.")
     return cfg
