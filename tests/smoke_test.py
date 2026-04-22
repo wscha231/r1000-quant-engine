@@ -444,6 +444,31 @@ def test_phase15_r1_trailing_stop_cfg() -> None:
         "trailing_stop_future_winner_pct must default to 0.0 (opt-in for cell D)"
 
 
+@_test("structural.phase15_a1_drop_negative_features_dual_gate")
+def test_phase15_a1_dual_gate() -> None:
+    """Phase 15-A1 (2026-04-22): dual-gate for dropping 3 negative-IR features.
+
+    From research/phase15_selection_deep_audit_report.md: macro_hedge_score,
+    focus_defensive_regime_score, focus_live_event_defensive_score have
+    IR_3m in the -0.33 to -0.40 range AND are used with positive weights
+    downstream (raw negative alpha bleeds into composites). Gated at source
+    so downstream math stays intact — just multiplied by 0 when active.
+
+    Locks: cfg field default=False, env-overrides-cfg pattern at both source
+    sites (r1000_features.py macro_hedge_score; r1000_signals.py focus_*).
+    """
+    src = _combined_src()
+    assert re.search(r"^\s*phase15_a1_drop_negative_features_enabled\s*:\s*bool\s*=\s*False",
+                     src, re.MULTILINE), \
+        "phase15_a1_drop_negative_features_enabled: bool = False missing (must default False pre-ship)"
+    # Gate must use env-overrides-cfg (Phase 11 pattern, 980aed9)
+    assert src.count('phase_is_enabled("phase15_a1_drop_negative_features"') >= 2, \
+        "phase15_a1 gate must be applied at BOTH source sites (features + signals)"
+    # macro_hedge_score must be multiplied by a phase15_a1 multiplier at source
+    assert re.search(r'd\["macro_hedge_score"\]\s*=\s*\(\s*_phase15_a1_mult_feat\s*\*', src), \
+        "macro_hedge_score computation must be gated by _phase15_a1_mult_feat"
+
+
 @_test("structural.phase15_s1a_future_prune_dual_gate")
 def test_phase15_s1a_dual_gate() -> None:
     """Phase 15-S1a (2026-04-21): dual-gate for future_winner composite prune.

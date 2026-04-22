@@ -1755,6 +1755,18 @@ class EngineConfig:
     # keep their original weights (IC drag there may be offset by other
     # sleeve-specific factors, untested).
     phase15_s1a_future_prune_enabled: bool = False
+    # Phase 15-A1 (2026-04-22): drop three features with NEGATIVE rank-IC on
+    # forward_r_3m whose usage sites apply POSITIVE weights (so the raw
+    # negative alpha leaks into composites):
+    #   macro_hedge_score                  IR_3m = -0.398
+    #   focus_defensive_regime_score       IR_3m = -0.332
+    #   focus_live_event_defensive_score   IR_3m = -0.333
+    # See research/phase15_selection_deep_audit_report.md.
+    # atr14_pct also had IR -0.323 but is used as a PENALTY (subtracted) so
+    # the sign inversion makes its effective contribution positive — kept.
+    # Dual-gate: cfg flag AND env var PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED
+    # must both be truthy. Default OFF — A/B via env var.
+    phase15_a1_drop_negative_features_enabled: bool = False
     run_engine_diagnostics_report: bool = True
     engine_diagnostics_top_n: int = 7
     universe_change_warn_count: int = 10

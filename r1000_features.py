@@ -4046,7 +4046,15 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
     dividend_support = cross_sectional_robust_z(d, "dividend_policy_score").clip(lower=0.0).fillna(0.0)
     valuation_support = pd.to_numeric(d["valuation_blueprint_score"], errors="coerce").clip(lower=0.0).fillna(0.0)
     moat_support = pd.to_numeric(d["moat_quality_blueprint_score"], errors="coerce").clip(lower=0.0).fillna(0.0)
-    d["macro_hedge_score"] = (
+    # Phase 15-A1 gate: raw macro_hedge_score has IR_3m = -0.398 yet is used
+    # with positive weights downstream (archetype_defensive_value_score 0.22,
+    # strategy_blueprint_score macro_weight, macro_pillar_score row_mean).
+    # When the phase toggle is active we zero the column at source so every
+    # downstream positive-weight usage automatically gets 0 contribution.
+    _phase15_a1_cfg_feat = bool(getattr(cfg, "phase15_a1_drop_negative_features_enabled", False)) if cfg is not None else False
+    _phase15_a1_active_feat = phase_is_enabled("phase15_a1_drop_negative_features", default=_phase15_a1_cfg_feat)
+    _phase15_a1_mult_feat = 0.0 if _phase15_a1_active_feat else 1.0
+    d["macro_hedge_score"] = (_phase15_a1_mult_feat * (
         0.25 * numeric_series_or_default(d, "ai_infra_exposure", 0.0)
         + 0.25 * numeric_series_or_default(d, "power_infra_exposure", 0.0)
         + 0.20 * numeric_series_or_default(d, "defense_exposure", 0.0)
@@ -4058,7 +4066,7 @@ def compute_strategy_blueprint_columns(df: pd.DataFrame, cfg: EngineConfig) -> p
         + 0.10 * stagflation * dividend_support
         + 0.08 * np.maximum(war_oil_rate, stagflation) * valuation_support
         + 0.06 * labor_softening * moat_support
-    ).fillna(0.0)
+    )).fillna(0.0)
     d["archetype_defensive_value_score"] = (
         0.22 * cross_sectional_robust_z(d, "macro_hedge_score")
         + 0.18 * cross_sectional_robust_z(d, "valuation_blueprint_score")

@@ -2105,6 +2105,15 @@ def compute_benchmark_beating_focus_overlay(df: pd.DataFrame, cfg: EngineConfig)
     d["focus_defensive_regime_score"] = float(cfg.defensive_rotation_strength) * defensive_rotation * defensive_regime_fit
     d["focus_live_event_growth_score"] = float(cfg.live_event_alert_strength) * live_event_growth * growth_regime_fit
     d["focus_live_event_defensive_score"] = float(cfg.live_event_alert_strength) * live_event_defensive * defensive_regime_fit
+    # Phase 15-A1 gate: focus_defensive_regime_score (IR_3m=-0.332) and
+    # focus_live_event_defensive_score (IR_3m=-0.333) feed into
+    # benchmark_beating_focus_score with positive weights. Raw negative
+    # alpha bleeds in. Zero at source when toggle is active.
+    _phase15_a1_cfg_foc = bool(getattr(cfg, "phase15_a1_drop_negative_features_enabled", False)) if cfg is not None else False
+    _phase15_a1_active_foc = phase_is_enabled("phase15_a1_drop_negative_features", default=_phase15_a1_cfg_foc)
+    if _phase15_a1_active_foc:
+        d["focus_defensive_regime_score"] = pd.Series(0.0, index=d.index)
+        d["focus_live_event_defensive_score"] = pd.Series(0.0, index=d.index)
     d["focus_event_stress_penalty"] = 0.08 * np.maximum(systemic, carry_unwind) * np.clip(-benchmark_alpha_signal, 0.0, None)
     d["focus_live_event_risk_penalty"] = (
         0.60
