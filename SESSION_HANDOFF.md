@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-22 morning
+# Session Handoff — 2026-04-22 afternoon
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,9 +6,57 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-22 morning) — Phase 12 shipped, 15-S1a ablation complete
+## 🟢 LATEST STATE (2026-04-22 PM) — Tier 0/1/2 implementations shipped, A/B grid armed
 
-**Current HEAD = `e182d84`** on `master`. Pending commits on worktree for this session.
+**Current HEAD = `aba097c`** on `master`.
+
+### Massive Tier 0/1/2 ship batch (26 commits today)
+
+Foundation + gate fixes:
+- `04503fd` tier0a + gates: mktcap clip 1e12 → 1e14 (mega-caps no longer collapsed); Phase 4/6c/7a gate env-overrides-cfg (previously locked dormant since 2026-04-16)
+- `42ddce3` tier0b: SEC companyfacts int-date parsing (1970 epoch bug — 477/610 rows)
+- `5b5edac` tier0c: standalone sleeve CSVs now populate (sleeve_test column added)
+
+Speed infra:
+- `ebc0b26` --ab-quick CLI flag (disable 7 grid comparisons)
+- `b43c680` apply_fast_mode override fix (concentrated grid was forced on)
+- `fb4547f` em-dash crash fix (cp949 console)
+- `7b9dad1` reuse_fingerprint excludes runtime-only fields (no more cache invalidation when adding cfg fields)
+
+Phase 15 implementations (all default OFF, env A/B ready):
+- `dfcc07c` 15-S1a: 3 toxic factor prune (future_winner only)
+- `b002f8a` 15-S1a gate env-overrides-cfg fix
+- `2cc2a76` 15-S1a sub-toggles (per-factor ablation)
+- `6d1d848` 15-A1: drop 3 NEGATIVE-IR features (macro_hedge, focus_defensive, focus_live_event_defensive)
+- `1f6349e` 15-R1: trailing stop early_scout / future_winner (peak drawdown)
+- `abe89b0` 15-R2 + 15-R3: revision break + RS break exits
+- `aba097c` smoke locks + Tier 2 grid runner
+
+Research:
+- `21f1979` Phase 15-S1 factor IC audit (3m horizon = sweet spot, 1m near-random)
+- `53af224` 15-S1a verdict: main FAIL / concentrated PASS
+- `77d829f` selection deep audit (production score IR 0.048; 11 missed winners; 4 negative features)
+
+### A/B in flight
+`b029fgd3t` 15-A1 with --ab-quick. ONE-TIME slow rebuild (30-60min) due to fingerprint formula change in `7b9dad1`. After this completes, ALL future A/Bs are ~5min.
+
+### Tier 2 A/B grid READY (after b029fgd3t completes)
+```
+bash research/phase15_tier2_ab/run_tier2_grid.sh   # 6 cells × ~5min = ~30min
+py -3 research/phase15_tier2_ab/analyze_tier2.py    # delta + ship gate verdict per cell
+```
+Cells: A baseline / B R1 only / C R2 only / D R3 only / E all_R / F R+A1.
+
+### Known gaps still open
+- Tier 0d: r_12m coverage cliff — investigated, **NOT a bug** (forward returns naturally NaN for recent 12m). No action.
+- Tier 0e: Benchmark R1000 vs SPX — investigation pending.
+- Phase 4 / 6c A/B — gate fixed `04503fd`, ready to run once Tier 2 done.
+- Phase 7a redesign (clustered insider buying) — design pending.
+- 15-R4 weekly monitor — architectural change, not started.
+- 15-S2b core conviction lock — design needs revision (target mid-rank #8-18 per audit Finding 4).
+- 15-S1b ML target r_3m realign — needs FULL rebuild (~3h).
+- Phase 13-lite (yaml split + summary.json + recent_trades.json) — service tier, not started.
+- Phase 14 dividends — deferred.
 
 ### Ablation COMPLETE (`bbl6mkuiq` + `bhyyse6xs`)
 
