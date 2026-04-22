@@ -161,6 +161,14 @@ def parse_args() -> argparse.Namespace:
                    help=f"Drive mirror path (default: {DEFAULT_BASE_DIR!r}).")
     p.add_argument("--fast-mode", default="true", choices=["true", "false"],
                    help="fast_mode flag for collector/pipeline (default: true).")
+    p.add_argument("--ab-quick", action="store_true",
+                   help="A/B fast-iter mode: disable 7 expensive grid comparisons "
+                        "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
+                        "sleeve_cap_policy, standalone_sleeve, concentrated grid). "
+                        "Main backtest + latest concentrated champion only. "
+                        "Expected runtime ~2-5 min vs ~20-30 for default QUICK. "
+                        "NOTE: concentrated_backtest_metrics.json may be stale from prior grid run; "
+                        "use default QUICK when you need full concentrated grid A/B.")
     # Common Phase 9 toggle shortcuts
     p.add_argument("--phase9-c1", choices=["auto", "0", "1"], default="auto",
                    help="Phase 9 C1 multi_year rebalance (default: auto = on per cfg).")
@@ -500,6 +508,18 @@ def main() -> int:
         # Warm industry metadata cache on first FULL run
         pipeline_cfg["industry_metadata_max_new_per_run"] = 1200
         pipeline_cfg["industry_metadata_refresh_days"] = 60
+    if args.ab_quick:
+        # 2026-04-22: disable 7 comparison grids for fast-iter A/B runs.
+        # Main backtest + latest concentrated pick still produced.
+        # Use default QUICK (drop --ab-quick) when full grid needed.
+        pipeline_cfg["run_portfolio_size_comparison"] = False
+        pipeline_cfg["run_rebalance_interval_comparison"] = False
+        pipeline_cfg["run_backtest_window_comparison"] = False
+        pipeline_cfg["run_sleeve_regime_comparison"] = False
+        pipeline_cfg["run_sleeve_cap_policy_comparison"] = False
+        pipeline_cfg["run_standalone_sleeve_backtest_comparison"] = False
+        pipeline_cfg["run_concentrated_backtest_comparison"] = False
+        print(f"[{now_kst()}]   --ab-quick: 7 comparison grids DISABLED (fast A/B mode)")
 
     try:
         result = run_default_pipeline(pipeline_cfg)
