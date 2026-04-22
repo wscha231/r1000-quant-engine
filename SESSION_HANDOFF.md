@@ -10,23 +10,31 @@
 
 **Current HEAD = `b4e3bab`** on `master`. 41 commits today.
 
-### ⚠️ **NEXT-AGENT PRIORITY** — Baseline regression investigation
+### ✅ UPDATE (evening `bl49bkdrv` full QUICK complete)
+
+**--ab-quick bug identified + actual regression is manageable**:
 
 ```
-OLD baseline (2026-04-21 morning, b0r5er6bz):  CAGR 22.95%
-NEW baseline (2026-04-22 evening, bi4d0bmfu):  CAGR 16.08%  (-6.87pp!)
+OLD baseline (b0r5er6bz):              CAGR 22.95% / Conc 33.17%
+--ab-quick baseline (bi4d0bmfu, bad):  CAGR 16.08% / Conc NaN (degenerate)
+Full QUICK baseline (bl49bkdrv, good): CAGR 19.78% / Conc 30.92%
 ```
 
-Suspected cause: the caching / retrain chain of 2026-04-22 today contaminated
-the ML model state. Possibly:
-- br1ldkl6w ML retraining was done with `PHASE_PHASE15_A1_DROP_NEGATIVE_FEATURES_ENABLED=1`
-  set in env. This means macro_hedge_score = 0 during training, baking a
-  wrong assumption into the model.
-- Or Tier 0a mktcap clip change (1e12 → 1e14) affected mega-cap scoring.
+**Root cause of perceived catastrophic regression**: --ab-quick mode
+disables concentrated grid → sleeve_cap_policy champion selection fails
+→ main blend construction cascaded degradation. Not a real alpha regression;
+a bug in the A/B-quick mode.
 
-**Action**: revert Tier 0a + rebuild ML from scratch (FULL mode ~3h), then
-re-measure baseline. OR: delete feature_store + scored_oos caches and rebuild
-from scratch WITH clean env vars (no 15-A1).
+**Actual regression is -3.17pp main / -2.25pp concentrated**, consistent
+with normal data drift + Tier 0 mktcap cap change + ML retrain. Not catastrophic.
+
+### ⚠️ Next-agent priority (revised)
+
+1. **--ab-quick mode fix** — preserve at minimum 1 concentrated combo + sleeve_cap_policy champion so main blend stays valid. All 9-cell grid results from `b4e3bab` invalid (used broken --ab-quick baseline).
+2. **Rerun 9-cell grid on Full QUICK baseline** — each cell ~20-30min × 9 = 3-4 hours. OR cherry-pick most-likely cells only.
+3. **15-A1 FULL rebuild** — test feature-store-level change properly (~3h).
+4. **Investigate -3pp drift**: is it Tier 0a mktcap cap? Revert in isolation to confirm.
+5. **15-S1b ML target r_3m** — biggest expected lift per deep audit (~3h FULL).
 
 ### Tier 2 grid verdict (9-cell, `b4e3bab`)
 See `research/phase15_tier2_ab/VERDICT_OVERNIGHT.md`.
