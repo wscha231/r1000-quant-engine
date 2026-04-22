@@ -2098,8 +2098,20 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
                 for item in vals:
                     if not isinstance(item, dict):
                         continue
-                    end = pd.to_datetime(item.get("end"), errors="coerce")
-                    filed_at = pd.to_datetime(item.get("filed"), errors="coerce")
+                    # Tier-0b (2026-04-22): SEC companyfacts JSON occasionally returns
+                    # period/filed as int 20251231 (YYYYMMDD) rather than ISO string.
+                    # pd.to_datetime() interprets int as NANOSECONDS, producing
+                    # Timestamp('1970-01-01 00:00:00.020251231') — 477/610 bad rows
+                    # observed in scored_latest.csv. Coerce int -> str so the
+                    # YYYYMMDD format is parsed correctly.
+                    _end_raw = item.get("end")
+                    if isinstance(_end_raw, (int, np.integer)):
+                        _end_raw = str(_end_raw)
+                    end = pd.to_datetime(_end_raw, errors="coerce")
+                    _filed_raw = item.get("filed")
+                    if isinstance(_filed_raw, (int, np.integer)):
+                        _filed_raw = str(_filed_raw)
+                    filed_at = pd.to_datetime(_filed_raw, errors="coerce")
                     val = safe_float(item.get("val"))
                     if pd.isna(end) or pd.isna(filed_at) or not np.isfinite(val):
                         continue
