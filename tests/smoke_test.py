@@ -418,6 +418,46 @@ def test_phase9_dual_gate() -> None:
     )
 
 
+@_test("structural.phase15_r2_revision_break_cfg_fields")
+def test_phase15_r2_cfg() -> None:
+    """Phase 15-R2 revision break exit: default OFF + env-overrides-cfg.
+
+    Locks: cfg fields exist with default False, gate uses env override
+    pattern (phase_is_enabled with default=cfg_value), tracker dict and
+    streak threshold are wired in backtest_portfolio.
+    """
+    src = _combined_src()
+    assert re.search(r"^\s*revision_break_exit_enabled\s*:\s*bool\s*=\s*False",
+                     src, re.MULTILINE), \
+        "revision_break_exit_enabled missing or not default False"
+    assert re.search(r"^\s*revision_break_consecutive_months\s*:\s*int\s*=\s*\d+",
+                     src, re.MULTILINE), \
+        "revision_break_consecutive_months field missing"
+    assert 'phase_is_enabled("phase15_r2_revision_break"' in src, \
+        "phase15_r2_revision_break gate must be wired via phase_is_enabled"
+    assert "revision_break_streak" in src, \
+        "revision_break_streak tracker dict must exist in backtest_portfolio"
+
+
+@_test("structural.phase15_r3_rs_break_cfg_fields")
+def test_phase15_r3_cfg() -> None:
+    """Phase 15-R3 stock RS break exit: default OFF + env-overrides-cfg."""
+    src = _combined_src()
+    assert re.search(r"^\s*rs_break_exit_enabled\s*:\s*bool\s*=\s*False",
+                     src, re.MULTILINE), \
+        "rs_break_exit_enabled missing or not default False"
+    assert re.search(r"^\s*rs_break_min_peak_pctile\s*:\s*float\s*=",
+                     src, re.MULTILINE), \
+        "rs_break_min_peak_pctile field missing"
+    assert re.search(r"^\s*rs_break_drop_to_pctile\s*:\s*float\s*=",
+                     src, re.MULTILINE), \
+        "rs_break_drop_to_pctile field missing"
+    assert 'phase_is_enabled("phase15_r3_rs_break"' in src, \
+        "phase15_r3_rs_break gate must be wired via phase_is_enabled"
+    assert "rs_break_max_pctile" in src, \
+        "rs_break_max_pctile tracker dict must exist in backtest_portfolio"
+
+
 @_test("structural.phase15_r1_trailing_stop_cfg_fields")
 def test_phase15_r1_trailing_stop_cfg() -> None:
     """Phase 15-R1 (2026-04-21): trailing stop config fields + safe defaults.
