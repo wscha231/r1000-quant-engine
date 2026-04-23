@@ -74,10 +74,14 @@
 
 **A1. Regime detection + dynamic signal blend** (new priority #1)
 - **2022/2026 -5pp 손해 문제 직접 대응**
-- bull regime (VIX<20, breadth>50%, SPY above MA200): 모멘텀 full weight
-- bear/reversal regime (drawdown >10%, breadth collapse, fear_greed extreme): **quality + low-vol 시프트**
-- 현재 Phase 4 regime multipliers는 sleeve 가중치만 조정 — 더 공격적 필요
-- 시간: 6-8h + FULL A/B
+- **진단 (2026-04-23)**: 현재 Phase 4 SLEEVE_FACTOR_REGIME_MULTIPLIERS의 "balanced" regime multiplier = **1.00** (no-op). 2022 bear + 2026 YTD 둘 다 "balanced" 라벨 유지 추정 → Phase 4 보호 기능 **한 번도 안 켜짐**.
+- **원인**: 현재 regime taxonomy가 **event-based** (war / stagflation / systemic_crisis) 이고 **market-cycle-based가 아님**. Bull/bear/turn labels 없음.
+- **Fix plan**:
+  1. 새 `market_cycle_regime` label: bull_trending / bull_peaking / bear_falling / bear_bottoming / recovery / sideways / stagflation
+  2. Detector inputs: VIX (z-score 63d), breadth (% above MA200), SPY drawdown, SPY MA200 relation, credit spreads, fear_greed composite
+  3. New multiplier table: bear_falling = core ↑, future/early ↓ (방어). recovery = early ↑ (early leaders 잡기)
+  4. Phase 4 activate + 기존 event_regime과 **AND** (둘 다 만족 시 적용)
+- 시간: 8-10h (detector 6h + multiplier tuning 2h + FULL A/B ~3h)
 
 **A2. Tier 0a mktcap 원복 테스트**
 - 1e14 → 1e12 원복, baseline 재측정
