@@ -151,6 +151,7 @@ def _annotate_positions_with_phases(
 def run_daily_review(
     positions_source: str = "alpaca",
     positions_json_path: Optional[Path] = None,
+    scan_universe_source: str = "r1000",   # dynamic R1000 (no hardcoded)
     scan_min_score: float = 60.0,
     scan_top_n: int = 15,
     dry_run: bool = False,
@@ -177,6 +178,7 @@ def run_daily_review(
     candidates = scan(
         tickers=None,
         theme_filter=None,
+        universe_source=scan_universe_source,
         min_tech_score=scan_min_score,
         top_n=scan_top_n,
         verbose=False,
@@ -333,6 +335,9 @@ def main() -> int:
                    default="alpaca", help="where to load positions from")
     p.add_argument("--positions-json", type=str, default="",
                    help="path to positions JSON (if source=json)")
+    p.add_argument("--universe", choices=["r1000", "themes", "custom"],
+                   default="r1000",
+                   help="universe source (default r1000 live from iShares IWB)")
     p.add_argument("--min-score", type=float, default=60.0)
     p.add_argument("--top", type=int, default=15)
     p.add_argument("--dry-run", action="store_true", help="skip Telegram alerts")
@@ -342,6 +347,7 @@ def main() -> int:
     run_daily_review(
         positions_source=args.positions_source,
         positions_json_path=json_path,
+        scan_universe_source=args.universe,
         scan_min_score=args.min_score,
         scan_top_n=args.top,
         dry_run=args.dry_run,

@@ -54,6 +54,7 @@ from aggressive.signals_technical import (
     sma,
     slope_pct,
 )
+from aggressive.universe import load_universe
 from r1000_themes import (
     classify_theme_phase,
     compute_theme_aggregates,
@@ -95,6 +96,7 @@ class ScannerCandidate:
     rationale: str = ""
     metrics: dict[str, float] = field(default_factory=dict)
     trade_card: Optional[TradeCard] = None   # B3: complete entry plan
+    is_unknown_theme: bool = False           # not in themes.yaml = emerging candidate
 
 
 # --- Per-ticker stats (for theme aggregation) -------------------------------
@@ -145,41 +147,67 @@ def _compute_ticker_stats(df: pd.DataFrame, spy_df: pd.DataFrame) -> dict[str, f
 def scan(
     tickers: Optional[list[str]] = None,
     theme_filter: Optional[list[str]] = None,
+    universe_source: str = "r1000",       # 'r1000' | 'themes' | 'custom'
     min_tech_score: float = 50.0,
     top_n: int = 20,
     verbose: bool = True,
 ) -> list[ScannerCandidate]:
-    """Run full early-entry scan.
+    """Run full early-entry scan - universe-agnostic.
 
     Args:
-        tickers: explicit list; if None, use all theme members
-        theme_filter: restrict to these themes only
+        tickers: explicit list; overrides universe_source
+        theme_filter: restrict universe to these themes (fallback mode)
+        universe_source: 'r1000' (iShares IWB live, full ~1000 tickers)
+                         'themes' (themes.yaml members only, legacy)
+                         'custom' (must supply tickers kwarg)
         min_tech_score: filter out candidates below this tech score
         top_n: return top N by final_score
-        verbose: print progress
 
-    Returns list of ScannerCandidate, sorted by final_score descending.
+    Design:
+      - universe comes from dynamic source (default: R1000 via iShares)
+      - themes.yaml is used for ANNOTATION only (phase multiplier)
+      - tickers NOT in themes.yaml get phase='unknown', multiplier=1.0
+      - 'unknown' tickers with strong signals = emerging theme candidates
     """
     cfg = load_agg_config()
-    themes = load_themes()
-    if not themes:
-        raise RuntimeError("themes.yaml failed to load")
-
-    ticker_to_themes = map_tickers_to_themes(themes)
+    themes = load_themes()                 # annotation source, NOT universe gate
+    ticker_to_themes = map_tickers_to_themes(themes) if themes else {}
 
     # Build universe
-    if tickers is None:
-        if theme_filter:
-            selected = set()
+    if tickers is not None:
+        universe_meta = {"source_used": "explicit", "count": len(tickers)}
+    elif theme_filter:
+        # Legacy: filter to specific themes only
+        selected: set[str] = set()
+        if themes:
             for tn in theme_filter:
                 if tn in themes:
                     selected |= themes[tn]["tickers"]
-            tickers = sorted(selected)
-        else:
-            tickers = sorted(ticker_to_themes.keys())
+        tickers = sorted(selected)
+        universe_meta = {"source_used": "theme_filter", "count": len(tickers)}
+    else:
+        # Primary path: dynamic universe (default R1000)
+        tickers, universe_meta = load_universe(universe_source)
+        if not tickers and universe_source == "r1000":
+            # IWB fetch failed — legacy fallback
+            if themes:
+                tickers = sorted(ticker_to_themes.keys())
+                universe_meta = {"source_used": "themes_fallback",
+                                 "count": len(tickers),
+                                 "warning": "R1000 fetch failed; using themes.yaml"}
+
+    if not tickers:
+        raise RuntimeError(
+            f"Empty universe. source={universe_source}, themes={len(themes)}"
+        )
 
     if verbose:
-        print(f"[scan] universe: {len(tickers)} tickers across {len(themes)} themes")
+        print(f"[scan] universe: {len(tickers)} tickers "
+              f"(source: {universe_meta.get('source_used', '?')}) "
+              f"| annotation themes: {len(themes)}")
+        unknown_count = sum(1 for t in tickers if t not in ticker_to_themes)
+        print(f"[scan] theme-known: {len(tickers) - unknown_count}  "
+              f"unknown-theme: {unknown_count}")
 
     # Fetch SPY benchmark once
     spy_df = fetch_spy_benchmark(days=260)
@@ -293,6 +321,7 @@ def scan(
                 "rs_benchmark_3m": stats.get("rs_benchmark_3m", float("nan")),
             },
             trade_card=trade_card,
+            is_unknown_theme=len(themes_of_t) == 0,
         )
         candidates.append(cand)
 
@@ -339,6 +368,19 @@ def print_report(candidates: list[ScannerCandidate]) -> None:
               f"$vol=${dv:.0f}M/day")
         if c.trade_card:
             print(f"    {format_trade_card_brief(c.trade_card)}")
+
+    # Unknown-theme emerging-signal spotlight
+    unknowns = [c for c in candidates if c.is_unknown_theme and not c.disqualified]
+    if unknowns:
+        print()
+        print(f"Unknown-theme candidates (not in themes.yaml - possible emerging themes): "
+              f"{len(unknowns)}")
+        for c in unknowns[:10]:
+            mom_1m = c.metrics.get("mom_1m", float("nan"))
+            print(f"  * {c.ticker:<6} score={c.final_score:.0f} "
+                  f"[T{c.best_tier}] mom_1m={mom_1m:+.1f}%")
+            if c.trade_card:
+                print(f"    {format_trade_card_brief(c.trade_card)}")
 
 
 def save_report(candidates: list[ScannerCandidate]) -> Path:
