@@ -119,20 +119,47 @@ exit condition = stock RS break OR theme_exit_trigger
 
 When theme ends → exit all theme-tagged holdings immediately (not wait for next rebal).
 
-## 6. Ship gate for Phase 16
+## 6. Target: CAGR 100% (user-set, 2026-04-23)
 
-| Metric | Baseline | Phase 16 target | Stretch |
+### 6.1 Math
+- 100% CAGR = 매월 +5.95%, $100k → $11.8M over 83 months (118x)
+- vs 역사적 개별 최고: LRCX CAGR 48%, NVDA CAGR 41%, LITE CAGR 39% (single best stocks over 83m)
+- **단일 최고 주식도 CAGR 50%가 ceiling** → 포트폴리오 100% = 극한 stretch
+
+### 6.2 100% 달성 path (3 options)
+
+| Option | 방식 | CAGR 예상 | Risk |
 |---|---|---|---|
-| Main CAGR | 19.78% | 25% | 30% |
-| Concentrated CAGR | 30.92% | 40% | 50% |
-| MaxDD main | -27.75% | -22% | -20% |
-| Sharpe | 1.02 | 1.15 | 1.25 |
+| **A. Pure theme rotation** | N=3 concentrated + 완벽 entry/exit + cash | 60-80% (일부 연도 100%+) | MaxDD -40%+ |
+| **B. Leverage only** | 기본 30-40% + 2x ETF | 80-100% in bull, -50-70% in bear | 복구 어려움 |
+| **C. A + B 혼합 + regime gates** | N=3 + theme timing + 1.5-2x leverage + bull-only | 90-120% in bull years | -50-60% in bear |
 
-**100% CAGR realism**: concentrated with N=3 perfect-theme-timing is theoretically achievable on paper but:
-- Would require perfect theme-entry AND theme-exit timing
-- Sample size concern (3 names × perfect picks = high variance)
-- Real-world slippage + taxes not modeled
-- **Realistic concentrated goal: 45-55% CAGR with theme-aware selection**
+**현실적 path**: Option A 먼저, 60-80% 확인 → Option C로 leverage 추가 (Phase 17).
+
+### 6.3 Ship gate (tiered)
+
+| 시점 | Tier | Main CAGR | Concentrated CAGR | Sharpe | MaxDD |
+|---|---|---|---|---|---|
+| 현재 baseline | - | 19.8% | 30.9% | 1.02 | -28% |
+| Week 2 (Phase 16 초기) | Conservative | 25% | 40% | 1.15 | -25% |
+| Week 3 (threshold tuning) | Realistic | 30% | 50% | 1.20 | -30% |
+| **Phase 16 최종** | **Aggressive** | **35%** | **60-80%** | 1.20 | -35% |
+| Phase 17 + leverage (future) | Stretch | 40% | 80-120% | 1.15 | -50% |
+
+### 6.4 핵심 성공 조건
+
+1. **Theme early 진입**: phase=early → phase=maturing 전환 시 매수
+2. **Theme peaking/ending 즉시 exit**: breadth peak + acceleration 음전환
+3. **Regime turn 감지 + cash 대피**: 2022/2026 같은 상황 반복 방지
+4. **Concentrated N=3**: N=5 champion 33% → N=3은 45%+ 가능성
+5. **Multi-theme 분산**: AI + Energy + Health 3 테마 교차 entry
+
+### 6.5 Risk 관리
+
+- N=3 concentrated → variance 극심 (1 종목 -30% = 포트 -10%)
+- 따라서 **trailing stop -10-15%** 동시 사용 (Phase 15-R1 강화)
+- Theme-level stop도 병렬 (Phase 16 exit_trigger)
+- **2중 안전장치**: stock-level + theme-level
 
 ## 7. Implementation plan (2-3 weeks)
 
@@ -180,3 +207,25 @@ When theme ends → exit all theme-tagged holdings immediately (not wait for nex
 - `PHASE_16_THEMES_PROPOSAL.md` — this doc
 - Future: `r1000_themes.py` (loader + aggregate computation)
 - Future: `research/phase16_theme_retrospective/*` (validation)
+- Future Phase 17: leverage overlay (2x ETF + regime gates)
+
+## Phase 17 preview — Leverage overlay (100% CAGR 달성 key)
+
+After Phase 16 theme rotation validated at 60-80% CAGR, Phase 17 adds:
+
+```
+cfg.leverage_factor: float = 1.0     # default no leverage
+cfg.leverage_enabled_regime: list = ['bull_strong']
+cfg.leverage_max_when_active: float = 2.0
+cfg.leverage_deleverage_trigger: str = 'regime_turn'  # immediate 1.0x
+```
+
+- Bull regime + theme maturing + breadth > 60% → 1.5-2x leverage via TQQQ/UPRO
+- Regime turn detected → immediate deleverage to 1.0x + cash buffer
+- Bear regime → 0x (100% cash or inverse SPY/QQQ)
+- **단계적 접근**: paper trade 3개월 → live small position → scale up
+
+## 100% target realism
+- Theme-run 단위로는 역사적 사례 다수 (AI 2023-24, COVID 2020)
+- 다년 평균 100% = extreme (지금까지 최고 장기 투자자도 40-50% 대)
+- **계획적 목표**: Phase 16로 50-70% 확정 → Phase 17로 leverage 조합 90-120% bull year 달성
