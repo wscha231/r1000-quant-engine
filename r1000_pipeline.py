@@ -14988,6 +14988,45 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational.to_csv(portfolio_path, index=False)
     scored_latest.to_csv(scored_path, index=False)
+
+    # Phase 16-lite (2026-04-23): market leaders output — user '주도주 파악' request.
+    # Engine computes 3 leader scores (oneil / dynamic / emergence) per ticker but
+    # they're buried in scored_latest. Surface the top-30 by composite AND flag
+    # which are/aren't in current portfolio so the user can see the gap
+    # (e.g. LITE +1056% mom_12m but not in portfolio, CIEN +568% missed, etc.).
+    # This is service-tier infrastructure — no alpha impact.
+    try:
+        _leaders_path = paths["out"] / "market_leaders_latest.csv"
+        if not scored_latest.empty:
+            _ld = scored_latest.copy()
+            for _c in ("oneil_leadership_score", "dynamic_leader_score", "leader_emergence_score"):
+                if _c not in _ld.columns:
+                    _ld[_c] = 0.0
+            _ld["leader_composite"] = _ld[[
+                "oneil_leadership_score", "dynamic_leader_score", "leader_emergence_score"
+            ]].apply(pd.to_numeric, errors="coerce").fillna(0.0).mean(axis=1)
+            _ld_top = _ld.sort_values("leader_composite", ascending=False).head(30).copy()
+            _port_map = dict(zip(
+                portfolio_latest.get("ticker", pd.Series(dtype=str)).astype(str).str.upper(),
+                pd.to_numeric(portfolio_latest.get("weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+            )) if not portfolio_latest.empty else {}
+            _ld_top["in_portfolio"] = _ld_top["ticker"].astype(str).str.upper().isin(_port_map.keys())
+            _ld_top["portfolio_weight"] = _ld_top["ticker"].astype(str).str.upper().map(_port_map).fillna(0.0)
+            _ld_cols = [c for c in [
+                "ticker", "Name", "sector", "industry", "industry_group",
+                "mktcap", "leader_composite",
+                "oneil_leadership_score", "dynamic_leader_score", "leader_emergence_score",
+                "mom_1m", "mom_3m", "mom_6m", "mom_12m", "mom_24m",
+                "rs_industry_12m", "rs_benchmark_12m", "rs_sector_6m",
+                "score", "portfolio_sleeve_label",
+                "in_portfolio", "portfolio_weight"
+            ] if c in _ld_top.columns]
+            _ld_top[_ld_cols].to_csv(_leaders_path, index=False)
+            n_in = int(_ld_top["in_portfolio"].sum())
+            log(f"[Phase 16-lite] market_leaders_latest.csv: top 30 leaders, {n_in}/30 in current portfolio")
+    except Exception as exc:
+        log(f"[Phase 16-lite] market_leaders build failed: {exc}")
+
     if bool(cfg.export_extended_outputs):
         full_rank.to_csv(full_rank_path, index=False)
         partial_watchlist.to_csv(partial_watchlist_path, index=False)
