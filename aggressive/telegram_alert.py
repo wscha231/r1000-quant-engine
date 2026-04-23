@@ -27,8 +27,14 @@ Setup:
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+# Allow direct execution: `py -3 aggressive/telegram_alert.py`
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests  # already a dependency in 정석
 
