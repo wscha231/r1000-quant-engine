@@ -154,6 +154,7 @@ def run_daily_review(
     scan_universe_source: str = "r1000",   # dynamic R1000 (no hardcoded)
     scan_min_score: float = 60.0,
     scan_top_n: int = 15,
+    run_theme_discovery: bool = False,     # Phase 18A: weekly cron
     dry_run: bool = False,
     verbose: bool = True,
 ) -> dict:
@@ -205,6 +206,21 @@ def run_daily_review(
         if c.trade_card and c.trade_card.entry_status == "READY" and not c.disqualified
     ]
 
+    # 5b. Phase 18A - Theme auto-discovery (only when requested, slow operation)
+    theme_proposals: list[dict] = []
+    if run_theme_discovery:
+        try:
+            from aggressive.theme_discovery import discover_themes
+            if verbose:
+                print("[review] running theme discovery (Phase 18A)...")
+            props = discover_themes(universe_source=scan_universe_source,
+                                    verbose=False)
+            theme_proposals = [asdict(p) for p in props]
+            if verbose:
+                print(f"[review] theme discovery: {len(props)} emerging proposals")
+        except Exception as exc:
+            print(f"[review] theme discovery failed: {exc}")
+
     # 6. Output
     result = {
         "timestamp": datetime.now().isoformat(),
@@ -216,6 +232,7 @@ def run_daily_review(
         "all_candidates": [
             _candidate_to_dict(c) for c in candidates
         ],
+        "theme_proposals": theme_proposals,
     }
 
     # 7. Save
@@ -340,6 +357,8 @@ def main() -> int:
                    help="universe source (default r1000 live from iShares IWB)")
     p.add_argument("--min-score", type=float, default=60.0)
     p.add_argument("--top", type=int, default=15)
+    p.add_argument("--discover-themes", action="store_true",
+                   help="also run Phase 18A theme discovery (slow, weekly)")
     p.add_argument("--dry-run", action="store_true", help="skip Telegram alerts")
     args = p.parse_args()
 
@@ -350,6 +369,7 @@ def main() -> int:
         scan_universe_source=args.universe,
         scan_min_score=args.min_score,
         scan_top_n=args.top,
+        run_theme_discovery=args.discover_themes,
         dry_run=args.dry_run,
     )
     return 0
