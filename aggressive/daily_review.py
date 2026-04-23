@@ -155,7 +155,8 @@ def run_daily_review(
     scan_min_score: float = 60.0,
     scan_top_n: int = 15,
     run_theme_discovery: bool = False,     # Phase 18A: weekly cron
-    dry_run: bool = False,
+    execute: bool = False,                  # Phase B6: place real paper orders
+    dry_run: bool = False,                  # skip Telegram alerts
     verbose: bool = True,
 ) -> dict:
     """Execute full daily review pass.
@@ -249,7 +250,41 @@ def run_daily_review(
     # 8. Print summary
     _print_summary(positions, exit_decisions, ready_candidates, candidates)
 
-    # 9. Telegram digest (if not dry-run)
+    # 8b. Execute orders (Phase B6 - dry-run by default for safety)
+    exec_summary_dict: dict = {}
+    if ready_candidates or any(d.action != "HOLD" for d in exit_decisions):
+        from aggressive.executor import run_execution, format_summary, send_execution_digest
+        from aggressive.position_sizing import build_sizing_plan
+
+        # Build sizing plan from ready candidates only
+        sizing_plan = build_sizing_plan(
+            ready_candidates,
+            capital_usd=cfg.alpaca_capital_usd,
+            regime="balanced",     # TODO: plug regime detector
+            max_positions=cfg.portfolio_n,
+        )
+
+        if verbose:
+            mode = "LIVE" if execute else "DRY-RUN"
+            print(f"[review] executing ({mode})...")
+
+        exec_summary = run_execution(
+            sizing_plan=sizing_plan,
+            exit_decisions=exit_decisions,
+            dry_run=not execute,
+        )
+        exec_summary_dict = asdict(exec_summary)
+        result["execution"] = exec_summary_dict
+
+        if verbose:
+            print()
+            print(format_summary(exec_summary))
+
+        # Telegram exec digest
+        if not dry_run:
+            send_execution_digest(exec_summary)
+
+    # 9. Telegram daily-review digest (always, if not dry-run)
     if not dry_run:
         _send_telegram_digest(exit_decisions, ready_candidates)
 
@@ -359,6 +394,8 @@ def main() -> int:
     p.add_argument("--top", type=int, default=15)
     p.add_argument("--discover-themes", action="store_true",
                    help="also run Phase 18A theme discovery (slow, weekly)")
+    p.add_argument("--execute", action="store_true",
+                   help="PLACE REAL paper orders (default: dry-run log only)")
     p.add_argument("--dry-run", action="store_true", help="skip Telegram alerts")
     args = p.parse_args()
 
@@ -370,6 +407,7 @@ def main() -> int:
         scan_min_score=args.min_score,
         scan_top_n=args.top,
         run_theme_discovery=args.discover_themes,
+        execute=args.execute,
         dry_run=args.dry_run,
     )
     return 0
