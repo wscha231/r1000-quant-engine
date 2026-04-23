@@ -1,262 +1,199 @@
-# Master Plan — r1000 Quant Engine (2026-04-22 PM)
+# Master Plan v3 — r1000 Quant Engine (2026-04-23)
 
-**Goal**: Main 22.95% → **25%**, Concentrated 33.17% → **40%** CAGR.
-Subscription-ready service tier (정석 무료 + 성장주 유료).
+**Core goal**: Main 19.78% → **25%**, Concentrated 30.92% → **40%**. Subscription service readiness.
 
----
+## 📊 CRITICAL: Regime-turn weakness (newly quantified 2026-04-23)
 
-## 0. 현재 상태 — Where we are
+| 연도 | Engine | Bench | Excess | 비고 |
+|---|---|---|---|---|
+| 2019-2024 | 14~46% | 13~22% | +1~+24pp | 대부분 outperform |
+| **2022 bear** | **-15.3%** | -9.4% | **-5.9pp** 🔴 | Mom 전략 약점 |
+| 2025 | 20.4% | 16.4% | +4.1pp | ok |
+| **2026 YTD** | **-4.0%** | -1.4% | **-2.7pp** 🔴 | **지금 underperform** |
 
-### 오늘까지 완료 (34+ commits, 2026-04-22)
+**Engine structural weakness**: **Regime-turn에서 last-out**. 강세 regime에서 +20pp 초과, bear/reversal에서 -5pp 이상 손해. Beat-ratio 54% (절반 승률) → 초과수익은 outlier 강세 달에 편중.
 
-**Tier 0 — Foundation 데이터 정합성** ✅
-- `04503fd` mktcap 1e12 cap 해제 → mega-cap (NVDA $4T, AAPL $3.7T) 분리
-- `42ddce3` 1970 epoch dates fix (SEC int-date 파싱)
-- `5b5edac` Empty standalone CSV (sleeve_test 컬럼)
-- Tier 0d (r_12m cliff) 조사완료 — bug 아님
-- Tier 0e (R1000 vs SPX benchmark) — defer
-
-**Tier 1 — 게이트 fix (버려진 phase 회수)** ✅
-- `04503fd` Phase 4/6c/7a 게이트 env-overrides-cfg (Phase 11 fix 패턴)
-- 새 cfg field 추가가 fingerprint 무효화 → cache rebuild
-- `7b9dad1` reuse_fingerprint EXCLUDE list (runtime-only fields)
-
-**Tier 2 — Exit discipline 구현** ✅ (default OFF, A/B ready)
-- `1f6349e` 15-R1 trailing stop (peak drawdown, per-sleeve)
-- `abe89b0` 15-R2 revision break exit (N개월 연속 negative)
-- `abe89b0` 15-R3 stock RS break exit (top decile → bottom 30%)
-
-**Tier 3 — Selection 강화 (부분)** ✅ (default OFF, A/B ready)
-- `dfcc07c` 15-S1a 3-factor toxic prune (future_winner only)
-- `2cc2a76` 15-S1a sub-toggles (per-factor ablation)
-- `6d1d848` 15-A1 negative-IR feature drop (3개)
-- `aba097c` 9-cell A/B grid harness
-
-**Phase 13-lite — Subscription 인프라** ✅
-- `80e0869` concentrated CSV enrichment (Phase 12A 패턴)
-- `80e0869` current_portfolio_summary.json + concentrated 동일
-- `a34d407` recent_trades.json (last-90d 트레이드 이벤트)
-
-**Research deliverables** ✅
-- `21f1979` future_winner factor IC audit (3m horizon = sweet spot)
-- `77d829f` 종목 선별 deep audit (production score IR 0.048, 11 missed winners)
-- `53af224` 15-S1a A/B verdict (main FAIL / concentrated PASS)
-- `ac95d22` ablation verdict (drop_ub best single, FT 91% of conc gain)
-
-### 진행 중
-- A/B `b029fgd3t` — fingerprint 변경 → cache rebuild 진행 (15:19~16:20 예상)
+**User 검증한 직감** (오늘 대화):
+- "이미 오른 거 사는 경향" ← deep audit: top-10 trailing 36m return +63.6% vs universe +38.1%
+- "종목 안 바뀐다" ← 모멘텀 엔진은 의도적 persistence
+- "비중 더 다양하게" ← weight cap 14%에 NVDA/GOOGL 막힘 + score IR 0.048이라 변별력 부족
 
 ---
 
-## 1. 다음 즉시 (A/B 완료 직후 ~1시간)
+## 0. 현재 상태
 
-### 1.1 자동 실행 (코드 작성 0)
+**43+ commits (2026-04-22 일일)**. HEAD: `a09eab5`.
 
-```bash
-# Tier 2 grid (9 cells, ~45min)
-bash research/phase15_tier2_ab/run_tier2_grid.sh
-py -3 research/phase15_tier2_ab/analyze_tier2.py
-```
+### 오늘 (2026-04-23) 진행 중
+- `byo9l9idw` full collector + pipeline run (~1시간)
 
-9 cells:
-- A baseline / B R1 / C R2 / D R3 / E all_R / F R+A1
-- G P4 (regime sleeve weights) / H P6c (vol target) / I full_stack
+### 실행된 code changes (all default OFF)
+- Tier 0 a/b/c 데이터 fix (mktcap, 1970 dates, standalone CSVs)
+- Phase 4/6c/7a gate env-override 수정
+- 15-A1, 15-S1a (+ sub-toggles), 15-R1, 15-R2, 15-R3 구현
+- Phase 13-lite (concentrated enrichment + summary JSONs + recent_trades)
+- --ab-quick CLI (BUG: concentrated grid 끄면 main blend 붕괴)
+- reuse_fingerprint runtime-only 제외
 
-### 1.2 결과 분석 → ship 결정
-- ship gate 통과한 phase의 cfg default를 True로 flip
-- 또는 default OFF 유지하고 env opt-in만 지원
-
-### 1.3 즉시 ship 가능 (검증 후)
-- 15-A1 negative features drop (data IR -0.33~-0.40 명백한 noise)
-- Phase 4 regime sleeve weights (만약 PASS)
-- Phase 6c vol targeting (만약 MaxDD 개선)
-- 15-R1/R2/R3 (만약 cell PASS)
+### A/B 결과 (어제)
+- 9-cell Tier 2 grid: **--ab-quick 버그로 결과 invalid**
+- 15-A1: cache reuse로 **feature-store 재빌드 안 됨** → A/B invalid
+- Phase 4 -0.25pp FAIL (but --ab-quick 문제 혼재 가능성)
+- Phase 6c zero delta (dormant, safe ship)
 
 ---
 
-## 2. 단기 (이번 주, 코드 ~10h)
+## 1. 🔴 Errors discovered (summary)
 
-### 2.1 Phase 7a 재설계 — Clustered insider buying
-- 현재: insider_flow_signal_score (단발 매수도 포함, IC 약함)
-- 신규: C-suite + 같은 주 3명 이상 + 단순 옵션 매도 제외
-- 데이터 이미 있음: `sec_form345_*` columns
-- 예상 ΔCAGR: +0.3~0.8pp
-- 시간: 3-4h
+### A/B infrastructure (Critical)
+1. --ab-quick 모드 → sleeve_cap_policy champion 선택 실패 → main blend 붕괴
+2. cache reuse 전략이 feature-store-level phases에 부적합 (15-A1 등)
+3. cfg field 추가마다 fingerprint 변경 → one-time slow rebuild (7b9dad1로 해결)
 
-### 2.2 15-S4 Sleeve-specific rebalance grid
-- 현재 default: core 1m / future 2m / early 1m
-- A/B grid: core {1m, 3m, 6m} × future {1m, 2m, 3m} × early {1m}
-- = 9 combinations × ~5min = 45min A/B
-- 예상 ΔCAGR: +0.3~1pp (compounder 회전 절감)
+### Alpha / signal (Critical)
+4. Production `score` IR 0.048 — 거의 랜덤
+5. 11개 mid-cap winner 완전 누락 (KLAC +1458%, MPWR, XPO, MU, AXON ...)
+6. 엔진이 "이미 오른 거" 사는 편향 (+63.6% trailing 36m)
+7. **Regime-turn에서 구조적 -5pp 이상 손해** (2022, 2026 YTD)
 
-### 2.3 15-S2b conviction multiplier 튜닝
-- 기존 `cfg.conviction_hold_seed_bonus = 0.35`
-- A/B at 0.70 (2x), 1.05 (3x)
-- 시간: 30분 (cfg override만)
+### Weight / structure (High)
+8. Weight cap 14% (`stock_weight_max_no_ttm` / regime_ctl 중첩)
+9. Cash target 4% in "balanced" regime — bull 장에서 과보수
+10. TTM coverage 부족: 68% fallback, 5%만 clean TTM
+11. Tier 0a mktcap 1e14 해제 후 **-3.17pp drift** — 옛 cap이 implicit 페널티 역할
 
-### 2.4 Tier 0e benchmark R1000 (IWB)
-- 현재 SPX. R1000 universe라 약간 부정확
-- IWB ETF historical 가격 필요 (yfinance)
-- 시간: 2h
+### Data quality (Medium)
+12. `fund_panel.accepted = 2026-05-15` (미래 날짜 버그 잔재)
+13. r_12m coverage cliff (2025-10 이후 — forward return이니 정상, audit 통과)
 
 ---
 
-## 3. 중기 (이번 달, 코드 ~30h)
+## 2. 🎯 Revised priorities (v3)
 
-### 3.1 15-S1b ML target horizon realign — **가장 큰 ML lift**
-- 현재: pred_future_winner_ret 훈련 target = r_1m
-- 데이터: r_1m IR 0.25, r_3m IR 0.52, r_12m IR 1.24
-- 변경: target = r_3m
-- **FULL rebuild 필요 (~3h, 한 번)**
-- 예상 ΔCAGR: concentrated +3~5pp, main +0.5~1pp
-- A/B: BEFORE/AFTER FULL run
+### Tier A — Immediate (this week)
 
-### 3.2 15-E Inflection Detector — **user 핵심 비전**
-- "이미 오른 거" 사는 거 vs "오르기 전 발굴"
-- 신규 feature `inflection_signature_score`:
-  - Low trailing 12m (40~70th percentile)
-  - Improving fundamentals (margin 가속, EPS revision 상승)
-  - Technical base (vol contraction)
-  - Val residual 양수
-  - Insider buying (clustered)
-- 시간: 6-8h (research + feature 설계)
-- 예상 ΔCAGR: +1~3pp (KLAC-type 발굴)
+**A1. Regime detection + dynamic signal blend** (new priority #1)
+- **2022/2026 -5pp 손해 문제 직접 대응**
+- bull regime (VIX<20, breadth>50%, SPY above MA200): 모멘텀 full weight
+- bear/reversal regime (drawdown >10%, breadth collapse, fear_greed extreme): **quality + low-vol 시프트**
+- 현재 Phase 4 regime multipliers는 sleeve 가중치만 조정 — 더 공격적 필요
+- 시간: 6-8h + FULL A/B
 
-### 3.3 Multi-horizon RS + sage_sector — **user 아이디어 직접 구현**
-- 현재 RS coverage 불완전 (sector RS 6m only, 24m 없음, sage_sector RS 전무)
-- 추가:
-  - `rs_industry_24m`, `rs_industry_group_24m`
-  - `rs_sector_{1,3,12,24}m` (현재 6m만)
-  - `rs_sage_sector_{1,3,6,12,24}m` (전무)
-  - Acceleration features (1m vs 12m spread)
-  - 4-quadrant label (long+short)
-- 시간: 6-8h
-- 예상 ΔCAGR: +1~2.5pp main, +2~4pp concentrated
+**A2. Tier 0a mktcap 원복 테스트**
+- 1e14 → 1e12 원복, baseline 재측정
+- 3pp drift가 mktcap 원인인지 ML retrain drift인지 판별
+- 시간: 30분 config + 30분 QUICK run
 
-### 3.4 15-S2b Core Conviction Lock — 진짜 implementation (mid-rank)
-- 단순 conviction_hold multiplier 외에, **#8-#18 mid-rank** specific
-- 12개월 min-hold + 절대 quality threshold
+**A3. --ab-quick bug fix OR 폐기**
+- 현재 bug: concentrated grid OFF시 sleeve_cap champion 선택 실패
+- Option 1: 최소 1 concentrated combo + sleeve_cap champion 유지
+- Option 2: --ab-quick 폐기, full QUICK (20-30분) 기본
+- 시간: 2-3h
+
+### Tier B — Next week (core alpha)
+
+**B1. 15-S1b ML target r_1m → r_3m** (FULL, ~3h)
+- Deep audit: pred_future_winner_ret IR 0.25@1m vs **1.24@12m**
+- 3m horizon 이 sweet spot
+- Main +0.5~1pp, Concentrated **+3~5pp** 기대
+
+**B2. 15-E Inflection detector**
+- KLAC/MU/MPWR-type mid-cap 조기 발굴
+- Signal: low trailing 12m (40-70th pct) + improving fundamentals + technical base + val_residual 양수
+- 시간: 6-8h research + feature 설계 + FULL 테스트
+
+**B3. Weight cap regime 민감화**
+- Bull: 18-20% per-name cap (high-conviction 허용)
+- Bear: 10-12% (분산)
+- Current fixed 14% → 시장 adaptive
+- 시간: 2-3h
+
+### Tier C — Medium (일주일-2주)
+
+**C1. Multi-horizon RS + sage_sector**
+- User idea validated: 24m base + 1m/3m acceleration + 4-quadrant label
+- 시간: 6-8h + FULL
+
+**C2. 15-S2b Core conviction lock (mid-rank #8-18)**
+- Deep audit: top-7 이미 안정 (2.55m hold), #8-18이 churn 원인
 - 시간: 4-6h
-- 예상 ΔCAGR: +0.3~0.8pp
 
----
+**C3. Cash policy 동적 조정**
+- Bull regime: 0-1%
+- Balanced: 2-3%
+- Risk-off: 5-15% (이미 있음)
+- 시간: 2-3h
 
-## 4. 장기 (1-2개월, ~50h+)
+**C4. 15-R1/R2/R3 threshold 완화 재시험**
+- 어제 grid: threshold 83m 내 한 번도 trigger 안 됨
+- Options: R1 -15% → -10%, R2 2m → 1m, R3 top15→bot30 → top25→bot40
+- 시간: A/B 30분 (cells already set up)
 
-### 4.1 15-C1 Continuous weight glide
-- 매주 score refresh + target weight 25%/주씩 glide
-- Full swap은 thesis break event에만
-- 시간: 8-10h
-- 효과: turnover 43% → 25%, 비용 절감 +1~2pp/년
+### Tier D — Architectural (1-2개월)
 
-### 4.2 15-C2 Event-driven triggers
-- Earnings 발표 즉시 beat/miss + guidance 평가
-- RS 1주 내 top→bottom 감지 → 즉시 trim
-- Daily cron 인프라 필요
-- 시간: 10-12h
-- 효과: intra-month risk 완전 해소
+**D1. 15-C1 Continuous weight glide**
+- Weekly score refresh + 4주 glide
+- Turnover 43% → 25%, 비용 -1~2pp/년
 
-### 4.3 15-R4 Weekly monitor
-- Daily/weekly cron이 exit 조건만 검증
-- 신규 진입은 monthly rebal 유지
-- 15-C2와 통합 가능
-- 시간: 3-4h (15-C2 일부)
+**D2. 15-C2 Event-driven triggers**
+- Earnings beat/miss, RS break, regime flip → 즉시 action
+- Daily cron 인프라
 
-### 4.4 Phase 14 Dividends
-- 현재 Adj Close라 implicit, but live 포트엔 explicit cash dividend 추적 필요
-- 시간: 1-2일
-
-### 4.5 Execution reality modeling
+**D3. Execution reality modeling**
 - Per-ticker liquidity 필터
 - Dynamic slippage cost
-- 실 구독자 수익률 신뢰도 확보
-- 시간: 1주
+- Service 신뢰도
+
+### Tier E — Deferred (외부 데이터/research)
+
+- **Phase 14 Dividends tracking** (1-2일)
+- **Options flow** (유료 데이터 4주+)
+- **NLP earnings call sentiment** (LLM API 2-3주)
+- **R2000 universe 확장** (regime 증폭 위험)
 
 ---
 
-## 5. New alpha 후보 (Phase 16+)
+## 3. 🎯 25%/40% 달성 가능 path
 
-| 후보 | 데이터 필요 | 시간 | 예상 ΔCAGR |
+| 단계 | Main | Concentrated | MaxDD |
 |---|---|---|---|
-| Event catalyst (earnings beat+raise) | 기존 | 6-8h | +1~3pp |
-| Time-series momentum (dual-mom) | 기존 | 3-5h | +0.3~1pp |
-| Quality-momentum regime blend | 기존 | 5-8h | +0.5~1.5pp |
-| Long-short pair overlay (10-20%) | 기존 | 8-10h | +0.5~1pp Sharpe |
-| **Options flow (unusual volume)** | 유료 (Unusual Whales) | 4주+ | +0.5~1.5pp |
-| **NLP earnings call sentiment** | LLM API | 2-3주 | +0.3~0.8pp |
-| **Industry disruption signals (10-K NLP)** | LLM API | 3-4주 | +0.5~2pp |
+| 현재 Full QUICK baseline | 19.78% | 30.92% | -27.75% |
+| + A1 regime detection (bear/turn 회복) | 22~23% | 32~34% | -22% |
+| + A2 mktcap 원복 (3pp drift 회복) | 25~26% | 33~35% | ~ |
+| + B1 ML target r_3m | 26~27% | 37~40% | ~ |
+| + B2 Inflection detector | 27~28% | **40~42%** | ~ |
+| + C1~C4 | **28~30%** | 42~45% | -18% |
+
+**목표 달성**: B1+B2 완료 시 25%/40% 도달 가능.
 
 ---
 
-## 6. Out of scope (장기 deferred)
+## 4. 지금 해야 할 것 (우선순위 재정립)
 
-- R2000 universe expansion (regime 증폭 위험, 3-4x compute)
-- Pre-2018 backfill
-- Multiple subscriber accounts (frontend 영역)
-- Tax lot accounting (FIFO/LIFO)
-- Manual_positions_concentrated.yaml split (overlap이 많아 단일 yaml로 충분)
+1. **byo9l9idw 완료 대기** (~30-60분 추가)
+2. **결과 확인** — 새 baseline + fresh data 검증
+3. **Tier A1-A3 중 가장 빠른 것부터**:
+   - A2 mktcap 원복 (30분 + QUICK 20분) — 3pp drift 원인 규명
+   - A3 --ab-quick fix (2-3h) — A/B 신뢰도 복구
+   - A1 regime detection (6-8h) — 2026 underperform 직접 대응
 
----
-
-## 7. 누적 ΔCAGR 시나리오 (가장 보수적 → 가장 야망적)
-
-| 시나리오 | Main | Concentrated | Path |
-|---|---|---|---|
-| Tier 0/1/2 ship 통과 (이미 구현) | 23-24% | 34-36% | A/B 결과 기반 |
-| + Phase 4/6c shipping | 24-25% | 36-38% | 1.1 자동 실행 |
-| + Tier 3 단기 (S4, S2b conv, P7a) | 25-26% | 38-40% | 2주 안 |
-| **+ Tier 3 중기 (S1b, S-E, multi-horizon RS)** | **26-28%** | **40-44%** | **목표 도달** |
-| + Tier 4 continuous ops | 27-29% | 42-46% | + Sharpe ↑↑ |
+**추천 오늘 순서**:
+1. byo9l9idw 완료
+2. 결과 분석 + 새 baseline 측정
+3. A2 mktcap 원복 테스트 (빠른 규명)
+4. A3 --ab-quick fix
+5. B1 ML target r_3m FULL (밤에 백그라운드)
 
 ---
 
-## 8. 우선순위 정렬 (data-driven)
+## 5. 방향 Pivot 요약
 
-**가장 높은 ROI/시간**:
-1. ⭐ Tier 2 A/B grid 결과 → ship 통과한 거 자동 채택 (오늘/내일)
-2. ⭐ Phase 4 / 6c verdict 확정 (오늘/내일)
-3. ⭐⭐ 15-S1b ML target r_3m (FULL 1회) — concentrated +3-5pp 거의 확실
-4. ⭐⭐ 15-E Inflection detector — user 핵심 비전 + KLAC-type 발굴
-5. ⭐ 15-S4 sleeve rebal grid (compounder 회전 절감)
-6. ⭐ Multi-horizon RS (user 아이디어, 학술 검증)
-7. ⭐ Phase 7a clustered insider (alpha + 적은 노력)
-8. 15-S2b conviction multiplier 튜닝
-9. 15-C1+C2 continuous ops (architectural, 큰 작업)
+**Before (어제)**:
+- Tier 0 → 1 → 2 (exit discipline) → 3 (selection)
 
-**Service ship gate**:
-- Phase 13-lite ✅ done (오늘)
-- Execution reality modeling — 실제 구독자 수익률 보장
-- Automation — Windows Task Scheduler
-
----
-
-## 9. 의사결정 노드 (대기 중인 것들)
-
-- A/B b029fgd3t 결과 → 15-A1 ship 여부
-- Tier 2 grid 결과 → R1/R2/R3 ship 여부, Phase 4/6c ship 여부
-- 15-S1b A/B (FULL 1회) → ML target 변경 여부
-- User 결정: R2000 영구 deferred 확정 vs 추후 검토
-- User 결정: subscription 출시 시점 → Phase 14 dividend tracking 시급도
-
----
-
-## 10. 단순 메모
-
-**오늘 한 일**:
-- 34+ commits
-- Tier 0/1/2 + Phase 13-lite 완전 구현 (default OFF)
-- --ab-quick 인프라 + 3 fix
-- Stock selection deep audit
-- 9-cell A/B grid harness
-- SESSION_HANDOFF 두 번 갱신
-
-**진짜 break-through 후보**:
-- 15-S1b (ML horizon r_1m → r_3m)
-- 15-E (inflection detector)
-- Multi-horizon sector RS
-
-**아직 안 하기로 한 것**:
-- R2000
-- Options flow
-- NLP sentiment
-- Tax lot accounting
+**After (오늘 증거 기반)**:
+- **Tier A regime-awareness first** (2022/2026 약점 직접 대응)
+- **Tier A2 Tier 0a 원복 검토** (예상과 반대 결과)
+- **Tier B1 ML target r_3m이 큰 lift** (IR 1.24 활용)
+- **Tier B2 Inflection detector** (user 비전 + mid-cap 발굴)
+- **Exit discipline (R1/R2/R3)은 Tier C4로 강등** (threshold 완화 후 재시험)
