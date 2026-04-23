@@ -20,6 +20,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _load_dotenv(path: Path) -> None:
+    """Minimal .env loader — no external deps. Parses KEY=VALUE per line,
+    ignores comments and empty lines. Only sets vars that aren't already set."""
+    if not path.exists():
+        return
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip().strip('"').strip("'")
+            if k and v and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        pass
+
+
+# Auto-load aggressive/.env on module import (one-shot, idempotent).
+_load_dotenv(Path(__file__).parent / ".env")
+
+
 @dataclass
 class AggressiveConfig:
     """Aggressive-engine tunables. One source of truth for Track 2."""

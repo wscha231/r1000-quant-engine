@@ -3,3 +3,12 @@ __pycache__/
 .tmp_*/
 *.pyc
 catboost_info/
+# ---- Secrets (NEVER commit) ----
+.env
+.env.*
+*.env
+aggressive/.env
+aggressive/credentials.json
+aggressive/alpaca_keys.txt
+aggressive/state/
+aggressive/cache/
