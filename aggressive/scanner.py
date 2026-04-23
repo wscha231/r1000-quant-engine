@@ -42,6 +42,11 @@ import pandas as pd
 
 from aggressive.agg_config import load_agg_config
 from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+from aggressive.entry_precision import (
+    TradeCard,
+    build_trade_card,
+    format_trade_card_brief,
+)
 from aggressive.signals_technical import (
     TechnicalSignalResult,
     evaluate_ticker,
@@ -89,6 +94,7 @@ class ScannerCandidate:
     signals_fired: list[str] = field(default_factory=list)
     rationale: str = ""
     metrics: dict[str, float] = field(default_factory=dict)
+    trade_card: Optional[TradeCard] = None   # B3: complete entry plan
 
 
 # --- Per-ticker stats (for theme aggregation) -------------------------------
@@ -180,9 +186,10 @@ def scan(
     if spy_df.empty:
         raise RuntimeError("Could not fetch SPY benchmark")
 
-    # Per-ticker: fetch, compute stats, run technical signals
+    # Per-ticker: fetch, compute stats, run technical signals, build trade card
     rows_for_theme_agg: list[dict] = []
     tech_results: dict[str, TechnicalSignalResult] = {}
+    bar_cache: dict[str, pd.DataFrame] = {}    # keep bars for B3 trade card
 
     for i, t in enumerate(tickers, 1):
         if verbose and i % 10 == 0:
@@ -194,6 +201,7 @@ def scan(
         stats["ticker"] = t
         rows_for_theme_agg.append(stats)
         tech_results[t] = evaluate_ticker(t, df, spy_df)
+        bar_cache[t] = df
 
     if not tech_results:
         raise RuntimeError("No tickers returned valid data")
@@ -257,6 +265,15 @@ def scan(
         if disqualified:
             rationale += " | DISQUALIFIED"
 
+        # B3: build trade card from bars
+        df_t = bar_cache.get(t)
+        trade_card: Optional[TradeCard] = None
+        if df_t is not None and not df_t.empty:
+            best_tier_obj = max(res.tiers, key=lambda x: x.score)
+            trade_card = build_trade_card(
+                t, df_t, res.best_tier, best_tier_obj.name
+            )
+
         cand = ScannerCandidate(
             ticker=t,
             tech_score=res.composite_score,
@@ -275,6 +292,7 @@ def scan(
                 "mom_3m": stats.get("mom_3m", float("nan")),
                 "rs_benchmark_3m": stats.get("rs_benchmark_3m", float("nan")),
             },
+            trade_card=trade_card,
         )
         candidates.append(cand)
 
@@ -310,13 +328,17 @@ def print_report(candidates: list[ScannerCandidate]) -> None:
             f"{c.phase_multiplier:>5.2f}  {fired}"
         )
     print()
-    print("Top 5 rationale:")
+    print("Top 5 trade cards:")
     for c in candidates[:5]:
-        print(f"  {c.ticker}: {c.rationale}")
+        if c.disqualified:
+            continue
         mom_1m = c.metrics.get("mom_1m", float("nan"))
         rs_3m = c.metrics.get("rs_benchmark_3m", float("nan"))
         dv = c.metrics.get("dollar_volume_20d_musd", float("nan"))
-        print(f"     mom_1m={mom_1m:+.1f}%  rs_3m={rs_3m:+.1f}%  $vol=${dv:.0f}M/day")
+        print(f"  {c.ticker}: mom_1m={mom_1m:+.1f}%  rs_3m={rs_3m:+.1f}%  "
+              f"$vol=${dv:.0f}M/day")
+        if c.trade_card:
+            print(f"    {format_trade_card_brief(c.trade_card)}")
 
 
 def save_report(candidates: list[ScannerCandidate]) -> Path:
