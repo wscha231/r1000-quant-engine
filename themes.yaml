@@ -14,13 +14,53 @@
 
 themes:
   # ============== AI / Semi ==============
-  ai_infrastructure:
-    description: "AI hardware stack — GPUs, networking, memory, data center gear"
-    tickers: [NVDA, AVGO, MRVL, AMD, ANET, SMCI, DELL, HPE, VRT, CSCO, LITE, CIEN, WDC, MU]
+  ai_compute:
+    description: "AI training/inference compute (GPU + server + rack-level)"
+    tickers: [NVDA, AMD, AVGO, SMCI, DELL, HPE, VRT, ANET]
+
+  optical_communications:
+    description: "Fiber optics / optical transceivers for data center interconnect"
+    tickers: [LITE, COHR, CIEN, VIAV, FN, ANET, CSCO]
+
+  semi_memory:
+    description: "Memory + storage semi (DRAM/NAND/HDD)"
+    tickers: [MU, WDC, STX]
+
+  networking_infra:
+    description: "Network infra + switches (legacy stack)"
+    tickers: [CSCO, ANET, JNPR, NTAP, HPE]
 
   ai_software:
     description: "AI-native or AI-heavy software platforms"
     tickers: [MSFT, GOOGL, GOOG, META, PLTR, CRM, NOW, ADBE, DUOL, SNOW, DDOG]
+
+  consumer_tech_mega:
+    description: "Consumer hardware/services mega-caps"
+    tickers: [AAPL, AMZN]
+
+  telecom_internet:
+    description: "Internet infra + telecom (including web services leaders)"
+    tickers: [AKAM, CSCO, TMUS, T, VZ]
+
+  pharma_large_cap:
+    description: "Large-cap pharma (non GLP-1)"
+    tickers: [JNJ, PFE, MRK, ABBV, BMY, LLY, NVO]
+
+  travel_booking:
+    description: "Online travel + booking"
+    tickers: [BKNG, ABNB, EXPE, MAR, H]
+
+  semi_analog:
+    description: "Analog + industrial semi (non-AI focused)"
+    tickers: [ADI, MCHP, TXN, ON, SWKS, QRVO]
+
+  electrical_components:
+    description: "Electrical connectors + components (AI/industrial bridge)"
+    tickers: [APH, TEL, GLW, ST, HUBB]
+
+  utilities_regulated:
+    description: "Regulated utilities (non-nuclear)"
+    tickers: [ETR, DUK, SO, AEP, D, NEE, XEL, EIX, PEG]
 
   semi_equipment:
     description: "Wafer fab equipment + photonics"
