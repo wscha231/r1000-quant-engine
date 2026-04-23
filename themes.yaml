@@ -1,0 +1,158 @@
+# themes.yaml — Cross-industry theme taxonomy (draft 2026-04-23)
+#
+# Themes are finer than GICS sector and cross-cut GICS industry boundaries.
+# Each theme lists its member R1000 tickers. A ticker CAN belong to multiple
+# themes (e.g. NVDA in both "ai_infrastructure" and "semi_design").
+#
+# Usage (future):
+# - Engine computes theme-level momentum, breadth, RS, acceleration, drawdown
+# - Theme exit signal when: breadth < 0.30 AND acceleration < 0
+# - Per-ticker theme_leadership flag (is this the top-mom_6m name in the theme?)
+# - Per-ticker theme_phase label (early / maturing / peaking / ending)
+#
+# Update this file manually as new themes emerge or members change.
+
+themes:
+  # ============== AI / Semi ==============
+  ai_infrastructure:
+    description: "AI hardware stack — GPUs, networking, memory, data center gear"
+    tickers: [NVDA, AVGO, MRVL, AMD, ANET, SMCI, DELL, HPE, VRT, CSCO, LITE, CIEN, WDC, MU]
+
+  ai_software:
+    description: "AI-native or AI-heavy software platforms"
+    tickers: [MSFT, GOOGL, GOOG, META, PLTR, CRM, NOW, ADBE, DUOL, SNOW, DDOG]
+
+  semi_equipment:
+    description: "Wafer fab equipment + photonics"
+    tickers: [LRCX, AMAT, KLAC, TER, ACLS, ENTG, MKSI, UCTT]
+
+  semi_design_memory:
+    description: "Fabless design + memory"
+    tickers: [NVDA, AMD, AVGO, MRVL, QCOM, MU, WDC, MPWR, MCHP, ON]
+
+  cloud_hyperscale:
+    description: "Cloud infrastructure giants"
+    tickers: [AMZN, MSFT, GOOGL, GOOG, ORCL, CRM]
+
+  data_center_infra:
+    description: "Physical data center REITs + power/cooling"
+    tickers: [EQIX, DLR, VRT, ETN, PWR]
+
+  # ============== Energy / Power ==============
+  oil_gas_ep:
+    description: "Oil & gas exploration + production"
+    tickers: [XOM, CVX, COP, EOG, OXY, PXD, FANG, DVN, MRO, OVV, CTRA, CHRD, PR, MTDR]
+
+  oil_gas_services:
+    description: "Oilfield services + equipment"
+    tickers: [SLB, HAL, BKR, FTI, NOV, CHX, WFRD]
+
+  lng_midstream:
+    description: "Natural gas LNG export + midstream"
+    tickers: [LNG, TRGP, OKE, WMB, ET, EPD, KMI]
+
+  nuclear_smr:
+    description: "Nuclear power + small modular reactors"
+    tickers: [CEG, VST, NRG, PEG, DUK, SMR, OKLO, BWXT]
+
+  power_grid_infra:
+    description: "Power grid equipment + construction"
+    tickers: [GEV, ETN, PWR, EME, MMM, HUBB, MYRG, PRIM, AECOM]
+
+  # ============== Healthcare / Biotech ==============
+  weight_loss_drugs:
+    description: "GLP-1 / obesity drugs"
+    tickers: [LLY, NVO, VKTX, ALT, TERN, AMGN]
+
+  oncology_mrna:
+    description: "Oncology + mRNA platforms"
+    tickers: [MRNA, BNTX, VRTX, REGN, AZN]
+
+  medtech_devices:
+    description: "Medical devices + equipment"
+    tickers: [ISRG, SYK, MDT, ABT, BDX, GEHC, EW, BSX]
+
+  biotech_cros:
+    description: "Clinical research organizations"
+    tickers: [MEDP, IQV, ICLR, CRL]
+
+  # ============== Fintech / Payments ==============
+  payments_rails:
+    description: "Card networks + processors"
+    tickers: [V, MA, PYPL, FI, GPN, ADYEN, AXP]
+
+  digital_banks_brokerage:
+    description: "Online brokers + digital banks"
+    tickers: [SCHW, HOOD, IBKR, COIN, SQ]
+
+  # ============== Cybersecurity / Software ==============
+  cybersecurity:
+    description: "Security platforms + zero trust"
+    tickers: [CRWD, ZS, PANW, OKTA, NET, S, FTNT, TENB, QLYS, VRNS]
+
+  saas_vertical:
+    description: "Vertical SaaS (non-AI)"
+    tickers: [VEEV, HUBS, TEAM, NOW, NOW, SHOP, ABNB]
+
+  # ============== Consumer / Retail ==============
+  ecommerce:
+    description: "E-commerce + marketplaces"
+    tickers: [AMZN, SHOP, MELI, EBAY, ETSY, W]
+
+  discount_retail:
+    description: "Off-price + discount retailers"
+    tickers: [TJX, ROST, BURL, OLLI, DKS]
+
+  luxury_discretionary:
+    description: "High-end consumer discretionary"
+    tickers: [RL, TPR, LVMUY]
+
+  # ============== Industrial / Defense ==============
+  defense_drones:
+    description: "Defense prime + drone + sats"
+    tickers: [LMT, RTX, NOC, GD, LHX, BA, RKLB, KTOS, CSGS, PLTR]
+
+  industrial_reshoring:
+    description: "US manufacturing / reshoring beneficiaries"
+    tickers: [ROK, ETN, EMR, PWR, VRT, AXON, URI]
+
+  autonomous_driving:
+    description: "EV + ADAS + autonomy"
+    tickers: [TSLA, MBLY, ALLE, AIRS]
+
+  # ============== REIT / Financial ==============
+  crypto_blockchain:
+    description: "Crypto-adjacent equities"
+    tickers: [COIN, MSTR, MARA, RIOT, CLSK, HIVE]
+
+  uranium_materials:
+    description: "Uranium + strategic materials"
+    tickers: [CCJ, UEC, URG, MP, LAC]
+
+  # ============== Meta grouping ==============
+  # These aren't themes per se but lifecycle metadata — will populate
+  # dynamically based on member momentum:
+  #   theme_phase: early / maturing / peaking / ending / dead
+  #   theme_breadth_ma200: 0.0 - 1.0
+  #   theme_acceleration: 1m-RS minus 6m-RS
+  #   theme_rs_benchmark_6m / _12m
+
+# Theme membership overrides (for edge cases)
+# Example:
+#   overrides:
+#     NVDA:
+#       - ai_infrastructure
+#       - semi_design_memory
+#       - ai_software
+overrides: {}
+
+# Themes to deprecate (historical / dead) — members removed from rotation
+dead_themes: []
+
+# Themes to ADD next review
+pending_themes:
+  - quantum_computing: [RGTI, IONQ, QBTS]
+  - ar_vr_wearables: [META, AAPL]
+  - space_economy: [RKLB, PLTR]
+  - clean_hydrogen: []
+  - ev_charging: []
