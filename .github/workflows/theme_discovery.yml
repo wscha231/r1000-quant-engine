@@ -1,0 +1,92 @@
+name: Theme Discovery (Phase 18A)
+
+# Runs Sunday 13:00 UTC = 22:00 KST (before Monday market open)
+# Unsupervised correlation clustering to find emerging themes
+
+on:
+  schedule:
+    - cron: '0 13 * * 0'       # 13:00 UTC Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: |
+          pip install -r requirements_github.txt
+
+      - name: Restore bars cache
+        uses: actions/cache@v4
+        with:
+          path: aggressive/cache/bars
+          key: alpaca-bars-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            alpaca-bars-${{ runner.os }}-
+
+      - name: Run theme discovery
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          python aggressive/theme_discovery.py \
+              --universe r1000 \
+              --lookback-days 90 \
+              --min-unknown-ratio 0.50
+
+      - name: Upload proposals
+        uses: actions/upload-artifact@v4
+        with:
+          name: theme-proposals-${{ github.run_id }}
+          path: aggressive/state/theme_discovery/latest.json
+          retention-days: 90
+
+      - name: Telegram proposals digest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, json, requests
+          path = 'aggressive/state/theme_discovery/latest.json'
+          if not os.path.exists(path):
+              print('no proposals file')
+              exit()
+          data = json.load(open(path))
+          props = data.get('proposals', [])
+          lines = [f'THEME DISCOVERY — {len(props)} emerging candidates']
+          for i, p in enumerate(props[:5], 1):
+              lines.append(
+                  f'{i}. {p[\"suggested_theme_name\"]} '
+                  f'({p[\"n_members\"]} names, corr={p[\"avg_intra_corr\"]:.2f}, '
+                  f'RS={p[\"avg_rs_60d_pct\"]:+.1f}%)')
+          msg = '\n'.join(lines)
+          tok = os.environ['TELEGRAM_BOT_TOKEN']
+          chat = os.environ['TELEGRAM_CHAT_ID']
+          requests.post(f'https://api.telegram.org/bot{tok}/sendMessage',
+                        json={'chat_id':chat,'text':msg}, timeout=5)
+          "
+
+      - name: Commit proposals
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/theme_discovery
+          cp aggressive/state/theme_discovery/latest.json \
+             "cloud_results/theme_discovery/$(date +%Y%m%d).json" 2>/dev/null || true
+          git add cloud_results/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): theme discovery $(date +%Y-%m-%d) [skip ci]"
+          git push || true
