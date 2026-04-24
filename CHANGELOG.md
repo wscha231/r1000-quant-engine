@@ -51,6 +51,131 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-24
+
+### 23:30 KST - phase-v-f-and-hybrid-advisors
+
+- scope:
+  - Full refactor of data + advisor stack with Finnhub integration, live valuations,
+    unified universe, 3 advisor philosophies, validation suite, and GitHub Actions
+    automation. Builds Track 1 (정석) + Track 2 (Aggressive) toward user's "데이터
+    정확성 먼저" mandate before production live-trading.
+- files:
+  - `aggressive/finnhub_client.py` -> new rate-limited Finnhub client (60/min) with 8 endpoints + cache
+  - `aggressive/finnhub_collector.py` -> R1000 batch collector, weekly/daily modes, checkpoint parquet
+  - `aggressive/finnhub_cache_loader.py` -> consolidated loader (parquet or per-ticker JSON)
+  - `aggressive/scanner.py` -> added --universe CLI, integrated Finnhub valuation gates (val_mult),
+     blended growth rate (5y+Q YoY+3y median, floor 5% cap 30%), is_unknown_theme flag
+  - `aggressive/theme_discovery.py` -> Phase 18A unsupervised clustering (already committed 56b894b,
+     but first full scan validated today)
+  - `r1000_valuations.py` -> new Strategy A live-price recompute layer (PEG/PE/EV/market_cap using
+     yesterday's close × cached fundamentals)
+  - `r1000_unified_universe.py` -> new "Option A" scored_latest + Finnhub-synthesized unified CSV
+  - `r1000_rebalance_advisor.py` -> v1 quality-first (uses scored_latest model_score)
+  - `r1000_rebalance_advisor_v2.py` -> v2 momentum-first (uses aggressive scanner output)
+  - `r1000_rebalance_advisor_v3.py` -> v3 hybrid (v1 + v2 consensus weighted)
+  - `tests/validate_system.py` -> 23-test validation suite (data, scoring, stability, cross-system, edges)
+  - `r1000_config.py` -> FRED_API_KEY default updated to user's 2026-04-24 registration
+  - `run_local.py` -> COMMON_CFG_OVERRIDES reads FRED_API_KEY from env first
+  - `aggressive/.env` -> added FINNHUB_API_KEY + FRED_API_KEY (gitignored)
+  - `.github/workflows/daily_review.yml` -> weekday 14:00 UTC cloud scanner
+  - `.github/workflows/finnhub_weekly.yml` -> Monday 13:30 UTC full Finnhub refresh
+  - `.github/workflows/theme_discovery.yml` -> Sunday 13:00 UTC theme clustering
+  - `.github/workflows/unified_monthly.yml` -> 1st+15th monthly unified CSV rebuild
+  - `.github/SECRETS_SETUP.md` -> GitHub Secrets registration guide
+  - `requirements_github.txt` -> minimal GHA deps (no catboost/heavy ML)
+  - `PHASE_V_F_INTEGRATION_GUIDE.md` -> next-session integration guide
+  - `aggressive/verify_phase_v_f.py` -> morning verification script
+- symbols_added:
+  - `FinnhubClient` -> rate-limited Finnhub API client (8 endpoints, differential TTL cache)
+  - `compute_insider_cluster_score(transactions, days=30, min_value_usd=10000)` -> Form 4 aggregation
+  - `compute_mspr_latest(sentiment)` -> Monthly Share Purchase Ratio summary
+  - `compute_recommendation_trend(recs)` -> analyst buy/hold/sell trend + MoM delta
+  - `compute_earnings_event_features(calendar, surprises)` -> days-to-earnings + past beat rate
+  - `collect_r1000(mode='full'|'weekly'|'daily')` -> R1000 Finnhub batch collector
+  - `compute_live_valuations(df, finnhub_df, verbose)` -> Strategy A recompute all price-dependent
+     ratios using yesterday's close (overrides stale forward_pe_final/peg_final)
+  - `_blended_growth_pct(...)` -> median of 5y + Q YoY + 3y growth, clipped [5%, 30%]
+  - `build_unified_scored(scored_csv, output_csv)` -> merge 정석 scored + Finnhub synthetic rows
+  - `build_synthetic_row(ticker, finnhub_row, rs_12m, sector, name, normalized, live_price)` ->
+     synthesize scored_latest-compatible row from Finnhub + Alpaca data
+  - `percentile_rank(series)` -> 0.0-1.0 rank with NaN fallback 0.5
+  - `compute_live_rs_and_price(tickers)` -> batch fetch 12m RS vs SPY AND latest close
+  - `rank_candidates(scored_df, finnhub_dict, live_rs, min_mktcap, min_model_score)` -> v1 ranker
+  - `build_new_portfolio(candidates, current_portfolio)` -> v1 tier-cap portfolio builder
+  - `rs_multiplier(rs_12m_pct)` -> tiered RS gate multiplier (1.30/1.20/1.10/1.00/0.70/0.40/0.15)
+  - `theme_soft_multiplier(phase, rs_12m_pct)` -> dead+weak RS only penalty (user preference)
+  - `valuation_multiplier(fh_row, sector_median_peg, sector_median_pe)` -> Finnhub + sector relative gate
+  - `load_scanner_rankings(cache_path)` -> v3 loads scanner JSON + reapplies advisor multipliers
+  - `compute_hybrid_score(v1_rankings, v2_rankings, top_n)` -> v3 combine ranks with consensus bonus
+  - `build_portfolio_from_hybrid(picks, current_weights, target_n)` -> v3 enforce quota min 3 per philosophy
+- symbols_changed:
+  - `ScannerCandidate` -> added val_mult, fundamental_warnings, finnhub_features,
+     is_unknown_theme fields
+  - `scan(...)` -> added universe_source param (r1000 default, themes legacy),
+     Finnhub gate application, unknown-theme bucketing
+  - `EngineConfig.fred_api_key` -> default value updated
+- config_fields_added:
+  - `FINNHUB_API_KEY: env var` -> API key for Finnhub free tier (60 calls/min)
+  - `FRED_API_KEY: env var` -> Federal Reserve data (optional, local 정석 runs only)
+  - `SUBSECTOR_CAP_PCT: float = 0.70` (v1/v2/v3 advisors) -> soft sector cap (user: "섹터 역할 축소")
+  - `TARGET_N_POSITIONS: int = 12` (v1/v2/v3) -> concentrated target (down from 18)
+  - `TIER_CAPS = [(3, 0.18), (6, 0.12), (999, 0.08)]` -> per-rank weight caps
+  - `MIN_V1_EXCLUSIVE: int = 3` (v3) -> guaranteed v1-only slots
+  - `MIN_V2_EXCLUSIVE: int = 3` (v3) -> guaranteed v2-only slots
+  - `GROWTH_FLOOR_PCT: float = 5.0` (r1000_valuations) -> blended growth floor
+  - `GROWTH_CEILING_PCT: float = 30.0` -> blended growth ceiling
+  - `PEG_CEILING: float = 10.0` -> PEG display sanity clip
+- behavior:
+  - User's portfolio_latest.csv showed GOOG/NVDA at 14% each, AAPL/BKNG/JNJ dragging;
+    root cause analysis found 정석 scored_latest covered only 610/1008 R1000 (60% invisible)
+    and PEG calc used 3y CAGR (cyclical bias: AAPL 8.32 vs Finnhub 1.90 correct).
+    Fixed via Finnhub integration + unified universe + 3 advisor philosophies.
+    All R1000 now visible (1012 rows = 610 real + 402 synthetic).
+  - Aggressive engine: scanner now uses val_mult (Finnhub PEG + sector relative + insider +
+    earnings + analyst) after theme phase_mult. Tested on R1000 full scan: 21/25 top names are
+    unknown-theme (user's "능동 탐지" validated).
+  - Advisor v1 vs v2 0% overlap -> v3 hybrid blends them with consensus bonus.
+  - Validation suite: 23/23 pass with full Finnhub + Alpaca data integrity.
+- outputs:
+  - `aggressive/state/finnhub/r1000_features.parquet` -> 1008 tickers × 53 fields
+  - `outputs/scored_unified.csv` -> 1012 rows (610 real + 402 synthetic)
+  - `outputs_advisor/new_top12_proposed.csv` -> v1 (quality)
+  - `outputs_advisor_v2/new_top12_proposed.csv` -> v2 (momentum)
+  - `outputs_advisor_v3/new_top12_proposed.csv` -> v3 (hybrid)
+  - `aggressive/state/scanner/candidates_*.json` -> R1000 scanner runs
+  - `aggressive/state/theme_discovery/latest.json` -> Phase 18A proposals
+  - `cloud_results/{scanner,unified,theme_discovery}/` -> GHA-committed summaries
+- validation:
+  - `tests/validate_system.py`: 23/23 PASS
+    Test 1 Data Integrity: R1000 1008, Finnhub 1008, unified 1012
+    Test 2 Scoring Sanity: NVDA+62%, AVGO+105%, MRVL+176%, VRT+280%, GEV+210%
+    Test 3 Stability: loaders deterministic
+    Test 4 Cross-system: advisor v1 includes 5/5 RS leaders
+    Test 5 Edge cases: NaN/empty/missing handled
+- risks_or_notes:
+  - Advisor v1 top 12 dominated by real ML scores (correct - synthetic intentionally
+    scaled lower); v2 differs substantially due to scanner's 0.70 peaking penalty.
+  - User chose manual trading; Aggressive engine execution code unused but preserved
+    for future enablement.
+  - GitHub Actions workflows free tier budget: ~1010 min/month (under 2000 limit).
+  - Finnhub MSPR endpoint limited for free tier (44/1008 tickers), other endpoints 100%.
+  - Alpaca paper account kept for data API access; order execution deferred.
+- commits:
+  - 56b894b phase-18a autonomous theme discovery
+  - 217fd41 phase-v-f Finnhub + live valuation
+  - 8be0423 docs integration guide
+  - fbf34e6 fix scanner --universe CLI
+  - bcab662 feat advisor v1 (quality-first)
+  - d6341f7 ci GitHub Actions 3 workflows
+  - 559980e chore FRED API key
+  - 339b060 feat advisor v2 (momentum-first)
+  - 07e0d99 feat r1000_unified_universe (Option A)
+  - 0ffbed2 test phase-a validation suite 23/23 PASS
+  - 2ede7d6 ci phase-b unified_monthly workflow
+  - 3c3694c feat advisor v3 hybrid
+
+
 ## 2026-04-09
 
 ### 19:21 KST - harden-colab-collector-start
