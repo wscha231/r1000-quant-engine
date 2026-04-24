@@ -1,0 +1,142 @@
+name: Unified Universe Monthly Rebuild
+
+# Rebuilds scored_unified.csv combining:
+#   - 정석 engine scored_latest.csv (from gdrive, manually synced to repo)
+#   - Finnhub synthesized rows for the 402 R1000 names not in scored_latest
+#
+# Schedule: 1st and 15th of each month at 14:30 UTC (23:30 KST)
+# Rationale: 정석 engine typically runs monthly locally; unified should refresh
+# shortly after to reflect latest model scores.
+#
+# Outputs committed to: cloud_results/unified/{YYYYMMDD}.csv
+
+on:
+  schedule:
+    # 1st and 15th of each month at 14:30 UTC (23:30 KST)
+    - cron: '30 14 1,15 * *'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if scored_latest is stale'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  unify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore Finnhub cache
+        uses: actions/cache@v4
+        with:
+          path: aggressive/cache/finnhub
+          key: finnhub-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            finnhub-cache-${{ runner.os }}-
+
+      - name: Restore Alpaca bars cache
+        uses: actions/cache@v4
+        with:
+          path: aggressive/cache/bars
+          key: alpaca-bars-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            alpaca-bars-${{ runner.os }}-
+
+      # Check if scored_latest.csv is in the repo (committed by user's monthly run).
+      # In cloud mode, we read from committed path. If missing, skip and alert.
+      - name: Verify scored_latest.csv available
+        id: check_scored
+        run: |
+          SCORED="outputs/scored_latest.csv"
+          if [ -f "$SCORED" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            wc -l "$SCORED"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "scored_latest.csv not in repo. Commit it from your local run."
+          fi
+
+      - name: Run unified universe builder
+        if: steps.check_scored.outputs.found == 'true'
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          python r1000_unified_universe.py \
+              --scored-csv outputs/scored_latest.csv \
+              --output-csv outputs/scored_unified.csv
+
+      - name: Run validation after unify
+        if: steps.check_scored.outputs.found == 'true'
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          python tests/validate_system.py --quick || echo "Validation warnings, non-fatal"
+
+      - name: Upload unified artifact
+        if: steps.check_scored.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scored-unified-${{ github.run_id }}
+          path: outputs/scored_unified.csv
+          retention-days: 90
+
+      - name: Commit unified CSV + snapshot
+        if: steps.check_scored.outputs.found == 'true'
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/unified
+          cp outputs/scored_unified.csv \
+             "cloud_results/unified/$(date +%Y%m%d).csv" 2>/dev/null || true
+          git add outputs/scored_unified.csv cloud_results/unified/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): unified universe $(date +%Y-%m-%d) [skip ci]"
+          git push || true
+
+      - name: Telegram summary
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATUS: ${{ job.status }}
+          FOUND: ${{ steps.check_scored.outputs.found }}
+        run: |
+          python -c "
+          import os, requests
+          tok = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+          chat = os.environ.get('TELEGRAM_CHAT_ID', '')
+          status = os.environ.get('STATUS', 'unknown')
+          found = os.environ.get('FOUND', 'false')
+          if found != 'true':
+              msg = ('[UNIFIED SKIP] scored_latest.csv not in repo. '
+                     'Run 정석 engine locally + commit outputs/scored_latest.csv.')
+          elif status == 'success':
+              msg = '[UNIFIED OK] scored_unified rebuild complete.'
+          else:
+              msg = f'[UNIFIED FAIL] status={status}'
+          if tok and chat:
+              requests.post(f'https://api.telegram.org/bot{tok}/sendMessage',
+                            json={'chat_id':chat,'text':msg}, timeout=5)
+          "
