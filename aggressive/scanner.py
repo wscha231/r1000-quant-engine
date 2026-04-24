@@ -97,6 +97,10 @@ class ScannerCandidate:
     metrics: dict[str, float] = field(default_factory=dict)
     trade_card: Optional[TradeCard] = None   # B3: complete entry plan
     is_unknown_theme: bool = False           # not in themes.yaml = emerging candidate
+    # Phase V+F: fundamental gate outputs
+    val_mult: float = 1.0
+    fundamental_warnings: list[str] = field(default_factory=list)
+    finnhub_features: dict = field(default_factory=dict)
 
 
 # --- Per-ticker stats (for theme aggregation) -------------------------------
@@ -247,6 +251,27 @@ def scan(
         n_phases = pd.Series(list(theme_phase_map.values())).value_counts()
         print(f"[scan] theme phases: {dict(n_phases)}")
 
+    # ---- Load Finnhub features (fundamentals/insider/earnings) ----
+    # Prefer cache-dir loader (always freshest, even mid-collection).
+    finnhub_by_ticker: dict[str, dict] = {}
+    try:
+        from aggressive.finnhub_cache_loader import (
+            load_finnhub_features_dict,
+            load_finnhub_live_from_cache_dir,
+        )
+        # Try cache-dir first (most accurate during collection-in-progress)
+        finnhub_by_ticker = load_finnhub_live_from_cache_dir()
+        if len(finnhub_by_ticker) < 50:
+            # Fallback to parquet if cache sparse
+            alt = load_finnhub_features_dict()
+            if len(alt) > len(finnhub_by_ticker):
+                finnhub_by_ticker = alt
+        if verbose:
+            print(f"[scan] Finnhub features loaded: {len(finnhub_by_ticker)} tickers")
+    except Exception as exc:
+        if verbose:
+            print(f"[scan] Finnhub features not available: {exc}")
+
     # Build candidates
     candidates: list[ScannerCandidate] = []
     for t, res in tech_results.items():
@@ -275,23 +300,90 @@ def scan(
         # Signals fired list
         fired_sigs = [f"T{tier.tier}:{tier.name}" for tier in res.tiers if tier.fired]
 
+        # ---- Finnhub fundamental gates (Phase V+F) ----
+        # Uses BLENDED growth rate to avoid cyclical bias (5y CAGR can understate
+        # current growth for cyclicals like AMD, overstate for mature like AAPL).
+        val_mult = 1.0
+        fundamental_warnings: list[str] = []
+        fh = finnhub_by_ticker.get(t, {})
+        if fh:
+            # Blended growth: median of 5y, quarterly YoY, 3y, clipped [5%, 30%]
+            import numpy as _np
+            growth_inputs: list[float] = []
+            for k in ("fh_epsGrowth5Y", "fh_epsGrowthQuarterlyYoy",
+                       "fh_epsGrowth3Y", "fh_revenueGrowthQuarterlyYoy"):
+                v = fh.get(k)
+                if v is not None and not _np.isnan(float(v)):
+                    gv = float(v)
+                    if abs(gv) < 1.5:  # heuristic: was fraction not %
+                        gv = gv * 100
+                    growth_inputs.append(max(5.0, min(30.0, gv)))
+            blended_growth = float(_np.median(growth_inputs)) if growth_inputs else 5.0
+
+            # Effective PEG using blended growth, not raw peg_5y
+            pe_ttm = fh.get("fh_peExclExtra_ttm")
+            eff_peg = None
+            if pe_ttm is not None and blended_growth > 0:
+                eff_peg = float(pe_ttm) / blended_growth
+
+            # 1. Absurd valuation: eff_peg > 4.0 AND raw growth < 10% (slow-grower overvalued)
+            eps_q_raw = fh.get("fh_epsGrowthQuarterlyYoy") or 0.0
+            eps_5y_raw = fh.get("fh_epsGrowth5Y") or 0.0
+            is_slow = max(abs(float(eps_q_raw)), abs(float(eps_5y_raw))) < 10.0
+            if eff_peg is not None and eff_peg > 4.0 and is_slow:
+                val_mult *= 0.5
+                fundamental_warnings.append(
+                    f"PEG eff {eff_peg:.1f} overvalued (slow growth)"
+                )
+            elif eff_peg is not None and eff_peg > 2.5 and is_slow:
+                val_mult *= 0.80
+                fundamental_warnings.append(
+                    f"PEG eff {eff_peg:.1f} expensive + slow growth"
+                )
+
+            # 2. Earnings event risk (< 7 days)
+            dte = fh.get("fh_days_to_next_earnings")
+            if dte is not None and 0 <= dte <= 7:
+                val_mult *= 0.5
+                fundamental_warnings.append(f"earnings in {dte}d - event risk")
+
+            # 3. Insider cluster buying bonus
+            cluster = fh.get("fh_insider_cluster_30d_score")
+            if cluster is not None and cluster >= 50:
+                val_mult *= 1.15
+                fundamental_warnings.append(f"insider buying cluster {cluster:.0f}")
+
+            # 4. MSPR 3m avg deep negative (insider selling wave)
+            mspr3 = fh.get("fh_mspr_3m_avg")
+            if mspr3 is not None and mspr3 < -60:
+                val_mult *= 0.85
+                fundamental_warnings.append(f"MSPR 3m {mspr3:.0f} bearish")
+
+            # 5. Strongly bullish analyst consensus
+            bull_ratio = fh.get("fh_rec_bull_ratio")
+            if bull_ratio is not None and bull_ratio >= 0.8:
+                val_mult *= 1.05
+
         # Disqualify conditions
         disqualified = primary_phase in THEME_PHASE_DISQUALIFY or not liquidity_ok
 
-        # Final score
-        final_score = res.composite_score * mult
+        # Final score (Phase V+F: includes valuation gate)
+        final_score = res.composite_score * mult * val_mult
         if disqualified:
             final_score *= 0.1  # near-zero but still visible for diagnostic
 
         # Rationale
+        val_mult_tag = f" x val={val_mult:.2f}" if abs(val_mult - 1.0) > 0.01 else ""
         rationale = (
             f"tech={res.composite_score:.0f}[T{res.best_tier}] x "
-            f"phase_mult={mult:.2f}({primary_phase}) = {final_score:.0f}"
+            f"phase={mult:.2f}({primary_phase}){val_mult_tag} = {final_score:.0f}"
         )
         if not liquidity_ok:
             rationale += f" | LOW-LIQUIDITY ${dollar_vol/1e6:.1f}M/day"
         if disqualified:
             rationale += " | DISQUALIFIED"
+        for w in fundamental_warnings:
+            rationale += f" | {w}"
 
         # B3: build trade card from bars
         df_t = bar_cache.get(t)
@@ -322,6 +414,16 @@ def scan(
             },
             trade_card=trade_card,
             is_unknown_theme=len(themes_of_t) == 0,
+            val_mult=val_mult,
+            fundamental_warnings=fundamental_warnings,
+            finnhub_features={
+                k: fh.get(k) for k in (
+                    "fh_peExclExtra_ttm", "fh_peg_5y",
+                    "fh_epsGrowth5Y", "fh_epsGrowthQuarterlyYoy",
+                    "fh_days_to_next_earnings", "fh_mspr_3m_avg",
+                    "fh_insider_cluster_30d_score", "fh_rec_bull_ratio",
+                ) if fh.get(k) is not None
+            },
         )
         candidates.append(cand)
 
