@@ -24,6 +24,14 @@ Copy each NAME exactly (case-sensitive). Values from `aggressive/.env`:
 
 After adding all 5, the **Actions** tab will show workflows as runnable.
 
+## Optional Secrets (not required for cloud workflows)
+
+| Name | Value | Purpose |
+|------|-------|---------|
+| `FRED_API_KEY` | `dac25101c8dc447c12fa29c8bff99ba3` | Federal Reserve macro data (M2, yields, etc). Used by 정석 engine locally only; cloud workflows don't need it. Add if you plan to also run 정석 pipeline via GHA in the future. |
+
+Free to register: https://fred.stlouisfed.org/docs/api/api_key.html
+
 ## Workflows Installed
 
 | Workflow | Schedule (UTC / KST) | Duration | Purpose |

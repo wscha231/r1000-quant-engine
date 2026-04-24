@@ -396,7 +396,8 @@ def print_verdict(base_dir: Path) -> int:
 
 COMMON_CFG_OVERRIDES = {
     "sec_user_agent": "R1000InstitutionalBot (contact: andrewcha231@gmail.com)",
-    "fred_api_key": "8d92fb5a5de226657d912fe0284dfc00",
+    # Prefer env var FRED_API_KEY; fallback to user's registered key 2026-04-24.
+    "fred_api_key": os.environ.get("FRED_API_KEY", "dac25101c8dc447c12fa29c8bff99ba3"),
     "macro_refresh_days": 0,
     "live_refresh_days": 1,
     "companyfacts_refresh_days": 7,

@@ -1384,7 +1384,7 @@ class EngineConfig:
     base_dir: str = "/content/drive/MyDrive/r1000_top30_institutional"
     sec_user_agent: str = "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
     alpha_vantage_api_key: str = "JOUOW3UV8ZV23AOZ"
-    fred_api_key: str = "8d92fb5a5de226657d912fe0284dfc00"
+    fred_api_key: str = "dac25101c8dc447c12fa29c8bff99ba3"   # user key 2026-04-24
     alpha_vantage_free_tier_mode: bool = True
     alpha_vantage_free_refresh_tickers: int = 8
     alpha_vantage_free_statement_repair_tickers: int = 6
