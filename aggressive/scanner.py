@@ -525,6 +525,9 @@ def send_telegram_digest(candidates: list[ScannerCandidate], top: int = 5) -> bo
 
 def main() -> int:
     p = argparse.ArgumentParser()
+    p.add_argument("--universe", choices=["r1000", "themes", "custom"],
+                   default="r1000",
+                   help="universe source (r1000=live IWB default, themes=yaml members)")
     p.add_argument("--themes", type=str, default="",
                    help="comma-separated theme filter (e.g. semi_memory,optical_communications)")
     p.add_argument("--tickers", type=str, default="",
@@ -543,6 +546,7 @@ def main() -> int:
     candidates = scan(
         tickers=tickers,
         theme_filter=theme_filter,
+        universe_source=args.universe,
         min_tech_score=args.min_score,
         top_n=args.top,
     )
