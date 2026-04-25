@@ -42,17 +42,32 @@ def select_features(df: pd.DataFrame, max_nullity: float = 0.30) -> list[str]:
         "ticker", "Name", "name", "sector", "industry",
         "subindustry", "industry_group", "industry_sector",
         "rebalance_date", "cik10", "score_source",
-        # Targets and lookahead
-        "r_1m", "r_3m", "r_6m", "score", "score_model_core",
-        "score_total", "weight",
-        # Other derived/score columns we don't want
+        # CRITICAL: r_*m are FORWARD returns (LEAKAGE!) - excluded
+        # Verified 2026-04-25: r_12m for NVDA at 2023-12 = +176% (forward to 2024-12)
+        # while mom_12m = +253% (past from 2022-12). Use mom_*m for past momentum.
+        "r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m",
+        # Benchmark forward returns also leakage
+        "bench_r_1m", "bench_r_3m", "bench_r_6m",
+        "bench_r_12m", "bench_r_24m", "bench_r_36m",
+        # Score/weight columns
+        "score", "score_model_core", "score_total", "weight",
         "portfolio_sleeve_label", "sleeve_label",
+        # Forward valuations (any 'forward_*' is suspect)
+        "forward_value_score",
     }
+    # Also exclude any column starting with 'r_' that's a forward return
+    # (defensive — covers any new naming)
     candidates = []
     for c in df.columns:
         if c in EXCLUDE_EXACT:
             continue
         if any(c.startswith(p) for p in EXCLUDE_PREFIXES):
+            continue
+        # Defensive: any 'r_NNm' or 'r_NNd' pattern is forward return
+        import re
+        if re.match(r"^r_\d+[mdy]", c):
+            continue
+        if re.match(r"^bench_r_", c):
             continue
         if df[c].dtype.kind not in ("f", "i", "u", "b"):
             continue

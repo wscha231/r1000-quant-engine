@@ -1,85 +1,76 @@
-|--- r_12m <= 0.24
-|   |--- r_12m <= -0.09
-|   |   |--- market_overheat_ratio <= 0.27
-|   |   |   |--- m2_yoy_lag1m <= 0.06
-|   |   |   |   |--- market_near_high_ratio <= 0.97
-|   |   |   |   |   |--- value: [-0.02]
-|   |   |   |   |--- market_near_high_ratio >  0.97
-|   |   |   |   |   |--- value: [-0.19]
-|   |   |   |--- m2_yoy_lag1m >  0.06
-|   |   |   |   |--- market_near_high_ratio <= 0.98
-|   |   |   |   |   |--- value: [-0.13]
-|   |   |   |   |--- market_near_high_ratio >  0.98
-|   |   |   |   |   |--- value: [-0.35]
-|   |   |--- market_overheat_ratio >  0.27
-|   |   |   |--- ppi_cpi_gap <= -0.03
-|   |   |   |   |--- stagflation_score <= 0.12
-|   |   |   |   |   |--- value: [-0.05]
-|   |   |   |   |--- stagflation_score >  0.12
-|   |   |   |   |   |--- value: [-0.11]
-|   |   |   |--- ppi_cpi_gap >  -0.03
-|   |   |   |   |--- r_12m <= -0.53
-|   |   |   |   |   |--- value: [-0.09]
-|   |   |   |   |--- r_12m >  -0.53
-|   |   |   |   |   |--- value: [0.02]
-|   |--- r_12m >  -0.09
-|   |   |--- systemic_crisis_score <= 0.30
-|   |   |   |--- inflation_reacceleration_score <= 1.38
-|   |   |   |   |--- inflation_reacceleration_score <= -0.64
-|   |   |   |   |   |--- value: [-0.07]
-|   |   |   |   |--- inflation_reacceleration_score >  -0.64
-|   |   |   |   |   |--- value: [0.01]
-|   |   |   |--- inflation_reacceleration_score >  1.38
-|   |   |   |   |--- cpi_yoy <= 0.04
-|   |   |   |   |   |--- value: [-0.30]
-|   |   |   |   |--- cpi_yoy >  0.04
-|   |   |   |   |   |--- value: [0.01]
-|   |   |--- systemic_crisis_score >  0.30
-|   |   |   |--- bench_dd_1y <= 0.17
-|   |   |   |   |--- vol_252d <= 0.02
-|   |   |   |   |   |--- value: [0.03]
-|   |   |   |   |--- vol_252d >  0.02
-|   |   |   |   |   |--- value: [-0.02]
-|   |   |   |--- bench_dd_1y >  0.17
-|   |   |   |   |--- r_12m <= 0.05
-|   |   |   |   |   |--- value: [0.07]
-|   |   |   |   |--- r_12m >  0.05
-|   |   |   |   |   |--- value: [0.11]
-|--- r_12m >  0.24
-|   |--- r_12m <= 0.78
-|   |   |--- systemic_crisis_score <= 0.30
-|   |   |   |--- market_near_high_ratio <= 0.97
-|   |   |   |   |--- ppi_cpi_gap <= -0.06
+|--- bench_dd_1y <= 0.19
+|   |--- cpi_yoy <= 0.02
+|   |   |--- m2_yoy_lag1m <= 0.07
+|   |   |   |--- mom_36m <= 0.64
+|   |   |   |   |--- value: [-0.22]
+|   |   |   |--- mom_36m >  0.64
+|   |   |   |   |--- value: [-0.13]
+|   |   |--- m2_yoy_lag1m >  0.07
+|   |   |   |--- mom_36m <= 0.68
+|   |   |   |   |--- value: [-0.33]
+|   |   |   |--- mom_36m >  0.68
+|   |   |   |   |--- value: [-0.24]
+|   |--- cpi_yoy >  0.02
+|   |   |--- market_regime_score <= 0.27
+|   |   |   |--- cpi_yoy <= 0.06
+|   |   |   |   |--- systemic_crisis_score <= 0.03
+|   |   |   |   |   |--- value: [0.00]
+|   |   |   |   |--- systemic_crisis_score >  0.03
+|   |   |   |   |   |--- value: [0.05]
+|   |   |   |--- cpi_yoy >  0.06
+|   |   |   |   |--- vol_252d <= 0.03
 |   |   |   |   |   |--- value: [-0.03]
-|   |   |   |   |--- ppi_cpi_gap >  -0.06
-|   |   |   |   |   |--- value: [0.10]
-|   |   |   |--- market_near_high_ratio >  0.97
-|   |   |   |   |--- market_overheat_ratio <= 0.28
+|   |   |   |   |--- vol_252d >  0.03
+|   |   |   |   |   |--- value: [-0.14]
+|   |   |--- market_regime_score >  0.27
+|   |   |   |--- dgs10_change_1m <= 0.14
+|   |   |   |   |--- unrate_level <= 5.35
 |   |   |   |   |   |--- value: [-0.05]
-|   |   |   |   |--- market_overheat_ratio >  0.28
+|   |   |   |   |--- unrate_level >  5.35
+|   |   |   |   |   |--- value: [0.04]
+|   |   |   |--- dgs10_change_1m >  0.14
+|   |   |   |   |--- vol_252d <= 0.02
+|   |   |   |   |   |--- value: [-0.11]
+|   |   |   |   |--- vol_252d >  0.02
+|   |   |   |   |   |--- value: [-0.21]
+|--- bench_dd_1y >  0.19
+|   |--- systemic_crisis_score <= 0.31
+|   |   |--- ppi_cpi_gap <= -0.06
+|   |   |   |--- systemic_crisis_score <= 0.28
+|   |   |   |   |--- smh_rel_spy_1m <= -0.00
+|   |   |   |   |   |--- value: [-0.04]
+|   |   |   |   |--- smh_rel_spy_1m >  -0.00
+|   |   |   |   |   |--- value: [-0.01]
+|   |   |   |--- systemic_crisis_score >  0.28
+|   |   |   |   |--- vol_252d <= 0.02
+|   |   |   |   |   |--- value: [-0.08]
+|   |   |   |   |--- vol_252d >  0.02
+|   |   |   |   |   |--- value: [-0.13]
+|   |   |--- ppi_cpi_gap >  -0.06
+|   |   |   |--- vol_252d <= 0.03
+|   |   |   |   |--- growth_liquidity_reentry_score <= -0.08
 |   |   |   |   |   |--- value: [0.08]
-|   |   |--- systemic_crisis_score >  0.30
-|   |   |   |--- r_12m <= 0.48
-|   |   |   |   |--- ppi_cpi_gap <= 0.02
+|   |   |   |   |--- growth_liquidity_reentry_score >  -0.08
+|   |   |   |   |   |--- value: [0.02]
+|   |   |   |--- vol_252d >  0.03
+|   |   |   |   |--- ppi_cpi_gap <= -0.02
+|   |   |   |   |   |--- value: [0.14]
+|   |   |   |   |--- ppi_cpi_gap >  -0.02
+|   |   |   |   |   |--- value: [0.06]
+|   |--- systemic_crisis_score >  0.31
+|   |   |--- war_oil_rate_shock_score <= 0.36
+|   |   |   |--- macro_beta_vix_interaction <= 0.94
+|   |   |   |   |--- vol_252d <= 0.03
+|   |   |   |   |   |--- value: [0.17]
+|   |   |   |   |--- vol_252d >  0.03
+|   |   |   |   |   |--- value: [0.28]
+|   |   |   |--- macro_beta_vix_interaction >  0.94
+|   |   |   |   |--- value: [0.38]
+|   |   |--- war_oil_rate_shock_score >  0.36
+|   |   |   |--- mom_36m <= 1.59
+|   |   |   |   |--- spy_ret_3m <= 0.09
+|   |   |   |   |   |--- value: [0.11]
+|   |   |   |   |--- spy_ret_3m >  0.09
 |   |   |   |   |   |--- value: [0.16]
-|   |   |   |   |--- ppi_cpi_gap >  0.02
-|   |   |   |   |   |--- value: [0.10]
-|   |   |   |--- r_12m >  0.48
-|   |   |   |   |--- spy_ret_1m <= 0.00
-|   |   |   |   |   |--- value: [0.23]
-|   |   |   |   |--- spy_ret_1m >  0.00
-|   |   |   |   |   |--- value: [0.16]
-|   |--- r_12m >  0.78
-|   |   |--- systemic_crisis_score <= 0.31
-|   |   |   |--- market_near_high_ratio <= 0.98
-|   |   |   |   |--- r_12m <= 1.28
-|   |   |   |   |   |--- value: [0.20]
-|   |   |   |   |--- r_12m >  1.28
-|   |   |   |   |   |--- value: [0.32]
-|   |   |   |--- market_near_high_ratio >  0.98
-|   |   |   |   |--- value: [0.05]
-|   |   |--- systemic_crisis_score >  0.31
-|   |   |   |--- r_12m <= 1.10
-|   |   |   |   |--- value: [0.28]
-|   |   |   |--- r_12m >  1.10
-|   |   |   |   |--- value: [0.46]
+|   |   |   |--- mom_36m >  1.59
+|   |   |   |   |--- value: [0.03]
