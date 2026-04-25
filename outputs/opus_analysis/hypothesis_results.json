@@ -1,0 +1,92 @@
+{
+  "summary": [
+    {
+      "name": "H1_oversold_value_beat",
+      "n_fires": 1149,
+      "mean_alpha_12m_pct": 8.66927674130537,
+      "p_value": 2.2058986077643942e-10,
+      "ship_pass": "True",
+      "regime_alpha_12m_pct": {
+        "2019_pre_covid": -4.965671723529977,
+        "2020_covid": 12.40225156148393,
+        "2021_bull": 26.812300286334896,
+        "2022_bear": 10.501632657127487,
+        "2023_recovery": -3.3207283760299715,
+        "2024_ai_bull": 0.4049204293825562,
+        "2025_present": 2.0081655149281645
+      }
+    },
+    {
+      "name": "H2_high_quality_oversold",
+      "n_fires": 167,
+      "mean_alpha_12m_pct": -1.4862421953012073,
+      "p_value": 0.7180273290423965,
+      "ship_pass": "False",
+      "regime_alpha_12m_pct": {
+        "2019_pre_covid": -17.225640489735124,
+        "2020_covid": 14.436700088446047,
+        "2021_bull": -27.96668432794106,
+        "2022_bear": 6.965746421218097,
+        "2023_recovery": 9.998892742345303,
+        "2024_ai_bull": -7.9738381830727345,
+        "2025_present": -8.812740363662863
+      }
+    },
+    {
+      "name": "H3_acceleration_with_value",
+      "n_fires": 535,
+      "mean_alpha_12m_pct": -1.3346599673795283,
+      "p_value": 0.4081108591988235,
+      "ship_pass": "False",
+      "regime_alpha_12m_pct": {
+        "2019_pre_covid": -14.772780215878187,
+        "2020_covid": -2.6139868643331843,
+        "2021_bull": 12.881216254256096,
+        "2022_bear": -1.0354293462926996,
+        "2023_recovery": -2.5494172000896125,
+        "2024_ai_bull": -0.04514638758356948,
+        "2025_present": -7.286462077270792
+      }
+    },
+    {
+      "name": "H4_minervini_strong_quality",
+      "n_fires": 0,
+      "mean_alpha_12m_pct": NaN,
+      "p_value": NaN,
+      "ship_pass": false,
+      "regime_alpha_12m_pct": {}
+    },
+    {
+      "name": "H5_avoid_overheated",
+      "n_fires": 135,
+      "mean_alpha_12m_pct": -2.7072672122153865,
+      "p_value": 0.6572286642806139,
+      "ship_pass": "False",
+      "regime_alpha_12m_pct": {
+        "2019_pre_covid": 21.28882500894825,
+        "2020_covid": 31.5295036935114,
+        "2021_bull": -19.228334463338264,
+        "2022_bear": 12.639346987829455,
+        "2023_recovery": 4.189350538658745,
+        "2024_ai_bull": 5.211921280208376,
+        "2025_present": -56.58009934028991
+      }
+    },
+    {
+      "name": "H6_dynamic_leader_compounder",
+      "n_fires": 704,
+      "mean_alpha_12m_pct": 7.38019094867905,
+      "p_value": 2.296556006096082e-06,
+      "ship_pass": "True",
+      "regime_alpha_12m_pct": {
+        "2019_pre_covid": 4.571390274538533,
+        "2020_covid": 5.3482403172810775,
+        "2021_bull": -2.3301895805698774,
+        "2022_bear": -6.33773335589189,
+        "2023_recovery": 9.339656917705355,
+        "2024_ai_bull": 7.500954657342645,
+        "2025_present": -4.044618586714428
+      }
+    }
+  ]
+}
