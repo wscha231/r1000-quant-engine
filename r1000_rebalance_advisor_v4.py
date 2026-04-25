@@ -1,21 +1,29 @@
-"""r1000_rebalance_advisor_v4 - ML-primary rebalance advisor.
+"""r1000_rebalance_advisor_v4 - ML-primary rebalance advisor [DEPRECATED].
 
-User mandate (2026-04-25):
-  Backtest proved ML predictor delivers +75.7% alpha vs SPY (CAGR 76.3%
-  vs SPY 21.5%, Sharpe 2.14). Integrate as PRIMARY signal in advisor.
+!! DEPRECATED 2026-04-25 !!
+  The original "+75.7% alpha vs SPY" backtest figure was the result of
+  forward-return leakage in r1000_pattern_miner.py (commit c13fa6a).
+  After leakage fix, decile spread = -0.00% (no signal). The honest
+  assessment (commit 6c0a496) explicitly states:
+    "v4 ML-primary advisor empirically deprecated"
 
-v4 Algorithm:
+  USE INSTEAD:
+    - r1000_rebalance_advisor.py        (v1, 정석 quality, +9.45pp validated)
+    - r1000_rebalance_advisor_v3.py     (v3 hybrid, recommended)
+    - paper_executor --advisor concentrated  (3-name, +19.68pp validated)
+
+  This file is kept for historical reference only. Running it will emit
+  a runtime DeprecationWarning. Do NOT wire into production paper trading.
+
+Original (now-invalidated) algorithm:
   1. Load unified scored CSV (1012 R1000 names: 610 real + 402 synthetic)
-  2. Run ML predictor -> rank by predicted_r3m_pct
+  2. Run ML predictor -> rank by predicted_r3m_pct (NOTE: predictions are
+     near-constant ~3% after leakage fix, so ranking is essentially random)
   3. Quality filter: 정석 score >= 1.0 AND market_cap >= $5B
   4. Take top 30 by predicted_r3m
   5. Apply tier caps (top 3 -> 18%, 4-6 -> 12%, 7-12 -> 8%)
-  6. Sort by predicted_r3m desc -> assign weights
-  7. Compute diff vs current portfolio
 
-Output: outputs_advisor_v4/new_top12_proposed.csv
-
-This is the production advisor. F. integration of backtested ML model.
+Output: outputs_advisor_v4/new_top12_proposed.csv (kept but unreliable)
 """
 from __future__ import annotations
 
@@ -70,10 +78,28 @@ def main() -> int:
     p.add_argument("--capital", type=float, default=100_000.0,
                    help="paper trading capital ($)")
     p.add_argument("--output-dir", default="outputs_advisor_v4")
+    p.add_argument("--i-understand-deprecated", action="store_true",
+                   help="acknowledge that v4 is deprecated (post-leakage no signal)")
     args = p.parse_args()
 
+    if not args.i_understand_deprecated:
+        print("=" * 70, file=sys.stderr)
+        print("WARNING: r1000_rebalance_advisor_v4 is DEPRECATED", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+        print("The original +75.7% alpha was leakage (commit c13fa6a).", file=sys.stderr)
+        print("After fix, ML decile spread = 0.00% — predictions are random.", file=sys.stderr)
+        print("Use v1 / v3 / concentrated / core instead.", file=sys.stderr)
+        print("Pass --i-understand-deprecated to silence this and proceed anyway.", file=sys.stderr)
+        return 1
+    import warnings as _w
+    _w.warn(
+        "r1000_rebalance_advisor_v4 is deprecated. Original +75.7% alpha was "
+        "forward-return leakage (c13fa6a). Use v1/v3/concentrated/core.",
+        DeprecationWarning, stacklevel=2,
+    )
+
     print("=" * 70)
-    print(f"r1000 Advisor v4 (ML-Primary) - {datetime.now():%Y-%m-%d %H:%M}")
+    print(f"r1000 Advisor v4 (ML-Primary) [DEPRECATED] - {datetime.now():%Y-%m-%d %H:%M}")
     print("=" * 70)
 
     # Load unified scored

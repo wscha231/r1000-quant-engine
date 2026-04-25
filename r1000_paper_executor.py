@@ -3,13 +3,21 @@
 User mandate (2026-04-25):
   Phase G — start Alpaca paper portfolio with advisor's picks.
 
-Loads advisor v3 (hybrid) or v4 (ML-primary) output and converts to Alpaca
+Loads advisor output (v1/v3/concentrated/core) and converts to Alpaca
 limit orders. Default: DRY-RUN (logs only). Use --execute to place real
 paper orders.
 
+  !! v4 is DEPRECATED (commit c13fa6a, 2026-04-25) — ML alpha was leakage.
+     Validated alternatives:
+       - v1            정석 ML quality, +9.45pp validated
+       - v3            v1+v2 hybrid (recommended)
+       - concentrated  3-name, +19.68pp validated
+       - core          17-name 정석 v1 production portfolio
+
 Usage:
-    py -3 r1000_paper_executor.py --advisor v3                # dry-run v3
-    py -3 r1000_paper_executor.py --advisor v4 --execute      # live paper v4
+    py -3 r1000_paper_executor.py --advisor v3                # dry-run v3 (recommended)
+    py -3 r1000_paper_executor.py --advisor concentrated      # dry-run 3-name
+    py -3 r1000_paper_executor.py --advisor core --execute    # live paper core
     py -3 r1000_paper_executor.py --advisor v3 --execute --confirm  # bypass prompt
 """
 from __future__ import annotations
@@ -115,7 +123,8 @@ def main() -> int:
     p.add_argument("--advisor",
                    choices=["v1", "v3", "v4", "concentrated", "core"],
                    default="concentrated",
-                   help="concentrated = 84mo proven 33pp CAGR (3 names, RECOMMENDED)")
+                   help="concentrated = 84mo proven 33pp CAGR (3 names, RECOMMENDED). "
+                        "v4 is DEPRECATED (was leakage-driven, see commit c13fa6a).")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--execute", action="store_true",
                    help="actually place orders (default: dry-run)")
@@ -123,11 +132,33 @@ def main() -> int:
                    help="skip confirmation prompt")
     p.add_argument("--limit-margin-pct", type=float, default=0.5,
                    help="limit price = entry × (1 + margin/100)")
+    p.add_argument("--allow-deprecated-v4", action="store_true",
+                   help="explicit ack required to use --advisor v4 (deprecated)")
     args = p.parse_args()
 
+    if args.advisor == "v4" and not args.allow_deprecated_v4:
+        print("=" * 70, file=sys.stderr)
+        print("ERROR: --advisor v4 is DEPRECATED", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+        print("v4's '+75.7% alpha' was forward-return leakage (commit c13fa6a).", file=sys.stderr)
+        print("After fix, ML decile spread = 0.00% (random). Do NOT use for live paper.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Validated alternatives (84mo bootstrap):", file=sys.stderr)
+        print("  --advisor concentrated   CAGR 33.17%, P(excess>0) = 97.9%  (RECOMMENDED)", file=sys.stderr)
+        print("  --advisor core           CAGR 22.95%, P(excess>0) = 99.5%", file=sys.stderr)
+        print("  --advisor v3             v1+v2 hybrid, top 12 names", file=sys.stderr)
+        print("  --advisor v1             정석 quality, top 12 names", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Pass --allow-deprecated-v4 to override (research only, not for live).", file=sys.stderr)
+        return 1
+
     print("=" * 70)
-    print(f"r1000 Paper Executor - advisor={args.advisor} "
-          f"{'LIVE' if args.execute else 'DRY-RUN'}")
+    if args.advisor == "v4":
+        print(f"r1000 Paper Executor - advisor=v4 [DEPRECATED] "
+              f"{'LIVE' if args.execute else 'DRY-RUN'}")
+    else:
+        print(f"r1000 Paper Executor - advisor={args.advisor} "
+              f"{'LIVE' if args.execute else 'DRY-RUN'}")
     print(f"  {datetime.now():%Y-%m-%d %H:%M:%S}")
     print("=" * 70)
 

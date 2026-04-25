@@ -1021,6 +1021,35 @@ def test_pattern_miner_no_forward_return_leakage() -> None:
     )
 
 
+@_test("regression.advisor_v4_marked_deprecated")
+def test_advisor_v4_deprecated() -> None:
+    """advisor v4's "+75.7% alpha" was leakage-driven (c13fa6a / 6c0a496).
+    The honest assessment commit explicitly stated:
+      'v4 ML-primary advisor empirically deprecated'
+
+    This guard ensures the deprecation marker stays in place so future
+    contributors can't silently re-promote v4 as production.
+
+    Required markers:
+      - r1000_rebalance_advisor_v4.py docstring contains 'DEPRECATED'
+      - paper_executor refuses --advisor v4 without --allow-deprecated-v4 ack
+    """
+    v4_path = ROOT / "r1000_rebalance_advisor_v4.py"
+    assert v4_path.exists(), "r1000_rebalance_advisor_v4.py missing"
+    v4_src = v4_path.read_text(encoding="utf-8")
+    assert "DEPRECATED" in v4_src[:2000], (
+        "DEPRECATED marker missing from r1000_rebalance_advisor_v4.py docstring "
+        "(must reference commit c13fa6a leakage finding)"
+    )
+
+    pe_path = ROOT / "r1000_paper_executor.py"
+    assert pe_path.exists(), "r1000_paper_executor.py missing"
+    pe_src = pe_path.read_text(encoding="utf-8")
+    assert "allow-deprecated-v4" in pe_src, (
+        "paper_executor missing --allow-deprecated-v4 gate for v4 advisor"
+    )
+
+
 @_test("regression.production_acceptance_check_bans_all_forward_returns")
 def test_production_exact_banned_full_coverage() -> None:
     """run_acceptance_checks.exact_banned must include ALL forward-return
