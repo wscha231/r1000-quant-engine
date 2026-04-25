@@ -83,6 +83,7 @@ from r1000_config import (
     PHASE8B_LONG_LOOKBACK_COLUMNS,
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
+    PHASE14_HYBRID_ALPHA_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -268,6 +269,12 @@ from r1000_features import (
     compute_strategy_blueprint_columns,
     compute_multidimensional_pillar_scores,
     compute_minervini_momentum_overlay,
+    # Phase 14 (2026-04-25): hybrid alpha
+    compute_rs_acceleration_score,
+    compute_h1_oversold_value_score,
+    compute_h6_dynamic_leader_score,
+    compute_stage2_overext_penalty,
+    compute_theme_phase_features,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7027,6 +7034,17 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     universe = compute_strategy_blueprint_columns(universe, cfg)
     universe = compute_multidimensional_pillar_scores(universe)
     universe = add_core_fundamental_minimum_flags(universe, cfg)
+    # Phase 14 (2026-04-25): hybrid alpha — production wire of validated
+    # Aggressive scanner signals into 정석 ML feature set. Order matters:
+    # rs_acceleration uses rs_benchmark_*m (already computed above), H1/H6
+    # use rsi14 + ep_ttm + mom_*m + op_margin_ttm (all in feature_store),
+    # Stage 2 uses near_52w_high_pct + RSI + fundamentals, theme_phase reads
+    # ticker membership from themes.yaml.
+    universe = compute_rs_acceleration_score(universe)
+    universe = compute_h1_oversold_value_score(universe)
+    universe = compute_h6_dynamic_leader_score(universe)
+    universe = compute_stage2_overext_penalty(universe)
+    universe = compute_theme_phase_features(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -7090,6 +7108,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE8B_LONG_LOOKBACK_COLUMNS
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
+            + PHASE14_HYBRID_ALPHA_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7119,6 +7138,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE8B_LONG_LOOKBACK_COLUMNS
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
+        + PHASE14_HYBRID_ALPHA_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )

@@ -1957,6 +1957,13 @@ __all__ = [
     "compute_strategy_blueprint_columns",
     "compute_multidimensional_pillar_scores",
     "compute_minervini_momentum_overlay",
+    # Phase 14 (2026-04-25): production wire of validated Aggressive scanner signals
+    "compute_rs_acceleration_score",
+    "compute_h1_oversold_value_score",
+    "compute_h6_dynamic_leader_score",
+    "compute_stage2_overext_penalty",
+    "compute_theme_phase_features",
+    "PHASE14_HYBRID_ALPHA_COLUMNS",
 ]
 
 
@@ -4614,3 +4621,193 @@ def compute_minervini_momentum_overlay(df: pd.DataFrame) -> pd.DataFrame:
         & (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0)
     ).astype(float)
     return d
+
+
+# =====================================================================
+# Phase 14 (2026-04-25): Hybrid alpha — production wire of validated
+# Aggressive scanner signals into 정석 ML feature set.
+# =====================================================================
+# Sources (commit 2e5fc19, 1d04f78, ADR_PLAYBOOK):
+#   F  rs_acceleration_score         T4 +10% alpha (90d, 24mo backtest)
+#   G  h1_oversold_value_score       Opus H1 +8.67% alpha 12m (n=1149, p<0.0001)
+#   G  h6_dynamic_leader_score       Opus H6 +7.38% alpha 12m (n=704, p<0.0001)
+#   G  stage2_overext_penalty        T1 -2.5% alpha protection (chase 52w high)
+#   H  theme_phase_multiplier_*      themes.yaml phase classifier (early/.../dead)
+#
+# All five are point-in-time safe (use mom_*m past returns + current PE/margin).
+# No leakage (regression.pattern_miner_excludes_forward_returns guards future).
+
+PHASE14_HYBRID_ALPHA_COLUMNS = [
+    "rs_acceleration_score",
+    "h1_oversold_value_score",
+    "h6_dynamic_leader_score",
+    "stage2_overext_penalty",
+    "theme_phase_multiplier_primary",
+    "theme_phase_multiplier_max",
+]
+
+
+def compute_rs_acceleration_score(df: pd.DataFrame) -> pd.DataFrame:
+    """T4 RS Acceleration — recent (3m) RS minus longer (12m) RS.
+
+    Validated +10% alpha (90d horizon, 24mo backtest per audit 1d04f78).
+
+    Positive score: stock's outperformance is accelerating (3m RS > 12m RS).
+    Negative score: outperformance is decaying — early sign of leadership rotation.
+
+    Returns df with 'rs_acceleration_score' column added (z-scored, clipped [-3, 3]).
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["rs_acceleration_score"] = pd.Series(dtype=float)
+        return d
+    rs_3m_z = cross_sectional_robust_z(d, "rs_benchmark_3m")
+    rs_12m_z = cross_sectional_robust_z(d, "rs_benchmark_12m")
+    d["rs_acceleration_score"] = (rs_3m_z - rs_12m_z).clip(lower=-3.0, upper=3.0).fillna(0.0)
+    return d
+
+
+def compute_h1_oversold_value_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Opus H1 oversold-value-beat — bear-regime mean reversion signal.
+
+    Validated +8.67% alpha 12m, p<0.0001, n=1149. Strongest in bear/recovery
+    regimes (2021_bull +27%, 2020_covid +12%, 2022_bear +10%).
+
+    Original Aggressive scanner condition (commit 2e5fc19):
+        RSI(14) < 45 AND EP_TTM > 0.05 AND mom_12m < -0.10
+
+    Production translation:
+        rsi14 (already in feature_store) < 45
+        ep_ttm = 1/forward_pe_final or ep_ttm column directly
+        mom_12m < -0.10
+
+    Returns continuous score [0.0, 1.0] — 1.0 = full fire (all conditions met),
+    fractional = partial. Use as ML feature OR multiplier.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["h1_oversold_value_score"] = pd.Series(dtype=float)
+        return d
+    rsi14 = numeric_series_or_default(d, "rsi14", 50.0)
+    ep_ttm = numeric_series_or_default(d, "ep_ttm", 0.0)
+    # Fall back to 1/forward_pe_final if ep_ttm absent
+    fwd_pe = numeric_series_or_default(d, "forward_pe_final", np.nan)
+    ep_from_pe = (1.0 / fwd_pe).where(fwd_pe > 0, 0.0).fillna(0.0)
+    ep_effective = ep_ttm.where(ep_ttm > 0, ep_from_pe)
+    mom_12m = numeric_series_or_default(d, "mom_12m", 0.0)
+
+    # Continuous interpretation: each condition contributes to score
+    rsi_part = ((45.0 - rsi14) / 15.0).clip(lower=0.0, upper=1.0)         # 1.0 at RSI=30, 0 at RSI>=45
+    ep_part = ((ep_effective - 0.05) / 0.05).clip(lower=0.0, upper=1.0)   # 1.0 at EP>=10%, 0 at EP<=5%
+    mom_part = ((-0.10 - mom_12m) / 0.20).clip(lower=0.0, upper=1.0)      # 1.0 at mom<=-30%, 0 at mom>=-10%
+    d["h1_oversold_value_score"] = (rsi_part * ep_part * mom_part).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_h6_dynamic_leader_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Opus H6 dynamic-leader-compounder — pro-cyclical compounder signal.
+
+    Validated +7.38% alpha 12m, p<0.0001, n=704. Strongest in growth/recovery
+    regimes (2023_recovery +9%, 2024_ai_bull +7.5%, 2020_covid +5%).
+
+    Original Aggressive scanner condition:
+        mom_3m > 0.05 AND op_margin_ttm > 0.15
+
+    Returns continuous score [0.0, 1.0].
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["h6_dynamic_leader_score"] = pd.Series(dtype=float)
+        return d
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    op_margin = numeric_series_or_default(d, "op_margin_ttm", 0.0)
+
+    mom_part = ((mom_3m - 0.05) / 0.10).clip(lower=0.0, upper=1.0)        # 1.0 at mom>=15%, 0 at mom<=5%
+    margin_part = ((op_margin - 0.15) / 0.10).clip(lower=0.0, upper=1.0)  # 1.0 at margin>=25%, 0 at margin<=15%
+    d["h6_dynamic_leader_score"] = (mom_part * margin_part).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
+    """T1 Stage 2 breakout overextension penalty — chase-the-top protection.
+
+    Backtest finding (1d04f78): T1 Stage 2 = -2.5% alpha. Compound 4-factor gate
+    fires only when ALL hold:
+      near_52w_high > 0.95 AND RSI(14) > 72 AND no_catalyst AND weak_fund
+
+    Returns continuous penalty score [0.0, 1.0]. 1.0 = full penalty.
+    Use as multiplicative penalty (e.g. final_score *= (1 - 0.15 * penalty))
+    OR as direct ML feature (model learns weight).
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["stage2_overext_penalty"] = pd.Series(dtype=float)
+        return d
+    near_52w = numeric_series_or_default(d, "near_52w_high_pct", 0.0).clip(lower=0.0, upper=1.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", 50.0)
+    op_margin = numeric_series_or_default(d, "op_margin_ttm", np.nan)
+    fwd_pe = numeric_series_or_default(d, "forward_pe_final", np.nan)
+    eps_growth = numeric_series_or_default(d, "earnings_growth_yoy", np.nan)
+
+    # Each gate as continuous: 1.0 = condition fully met
+    near_52w_part = ((near_52w - 0.95) / 0.05).clip(lower=0.0, upper=1.0)         # 1.0 at near_52w>=1.0
+    rsi_part = ((rsi14 - 72.0) / 8.0).clip(lower=0.0, upper=1.0)                  # 1.0 at RSI>=80, 0 at RSI<=72
+    weak_margin = ((0.05 - op_margin) / 0.05).clip(lower=0.0, upper=1.0).fillna(1.0)  # 1.0 if op_margin<=0 OR NaN
+    expensive_pe = ((fwd_pe - 50.0) / 30.0).clip(lower=0.0, upper=1.0).fillna(0.0)    # 1.0 at PE>=80, 0 at PE<=50
+    no_growth = (eps_growth.isna() | (eps_growth <= 0.0)).astype(float)
+    weak_fund = pd.concat([weak_margin, expensive_pe, no_growth], axis=1).max(axis=1)
+    # Conservative: penalty fires only when ALL three primary gates active
+    d["stage2_overext_penalty"] = (
+        near_52w_part * rsi_part * weak_fund
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Wrap r1000_themes.attach_per_ticker_theme_features for production engine.
+
+    Adds theme_phase_multiplier_primary + theme_phase_multiplier_max columns
+    (numeric, ML-friendly) to the input df. Falls through to neutral=1.00 if
+    themes.yaml unavailable or no overlap.
+
+    Calls into r1000_themes.{load_themes, compute_theme_aggregates,
+    attach_per_ticker_theme_features}.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty or "ticker" not in d.columns:
+        d["theme_phase_multiplier_primary"] = 1.0
+        d["theme_phase_multiplier_max"] = 1.0
+        return d
+    try:
+        from r1000_themes import (
+            attach_per_ticker_theme_features,
+            compute_theme_aggregates,
+            load_themes,
+            THEME_PHASE_MULTIPLIER,
+        )
+    except Exception:
+        d["theme_phase_multiplier_primary"] = 1.0
+        d["theme_phase_multiplier_max"] = 1.0
+        return d
+    themes = load_themes()
+    if not themes:
+        d["theme_phase_multiplier_primary"] = 1.0
+        d["theme_phase_multiplier_max"] = 1.0
+        return d
+    # Run aggregation per rebalance_date if present (cross-sectional within each date)
+    if "rebalance_date" in d.columns:
+        out_chunks = []
+        for date_val, chunk in d.groupby("rebalance_date", sort=False):
+            agg = compute_theme_aggregates(chunk, themes)
+            attached = attach_per_ticker_theme_features(chunk, themes, agg)
+            out_chunks.append(attached)
+        out = pd.concat(out_chunks, ignore_index=False) if out_chunks else d
+    else:
+        agg = compute_theme_aggregates(d, themes)
+        out = attach_per_ticker_theme_features(d, themes, agg)
+    # Ensure both columns exist with neutral default
+    for col in ("theme_phase_multiplier_primary", "theme_phase_multiplier_max"):
+        if col not in out.columns:
+            out[col] = 1.0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(1.0)
+    return out

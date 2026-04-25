@@ -1081,6 +1081,85 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.phase14_hybrid_alpha_in_default_features")
+def test_phase14_in_default_features() -> None:
+    """PHASE14_HYBRID_ALPHA_COLUMNS must be in cfg.DEFAULT_FEATURES so the
+    walk-forward ML model trains on these signals.
+
+    History (2026-04-25):
+      - 6 columns: rs_acceleration_score (T4 +10%), h1_oversold_value_score
+        (Opus H1 +8.67%), h6_dynamic_leader_score (Opus H6 +7.38%),
+        stage2_overext_penalty (T1 -2.5% protection),
+        theme_phase_multiplier_{primary,max} (themes.yaml phase classifier).
+      - ENGINE_REUSE_VERSION must reflect the schema change so cache
+        invalidation triggers FULL rebuild.
+    """
+    src = _config_src()
+    assert "PHASE14_HYBRID_ALPHA_COLUMNS" in src, (
+        "PHASE14_HYBRID_ALPHA_COLUMNS constant missing in r1000_config.py"
+    )
+    # All 6 expected columns must be in the constant
+    for col in (
+        "rs_acceleration_score", "h1_oversold_value_score",
+        "h6_dynamic_leader_score", "stage2_overext_penalty",
+        "theme_phase_multiplier_primary", "theme_phase_multiplier_max",
+    ):
+        assert f'"{col}"' in src, f"PHASE14 column missing from r1000_config: {col}"
+    # DEFAULT_FEATURES must include the constant (via + concatenation)
+    assert "+ PHASE14_HYBRID_ALPHA_COLUMNS" in src, (
+        "PHASE14_HYBRID_ALPHA_COLUMNS not appended to DEFAULT_FEATURES — "
+        "ML model will not see the new signals"
+    )
+    # Version bump must reflect Phase 14
+    assert "phase14" in src.lower(), (
+        "ENGINE_REUSE_VERSION not bumped for Phase 14 — cache will not invalidate"
+    )
+
+
+@_test("regression.phase14_columns_in_pipeline_keep_cols")
+def test_phase14_in_pipeline() -> None:
+    """build_universe_monthly must call all 5 Phase 14 compute_* functions
+    AND keep_cols/hard_sanitize must include PHASE14_HYBRID_ALPHA_COLUMNS,
+    or feature_store_latest.parquet will silently drop them
+    (the same Phase 2 keepcols-survival regression we've fixed 4 times).
+    """
+    src = _pipeline_src()
+    if not src:
+        return
+    # Functions called in build_universe_monthly
+    for fn in (
+        "compute_rs_acceleration_score(",
+        "compute_h1_oversold_value_score(",
+        "compute_h6_dynamic_leader_score(",
+        "compute_stage2_overext_penalty(",
+        "compute_theme_phase_features(",
+    ):
+        assert fn in src, f"r1000_pipeline.py does not call {fn} — Phase 14 dormant"
+    # Whitelist + sanitize references (must appear at least 3 times: import +
+    # keep_cols list + hard_sanitize list)
+    count = src.count("PHASE14_HYBRID_ALPHA_COLUMNS")
+    assert count >= 3, (
+        f"PHASE14_HYBRID_ALPHA_COLUMNS referenced only {count} times in pipeline; "
+        "expected >=3 (import + keep_cols + hard_sanitize)"
+    )
+
+
+@_test("regression.theme_phase_multiplier_constant_present")
+def test_theme_phase_multiplier_constant() -> None:
+    """r1000_themes.THEME_PHASE_MULTIPLIER must define the 5+1 phase mapping
+    to numeric multipliers used by compute_theme_phase_features.
+
+    Without this constant, Phase 14 H wiring would produce NaN multipliers
+    that ML treats as unknown signal and silently zero out.
+    """
+    src = (ROOT / "r1000_themes.py").read_text(encoding="utf-8")
+    assert "THEME_PHASE_MULTIPLIER" in src, (
+        "THEME_PHASE_MULTIPLIER constant missing in r1000_themes.py"
+    )
+    for phase in ("early", "maturing", "peaking", "ending", "dead", "unknown"):
+        assert f'"{phase}"' in src, f"THEME_PHASE_MULTIPLIER missing phase: {phase}"
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the
