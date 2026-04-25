@@ -413,17 +413,157 @@ class TechnicalSignalResult:
     tiers: list[TierSignal] = field(default_factory=list)
 
 
+# --- Tier 5: Stage 1->2 Turnaround (Weinstein) -----------------------------
+
+def tier5_stage_transition(
+    df: pd.DataFrame,
+    spy_df: Optional[pd.DataFrame] = None,
+) -> TierSignal:
+    """Detect Stage 1 -> Stage 2 turnaround: low-risk early entry.
+
+    User insight (2026-04-24): "저점에서 장기 상승전환하는 주식을 사면
+    마음 편하게 오래 가져갈 수 있다."
+
+    This complements Tier 1 (which catches stocks at 52w high - chase phase).
+    Tier 5 catches stocks turning UP from a long downtrend - safer early entry.
+
+    Criteria (Weinstein 4-stage):
+      1. Stage 4 history: 100+ days below MA200 in past year
+      2. Recent MA200 cross: closed above MA200 within last 30 days
+      3. MA200 slope flip: was negative 60 days ago, now flat/positive
+      4. Off the lows: 30%+ recovery from 52-week low
+      5. RS turning up: 3m RS > 6m RS
+      6. Volume confirm: up-day volume > down-day volume (60d)
+      7. Room to run: still 15-30% below 52w high (NOT extended)
+    """
+    if len(df) < 252:
+        return TierSignal(5, "Stage 1->2 Turnaround", False, 0.0,
+                          rationale="insufficient history (need 252+ days)")
+
+    c = df["close"]
+    v = df["volume"]
+    ma200 = sma(c, 200)
+    price_latest = float(c.iloc[-1])
+    high_52w = float(c.tail(252).max())
+    low_52w = float(c.tail(252).min())
+
+    # 1. Stage 4 history: count days below MA200 in last 252
+    last_year_close = c.tail(252).values
+    last_year_ma200 = ma200.tail(252).values
+    days_below = int(np.sum(last_year_close < last_year_ma200 * 0.98))   # 2% margin
+    stage4_history = days_below >= 100
+
+    # 2. Recent MA200 cross
+    last_30 = c.tail(30).values
+    last_30_ma = ma200.tail(30).values
+    crossed_above = bool(np.any(last_30 > last_30_ma))     # crossed at any point in 30d
+    currently_above = price_latest > float(ma200.iloc[-1])
+
+    # 3. MA200 slope shift
+    if len(ma200) >= 80:
+        slope_current = slope_pct(ma200, 30)
+        slope_60d_ago = slope_pct(ma200.iloc[:-60], 30) if len(ma200) >= 90 else slope_current
+        slope_flipped = slope_60d_ago < -0.01 and slope_current > -0.01    # negative -> non-negative
+    else:
+        slope_flipped = False
+        slope_current = 0.0
+        slope_60d_ago = 0.0
+
+    # 4. Off the lows (30%+ recovery)
+    pct_off_low = (price_latest / low_52w - 1.0) * 100.0
+    off_lows = pct_off_low >= 30.0
+
+    # 5. RS turning up (3m vs 6m)
+    rs_turning = False
+    rs_3m = float("nan")
+    rs_6m = float("nan")
+    if spy_df is not None and not spy_df.empty:
+        aligned = pd.concat(
+            [c.rename("tkr"), spy_df["close"].rename("spy")],
+            axis=1, join="inner",
+        ).dropna()
+        if len(aligned) >= 127:
+            rs_line = aligned["tkr"] / aligned["spy"]
+            if len(rs_line) >= 64:
+                rs_3m = (rs_line.iloc[-1] / rs_line.iloc[-64] - 1.0) * 100.0
+            if len(rs_line) >= 127:
+                rs_6m = (rs_line.iloc[-1] / rs_line.iloc[-127] - 1.0) * 100.0
+            if not pd.isna(rs_3m) and not pd.isna(rs_6m):
+                rs_turning = rs_3m > rs_6m and rs_3m > -10.0
+
+    # 6. Volume confirmation: up-day vol > down-day vol over 60d
+    if len(df) >= 60:
+        recent = df.tail(60)
+        up_mask = recent["close"] > recent["close"].shift(1)
+        up_vol = float(recent.loc[up_mask, "volume"].mean()) if up_mask.any() else 0.0
+        down_vol = float(recent.loc[~up_mask, "volume"].mean()) if (~up_mask).any() else 1.0
+        vol_confirm = up_vol > down_vol * 1.05
+    else:
+        vol_confirm = False
+        up_vol = down_vol = 0.0
+
+    # 7. Room to run (NOT at top — distinguishes from T1)
+    pct_off_high = (price_latest / high_52w - 1.0) * 100.0   # negative if below high
+    room_to_run = -30.0 < pct_off_high < -3.0    # 3-30% below high = sweet spot
+
+    # Score (weighted)
+    points = 0.0
+    if stage4_history: points += 30.0
+    if crossed_above and currently_above: points += 20.0
+    if slope_flipped: points += 20.0
+    if off_lows: points += 15.0
+    if rs_turning: points += 10.0
+    if vol_confirm: points += 5.0
+    # Room-to-run is filter, not bonus
+
+    # Fire condition: all major checks + room-to-run
+    fired = (
+        stage4_history and currently_above and (slope_flipped or off_lows)
+        and rs_turning and room_to_run
+    )
+
+    checks = {
+        "stage4_history_100d": bool(stage4_history),
+        "currently_above_ma200": bool(currently_above),
+        "ma200_slope_flipped": bool(slope_flipped),
+        "off_lows_30pct": bool(off_lows),
+        "rs_turning_up": bool(rs_turning),
+        "volume_confirms": bool(vol_confirm),
+        "room_to_run": bool(room_to_run),
+    }
+    metrics = {
+        "days_below_ma200": float(days_below),
+        "pct_off_52w_low": pct_off_low,
+        "pct_off_52w_high": pct_off_high,
+        "ma200_slope_now": slope_current,
+        "ma200_slope_60d_ago": slope_60d_ago,
+        "rs_3m_pct": rs_3m,
+        "rs_6m_pct": rs_6m,
+    }
+
+    n_passed = sum(checks.values())
+    score = points if fired else points * 0.5
+
+    rationale = (
+        f"days<MA200={days_below}, off_low=+{pct_off_low:.0f}%, "
+        f"off_high={pct_off_high:+.0f}%, slope: {slope_60d_ago:.2f}->{slope_current:.2f}, "
+        f"rs3m={rs_3m:+.0f}% rs6m={rs_6m:+.0f}%, [{n_passed}/7 checks]"
+    )
+    return TierSignal(5, "Stage 1->2 Turnaround", fired, score, checks, metrics, rationale)
+
+
 def evaluate_ticker(
     ticker: str,
     df: pd.DataFrame,
     spy_df: Optional[pd.DataFrame] = None,
 ) -> TechnicalSignalResult:
-    """Run all four tiers on a single ticker and pick the strongest signal."""
+    """Run all five tiers on a single ticker and pick the strongest signal."""
     t1 = tier1_stage2_breakout(df)
     t2 = tier2_vcp_breakout(df)
     t3 = tier3_earnings_gap(df)
     t4 = tier4_rs_acceleration(df, spy_df)
-    tiers = [t1, t2, t3, t4]
+    t5 = tier5_stage_transition(df, spy_df)
+    tiers = [t1, t2, t3, t4, t5]
 
     fired = [t for t in tiers if t.fired]
     best = max(tiers, key=lambda t: t.score)
