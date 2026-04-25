@@ -12,3 +12,5 @@ aggressive/credentials.json
 aggressive/alpaca_keys.txt
 aggressive/state/
 aggressive/cache/
+# ---- Runtime caches (regenerated, do not commit) ----
+outputs/regime_snapshot_cache.json
