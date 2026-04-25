@@ -39,6 +39,8 @@ ADVISOR_PATHS = {
     "v1": "outputs_advisor/new_top12_proposed.csv",
     "v3": "outputs_advisor_v3/new_top12_proposed.csv",
     "v4": "outputs_advisor_v4/new_top12_proposed.csv",
+    "concentrated": r"G:/내 드라이브/r1000_top30_institutional/outputs/concentrated_portfolio_latest.csv",
+    "core": r"G:/내 드라이브/r1000_top30_institutional/outputs/portfolio_latest.csv",
 }
 
 
@@ -50,17 +52,38 @@ def load_advisor_picks(advisor: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def normalize_picks(df: pd.DataFrame, capital: float) -> list[dict]:
-    """Normalize columns across v1/v3/v4 schemas. Returns list of dicts."""
+def normalize_picks(df: pd.DataFrame, capital: float, advisor: str = "v3") -> list[dict]:
+    """Normalize columns across v1/v3/v4/core/concentrated schemas. Returns list of dicts.
+
+    Schemas:
+      v1/v3/v4:     ticker, proposed_weight, entry_price (or current_price_live), action
+      concentrated: ticker, weight, entry_price, reference_price (premade portfolio)
+      core:         ticker, weight (production portfolio_latest.csv)
+    """
     out = []
     for _, r in df.iterrows():
-        ticker = str(r["ticker"]).upper()
-        # v3 uses 'proposed_weight'; v4 uses 'proposed_weight'; v1 uses 'proposed_weight'
-        weight = float(r.get("proposed_weight") or 0.0)
-        # entry price
-        entry = (float(r.get("entry_price") or 0.0)
-                  if r.get("entry_price") else 0.0)
-        # If no entry_price, try latest from Alpaca quote (live)
+        ticker = str(r.get("ticker", "")).upper()
+        if not ticker or ticker == "CASH":
+            continue
+
+        # Weight: 'proposed_weight' (advisor) or 'weight' (production)
+        weight = float(r.get("proposed_weight") or r.get("weight") or 0.0)
+        if weight <= 0:
+            continue
+
+        # Entry price: prefer 'entry_price', fallback 'reference_price', then 'current_price_live'
+        entry = 0.0
+        for col in ("entry_price", "reference_price", "current_price_live"):
+            v = r.get(col)
+            if v and pd.notna(v):
+                try:
+                    entry = float(v)
+                    if entry > 0:
+                        break
+                except (TypeError, ValueError):
+                    continue
+
+        # If still no price, query Alpaca live
         if entry <= 0:
             try:
                 from aggressive.data_alpaca import fetch_daily_bars
@@ -69,8 +92,12 @@ def normalize_picks(df: pd.DataFrame, capital: float) -> list[dict]:
                     entry = float(bars["close"].iloc[-1])
             except Exception:
                 continue
+
+        if entry <= 0:
+            continue
+
         target_dollars = capital * weight
-        target_shares = target_dollars / entry if entry > 0 else 0
+        target_shares = target_dollars / entry
         out.append({
             "ticker": ticker,
             "weight": weight,
@@ -78,14 +105,17 @@ def normalize_picks(df: pd.DataFrame, capital: float) -> list[dict]:
             "entry_price": entry,
             "target_shares": target_shares,
             "current_weight": float(r.get("current_weight") or 0.0),
-            "action": str(r.get("action", "BUY")),
+            "action": str(r.get("action", "BUY") or "BUY"),
         })
     return out
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--advisor", choices=["v1", "v3", "v4"], default="v3")
+    p.add_argument("--advisor",
+                   choices=["v1", "v3", "v4", "concentrated", "core"],
+                   default="concentrated",
+                   help="concentrated = 84mo proven 33pp CAGR (3 names, RECOMMENDED)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--execute", action="store_true",
                    help="actually place orders (default: dry-run)")
@@ -103,8 +133,12 @@ def main() -> int:
 
     # Load advisor output
     df = load_advisor_picks(args.advisor)
-    picks = normalize_picks(df, args.capital)
+    picks = normalize_picks(df, args.capital, args.advisor)
     print(f"\n[load] {args.advisor} picks: {len(picks)} positions")
+    if args.advisor == "concentrated":
+        print(f"  [Backtest: 84mo CAGR 33.17% / Sharpe 1.18 / MaxDD -27.10% / IR 0.95]")
+    elif args.advisor == "core":
+        print(f"  [Backtest: 84mo CAGR 22.95% / Sharpe 1.17 / MaxDD -26.21% / IR 0.94]")
 
     # Alpaca client
     client = _get_trading_client(paper=True)
