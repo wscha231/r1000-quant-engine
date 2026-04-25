@@ -1053,6 +1053,33 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
+@_test("regression.layer4_swap_bridge_wired")
+def test_layer4_swap_bridge() -> None:
+    """r1000_layer4_swap.py must exist and provide layer4_swap_suggestions()
+    that bridges portfolio CSV + scored CSV into Layer 4 of risk_sensing.
+
+    Layer 4 RS-based swap (weak rs<0 + held>=60d -> strong rs>=30 candidate)
+    is dormant in production until this bridge feeds it data.
+
+    History:
+      c8b5773 Layer 4 logic shipped (evaluate_layer4_swap)
+      this    Layer 4 bridge — reads portfolio_latest.csv + scored_unified.csv
+
+    This guard prevents the bridge from being silently removed.
+    """
+    swap_path = ROOT / "r1000_layer4_swap.py"
+    assert swap_path.exists(), "r1000_layer4_swap.py missing — Layer 4 has no data feed"
+    src = swap_path.read_text(encoding="utf-8")
+    for sym in ("def layer4_swap_suggestions", "def build_position_list",
+                "def build_candidate_pool", "evaluate_layer4_swap"):
+        assert sym in src, f"{sym} missing from r1000_layer4_swap.py"
+    # Cross-check evaluator still exists
+    rs_src = (ROOT / "r1000_risk_sensing.py").read_text(encoding="utf-8")
+    assert "def evaluate_layer4_swap" in rs_src, (
+        "evaluate_layer4_swap renamed/removed — Layer 4 bridge will break"
+    )
+
+
 @_test("regression.layer3_regime_fetcher_wired")
 def test_layer3_regime_data_module() -> None:
     """r1000_regime_data.py must exist and provide current_regime() +
