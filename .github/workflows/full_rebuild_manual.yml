@@ -1,0 +1,183 @@
+name: Full Rebuild (Manual / Long-Run)
+
+# FULL pipeline rebuild (collector + universe + feature_store + walk-forward
+# + backtest). Required when ENGINE_REUSE_VERSION bumps OR when feature_store
+# schema changes (new PHASE_X_COLUMNS additions like Phase 14 hybrid alpha).
+#
+# Estimated runtime: ~3-5 hours (within GHA 6h timeout). Can use up to ~50%
+# of free-tier monthly minutes (2000) PER run, so trigger judiciously.
+#
+# Schedule: NONE (manual trigger only via workflow_dispatch).
+# Reason: A FULL rebuild is a deliberate decision. Auto-triggering would
+# burn the entire monthly free tier in 1-2 runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      universe_mode:
+        description: 'r1000 (baseline) | r1000+adr (Phase 14 + ADR test) | r1000+adr+phase14_off (control)'
+        type: choice
+        options:
+          - r1000
+          - r1000+adr
+          - r1000+adr_phase14_off
+        default: r1000+adr
+      skip_collector:
+        description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
+        type: boolean
+        default: true
+      cache_key_suffix:
+        description: 'optional cache key suffix (e.g. "phase14-baseline" to keep separate caches)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write   # commit final scored CSVs + verdict to cloud_results/
+
+jobs:
+  full_rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # 5h 50m (just under 6h GHA hard limit)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+          # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
+          pip install catboost>=1.2 lightgbm>=4.0 xgboost>=2.0 scikit-learn>=1.4
+
+      # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
+      # These are slow to fetch (rate limits) and rarely change.
+      - name: Restore collector cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            aggressive/cache/bars
+            aggressive/cache/finnhub
+            outputs/sec_companyfacts
+            outputs/macro
+          key: collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+
+      # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
+      - name: Restore engine cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            outputs/feature_store_*.parquet
+            outputs/scored_*.csv
+            outputs/walk_forward
+          key: engine-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            engine-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
+            engine-cache-${{ runner.os }}-
+
+      - name: Smoke test pre-flight
+        run: |
+          python tests/smoke_test.py
+          python tests/audit_features.py --no-runtime
+
+      - name: Run FULL rebuild
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          # Per Phase 14 wiring + Phase 1 backtest validation
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
+          PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
+        run: |
+          set -e
+          mkdir -p outputs/full_rebuild_logs
+          LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
+
+          SKIP_COLLECTOR=""
+          if [ "${{ inputs.skip_collector }}" = "true" ]; then
+            SKIP_COLLECTOR="--no-collector"
+          fi
+
+          echo "=========================================="
+          echo "FULL REBUILD START"
+          echo "  universe_mode:    $UNIVERSE_MODE"
+          echo "  skip_collector:   ${{ inputs.skip_collector }}"
+          echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
+          echo "=========================================="
+
+          # Use --base-dir to override Drive path with repo-local outputs/
+          python run_local.py --full $SKIP_COLLECTOR --base-dir "$(pwd)/outputs" 2>&1 | tee "$LOG"
+
+      - name: Verdict (Cell E equivalent)
+        if: always()
+        run: |
+          python run_local.py --verdict-only --base-dir "$(pwd)/outputs" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
+
+      - name: Upload artifact (logs + scored CSVs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-rebuild-${{ inputs.universe_mode }}-${{ github.run_id }}
+          path: |
+            outputs/full_rebuild_logs/
+            outputs/scored_*.csv
+            outputs/backtest_metrics.json
+            outputs/concentrated_backtest_metrics.json
+            outputs/portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv
+          retention-days: 365   # FULL rebuild is expensive — keep 1 year
+
+      - name: Telegram alert
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "[telegram] secrets unset, skipping"
+            exit 0
+          fi
+          STATUS="${{ job.status }}"
+          # Try to extract verdict line from log (SHIP / PARTIAL / REGRESS)
+          VERDICT="(verdict unavailable)"
+          if [ -f outputs/full_rebuild_logs/verdict.log ]; then
+            VERDICT=$(grep -E "SHIP|PARTIAL|REGRESS" outputs/full_rebuild_logs/verdict.log | head -1 || echo "(no verdict line)")
+          fi
+          MSG="🔁 FULL rebuild [${{ inputs.universe_mode }}] ${STATUS}%0A"
+          MSG+="verdict: ${VERDICT}%0A"
+          MSG+="run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MSG}" \
+            -d "disable_web_page_preview=true" > /dev/null \
+            || echo "[telegram] notification failed"
+
+      - name: Commit verdict + portfolio CSVs
+        if: success()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/full_rebuild
+          DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+          mkdir -p "$DEST"
+          cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
+          cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
+          cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
+          git add cloud_results/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
+          git push || true

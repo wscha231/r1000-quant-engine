@@ -1081,6 +1081,32 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.full_rebuild_workflow_exists")
+def test_full_rebuild_workflow() -> None:
+    """full_rebuild_manual.yml workflow must exist with workflow_dispatch
+    inputs (universe_mode, skip_collector) and ENGINE_REUSE_VERSION
+    sensitivity (it runs FULL rebuild = the only way to invalidate cache
+    after a Phase 14 schema change).
+
+    User mandate (2026-04-25): "둘 다" — both local + GitHub Actions paths
+    for FULL rebuild so user PC isn't a single point of failure.
+    """
+    wf_path = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
+    assert wf_path.exists(), "full_rebuild_manual.yml workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    for token in (
+        "workflow_dispatch",
+        "universe_mode",
+        "skip_collector",
+        "secrets.ALPACA_API_KEY",
+        "secrets.FINNHUB_API_KEY",
+        "tests/smoke_test.py",
+        "ENGINE_REUSE_VERSION",
+        "run_local.py --full",
+    ):
+        assert token in wf, f"full_rebuild_manual.yml missing required token: {token}"
+
+
 @_test("regression.phase14_hybrid_alpha_in_default_features")
 def test_phase14_in_default_features() -> None:
     """PHASE14_HYBRID_ALPHA_COLUMNS must be in cfg.DEFAULT_FEATURES so the
