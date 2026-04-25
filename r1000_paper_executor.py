@@ -134,6 +134,11 @@ def main() -> int:
                    help="limit price = entry × (1 + margin/100)")
     p.add_argument("--allow-deprecated-v4", action="store_true",
                    help="explicit ack required to use --advisor v4 (deprecated)")
+    p.add_argument("--override-regime-halt", action="store_true",
+                   help="proceed with --execute even when Layer 3 emits HALT_NEW "
+                        "(VIX>=30 or other regime block). Use only with deliberate intent.")
+    p.add_argument("--skip-regime-check", action="store_true",
+                   help="skip Layer 3 regime pre-flight entirely (not recommended for --execute)")
     args = p.parse_args()
 
     if args.advisor == "v4" and not args.allow_deprecated_v4:
@@ -161,6 +166,46 @@ def main() -> int:
               f"{'LIVE' if args.execute else 'DRY-RUN'}")
     print(f"  {datetime.now():%Y-%m-%d %H:%M:%S}")
     print("=" * 70)
+
+    # Layer 3 regime pre-flight (VIX/SPY-200MA gate)
+    if not args.skip_regime_check:
+        try:
+            from r1000_regime_data import current_regime, layer3_actions_for_snapshot
+            snap = current_regime()
+            actions = layer3_actions_for_snapshot(snap)
+            print()
+            print(f"[regime] {snap.regime_label:12s} "
+                  f"VIX={snap.vix_level:.1f}({snap.vix_source}) "
+                  f"SPY=${snap.spy_close:.2f} "
+                  f"{'>' if snap.spy_above_200ma else '<'}200MA(${snap.spy_ma200:.2f})")
+            halt_actions = [a for a in actions
+                            if isinstance(a, dict) and a.get("type") == "HALT_NEW"]
+            cash_actions = [a for a in actions
+                            if isinstance(a, dict) and a.get("type") == "INCREASE_CASH"]
+            for a in halt_actions:
+                print(f"  HALT_NEW    pri={a['priority']}  {a['reason']}")
+            for a in cash_actions:
+                tgt = a.get("target_weight") or 0.0
+                print(f"  CASH_BUFFER pri={a['priority']}  target={tgt:.0%}  {a['reason']}")
+            if args.execute and halt_actions and not args.override_regime_halt:
+                print()
+                print("=" * 70, file=sys.stderr)
+                print("REFUSING --execute: Layer 3 emitted HALT_NEW", file=sys.stderr)
+                print("=" * 70, file=sys.stderr)
+                for a in halt_actions:
+                    print(f"  {a['reason']}", file=sys.stderr)
+                print("", file=sys.stderr)
+                print("Options:", file=sys.stderr)
+                print("  - drop --execute (run dry-run; orders not placed)", file=sys.stderr)
+                print("  - pass --override-regime-halt (deliberate, take responsibility)", file=sys.stderr)
+                print("  - pass --skip-regime-check (no Layer 3 evaluation at all)", file=sys.stderr)
+                return 1
+            if args.execute and cash_actions:
+                print(f"  [warn] cash buffer suggested but not auto-applied — review weights")
+        except Exception as e:
+            print(f"\n[regime] WARNING: pre-flight failed ({type(e).__name__}: {e})")
+            if args.execute:
+                print(f"[regime] proceeding with --execute despite regime-check failure", file=sys.stderr)
 
     # Load advisor output
     df = load_advisor_picks(args.advisor)

@@ -1021,6 +1021,38 @@ def test_pattern_miner_no_forward_return_leakage() -> None:
     )
 
 
+@_test("regression.paper_executor_runs_layer3_preflight")
+def test_paper_executor_layer3_preflight() -> None:
+    """r1000_paper_executor.py must run Layer 3 regime pre-flight on every
+    invocation (unless --skip-regime-check). When --execute and HALT_NEW
+    fires, must refuse without --override-regime-halt.
+
+    History:
+      Layer 3 logic shipped in c8b5773 (Phase 2)
+      data bridge shipped in 6540ec6 (regime_data)
+      paper_executor wiring shipped in this commit
+
+    Without this guard, Layer 3 silently disconnects again if someone
+    refactors paper_executor.main().
+    """
+    pe_src = (ROOT / "r1000_paper_executor.py").read_text(encoding="utf-8")
+    assert "from r1000_regime_data import" in pe_src, (
+        "paper_executor missing import of r1000_regime_data — Layer 3 disconnected"
+    )
+    assert "current_regime" in pe_src, (
+        "paper_executor not calling current_regime() — Layer 3 disconnected"
+    )
+    assert "HALT_NEW" in pe_src, (
+        "paper_executor not handling HALT_NEW Layer 3 action"
+    )
+    assert "override-regime-halt" in pe_src, (
+        "paper_executor missing --override-regime-halt escape flag"
+    )
+    assert "skip-regime-check" in pe_src, (
+        "paper_executor missing --skip-regime-check escape flag"
+    )
+
+
 @_test("regression.layer3_regime_fetcher_wired")
 def test_layer3_regime_data_module() -> None:
     """r1000_regime_data.py must exist and provide current_regime() +
