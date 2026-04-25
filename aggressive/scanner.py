@@ -347,22 +347,47 @@ def scan(
                 val_mult *= 0.5
                 fundamental_warnings.append(f"earnings in {dte}d - event risk")
 
-            # 3. Insider cluster buying bonus
+            # 3. Insider cluster buying — DATA-DRIVEN (2026-04-25 backtest):
+            # Cluster 3+ buyers showed -5.26% avg in 21d, 65% prob of 5%+ loss.
+            # Reversed from initial assumption (was bonus, now small discount).
+            # Conventional wisdom suggests longer-horizon (3-6mo) may be positive,
+            # but limited Finnhub free history can't validate. Apply mild discount.
             cluster = fh.get("fh_insider_cluster_30d_score")
             if cluster is not None and cluster >= 50:
-                val_mult *= 1.15
-                fundamental_warnings.append(f"insider buying cluster {cluster:.0f}")
+                val_mult *= 0.92    # was 1.15 - flipped per backtest
+                fundamental_warnings.append(f"insider cluster {cluster:.0f} (peak signal)")
 
-            # 4. MSPR 3m avg deep negative (insider selling wave)
+            # 4. MSPR 3m avg deep negative (insider selling wave) - kept
             mspr3 = fh.get("fh_mspr_3m_avg")
             if mspr3 is not None and mspr3 < -60:
                 val_mult *= 0.85
                 fundamental_warnings.append(f"MSPR 3m {mspr3:.0f} bearish")
 
-            # 5. Strongly bullish analyst consensus
+            # 5. Analyst recommendations — DATA-DRIVEN CONTRARIAN
+            # 2+ upgrade wave: 21d -6.80% avg, 59% prob of 5%+ loss (n=73).
+            # 3+ upgrade wave: 21d -4.52% avg, 33% positive (n=43).
+            # Single upgrade: 21d -3.13% avg (n=331).
+            # → 'Buy the rumor, sell the news' empirically validated.
+            buy_delta = fh.get("fh_rec_buy_delta_mom")
+            if buy_delta is not None:
+                if buy_delta >= 3:        # 3+ upgrade wave
+                    val_mult *= 0.85
+                    fundamental_warnings.append(
+                        f"analyst upgrade wave +{buy_delta} (CONTRARIAN sell)")
+                elif buy_delta == 2:      # 2 upgrade wave
+                    val_mult *= 0.85
+                    fundamental_warnings.append(
+                        f"analyst upgrade x2 (CONTRARIAN sell)")
+                elif buy_delta == 1:      # single upgrade
+                    val_mult *= 0.95
+                    fundamental_warnings.append(f"analyst upgrade x1 (mild fade)")
+
+            # 6. Bull ratio still useful as long-running indicator
+            # (vs MoM delta which fades). Keep small bonus only when stable high.
             bull_ratio = fh.get("fh_rec_bull_ratio")
-            if bull_ratio is not None and bull_ratio >= 0.8:
-                val_mult *= 1.05
+            if (bull_ratio is not None and bull_ratio >= 0.85
+                and (buy_delta is None or buy_delta == 0)):
+                val_mult *= 1.05    # stable strong consensus, no recent change
 
         # Disqualify conditions
         disqualified = primary_phase in THEME_PHASE_DISQUALIFY or not liquidity_ok

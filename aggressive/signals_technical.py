@@ -552,12 +552,29 @@ def tier5_stage_transition(
     return TierSignal(5, "Stage 1->2 Turnaround", fired, score, checks, metrics, rationale)
 
 
+# Data-driven tier weights from backtest (2026-04-25)
+# 90d forward alpha vs SPY measured on 2023-2025 R1000 sample (n=1955 records).
+# T1 (-2.52% alpha) and T2 (-0.42%) heavily discounted.
+# T3 (+36.20% rare but powerful) and T4 (+10.34%) boosted.
+TIER_ALPHA_WEIGHTS_90D = {
+    1: 0.40,    # T1 Stage 2 Breakout: NEGATIVE alpha - chase 52w high underperforms
+    2: 0.70,    # T2 VCP Breakout: weak alpha
+    3: 1.50,    # T3 Earnings Gap: huge alpha when fires (rare event)
+    4: 1.30,    # T4 RS Acceleration: workhorse positive alpha
+    5: 1.10,    # T5 Turnaround: mild positive alpha
+}
+
+
 def evaluate_ticker(
     ticker: str,
     df: pd.DataFrame,
     spy_df: Optional[pd.DataFrame] = None,
 ) -> TechnicalSignalResult:
-    """Run all five tiers on a single ticker and pick the strongest signal."""
+    """Run all five tiers + apply data-driven alpha weights to pick best.
+
+    composite_score = max(tier.score * TIER_ALPHA_WEIGHTS[tier]) across all tiers.
+    Best tier = the one whose weighted score wins (no longer just raw max).
+    """
     t1 = tier1_stage2_breakout(df)
     t2 = tier2_vcp_breakout(df)
     t3 = tier3_earnings_gap(df)
@@ -566,15 +583,17 @@ def evaluate_ticker(
     tiers = [t1, t2, t3, t4, t5]
 
     fired = [t for t in tiers if t.fired]
-    best = max(tiers, key=lambda t: t.score)
-    composite = max(t.score for t in tiers)
+    # Weight-adjusted score for tier ranking
+    weighted = [(t, t.score * TIER_ALPHA_WEIGHTS_90D.get(t.tier, 1.0)) for t in tiers]
+    best, best_weighted_score = max(weighted, key=lambda x: x[1])
+    composite = best_weighted_score
 
     return TechnicalSignalResult(
         ticker=ticker,
         fired_any=len(fired) > 0,
         best_tier=best.tier,
-        best_score=best.score,
-        composite_score=composite,
+        best_score=best.score,           # raw score for transparency
+        composite_score=composite,        # weight-adjusted (used by advisor)
         tiers=tiers,
     )
 

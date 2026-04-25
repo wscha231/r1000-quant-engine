@@ -292,6 +292,19 @@ def main() -> int:
     top_decile_alpha = by_decile["avg_actual"].iloc[-1] - by_decile["avg_actual"].iloc[0]
     print(f"Top-Bottom decile spread: {top_decile_alpha:+.2f}% (3m forward return)")
 
+    # Save trained model for production prediction
+    model_dir = out_dir / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / "lgbm_r3m.txt"
+    result["model"].booster_.save_model(str(model_path))
+    # Save feature list + medians for production inference
+    pd.Series(features, name="feature").to_csv(
+        model_dir / "features.csv", index=False)
+    medians.to_frame("median_value").to_csv(model_dir / "feature_medians.csv")
+    print(f"\n[save] model -> {model_path}")
+    print(f"[save] features.csv ({len(features)} features)")
+    print(f"[save] feature_medians.csv (impute reference)")
+
     # Save results manifest
     manifest = {
         "timestamp": datetime.now().isoformat(),
@@ -304,6 +317,7 @@ def main() -> int:
         "r2_test": result["r2_test"],
         "top_features": result["top_features"][:30],
         "decile_top_bottom_spread_pct": float(top_decile_alpha),
+        "model_file": str(model_path),
     }
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, default=str), encoding="utf-8",
