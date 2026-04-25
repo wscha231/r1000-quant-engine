@@ -1021,6 +1021,32 @@ def test_pattern_miner_no_forward_return_leakage() -> None:
     )
 
 
+@_test("regression.layer3_regime_fetcher_wired")
+def test_layer3_regime_data_module() -> None:
+    """r1000_regime_data.py must exist and provide current_regime() +
+    layer3_actions_for_snapshot() that bridge live data into Layer 3 of
+    r1000_risk_sensing.evaluate_layer3_regime.
+
+    Without this bridge, Layer 3 (VIX>=30 halt + SPY<200MA cash buffer)
+    has logic but no data, and acts as a no-op even when conditions trigger.
+
+    This guard prevents the bridge from being silently removed or renamed
+    in a way that would re-disconnect Layer 3 from production.
+    """
+    regime_path = ROOT / "r1000_regime_data.py"
+    assert regime_path.exists(), "r1000_regime_data.py missing — Layer 3 has no data feed"
+    src = regime_path.read_text(encoding="utf-8")
+    for sym in ("def current_regime", "def fetch_vix",
+                "def fetch_spy_with_ma200", "def layer3_actions_for_snapshot",
+                "RegimeSnapshot"):
+        assert sym in src, f"{sym} missing from r1000_regime_data.py"
+    # Cross-check: the Layer 3 evaluator name still matches the bridge import
+    rs_src = (ROOT / "r1000_risk_sensing.py").read_text(encoding="utf-8")
+    assert "def evaluate_layer3_regime" in rs_src, (
+        "evaluate_layer3_regime renamed/removed — regime_data bridge will break"
+    )
+
+
 @_test("regression.advisor_v4_marked_deprecated")
 def test_advisor_v4_deprecated() -> None:
     """advisor v4's "+75.7% alpha" was leakage-driven (c13fa6a / 6c0a496).
