@@ -1081,6 +1081,49 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.layer4_executor_safety_guards")
+def test_layer4_executor_guards() -> None:
+    """r1000_layer4_swap.py --execute path must have all safety guards:
+      - 30-day throttle (HISTORY_PATH state file)
+      - swap_max_per_cycle cap (already in RiskConfig)
+      - refuse on small portfolio (<5 positions)
+      - Telegram alert pre + post execute
+      - --confirm bypass for CI
+
+    User mandate (2026-04-25): "B = max 2 swap/month + 즉시 자동 실행 (paper only)".
+    """
+    src = (ROOT / "r1000_layer4_swap.py").read_text(encoding="utf-8")
+    assert "THROTTLE_DAYS" in src, "30-day throttle constant missing"
+    assert "_filter_throttled" in src, "throttle filter function missing"
+    assert "_telegram_send" in src, "Telegram alert helper missing"
+    assert "def execute_swaps" in src, "execute_swaps() function missing"
+    assert "--execute" in src and "--confirm" in src, "execute/confirm CLI flags missing"
+    # Must check portfolio size before executing
+    assert "len(existing) < 5" in src or "portfolio too small" in src, (
+        "portfolio size guard missing — could swap on dangerously concentrated book"
+    )
+
+
+@_test("regression.layer4_monthly_workflow_exists")
+def test_layer4_monthly_workflow() -> None:
+    """layer4_monthly_swap.yml workflow runs Layer 4 swap on 5th of each month.
+    Schedule + workflow_dispatch + ALPACA secrets + Telegram secrets must all
+    be wired or the auto-apply doesn't actually happen.
+    """
+    wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
+    assert wf_path.exists(), "layer4_monthly_swap.yml missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    for token in (
+        "schedule:",
+        "0 14 5 * *",                  # 5th of month, 23:00 KST
+        "workflow_dispatch:",
+        "secrets.ALPACA_API_KEY",
+        "secrets.TELEGRAM_BOT_TOKEN",
+        "r1000_layer4_swap.py",
+    ):
+        assert token in wf, f"layer4_monthly_swap.yml missing: {token}"
+
+
 @_test("regression.full_rebuild_workflow_exists")
 def test_full_rebuild_workflow() -> None:
     """full_rebuild_manual.yml workflow must exist with workflow_dispatch
