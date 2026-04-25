@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-04-25T13:59:19.869873",
+  "n_insider_events": 28284,
+  "n_insider_clusters": 1076,
+  "n_analyst_events": 2961,
+  "horizons_days": [
+    21,
+    63,
+    126
+  ]
+}
