@@ -1081,6 +1081,94 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.adr_universe_yaml_valid")
+def test_adr_universe_yaml() -> None:
+    """adr_universe.yaml must exist with curated ADR list and watchlist.
+
+    History (2026-04-25):
+      User requested ASML/TSM + ADRs to compete fairly with R1000 names.
+      adr_universe.yaml is the canonical whitelist (mcap>=$30B, NYSE/NASDAQ).
+      themes.yaml was updated to include the same ADRs in semi/pharma themes.
+
+    This guard ensures the file exists, parses cleanly, has minimum coverage,
+    and includes the SK Hynix watchlist entry (Oct 2026 expected listing).
+    """
+    yaml_path = ROOT / "adr_universe.yaml"
+    assert yaml_path.exists(), "adr_universe.yaml missing"
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return  # CI may run without yaml; skip silently
+    payload = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict), "adr_universe.yaml not a mapping"
+    core = payload.get("adr_universe", [])
+    assert isinstance(core, list) and len(core) >= 20, (
+        f"adr_universe must have >=20 entries, got {len(core)}"
+    )
+    # Required marquee ADRs
+    tickers = {str(r.get("ticker", "")).upper() for r in core if isinstance(r, dict)}
+    required = {"TSM", "ASML", "BABA", "NVO", "TM"}
+    missing = required - tickers
+    assert not missing, f"adr_universe missing required tickers: {missing}"
+    # Watchlist must include SK Hynix entry (user explicitly asked about it)
+    watchlist = payload.get("adr_watchlist", [])
+    assert any(
+        "Hynix" in str(r.get("name", "")) for r in watchlist if isinstance(r, dict)
+    ), "SK Hynix entry missing from adr_watchlist (user mandate 2026-04-25)"
+
+
+@_test("regression.themes_yaml_no_boolean_tickers")
+def test_themes_yaml_string_tickers() -> None:
+    """themes.yaml: every ticker MUST parse as a string, not bool.
+
+    YAML 1.1 implicit conversion: ON, OFF, YES, NO, TRUE, FALSE all become
+    bool unless quoted. ON Semiconductor (NASDAQ:ON) was silently parsed as
+    True before 2026-04-25 fix, breaking any code iterating theme tickers.
+
+    Also catches similar future regressions for any new YES/NO/ON tickers.
+    """
+    yaml_path = ROOT / "themes.yaml"
+    if not yaml_path.exists():
+        return
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return
+    payload = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    themes = (payload or {}).get("themes", {}) or {}
+    bad: list[tuple[str, object]] = []
+    for theme_name, rec in themes.items():
+        if not isinstance(rec, dict):
+            continue
+        for tk in rec.get("tickers", []) or []:
+            if not isinstance(tk, str):
+                bad.append((theme_name, tk))
+    assert not bad, (
+        f"themes.yaml has {len(bad)} non-string tickers (YAML 1.1 boolean trap): {bad[:5]} — "
+        f"quote them like \"ON\", \"YES\", \"NO\""
+    )
+
+
+@_test("regression.universe_supports_r1000_plus_adr")
+def test_universe_r1000_plus_adr() -> None:
+    """aggressive/universe.py must expose load_adr_universe() and accept
+    source='r1000+adr' / source='adr' modes.
+
+    Without this, ADR additions are unreachable from scanner / advisor and
+    the curated whitelist becomes dead code.
+    """
+    src = (ROOT / "aggressive" / "universe.py").read_text(encoding="utf-8")
+    assert "def load_adr_universe" in src, (
+        "load_adr_universe() missing from aggressive/universe.py"
+    )
+    assert '"r1000+adr"' in src or "'r1000+adr'" in src, (
+        "r1000+adr source mode not handled in load_universe()"
+    )
+    assert '"adr"' in src or "'adr'" in src, (
+        "adr-only source mode not handled in load_universe()"
+    )
+
+
 @_test("regression.layer4_swap_bridge_wired")
 def test_layer4_swap_bridge() -> None:
     """r1000_layer4_swap.py must exist and provide layer4_swap_suggestions()

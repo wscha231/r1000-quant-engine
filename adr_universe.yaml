@@ -1,0 +1,344 @@
+# adr_universe.yaml — Curated top-mcap ADRs trading on NYSE/NASDAQ.
+#
+# Why a separate file (not themes.yaml):
+#   - themes.yaml is taxonomy (one ticker can be in many themes)
+#   - adr_universe.yaml is whitelist (canonical "is this ADR in our scan universe?")
+#   - update cadence differs: themes change weekly, ADR list changes ~quarterly
+#
+# Inclusion criteria (2026-04-25 baseline):
+#   - Listed on NYSE or NASDAQ as ADR (not foreign exchange — Alpaca paper requirement)
+#   - Market cap >= $30B (liquidity floor)
+#   - Daily price history >= 5 years (backtest viability — 84mo target)
+#   - Finnhub fundamentals available (synthetic-row score path)
+#
+# Data path expectation (per ticker):
+#   - Alpaca daily bars            ✅ all ADRs (US exchange)
+#   - Finnhub fundamentals          ✅ for top-mcap ADRs
+#   - SEC EDGAR companyfacts        ⚠️  may parse 20-F partially (foreign issuers
+#                                       file 20-F annually + 6-K interim)
+#                                   if no clean parse → ticker auto-falls into
+#                                   unified_universe.py finnhub_synthetic path
+#
+# Future ADR watch (track listings, add when they list on US exchange):
+#   - SK Hynix (Korean memory chipmaker) — expected Oct 2026 ADR listing per
+#     2026-04 reporting. Add to semi_memory + adr_universe when symbol confirmed.
+#   - Samsung Electronics — currently OTC pink-sheet (SSNLF), not ADR. Skip until
+#     full ADR conversion (no firm timeline).
+#   - Reliance Industries (India) — periodic rumors, no firm filing yet.
+
+adr_universe:
+  # ============== Semiconductors (priority — hot 2026) ==============
+  - ticker: TSM
+    name: "Taiwan Semiconductor Manufacturing"
+    country: TW
+    sector: Semiconductors
+    sub_sector: Foundry
+    mcap_usd_b: 800
+    listed_since: "1997-10"
+    themes: [semi_design_memory, ai_compute]
+    notes: "Largest dedicated foundry. AI demand → NVDA/AMD/AVGO suppliers depend on it."
+
+  - ticker: ASML
+    name: "ASML Holding"
+    country: NL
+    sector: Semiconductors
+    sub_sector: Equipment
+    mcap_usd_b: 350
+    listed_since: "1995-03"
+    themes: [semi_equipment]
+    notes: "EUV monopoly. Single point of failure for advanced nodes."
+
+  - ticker: ASMI
+    name: "ASM International"
+    country: NL
+    sector: Semiconductors
+    sub_sector: Equipment
+    mcap_usd_b: 50
+    listed_since: "1981-01"
+    themes: [semi_equipment]
+    notes: "Atomic layer deposition leader. Complementary to ASML."
+
+  - ticker: STM
+    name: "STMicroelectronics"
+    country: CH
+    sector: Semiconductors
+    sub_sector: Analog
+    mcap_usd_b: 40
+    listed_since: "1994-12"
+    themes: [semi_analog]
+    notes: "Auto + industrial. Geared to EV cycle."
+
+  - ticker: NXPI
+    name: "NXP Semiconductors"
+    country: NL
+    sector: Semiconductors
+    sub_sector: Mixed
+    mcap_usd_b: 70
+    listed_since: "2010-08"
+    themes: [semi_analog, semi_design_memory]
+    notes: "Auto-MCU leader. Already in many R1000 classifications."
+
+  - ticker: UMC
+    name: "United Microelectronics"
+    country: TW
+    sector: Semiconductors
+    sub_sector: Foundry
+    mcap_usd_b: 15
+    listed_since: "2000-09"
+    themes: [semi_design_memory]
+    notes: "Smaller TW foundry. Mature-node alternative to TSM."
+
+  # ============== China tech ==============
+  - ticker: BABA
+    name: "Alibaba Group"
+    country: CN
+    sector: Internet
+    sub_sector: E-commerce
+    mcap_usd_b: 200
+    listed_since: "2014-09"
+    themes: [china_tech_adr]
+    notes: "Cloud + e-commerce. PBOC/regulation risk distinct from US macro."
+
+  - ticker: PDD
+    name: "PDD Holdings (Pinduoduo / Temu)"
+    country: CN
+    sector: Internet
+    sub_sector: E-commerce
+    mcap_usd_b: 200
+    listed_since: "2018-07"
+    themes: [china_tech_adr]
+    notes: "Temu cross-border. High growth, high regulatory risk."
+
+  - ticker: JD
+    name: "JD.com"
+    country: CN
+    sector: Internet
+    sub_sector: E-commerce
+    mcap_usd_b: 50
+    listed_since: "2014-05"
+    themes: [china_tech_adr]
+    notes: "Direct-sales model. Margin trajectory key."
+
+  - ticker: BIDU
+    name: "Baidu"
+    country: CN
+    sector: Internet
+    sub_sector: Search/AI
+    mcap_usd_b: 30
+    listed_since: "2005-08"
+    themes: [china_tech_adr, ai_software]
+    notes: "Apollo autonomous driving + Ernie LLM."
+
+  - ticker: NTES
+    name: "NetEase"
+    country: CN
+    sector: Internet
+    sub_sector: Gaming
+    mcap_usd_b: 50
+    listed_since: "2000-06"
+    themes: [china_tech_adr]
+    notes: "Mobile gaming + cloud music."
+
+  - ticker: TCEHY
+    name: "Tencent Holdings"
+    country: CN
+    sector: Internet
+    sub_sector: Internet Conglomerate
+    mcap_usd_b: 450
+    listed_since: "2008-04"
+    themes: [china_tech_adr]
+    notes: "OTC pink (TCEHY) not full ADR — limited liquidity; consider HK 0700.HK directly. Skipping for Alpaca paper."
+    skip: true
+
+  # ============== Pharma / Biotech ==============
+  - ticker: NVO
+    name: "Novo Nordisk"
+    country: DK
+    sector: Pharma
+    sub_sector: GLP-1
+    mcap_usd_b: 400
+    listed_since: "1981-07"
+    themes: [pharma_large_cap]
+    notes: "Ozempic / Wegovy GLP-1 dominance."
+
+  - ticker: AZN
+    name: "AstraZeneca"
+    country: UK
+    sector: Pharma
+    sub_sector: Oncology
+    mcap_usd_b: 250
+    listed_since: "1993-06"
+    themes: [pharma_large_cap]
+    notes: "Oncology + cardiovascular. Already in some indices."
+
+  - ticker: GSK
+    name: "GSK plc"
+    country: UK
+    sector: Pharma
+    sub_sector: Vaccines
+    mcap_usd_b: 80
+    listed_since: "1980-01"
+    themes: [pharma_large_cap]
+
+  - ticker: NVS
+    name: "Novartis"
+    country: CH
+    sector: Pharma
+    sub_sector: Mixed
+    mcap_usd_b: 200
+    listed_since: "1996-12"
+    themes: [pharma_large_cap]
+
+  # ============== Industrial / Auto ==============
+  - ticker: TM
+    name: "Toyota Motor"
+    country: JP
+    sector: Auto
+    sub_sector: OEM
+    mcap_usd_b: 300
+    listed_since: "1976-09"
+    themes: []
+    notes: "Hybrid market leader. Yen FX exposure."
+
+  - ticker: SONY
+    name: "Sony Group"
+    country: JP
+    sector: Consumer Electronics
+    sub_sector: Gaming/Imaging
+    mcap_usd_b: 110
+    listed_since: "1970-09"
+    themes: []
+    notes: "PlayStation + image sensors (camera modules in iPhone)."
+
+  - ticker: HMC
+    name: "Honda Motor"
+    country: JP
+    sector: Auto
+    sub_sector: OEM
+    mcap_usd_b: 50
+    listed_since: "1962-02"
+    themes: []
+
+  # ============== Energy / Materials ==============
+  - ticker: SHEL
+    name: "Shell plc"
+    country: UK
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 220
+    listed_since: "2005-07"
+    themes: []
+
+  - ticker: BP
+    name: "BP plc"
+    country: UK
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 120
+    listed_since: "1977-02"
+    themes: []
+
+  - ticker: TTE
+    name: "TotalEnergies"
+    country: FR
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 160
+    listed_since: "1991-10"
+    themes: []
+
+  - ticker: BHP
+    name: "BHP Group"
+    country: AU
+    sector: Materials
+    sub_sector: Mining
+    mcap_usd_b: 140
+    listed_since: "1987-05"
+    themes: []
+    notes: "Iron ore + copper. China demand exposure."
+
+  - ticker: RIO
+    name: "Rio Tinto"
+    country: AU
+    sector: Materials
+    sub_sector: Mining
+    mcap_usd_b: 110
+    listed_since: "1990-06"
+    themes: []
+
+  # ============== Financial ==============
+  - ticker: HSBC
+    name: "HSBC Holdings"
+    country: UK
+    sector: Financial
+    sub_sector: Global Bank
+    mcap_usd_b: 200
+    listed_since: "1999-07"
+    themes: []
+    notes: "Asia-Europe bridge. HK + UK regulatory."
+
+  # ============== Consumer / Luxury ==============
+  - ticker: UL
+    name: "Unilever PLC"
+    country: UK
+    sector: Consumer Staples
+    sub_sector: Mixed
+    mcap_usd_b: 140
+    listed_since: "1962-12"
+    themes: []
+
+  - ticker: DEO
+    name: "Diageo plc"
+    country: UK
+    sector: Consumer Staples
+    sub_sector: Spirits
+    mcap_usd_b: 80
+    listed_since: "1996-12"
+    themes: []
+
+  - ticker: SAP
+    name: "SAP SE"
+    country: DE
+    sector: Software
+    sub_sector: Enterprise
+    mcap_usd_b: 300
+    listed_since: "1995-08"
+    themes: [ai_software]
+    notes: "Enterprise ERP. Cloud transition + AI integration."
+
+
+# ============== Future ADR watchlist ==============
+# Add to adr_universe above when these list on US exchange.
+adr_watchlist:
+  - ticker_proposed: SKHY  # SK Hynix proposed ADR symbol (TBD)
+    name: "SK Hynix"
+    country: KR
+    sector: Semiconductors
+    sub_sector: Memory
+    mcap_usd_b: 100
+    expected_listing: "2026-10"
+    source_note: "2026-04 reporting indicates Oct 2026 NYSE/NASDAQ ADR listing in preparation"
+    proposed_themes: [semi_memory, semi_design_memory]
+    action: "Re-check Oct 2026; add to adr_universe + themes.yaml semi_memory if listed"
+
+  - ticker_proposed: SSEC
+    name: "Samsung Electronics"
+    country: KR
+    sector: Semiconductors / Consumer
+    sub_sector: Memory + Phones
+    mcap_usd_b: 350
+    expected_listing: "TBD"
+    source_note: "Currently OTC pink (SSNLF). No firm ADR conversion timeline."
+    proposed_themes: [semi_memory, consumer_tech_mega]
+    action: "Monitor; do not add until full NYSE/NASDAQ ADR conversion"
+
+  - ticker_proposed: RILY
+    name: "Reliance Industries"
+    country: IN
+    sector: Conglomerate
+    sub_sector: Energy + Telecom
+    mcap_usd_b: 250
+    expected_listing: "TBD"
+    source_note: "Periodic rumors, no firm SEC F-1 filing"
+    proposed_themes: []
+    action: "Monitor"

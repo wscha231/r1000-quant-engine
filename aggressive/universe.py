@@ -17,8 +17,17 @@ Usage:
     from aggressive.universe import load_universe
     tickers = load_universe("r1000")          # ~1000 tickers, live
     tickers = load_universe("r1000", max_age_hours=24)  # use cache if fresh
+    tickers = load_universe("r1000+adr")      # R1000 + ADRs from adr_universe.yaml
+    tickers = load_universe("adr")            # ADRs only (whitelist)
     tickers = load_universe("themes")         # legacy: themes.yaml members only
     tickers = load_universe("custom", tickers=["AAPL", "MSFT"])  # explicit
+
+ADR mode (added 2026-04-25):
+  ADRs (ASML, TSM, BABA, etc.) are NOT in iShares IWB (Russell 1000 = US-domestic).
+  adr_universe.yaml maintains a curated top-mcap whitelist (>=$30B) of ADRs that
+  trade on NYSE/NASDAQ and are tradeable on Alpaca paper. Source for additions:
+  PHASE_18A theme discovery + manual mcap review. SK Hynix Oct 2026 watchlist
+  documented in adr_universe.yaml's `adr_watchlist` section.
 """
 from __future__ import annotations
 
@@ -190,23 +199,74 @@ def fetch_from_themes() -> list[str]:
 
 # --- Main entrypoint -------------------------------------------------------
 
+_ADR_UNIVERSE_PATH = Path(__file__).parent.parent / "adr_universe.yaml"
+
+
+def load_adr_universe(
+    min_mcap_usd_b: float = 30.0,
+    include_skip: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Load curated ADR whitelist from adr_universe.yaml.
+
+    Returns (tickers, metadata_list) where metadata_list contains the full record
+    (country, sector, sub_sector, mcap, themes, notes) for each ticker.
+
+    min_mcap_usd_b: filter ADRs by self-reported market cap (default $30B floor).
+    include_skip:   if True, also include records with skip:true (e.g. TCEHY OTC).
+    """
+    if not _ADR_UNIVERSE_PATH.exists():
+        return [], []
+    try:
+        import yaml
+    except ImportError:
+        return [], []
+    try:
+        payload = yaml.safe_load(_ADR_UNIVERSE_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return [], []
+
+    raw = payload.get("adr_universe", [])
+    if not isinstance(raw, list):
+        return [], []
+
+    tickers: list[str] = []
+    meta_list: list[dict] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("skip") and not include_skip:
+            continue
+        t = str(rec.get("ticker", "")).upper().strip()
+        if not _is_valid_ticker(t):
+            continue
+        mcap = float(rec.get("mcap_usd_b") or 0.0)
+        if mcap < min_mcap_usd_b:
+            continue
+        tickers.append(t)
+        meta_list.append(rec)
+    return sorted(set(tickers)), meta_list
+
+
 def load_universe(
     source: str = "r1000",
     tickers: Optional[list[str]] = None,
     max_age_hours: int = 24,
     min_market_value_musd: float = 0.0,
+    adr_min_mcap_usd_b: float = 30.0,
 ) -> tuple[list[str], dict]:
     """Load tradeable universe. Returns (tickers, metadata).
 
     source:
-      'r1000'    - live iShares IWB (fallback: main-engine cache, then themes)
-      'themes'   - themes.yaml members only (legacy)
-      'custom'   - explicit ticker list in `tickers` arg
-      'auto'     - r1000 with fallbacks
+      'r1000'      - live iShares IWB (fallback: main-engine cache, then themes)
+      'r1000+adr'  - R1000 union curated ADR whitelist (adr_universe.yaml)
+      'adr'        - ADR whitelist only
+      'themes'     - themes.yaml members only (legacy)
+      'custom'     - explicit ticker list in `tickers` arg
+      'auto'       - r1000 with fallbacks
 
     Returns:
       tickers: sorted list of unique tickers
-      metadata: {source_used, count, fetched_at, ...}
+      metadata: {source_used, count, fetched_at, adr_count?, ...}
     """
     meta = {"source_requested": source, "fetched_at": datetime.now().isoformat()}
 
@@ -216,6 +276,30 @@ def load_universe(
         meta["source_used"] = "custom"
         meta["count"] = len(clean)
         return clean, meta
+
+    if source == "adr":
+        adr_tickers, _ = load_adr_universe(min_mcap_usd_b=adr_min_mcap_usd_b)
+        meta["source_used"] = "adr_whitelist"
+        meta["count"] = len(adr_tickers)
+        meta["adr_min_mcap_usd_b"] = adr_min_mcap_usd_b
+        return adr_tickers, meta
+
+    if source == "r1000+adr":
+        # 1. Pull R1000 the normal way
+        r1000_tickers, r1000_meta = load_universe(
+            "r1000", max_age_hours=max_age_hours,
+            min_market_value_musd=min_market_value_musd,
+        )
+        # 2. Pull ADR whitelist
+        adr_tickers, _ = load_adr_universe(min_mcap_usd_b=adr_min_mcap_usd_b)
+        # 3. Union, dedup, sort
+        combined = sorted(set(r1000_tickers) | set(adr_tickers))
+        meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+adr"
+        meta["count"] = len(combined)
+        meta["r1000_count"] = len(r1000_tickers)
+        meta["adr_count"] = len(adr_tickers)
+        meta["adr_added_to_r1000"] = sorted(set(adr_tickers) - set(r1000_tickers))
+        return combined, meta
 
     if source in ("r1000", "auto"):
         # 1st try: live IWB
