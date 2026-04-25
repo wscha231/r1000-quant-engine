@@ -1,0 +1,34 @@
+{
+  "config": {
+    "oneill_hard_stop_pct": -0.08,
+    "trailing_stop_pct": -0.15,
+    "target_n": 3,
+    "weighting": "score_power",
+    "rebal_int": 1
+  },
+  "n_positions_simulated": 249,
+  "n_stops_triggered": 77,
+  "stop_breakdown": {
+    "None": 172,
+    "oneill_hard_stop": 66,
+    "trailing_stop": 11
+  },
+  "concentrated_3": {
+    "original": {
+      "cagr_pct": 33.216510166209076,
+      "sharpe": 1.2055054127204865,
+      "max_dd_pct": -23.106750820374312,
+      "calmar": 1.4375240562563438,
+      "vol_ann_pct": 26.94412187093349,
+      "n_months": 83
+    },
+    "with_l1_stops": {
+      "cagr_pct": 16.033544679409605,
+      "sharpe": 0.7228764056504471,
+      "max_dd_pct": -30.426398437147572,
+      "calmar": 0.5269616353881128,
+      "vol_ann_pct": 24.65465057760883,
+      "n_months": 83
+    }
+  }
+}
