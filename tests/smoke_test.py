@@ -1053,6 +1053,34 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
+@_test("regression.paper_executor_workflow_yaml_valid")
+def test_paper_executor_workflow() -> None:
+    """The cloud workflow that runs r1000_paper_executor.py must exist with
+    workflow_dispatch + schedule, properly wire ALPACA secrets, and call
+    smoke_test as a pre-flight check.
+
+    History:
+      45d80f5 spam fix in data_alpaca
+      this    paper_executor_dryrun.yml — cloud-side dry-run / execute
+
+    Without this guard, a refactor that drops the workflow file silently
+    disables cloud paper trading.
+    """
+    wf_path = ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml"
+    assert wf_path.exists(), "paper_executor_dryrun.yml workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    assert "workflow_dispatch" in wf, "manual trigger missing in paper_executor workflow"
+    assert "secrets.ALPACA_API_KEY" in wf, "ALPACA_API_KEY secret not wired"
+    assert "secrets.ALPACA_API_SECRET" in wf, "ALPACA_API_SECRET secret not wired"
+    assert "tests/smoke_test.py" in wf, (
+        "smoke_test pre-flight missing — workflow could ship code that fails guards"
+    )
+    assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
+        "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
+    )
+
+
 @_test("regression.layer4_swap_bridge_wired")
 def test_layer4_swap_bridge() -> None:
     """r1000_layer4_swap.py must exist and provide layer4_swap_suggestions()
