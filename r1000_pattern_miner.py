@@ -98,16 +98,18 @@ def train_and_explain(
         print("FAIL: lightgbm not installed. Run: pip install lightgbm")
         sys.exit(1)
 
-    # Train regressor
+    # Train regressor with stronger regularization (prevent overfitting)
     model = lgb.LGBMRegressor(
-        n_estimators=500,
-        learning_rate=0.05,
-        num_leaves=31,
-        max_depth=6,
-        min_data_in_leaf=50,
-        feature_fraction=0.8,
-        bagging_fraction=0.8,
+        n_estimators=1000,
+        learning_rate=0.03,           # slower, more samples
+        num_leaves=15,                # smaller trees (less overfit)
+        max_depth=5,
+        min_data_in_leaf=200,         # require larger leaves
+        feature_fraction=0.7,         # more dropout
+        bagging_fraction=0.7,
         bagging_freq=5,
+        reg_alpha=0.1,                # L1 regularization
+        reg_lambda=0.1,               # L2 regularization
         verbose=-1,
         random_state=42,
     )

@@ -1,15 +1,15 @@
 |--- bench_dd_1y <= 0.19
 |   |--- cpi_yoy <= 0.02
-|   |   |--- m2_yoy_lag1m <= 0.07
-|   |   |   |--- mom_36m <= 0.64
-|   |   |   |   |--- value: [-0.22]
-|   |   |   |--- mom_36m >  0.64
-|   |   |   |   |--- value: [-0.13]
-|   |   |--- m2_yoy_lag1m >  0.07
-|   |   |   |--- mom_36m <= 0.68
-|   |   |   |   |--- value: [-0.33]
-|   |   |   |--- mom_36m >  0.68
-|   |   |   |   |--- value: [-0.24]
+|   |   |--- smh_rel_spy_1m <= 0.01
+|   |   |   |--- vol_252d <= 0.02
+|   |   |   |   |--- value: [-0.20]
+|   |   |   |--- vol_252d >  0.02
+|   |   |   |   |--- value: [-0.14]
+|   |   |--- smh_rel_spy_1m >  0.01
+|   |   |   |--- macro_beta_vix_interaction <= -0.01
+|   |   |   |   |--- value: [-0.26]
+|   |   |   |--- macro_beta_vix_interaction >  -0.01
+|   |   |   |   |--- value: [-0.31]
 |   |--- cpi_yoy >  0.02
 |   |   |--- market_regime_score <= 0.27
 |   |   |   |--- cpi_yoy <= 0.06
@@ -24,9 +24,9 @@
 |   |   |   |   |   |--- value: [-0.14]
 |   |   |--- market_regime_score >  0.27
 |   |   |   |--- dgs10_change_1m <= 0.14
-|   |   |   |   |--- unrate_level <= 5.35
+|   |   |   |   |--- m2_yoy_lag1m <= 0.18
 |   |   |   |   |   |--- value: [-0.05]
-|   |   |   |   |--- unrate_level >  5.35
+|   |   |   |   |--- m2_yoy_lag1m >  0.18
 |   |   |   |   |   |--- value: [0.04]
 |   |   |   |--- dgs10_change_1m >  0.14
 |   |   |   |   |--- vol_252d <= 0.02
@@ -35,28 +35,25 @@
 |   |   |   |   |   |--- value: [-0.21]
 |--- bench_dd_1y >  0.19
 |   |--- systemic_crisis_score <= 0.31
-|   |   |--- ppi_cpi_gap <= -0.06
-|   |   |   |--- systemic_crisis_score <= 0.28
-|   |   |   |   |--- smh_rel_spy_1m <= -0.00
-|   |   |   |   |   |--- value: [-0.04]
-|   |   |   |   |--- smh_rel_spy_1m >  -0.00
-|   |   |   |   |   |--- value: [-0.01]
-|   |   |   |--- systemic_crisis_score >  0.28
-|   |   |   |   |--- vol_252d <= 0.02
-|   |   |   |   |   |--- value: [-0.08]
-|   |   |   |   |--- vol_252d >  0.02
-|   |   |   |   |   |--- value: [-0.13]
-|   |   |--- ppi_cpi_gap >  -0.06
-|   |   |   |--- vol_252d <= 0.03
-|   |   |   |   |--- growth_liquidity_reentry_score <= -0.08
-|   |   |   |   |   |--- value: [0.08]
-|   |   |   |   |--- growth_liquidity_reentry_score >  -0.08
-|   |   |   |   |   |--- value: [0.02]
-|   |   |   |--- vol_252d >  0.03
-|   |   |   |   |--- ppi_cpi_gap <= -0.02
-|   |   |   |   |   |--- value: [0.14]
-|   |   |   |   |--- ppi_cpi_gap >  -0.02
-|   |   |   |   |   |--- value: [0.06]
+|   |   |--- vol_252d <= 0.03
+|   |   |   |--- inflation_reacceleration_score <= -0.64
+|   |   |   |   |--- smh_rel_spy_1m <= -0.02
+|   |   |   |   |   |--- value: [0.09]
+|   |   |   |   |--- smh_rel_spy_1m >  -0.02
+|   |   |   |   |   |--- value: [-0.05]
+|   |   |   |--- inflation_reacceleration_score >  -0.64
+|   |   |   |   |--- cpi_yoy <= 0.09
+|   |   |   |   |   |--- value: [0.05]
+|   |   |   |   |--- cpi_yoy >  0.09
+|   |   |   |   |   |--- value: [-0.05]
+|   |   |--- vol_252d >  0.03
+|   |   |   |--- uso_ret_1m <= -0.07
+|   |   |   |   |--- value: [0.22]
+|   |   |   |--- uso_ret_1m >  -0.07
+|   |   |   |   |--- uso_ret_1m <= 0.05
+|   |   |   |   |   |--- value: [0.05]
+|   |   |   |   |--- uso_ret_1m >  0.05
+|   |   |   |   |   |--- value: [0.13]
 |   |--- systemic_crisis_score >  0.31
 |   |   |--- war_oil_rate_shock_score <= 0.36
 |   |   |   |--- macro_beta_vix_interaction <= 0.94
@@ -67,10 +64,13 @@
 |   |   |   |--- macro_beta_vix_interaction >  0.94
 |   |   |   |   |--- value: [0.38]
 |   |   |--- war_oil_rate_shock_score >  0.36
-|   |   |   |--- mom_36m <= 1.59
-|   |   |   |   |--- spy_ret_3m <= 0.09
+|   |   |   |--- fear_greed_delta_1w <= -4.82
+|   |   |   |   |--- macro_beta_vix_interaction <= -0.12
 |   |   |   |   |   |--- value: [0.11]
-|   |   |   |   |--- spy_ret_3m >  0.09
-|   |   |   |   |   |--- value: [0.16]
-|   |   |   |--- mom_36m >  1.59
-|   |   |   |   |--- value: [0.03]
+|   |   |   |   |--- macro_beta_vix_interaction >  -0.12
+|   |   |   |   |   |--- value: [0.15]
+|   |   |   |--- fear_greed_delta_1w >  -4.82
+|   |   |   |   |--- vol_252d <= 0.03
+|   |   |   |   |   |--- value: [0.11]
+|   |   |   |   |--- vol_252d >  0.03
+|   |   |   |   |   |--- value: [0.04]
