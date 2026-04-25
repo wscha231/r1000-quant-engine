@@ -1,0 +1,41 @@
+{
+  "config": {
+    "target_n": 3,
+    "weighting": "score_power",
+    "rebal_interval_mo": 1,
+    "n_months": 83,
+    "n_bootstrap": 10000,
+    "block_size_mo": 3
+  },
+  "original": {
+    "cagr": 0.33172864161847926,
+    "bench_cagr": 0.13494187816322123,
+    "excess_cagr": 0.19678676345525803,
+    "sharpe": 1.1796840072485648,
+    "max_dd": -0.2710273986797216
+  },
+  "ci_95": {
+    "cagr": [
+      0.07792724657986234,
+      0.6278978312404495
+    ],
+    "excess_cagr": [
+      0.005052426507989721,
+      0.4103693509745599
+    ],
+    "sharpe": [
+      0.4221899564951203,
+      1.922424857917061
+    ],
+    "max_dd": [
+      -0.5017902612945581,
+      -0.14506610463759573
+    ]
+  },
+  "tail_probabilities": {
+    "p_excess_positive": 0.9785,
+    "p_cagr_above_15": 0.9121,
+    "p_cagr_above_20": 0.817,
+    "p_cagr_above_25": 0.6939
+  }
+}

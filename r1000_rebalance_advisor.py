@@ -174,17 +174,31 @@ def valuation_multiplier(
         mult *= 0.80
         reasons.append(f"earnings in {dte}d")
 
-    # 5. Strong insider buying cluster
+    # 5. Insider cluster - CONTRARIAN per 2026-04-25 backtest
+    # Empirical (n=17): Cluster 3+ buyers -> -5.26% in 21d, hit_5pct_down=65%
+    # Hypothesis: insider 'peak buying' coincides with local top.
+    # Reversed from initial 1.15x bonus to 0.92x discount.
     cluster = fh_row.get("fh_insider_cluster_30d_score")
     if cluster and cluster >= 50:
-        mult *= 1.15
-        reasons.append(f"insider cluster {cluster:.0f}")
+        mult *= 0.92
+        reasons.append(f"insider cluster {cluster:.0f} (peak signal, contrarian)")
 
-    # 6. Strongly bullish analyst consensus
+    # 6. Analyst recommendation - CONTRARIAN momentum per 2026-04-25 backtest
+    # upgrade_wave_2 (n=73) -> -6.80% in 21d
+    # upgrade_wave_3 (n=43) -> -4.52% in 21d
+    # Stable high bull_ratio (>= 0.85) WITHOUT recent upgrade momentum still ok.
+    buy_delta = fh_row.get("fh_rec_buy_delta_mom")
+    if buy_delta is not None:
+        if buy_delta >= 2:
+            mult *= 0.85
+            reasons.append(f"analyst upgrade x{int(buy_delta)} (CONTRARIAN sell)")
+        elif buy_delta == 1:
+            mult *= 0.95
+            reasons.append("analyst upgrade x1 (mild fade)")
     bull = fh_row.get("fh_rec_bull_ratio")
-    if bull and bull >= 0.80:
+    if bull and bull >= 0.85 and (buy_delta is None or buy_delta == 0):
         mult *= 1.05
-        reasons.append(f"analysts bullish {bull*100:.0f}%")
+        reasons.append(f"analysts stable bullish {bull*100:.0f}% (no recent change)")
 
     return mult, reasons
 

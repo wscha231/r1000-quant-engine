@@ -160,11 +160,14 @@ def main() -> int:
     p.add_argument("--feature-store",
                    default=r"G:/내 드라이브/r1000_top30_institutional/feature_store/feature_store_latest.parquet")
     p.add_argument("--model-dir", default="outputs/discovered_rules/model")
-    p.add_argument("--start", default="2024-04-30")
+    p.add_argument("--start", default="2019-04-30",
+                   help="backtest start (default: 2019-04 = 84-month walk-forward)")
     p.add_argument("--end", default="2026-03-31")
     p.add_argument("--top-n", type=int, default=12)
     p.add_argument("--max-tickers", type=int, default=400,
                    help="universe cap to control runtime (T5 needs all bars)")
+    p.add_argument("--bar-days", type=int, default=3000,
+                   help="fetch_daily_bars days (default 3000 = 8 years, supports 2019-")
     p.add_argument("--output-dir", default="outputs/strategy_backtest")
     args = p.parse_args()
 
@@ -197,10 +200,10 @@ def main() -> int:
     for i, t in enumerate(universe, 1):
         if i % 100 == 0:
             print(f"  {i}/{len(universe)}...")
-        bars = fetch_daily_bars(t, days=1000)
+        bars = fetch_daily_bars(t, days=args.bar_days)
         if not bars.empty:
             bar_cache[t] = bars
-    spy_full = fetch_spy_benchmark(days=1000)
+    spy_full = fetch_spy_benchmark(days=args.bar_days)
     print(f"[bars] cached {len(bar_cache)} tickers")
 
     # Load ML model
