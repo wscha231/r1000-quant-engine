@@ -9121,7 +9121,11 @@ def run_acceptance_checks(
     checks["pit_violation_count"] = int(len(pit_bad))
     checks["pit_ok"] = int(len(pit_bad)) == 0
 
-    exact_banned = {"r_1m", "r_3m", "r_6m"}
+    exact_banned = {
+        "r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m",
+        "bench_r_1m", "bench_r_3m", "bench_r_6m",
+        "bench_r_12m", "bench_r_24m", "bench_r_36m",
+    }
     prefix_banned = ("earn_post_", "future_")
     allowed_forward_named_features = {"future_winner_scout_score"}
     active_feature_columns = model_feature_columns(cfg)

@@ -987,6 +987,73 @@ def test_phase11_sleeve_wired_in_portfolio() -> None:
     )
 
 
+@_test("regression.pattern_miner_excludes_forward_returns")
+def test_pattern_miner_no_forward_return_leakage() -> None:
+    """ML pattern miner must exclude r_*m / bench_r_*m as features.
+
+    History (commit c13fa6a, 2026-04-25): r_12m/24m/36m in feature_store
+    are FORWARD-return labels, not past momentum. Original miner kept them
+    as features -> decile spread inflated 15.07%, fake CAGR 76.3%. After
+    fix, decile spread = 0.00% (real ML edge: ~zero). User question
+    "leakage 있는거 아니야?" saved production deploy.
+
+    This guard prevents the regression by enforcing that:
+      1. r_<N>[mdy] horizons are in EXCLUDE_EXACT
+      2. defensive regex r_\\d+[mdy] still present
+      3. bench_r_* prefix exclusion present
+    """
+    miner_path = ROOT / "r1000_pattern_miner.py"
+    assert miner_path.exists(), "r1000_pattern_miner.py missing"
+    src = miner_path.read_text(encoding="utf-8")
+
+    for col in ("r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m"):
+        assert f'"{col}"' in src, (
+            f'"{col}" missing from EXCLUDE_EXACT in r1000_pattern_miner.py — '
+            f"forward-return leakage protection regressed (commit c13fa6a)"
+        )
+    assert "r_\\d+[mdy]" in src, (
+        "defensive regex r_\\d+[mdy] missing in r1000_pattern_miner.py — "
+        "any newly-named forward-return column would leak again"
+    )
+    assert "bench_r_" in src, (
+        "bench_r_* exclusion missing in r1000_pattern_miner.py "
+        "(benchmark forward returns are also leakage)"
+    )
+
+
+@_test("regression.production_acceptance_check_bans_all_forward_returns")
+def test_production_exact_banned_full_coverage() -> None:
+    """run_acceptance_checks.exact_banned must include ALL forward-return
+    horizons (r_1m..r_36m) + bench_r_*m, not just r_1m/3m/6m.
+
+    Commit 6c0a496 (2026-04-25) audit explicitly noted:
+      'Defensive gap noted: exact_banned only {r_1m,r_3m,r_6m} but
+       cfg.features has none of those anyway'
+
+    cfg.features doesn't currently contain r_12m/24m/36m, so this is a
+    defensive guard against future feature additions silently re-introducing
+    leakage. The acceptance gate must catch all forward-return horizons,
+    not just the subset that happen to be banned in pattern_miner.
+    """
+    src = _pipeline_src()
+    if not src:
+        return  # pre-Refactor-Phase-A skip
+    # Locate the exact_banned definition inside run_acceptance_checks
+    m = re.search(r"exact_banned\s*=\s*\{([^}]*)\}", src)
+    assert m is not None, (
+        "exact_banned set not found in r1000_pipeline.py — "
+        "run_acceptance_checks leakage gate missing"
+    )
+    body = m.group(1)
+    required = ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m"]
+    missing = [c for c in required if f'"{c}"' not in body]
+    assert not missing, (
+        f"exact_banned in r1000_pipeline.py missing {missing} — "
+        f"defensive gap from audit 6c0a496 still open. "
+        f"Forward returns 12m/24m/36m would silently pass leakage check."
+    )
+
+
 # ======================================================================
 # main
 # ======================================================================
