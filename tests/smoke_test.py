@@ -1081,6 +1081,37 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.scanner_has_stage2_breakout_guard")
+def test_stage2_breakout_guard() -> None:
+    """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the
+    Stage 2 breakout overextension penalty.
+
+    Backtest finding (commit 1d04f78, 2026-04-25):
+      "T1 Stage 2 breakout: -2.5% alpha (chase 52w high underperforms)"
+
+    The penalty fires only when ALL four conditions hold:
+      near_52w_high > 0.95 AND RSI > 72 AND no earnings catalyst AND weak fund
+    Single-factor breakouts (just 52w high alone) are NOT penalized — real
+    leaders pass through high RSI + 52w high regularly. The combination is
+    what backtested poorly.
+
+    Without this guard, the scanner would auto-promote chase-the-top names
+    that historically underperform.
+    """
+    src = (ROOT / "aggressive" / "scanner.py").read_text(encoding="utf-8")
+    assert "STAGE2_OVEREXTENSION_PENALTY" in src, (
+        "STAGE2_OVEREXTENSION_PENALTY constant missing from scanner.py"
+    )
+    assert "Stage2-overext" in src, (
+        "Stage2-overext warning text missing — penalty may not be wired"
+    )
+    # Verify the four-condition compound check is in place
+    for cond in ("near_52w >", "rsi_now >", "no_catalyst", "weak_fund"):
+        assert cond in src, (
+            f"Stage 2 breakout compound check missing condition: {cond}"
+        )
+
+
 @_test("regression.adr_universe_yaml_valid")
 def test_adr_universe_yaml() -> None:
     """adr_universe.yaml must exist with curated ADR list and watchlist.

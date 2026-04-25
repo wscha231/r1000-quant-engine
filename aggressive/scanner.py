@@ -85,6 +85,19 @@ THEME_PHASE_DISQUALIFY = {"dead", "ending"}    # zero-out final score
 OPUS_H1_BUY_MULT = 1.10        # +10% bonus on H1 fire (alpha 12m = +8.67%, n=1149)
 OPUS_H6_BUY_MULT = 1.08        # +8% bonus on H6 fire  (alpha 12m = +7.38%, n=704)
 
+# --- Stage 2 breakout overextension guard (2026-04-25) ----------------------
+# Backtest finding (1d04f78): T1 Stage 2 breakout = -2.5% alpha vs SPY.
+# "Buy 52w high" chase systematically underperforms when fundamentals don't
+# justify the stretch. This penalty fires when:
+#     near_52w_high_pct > 0.95
+#     AND RSI(14) > 72
+#     AND no recent earnings catalyst (none in last 30d, none in next 30d)
+#     AND fundamentals weak (op_margin < 5% OR PE > 50 OR no earnings_growth)
+# The compound condition is conservative — single-factor (just high RSI, just
+# 52w high, etc.) is OK because real leaders go through them. The combination
+# is what backtested poorly.
+STAGE2_OVEREXTENSION_PENALTY = 0.85   # -15% multiplicative penalty when fires
+
 
 def compute_opus_h1_h6_multiplier(
     bars: Optional[pd.DataFrame],
@@ -150,6 +163,44 @@ def compute_opus_h1_h6_multiplier(
         reasons.append(
             f"H6 dynamic-leader (mom3m={mom_3m*100:.0f}%, op_margin={op_margin_frac*100:.0f}%)"
         )
+
+    # --- Stage 2 overextension penalty (T1 -2.5% alpha protection) ---
+    # Compound 52w + high RSI + weak fundamentals + no earnings catalyst.
+    if len(c) >= 252:
+        roll_max_252 = c.tail(252).max()
+        near_52w = float(c.iloc[-1]) / float(roll_max_252) if roll_max_252 > 0 else 0.0
+        # Use rsi_now (already computed above), mom_3m above
+        days_to_earnings = fh.get("fh_daysToNextEarnings")
+        last_eps_days = fh.get("fh_lastEpsReportDaysAgo")
+        # No catalyst window: no earnings within 30d either side
+        no_catalyst = True
+        try:
+            if days_to_earnings is not None and 0 <= float(days_to_earnings) <= 30:
+                no_catalyst = False
+            if last_eps_days is not None and 0 <= float(last_eps_days) <= 30:
+                no_catalyst = False
+        except (TypeError, ValueError):
+            pass
+        # Fundamental weakness check
+        weak_fund = False
+        if op_margin_frac is not None and op_margin_frac < 0.05:
+            weak_fund = True
+        if pe_ttm is not None:
+            try:
+                if float(pe_ttm) > 50.0:
+                    weak_fund = True
+            except (TypeError, ValueError):
+                pass
+        eps_growth = fh.get("fh_epsGrowthQuarterlyYoy")
+        if eps_growth is None:
+            weak_fund = True  # no growth signal counts as weakness
+        # All four conditions must hold simultaneously
+        if (near_52w > 0.95 and rsi_now > 72.0 and no_catalyst and weak_fund):
+            mult *= STAGE2_OVEREXTENSION_PENALTY
+            reasons.append(
+                f"Stage2-overext (52w={near_52w*100:.0f}%, RSI={rsi_now:.0f}, "
+                f"no-catalyst, weak-fund) -2.5% backtest alpha"
+            )
 
     return mult, reasons
 
