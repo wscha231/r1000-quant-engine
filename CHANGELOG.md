@@ -51,6 +51,62 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-25
+
+### 23:50 KST - adr-universe-and-stage2-overext-guard
+
+- scope:
+  - Add ADR support so foreign blue-chips compete fairly with R1000.
+    Wire Stage 2 breakout overextension penalty (Option D) closing the
+    "T1 -2.5% alpha" gap from leakage-fix audit (commit 1d04f78).
+    Prepare watchlist + playbook for SK Hynix Oct 2026 expected listing.
+- files:
+  - `adr_universe.yaml` -> new curated whitelist (26 ADRs >=$30B + 3 watchlist)
+  - `themes.yaml` -> add ASML/TSM/ASMI/STM/NXPI/UMC/AZN/GSK/NVS/SAP/BIDU to existing
+     themes; new themes china_tech_adr, intl_pharma_adr, intl_energy_materials,
+     intl_industrial_consumer; fix YAML 1.1 boolean trap (ON ticker)
+  - `aggressive/universe.py` -> add load_adr_universe() + sources r1000+adr / adr
+  - `tests/check_adr_data.py` -> source + runtime ADR data availability checker
+  - `tests/smoke_test.py` -> 4 new regression guards (44 total tests)
+  - `aggressive/scanner.py` -> Stage 2 overextension penalty in
+     compute_opus_h1_h6_multiplier (4-condition compound check, 0.85 mult)
+  - `ADR_PLAYBOOK.md` -> ADR addition + watchlist monitoring playbook
+- symbols_added:
+  - `aggressive.universe.load_adr_universe(min_mcap_usd_b, include_skip)` -> reads
+     adr_universe.yaml, returns (tickers, metadata_list)
+  - `tests/check_adr_data.py:check_alpaca_bars(ticker, min_years)` -> verify >=N years
+  - `tests/check_adr_data.py:check_finnhub(ticker)` -> verify Finnhub fundamentals coverage
+- symbols_changed:
+  - `aggressive.universe.load_universe(source, ...)` -> add r1000+adr and adr modes
+     with adr_min_mcap_usd_b parameter
+  - `aggressive.scanner.compute_opus_h1_h6_multiplier(bars, fh)` -> add Stage 2
+     overextension penalty branch (after H1/H6, before return)
+- config_fields_added:
+  - `STAGE2_OVEREXTENSION_PENALTY: float = 0.85` -> aggressive/scanner.py module-level
+     multiplicative penalty when Stage 2 conditions all hold
+- breaking_changes:
+  - none. New universe sources (r1000+adr, adr) are additive; default r1000 mode
+    unchanged. ON ticker YAML bug was silently broken before this commit
+    (semi_analog and semi_design_memory dropped ON Semiconductor); now fixed.
+- outputs:
+  - `adr_universe.yaml` -> 26 core ADRs across 10 countries + 3 watchlist
+  - `ADR_PLAYBOOK.md` -> step-by-step addition + monitoring guide
+- validation:
+  - py -3 tests/smoke_test.py -> 44/44 PASS
+  - py -3 tests/check_adr_data.py --quick -> all 26 ADRs listed with country/mcap
+  - py -3 -c "from aggressive.universe import load_adr_universe; ..." -> 26 tickers
+  - Stage 2 unit test: 3 scenarios (overext fire / strong fund protect /
+     catalyst protect) all behave as expected
+- risks_or_notes:
+  - SEC EDGAR companyfacts may not parse 20-F filings for ADRs cleanly;
+    affected ADRs auto-fall into r1000_unified_universe.py finnhub_synthetic
+    path (no new code required, same path used for 402 R1000 names already)
+  - China ADR (BABA, PDD, JD, BIDU, NTES) macro features may decorrelate from
+    US CPI/VIX. Monitor IC after 6 months of inclusion before rebalancing
+    weights or adding country-specific features.
+  - SK Hynix Oct 2026 is expected per 2026-04 reporting but symbol not yet
+    confirmed. ADR_PLAYBOOK.md has the listing-day checklist.
+
 ## 2026-04-24
 
 ### 23:30 KST - phase-v-f-and-hybrid-advisors
