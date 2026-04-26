@@ -164,6 +164,41 @@ jobs:
             outputs/concentrated_portfolio_latest.csv
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
+      - name: Sync outputs to user's Google Drive (rclone)
+        if: always()
+        env:
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "[gdrive-sync] RCLONE_CONFIG_GDRIVE secret not set, skipping"
+            echo "[gdrive-sync] To enable: see PHASE14_VERDICT_PROCEDURE.md or tools/auto_sync_to_drive.bat"
+            exit 0
+          fi
+          # Install rclone
+          curl -sLo rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q rclone.zip
+          mv rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+
+          # Write config from secret
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+
+          # Sync FULL rebuild outputs to gdrive r1000_top30_institutional/outputs/
+          DEST="gdrive:r1000_top30_institutional/outputs"
+          echo "[gdrive-sync] copying outputs/ to $DEST/"
+          rclone copy outputs/scored_latest.csv "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/scored_unified.csv "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/portfolio_latest.csv "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/backtest_metrics.json "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" --quiet 2>/dev/null || true
+
+          # Also sync log + verdict for diagnostic visibility
+          rclone copy outputs/full_rebuild_logs/ "gdrive:r1000_top30_institutional/full_rebuild_logs/" --quiet 2>/dev/null || true
+
+          echo "[gdrive-sync] done — check G:/내 드라이브/r1000_top30_institutional/outputs/ on your PC"
+
       - name: Telegram alert
         if: always()
         env:
