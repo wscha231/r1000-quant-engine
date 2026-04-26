@@ -195,12 +195,7 @@ jobs:
           if [ "$AUTH" = "service_account" ]; then
             # Mobile-friendly path: service account JSON in secret
             echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
-            cat > ~/.config/rclone/rclone.conf << 'EOF_CONF'
-[gdrive]
-type = drive
-scope = drive
-service_account_file = /tmp/sa.json
-EOF_CONF
+            printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json' > ~/.config/rclone/rclone.conf
           else
             # OAuth fallback (legacy, PC-required setup)
             echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
