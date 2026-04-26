@@ -199,7 +199,7 @@ jobs:
 
           echo "[gdrive-sync] done — check G:/내 드라이브/r1000_top30_institutional/outputs/ on your PC"
 
-      - name: Telegram alert
+      - name: Telegram alert + zip results (mobile-friendly)
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -223,6 +223,38 @@ jobs:
             -d "text=${MSG}" \
             -d "disable_web_page_preview=true" > /dev/null \
             || echo "[telegram] notification failed"
+
+          # Mobile-friendly: bundle key results into a zip and send as Telegram
+          # document so user can download directly on phone (no PC sync needed).
+          # Telegram document limit = 50MB.
+          BUNDLE="/tmp/full_rebuild_${{ inputs.universe_mode }}_$(date +%Y%m%d_%H%M).zip"
+          mkdir -p /tmp/bundle
+          cp outputs/scored_latest.csv /tmp/bundle/ 2>/dev/null || true
+          cp outputs/scored_unified.csv /tmp/bundle/ 2>/dev/null || true
+          cp outputs/portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
+          cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
+          cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
+          cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
+          cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
+          if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
+            (cd /tmp/bundle && zip -qr "$BUNDLE" .)
+            BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
+            echo "[telegram] bundle size: $BUNDLE_SIZE bytes"
+            if [ "$BUNDLE_SIZE" -lt 49000000 ] && [ "$BUNDLE_SIZE" -gt 0 ]; then
+              CAPTION="📊 r1000 [${{ inputs.universe_mode }}] ${STATUS}%0A${VERDICT}"
+              curl -sf -F "document=@${BUNDLE}" \
+                   -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                   -F "caption=${CAPTION}" \
+                   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                   > /dev/null \
+                || echo "[telegram] document send failed (size $BUNDLE_SIZE)"
+              echo "[telegram] sent zip to mobile ($((BUNDLE_SIZE/1024)) KB)"
+            else
+              echo "[telegram] bundle too large or empty ($BUNDLE_SIZE), skipping document send"
+            fi
+          else
+            echo "[telegram] no output files to bundle"
+          fi
 
       - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
         if: always()    # ← changed from success() to capture fail-state logs
