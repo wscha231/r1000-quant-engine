@@ -107,15 +107,37 @@ jobs:
           mkdir -p outputs/full_rebuild_logs
           LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
 
+          # Auto-detect: skip_collector=true is unsafe on FIRST run (no cache).
+          # Check for collector cache markers; if absent, force collector run
+          # even when user requested skip. Prevents the "1-min crash" bug from
+          # reuse_existing_artifacts=True hitting empty parquet/csv paths.
           SKIP_COLLECTOR=""
+          CACHE_PRESENT="no"
+          if [ -d aggressive/cache/finnhub ] && [ -n "$(ls -A aggressive/cache/finnhub 2>/dev/null)" ]; then
+            CACHE_PRESENT="yes"
+          fi
+          if [ -d aggressive/cache/bars ] && [ -n "$(ls -A aggressive/cache/bars 2>/dev/null)" ]; then
+            CACHE_PRESENT="yes"
+          fi
+          if ls outputs/feature_store_*.parquet 1>/dev/null 2>&1; then
+            CACHE_PRESENT="yes"
+          fi
+
           if [ "${{ inputs.skip_collector }}" = "true" ]; then
-            SKIP_COLLECTOR="--no-collector"
+            if [ "$CACHE_PRESENT" = "yes" ]; then
+              SKIP_COLLECTOR="--no-collector"
+              echo "[skip_collector] cache present, skipping data collection"
+            else
+              echo "[skip_collector] WARN: requested but NO cache found in this runner."
+              echo "[skip_collector]       Running collector anyway (first cloud run; will populate cache for future runs)."
+            fi
           fi
 
           echo "=========================================="
           echo "FULL REBUILD START"
           echo "  universe_mode:    $UNIVERSE_MODE"
-          echo "  skip_collector:   ${{ inputs.skip_collector }}"
+          echo "  skip_collector:   ${{ inputs.skip_collector }} (effective: $([ -n "$SKIP_COLLECTOR" ] && echo SKIP || echo RUN))"
+          echo "  cache_present:    $CACHE_PRESENT"
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
 
