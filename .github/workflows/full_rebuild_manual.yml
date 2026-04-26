@@ -224,25 +224,34 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          UNIVERSE_MODE: ${{ inputs.universe_mode }}
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
             echo "[telegram] secrets unset, skipping"
             exit 0
           fi
           STATUS="${{ job.status }}"
-          # Try to extract verdict line from log (SHIP / PARTIAL / REGRESS)
-          VERDICT="(verdict unavailable)"
-          if [ -f outputs/full_rebuild_logs/verdict.log ]; then
-            VERDICT=$(grep -E "SHIP|PARTIAL|REGRESS" outputs/full_rebuild_logs/verdict.log | head -1 || echo "(no verdict line)")
-          fi
-          MSG="🔁 FULL rebuild [${{ inputs.universe_mode }}] ${STATUS}%0A"
-          MSG+="verdict: ${VERDICT}%0A"
-          MSG+="run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Phase A automation: rich verdict via auto_verdict_summary.py
+          # Includes ΔCAGR/ΔSharpe/ΔMaxDD vs CURRENT_BASELINE, sleeve composition,
+          # top 5 holdings, concentrated portfolio, and recommended action.
+          set +e
+          SUMMARY=$(python3 tools/auto_verdict_summary.py --mode "$UNIVERSE_MODE" 2>&1)
+          set -e
+
+          # Build Telegram message: [status header] + [rich summary] + [run URL]
+          MSG="🔁 FULL rebuild status: ${STATUS}%0A%0A"
+          # URL-encode newlines in summary
+          ENCODED=$(printf '%s' "$SUMMARY" | python3 -c "
+          import sys, urllib.parse
+          print(urllib.parse.quote(sys.stdin.read()))")
+          MSG="${MSG}${ENCODED}%0A%0Arun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${MSG}" \
             -d "disable_web_page_preview=true" > /dev/null \
-            || echo "[telegram] notification failed"
+            || echo "[telegram] rich notification failed"
 
           # Mobile-friendly: bundle key results into a zip and send as Telegram
           # document so user can download directly on phone (no PC sync needed).
