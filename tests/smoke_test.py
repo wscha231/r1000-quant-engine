@@ -1147,6 +1147,36 @@ def test_monthly_ic_monitor() -> None:
         assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
 
 
+@_test("regression.workflows_pip_cache_dependency_path")
+def test_workflows_pip_cache_path() -> None:
+    """All workflows using actions/setup-python@v5 with cache:'pip' MUST also
+    declare cache-dependency-path pointing to requirements_github.txt.
+
+    Bug history (2026-04-26):
+      Without this, setup-python tries default '**/requirements.txt or
+      **/pyproject.toml' which doesn't exist in this repo (we use
+      requirements_github.txt). All 8 workflows failed at "Setup Python"
+      step with "No file matched" error before the user could even run
+      the actual job logic.
+
+    This guard ensures any future workflow added to .github/workflows/
+    declares the right cache-dependency-path.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    if not wf_dir.exists():
+        return
+    bad = []
+    for wf in sorted(wf_dir.glob("*.yml")):
+        src = wf.read_text(encoding="utf-8")
+        if "cache: 'pip'" in src:
+            if "cache-dependency-path: requirements_github.txt" not in src:
+                bad.append(wf.name)
+    assert not bad, (
+        f"Workflows use cache:'pip' but missing cache-dependency-path "
+        f"(setup-python will fail): {bad}"
+    )
+
+
 @_test("regression.sync_cloud_to_drive_helper_exists")
 def test_sync_cloud_to_drive() -> None:
     """tools/sync_cloud_to_drive.py bridges the gap between cloud_results/
