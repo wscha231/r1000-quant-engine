@@ -1,0 +1,21 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        04b5a48 (DIRTY)
+  started:       2026-04-26 11:07:25 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs
+  end_date:      2026-04-26
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+======================================================================
+
+VERDICT: outputs missing -- cannot run Cell E verdict:
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/outputs/scored_latest.csv
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/outputs/backtest_metrics.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/outputs/weights_latest.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/outputs/portfolio_latest.csv
