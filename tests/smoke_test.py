@@ -1147,6 +1147,25 @@ def test_monthly_ic_monitor() -> None:
         assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
 
 
+@_test("regression.helpers_imports_requests")
+def test_helpers_imports_requests() -> None:
+    """r1000_helpers.py:_http_get_inner uses requests.Response + requests.get
+    but module-level `import requests` was missing in early refactor commits.
+
+    Symptom: first cloud full_rebuild run with no historical_universe_membership
+    cache hit IWB live fetch path -> http_get -> _http_get_inner -> NameError
+    on `requests.Response`. Universe build failed, pipeline crashed, only logs
+    were committed.
+
+    Fixed 2026-04-26 by adding `import requests` at top of r1000_helpers.py.
+    """
+    src = (ROOT / "r1000_helpers.py").read_text(encoding="utf-8")
+    assert re.search(r"^import requests\b", src, re.MULTILINE), (
+        "r1000_helpers.py missing 'import requests' — _http_get_inner will "
+        "NameError when called. Symptom seen on cloud full_rebuild first run."
+    )
+
+
 @_test("regression.workflows_pip_cache_dependency_path")
 def test_workflows_pip_cache_path() -> None:
     """All workflows using actions/setup-python@v5 with cache:'pip' MUST also

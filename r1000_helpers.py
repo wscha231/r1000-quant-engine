@@ -42,6 +42,9 @@ from typing import Any, Iterable, Optional
 
 import numpy as np
 import pandas as pd
+import requests   # used by _http_get_inner; missing import caused NameError on
+                  # first cloud run when historical_universe_membership cache was
+                  # absent and IWB live fetch was attempted (commit 7677f8b run)
 
 from r1000_config import (
     CASH_PROXY_TICKER,
