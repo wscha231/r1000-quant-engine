@@ -104,6 +104,7 @@ jobs:
           PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
         run: |
           set -e
+          set -o pipefail   # ← critical: catch python failures through tee pipe
           mkdir -p outputs/full_rebuild_logs
           LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
 
@@ -188,14 +189,22 @@ jobs:
             -d "disable_web_page_preview=true" > /dev/null \
             || echo "[telegram] notification failed"
 
-      - name: Commit verdict + portfolio CSVs
-        if: success()
+      - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
+        if: always()    # ← changed from success() to capture fail-state logs
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
           mkdir -p cloud_results/full_rebuild
           DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           mkdir -p "$DEST"
+          # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
+          if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
+            LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
+            tail -300 "$LATEST_LOG" > "$DEST/run_log_tail.txt"
+            echo "Captured tail of: $LATEST_LOG ($(wc -l < $LATEST_LOG) total lines)" >> "$DEST/run_log_tail.txt"
+          fi
+          # Job status indicator
+          echo "job_status: ${{ job.status }}" > "$DEST/job_status.txt"
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
           cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
