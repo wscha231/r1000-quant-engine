@@ -1081,6 +1081,22 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.compare_adr_backtest_helper_exists")
+def test_compare_adr_backtest() -> None:
+    """tools/compare_adr_backtest.py provides A/B verdict against ship gate
+    for r1000+adr universe runs vs R1000-only baseline.
+
+    Used to validate Phase 14 + ADR universe before rotating CURRENT_BASELINE
+    in run_local.py.
+    """
+    p = ROOT / "tools" / "compare_adr_backtest.py"
+    assert p.exists(), "tools/compare_adr_backtest.py missing"
+    src = p.read_text(encoding="utf-8")
+    for tok in ("SHIP_GATE", "delta_cagr_min_pp", "delta_sharpe_min",
+                "delta_max_dd_min_pp", "def verdict", "use-pinned-baseline"):
+        assert tok in src, f"compare_adr_backtest.py missing: {tok}"
+
+
 @_test("regression.layer4_executor_safety_guards")
 def test_layer4_executor_guards() -> None:
     """r1000_layer4_swap.py --execute path must have all safety guards:
