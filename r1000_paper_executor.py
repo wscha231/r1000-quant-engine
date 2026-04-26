@@ -43,20 +43,48 @@ from aggressive.executor import (
 from aggressive.telegram_alert import send_alert
 
 
+# ADVISOR_PATHS: primary path → list of fallback paths.
+# Local Drive paths are first preference (where production runs write).
+# Cloud / non-Drive fallbacks try repo-relative paths committed by
+# full_rebuild_manual.yml (cloud_results/full_rebuild/latest_*).
 ADVISOR_PATHS = {
-    "v1": "outputs_advisor/new_top12_proposed.csv",
-    "v3": "outputs_advisor_v3/new_top12_proposed.csv",
-    "v4": "outputs_advisor_v4/new_top12_proposed.csv",
-    "concentrated": r"G:/내 드라이브/r1000_top30_institutional/outputs/concentrated_portfolio_latest.csv",
-    "core": r"G:/내 드라이브/r1000_top30_institutional/outputs/portfolio_latest.csv",
+    "v1": ["outputs_advisor/new_top12_proposed.csv"],
+    "v3": ["outputs_advisor_v3/new_top12_proposed.csv"],
+    "v4": ["outputs_advisor_v4/new_top12_proposed.csv"],
+    "concentrated": [
+        r"G:/내 드라이브/r1000_top30_institutional/outputs/concentrated_portfolio_latest.csv",
+        # Fallback to latest cloud rebuild (committed by full_rebuild_manual.yml)
+        "cloud_results/full_rebuild/latest_r1000+adr/concentrated_portfolio_latest.csv",
+        "cloud_results/full_rebuild/latest_r1000/concentrated_portfolio_latest.csv",
+        "outputs/concentrated_portfolio_latest.csv",
+    ],
+    "core": [
+        r"G:/내 드라이브/r1000_top30_institutional/outputs/portfolio_latest.csv",
+        # Fallback to latest cloud rebuild
+        "cloud_results/full_rebuild/latest_r1000+adr/portfolio_latest.csv",
+        "cloud_results/full_rebuild/latest_r1000/portfolio_latest.csv",
+        "outputs/portfolio_latest.csv",
+    ],
 }
 
 
 def load_advisor_picks(advisor: str) -> pd.DataFrame:
-    path = Path(ADVISOR_PATHS.get(advisor, ""))
-    if not path.exists():
-        raise FileNotFoundError(f"Advisor {advisor} output not found at {path}. "
-                                  "Run advisor first.")
+    """Load picks CSV for the given advisor mode.
+
+    Iterates through fallback paths so cloud workflows can find recent rebuild
+    outputs in cloud_results/ even when the user's Drive path is unavailable.
+    """
+    paths = ADVISOR_PATHS.get(advisor, [])
+    if isinstance(paths, str):
+        paths = [paths]
+    for p_str in paths:
+        p = Path(p_str)
+        if p.exists():
+            return pd.read_csv(p)
+    raise FileNotFoundError(
+        f"Advisor {advisor} output not found in any of: {paths}. "
+        f"Run advisor (or full_rebuild) first."
+    )
     return pd.read_csv(path)
 
 

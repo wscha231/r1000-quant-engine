@@ -173,10 +173,20 @@ jobs:
           mkdir -p cloud_results/full_rebuild
           DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           mkdir -p "$DEST"
+          # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
+          cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
+          # Portfolio outputs (production main + concentrated 3-name)
+          cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
+          cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+          # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
+          # Symlink/copy to "latest" pointer for sync helper convenience
+          rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+          cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
           git add cloud_results/ 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"

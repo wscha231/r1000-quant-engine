@@ -1147,6 +1147,57 @@ def test_monthly_ic_monitor() -> None:
         assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
 
 
+@_test("regression.sync_cloud_to_drive_helper_exists")
+def test_sync_cloud_to_drive() -> None:
+    """tools/sync_cloud_to_drive.py bridges the gap between cloud_results/
+    (where full_rebuild_manual.yml writes) and the local Drive mirror
+    (where advisor / paper_executor / layer4_swap read by default).
+
+    Without this helper, user must manually copy files after each cloud
+    rebuild — which is error-prone and easy to skip.
+    """
+    p = ROOT / "tools" / "sync_cloud_to_drive.py"
+    assert p.exists(), "tools/sync_cloud_to_drive.py missing"
+    src = p.read_text(encoding="utf-8")
+    for tok in ("DEFAULT_DRIVE_BASE", "SYNC_FILES", "--dry-run", "--drive-base",
+                "scored_unified.csv", "concentrated_portfolio_latest.csv",
+                "latest_"):
+        assert tok in src, f"sync_cloud_to_drive.py missing: {tok}"
+
+
+@_test("regression.full_rebuild_commits_portfolio_csvs")
+def test_full_rebuild_commits_portfolios() -> None:
+    """full_rebuild_manual.yml must commit the actual portfolio CSVs (not just
+    scored + metrics). Without portfolio_latest.csv + concentrated_portfolio_latest.csv
+    in cloud_results, paper_executor with --advisor concentrated/core can't run
+    after cloud rebuild.
+
+    Also asserts the latest_<mode> pointer directory creation so sync helper
+    can find files without knowing exact date.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for needed in (
+        "portfolio_latest.csv",
+        "concentrated_portfolio_latest.csv",
+        "scored_unified.csv",
+        "latest_${{ inputs.universe_mode }}",
+    ):
+        assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
+
+
+@_test("regression.paper_executor_advisor_path_fallbacks")
+def test_paper_executor_path_fallbacks() -> None:
+    """ADVISOR_PATHS for concentrated/core must accept fallback paths so the
+    cloud workflow can find files without relying on user's local Drive mount.
+    """
+    src = (ROOT / "r1000_paper_executor.py").read_text(encoding="utf-8")
+    # Must be a list-of-paths structure now, with cloud_results fallback
+    assert "cloud_results/full_rebuild/latest_" in src, (
+        "paper_executor missing cloud_results fallback for concentrated/core advisor"
+    )
+    assert '"core":' in src and '"concentrated":' in src, "paper_executor advisor entries missing"
+
+
 @_test("regression.compare_adr_backtest_helper_exists")
 def test_compare_adr_backtest() -> None:
     """tools/compare_adr_backtest.py provides A/B verdict against ship gate

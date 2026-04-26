@@ -61,9 +61,12 @@ After both runs complete and commit `cloud_results/full_rebuild/<date>_<mode>/ba
 ```bash
 # Local (after git pull):
 py -3 tools/compare_adr_backtest.py \
-  --baseline cloud_results/full_rebuild/<date>_r1000/backtest_metrics.json \
-  --variant  cloud_results/full_rebuild/<date>_r1000+adr/backtest_metrics.json
+  --baseline cloud_results/full_rebuild/latest_r1000/backtest_metrics.json \
+  --variant  cloud_results/full_rebuild/latest_r1000+adr/backtest_metrics.json
 ```
+
+The workflow writes a `latest_<mode>` symlink-like copy alongside the dated
+folder, so you don't need to know the exact date.
 
 Output:
 ```
@@ -77,10 +80,40 @@ Exit codes: 0=SHIP, 1=REGRESS, 2=PARTIAL.
 
 ---
 
+## Step 3.5 — Sync cloud results to local Drive (after SHIP/PARTIAL)
+
+Cloud workflow writes scored CSVs + portfolio CSVs + metrics to
+`cloud_results/full_rebuild/latest_<mode>/`. Local scripts (advisor v3,
+paper_executor with `--advisor concentrated/core`, layer4_swap) read from
+`G:/내 드라이브/r1000_top30_institutional/outputs/` by default.
+
+**Sync helper** (Windows PC + Drive):
+```bash
+git pull
+py -3 tools/sync_cloud_to_drive.py --dry-run        # preview what will copy
+py -3 tools/sync_cloud_to_drive.py                  # actual copy (latest r1000+adr)
+py -3 tools/sync_cloud_to_drive.py --mode r1000     # control run
+```
+
+The helper copies these files cloud → Drive:
+- `scored_latest.csv`, `scored_unified.csv`
+- `portfolio_latest.csv`, `concentrated_portfolio_latest.csv`
+- `backtest_metrics.json`, `concentrated_backtest_metrics.json`
+
+After sync, all local scripts find their default Drive paths populated.
+
+**Non-Windows users** (Linux/Mac with custom Drive mirror):
+```bash
+py -3 tools/sync_cloud_to_drive.py --drive-base ~/Documents/r1000_drive_mirror
+```
+
+---
+
 ## Step 4 — Decision tree
 
 ### 4a. ✅ SHIP verdict
-1. Edit `run_local.py` `CURRENT_BASELINE` dict to reflect new metrics:
+1. Run sync (Step 3.5 above) so local Drive has the new portfolio/scored CSVs.
+2. Edit `run_local.py` `CURRENT_BASELINE` dict to reflect new metrics:
    ```python
    CURRENT_BASELINE = {
        "name": "Phase 14 hybrid alpha + r1000+adr (SHIPPED 2026-MM-DD)",
