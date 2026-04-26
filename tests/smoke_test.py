@@ -1123,6 +1123,30 @@ def test_advisor_v3_layer4_info() -> None:
     )
 
 
+@_test("regression.monthly_ic_monitor_exists")
+def test_monthly_ic_monitor() -> None:
+    """Phase 6 L: tools/monthly_ic_monitor.py + workflow must exist with
+    monthly cadence (cron 0 2 1 * *) and Telegram alerting on threshold trips.
+
+    User mandate (2026-04-25): "1-2개월 cadence가 훨씬 합리적".
+    Threshold trips: ADR avg IC < 0.01, China-IC > US-IC by 0.05+.
+    """
+    script = ROOT / "tools" / "monthly_ic_monitor.py"
+    assert script.exists(), "tools/monthly_ic_monitor.py missing"
+    src = script.read_text(encoding="utf-8")
+    for tok in ("compute_rank_ic", "telegram_send", "fetch_macro_series",
+                "ALL_ADR_AVG_IC_THRESHOLD", "NEW_FEATURE_IC_DELTA_THRESHOLD",
+                "load_adr_universe"):
+        assert tok in src, f"monthly_ic_monitor.py missing: {tok}"
+
+    wf = ROOT / ".github" / "workflows" / "monthly_ic_monitor.yml"
+    assert wf.exists(), "monthly_ic_monitor.yml workflow missing"
+    wf_src = wf.read_text(encoding="utf-8")
+    for tok in ("0 2 1 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
+                "FRED_API_KEY", "tests/smoke_test.py"):
+        assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
+
+
 @_test("regression.compare_adr_backtest_helper_exists")
 def test_compare_adr_backtest() -> None:
     """tools/compare_adr_backtest.py provides A/B verdict against ship gate
