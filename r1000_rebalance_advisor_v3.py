@@ -78,13 +78,33 @@ def load_scanner_rankings(scanner_cache_path: Optional[Path] = None) -> dict[str
     """Load scanner output and re-score with advisor multipliers.
 
     Returns {ticker: advisor_score} sorted desc.
+
+    Lookup order (Phase 5 K, 2026-04-26):
+      1. explicit scanner_cache_path arg (override)
+      2. aggressive/state/scanner/candidates_*.json   (local Aggressive runs)
+      3. aggressive/state/scanner/latest.json         (alt local naming)
+      4. cloud_results/scanner/*.json                 (committed by daily_review.yml)
+    The cloud_results fallback ensures advisor v3 picks up the latest
+    scanner output even when running in CI without local Aggressive state.
     """
     import glob
     if scanner_cache_path is None:
+        # Local first
         files = sorted(
             glob.glob("aggressive/state/scanner/candidates_*.json"),
             reverse=True,
         )
+        if not files:
+            files = sorted(
+                glob.glob("aggressive/state/scanner/latest.json"),
+                reverse=True,
+            )
+        # Cloud commit fallback (Phase 5 K wire — daily_review.yml output)
+        if not files:
+            files = sorted(
+                glob.glob("cloud_results/scanner/*.json"),
+                reverse=True,
+            )
         if not files:
             return {}
         scanner_cache_path = Path(files[0])
@@ -362,6 +382,29 @@ def main() -> int:
     print(f"  EXIT ({len(old_tickers - new_tickers)}): {sorted(old_tickers - new_tickers)}")
     print(f"  ADD  ({len(new_tickers - old_tickers)}): {sorted(new_tickers - old_tickers)}")
     print(f"  HOLD ({len(old_tickers & new_tickers)}): {sorted(old_tickers & new_tickers)}")
+
+    # Phase 5 M (2026-04-26): Layer 4 swap suggestions (informational only).
+    # v3 advisor doesn't auto-apply Layer 4 — that's the layer4_monthly_swap.yml
+    # workflow's job (8b80883). But we surface the suggestions here so the user
+    # sees them when reviewing the rebalance plan and can decide whether to run
+    # `py -3 r1000_layer4_swap.py --execute` separately.
+    try:
+        from r1000_layer4_swap import layer4_swap_suggestions
+        l4_swaps = layer4_swap_suggestions(args.portfolio_csv, args.scored_csv)
+        l4_clean = [s for s in l4_swaps if "error" not in s]
+        if l4_clean:
+            print()
+            print(f"LAYER 4 SWAP suggestions ({len(l4_clean)}, informational):")
+            for s in l4_clean:
+                print(f"  SWAP {s.get('ticker'):<6} -> {s.get('swap_to'):<6}  "
+                      f"pri={s.get('priority')}  {s.get('reason')}")
+            print(f"  (run `py -3 r1000_layer4_swap.py --execute` to apply, or wait")
+            print(f"   for layer4_monthly_swap.yml on the 5th of each month)")
+        elif l4_swaps and "error" in l4_swaps[0]:
+            print(f"\n[layer4] {l4_swaps[0]['error']} (informational, not blocking)")
+    except Exception as e:
+        # Best-effort surface; don't fail v3 advisor if Layer 4 import breaks
+        print(f"\n[layer4] suggestions unavailable: {type(e).__name__}: {e}")
 
     return 0
 

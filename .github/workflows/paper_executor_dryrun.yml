@@ -4,8 +4,15 @@ name: Paper Executor (Dry-Run / Execute)
 # regime pre-flight. Default DRY-RUN; --execute requires explicit
 # workflow_dispatch input.
 #
-# Schedule: Saturday 06:00 UTC = 15:00 KST Saturday (after Friday close
-# settles, plenty of weekend review time before Monday open).
+# Schedules (KST):
+#   Mon-Fri 23:30 KST = weekday 14:30 UTC — daily dry-run after US close
+#                                            (4:00pm EST = 21:00 UTC; 90min
+#                                            buffer for data settle)
+#   Sat 15:00 KST     = Saturday  06:00 UTC — weekend review run
+#
+# All schedule runs are DRY-RUN. To go LIVE, manual workflow_dispatch with
+# execute=true. Daily dry-run lets user review regime + plan via Telegram
+# alert + artifact each weekday morning, then decide whether to fire --execute.
 #
 # Manual trigger: GitHub UI -> Actions -> Paper Executor -> Run workflow
 #   advisor:  v1 / v3 / v4 / concentrated / core   (default v3)
@@ -14,7 +21,8 @@ name: Paper Executor (Dry-Run / Execute)
 
 on:
   schedule:
-    - cron: '0 6 * * 6'   # Saturday 06:00 UTC = 15:00 KST Saturday
+    - cron: '30 14 * * 1-5'  # Mon-Fri 14:30 UTC = 23:30 KST (after US close)
+    - cron: '0 6 * * 6'      # Saturday 06:00 UTC = 15:00 KST (weekend review)
   workflow_dispatch:
     inputs:
       advisor:

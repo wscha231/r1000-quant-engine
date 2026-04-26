@@ -1081,6 +1081,48 @@ def test_paper_executor_workflow() -> None:
     )
 
 
+@_test("regression.paper_executor_weekday_schedule")
+def test_paper_executor_weekday() -> None:
+    """paper_executor_dryrun.yml must have weekday schedule (Mon-Fri 23:30 KST)
+    in addition to Saturday 15:00 KST. Phase 5 J — daily review enables user
+    to see regime + plan via Telegram each weekday before --execute decision.
+    """
+    wf = (ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml").read_text(encoding="utf-8")
+    assert "30 14 * * 1-5" in wf, (
+        "weekday Mon-Fri 14:30 UTC schedule missing in paper_executor_dryrun.yml"
+    )
+    assert "0 6 * * 6" in wf, (
+        "Saturday 06:00 UTC schedule must remain"
+    )
+
+
+@_test("regression.advisor_v3_reads_cloud_scanner")
+def test_advisor_v3_cloud_scanner_fallback() -> None:
+    """Phase 5 K: advisor v3 load_scanner_rankings must check cloud_results/scanner/
+    as fallback when local aggressive/state/scanner/ is empty (CI environment).
+    """
+    src = (ROOT / "r1000_rebalance_advisor_v3.py").read_text(encoding="utf-8")
+    assert "cloud_results/scanner" in src, (
+        "advisor v3 missing cloud_results/scanner fallback — "
+        "scanner output won't reach advisor in CI"
+    )
+
+
+@_test("regression.advisor_v3_surfaces_layer4_suggestions")
+def test_advisor_v3_layer4_info() -> None:
+    """Phase 5 M: advisor v3 prints Layer 4 swap suggestions (informational
+    only — does not auto-apply). Lets user see swap candidates in same review
+    as advisor diff.
+    """
+    src = (ROOT / "r1000_rebalance_advisor_v3.py").read_text(encoding="utf-8")
+    assert "from r1000_layer4_swap import layer4_swap_suggestions" in src, (
+        "advisor v3 missing Layer 4 suggestions import"
+    )
+    assert "LAYER 4 SWAP suggestions" in src, (
+        "advisor v3 missing Layer 4 print section"
+    )
+
+
 @_test("regression.compare_adr_backtest_helper_exists")
 def test_compare_adr_backtest() -> None:
     """tools/compare_adr_backtest.py provides A/B verdict against ship gate
