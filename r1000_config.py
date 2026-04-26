@@ -176,6 +176,31 @@ PHASE8B_LONG_LOOKBACK_COLUMNS = [
 #
 # ENGINE_REUSE_VERSION bump required because feature_store parquet
 # schema gains these 8 columns. One FULL REBUILD needed per machine.
+# =====================================================================
+# Phase 14 (2026-04-25): hybrid alpha — production wire of validated
+# Aggressive scanner signals into 정석 ML feature set.
+# =====================================================================
+# Sources (commit history):
+#   2e5fc19 — Opus H1/H6 multipliers in aggressive/scanner.py
+#   6fd6afe — Stage 2 breakout overextension penalty in aggressive/scanner.py
+#   d62fbb6 — themes.yaml expanded + theme_phase_multiplier numeric mapping
+#   1d04f78 — T4 RS Acceleration validated +10% alpha audit
+#
+# These signals were proven in research / Aggressive scanner side. Phase 14
+# adds them to the 정석 production ML feature set so the walk-forward model
+# learns optimal weights against r_*m forward returns. ENGINE_REUSE_VERSION
+# bump REQUIRED — feature_store schema gains 6 columns. One FULL REBUILD
+# needed per machine.
+PHASE14_HYBRID_ALPHA_COLUMNS = [
+    "rs_acceleration_score",                # T4 +10% alpha (90d, 24mo backtest)
+    "h1_oversold_value_score",              # Opus H1 +8.67% (n=1149, p<0.0001)
+    "h6_dynamic_leader_score",              # Opus H6 +7.38% (n=704, p<0.0001)
+    "stage2_overext_penalty",               # T1 -2.5% alpha protection
+    "theme_phase_multiplier_primary",       # themes.yaml phase classifier (primary)
+    "theme_phase_multiplier_max",           # themes.yaml phase classifier (max across themes)
+]
+
+
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
     "cashflow_turn_positive_4q",
@@ -564,7 +589,7 @@ DEFAULT_FEATURES = [
     "val_residual_ep",
     "val_residual_sp",
     "val_residual_fcfy",
-] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS
+] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
     "institutional_flow_actual_score",
@@ -1339,7 +1364,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-20-phase11-multibagger-sleeve"
+ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")

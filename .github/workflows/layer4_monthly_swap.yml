@@ -1,0 +1,148 @@
+name: Layer 4 Monthly Swap (Auto-Apply)
+
+# Runs r1000_layer4_swap.py with --execute on the 5th of each month at
+# 14:00 UTC = 23:00 KST (after Friday close + few business days for new
+# month data to settle).
+#
+# Throttle: same ticker can't be swapped >1× / 30 days (state in
+# outputs/layer4_swap_history.json, committed to repo for cross-run state).
+# Cap: max 2 swaps per cycle (RiskConfig.swap_max_per_cycle, enforced in
+# r1000_risk_sensing.py).
+#
+# Pre-flight Telegram: lists planned swaps before placing orders.
+# Post-flight Telegram: success / fail count.
+#
+# Manual trigger via workflow_dispatch (e.g. for testing or off-cycle runs).
+
+on:
+  schedule:
+    - cron: '0 14 5 * *'   # 5th of each month, 14:00 UTC = 23:00 KST
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 'execute LIVE paper swaps (default: dry-run only)'
+        type: boolean
+        default: false
+      no_throttle:
+        description: 'skip 30d throttle (TESTING ONLY)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # commit swap_history.json + cloud_results
+
+jobs:
+  layer4_swap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore Alpaca bar cache
+        uses: actions/cache@v4
+        with:
+          path: aggressive/cache/bars
+          key: alpaca-bars-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            alpaca-bars-${{ runner.os }}-
+
+      - name: Smoke + audit pre-flight
+        run: |
+          python tests/smoke_test.py
+          python tests/audit_features.py --no-runtime
+
+      - name: Run Layer 4 swap
+        id: layer4
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # Schedule run: dry-run only (workflow_dispatch with execute=true overrides)
+          EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.execute }}" = "true" ]; then
+            EXECUTE_FLAG="--execute --confirm"
+          fi
+          THROTTLE_FLAG=""
+          if [ "${{ github.event.inputs.no_throttle }}" = "true" ]; then
+            THROTTLE_FLAG="--no-throttle"
+          fi
+
+          # Use repo-local data paths (not Drive)
+          mkdir -p outputs
+          # If outputs/portfolio_latest.csv missing, fall back to advisor v3 output in repo
+          PORTFOLIO_CSV="outputs/portfolio_latest.csv"
+          if [ ! -f "$PORTFOLIO_CSV" ]; then
+            PORTFOLIO_CSV="outputs_advisor_v3/new_top12_proposed.csv"
+            echo "[layer4] portfolio_latest.csv missing, using $PORTFOLIO_CSV"
+          fi
+          SCORED_CSV="outputs/scored_unified.csv"
+          if [ ! -f "$SCORED_CSV" ]; then
+            SCORED_CSV="outputs/scored_latest.csv"
+            echo "[layer4] scored_unified.csv missing, using $SCORED_CSV"
+          fi
+          if [ ! -f "$SCORED_CSV" ]; then
+            echo "[layer4] no scored CSV available — committing skipped marker"
+            mkdir -p cloud_results/layer4_swap
+            echo "skipped: no scored CSV in repo at $(date -u)" > "cloud_results/layer4_swap/$(date +%Y%m%d)_skip.txt"
+            exit 0
+          fi
+
+          mkdir -p outputs/layer4_logs
+          LOG="outputs/layer4_logs/$(date +%Y%m%d_%H%M%S).log"
+
+          set +e
+          python r1000_layer4_swap.py \
+            --portfolio "$PORTFOLIO_CSV" \
+            --scored-csv "$SCORED_CSV" \
+            --json $EXECUTE_FLAG $THROTTLE_FLAG 2>&1 | tee "$LOG"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+
+          echo "exit_status=$STATUS" >> $GITHUB_OUTPUT
+          # Don't fail the job on swap-execution errors; Telegram alerts user
+          exit 0
+
+      - name: Upload swap logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer4-${{ github.run_id }}
+          path: |
+            outputs/layer4_logs/
+            outputs/layer4_swap_history.json
+          retention-days: 365
+
+      - name: Commit swap history + summary
+        if: always()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/layer4_swap
+          if ls outputs/layer4_logs/*.log 2>/dev/null | grep -q .; then
+            cp outputs/layer4_logs/*.log "cloud_results/layer4_swap/" || true
+          fi
+          # Always commit history.json so throttle persists across runs
+          if [ -f outputs/layer4_swap_history.json ]; then
+            cp outputs/layer4_swap_history.json cloud_results/layer4_swap/swap_history.json
+          fi
+          git add cloud_results/layer4_swap/ outputs/layer4_swap_history.json 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): layer4 swap $(date +%Y-%m-%d) [skip ci]"
+          git push || true

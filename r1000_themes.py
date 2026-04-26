@@ -33,6 +33,23 @@ DEFAULT_THEMES_PATH = Path(__file__).parent / "themes.yaml"
 
 
 # ---------------------------------------------------------------------------
+# Phase 14 (2026-04-25): theme phase -> multiplier mapping for ML consumption.
+# Stored as module constant so callers (including 정석 r1000_features.py) get
+# a stable interface. Values calibrated to research/phase16 backtest signals
+# without overfitting (early gets +15% boost, dead gets -50% penalty).
+# ---------------------------------------------------------------------------
+
+THEME_PHASE_MULTIPLIER = {
+    "early":    1.15,   # rising from base, RS turning positive
+    "maturing": 1.05,   # full momentum, breadth > 50%
+    "peaking":  0.95,   # breadth saturated, acceleration negative
+    "ending":   0.80,   # RS deteriorating with breadth collapse
+    "dead":     0.50,   # sustained negative, broken
+    "unknown":  1.00,   # neutral when classification not possible
+}
+
+
+# ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
 
@@ -189,9 +206,14 @@ def compute_theme_aggregates(
         # Phase classification
         row["theme_phase"] = classify_theme_phase(row)
         rows.append(row)
-    return pd.DataFrame(rows).sort_values(
-        "theme_rs_benchmark_12m_mean", ascending=False, na_position="last"
-    ).reset_index(drop=True)
+    out = pd.DataFrame(rows)
+    # Defensive sort: column may be missing if all themes had empty/all-NaN
+    # member sets (early historical rebalance dates, or fully-missing data).
+    # Without this guard, all-NaN universe slices crash compute_theme_phase_features.
+    sort_col = "theme_rs_benchmark_12m_mean"
+    if sort_col in out.columns:
+        out = out.sort_values(sort_col, ascending=False, na_position="last")
+    return out.reset_index(drop=True)
 
 
 def classify_theme_phase(agg_row: dict[str, Any] | pd.Series) -> str:
@@ -281,8 +303,14 @@ def attach_per_ticker_theme_features(
         lambda t: t2themes.get(t, [""])[0] if t2themes.get(t) else ""
     )
 
-    # Phase from aggregates
-    if theme_aggregates is not None and not theme_aggregates.empty:
+    # Phase from aggregates — defensive: theme_aggregates may be empty or
+    # missing the expected columns when the universe slice has no theme members
+    # (early historical dates, all-NaN inputs). Without these guards, callers
+    # crash with KeyError on theme_name / theme_phase access.
+    if (theme_aggregates is not None
+            and not theme_aggregates.empty
+            and "theme_name" in theme_aggregates.columns
+            and "theme_phase" in theme_aggregates.columns):
         phase_map = dict(zip(
             theme_aggregates["theme_name"].astype(str),
             theme_aggregates["theme_phase"].astype(str)
@@ -290,6 +318,35 @@ def attach_per_ticker_theme_features(
         out["theme_phase_primary"] = out["theme_primary"].map(phase_map).fillna("unknown")
     else:
         out["theme_phase_primary"] = "unknown"
+        phase_map = {}
+
+    # Numeric multipliers — for ML consumption (Phase 14, 2026-04-25).
+    # Maps each phase label to a continuous multiplier so ML/sleeve composite can
+    # ingest as a feature. theme_phase_multiplier_primary is from primary theme;
+    # _max takes max across all themes a ticker is in (ticker may be in multiple).
+    out["theme_phase_multiplier_primary"] = out["theme_phase_primary"].map(
+        THEME_PHASE_MULTIPLIER
+    ).fillna(THEME_PHASE_MULTIPLIER["unknown"])
+
+    if theme_aggregates is not None and not theme_aggregates.empty:
+        # Build per-theme multiplier
+        mult_map = {
+            n: THEME_PHASE_MULTIPLIER.get(p, THEME_PHASE_MULTIPLIER["unknown"])
+            for n, p in phase_map.items()
+        }
+        # Per-ticker max multiplier across memberships
+        def _max_mult(memberships_str: str) -> float:
+            if not memberships_str:
+                return THEME_PHASE_MULTIPLIER["unknown"]
+            mults = [
+                mult_map.get(m, THEME_PHASE_MULTIPLIER["unknown"])
+                for m in memberships_str.split(",")
+                if m
+            ]
+            return max(mults) if mults else THEME_PHASE_MULTIPLIER["unknown"]
+        out["theme_phase_multiplier_max"] = out["theme_memberships"].map(_max_mult)
+    else:
+        out["theme_phase_multiplier_max"] = THEME_PHASE_MULTIPLIER["unknown"]
 
     # Leadership rank within primary theme by mom_6m
     if "mom_6m" in out.columns:

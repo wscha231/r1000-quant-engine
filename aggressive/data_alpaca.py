@@ -38,6 +38,12 @@ def _cache_path(ticker: str, days: int) -> Path:
     return cache_dir / f"{ticker.upper()}_{days}d.parquet"
 
 
+# Module-level "warned once" flags to suppress per-ticker spam when alpaca-py
+# is missing or credentials are unset. Without these, fetching N tickers in a
+# loop prints the same FAIL message N times.
+_ONCE_FLAGS: dict[str, bool] = {}
+
+
 def _cache_is_fresh(path: Path) -> bool:
     if not path.exists():
         return False
@@ -69,13 +75,17 @@ def fetch_daily_bars(
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
     except ImportError:
-        print("FAIL: alpaca-py not installed. Run: py -3 -m pip install alpaca-py")
+        if not _ONCE_FLAGS.get("import"):
+            print("FAIL: alpaca-py not installed. Run: py -3 -m pip install alpaca-py")
+            _ONCE_FLAGS["import"] = True
         return pd.DataFrame()
 
     try:
         key, secret = get_alpaca_credentials()
     except RuntimeError as exc:
-        print(f"FAIL: {exc}")
+        if not _ONCE_FLAGS.get("creds"):
+            print(f"FAIL: {exc}")
+            _ONCE_FLAGS["creds"] = True
         return pd.DataFrame()
 
     client = StockHistoricalDataClient(key, secret)

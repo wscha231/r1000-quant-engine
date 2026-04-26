@@ -19,10 +19,10 @@ Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과
 - `PROPOSAL_growth_regime_offense_defense.md` — Phase 4 참고용 아키텍처 문서
 
 ## Current Engine Version
-- `ENGINE_REUSE_VERSION = "2026-04-17-phase8b-long-lookback-momentum"` (line 50)
+- `ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"` (in `r1000_config.py`)
 - `ENGINE_COMMIT_SHA` (module-level, resolved at import from `git rev-parse --short HEAD`, printed in run banner per commit `afaa768`)
 - Cache invalidation: 버전 문자열이 바뀌면 `cache_*`/`feature_store` 아티팩트가 자동 재생성됨.
-- **Phase 9 C1+C2 are post-feature-store changes** — no version bump needed, `QUICK_RESCORE_ONLY=True` works. Phase 9 C3 (if shipped) will bump version to `"2026-04-17-phase9c3-turnaround-flags"` and require one FULL rebuild.
+- **Phase 14 (2026-04-25) wired validated Aggressive scanner alpha into 정석 ML cfg.features** — 6 columns added: rs_acceleration_score (T4 +10%), h1_oversold_value_score (Opus H1 +8.67%), h6_dynamic_leader_score (Opus H6 +7.38%), stage2_overext_penalty (T1 -2.5% protection), theme_phase_multiplier_{primary,max} (themes.yaml phase classifier). DEFAULT_FEATURES count: 232 → 238. **One FULL rebuild required** — see `PHASE14_VERDICT_PROCEDURE.md` for trigger + verdict procedure.
 
 ## Environments
 - **Local**: `C:\Users\Andrew Cha\Documents\codex`
@@ -176,6 +176,14 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Sleeve counts: core 8 / future 5 / early 4 (defensive_drawdown_control 60/25/15)
 - Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%
 - Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
+
+## 🚧 Phase 14 hybrid alpha + r1000+adr universe — VERDICT PENDING (2026-04-26)
+- Code shipped (`5a41219` Phase 14 + `d62fbb6` ADR + Phase 1-6 follow-ups) but **FULL rebuild not yet run** → CURRENT_BASELINE not yet rotated.
+- New cfg.features (6): rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
+- New universe option: `r1000+adr` (1008 R1000 + 26 ADRs incl. ASML, TSM, BABA, NVO).
+- 8 GitHub Actions workflows operational (daily_review / unified_monthly / theme_discovery / finnhub_weekly / paper_executor_dryrun / layer4_monthly_swap / monthly_ic_monitor / full_rebuild_manual).
+- **Next step**: trigger `full_rebuild_manual.yml` with `universe_mode=r1000+adr` (and `r1000` baseline control), then `py -3 tools/compare_adr_backtest.py` for SHIP/PARTIAL/REGRESS verdict. Detailed procedure in `PHASE14_VERDICT_PROCEDURE.md`.
+- Pre-flight verified: smoke 56/56, audit 238 features 0 leakage, PIT-safe, NaN-robust, call order verified.
 
 ## 🎯 Concentrated Champion — CAGR 30%+ goal achieved
 - **N=5 / monthly rebalance / score_power weighting → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**

@@ -16,7 +16,7 @@ themes:
   # ============== AI / Semi ==============
   ai_compute:
     description: "AI training/inference compute (GPU + server + rack-level)"
-    tickers: [NVDA, AMD, AVGO, SMCI, DELL, HPE, VRT, ANET]
+    tickers: [NVDA, AMD, AVGO, SMCI, DELL, HPE, VRT, ANET, TSM]
 
   optical_communications:
     description: "Fiber optics / optical transceivers for data center interconnect"
@@ -25,6 +25,7 @@ themes:
   semi_memory:
     description: "Memory + storage semi (DRAM/NAND/HDD)"
     tickers: [MU, WDC, STX]
+    # Add SKHY here when SK Hynix ADR lists Oct 2026 (see adr_universe.yaml watchlist)
 
   networking_infra:
     description: "Network infra + switches (legacy stack)"
@@ -32,7 +33,7 @@ themes:
 
   ai_software:
     description: "AI-native or AI-heavy software platforms"
-    tickers: [MSFT, GOOGL, GOOG, META, PLTR, CRM, NOW, ADBE, DUOL, SNOW, DDOG]
+    tickers: [MSFT, GOOGL, GOOG, META, PLTR, CRM, NOW, ADBE, DUOL, SNOW, DDOG, SAP, BIDU]
 
   consumer_tech_mega:
     description: "Consumer hardware/services mega-caps"
@@ -44,7 +45,7 @@ themes:
 
   pharma_large_cap:
     description: "Large-cap pharma (non GLP-1)"
-    tickers: [JNJ, PFE, MRK, ABBV, BMY, LLY, NVO]
+    tickers: [JNJ, PFE, MRK, ABBV, BMY, LLY, NVO, AZN, GSK, NVS]
 
   travel_booking:
     description: "Online travel + booking"
@@ -52,7 +53,7 @@ themes:
 
   semi_analog:
     description: "Analog + industrial semi (non-AI focused)"
-    tickers: [ADI, MCHP, TXN, ON, SWKS, QRVO]
+    tickers: [ADI, MCHP, TXN, "ON", SWKS, QRVO, STM, NXPI]
 
   electrical_components:
     description: "Electrical connectors + components (AI/industrial bridge)"
@@ -64,11 +65,28 @@ themes:
 
   semi_equipment:
     description: "Wafer fab equipment + photonics"
-    tickers: [LRCX, AMAT, KLAC, TER, ACLS, ENTG, MKSI, UCTT]
+    tickers: [LRCX, AMAT, KLAC, TER, ACLS, ENTG, MKSI, UCTT, ASML, ASMI]
 
   semi_design_memory:
     description: "Fabless design + memory"
-    tickers: [NVDA, AMD, AVGO, MRVL, QCOM, MU, WDC, MPWR, MCHP, ON]
+    tickers: [NVDA, AMD, AVGO, MRVL, QCOM, MU, WDC, MPWR, MCHP, "ON", TSM, UMC]
+    # Add SKHY here when SK Hynix ADR lists Oct 2026 (see adr_universe.yaml watchlist)
+
+  china_tech_adr:
+    description: "China tech ADRs (US-listed). PBOC/regulation risk distinct from US macro — backtest IC may differ."
+    tickers: [BABA, PDD, JD, BIDU, NTES]
+
+  intl_pharma_adr:
+    description: "International pharma ADRs (added 2026-04-25). Complement to pharma_large_cap."
+    tickers: [NVO, AZN, GSK, NVS]
+
+  intl_energy_materials:
+    description: "Non-US energy + materials ADRs"
+    tickers: [SHEL, BP, TTE, BHP, RIO]
+
+  intl_industrial_consumer:
+    description: "Non-US industrial / consumer ADRs"
+    tickers: [TM, SONY, HMC, UL, DEO, HSBC]
 
   cloud_hyperscale:
     description: "Cloud infrastructure giants"

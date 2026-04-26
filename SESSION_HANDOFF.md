@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-22 evening (overnight full QUICK in flight)
+# Session Handoff — 2026-04-26 (Phase 14 ready, FULL rebuild verdict pending)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,57 @@
 
 ---
 
-## 🟢 LATEST STATE (2026-04-22 evening) — 9-cell grid done, baseline regression to investigate
+## 🟢 LATEST STATE (2026-04-26) — Phase 14 hybrid alpha + ADR universe code-ready, FULL rebuild verdict pending
+
+**Current HEAD = `2d1f329`** on `claude/analyze-updated-code-OfEbu` branch.
+
+### What just shipped (code only, FULL rebuild not yet run)
+
+**Phase 14 hybrid alpha (`5a41219`)** — wired validated Aggressive scanner alpha into 정석 ML cfg.features:
+- `rs_acceleration_score` (T4 +10% alpha)
+- `h1_oversold_value_score` (Opus H1 +8.67% alpha 12m, n=1149, p<0.0001)
+- `h6_dynamic_leader_score` (Opus H6 +7.38% alpha 12m, n=704, p<0.0001)
+- `stage2_overext_penalty` (T1 -2.5% protection)
+- `theme_phase_multiplier_{primary,max}` (themes.yaml early/maturing/peaking/ending/dead)
+- `ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"` (DEFAULT_FEATURES 232→238)
+
+**ADR universe (`d62fbb6`)** — 26 top-mcap ADRs (TSM, ASML, BABA, NVO, ...) + 3 watchlist (SK Hynix Oct 2026, Samsung Pink-OTC, Reliance India). Universe modes `r1000`, `r1000+adr`, `adr`. Safety: ADRs flagged `skip:true` (TCEHY OTC) excluded.
+
+**8 GitHub Actions workflows operational** (~1120min/month < 2000 free):
+- `daily_review.yml` Mon-Fri 23:00 KST (R1000 scanner top 25)
+- `paper_executor_dryrun.yml` Mon-Fri 23:30 + Sat 15:00 KST (regime + advisor + Telegram)
+- `unified_monthly.yml` 1·15일 23:30 KST (scored_unified.csv)
+- `theme_discovery.yml` Sun 22:00 KST (Phase 18A)
+- `finnhub_weekly.yml` Mon 22:30 KST
+- `layer4_monthly_swap.yml` 5일 23:00 KST (Layer 4 swap, dry-run by default)
+- `monthly_ic_monitor.yml` 1일 11:00 KST (ADR macro IC, Telegram alert if China-IC > US-IC + 0.05)
+- `full_rebuild_manual.yml` MANUAL ONLY (3-5h, universe_mode r1000 / r1000+adr / r1000+adr_phase14_off)
+
+**Pre-flight verified (Phase A-F system audit, 2026-04-26)**:
+- ✅ smoke 56/56 PASS
+- ✅ audit_features 3/3 PASS, 238 features, 0 forward-return
+- ✅ Phase 14 PIT-safe (no r_*m / bench_r_*m / earn_post_ / future_* refs)
+- ✅ NaN robustness verified (all-NaN/sparse → neutral 1.0 multipliers)
+- ✅ Call order: merge_benchmark_relative_features (line 6442) → Phase 14 (7043+)
+- ✅ All 8 workflows YAML valid, secret refs correct
+
+### 🚧 Next-agent priority (in order)
+
+1. **Trigger `full_rebuild_manual.yml`** with `universe_mode=r1000+adr` (variant). 3-5h GHA runtime, Telegram alert at completion.
+2. **Trigger again with `universe_mode=r1000`** (control, R1000-only baseline).
+3. **Run verdict tool**: `py -3 tools/compare_adr_backtest.py --baseline <r1000_metrics> --variant <r1000+adr_metrics>`. Output: SHIP / PARTIAL / REGRESS.
+4. **If SHIP**: rotate `CURRENT_BASELINE` in `run_local.py` + update CLAUDE.md "Current Production Baseline" + add CHANGELOG entry.
+5. **If REGRESS**: optionally run 3rd workflow `r1000+adr_phase14_off` to isolate (ADR fault vs Phase 14 fault).
+
+Detailed step-by-step in `PHASE14_VERDICT_PROCEDURE.md` (164 lines).
+
+---
+
+## 🗂️ ARCHIVED (pre-2026-04-26)
+
+(Original handoff content from 2026-04-22 below — kept for historical reference. Issues mooted by Phase 14 + ADR work shipping. Do not act on these unless Phase 14 verdict triggers re-investigation.)
+
+## 🟢 ARCHIVED STATE (2026-04-22 evening) — 9-cell grid done, baseline regression to investigate
 
 **Current HEAD = `b4e3bab`** on `master`. 41 commits today.
 

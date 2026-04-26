@@ -51,6 +51,149 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-26
+
+### 00:30 KST - phase14-hybrid-alpha-and-system-audit
+
+- scope:
+  - Phase 14 hybrid alpha — wire validated Aggressive scanner signals (Opus
+    H1/H6, T1 Stage 2 penalty, T4 RS Acceleration, themes.yaml phase
+    multipliers) into 정석 ML cfg.features. Added 7 GitHub Actions
+    workflows for full operational automation. Pre-flight bug fixes for
+    theme_aggregates NaN robustness. End-to-end system audit (Phase A-F)
+    verified all 8 workflows, 56/56 smoke tests, 0 leakage.
+- files:
+  - `r1000_features.py` -> 5 new functions (compute_rs_acceleration_score,
+     compute_h1_oversold_value_score, compute_h6_dynamic_leader_score,
+     compute_stage2_overext_penalty, compute_theme_phase_features) +
+     PHASE14_HYBRID_ALPHA_COLUMNS constant
+  - `r1000_themes.py` -> THEME_PHASE_MULTIPLIER constant + numeric
+     theme_phase_multiplier_{primary,max} columns + defensive guards on
+     compute_theme_aggregates / attach_per_ticker_theme_features
+  - `r1000_config.py` -> PHASE14_HYBRID_ALPHA_COLUMNS list + DEFAULT_FEATURES
+     extension + ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"
+  - `r1000_pipeline.py` -> import + call 5 Phase 14 functions in
+     build_universe_monthly + add to keep_cols + hard_sanitize whitelists
+  - `r1000_layer4_swap.py` -> --execute path + 30d throttle +
+     execute_swaps() + Telegram pre/post alerts
+  - `r1000_rebalance_advisor_v3.py` -> cloud_results/scanner fallback +
+     Layer 4 swap suggestions in output (informational)
+  - `tools/compare_adr_backtest.py` -> SHIP/PARTIAL/REGRESS verdict tool
+  - `tools/monthly_ic_monitor.py` -> ADR macro decorrelation IC tracker
+  - `.github/workflows/full_rebuild_manual.yml` -> manual trigger only,
+     universe_mode r1000 / r1000+adr / r1000+adr_phase14_off
+  - `.github/workflows/layer4_monthly_swap.yml` -> 5th of month auto
+  - `.github/workflows/monthly_ic_monitor.yml` -> 1st of month auto
+  - `.github/workflows/paper_executor_dryrun.yml` -> Mon-Fri + Sat schedule
+  - `tests/audit_features.py` -> runtime-import 2-pass leakage check
+     (catches "+ PHASE_X_COLUMNS" extensions regex misses)
+  - `tests/smoke_test.py` -> +9 regression guards (Phase 14, Layer 4
+     auto-apply, full_rebuild workflow, IC monitor, theme_aggregates
+     robustness, paper_executor weekday schedule, advisor v3 cloud
+     scanner fallback, advisor v3 Layer 4 surface, ADR_PLAYBOOK)
+  - `CLAUDE.md` -> Current Engine Version + Phase 14 pending baseline section
+  - `PHASE14_VERDICT_PROCEDURE.md` -> step-by-step FULL rebuild + verdict guide
+- symbols_added:
+  - `compute_rs_acceleration_score(df)` -> T4 acceleration score
+  - `compute_h1_oversold_value_score(df)` -> Opus H1 fire score
+  - `compute_h6_dynamic_leader_score(df)` -> Opus H6 fire score
+  - `compute_stage2_overext_penalty(df)` -> T1 chase-the-top penalty
+  - `compute_theme_phase_features(df)` -> theme_phase_multiplier wire
+  - `THEME_PHASE_MULTIPLIER` (dict constant in r1000_themes)
+  - `execute_swaps(swaps, portfolio_csv, paper, confirm)` -> Layer 4 executor
+  - `_filter_throttled(swaps)` -> 30d swap throttle
+  - `tools/compare_adr_backtest.py:verdict()` -> SHIP/PARTIAL/REGRESS logic
+  - `tools/monthly_ic_monitor.py:compute_rank_ic()` -> Spearman IC
+- symbols_changed:
+  - `attach_per_ticker_theme_features` -> add theme_phase_multiplier_{primary,max}
+     columns + defensive col existence guards
+  - `compute_theme_aggregates` -> defensive sort guard for empty/all-NaN
+  - `r1000_paper_executor.main` -> Layer 3 regime pre-flight (current_regime)
+- config_fields_added:
+  - `PHASE14_HYBRID_ALPHA_COLUMNS: list[str] = [6 cols]` -> Phase 14 wire constant
+  - `STAGE2_OVEREXTENSION_PENALTY: float = 0.85` -> aggressive/scanner.py
+  - `THROTTLE_DAYS: int = 30` -> r1000_layer4_swap.py throttle window
+- breaking_changes:
+  - ENGINE_REUSE_VERSION bump = "2026-04-25-phase14-hybrid-alpha".
+    All cached feature_store_*.parquet artifacts will be regenerated on
+    next FULL rebuild. CURRENT_BASELINE not yet rotated; verdict pending.
+- outputs:
+  - `cloud_results/full_rebuild/<date>_<mode>/` -> after FULL rebuild trigger
+  - `cloud_results/layer4_swap/swap_history.json` -> 30d throttle state
+  - `cloud_results/ic_monitor/YYYY-MM.json` -> monthly IC snapshot
+  - `outputs/regime_snapshot_cache.json` -> Layer 3 1h cache
+- validation:
+  - py -3 tests/smoke_test.py -> 56/56 PASS
+  - py -3 tests/audit_features.py --no-runtime -> 3/3 PASS, 238 features 0 leakage
+  - py -3 tests/check_adr_data.py --quick -> 26 ADRs all whitelist fields present
+  - System audit Phase A-F: imports OK, 8 workflows OK (1 false positive in
+     audit script regex resolved), schema/version consistent, E2E pipeline
+     simulation correct semantics, docs aligned
+- risks_or_notes:
+  - FULL rebuild required before CURRENT_BASELINE can rotate. Trigger via
+    .github/workflows/full_rebuild_manual.yml (3-5h GHA runtime).
+  - China ADR macro decorrelation pending verification by monthly_ic_monitor
+    (first snapshot due 2026-05-01); may need cpi_china/usdcny features
+    added to MACRO_REGIME_COLUMNS after 2-3 months of data.
+  - Layer 4 swap default is DRY-RUN; manual workflow_dispatch with
+    execute=true required for live paper swaps.
+
+## 2026-04-25
+
+### 23:50 KST - adr-universe-and-stage2-overext-guard
+
+- scope:
+  - Add ADR support so foreign blue-chips compete fairly with R1000.
+    Wire Stage 2 breakout overextension penalty (Option D) closing the
+    "T1 -2.5% alpha" gap from leakage-fix audit (commit 1d04f78).
+    Prepare watchlist + playbook for SK Hynix Oct 2026 expected listing.
+- files:
+  - `adr_universe.yaml` -> new curated whitelist (26 ADRs >=$30B + 3 watchlist)
+  - `themes.yaml` -> add ASML/TSM/ASMI/STM/NXPI/UMC/AZN/GSK/NVS/SAP/BIDU to existing
+     themes; new themes china_tech_adr, intl_pharma_adr, intl_energy_materials,
+     intl_industrial_consumer; fix YAML 1.1 boolean trap (ON ticker)
+  - `aggressive/universe.py` -> add load_adr_universe() + sources r1000+adr / adr
+  - `tests/check_adr_data.py` -> source + runtime ADR data availability checker
+  - `tests/smoke_test.py` -> 4 new regression guards (44 total tests)
+  - `aggressive/scanner.py` -> Stage 2 overextension penalty in
+     compute_opus_h1_h6_multiplier (4-condition compound check, 0.85 mult)
+  - `ADR_PLAYBOOK.md` -> ADR addition + watchlist monitoring playbook
+- symbols_added:
+  - `aggressive.universe.load_adr_universe(min_mcap_usd_b, include_skip)` -> reads
+     adr_universe.yaml, returns (tickers, metadata_list)
+  - `tests/check_adr_data.py:check_alpaca_bars(ticker, min_years)` -> verify >=N years
+  - `tests/check_adr_data.py:check_finnhub(ticker)` -> verify Finnhub fundamentals coverage
+- symbols_changed:
+  - `aggressive.universe.load_universe(source, ...)` -> add r1000+adr and adr modes
+     with adr_min_mcap_usd_b parameter
+  - `aggressive.scanner.compute_opus_h1_h6_multiplier(bars, fh)` -> add Stage 2
+     overextension penalty branch (after H1/H6, before return)
+- config_fields_added:
+  - `STAGE2_OVEREXTENSION_PENALTY: float = 0.85` -> aggressive/scanner.py module-level
+     multiplicative penalty when Stage 2 conditions all hold
+- breaking_changes:
+  - none. New universe sources (r1000+adr, adr) are additive; default r1000 mode
+    unchanged. ON ticker YAML bug was silently broken before this commit
+    (semi_analog and semi_design_memory dropped ON Semiconductor); now fixed.
+- outputs:
+  - `adr_universe.yaml` -> 26 core ADRs across 10 countries + 3 watchlist
+  - `ADR_PLAYBOOK.md` -> step-by-step addition + monitoring guide
+- validation:
+  - py -3 tests/smoke_test.py -> 44/44 PASS
+  - py -3 tests/check_adr_data.py --quick -> all 26 ADRs listed with country/mcap
+  - py -3 -c "from aggressive.universe import load_adr_universe; ..." -> 26 tickers
+  - Stage 2 unit test: 3 scenarios (overext fire / strong fund protect /
+     catalyst protect) all behave as expected
+- risks_or_notes:
+  - SEC EDGAR companyfacts may not parse 20-F filings for ADRs cleanly;
+    affected ADRs auto-fall into r1000_unified_universe.py finnhub_synthetic
+    path (no new code required, same path used for 402 R1000 names already)
+  - China ADR (BABA, PDD, JD, BIDU, NTES) macro features may decorrelate from
+    US CPI/VIX. Monitor IC after 6 months of inclusion before rebalancing
+    weights or adding country-specific features.
+  - SK Hynix Oct 2026 is expected per 2026-04 reporting but symbol not yet
+    confirmed. ADR_PLAYBOOK.md has the listing-day checklist.
+
 ## 2026-04-24
 
 ### 23:30 KST - phase-v-f-and-hybrid-advisors
