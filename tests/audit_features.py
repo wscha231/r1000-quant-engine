@@ -46,20 +46,50 @@ def audit_default_features() -> tuple[list[str], int]:
     """Static audit of DEFAULT_FEATURES in r1000_config.py.
 
     Returns (leakage_columns, total_features).
+
+    Two-pass approach (added 2026-04-26):
+      1. regex over the literal list body (catches direct "<col>" entries)
+      2. runtime import of DEFAULT_FEATURES (catches "+ PHASE_X_COLUMNS"
+         constant extensions that the regex misses — Phase 14 added 6 cols
+         via "+ PHASE14_HYBRID_ALPHA_COLUMNS" which the regex couldn't see).
+    Both passes flag forward-return columns; the union of detected leakage
+    is returned.
     """
+    leak: list[str] = []
+    total = 0
+
+    # Pass 1: regex over literal list body
     src = (ROOT / "r1000_config.py").read_text(encoding="utf-8")
     m = re.search(r"^DEFAULT_FEATURES\s*=\s*\[(.*?)^\]", src, re.MULTILINE | re.DOTALL)
-    if not m:
+    if m is None:
         raise RuntimeError("DEFAULT_FEATURES list not found in r1000_config.py")
     body = m.group(1)
-    cols = re.findall(r'"([^"]+)"', body)
-    leak = []
-    for c in cols:
+    literal_cols = re.findall(r'"([^"]+)"', body)
+    for c in literal_cols:
         if c in ALLOWED_FORWARD_NAMED:
             continue
         if FORWARD_REGEX.match(c) or c.startswith(FORWARD_PREFIXES):
             leak.append(c)
-    return leak, len(cols)
+
+    # Pass 2: runtime import (catches constant extensions)
+    runtime_extra: list[str] = []
+    try:
+        from r1000_config import DEFAULT_FEATURES as _RT_FEATURES
+        for c in _RT_FEATURES:
+            if c in literal_cols:
+                continue  # already counted
+            runtime_extra.append(c)
+            if c in ALLOWED_FORWARD_NAMED:
+                continue
+            if FORWARD_REGEX.match(c) or c.startswith(FORWARD_PREFIXES):
+                if c not in leak:
+                    leak.append(c)
+        total = len(_RT_FEATURES)
+    except Exception as e:
+        # Runtime import unavailable (e.g., numpy missing) — fall back to literal count
+        print(f"  [warn] runtime import skipped: {type(e).__name__}: {e}")
+        total = len(literal_cols)
+    return leak, total
 
 
 def audit_pattern_miner_excludes() -> list[str]:

@@ -1295,6 +1295,33 @@ def test_phase14_in_pipeline() -> None:
     )
 
 
+@_test("regression.theme_aggregates_robust_to_empty_data")
+def test_theme_aggregates_empty_robust() -> None:
+    """compute_theme_aggregates + attach_per_ticker_theme_features must
+    survive all-NaN / sparse / theme-less universe slices without KeyError.
+
+    History (2026-04-26): pre-flight test of Phase 14 surfaced KeyError
+    'theme_rs_benchmark_12m_mean' on all-NaN slices, AND KeyError 'theme_phase'
+    on sparse universe. Both fixed in r1000_themes.py with column-existence
+    guards before sort + map.
+
+    Without these, FULL rebuild's early historical rebalance dates (where
+    Finnhub fundamental coverage is sparse) would crash compute_theme_phase_features.
+    """
+    src = (ROOT / "r1000_themes.py").read_text(encoding="utf-8")
+    # Defensive sort guard
+    assert "if sort_col in out.columns" in src, (
+        "compute_theme_aggregates missing column-existence guard before sort_values"
+    )
+    # Defensive map guard
+    assert '"theme_name" in theme_aggregates.columns' in src, (
+        "attach_per_ticker_theme_features missing theme_name column-existence guard"
+    )
+    assert '"theme_phase" in theme_aggregates.columns' in src, (
+        "attach_per_ticker_theme_features missing theme_phase column-existence guard"
+    )
+
+
 @_test("regression.theme_phase_multiplier_constant_present")
 def test_theme_phase_multiplier_constant() -> None:
     """r1000_themes.THEME_PHASE_MULTIPLIER must define the 5+1 phase mapping
