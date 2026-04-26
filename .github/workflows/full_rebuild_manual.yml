@@ -142,12 +142,12 @@ jobs:
           echo "=========================================="
 
           # Use --base-dir to override Drive path with repo-local outputs/
-          python run_local.py --full $SKIP_COLLECTOR --base-dir "$(pwd)/outputs" 2>&1 | tee "$LOG"
+          python run_local.py --full $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
       - name: Verdict (Cell E equivalent)
         if: always()
         run: |
-          python run_local.py --verdict-only --base-dir "$(pwd)/outputs" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
+          python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
