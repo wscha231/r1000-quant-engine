@@ -164,40 +164,65 @@ jobs:
             outputs/concentrated_portfolio_latest.csv
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
-      - name: Sync outputs to user's Google Drive (rclone)
+      - name: Sync outputs to user's Google Drive (Service Account preferred, OAuth fallback)
         if: always()
         env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
         run: |
-          if [ -z "$RCLONE_CONFIG_GDRIVE" ]; then
-            echo "[gdrive-sync] RCLONE_CONFIG_GDRIVE secret not set, skipping"
-            echo "[gdrive-sync] To enable: see PHASE14_VERDICT_PROCEDURE.md or tools/auto_sync_to_drive.bat"
+          # Auth method selection
+          AUTH=""
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            AUTH="service_account"
+          elif [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            AUTH="oauth"
+          else
+            echo "[gdrive-sync] No auth secret set (need GOOGLE_SERVICE_ACCOUNT_KEY or RCLONE_CONFIG_GDRIVE)"
+            echo "[gdrive-sync] Mobile-only setup: see GDRIVE_MOBILE_SETUP.md"
             exit 0
           fi
-          # Install rclone
-          curl -sLo rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q rclone.zip
-          mv rclone-*/rclone /usr/local/bin/rclone
+          echo "[gdrive-sync] auth=$AUTH"
+
+          # Install rclone (~5MB, ~3s)
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
 
-          # Write config from secret
           mkdir -p ~/.config/rclone
-          echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+
+          if [ "$AUTH" = "service_account" ]; then
+            # Mobile-friendly path: service account JSON in secret
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            cat > ~/.config/rclone/rclone.conf << 'EOF_CONF'
+[gdrive]
+type = drive
+scope = drive
+service_account_file = /tmp/sa.json
+EOF_CONF
+          else
+            # OAuth fallback (legacy, PC-required setup)
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          fi
 
           # Sync FULL rebuild outputs to gdrive r1000_top30_institutional/outputs/
-          DEST="gdrive:r1000_top30_institutional/outputs"
+          DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
           echo "[gdrive-sync] copying outputs/ to $DEST/"
-          rclone copy outputs/scored_latest.csv "$DEST/" --quiet 2>/dev/null || true
-          rclone copy outputs/scored_unified.csv "$DEST/" --quiet 2>/dev/null || true
-          rclone copy outputs/portfolio_latest.csv "$DEST/" --quiet 2>/dev/null || true
-          rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" --quiet 2>/dev/null || true
-          rclone copy outputs/backtest_metrics.json "$DEST/" --quiet 2>/dev/null || true
-          rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" --quiet 2>/dev/null || true
+          rclone copy outputs/scored_latest.csv "$DEST/" 2>&1 || true
+          rclone copy outputs/scored_unified.csv "$DEST/" 2>&1 || true
+          rclone copy outputs/portfolio_latest.csv "$DEST/" 2>&1 || true
+          rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" 2>&1 || true
+          rclone copy outputs/backtest_metrics.json "$DEST/" 2>&1 || true
+          rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" 2>&1 || true
 
           # Also sync log + verdict for diagnostic visibility
-          rclone copy outputs/full_rebuild_logs/ "gdrive:r1000_top30_institutional/full_rebuild_logs/" --quiet 2>/dev/null || true
+          rclone copy outputs/full_rebuild_logs/ "gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs/" 2>&1 || true
 
-          echo "[gdrive-sync] done — check G:/내 드라이브/r1000_top30_institutional/outputs/ on your PC"
+          # Cleanup secret file
+          rm -f /tmp/sa.json
+
+          echo "[gdrive-sync] done — check Google Drive r1000_top30_institutional/outputs/"
 
       - name: Telegram alert + zip results (mobile-friendly)
         if: always()
