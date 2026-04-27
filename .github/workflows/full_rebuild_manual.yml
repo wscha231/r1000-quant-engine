@@ -77,6 +77,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            cache_prices
+            cache_fsds
+            cache_macro
+            cache_sec_actual
+            cache_misc
+            cache_live_fund
             aggressive/cache/bars
             aggressive/cache/finnhub
             outputs/sec_companyfacts
@@ -127,6 +133,21 @@ jobs:
           # reuse_existing_artifacts=True hitting empty parquet/csv paths.
           SKIP_COLLECTOR=""
           CACHE_PRESENT="no"
+          has_cache_files() {
+            [ -d "$1" ] && [ -n "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+          }
+          if has_cache_files cache_prices; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_sec_actual; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_fsds; then
+            CACHE_PRESENT="yes"
+          fi
+          if has_cache_files cache_macro; then
+            CACHE_PRESENT="yes"
+          fi
           if [ -d aggressive/cache/finnhub ] && [ -n "$(ls -A aggressive/cache/finnhub 2>/dev/null)" ]; then
             CACHE_PRESENT="yes"
           fi
