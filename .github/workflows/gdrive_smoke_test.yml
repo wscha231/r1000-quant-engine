@@ -2,11 +2,6 @@ name: Google Drive Sync Smoke Test
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - ".github/workflows/gdrive_smoke_test.yml"
 
 permissions:
   contents: read
@@ -27,10 +22,10 @@ jobs:
           set -euo pipefail
 
           AUTH=""
-          if [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
-            AUTH="service_account"
-          elif [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
             AUTH="oauth"
+          elif [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            AUTH="service_account"
           else
             echo "::error::No Google Drive auth secret set. Add GOOGLE_SERVICE_ACCOUNT_KEY or RCLONE_CONFIG_GDRIVE."
             exit 1

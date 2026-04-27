@@ -209,7 +209,7 @@ jobs:
             outputs/reports/global_alpha_sleeve_audit_*.csv
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
-      - name: Sync outputs to user's Google Drive (Service Account preferred, OAuth fallback)
+      - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
         if: always()
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
@@ -219,10 +219,10 @@ jobs:
         run: |
           # Auth method selection
           AUTH=""
-          if [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
-            AUTH="service_account"
-          elif [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
             AUTH="oauth"
+          elif [ -n "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            AUTH="service_account"
           else
             echo "[gdrive-sync] No auth secret set (need GOOGLE_SERVICE_ACCOUNT_KEY or RCLONE_CONFIG_GDRIVE)"
             echo "[gdrive-sync] Mobile-only setup: see GDRIVE_MOBILE_SETUP.md"

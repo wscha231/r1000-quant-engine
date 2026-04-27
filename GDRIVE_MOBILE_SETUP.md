@@ -7,7 +7,11 @@ mobile/PC/web instantly.
 **Setup time**: 10-15 minutes, **once**. After this, every workflow
 run pushes results to Drive automatically.
 
-**No PC required.** All steps are doable on mobile browser + Drive app.
+**Recommended for personal Google Drive**: use `RCLONE_CONFIG_GDRIVE`
+OAuth. Service-account JSON can authenticate, but Google service accounts do
+not have personal Drive storage quota, so writes to normal "My Drive" folders
+can fail with `storageQuotaExceeded`. Service accounts are best for Shared
+Drives or Google Workspace/domain-delegated setups.
 
 ---
 
@@ -69,6 +73,16 @@ Open: https://github.com/wscha231/r1000-quant-engine/settings/secrets/actions
   - On iOS: Files app → JSON → text editor → select all → copy → paste
   - The pasted content should start with `{` and end with `}`
 - **Add secret**
+
+For normal personal Drive, prefer OAuth instead:
+- Create an rclone Google Drive remote named `gdrive` on a PC.
+- Copy the generated rclone config block.
+- Add it as GitHub Actions secret:
+  - Name: `RCLONE_CONFIG_GDRIVE`
+  - Value: the full rclone config text containing `[gdrive]`
+
+If both `RCLONE_CONFIG_GDRIVE` and `GOOGLE_SERVICE_ACCOUNT_KEY` are present,
+the workflows use OAuth first.
 
 Optional but recommended for service accounts:
 - Open the Drive folder in a browser and copy the folder ID from the URL:
