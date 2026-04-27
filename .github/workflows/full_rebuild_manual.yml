@@ -318,6 +318,10 @@ jobs:
           cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
+          mkdir -p /tmp/bundle/reports
+          cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
@@ -364,6 +368,11 @@ jobs:
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          # Diagnostic reports for post-run analysis
+          mkdir -p "$DEST/reports"
+          cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience
