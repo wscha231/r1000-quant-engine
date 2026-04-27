@@ -21,6 +21,7 @@ alpaca-py>=0.21.0
 
 # yfinance for VIX fetch in r1000_regime_data.py (Layer 3 regime defense)
 yfinance>=0.2.40
+pandas_market_calendars>=4.4.0  # exact NYSE holidays for after-close tactical review
 
 # For SEC/IWB HTTP fetches (universe loader)
 beautifulsoup4>=4.12.0

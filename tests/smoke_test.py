@@ -55,6 +55,7 @@ FEATURES_PATH = ROOT / "r1000_features.py"  # Refactor Phase A Stage 3a onwards
 SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
+TACTICAL_PATH = ROOT / "r1000_tactical_alpha.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
 # --- tiny test framework ---
@@ -110,6 +111,12 @@ def test_collector_syntax() -> None:
 @_test("syntax.run_local_py_parses")
 def test_run_local_syntax() -> None:
     src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.tactical_alpha_py_parses")
+def test_tactical_alpha_syntax() -> None:
+    src = TACTICAL_PATH.read_text(encoding="utf-8")
     ast.parse(src)
 
 
@@ -1094,6 +1101,21 @@ def test_paper_executor_weekday() -> None:
     assert "0 6 * * 6" in wf, (
         "Saturday 06:00 UTC schedule must remain"
     )
+
+
+@_test("regression.tactical_after_close_workflow")
+def test_tactical_after_close_workflow() -> None:
+    """Daily tactical alpha review must run after the US close and call the
+    separate tactical engine, not the core monthly rebuild.
+    """
+    wf_path = ROOT / ".github" / "workflows" / "tactical_after_close.yml"
+    assert wf_path.exists(), "tactical_after_close.yml workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    assert "30 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
+    assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
+    req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
+    assert "pandas_market_calendars" in req, "NYSE holiday calendar dependency missing"
 
 
 @_test("regression.advisor_v3_reads_cloud_scanner")
