@@ -26,6 +26,10 @@ on:
         description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
         type: boolean
         default: true
+      fast_mode:
+        description: 'fast_mode=True (5 backtests, 2-3h total) vs False (FULL, 5-6h, may timeout)'
+        type: boolean
+        default: true
       cache_key_suffix:
         description: 'optional cache key suffix (e.g. "phase14-baseline" to keep separate caches)'
         type: string
@@ -134,16 +138,23 @@ jobs:
             fi
           fi
 
+          # fast_mode: true = 5 backtests + 6m retrain (~2-3h total, fits in 6h GHA limit)
+          # fast_mode: false = full walk-forward (~5-6h, may TIMEOUT on first cloud run)
+          # Previous run (24950857695) was cancelled at 7h+ — fast_mode now exposed.
+          FAST_MODE_FLAG="${{ inputs.fast_mode }}"
+
           echo "=========================================="
           echo "FULL REBUILD START"
           echo "  universe_mode:    $UNIVERSE_MODE"
           echo "  skip_collector:   ${{ inputs.skip_collector }} (effective: $([ -n "$SKIP_COLLECTOR" ] && echo SKIP || echo RUN))"
           echo "  cache_present:    $CACHE_PRESENT"
+          echo "  fast_mode:        $FAST_MODE_FLAG"
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
 
           # Use --base-dir to override Drive path with repo-local outputs/
-          python run_local.py --full $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
+          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
       - name: Verdict (Cell E equivalent)
         if: always()
