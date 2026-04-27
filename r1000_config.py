@@ -1445,8 +1445,8 @@ class EngineConfig:
     future_target_blend_36m: float = 0.30
     future_target_excess_weight: float = 0.65
     train_lookback_years: int = 5
-    default_backtest_years: int = 8
-    backtest_window_comparison_years: list[int] = field(default_factory=lambda: [5, 8])
+    default_backtest_years: int = 10
+    backtest_window_comparison_years: list[int] = field(default_factory=lambda: [5, 8, 10])
     embargo_days: int = 126
     min_train_samples: int = 3000
 

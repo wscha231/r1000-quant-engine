@@ -125,6 +125,80 @@ All entries must be written in English. Entries must be predictable and machine-
   - The confirmed Phase 14 ship verdict remains R1000-only until a new
     `r1000+adr` FULL rebuild exercises this fixed path.
 
+### 12:04 KST - global-alpha-universe-10y-sleeve-audit
+
+- scope:
+  - Add a shared `global_alpha_universe` execution preset for main diversified
+    and concentrated outputs, expose a 10-year backtest path, and export a
+    sleeve audit report before changing sleeve scoring weights.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` -> default manual FULL rebuild
+     to `global_alpha_universe`, add `backtest_years`, pass
+     `BACKTEST_YEARS`/`--backtest-years`, and upload/sync sleeve-audit reports.
+  - `aggressive/universe.py` -> accept `global_alpha_universe` and aliases as
+     the same shared R1000 + curated ADR/global-alpha universe.
+  - `r1000_config.py` -> change default OOS backtest years from 8 to 10 and
+     compare 5/8/10-year windows.
+  - `r1000_data_collector.py` -> align notebook/runtime defaults with the
+     10-year default and 5/8/10 window comparison list.
+  - `r1000_pipeline.py` -> normalize `global_alpha_universe`, include ADR rows
+     for that mode, build/export global-alpha sleeve audit frames, and include
+     run universe/backtest metadata in the archive manifest.
+  - `run_local.py` -> add `--backtest-years`, read `BACKTEST_YEARS`, and pass
+     default/comparison backtest windows through runtime overrides.
+  - `tests/smoke_test.py` -> add source guards for the shared universe, 10-year
+     path, workflow input, and sleeve-audit outputs.
+  - `SESSION_HANDOFF.md` -> update active inbox with the new execution preset,
+     audit files, and next FULL rebuild instructions.
+- symbols_added:
+  - `resolve_backtest_years(raw)` -> validates CLI/env backtest-year overrides
+     before applying runtime config overrides.
+  - `build_global_alpha_sleeve_audit_frames(cfg, scored, portfolio_latest=None, concentrated_latest=None)` -> creates monthly and summary diagnostics for sleeve candidate counts, gate-pass counts, source/ADR mix, and factor averages.
+  - `tests.smoke_test.test_global_alpha_universe_10y_audit_wired()` -> guards
+     local/GitHub Actions wiring for the new preset and reports.
+- symbols_changed:
+  - `resolve_universe_mode()` -> accepts `global_alpha_universe` and common
+     global-alpha aliases.
+  - `run_local.main()` -> applies backtest-year runtime overrides to collector
+     and pipeline configs.
+  - `normalize_engine_universe_mode()` -> canonicalizes global-alpha aliases.
+  - `build_candidate_universe()` -> treats `global_alpha_universe` as an
+     ADR-augmented R1000 universe.
+  - `export_outputs()` -> writes global-alpha sleeve audit CSVs and exposes
+     them in output manifests and run summaries.
+  - `aggressive.universe.load_universe()` -> accepts `global_alpha_universe`
+     as a shared universe alias.
+  - `_apply_notebook_runtime_defaults()` -> aligns runtime defaults to 10-year
+     backtests and 5/8/10 comparisons.
+  - `tests.smoke_test.test_full_rebuild_workflow()` -> requires the
+     `backtest_years` workflow input and `BACKTEST_YEARS` env.
+  - `tests.smoke_test.test_main_engine_adr_universe_mode_wired()` -> updates
+     the expected global-alpha archive-skip log text.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/global_alpha_sleeve_audit_by_month.csv` -> monthly
+     per-sleeve candidate, gate, ADR/source, and factor diagnostics.
+  - `outputs/reports/global_alpha_sleeve_audit_summary.csv` -> latest and
+     historical averages from the monthly sleeve audit.
+  - `outputs/reports/backtest_window_comparison.csv` -> now includes a 10-year
+     requested window alongside 5 and 8 years.
+- validation:
+  - `py -3 -m py_compile run_local.py r1000_config.py r1000_data_collector.py r1000_pipeline.py aggressive\universe.py tests\smoke_test.py` -> PASS
+  - `git diff --check` -> PASS
+  - `py -3 tests\smoke_test.py` -> 63/63 PASS
+  - `py -3 tests\check_adr_data.py --quick` -> PASS, 26 ADRs audited
+  - synthetic `build_global_alpha_sleeve_audit_frames()` + universe alias check -> PASS
+- risks_or_notes:
+  - `global_alpha_universe` currently means R1000 plus the curated ADR/global
+    alpha whitelist; it is not yet a broad all-global equity universe.
+  - A requested 10-year report can still show `partial_window` when available
+    walk-forward OOS history is shorter than the requested window.
+  - Sleeve factor/gate weights were intentionally left unchanged until the new
+    audit and a FULL rebuild show which sleeve is failing the target behavior.
+
 ## 2026-04-26
 
 ### 00:30 KST - phase14-hybrid-alpha-and-system-audit

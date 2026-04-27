@@ -1322,8 +1322,10 @@ def test_full_rebuild_workflow() -> None:
     for token in (
         "workflow_dispatch",
         "universe_mode",
+        "backtest_years",
         "skip_collector",
         "UNIVERSE_MODE",
+        "BACKTEST_YEARS",
         "PHASE_PHASE14_HYBRID_ALPHA_ENABLED",
         "secrets.ALPACA_API_KEY",
         "secrets.FINNHUB_API_KEY",
@@ -1586,7 +1588,7 @@ def test_main_engine_adr_universe_mode_wired() -> None:
         "from aggressive.universe import load_adr_universe",
         "adr_whitelist",
         "include_adr =",
-        "Skipping historical membership auto-archive for ADR-augmented universe run",
+        "Skipping historical membership auto-archive for global alpha / ADR-augmented universe run",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing ADR universe wiring: {token}"
 
@@ -1608,6 +1610,49 @@ def test_main_engine_adr_universe_mode_wired() -> None:
     assert not re.search(r"^\s*PHASE14_HYBRID_ALPHA_ENABLED:", wf_src, re.MULTILINE), (
         "workflow still uses legacy Phase 14 env var name; control run will not disable Phase 14"
     )
+
+
+@_test("regression.global_alpha_universe_10y_audit_wired")
+def test_global_alpha_universe_10y_audit_wired() -> None:
+    """The shared global-alpha universe, 10-year execution path, and sleeve
+    audit outputs must be wired through local + GitHub Actions entrypoints.
+    """
+    cfg_src = _config_src()
+    run_src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    pipe_src = _pipeline_src()
+    wf_src = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+
+    for token in (
+        "global_alpha_universe",
+        "--backtest-years",
+        "BACKTEST_YEARS",
+        'runtime_overrides["default_backtest_years"]',
+        'runtime_overrides["backtest_window_comparison_years"]',
+    ):
+        assert token in run_src, f"run_local.py missing global-alpha/10y wiring: {token}"
+
+    for token in (
+        "default_backtest_years: int = 10",
+        "[5, 8, 10]",
+    ):
+        assert token in cfg_src, f"r1000_config.py missing 10y default/comparison token: {token}"
+
+    for token in (
+        "global_alpha_universe",
+        "build_global_alpha_sleeve_audit_frames",
+        "global_alpha_sleeve_audit_by_month.csv",
+        "global_alpha_sleeve_audit_summary.csv",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
+
+    for token in (
+        "global_alpha_universe",
+        "backtest_years",
+        "BACKTEST_YEARS",
+        "--backtest-years",
+        "outputs/reports/global_alpha_sleeve_audit_*.csv",
+    ):
+        assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/10y token: {token}"
 
 
 @_test("regression.layer4_swap_bridge_wired")

@@ -191,7 +191,11 @@ def parse_args() -> argparse.Namespace:
                    help="fast_mode flag for collector/pipeline (default: true).")
     p.add_argument("--universe-mode", default=None,
                    help="Universe mode override. Defaults to UNIVERSE_MODE env when set. "
-                        "Supported: r1000, r1000+adr, adr, r1000+adr_phase14_off.")
+                        "Supported: r1000, r1000+adr, global_alpha_universe, adr, "
+                        "r1000+adr_phase14_off.")
+    p.add_argument("--backtest-years", type=int, default=None,
+                   help="Default out-of-sample backtest window in years. Defaults to "
+                        "BACKTEST_YEARS env when set, otherwise EngineConfig default.")
     p.add_argument("--ab-quick", action="store_true",
                    help="A/B fast-iter mode: disable 7 expensive grid comparisons "
                         "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
@@ -256,18 +260,42 @@ def resolve_universe_mode(raw: Optional[str]) -> str:
     if not value:
         return ""
     # Historical docs used both spellings; keep both accepted but normalize.
-    value = value.replace("r1000+adr+phase14_off", "r1000+adr_phase14_off")
+    aliases = {
+        "r1000+adr+phase14_off": "r1000+adr_phase14_off",
+        "global-alpha": "global_alpha_universe",
+        "global_alpha": "global_alpha_universe",
+        "global+adr": "global_alpha_universe",
+    }
+    value = aliases.get(value, value)
     allowed = {
         "historical_snapshot_preferred",
         "current_constituents",
         "r1000",
         "r1000+adr",
+        "global_alpha_universe",
         "adr",
         "r1000+adr_phase14_off",
     }
     if value not in allowed:
         raise ValueError(f"unsupported universe mode: {value!r}")
     return value
+
+
+def resolve_backtest_years(raw: Optional[int]) -> Optional[int]:
+    """Resolve CLI/env backtest window into an EngineConfig override."""
+    if raw is not None:
+        value = raw
+    else:
+        env_value = (os.environ.get("BACKTEST_YEARS") or "").strip()
+        if not env_value:
+            return None
+        try:
+            value = int(env_value)
+        except ValueError as exc:
+            raise ValueError(f"BACKTEST_YEARS must be an integer, got {env_value!r}") from exc
+    if int(value) < 1:
+        raise ValueError(f"backtest years must be >= 1, got {value!r}")
+    return int(value)
 
 
 def resolve_commit_sha() -> tuple[str, bool]:
@@ -475,6 +503,7 @@ def main() -> int:
     fast_mode = args.fast_mode.lower() == "true"
     try:
         universe_mode = resolve_universe_mode(args.universe_mode)
+        backtest_years = resolve_backtest_years(args.backtest_years)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -491,6 +520,9 @@ def main() -> int:
     runtime_overrides = dict(COMMON_CFG_OVERRIDES)
     if universe_mode:
         runtime_overrides["universe_mode"] = universe_mode
+    if backtest_years is not None:
+        runtime_overrides["default_backtest_years"] = int(backtest_years)
+        runtime_overrides["backtest_window_comparison_years"] = sorted({5, 8, int(backtest_years)})
 
     # Banner
     sha, dirty = resolve_commit_sha()
@@ -505,6 +537,7 @@ def main() -> int:
     print(f"  mode:          {'FULL REBUILD' if args.full else 'QUICK_RESCORE'}")
     print(f"  fast_mode:     {fast_mode}")
     print(f"  universe_mode: {universe_mode or '(cfg default)'}")
+    print(f"  backtest_years: {backtest_years or '(cfg default)'}")
     print(f"  collector:     {'skipped' if args.no_collector else 'run'}")
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")

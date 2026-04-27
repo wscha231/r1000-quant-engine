@@ -2683,7 +2683,12 @@ def summarize_universe_source(df: pd.DataFrame) -> str:
 
 def normalize_engine_universe_mode(mode: Any) -> str:
     raw = str(mode or "historical_snapshot_preferred").strip()
-    return raw.replace("r1000+adr+phase14_off", "r1000+adr_phase14_off")
+    return {
+        "r1000+adr+phase14_off": "r1000+adr_phase14_off",
+        "global-alpha": "global_alpha_universe",
+        "global_alpha": "global_alpha_universe",
+        "global+adr": "global_alpha_universe",
+    }.get(raw, raw)
 
 
 def load_adr_universe_frame(min_mcap_usd_b: float = 30.0) -> pd.DataFrame:
@@ -3092,7 +3097,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
     universe_mode = normalize_engine_universe_mode(getattr(cfg, "universe_mode", "historical_snapshot_preferred"))
-    include_adr = universe_mode in {"r1000+adr", "r1000+adr_phase14_off", "adr"}
+    include_adr = universe_mode in {"r1000+adr", "r1000+adr_phase14_off", "global_alpha_universe", "adr"}
     adr_only = universe_mode == "adr"
     hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
@@ -3163,11 +3168,11 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             if not adr_add.empty:
                 uni = pd.concat([uni, adr_add], ignore_index=True, sort=False)
             log(
-                "ADR universe injection: "
+                "Global alpha universe injection: "
                 f"mode={universe_mode}, whitelist={len(adr_frame)}, added={len(adr_add)}"
             )
         else:
-            log(f"[WARN] universe_mode={universe_mode} requested ADR injection, but ADR whitelist was empty.")
+            log(f"[WARN] universe_mode={universe_mode} requested global alpha ADR injection, but ADR whitelist was empty.")
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
@@ -3184,7 +3189,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         uni["cik10"] = cik10_x.fillna(cik10_y)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
     if include_adr:
-        log("Skipping historical membership auto-archive for ADR-augmented universe run.")
+        log("Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.")
     else:
         snapshot_path = write_current_universe_membership_snapshot(cfg, paths, uni)
         if snapshot_path is not None:
@@ -9091,6 +9096,167 @@ def build_engine_diagnostics_report_frames(
     return monthly, summary
 
 
+def build_global_alpha_sleeve_audit_frames(
+    cfg: EngineConfig,
+    scored: pd.DataFrame,
+    portfolio_latest: Optional[pd.DataFrame] = None,
+    concentrated_latest: Optional[pd.DataFrame] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    hist = scored.copy() if scored is not None else pd.DataFrame()
+    if hist.empty or "rebalance_date" not in hist.columns:
+        return pd.DataFrame(), pd.DataFrame()
+    hist["rebalance_date"] = pd.to_datetime(hist["rebalance_date"], errors="coerce")
+    hist = hist[hist["rebalance_date"].notna()].copy()
+    if hist.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    hist = add_core_fundamental_minimum_flags(hist, cfg)
+    hist = compute_portfolio_sleeve_columns(hist, cfg)
+    for flag_col in (
+        "core_fundamental_minimum_pass",
+        "future_winner_fundamental_pass",
+        "early_scout_fundamental_pass",
+    ):
+        if flag_col not in hist.columns:
+            hist[flag_col] = True
+    try:
+        hist = annotate_portfolio_candidate_gate(hist, cfg)
+    except Exception:
+        hist["portfolio_candidate_minimum_pass"] = True
+        hist["portfolio_candidate_gate_label"] = "audit_fallback"
+    latest_dt = pd.Timestamp(hist["rebalance_date"].max())
+
+    source = hist.get("universe_source", pd.Series("unknown", index=hist.index, dtype=object)).fillna("unknown").astype(str)
+    hist["_global_alpha_is_adr"] = source.str.contains("adr_whitelist", case=False, na=False)
+    hist["_global_alpha_source"] = source
+    hist["_global_alpha_gate_pass"] = (
+        hist.get("portfolio_candidate_minimum_pass", pd.Series(False, index=hist.index, dtype=bool))
+        .fillna(False)
+        .astype(bool)
+    )
+    tickers = hist.get("ticker", pd.Series("", index=hist.index, dtype=object)).fillna("").astype(str).str.upper()
+
+    def _selected_tickers(df: Optional[pd.DataFrame]) -> set[str]:
+        if df is None or df.empty or "ticker" not in df.columns:
+            return set()
+        return {
+            str(t).upper()
+            for t in df["ticker"].dropna().astype(str).tolist()
+            if str(t).upper() and str(t).upper() != CASH_PROXY_TICKER
+        }
+
+    core_selected = _selected_tickers(portfolio_latest)
+    concentrated_selected = _selected_tickers(concentrated_latest)
+    hist["_selected_in_core_latest"] = hist["rebalance_date"].eq(latest_dt) & tickers.isin(core_selected)
+    hist["_selected_in_concentrated_latest"] = hist["rebalance_date"].eq(latest_dt) & tickers.isin(concentrated_selected)
+
+    metric_cols = [
+        "score",
+        "portfolio_core_compounder_engine_score",
+        "portfolio_future_winner_engine_score",
+        "portfolio_early_scout_engine_score",
+        "selection_confirmation_score",
+        "sage_g_score",
+        "sage_q_score",
+        "sage_v_score",
+        "sales_growth_yoy",
+        "eps_growth_yoy",
+        "revenue_growth_yoy",
+        "sales_cagr_3y",
+        "sales_cagr_5y",
+        "mom_6m",
+        "mom_12m",
+        "mom_24m",
+        "mom_36m",
+        "multi_year_winner_score",
+        "relative_strength_composite",
+        "market_cap",
+        "mkt_cap",
+    ]
+    metric_cols = [c for c in dict.fromkeys(metric_cols) if c in hist.columns]
+    score_col_map = {
+        "core_compounder": "portfolio_core_compounder_engine_score",
+        "future_winner": "portfolio_future_winner_engine_score",
+        "early_scout": "portfolio_early_scout_engine_score",
+    }
+    sleeve_labels = ["core_compounder", "future_winner", "early_scout", "unassigned"]
+
+    monthly_rows: list[dict[str, Any]] = []
+    for dt, grp in hist.groupby("rebalance_date", sort=True):
+        labels = (
+            grp.get("portfolio_sleeve_label", pd.Series("core_compounder", index=grp.index, dtype=object))
+            .fillna("core_compounder")
+            .astype(str)
+        )
+        for sleeve in sleeve_labels:
+            sleeve_grp = grp.loc[labels.eq(sleeve)].copy()
+            gate_grp = sleeve_grp.loc[sleeve_grp["_global_alpha_gate_pass"]].copy()
+            score_col = score_col_map.get(sleeve, "score")
+            sort_cols = [c for c in [score_col, "score"] if c in gate_grp.columns]
+            if sort_cols:
+                gate_grp = gate_grp.sort_values(sort_cols, ascending=[False] * len(sort_cols))
+            top = gate_grp.head(10)
+            sources = sorted(set(sleeve_grp["_global_alpha_source"].dropna().astype(str).tolist()))
+            row: dict[str, Any] = {
+                "rebalance_date": pd.Timestamp(dt),
+                "portfolio_sleeve_label": sleeve,
+                "candidate_count": int(len(sleeve_grp)),
+                "gate_pass_count": int(len(gate_grp)),
+                "adr_candidate_count": int(sleeve_grp["_global_alpha_is_adr"].sum()) if not sleeve_grp.empty else 0,
+                "adr_gate_pass_count": int(gate_grp["_global_alpha_is_adr"].sum()) if not gate_grp.empty else 0,
+                "adr_candidate_share": float(sleeve_grp["_global_alpha_is_adr"].mean()) if not sleeve_grp.empty else 0.0,
+                "source_mix": "+".join(sources),
+                "latest_core_selected_count": int(sleeve_grp["_selected_in_core_latest"].sum()),
+                "latest_concentrated_selected_count": int(sleeve_grp["_selected_in_concentrated_latest"].sum()),
+                "top10_gate_tickers": ",".join(top.get("ticker", pd.Series(dtype=object)).dropna().astype(str).head(10).tolist()),
+            }
+            for col in metric_cols:
+                values_all = pd.to_numeric(sleeve_grp[col], errors="coerce") if col in sleeve_grp.columns else pd.Series(dtype=float)
+                values_gate = pd.to_numeric(gate_grp[col], errors="coerce") if col in gate_grp.columns else pd.Series(dtype=float)
+                row[f"avg_{col}"] = float(values_all.mean()) if values_all.notna().any() else np.nan
+                row[f"gate_avg_{col}"] = float(values_gate.mean()) if values_gate.notna().any() else np.nan
+            monthly_rows.append(row)
+
+    monthly = pd.DataFrame(monthly_rows)
+    if monthly.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    summary_rows: list[dict[str, Any]] = []
+    latest_monthly = monthly[monthly["rebalance_date"].eq(latest_dt)]
+    for sleeve, grp in monthly.groupby("portfolio_sleeve_label", sort=True):
+        latest = latest_monthly[latest_monthly["portfolio_sleeve_label"].astype(str).eq(str(sleeve))]
+        latest_row = latest.iloc[-1].to_dict() if not latest.empty else {}
+        row = {
+            "portfolio_sleeve_label": str(sleeve),
+            "months": int(len(grp)),
+            "avg_candidate_count": float(pd.to_numeric(grp["candidate_count"], errors="coerce").mean()),
+            "avg_gate_pass_count": float(pd.to_numeric(grp["gate_pass_count"], errors="coerce").mean()),
+            "avg_adr_candidate_count": float(pd.to_numeric(grp["adr_candidate_count"], errors="coerce").mean()),
+            "avg_adr_gate_pass_count": float(pd.to_numeric(grp["adr_gate_pass_count"], errors="coerce").mean()),
+            "avg_adr_candidate_share": float(pd.to_numeric(grp["adr_candidate_share"], errors="coerce").mean()),
+            "latest_candidate_count": int(latest_row.get("candidate_count", 0) or 0),
+            "latest_gate_pass_count": int(latest_row.get("gate_pass_count", 0) or 0),
+            "latest_adr_candidate_count": int(latest_row.get("adr_candidate_count", 0) or 0),
+            "latest_adr_gate_pass_count": int(latest_row.get("adr_gate_pass_count", 0) or 0),
+            "latest_core_selected_count": int(latest_row.get("latest_core_selected_count", 0) or 0),
+            "latest_concentrated_selected_count": int(latest_row.get("latest_concentrated_selected_count", 0) or 0),
+            "latest_source_mix": str(latest_row.get("source_mix", "")),
+            "latest_top10_gate_tickers": str(latest_row.get("top10_gate_tickers", "")),
+        }
+        for col in metric_cols:
+            for prefix in ("avg", "gate_avg"):
+                key = f"{prefix}_{col}"
+                if key in grp.columns:
+                    row[f"hist_{key}"] = float(pd.to_numeric(grp[key], errors="coerce").mean())
+                    raw_latest = latest_row.get(key, np.nan)
+                    row[f"latest_{key}"] = float(raw_latest) if pd.notna(raw_latest) else np.nan
+        summary_rows.append(row)
+
+    summary = pd.DataFrame(summary_rows).sort_values("avg_gate_pass_count", ascending=False).reset_index(drop=True)
+    monthly = monthly.sort_values(["rebalance_date", "portfolio_sleeve_label"]).reset_index(drop=True)
+    return monthly, summary
+
+
 
 
 def build_historical_data_quality_report_frames(
@@ -14713,6 +14879,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     latest_early_standalone_path = paths["out"] / "early_scout_latest_standalone.csv"
     engine_diagnostics_monthly_path = paths["reports"] / "engine_diagnostics_by_month.csv"
     engine_diagnostics_summary_path = paths["reports"] / "engine_diagnostics_summary.csv"
+    global_alpha_sleeve_audit_monthly_path = paths["reports"] / "global_alpha_sleeve_audit_by_month.csv"
+    global_alpha_sleeve_audit_summary_path = paths["reports"] / "global_alpha_sleeve_audit_summary.csv"
     ai_four_sleeve_compare_path = paths["reports"] / "ai_four_sleeve_adaptive_comparison.csv"
     ai_four_sleeve_regime_grid_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_grid.csv"
     ai_four_sleeve_regime_best_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_best.csv"
@@ -15016,6 +15184,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
 
     engine_diagnostics_monthly = pd.DataFrame()
     engine_diagnostics_summary = pd.DataFrame()
+    global_alpha_sleeve_audit_monthly = pd.DataFrame()
+    global_alpha_sleeve_audit_summary = pd.DataFrame()
     if bool(getattr(cfg, "run_engine_diagnostics_report", True)):
         try:
             engine_diagnostics_monthly, engine_diagnostics_summary = build_engine_diagnostics_report_frames(cfg, scored)
@@ -15028,6 +15198,26 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     else:
         _safe_unlink(engine_diagnostics_monthly_path)
         _safe_unlink(engine_diagnostics_summary_path)
+
+    if bool(getattr(cfg, "run_engine_diagnostics_report", True)):
+        try:
+            global_alpha_sleeve_audit_monthly, global_alpha_sleeve_audit_summary = (
+                build_global_alpha_sleeve_audit_frames(
+                    cfg,
+                    scored,
+                    portfolio_latest=portfolio_latest,
+                    concentrated_latest=concentrated_latest_holdings,
+                )
+            )
+            global_alpha_sleeve_audit_monthly.to_csv(global_alpha_sleeve_audit_monthly_path, index=False)
+            global_alpha_sleeve_audit_summary.to_csv(global_alpha_sleeve_audit_summary_path, index=False)
+        except Exception as exc:
+            log(f"[WARN] Global alpha sleeve audit failed: {exc}")
+            _safe_unlink(global_alpha_sleeve_audit_monthly_path)
+            _safe_unlink(global_alpha_sleeve_audit_summary_path)
+    else:
+        _safe_unlink(global_alpha_sleeve_audit_monthly_path)
+        _safe_unlink(global_alpha_sleeve_audit_summary_path)
 
     if bool(cfg.export_extended_outputs):
         sector_exposure = (
@@ -15673,6 +15863,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         output_files["engine_diagnostics_by_month.csv"] = str(engine_diagnostics_monthly_path)
     if not engine_diagnostics_summary.empty:
         output_files["engine_diagnostics_summary.csv"] = str(engine_diagnostics_summary_path)
+    if not global_alpha_sleeve_audit_monthly.empty:
+        output_files["global_alpha_sleeve_audit_by_month.csv"] = str(global_alpha_sleeve_audit_monthly_path)
+    if not global_alpha_sleeve_audit_summary.empty:
+        output_files["global_alpha_sleeve_audit_summary.csv"] = str(global_alpha_sleeve_audit_summary_path)
     if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
         output_files["ai_four_sleeve_adaptive_comparison.csv"] = str(ai_four_sleeve_compare_path)
         output_files["ai_four_sleeve_adaptive_regime_grid.csv"] = str(ai_four_sleeve_regime_grid_path)
@@ -15815,6 +16009,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             if not engine_diagnostics_summary.empty
             else []
         ),
+        "global_alpha_sleeve_audit_summary": (
+            global_alpha_sleeve_audit_summary.to_dict(orient="records")
+            if not global_alpha_sleeve_audit_summary.empty
+            else []
+        ),
         "operator_summary": {},
         "export_extended_outputs": bool(cfg.export_extended_outputs),
         "export_explain_outputs": bool(cfg.export_explain_outputs),
@@ -15919,6 +16118,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["engine_diagnostics_by_month"] = str(engine_diagnostics_monthly_path)
     if not engine_diagnostics_summary.empty:
         result_outputs["engine_diagnostics_summary"] = str(engine_diagnostics_summary_path)
+    if not global_alpha_sleeve_audit_monthly.empty:
+        result_outputs["global_alpha_sleeve_audit_by_month"] = str(global_alpha_sleeve_audit_monthly_path)
+    if not global_alpha_sleeve_audit_summary.empty:
+        result_outputs["global_alpha_sleeve_audit_summary"] = str(global_alpha_sleeve_audit_summary_path)
     if bool(getattr(cfg, "run_sleeve_cap_policy_comparison", True)) and not sleeve_cap_policy_compare.empty:
         result_outputs["sleeve_cap_policy_comparison"] = str(sleeve_cap_policy_compare_path)
         result_outputs["sleeve_cap_policy_champion_latest"] = str(sleeve_cap_policy_champion_path)
@@ -15950,6 +16153,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "base_dir": cfg.base_dir,
         "start_date": str(cfg.start_date),
         "end_date": str(cfg.end_date),
+        "universe_mode": str(getattr(cfg, "universe_mode", "")),
+        "default_backtest_years": int(getattr(cfg, "default_backtest_years", 0)),
         "fast_mode": bool(getattr(cfg, "fast_mode", False)),
         "reuse_existing_artifacts": bool(cfg.reuse_existing_artifacts),
         "resume_partial_walkforward": bool(cfg.resume_partial_walkforward),

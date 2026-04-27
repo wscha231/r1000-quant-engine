@@ -18,6 +18,7 @@ Usage:
     tickers = load_universe("r1000")          # ~1000 tickers, live
     tickers = load_universe("r1000", max_age_hours=24)  # use cache if fresh
     tickers = load_universe("r1000+adr")      # R1000 + ADRs from adr_universe.yaml
+    tickers = load_universe("global_alpha_universe")  # same shared global-alpha universe
     tickers = load_universe("adr")            # ADRs only (whitelist)
     tickers = load_universe("themes")         # legacy: themes.yaml members only
     tickers = load_universe("custom", tickers=["AAPL", "MSFT"])  # explicit
@@ -259,6 +260,7 @@ def load_universe(
     source:
       'r1000'      - live iShares IWB (fallback: main-engine cache, then themes)
       'r1000+adr'  - R1000 union curated ADR whitelist (adr_universe.yaml)
+      'global_alpha_universe' - alias for the shared R1000 + ADR/global-alpha universe
       'adr'        - ADR whitelist only
       'themes'     - themes.yaml members only (legacy)
       'custom'     - explicit ticker list in `tickers` arg
@@ -268,6 +270,11 @@ def load_universe(
       tickers: sorted list of unique tickers
       metadata: {source_used, count, fetched_at, adr_count?, ...}
     """
+    source = {
+        "global-alpha": "global_alpha_universe",
+        "global_alpha": "global_alpha_universe",
+        "global+adr": "global_alpha_universe",
+    }.get(str(source), str(source))
     meta = {"source_requested": source, "fetched_at": datetime.now().isoformat()}
 
     if source == "custom":
@@ -284,7 +291,7 @@ def load_universe(
         meta["adr_min_mcap_usd_b"] = adr_min_mcap_usd_b
         return adr_tickers, meta
 
-    if source == "r1000+adr":
+    if source in ("r1000+adr", "global_alpha_universe"):
         # 1. Pull R1000 the normal way
         r1000_tickers, r1000_meta = load_universe(
             "r1000", max_age_hours=max_age_hours,
@@ -294,7 +301,7 @@ def load_universe(
         adr_tickers, _ = load_adr_universe(min_mcap_usd_b=adr_min_mcap_usd_b)
         # 3. Union, dedup, sort
         combined = sorted(set(r1000_tickers) | set(adr_tickers))
-        meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+adr"
+        meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+global_alpha"
         meta["count"] = len(combined)
         meta["r1000_count"] = len(r1000_tickers)
         meta["adr_count"] = len(adr_tickers)

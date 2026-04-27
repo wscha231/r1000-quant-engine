@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-27 10:44 KST (Phase 14 baseline rotated, ADR path fixed)
+# Session Handoff - 2026-04-27 11:57 KST (global alpha universe + 10y path wired)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-27 10:44 KST) - A complete, B fixed, C next
+## ACTIVE INBOX (2026-04-27 11:57 KST) - global alpha run next
 
 **Current status**
 
@@ -16,17 +16,21 @@
   - `full_rebuild_manual.yml` used legacy `PHASE14_HYBRID_ALPHA_ENABLED`; `phase_is_enabled("phase14_hybrid_alpha")` consumes `PHASE_PHASE14_HYBRID_ALPHA_ENABLED`.
   - `r1000_pipeline.py build_candidate_universe()` always used historical R1000 membership and historical membership filtering would drop external ADR rows.
 - **B validation**: smoke 62/62 PASS, ADR quick audit 26/26 PASS, synthetic membership-filter check keeps `adr_whitelist` rows.
-- **ADR alpha still untested**: prior SHIP verdict remains pure Phase 14 feature contribution because run 24961673988 had 0/26 ADRs. Trigger a new FULL rebuild with `universe_mode=r1000+adr` to test ADR contribution.
+- **Global alpha universe path now wired**: use `universe_mode=global_alpha_universe` for the shared R1000 + curated ADR/global-alpha pool. Core and concentrated both consume the same scored frame, so this is the common universe for both sleeves/engines.
+- **10-year path now wired**: default backtest window is 10 years and GitHub Actions exposes `backtest_years=10`/`8`. `backtest_window_comparison.csv` includes 5/8/10 and flags `partial_window` if the stored OOS history does not cover the full requested window.
+- **Sleeve audit now wired**: FULL/QUICK exports `reports/global_alpha_sleeve_audit_by_month.csv` and `reports/global_alpha_sleeve_audit_summary.csv` with per-sleeve candidate counts, gate-pass counts, ADR/source mix, growth/momentum/quality averages, and latest core/concentrated selected counts.
+- **ADR/global alpha still untested by FULL rebuild after the fix**: prior SHIP verdict remains pure Phase 14 feature contribution because run 24961673988 had 0/26 ADRs. Trigger a new FULL rebuild with `universe_mode=global_alpha_universe` to test contribution.
 
 **Design read against user goal**
 
 - **Core portfolio goal**: current Phase 14 main CAGR is 23.58%, Sharpe 1.178, MaxDD -23.17%, avg monthly turnover 45.5%. The architecture is pointed the right way, but core is not yet a stable 25% system. Do not chase this by adding more names/signals first; next best step is C, the quarterly/sleeve-aware rebalance A/B, because turnover and exit cadence are the largest stability risks.
 - **Concentrated goal**: current champion is N=5/monthly/score_power, CAGR 33.40%, Sharpe 1.284, MaxDD -25.29%. If daily trading is allowed, concentrated needs a separate daily replay/aggressive execution track; forcing daily behavior into the monthly core backtest will blur the mandate and make core less stable.
 - **Recommended sequence from here**:
-  1. Commit/push B if not already done.
-  2. Run a new FULL `r1000+adr` rebuild to verify ADR rows are present and verdict changes.
-  3. Start C for core stability: implement `rebalance_interval_months` in main `backtest_portfolio()` and compare monthly vs quarterly.
-  4. After C, design concentrated daily replay using scanner signals, daily stop/hold rules, and separate CAGR-max objective.
+  1. Run smoke, commit/push current `global_alpha_universe` + 10y + sleeve-audit wiring.
+  2. Trigger GitHub Actions `full_rebuild_manual.yml` with `universe_mode=global_alpha_universe`, `backtest_years=10`, `skip_collector=true`, `fast_mode=true`.
+  3. Review `scored_latest.csv` ADR count and `global_alpha_sleeve_audit_summary.csv` to confirm sleeve selection behavior.
+  4. Then start C for core stability: compare monthly vs quarterly/sleeve-aware cadence and only change sleeve score/gate weights after the audit shows the failure mode.
+  5. After C, design concentrated daily replay using scanner signals, daily stop/hold rules, and separate CAGR-max objective.
 
 ---
 
