@@ -251,18 +251,24 @@ jobs:
           set -e
 
           # Build Telegram message: [status header] + [rich summary] + [run URL]
-          MSG="🔁 FULL rebuild status: ${STATUS}%0A%0A"
-          # URL-encode newlines in summary
-          ENCODED=$(printf '%s' "$SUMMARY" | python3 -c "
-          import sys, urllib.parse
-          print(urllib.parse.quote(sys.stdin.read()))")
-          MSG="${MSG}${ENCODED}%0A%0Arun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG_HEADER="🔁 FULL rebuild status: ${STATUS}"
+          # URL-encode (one-liner — multiline heredoc with indent caused IndentationError)
+          ENCODED_SUMMARY=$(printf '%s' "$SUMMARY" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+          ENCODED_HEADER=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$MSG_HEADER'))")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="${ENCODED_HEADER}%0A%0A${ENCODED_SUMMARY}%0A%0Arun:%20${RUN_URL}"
+
+          # Telegram message limit = 4096 chars. Truncate if too long.
+          MSG_LEN=${#MSG}
+          if [ "$MSG_LEN" -gt 3900 ]; then
+            MSG="${MSG:0:3900}%0A%0A...truncated"
+          fi
 
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${MSG}" \
             -d "disable_web_page_preview=true" > /dev/null \
-            || echo "[telegram] rich notification failed"
+            || echo "[telegram] rich notification failed (length=$MSG_LEN)"
 
           # Mobile-friendly: bundle key results into a zip and send as Telegram
           # document so user can download directly on phone (no PC sync needed).
@@ -329,4 +335,18 @@ jobs:
           git add cloud_results/ 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
-          git push || true
+
+          # Push with rebase-on-conflict (race condition guard).
+          # Previous run 24961673988 SUCCEEDED with all results committed locally,
+          # but git push was rejected because user pushed fixes during the 7h run.
+          # Now retry up to 3 times with fetch+rebase between each attempt.
+          for attempt in 1 2 3; do
+            if git push 2>&1; then
+              echo "[push] attempt $attempt: success"
+              break
+            fi
+            echo "[push] attempt $attempt: failed — fetch+rebase and retry"
+            git fetch origin master
+            git pull --rebase origin master 2>&1 || git rebase --abort 2>&1 || true
+            sleep $((attempt * 2))
+          done
