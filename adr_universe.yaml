@@ -21,6 +21,21 @@
 #                                   if no clean parse → ticker auto-falls into
 #                                   unified_universe.py finnhub_synthetic path
 #
+# KNOWN LIMITATION (2026-04-27 audit):
+#   The pipeline `add_core_fundamental_minimum_flags` gate (r1000_pipeline.py:477)
+#   reads from CORE_FUNDAMENTAL_MINIMUM_FIELDS (revenues_ttm/op_income_ttm/
+#   net_income_ttm/assets/liabilities) which are populated from SEC companyfacts,
+#   NOT from the finnhub_synthetic path (r1000_unified_universe.py:170 only
+#   produces forward_pe / peg / earnings_growth / sales_growth_yoy / op_margin).
+#   Result: ADRs without clean SEC 20-F parsing fail the gate's full_pass and
+#   fall back to partial_scout / sector_adjusted lanes — or are dropped.
+#
+#   This means the cloud Phase 14 SHIP run (r1000+adr universe, CAGR 23.48%)
+#   may have effectively run on R1000-only when ADR companyfacts coverage was
+#   poor. To get true ADR exposure, either (a) enrich finnhub_synthetic to
+#   populate the CORE fields, or (b) add an `is_adr` carve-out that exempts
+#   ADRs from the gate denominator. Filed as follow-up work.
+#
 # Future ADR watch (track listings, add when they list on US exchange):
 #   - SK Hynix (Korean memory chipmaker) — expected Oct 2026 ADR listing per
 #     2026-04 reporting. Add to semi_memory + adr_universe when symbol confirmed.

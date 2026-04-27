@@ -73,6 +73,9 @@ jobs:
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
+      # `outputs/companyfacts.zip` is the SEC bulk archive — refreshed by the
+      # next step. Caching keeps it across runs so we only re-download when
+      # older than --max-age-days.
       - name: Restore collector cache
         uses: actions/cache@v4
         with:
@@ -87,10 +90,26 @@ jobs:
             aggressive/cache/finnhub
             outputs/sec_companyfacts
             outputs/macro
+            outputs/companyfacts.zip
           key: collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
+
+      # Refresh SEC companyfacts.zip bulk archive if missing or older than 14d.
+      # Without this, the pipeline silently falls back to per-CIK API calls
+      # which respect companyfacts_refresh_days, but with --no-collector that
+      # path never executes either — fundamentals lane goes stale →
+      # fundamental_coverage_ok=False → portfolio_latest.csv blocked.
+      - name: Refresh SEC companyfacts bulk archive
+        env:
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+        run: |
+          mkdir -p outputs
+          python tools/refresh_companyfacts_bulk.py \
+            --base-dir "$(pwd)/outputs" \
+            --max-age-days 14 \
+            --required
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
       - name: Restore engine cache

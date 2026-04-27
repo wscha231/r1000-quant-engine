@@ -245,6 +245,30 @@ def check_prereqs(base_dir: Path) -> tuple[bool, list[str]]:
             if not (base_dir / sub).exists():
                 msgs.append(f"WARNING: {sub} missing under {base_dir} -- first-time run, will be created")
 
+    # SEC companyfacts.zip freshness — stale bulk archive is the #1 cause of
+    # silent-fail "portfolio_latest empty / CAGR stale" symptoms. The pipeline
+    # silently falls back to per-CIK API on miss, but with --no-collector that
+    # path is also skipped → fundamentals lane goes stale → acceptance gate
+    # fails → portfolio export blocked. Surface this loudly here.
+    cf_zip_paths = [base_dir / "companyfacts.zip", REPO_ROOT / "outputs" / "companyfacts.zip"]
+    cf_zip = next((p for p in cf_zip_paths if p.exists()), None)
+    if cf_zip is None:
+        msgs.append(
+            "WARNING: companyfacts.zip not found under base_dir or outputs/. "
+            "Per-CIK fallback only — slow + may exhaust API budget. "
+            "Run `python tools/refresh_companyfacts_bulk.py --base-dir <path>` to download."
+        )
+    else:
+        age_days = (time.time() - cf_zip.stat().st_mtime) / 86400.0
+        size_mb = cf_zip.stat().st_size / (1024 * 1024)
+        if age_days > 30:
+            msgs.append(
+                f"WARNING: companyfacts.zip is {age_days:.1f}d old ({size_mb:.0f} MB) — "
+                f"refresh recommended via `python tools/refresh_companyfacts_bulk.py --base-dir {cf_zip.parent}`"
+            )
+        else:
+            msgs.append(f"OK: companyfacts.zip {age_days:.1f}d old, {size_mb:.0f} MB")
+
     return (not any(m.startswith("ERROR") for m in msgs), msgs)
 
 
