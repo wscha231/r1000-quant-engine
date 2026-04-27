@@ -2067,6 +2067,28 @@ def reset_companyfacts_stats() -> None:
         COMPANYFACTS_STATS[k] = 0
 
 
+# Cached ADR ticker set — loaded once from adr_universe.yaml. Used by the
+# acceptance-check gate to carve ADRs out of SEC-fundamentals coverage stats:
+# foreign issuers file 20-F annually (not 10-K/10-Q) so they systematically
+# fail CORE_FUNDAMENTAL_MINIMUM_FIELDS coverage. Without this carve-out, adding
+# 26 ADRs to an R1000 universe drops the aggregate pass rate enough to fail
+# `fundamental_coverage_ok` and block portfolio export.
+_ADR_TICKER_SET_CACHE: Optional[set[str]] = None
+
+
+def _load_adr_ticker_set() -> set[str]:
+    global _ADR_TICKER_SET_CACHE
+    if _ADR_TICKER_SET_CACHE is not None:
+        return _ADR_TICKER_SET_CACHE
+    try:
+        from aggressive.universe import load_adr_universe
+        tickers, _ = load_adr_universe()
+        _ADR_TICKER_SET_CACHE = {str(t).upper() for t in tickers}
+    except Exception:
+        _ADR_TICKER_SET_CACHE = set()
+    return _ADR_TICKER_SET_CACHE
+
+
 def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: str) -> dict[str, Any]:
     cik10 = str(cik).zfill(10)
     cache_path = companyfacts_cache_file(paths, cik10)
@@ -9580,16 +9602,26 @@ def run_acceptance_checks(
         apply_statement_repair=True,
         add_fundamental_flags=True,
     )
+    # ADR carve-out (2026-04-27): coverage means computed on NON-ADR rows when
+    # ADRs are present in the universe. ADRs file 20-F annually so they pull
+    # down aggregate TTM/valuation coverage even when R1000 fundamentals are
+    # healthy. The carve-out is a no-op for ADR-free universes (legacy).
+    _adr_set_for_cov = _load_adr_ticker_set()
+    if _adr_set_for_cov and "ticker" in latest_view.columns:
+        _is_adr_for_cov = latest_view["ticker"].astype(str).str.upper().isin(_adr_set_for_cov)
+        cov_view = latest_view[~_is_adr_for_cov] if _is_adr_for_cov.any() else latest_view
+    else:
+        cov_view = latest_view
     ttm_cov = {
-        c: float(latest_view[c].notna().mean()) if c in latest_view.columns and len(latest_view) else 0.0
+        c: float(cov_view[c].notna().mean()) if c in cov_view.columns and len(cov_view) else 0.0
         for c in CRITICAL_TTM_COVERAGE_COLUMNS
     }
     valuation_cov = {
-        c: float(latest_view[c].notna().mean()) if c in latest_view.columns and len(latest_view) else 0.0
+        c: float(cov_view[c].notna().mean()) if c in cov_view.columns and len(cov_view) else 0.0
         for c in CRITICAL_VALUATION_COVERAGE_COLUMNS
     }
     comprehensive_cov = {
-        c: float(latest_view[c].notna().mean()) if c in latest_view.columns and len(latest_view) else 0.0
+        c: float(cov_view[c].notna().mean()) if c in cov_view.columns and len(cov_view) else 0.0
         for c in COMPREHENSIVE_FUNDAMENTAL_COVERAGE_COLUMNS
     }
     checks["critical_ttm_coverage"] = ttm_cov
@@ -9602,13 +9634,41 @@ def run_acceptance_checks(
     checks["comprehensive_fundamental_coverage_mean"] = (
         float(np.nanmean(list(comprehensive_cov.values()))) if comprehensive_cov else 0.0
     )
+    checks["coverage_excludes_adrs"] = bool(len(cov_view) != len(latest_view))
     latest_view = add_core_fundamental_minimum_flags(latest_view, cfg)
     latest_view = add_historical_data_quality_columns(latest_view)
     core_pass = numeric_series_or_default(latest_view, "core_fundamental_minimum_pass", 0.0)
     checks["core_fundamental_pass_ratio"] = float(core_pass.mean()) if len(core_pass) else 0.0
     checks["core_fundamental_pass_count"] = int(core_pass.sum()) if len(core_pass) else 0
+
+    # ADR carve-out (2026-04-27): foreign issuers file 20-F annually, not 10-K/10-Q,
+    # so they systematically fail CORE_FUNDAMENTAL_MINIMUM_FIELDS coverage. Without
+    # this carve-out, adding 26 ADRs to R1000 drops aggregate pass rate enough to
+    # fail the gate. Strategy: use NON-ADR pass count for the actual gate decision,
+    # report ADR metrics separately for visibility.
+    adr_set = _load_adr_ticker_set()
+    if adr_set and "ticker" in latest_view.columns:
+        is_adr = latest_view["ticker"].astype(str).str.upper().isin(adr_set)
+    else:
+        is_adr = pd.Series(False, index=latest_view.index)
+    non_adr_pass = core_pass[~is_adr]
+    adr_pass = core_pass[is_adr]
+    checks["adr_count"] = int(is_adr.sum())
+    checks["adr_pass_count"] = int(adr_pass.sum()) if len(adr_pass) else 0
+    checks["adr_pass_ratio"] = float(adr_pass.mean()) if len(adr_pass) else 0.0
+    checks["non_adr_core_fundamental_pass_count"] = int(non_adr_pass.sum()) if len(non_adr_pass) else 0
+    checks["non_adr_core_fundamental_pass_ratio"] = (
+        float(non_adr_pass.mean()) if len(non_adr_pass) else 0.0
+    )
+    # Gate uses non-ADR pass count when ADRs are present in the universe;
+    # falls back to legacy behavior (total pass count) when ADR-free.
+    effective_pass_count = (
+        checks["non_adr_core_fundamental_pass_count"]
+        if checks["adr_count"] > 0
+        else checks["core_fundamental_pass_count"]
+    )
     checks["core_fundamental_minimum_ok"] = bool(
-        checks["core_fundamental_pass_count"] >= int(cfg.min_port_names)
+        effective_pass_count >= int(cfg.min_port_names)
     )
     checks["fundamental_coverage_ok"] = bool(
         checks["critical_ttm_coverage_mean"] >= cfg.min_ttm_feature_coverage
