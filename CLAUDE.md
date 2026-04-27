@@ -170,27 +170,25 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
   - `industry_group_strength_score`, `industry_within_leader_rank`
   - `oneil_leadership_score`, `industry_rotation_signal`
 
-## Current Production Baseline — Phase 9 C3 + CE v2 (SHIPPED 2026-04-18 21:22 KST)
-- **Main diversified: CAGR 22.91% / Sharpe 1.1721 / MaxDD -26.26% / IR 0.9474 / excess_cagr +9.42%**
-- 18 positions, avg_stock_names 20.43, beat_month_ratio 57.83%, turnover 43.1%
-- Sleeve counts: core 8 / future 5 / early 4 (defensive_drawdown_control 60/25/15)
-- Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%
+## Current Production Baseline — Phase 14 hybrid alpha (SHIPPED 2026-04-27)
+- **Main diversified: CAGR 23.58% / Sharpe 1.1783 / MaxDD -23.17% / IR 0.9955 / excess_cagr +10.08%**
+- 19 current positions, avg_stock_names 21.99, beat_month_ratio 62.65%, turnover 45.5%
+- Sleeve counts: core 7 / future 7 / early 4 (run 24961673988 artifact verdict.log)
+- Top holdings from verdict artifact: GOOGL 18.2%, NVDA 12.1%, GEV 8.8%, MRVL 6.3%, FTI 6.3%
 - Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
 
-## 🚧 Phase 14 hybrid alpha + r1000+adr universe — VERDICT PENDING (2026-04-26)
-- Code shipped (`5a41219` Phase 14 + `d62fbb6` ADR + Phase 1-6 follow-ups) but **FULL rebuild not yet run** → CURRENT_BASELINE not yet rotated.
+## Phase 14 verdict note — ADR universe still untested
+- Phase 14 hybrid alpha SHIP verdict confirmed via GitHub Actions run 24961673988: CAGR +0.67pp, Sharpe +0.006, MaxDD +3.09pp better vs Phase 9 C3 + CE v2.
 - New cfg.features (6): rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
-- New universe option: `r1000+adr` (1008 R1000 + 26 ADRs incl. ASML, TSM, BABA, NVO).
-- 8 GitHub Actions workflows operational (daily_review / unified_monthly / theme_discovery / finnhub_weekly / paper_executor_dryrun / layer4_monthly_swap / monthly_ic_monitor / full_rebuild_manual).
-- **Next step**: trigger `full_rebuild_manual.yml` with `universe_mode=r1000+adr` (and `r1000` baseline control), then `py -3 tools/compare_adr_backtest.py` for SHIP/PARTIAL/REGRESS verdict. Detailed procedure in `PHASE14_VERDICT_PROCEDURE.md`.
-- Pre-flight verified: smoke 56/56, audit 238 features 0 leakage, PIT-safe, NaN-robust, call order verified.
+- Critical caveat: `r1000+adr` did not actually exercise ADRs in that run (0/26 ADRs in `scored_latest.csv`; all rows came from `historical_membership_file`).
+- Next open task: debug `.github/workflows/full_rebuild_manual.yml` input handling and `r1000_data_collector.py build_candidate_universe` before treating ADR alpha as tested.
+- Artifacts are archived in `research/phase14_artifact/`.
 
 ## 🎯 Concentrated Champion — CAGR 30%+ goal achieved
-- **N=5 / monthly rebalance / score_power weighting → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**
-- $100k → $786k in 83 months (6.9 years, 7.87x)
-- Holdings (by score_power weight): PR 30.3% (Permian Resources), ETR 27.8% (Entergy), GEV 15.2% (GE Vernova), FTI 14.5% (TechnipFMC), AKAM 12.3% (Akamai)
-- 10 concentrated combos > 30% CAGR in the 63-combo CE v2 grid (run via `py -3 run_local.py --no-collector`)
-- Full grid: `outputs/reports/concentrated_strategy_comparison.csv`
+- **N=5 / monthly rebalance / score_power weighting → CAGR 33.40% / Sharpe 1.284 / MaxDD -25.29%**
+- Holdings (by score_power weight): MRVL 26.2%, AMKR 22.5%, WDC 18.7%, CIEN 18.3%, FTI 14.3%
+- Prior Phase 9 C3 + CE v2 champion remains historical reference in `run_local.py PHASE9_C3_CE_V2_BASELINE`.
+- Full grid/reference outputs live under Drive `outputs/` and archived Phase 14 artifacts under `research/phase14_artifact/`.
 
 ## Ship gate (for any next change)
 - **ΔCAGR ≥ +0.5pp AND ΔSharpe ≥ -0.05 AND ΔMaxDD ≥ -3pp** (MaxDD positive delta = less drawdown = better)
@@ -198,6 +196,7 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Check via `py -3 run_local.py --verdict-only` after any run.
 
 ## Historical baselines (reference only — do not use for verdict)
+- Phase 9 C3 + CE v2 (prior production): CAGR 22.91%, Sharpe 1.1721, MaxDD -26.26%, IR 0.9474 — kept in `run_local.py PHASE9_C3_CE_V2_BASELINE`
 - Phase 9 C1+C2 (prior): CAGR 21.69%, Sharpe 1.073, MaxDD -23.97%, IR 0.799 — kept in `run_local.py PHASE9_C1C2_BASELINE`
 - Phase 8 pre-Phase-9: CAGR 21.86%, Sharpe 0.9856, MaxDD -32.08%, early_scout = 0 (sleeve collapsed)
 - 2026-04-15 pre-Phase-1+2: CAGR 21.80%, Sharpe 0.73, MaxDD -36.86%, 2 names (extreme concentration)

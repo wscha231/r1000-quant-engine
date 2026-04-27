@@ -53,19 +53,47 @@ DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 # ------------------------------------------------------------------
 # Baseline metrics — used for Cell E verdict delta comparison.
 #
-# CURRENT BASELINE: Phase 9 C1+C2 (SHIPPED 2026-04-18). Rotated from
-# Phase 8 after SHIP decision on commit 79d6fe8 verdict PARTIAL (user
-# accepted -0.74pp CAGR trade for +0.08 Sharpe, +5.78pp MaxDD, and
-# sleeve taxonomy restoration with 8 early_scout names).
+# CURRENT BASELINE: Phase 14 hybrid alpha (SHIPPED 2026-04-27).
+# Verdict source: GitHub Actions run 24961673988 artifact archived under
+# research/phase14_artifact/. Important: that run did not actually exercise
+# ADRs (0/26 ADRs in scored_latest.csv); this baseline reflects the Phase 14
+# six-feature hybrid-alpha contribution on the R1000-only effective universe.
 #
 # HISTORICAL BASELINES (kept as reference; do not use for verdict):
+#   Phase 9 C3 + CE v2: cagr 0.2291, sharpe 1.1721, max_dd -0.2626
 #   Phase 8  (pre-Phase-9): cagr 0.2186, sharpe 0.9856, max_dd -0.3208
 #   2026-04-15 concentrated: cagr 0.2180, sharpe 0.73, max_dd -0.3686
 #
-# When next phase (C3 / refactor / etc.) SHIPs, rotate CURRENT_BASELINE
-# again per SESSION_HANDOFF.md §7 rotation rule.
+# When next phase SHIPs, rotate CURRENT_BASELINE again per SESSION_HANDOFF.md.
 # ------------------------------------------------------------------
 CURRENT_BASELINE = {
+    "name": "Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)",
+    "cagr": 0.2358,
+    "sharpe": 1.1783,
+    "max_dd": -0.2317,
+    "ir": 0.9955,
+    "avg_turnover_monthly": 0.4550,
+    "avg_stock_names": 21.99,
+    "beat_month_ratio": 0.6265,
+    "excess_cagr": 0.1008,
+    # Sleeve counts from run 24961673988 artifact verdict.log.
+    "sleeve_counts_reference": {"core_compounder": 7, "future_winner": 7, "early_scout": 4},
+    # Alternate policy metrics (not used for verdict; informational)
+    "alt_policies": {
+        "concentrated_champion": {
+            "target_stock_names": 5,
+            "rebalance_interval_months": 1,
+            "weighting_mode": "score_power",
+            "cagr": 0.3340,
+            "sharpe": 1.284,
+            "max_dd": -0.2529,
+            "holdings": ["MRVL (26.2%)", "AMKR (22.5%)", "WDC (18.7%)", "CIEN (18.3%)", "FTI (14.3%)"],
+        },
+    },
+}
+
+# Prior production baseline (pre-Phase-14) — kept for historical delta calc
+PHASE9_C3_CE_V2_BASELINE = {
     # Phase 9 C3 + CE v2 SHIPPED 2026-04-18 21:22 KST on commit d3d3a91.
     # Measured via `py -3 run_local.py --no-collector` QUICK_RESCORE (which
     # re-did Phase 3 + 4 due to config_fingerprint change after CE v2 commit).
