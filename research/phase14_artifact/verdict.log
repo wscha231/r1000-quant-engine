@@ -1,0 +1,88 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        724fbb9 (DIRTY)
+  started:       2026-04-27 04:19:29 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-04-27
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+======================================================================
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 595
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         366
+early_scout        104
+future_winner       72
+core_compounder     53
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=595
+  phase9_core_eligible                      mean=0.089  sum=53
+  phase9_future_eligible                    mean=0.121  sum=72
+  phase9_early_eligible                     mean=0.175  sum=104
+  phase9_unassigned                         mean=0.615  sum=366
+  phase9_mktcap_percentile                  mean=0.501  sum=298
+
+Final portfolio: 19 positions
+  Sleeve dist: {'core_compounder': 7, 'early_scout': 4, 'future_winner': 7}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+ GOOGL        core_compounder 0.182007
+  NVDA        core_compounder 0.120776
+   GEV        core_compounder 0.087662
+  CASH                    NaN 0.075283
+  MRVL          future_winner 0.062833
+   FTI          future_winner 0.062833
+  LRCX        core_compounder 0.060429
+   VRT        core_compounder 0.040000
+  BKNG            early_scout 0.040000
+   ETR            early_scout 0.040000
+
+======================================================================
+METRICS vs baseline: Phase 9 C3 + CE v2 (SHIPPED 2026-04-18, adaptive monthly)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2358     0.2291        +0.67pp
+  sharpe                       1.1783     1.1721        +0.0062
+  max_dd                      -0.2317    -0.2626        +3.09pp
+  ir                           0.9955     0.9474        +0.0481
+  avg_turnover_monthly         0.4550     0.4308        +2.42pp
+  avg_stock_names             21.9880    20.4300        +1.5580
+  beat_month_ratio             0.6265     0.5783        +0.0482
+  excess_cagr                  0.1008     0.0942        +0.66pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.5599999999999999, 'future_winner': 0.28, 'early_scout': 0.16}
+  actual:  {'core_compounder': 0.5614219805216064, 'future_winner': 0.22647182074398692, 'early_scout': 0.13682319131026324}
+  counts:  {'core_compounder': 7, 'future_winner': 7, 'early_scout': 4}
+
+=== VERDICT ===
+  dCAGR    +0.67pp   (gate >= +0.5pp)
+  dSharpe  +0.0062    (gate >= -0.05)
+  dMaxDD   +3.09pp   (gate >= -3pp; positive better)
+  early_scout selected: 4    (gate >= 4)
+
+  --> SHIP vs Phase 9 C3 + CE v2 (SHIPPED 2026-04-18, adaptive monthly). Rotate baseline + next phase.
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-01-30 at equity 4.3246
+  Lifetime CAGR:   23.48% over 6.84 years
+  Lifetime total:  323.45%
+  vs baseline CAGR (22.91%): +0.57pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

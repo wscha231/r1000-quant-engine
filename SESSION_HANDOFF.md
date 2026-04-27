@@ -1,8 +1,56 @@
-# Session Handoff — 2026-04-26 (Phase 14 ready, FULL rebuild verdict pending)
+# Session Handoff — 2026-04-27 10:30 KST (Phase 14 SHIP verified, baseline rotation pending)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
 > **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
+
+---
+
+## 🎯 ACTIVE INBOX (2026-04-27 10:30 KST) — User chose A → B → C, context full, hand off to new chat
+
+**User picked sequence after Phase 14 SHIP verdict was confirmed**:
+
+- **A** (~10 min): rotate `CURRENT_BASELINE` to Phase 14 metrics in 3 files:
+  - `run_local.py` `CURRENT_BASELINE` dict — keep old as `PHASE9_C3_CE_V2_BASELINE`
+  - `colab_run.ipynb` Cell 10 `BASELINE` dict
+  - `CLAUDE.md` "Current Production Baseline" section
+  - **New baseline values**: cagr=0.2358, sharpe=1.1783, max_dd=-0.2317, ir=0.9955, excess_cagr=0.1008, avg_turnover_monthly=0.4550, avg_stock_names=21.99, beat_month_ratio=0.6265
+  - **New concentrated champion**: N=5/monthly/score_power, holdings=[MRVL 26.2%, AMKR 22.5%, WDC 18.7%, CIEN 18.3%, FTI 14.3%], cagr=0.3340, sharpe=1.284, max_dd=-0.2529
+
+- **B** (~30-60 min): debug ADR universe — artifact named `r1000+adr` but 0/26 ADRs in scored_latest.csv. universe_source for all 595 rows = `historical_membership_file` (R1000 only). Investigate:
+  - workflow `.github/workflows/full_rebuild_manual.yml` — does `universe_mode=r1000+adr` input actually flow into engine?
+  - `r1000_data_collector.py build_candidate_universe` — is ADR injection wired?
+  - log `research/phase14_artifact/20260426_163944_r1000+adr.log` line 33 shows alphabetical R1000 only (A, AA, AAL, AAON, AAPL, ABBV, ABNB, ABT, ACGL, ACHC) — no ADR sample at all.
+  - **Implication**: SHIP verdict +0.67pp CAGR is **purely 6 Phase 14 features contribution**, ADR alpha untested.
+
+- **C** (~3-4h): Quarterly rebalance A/B test on main diversified —
+  - Add `cfg.rebalance_interval_months: int = 1` (default monthly)
+  - Modify `r1000_pipeline.py backtest_portfolio` to honor interval (concentrated code already has this)
+  - A/B: monthly vs quarterly with `--no-collector`
+  - Expected: turnover -50% (43% → ~22%), CAGR ±0.5pp, tax efficiency win
+  - Ship gate: ΔCAGR ≥ -1pp AND Δturnover ≤ -20pp (efficiency gate)
+
+---
+
+## 🎉 Phase 14 ZIP Verdict (run 24961673988, 2026-04-27 10:18) — SHIP CONFIRMED
+
+**Verdict tool output** (`tools/compare_adr_backtest.py --variant ... --use-pinned-baseline`):
+
+```
+CAGR      22.91%  ->    23.58%   ΔCAGR  +0.67pp  (gate ≥ +0.50pp)  ✅
+Sharpe    1.172   ->    1.178    ΔSharpe +0.006  (gate ≥ -0.050)   ✅
+MaxDD    -26.26%  ->   -23.17%   ΔMaxDD +3.09pp  (gate ≥ -3.00pp)  ✅
+VERDICT: ✅  SHIP — All 3 gates pass.
+```
+
+**Lifetime CAGR (Phase 12)**: 23.48% over 6.84y, $100k → $432k cumulative.
+
+**Phase 14 features verified in scored_latest.csv** (6/6 present):
+rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
+
+**Run metadata**: commit 724fbb9 DIRTY, engine 2026-04-25-phase14-hybrid-alpha, 95/95 walk-forward months, acceptance_checks all_pass=True.
+
+**Artifact location**: `research/phase14_artifact/` (7 files including verdict.log + full pipeline log) — preserved for new agent reference.
 
 ---
 
