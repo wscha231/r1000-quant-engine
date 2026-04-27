@@ -214,6 +214,7 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
         run: |
           # Auth method selection
@@ -240,14 +241,27 @@ jobs:
           if [ "$AUTH" = "service_account" ]; then
             # Mobile-friendly path: service account JSON in secret
             echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
-            printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json' > ~/.config/rclone/rclone.conf
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
           else
             # OAuth fallback (legacy, PC-required setup)
             echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
           fi
 
           # Sync FULL rebuild outputs to gdrive r1000_top30_institutional/outputs/
-          DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            DEST="gdrive:outputs"
+            LOG_DEST="gdrive:full_rebuild_logs"
+          else
+            DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
+            LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
+          fi
           echo "[gdrive-sync] copying outputs/ to $DEST/"
           rclone copy outputs/scored_latest.csv "$DEST/" 2>&1 || true
           rclone copy outputs/scored_unified.csv "$DEST/" 2>&1 || true
@@ -260,7 +274,7 @@ jobs:
           rclone copy outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>&1 || true
 
           # Also sync log + verdict for diagnostic visibility
-          rclone copy outputs/full_rebuild_logs/ "gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs/" 2>&1 || true
+          rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/" 2>&1 || true
 
           # Cleanup secret file
           rm -f /tmp/sa.json

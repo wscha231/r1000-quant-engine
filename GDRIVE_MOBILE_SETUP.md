@@ -70,6 +70,16 @@ Open: https://github.com/wscha231/r1000-quant-engine/settings/secrets/actions
   - The pasted content should start with `{` and end with `}`
 - **Add secret**
 
+Optional but recommended for service accounts:
+- Open the Drive folder in a browser and copy the folder ID from the URL:
+  `https://drive.google.com/drive/folders/<FOLDER_ID>`
+- In GitHub **Actions variables**, add:
+  - Name: `GDRIVE_ROOT_FOLDER_ID`
+  - Value: the copied folder ID
+
+This makes rclone write directly inside `r1000_top30_institutional/` instead
+of relying on Drive's "Shared with me" folder lookup.
+
 ---
 
 ## Step 4 — Trigger workflow
