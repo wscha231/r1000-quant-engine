@@ -1,0 +1,63 @@
+
+
+run_local.py crashed: TypeError: Column 'weight' has dtype object, cannot use method 'nlargest' with this dtype
+Traceback (most recent call last):
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 646, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 558, in main
+    return print_verdict(base_dir)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 374, in print_verdict
+    top = pf.nlargest(10, "weight")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/core/frame.py", line 7666, in nlargest
+    return selectn.SelectNFrame(self, n=n, keep=keep, columns=columns).nlargest()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/core/methods/selectn.py", line 57, in nlargest
+    return self.compute("nlargest")
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/core/methods/selectn.py", line 201, in compute
+    raise TypeError(
+TypeError: Column 'weight' has dtype object, cannot use method 'nlargest' with this dtype
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        0411658 (DIRTY)
+  started:       2026-04-27 15:26:27 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-04-27
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 600
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         367
+early_scout        105
+future_winner       73
+core_compounder     55
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=600
+  phase9_core_eligible                      mean=0.092  sum=55
+  phase9_future_eligible                    mean=0.122  sum=73
+  phase9_early_eligible                     mean=0.175  sum=105
+  phase9_unassigned                         mean=0.612  sum=367
+  phase9_mktcap_percentile                  mean=0.501  sum=300
+
+Final portfolio: 0 positions
