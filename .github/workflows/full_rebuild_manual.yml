@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       universe_mode:
-        description: 'r1000 (baseline) | r1000+adr (Phase 14 + ADR test) | r1000+adr+phase14_off (control)'
+        description: 'r1000 (baseline) | r1000+adr (Phase 14 + ADR test) | r1000+adr_phase14_off (control)'
         type: choice
         options:
           - r1000
@@ -105,7 +105,7 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           # Per Phase 14 wiring + Phase 1 backtest validation
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
-          PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
+          PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
         run: |
           set -e
           set -o pipefail   # ← critical: catch python failures through tee pipe

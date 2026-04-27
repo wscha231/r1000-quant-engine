@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ADR data availability check — verify each ADR in adr_universe.yaml has:
+"""ADR data availability check - verify each ADR in adr_universe.yaml has:
   1. Alpaca daily bars (>=5 years for backtest viability)
   2. Finnhub fundamentals (synthetic-row score path)
 
@@ -84,18 +84,18 @@ def main() -> int:
             return 1
 
     print("=" * 70)
-    print(f"ADR data availability check — {datetime.now():%Y-%m-%d %H:%M}")
+    print(f"ADR data availability check - {datetime.now():%Y-%m-%d %H:%M}")
     print("=" * 70)
     print(f"Universe: {len(tickers)} ADRs (mcap >= $30B, skip excluded)\n")
 
     if args.quick:
-        # Source audit only — list what's expected to be checkable
+        # Source audit only - list what's expected to be checkable
         print("SOURCE AUDIT (--quick mode, no network):\n")
         for m in meta_list:
             t = m["ticker"]
             print(f"  {t:7s} {m['country']:3s} {m['sector']:20s} "
                   f"${m['mcap_usd_b']:>5.0f}B  {m.get('listed_since', '?')}")
-        print(f"\nQUICK PASS — {len(tickers)} ADRs in whitelist, all have required fields.")
+        print(f"\nQUICK PASS - {len(tickers)} ADRs in whitelist, all have required fields.")
         return 0
 
     n_pass = 0

@@ -2607,12 +2607,28 @@ def apply_historical_membership_filter(monthly: pd.DataFrame, membership: pd.Dat
     m["rebalance_date"] = pd.to_datetime(m.get("rebalance_date"), errors="coerce")
     m["date_from"] = pd.to_datetime(m.get("date_from"), errors="coerce")
     m["date_to"] = pd.to_datetime(m.get("date_to"), errors="coerce")
+    external_universe_mask = (
+        d.get("universe_source", pd.Series("historical_membership_file", index=d.index, dtype=object))
+        .fillna("historical_membership_file")
+        .astype(str)
+        .ne("historical_membership_file")
+    )
 
     if m["rebalance_date"].notna().any():
         keep = m[["ticker", "rebalance_date"]].dropna().drop_duplicates()
         covered_dates = set(pd.to_datetime(keep["rebalance_date"], errors="coerce").dropna().tolist())
         out = d.merge(keep.assign(_keep=1), on=["ticker", "rebalance_date"], how="left")
-        keep_mask = (~out["rebalance_date"].isin(covered_dates)) | (pd.to_numeric(out["_keep"], errors="coerce").fillna(0.0) > 0)
+        external_after_merge = (
+            out.get("universe_source", pd.Series("historical_membership_file", index=out.index, dtype=object))
+            .fillna("historical_membership_file")
+            .astype(str)
+            .ne("historical_membership_file")
+        )
+        keep_mask = (
+            external_after_merge
+            | (~out["rebalance_date"].isin(covered_dates))
+            | (pd.to_numeric(out["_keep"], errors="coerce").fillna(0.0) > 0)
+        )
         return out.loc[keep_mask].drop(columns="_keep")
 
     if m["date_from"].notna().any() or m["date_to"].notna().any():
@@ -2620,6 +2636,8 @@ def apply_historical_membership_filter(monthly: pd.DataFrame, membership: pd.Dat
         for ticker, g in d.groupby("ticker", sort=False):
             mem = m[m["ticker"] == ticker]
             if mem.empty:
+                if external_universe_mask.reindex(g.index).fillna(False).any():
+                    chunks.append(g)
                 continue
             if mem[["date_from", "date_to"]].isna().all().all():
                 chunks.append(g)
@@ -2638,7 +2656,70 @@ def apply_historical_membership_filter(monthly: pd.DataFrame, membership: pd.Dat
         return pd.concat(chunks, ignore_index=True) if chunks else d.iloc[0:0].copy()
 
     keep = set(m["ticker"].dropna().astype(str).tolist())
-    return d[d["ticker"].isin(keep)].copy()
+    return d[external_universe_mask | d["ticker"].isin(keep)].copy()
+
+
+def summarize_universe_source(df: pd.DataFrame) -> str:
+    if df is None or df.empty or "universe_source" not in df.columns:
+        return "unknown"
+    sources = {
+        str(x)
+        for x in df["universe_source"].dropna().astype(str).unique().tolist()
+        if str(x)
+    }
+    if not sources:
+        return "unknown"
+    if len(sources) == 1:
+        return next(iter(sources))
+    preferred = [
+        "historical_membership_file",
+        "current_constituents_proxy",
+        "adr_whitelist",
+    ]
+    ordered = [x for x in preferred if x in sources]
+    ordered.extend(sorted(sources - set(ordered)))
+    return "+".join(ordered)
+
+
+def normalize_engine_universe_mode(mode: Any) -> str:
+    raw = str(mode or "historical_snapshot_preferred").strip()
+    return raw.replace("r1000+adr+phase14_off", "r1000+adr_phase14_off")
+
+
+def load_adr_universe_frame(min_mcap_usd_b: float = 30.0) -> pd.DataFrame:
+    try:
+        from aggressive.universe import load_adr_universe
+    except Exception as exc:
+        log(f"[WARN] ADR universe requested but aggressive.universe could not import: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+    try:
+        adr_tickers, adr_meta = load_adr_universe(min_mcap_usd_b=min_mcap_usd_b)
+    except Exception as exc:
+        log(f"[WARN] ADR universe requested but adr_universe.yaml load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+    meta_by_ticker = {
+        normalize_ticker(str(rec.get("ticker", ""))): rec
+        for rec in adr_meta
+        if isinstance(rec, dict)
+    }
+    rows: list[dict[str, Any]] = []
+    for ticker in adr_tickers:
+        t = normalize_ticker(str(ticker))
+        if not is_valid_ticker(t):
+            continue
+        rec = meta_by_ticker.get(t, {})
+        rows.append(
+            {
+                "ticker": t,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "ADR")),
+                "cik10": np.nan,
+                "universe_source": "adr_whitelist",
+            }
+        )
+    return pd.DataFrame(rows, columns=["ticker", "Name", "sector", "cik10", "universe_source"])
 
 
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
@@ -3010,13 +3091,20 @@ def write_market_adaptation_report(paths: dict[str, Path], df: pd.DataFrame, cfg
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
-    hist_membership = load_historical_universe_membership(cfg, paths)
+    universe_mode = normalize_engine_universe_mode(getattr(cfg, "universe_mode", "historical_snapshot_preferred"))
+    include_adr = universe_mode in {"r1000+adr", "r1000+adr_phase14_off", "adr"}
+    adr_only = universe_mode == "adr"
+    hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
         prev = pd.read_parquet(out_path) if out_path.exists() else pd.DataFrame()
     except Exception:
         prev = pd.DataFrame()
 
-    if not hist_membership.empty:
+    if adr_only:
+        uni = load_adr_universe_frame()
+        if uni.empty:
+            raise RuntimeError("universe_mode='adr' requested but adr_universe.yaml produced no tickers.")
+    elif not hist_membership.empty:
         uni = hist_membership.copy()
         if uni["Name"].replace("", np.nan).notna().sum() == 0:
             uni["Name"] = ""
@@ -3067,6 +3155,20 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         uni = pd.concat(frames, ignore_index=True)
         uni["universe_source"] = "current_constituents_proxy"
 
+    if include_adr and not adr_only:
+        adr_frame = load_adr_universe_frame()
+        if not adr_frame.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            adr_add = adr_frame[~adr_frame["ticker"].astype(str).isin(before)].copy()
+            if not adr_add.empty:
+                uni = pd.concat([uni, adr_add], ignore_index=True, sort=False)
+            log(
+                "ADR universe injection: "
+                f"mode={universe_mode}, whitelist={len(adr_frame)}, added={len(adr_add)}"
+            )
+        else:
+            log(f"[WARN] universe_mode={universe_mode} requested ADR injection, but ADR whitelist was empty.")
+
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
     uni = uni[~uni["ticker"].duplicated(keep="first")].copy()
@@ -3081,9 +3183,12 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cik10_y = uni["cik10_y"] if "cik10_y" in uni.columns else pd.Series(np.nan, index=uni.index)
         uni["cik10"] = cik10_x.fillna(cik10_y)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
-    snapshot_path = write_current_universe_membership_snapshot(cfg, paths, uni)
-    if snapshot_path is not None:
-        log(f"Archived current universe membership snapshot: {snapshot_path.name}")
+    if include_adr:
+        log("Skipping historical membership auto-archive for ADR-augmented universe run.")
+    else:
+        snapshot_path = write_current_universe_membership_snapshot(cfg, paths, uni)
+        if snapshot_path is not None:
+            log(f"Archived current universe membership snapshot: {snapshot_path.name}")
     write_universe_change_report(paths, prev, uni, warn_count=int(cfg.universe_change_warn_count))
     uni.to_parquet(out_path, index=False)
     return uni
@@ -7040,11 +7145,19 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # use rsi14 + ep_ttm + mom_*m + op_margin_ttm (all in feature_store),
     # Stage 2 uses near_52w_high_pct + RSI + fundamentals, theme_phase reads
     # ticker membership from themes.yaml.
-    universe = compute_rs_acceleration_score(universe)
-    universe = compute_h1_oversold_value_score(universe)
-    universe = compute_h6_dynamic_leader_score(universe)
-    universe = compute_stage2_overext_penalty(universe)
-    universe = compute_theme_phase_features(universe)
+    if phase_is_enabled("phase14_hybrid_alpha", default=True):
+        universe = compute_rs_acceleration_score(universe)
+        universe = compute_h1_oversold_value_score(universe)
+        universe = compute_h6_dynamic_leader_score(universe)
+        universe = compute_stage2_overext_penalty(universe)
+        universe = compute_theme_phase_features(universe)
+    else:
+        log(
+            "[phase14_hybrid_alpha] disabled via env PHASE_PHASE14_HYBRID_ALPHA_ENABLED=0 "
+            "- zero-filling Phase 14 feature columns."
+        )
+        for _p14_col in PHASE14_HYBRID_ALPHA_COLUMNS:
+            universe[_p14_col] = 0.0
 
     keep_cols = list(
         dict.fromkeys(
@@ -7152,9 +7265,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "feature_notna": int(fs["feature_date"].notna().sum()),
                 "label_notna": int((fs["r_1m"].notna() | fs["r_3m"].notna() | fs["r_6m"].notna()).sum()),
                 "mktcap_notna": int(fs["mktcap"].notna().sum()),
-                "universe_mode": "historical_membership_file"
-                if fs.get("universe_source", pd.Series(dtype=str)).astype(str).eq("historical_membership_file").any()
-                else "current_constituents_proxy",
+                "universe_mode": summarize_universe_source(fs),
             },
             indent=2,
         )
@@ -9181,12 +9292,8 @@ def run_acceptance_checks(
                 latest_only_nonnull += int(fs.loc[history_mask, c].notna().sum())
     checks["live_feature_history_nonnull"] = int(latest_only_nonnull)
     checks["live_feature_history_ok"] = int(latest_only_nonnull) == 0
-    checks["universe_mode"] = (
-        "historical_membership_file"
-        if fs.get("universe_source", pd.Series(dtype=str)).astype(str).eq("historical_membership_file").any()
-        else "current_constituents_proxy"
-    )
-    checks["survivorship_bias_warning"] = checks["universe_mode"] != "historical_membership_file"
+    checks["universe_mode"] = summarize_universe_source(fs)
+    checks["survivorship_bias_warning"] = not str(checks["universe_mode"]).startswith("historical_membership_file")
     checks["historical_membership_required"] = bool(cfg.require_historical_membership_for_backtest)
     checks["historical_membership_ok"] = not (
         cfg.require_historical_membership_for_backtest and checks["survivorship_bias_warning"]
@@ -15651,11 +15758,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "starting_capital_usd": float(bt.metrics.get("starting_capital_usd", np.nan)),
         "ending_capital_usd": float(bt.metrics.get("ending_capital_usd", np.nan)),
         "benchmark_ending_capital_usd": float(bt.metrics.get("benchmark_ending_capital_usd", np.nan)),
-        "universe_mode": (
-            "historical_membership_file"
-            if scored_latest.get("universe_source", pd.Series(dtype=str)).astype(str).eq("historical_membership_file").any()
-            else "current_constituents_proxy"
-        ),
+        "universe_mode": summarize_universe_source(scored_latest),
         "portfolio_export_blocked": portfolio_export_blocked,
         "metrics": bt.metrics,
         "benchmark_comparison": benchmark_compare,

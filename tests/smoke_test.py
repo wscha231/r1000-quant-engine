@@ -1323,6 +1323,8 @@ def test_full_rebuild_workflow() -> None:
         "workflow_dispatch",
         "universe_mode",
         "skip_collector",
+        "UNIVERSE_MODE",
+        "PHASE_PHASE14_HYBRID_ALPHA_ENABLED",
         "secrets.ALPACA_API_KEY",
         "secrets.FINNHUB_API_KEY",
         "tests/smoke_test.py",
@@ -1554,6 +1556,57 @@ def test_universe_r1000_plus_adr() -> None:
     )
     assert '"adr"' in src or "'adr'" in src, (
         "adr-only source mode not handled in load_universe()"
+    )
+
+
+@_test("regression.main_engine_adr_universe_mode_wired")
+def test_main_engine_adr_universe_mode_wired() -> None:
+    """full_rebuild_manual.yml universe_mode must reach the main engine.
+
+    History (2026-04-27):
+      Phase 14 verdict run used universe_mode=r1000+adr, but scored_latest.csv
+      had 0/26 ADRs because only aggressive/universe.py knew how to load ADRs.
+      run_local.py ignored UNIVERSE_MODE and main build_candidate_universe()
+      always fell back to historical R1000 membership.
+    """
+    run_src = (ROOT / "run_local.py").read_text(encoding="utf-8")
+    pipe_src = _pipeline_src()
+    wf_src = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+
+    for token in (
+        "--universe-mode",
+        "def resolve_universe_mode",
+        "UNIVERSE_MODE",
+        'runtime_overrides["universe_mode"] = universe_mode',
+    ):
+        assert token in run_src, f"run_local.py missing universe-mode wiring: {token}"
+
+    for token in (
+        "def load_adr_universe_frame",
+        "from aggressive.universe import load_adr_universe",
+        "adr_whitelist",
+        "include_adr =",
+        "Skipping historical membership auto-archive for ADR-augmented universe run",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing ADR universe wiring: {token}"
+
+    for token in (
+        "external_universe_mask",
+        "external_after_merge",
+        "summarize_universe_source",
+    ):
+        assert token in pipe_src, (
+            f"r1000_pipeline.py membership filter can still drop ADR rows: {token}"
+        )
+
+    assert 'phase_is_enabled("phase14_hybrid_alpha"' in pipe_src, (
+        "Phase 14 compute block must honor phase_is_enabled() for control runs"
+    )
+    assert "PHASE_PHASE14_HYBRID_ALPHA_ENABLED" in wf_src, (
+        "full_rebuild_manual.yml must set the env var name consumed by phase_is_enabled()"
+    )
+    assert not re.search(r"^\s*PHASE14_HYBRID_ALPHA_ENABLED:", wf_src, re.MULTILINE), (
+        "workflow still uses legacy Phase 14 env var name; control run will not disable Phase 14"
     )
 
 

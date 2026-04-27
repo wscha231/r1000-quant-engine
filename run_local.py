@@ -189,6 +189,9 @@ def parse_args() -> argparse.Namespace:
                    help=f"Drive mirror path (default: {DEFAULT_BASE_DIR!r}).")
     p.add_argument("--fast-mode", default="true", choices=["true", "false"],
                    help="fast_mode flag for collector/pipeline (default: true).")
+    p.add_argument("--universe-mode", default=None,
+                   help="Universe mode override. Defaults to UNIVERSE_MODE env when set. "
+                        "Supported: r1000, r1000+adr, adr, r1000+adr_phase14_off.")
     p.add_argument("--ab-quick", action="store_true",
                    help="A/B fast-iter mode: disable 7 expensive grid comparisons "
                         "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
@@ -245,6 +248,26 @@ def apply_phase_toggle(env_name: str, value: str) -> None:
     """Set env var unless value is 'auto' (keep cfg default)."""
     if value and value.lower() != "auto":
         os.environ[env_name] = str(value)
+
+
+def resolve_universe_mode(raw: Optional[str]) -> str:
+    """Resolve CLI/env universe mode into the EngineConfig value."""
+    value = (raw or os.environ.get("UNIVERSE_MODE") or "").strip()
+    if not value:
+        return ""
+    # Historical docs used both spellings; keep both accepted but normalize.
+    value = value.replace("r1000+adr+phase14_off", "r1000+adr_phase14_off")
+    allowed = {
+        "historical_snapshot_preferred",
+        "current_constituents",
+        "r1000",
+        "r1000+adr",
+        "adr",
+        "r1000+adr_phase14_off",
+    }
+    if value not in allowed:
+        raise ValueError(f"unsupported universe mode: {value!r}")
+    return value
 
 
 def resolve_commit_sha() -> tuple[str, bool]:
@@ -450,11 +473,24 @@ def main() -> int:
     base_dir = Path(args.base_dir)
     end_date = args.end_date or datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     fast_mode = args.fast_mode.lower() == "true"
+    try:
+        universe_mode = resolve_universe_mode(args.universe_mode)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     # Phase toggles
     apply_phase_toggle("PHASE_PHASE9_C1_REBALANCE_ENABLED", args.phase9_c1)
     apply_phase_toggle("PHASE_PHASE9_THESIS_GATE_ENABLED", args.phase9_c2)
     apply_phase_toggle("PHASE_PHASE9_C3_TURNAROUND_ENABLED", args.phase9_c3)
+    # Backward compatibility for the first Phase 14 GHA workflow wiring.
+    if os.environ.get("PHASE14_HYBRID_ALPHA_ENABLED") and not os.environ.get("PHASE_PHASE14_HYBRID_ALPHA_ENABLED"):
+        os.environ["PHASE_PHASE14_HYBRID_ALPHA_ENABLED"] = os.environ["PHASE14_HYBRID_ALPHA_ENABLED"]
+    if universe_mode == "r1000+adr_phase14_off":
+        os.environ["PHASE_PHASE14_HYBRID_ALPHA_ENABLED"] = "0"
+    runtime_overrides = dict(COMMON_CFG_OVERRIDES)
+    if universe_mode:
+        runtime_overrides["universe_mode"] = universe_mode
 
     # Banner
     sha, dirty = resolve_commit_sha()
@@ -468,11 +504,13 @@ def main() -> int:
     print(f"  end_date:      {end_date}")
     print(f"  mode:          {'FULL REBUILD' if args.full else 'QUICK_RESCORE'}")
     print(f"  fast_mode:     {fast_mode}")
+    print(f"  universe_mode: {universe_mode or '(cfg default)'}")
     print(f"  collector:     {'skipped' if args.no_collector else 'run'}")
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")
     print(f"  Phase 9 C2:    {args.phase9_c2}")
     print(f"  Phase 9 C3:    {args.phase9_c3}")
+    print(f"  Phase 14:      {os.environ.get('PHASE_PHASE14_HYBRID_ALPHA_ENABLED', 'auto')}")
     print("=" * 70)
 
     # Prereqs
@@ -506,7 +544,7 @@ def main() -> int:
         print(f"\n[{now_kst()}] >>> Step 1: Collector ({('FULL' if args.full else 'lean')}, fast_mode={fast_mode})")
         t0 = time.perf_counter()
         collector_cfg = collector_lean_full_run_cfg(str(base_dir), end_date=end_date)
-        collector_cfg.update(COMMON_CFG_OVERRIDES)
+        collector_cfg.update(runtime_overrides)
         collector_cfg["fast_mode"] = fast_mode
         try:
             collector_summary = run_data_collection(collector_cfg)
@@ -527,7 +565,7 @@ def main() -> int:
         pipeline_cfg = collector_lean_full_run_cfg(str(base_dir), end_date=end_date)
     else:
         pipeline_cfg = pipeline_quick_rescore_cfg(str(base_dir), end_date=end_date)
-    pipeline_cfg.update(COMMON_CFG_OVERRIDES)
+    pipeline_cfg.update(runtime_overrides)
     pipeline_cfg["fast_mode"] = fast_mode if args.full else True
     if args.full:
         pipeline_cfg["reuse_existing_artifacts"] = True

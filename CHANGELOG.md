@@ -51,6 +51,80 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-27
+
+### 10:44 KST - wire-adr-universe-mode-into-main-engine
+
+- scope:
+  - Fix the cloud FULL rebuild universe-mode path so `r1000+adr` and
+    `r1000+adr_phase14_off` actually reach the main R1000 engine, not only
+    the aggressive scanner helper.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` -> set
+     `PHASE_PHASE14_HYBRID_ALPHA_ENABLED`, keep `UNIVERSE_MODE`, and align
+     the phase14-off option spelling.
+  - `run_local.py` -> add `--universe-mode`, read `UNIVERSE_MODE`, normalize
+     legacy phase14-off spelling, and pass the value into collector/pipeline
+     runtime overrides.
+  - `r1000_pipeline.py` -> inject ADR whitelist rows into
+     `build_candidate_universe()` for ADR modes, preserve non-historical
+     universe rows through historical membership filtering, summarize mixed
+     universe sources, and gate Phase 14 compute columns with
+     `phase_is_enabled("phase14_hybrid_alpha")`.
+  - `tests/smoke_test.py` -> add regression guard that the GitHub Actions
+     input reaches `run_local.py` and the main pipeline ADR path.
+  - `tests/check_adr_data.py` -> replace non-ASCII console dashes so the
+     quick ADR source audit runs under the default Windows CP949 console.
+  - `SESSION_HANDOFF.md` -> update active inbox with A complete, B root cause
+     and fix status, and the design read for core vs concentrated goals.
+- symbols_added:
+  - `resolve_universe_mode(raw)` -> normalizes CLI/env universe-mode values
+     and validates supported modes.
+  - `summarize_universe_source(df)` -> returns a stable label for single or
+     mixed universe sources.
+  - `normalize_engine_universe_mode(mode)` -> canonicalizes engine
+     universe-mode spellings.
+  - `load_adr_universe_frame(min_mcap_usd_b)` -> adapts
+     `aggressive.universe.load_adr_universe()` into the main engine candidate
+     universe schema.
+  - `tests.smoke_test.test_main_engine_adr_universe_mode_wired()` -> source
+     guard for the ADR-mode regression.
+- symbols_changed:
+  - `run_local.main()` -> applies universe-mode runtime overrides and maps the
+     legacy Phase 14 env var to the env name consumed by `phase_is_enabled()`.
+  - `build_candidate_universe()` -> supports `r1000+adr`,
+     `r1000+adr_phase14_off`, and `adr` modes in the main pipeline.
+  - `apply_historical_membership_filter()` -> keeps external universe rows
+     such as ADR whitelist rows while still filtering historical R1000 rows.
+  - `build_feature_store()` -> zero-fills Phase 14 columns when the Phase 14
+     env gate is disabled for control runs.
+  - `run_acceptance_checks()` -> reports mixed universe sources instead of a
+     binary historical/current label.
+  - `export_outputs()` -> writes mixed universe source labels to run summary
+     metadata.
+  - `tests.smoke_test.test_full_rebuild_workflow()` -> asserts the exact
+     Phase 14 env var required by the workflow.
+  - `tests.check_adr_data.main()` -> emits ASCII-only status text.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `git diff --check` -> PASS
+  - `py -3 -m py_compile run_local.py r1000_pipeline.py tests\smoke_test.py tests\check_adr_data.py` -> PASS
+  - `py -3 tests\smoke_test.py` -> 62/62 PASS
+  - synthetic `apply_historical_membership_filter()` + ADR whitelist import
+     check -> PASS, 26 ADR rows loaded
+  - `py -3 tests\check_adr_data.py --quick` -> PASS, 26 ADRs audited
+- risks_or_notes:
+  - ADR rows still have sparse SEC CIK/companyfacts coverage; the existing
+    Finnhub synthetic fundamentals path must carry those names in the next
+    FULL rebuild.
+  - The confirmed Phase 14 ship verdict remains R1000-only until a new
+    `r1000+adr` FULL rebuild exercises this fixed path.
+
 ## 2026-04-26
 
 ### 00:30 KST - phase14-hybrid-alpha-and-system-audit

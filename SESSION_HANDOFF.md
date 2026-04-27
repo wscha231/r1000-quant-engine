@@ -1,4 +1,4 @@
-# Session Handoff — 2026-04-27 10:30 KST (Phase 14 SHIP verified, baseline rotation pending)
+# Session Handoff - 2026-04-27 10:44 KST (Phase 14 baseline rotated, ADR path fixed)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,29 +6,27 @@
 
 ---
 
-## 🎯 ACTIVE INBOX (2026-04-27 10:30 KST) — User chose A → B → C, context full, hand off to new chat
+## ACTIVE INBOX (2026-04-27 10:44 KST) - A complete, B fixed, C next
 
-**User picked sequence after Phase 14 SHIP verdict was confirmed**:
+**Current status**
 
-- **A** (~10 min): rotate `CURRENT_BASELINE` to Phase 14 metrics in 3 files:
-  - `run_local.py` `CURRENT_BASELINE` dict — keep old as `PHASE9_C3_CE_V2_BASELINE`
-  - `colab_run.ipynb` Cell 10 `BASELINE` dict
-  - `CLAUDE.md` "Current Production Baseline" section
-  - **New baseline values**: cagr=0.2358, sharpe=1.1783, max_dd=-0.2317, ir=0.9955, excess_cagr=0.1008, avg_turnover_monthly=0.4550, avg_stock_names=21.99, beat_month_ratio=0.6265
-  - **New concentrated champion**: N=5/monthly/score_power, holdings=[MRVL 26.2%, AMKR 22.5%, WDC 18.7%, CIEN 18.3%, FTI 14.3%], cagr=0.3340, sharpe=1.284, max_dd=-0.2529
+- **A complete**: Phase 14 metrics are the production baseline in `run_local.py`, `colab_run.ipynb`, and `CLAUDE.md`. Old baseline preserved as `PHASE9_C3_CE_V2_BASELINE`.
+- **B fixed in code**: ADR universe was dead in the main engine. Root cause was three-part:
+  - GitHub Actions set `UNIVERSE_MODE`, but `run_local.py` did not pass it into EngineConfig overrides.
+  - `full_rebuild_manual.yml` used legacy `PHASE14_HYBRID_ALPHA_ENABLED`; `phase_is_enabled("phase14_hybrid_alpha")` consumes `PHASE_PHASE14_HYBRID_ALPHA_ENABLED`.
+  - `r1000_pipeline.py build_candidate_universe()` always used historical R1000 membership and historical membership filtering would drop external ADR rows.
+- **B validation**: smoke 62/62 PASS, ADR quick audit 26/26 PASS, synthetic membership-filter check keeps `adr_whitelist` rows.
+- **ADR alpha still untested**: prior SHIP verdict remains pure Phase 14 feature contribution because run 24961673988 had 0/26 ADRs. Trigger a new FULL rebuild with `universe_mode=r1000+adr` to test ADR contribution.
 
-- **B** (~30-60 min): debug ADR universe — artifact named `r1000+adr` but 0/26 ADRs in scored_latest.csv. universe_source for all 595 rows = `historical_membership_file` (R1000 only). Investigate:
-  - workflow `.github/workflows/full_rebuild_manual.yml` — does `universe_mode=r1000+adr` input actually flow into engine?
-  - `r1000_data_collector.py build_candidate_universe` — is ADR injection wired?
-  - log `research/phase14_artifact/20260426_163944_r1000+adr.log` line 33 shows alphabetical R1000 only (A, AA, AAL, AAON, AAPL, ABBV, ABNB, ABT, ACGL, ACHC) — no ADR sample at all.
-  - **Implication**: SHIP verdict +0.67pp CAGR is **purely 6 Phase 14 features contribution**, ADR alpha untested.
+**Design read against user goal**
 
-- **C** (~3-4h): Quarterly rebalance A/B test on main diversified —
-  - Add `cfg.rebalance_interval_months: int = 1` (default monthly)
-  - Modify `r1000_pipeline.py backtest_portfolio` to honor interval (concentrated code already has this)
-  - A/B: monthly vs quarterly with `--no-collector`
-  - Expected: turnover -50% (43% → ~22%), CAGR ±0.5pp, tax efficiency win
-  - Ship gate: ΔCAGR ≥ -1pp AND Δturnover ≤ -20pp (efficiency gate)
+- **Core portfolio goal**: current Phase 14 main CAGR is 23.58%, Sharpe 1.178, MaxDD -23.17%, avg monthly turnover 45.5%. The architecture is pointed the right way, but core is not yet a stable 25% system. Do not chase this by adding more names/signals first; next best step is C, the quarterly/sleeve-aware rebalance A/B, because turnover and exit cadence are the largest stability risks.
+- **Concentrated goal**: current champion is N=5/monthly/score_power, CAGR 33.40%, Sharpe 1.284, MaxDD -25.29%. If daily trading is allowed, concentrated needs a separate daily replay/aggressive execution track; forcing daily behavior into the monthly core backtest will blur the mandate and make core less stable.
+- **Recommended sequence from here**:
+  1. Commit/push B if not already done.
+  2. Run a new FULL `r1000+adr` rebuild to verify ADR rows are present and verdict changes.
+  3. Start C for core stability: implement `rebalance_interval_months` in main `backtest_portfolio()` and compare monthly vs quarterly.
+  4. After C, design concentrated daily replay using scanner signals, daily stop/hold rules, and separate CAGR-max objective.
 
 ---
 
