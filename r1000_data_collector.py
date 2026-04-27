@@ -45,7 +45,7 @@ def _apply_notebook_runtime_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     if companyfacts_zip.exists():
         cfg["use_sec_companyfacts_bulk_local"] = True
         cfg["sec_companyfacts_bulk_path"] = str(companyfacts_zip)
-    cfg.setdefault("default_backtest_years", 10)
+    cfg.setdefault("default_backtest_years", 8)
     cfg.setdefault("backtest_window_comparison_years", [5, 8, 10])
     cfg.setdefault("rebalance_interval_comparison_months", [1, 3, 6])
     cfg.setdefault("run_portfolio_size_comparison", True)
@@ -81,7 +81,7 @@ def collector_lean_full_run_cfg(base_dir: Optional[str] = None, end_date: Option
     cfg["run_comparison_backtests"] = False
     cfg["run_portfolio_size_comparison"] = False
     cfg["run_rebalance_interval_comparison"] = True
-    cfg["run_backtest_window_comparison"] = False
+    cfg["run_backtest_window_comparison"] = True
     cfg["export_extended_outputs"] = False
     cfg["export_explain_outputs"] = False
     return _apply_notebook_runtime_defaults(cfg)

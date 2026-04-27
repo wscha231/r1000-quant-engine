@@ -25,8 +25,9 @@ Usage:
 
 ADR mode (added 2026-04-25):
   ADRs (ASML, TSM, BABA, etc.) are NOT in iShares IWB (Russell 1000 = US-domestic).
-  adr_universe.yaml maintains a curated top-mcap whitelist (>=$30B) of ADRs that
-  trade on NYSE/NASDAQ and are tradeable on Alpaca paper. Source for additions:
+  adr_universe.yaml maintains a curated top-mcap whitelist (>=$8B) of ADR/ADS
+  and US-listed foreign ordinary shares that trade on NYSE/NASDAQ and are tradeable
+  on Alpaca paper. Source for additions:
   PHASE_18A theme discovery + manual mcap review. SK Hynix Oct 2026 watchlist
   documented in adr_universe.yaml's `adr_watchlist` section.
 """
@@ -204,7 +205,7 @@ _ADR_UNIVERSE_PATH = Path(__file__).parent.parent / "adr_universe.yaml"
 
 
 def load_adr_universe(
-    min_mcap_usd_b: float = 30.0,
+    min_mcap_usd_b: float = 8.0,
     include_skip: bool = False,
 ) -> tuple[list[str], list[dict]]:
     """Load curated ADR whitelist from adr_universe.yaml.
@@ -212,7 +213,7 @@ def load_adr_universe(
     Returns (tickers, metadata_list) where metadata_list contains the full record
     (country, sector, sub_sector, mcap, themes, notes) for each ticker.
 
-    min_mcap_usd_b: filter ADRs by self-reported market cap (default $30B floor).
+    min_mcap_usd_b: filter ADRs by self-reported market cap (default $8B floor).
     include_skip:   if True, also include records with skip:true (e.g. TCEHY OTC).
     """
     if not _ADR_UNIVERSE_PATH.exists():
@@ -253,7 +254,7 @@ def load_universe(
     tickers: Optional[list[str]] = None,
     max_age_hours: int = 24,
     min_market_value_musd: float = 0.0,
-    adr_min_mcap_usd_b: float = 30.0,
+    adr_min_mcap_usd_b: float = 8.0,
 ) -> tuple[list[str], dict]:
     """Load tradeable universe. Returns (tickers, metadata).
 

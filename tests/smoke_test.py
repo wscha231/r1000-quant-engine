@@ -1501,7 +1501,7 @@ def test_adr_universe_yaml() -> None:
 
     History (2026-04-25):
       User requested ASML/TSM + ADRs to compete fairly with R1000 names.
-      adr_universe.yaml is the canonical whitelist (mcap>=$30B, NYSE/NASDAQ).
+      adr_universe.yaml is the canonical whitelist (mcap>=$8B, NYSE/NASDAQ).
       themes.yaml was updated to include the same ADRs in semi/pharma themes.
 
     This guard ensures the file exists, parses cleanly, has minimum coverage,
@@ -1609,6 +1609,9 @@ def test_main_engine_adr_universe_mode_wired() -> None:
         "def load_adr_universe_frame",
         "from aggressive.universe import load_adr_universe",
         "adr_whitelist",
+        "adr_universe_min_mcap_usd_b",
+        "adr_global_alpha_fallback_pass",
+        "adr_global_alpha_fallback",
         "include_adr =",
         "Skipping historical membership auto-archive for global alpha / ADR-augmented universe run",
     ):
@@ -1634,10 +1637,44 @@ def test_main_engine_adr_universe_mode_wired() -> None:
     )
 
 
-@_test("regression.global_alpha_universe_10y_audit_wired")
-def test_global_alpha_universe_10y_audit_wired() -> None:
-    """The shared global-alpha universe, 10-year execution path, and sleeve
-    audit outputs must be wired through local + GitHub Actions entrypoints.
+@_test("logic.adr_global_alpha_fallback_gate")
+def test_adr_global_alpha_fallback_gate() -> None:
+    """Sparse-fundamental ADRs can enter via price/RS confirmation instead
+    of being killed as unassigned by the Phase 9 thesis gate.
+    """
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import annotate_portfolio_candidate_gate
+
+    df = pd.DataFrame(
+        {
+            "ticker": ["ADR1", "US1"],
+            "universe_source": ["adr_whitelist", "current_constituents_proxy"],
+            "portfolio_sleeve_label": ["unassigned", "unassigned"],
+            "score": [3.0, 2.0],
+            "mom_6m": [0.2, 0.2],
+            "mom_12m": [0.3, 0.3],
+            "rs_benchmark_6m": [0.1, 0.1],
+            "relative_strength_composite": [1.0, 1.0],
+            "price_above_ma50": [1, 1],
+            "price_above_ma200": [1, 1],
+            "trend_template_relaxed": [1, 1],
+            "dynamic_leader_score": [1, 1],
+        }
+    )
+    out = annotate_portfolio_candidate_gate(df, EngineConfig())
+    adr = out.loc[out["ticker"].eq("ADR1")].iloc[0]
+    us = out.loc[out["ticker"].eq("US1")].iloc[0]
+    assert bool(adr["portfolio_candidate_minimum_pass"])
+    assert str(adr["portfolio_sleeve_label"]) == "future_winner"
+    assert str(adr["portfolio_candidate_gate_label"]) == "adr_global_alpha_fallback"
+    assert not bool(us["portfolio_candidate_minimum_pass"])
+
+
+@_test("regression.global_alpha_universe_window_audit_wired")
+def test_global_alpha_universe_window_audit_wired() -> None:
+    """The shared global-alpha universe, official 8-year execution path, and
+    5/8/10-year sleeve audit outputs must be wired through entrypoints.
     """
     cfg_src = _config_src()
     run_src = (ROOT / "run_local.py").read_text(encoding="utf-8")
@@ -1651,13 +1688,13 @@ def test_global_alpha_universe_10y_audit_wired() -> None:
         'runtime_overrides["default_backtest_years"]',
         'runtime_overrides["backtest_window_comparison_years"]',
     ):
-        assert token in run_src, f"run_local.py missing global-alpha/10y wiring: {token}"
+        assert token in run_src, f"run_local.py missing global-alpha/window wiring: {token}"
 
     for token in (
-        "default_backtest_years: int = 10",
+        "default_backtest_years: int = 8",
         "[5, 8, 10]",
     ):
-        assert token in cfg_src, f"r1000_config.py missing 10y default/comparison token: {token}"
+        assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
 
     for token in (
         "global_alpha_universe",
@@ -1674,7 +1711,7 @@ def test_global_alpha_universe_10y_audit_wired() -> None:
         "--backtest-years",
         "outputs/reports/global_alpha_sleeve_audit_*.csv",
     ):
-        assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/10y token: {token}"
+        assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/window token: {token}"
 
 
 @_test("regression.layer4_swap_bridge_wired")

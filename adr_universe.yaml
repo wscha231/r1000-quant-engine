@@ -5,11 +5,13 @@
 #   - adr_universe.yaml is whitelist (canonical "is this ADR in our scan universe?")
 #   - update cadence differs: themes change weekly, ADR list changes ~quarterly
 #
-# Inclusion criteria (2026-04-25 baseline):
-#   - Listed on NYSE or NASDAQ as ADR (not foreign exchange — Alpaca paper requirement)
-#   - Market cap >= $30B (liquidity floor)
-#   - Daily price history >= 5 years (backtest viability — 84mo target)
-#   - Finnhub fundamentals available (synthetic-row score path)
+# Inclusion criteria (2026-04-27 v2 baseline):
+#   - Listed on NYSE or NASDAQ as ADR/ADS/foreign ordinary, excluding OTC pink sheets.
+#   - Core global mega-cap names plus liquid global-alpha extension >= ~$8B.
+#   - SEC companyfacts may be sparse for foreign issuers; ADR fallback scoring
+#     uses price, momentum, relative strength, and broad score confirmation.
+#   - Daily price history usually >= 5 years where possible; newer names remain
+#     usable for latest scoring but have partial backtest coverage.
 #
 # Data path expectation (per ticker):
 #   - Alpaca daily bars            ✅ all ADRs (US exchange)
@@ -305,6 +307,715 @@ adr_universe:
     listed_since: "1995-08"
     themes: [ai_software]
     notes: "Enterprise ERP. Cloud transition + AI integration."
+
+  # ============== Global alpha extension (liquid foreign listings) ==============
+  - ticker: INFY
+    name: "Infosys"
+    country: IN
+    sector: Software
+    sub_sector: IT Services
+    mcap_usd_b: 80
+    listed_since: "1999-03"
+    themes: [ai_software]
+
+  - ticker: WIT
+    name: "Wipro"
+    country: IN
+    sector: Software
+    sub_sector: IT Services
+    mcap_usd_b: 30
+    listed_since: "2000-10"
+    themes: []
+
+  - ticker: HDB
+    name: "HDFC Bank"
+    country: IN
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 150
+    listed_since: "2001-07"
+    themes: []
+
+  - ticker: IBN
+    name: "ICICI Bank"
+    country: IN
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 100
+    listed_since: "2000-03"
+    themes: []
+
+  - ticker: RDY
+    name: "Dr. Reddy's Laboratories"
+    country: IN
+    sector: Pharma
+    sub_sector: Generics
+    mcap_usd_b: 12
+    listed_since: "2001-04"
+    themes: [pharma_large_cap]
+
+  - ticker: MMYT
+    name: "MakeMyTrip"
+    country: IN
+    sector: Internet
+    sub_sector: Travel
+    mcap_usd_b: 10
+    listed_since: "2010-08"
+    themes: []
+
+  - ticker: MELI
+    name: "MercadoLibre"
+    country: AR
+    sector: Internet
+    sub_sector: E-commerce
+    mcap_usd_b: 100
+    listed_since: "2007-08"
+    themes: [china_tech_adr]
+    notes: "US-listed foreign issuer, not an ADR. Included for global alpha competition."
+
+  - ticker: GLOB
+    name: "Globant"
+    country: LU
+    sector: Software
+    sub_sector: IT Services
+    mcap_usd_b: 8
+    listed_since: "2014-07"
+    themes: [ai_software]
+
+  - ticker: NU
+    name: "Nu Holdings"
+    country: KY
+    sector: Financial
+    sub_sector: Digital Bank
+    mcap_usd_b: 50
+    listed_since: "2021-12"
+    themes: []
+    notes: "Newer listing: latest scoring usable, long backtests partial."
+
+  - ticker: XP
+    name: "XP Inc."
+    country: KY
+    sector: Financial
+    sub_sector: Brokerage
+    mcap_usd_b: 10
+    listed_since: "2019-12"
+    themes: []
+
+  - ticker: STNE
+    name: "StoneCo"
+    country: KY
+    sector: Financial
+    sub_sector: Payments
+    mcap_usd_b: 8
+    listed_since: "2018-10"
+    themes: []
+
+  - ticker: PAGS
+    name: "PagSeguro Digital"
+    country: KY
+    sector: Financial
+    sub_sector: Payments
+    mcap_usd_b: 8
+    listed_since: "2018-01"
+    themes: []
+
+  - ticker: ITUB
+    name: "Itau Unibanco"
+    country: BR
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 60
+    listed_since: "2002-02"
+    themes: []
+
+  - ticker: BBD
+    name: "Banco Bradesco"
+    country: BR
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 25
+    listed_since: "2001-11"
+    themes: []
+
+  - ticker: BSBR
+    name: "Banco Santander Brasil"
+    country: BR
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 20
+    listed_since: "2009-10"
+    themes: []
+
+  - ticker: ABEV
+    name: "Ambev"
+    country: BR
+    sector: Consumer Staples
+    sub_sector: Beverages
+    mcap_usd_b: 35
+    listed_since: "1997-11"
+    themes: []
+
+  - ticker: PBR
+    name: "Petrobras"
+    country: BR
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 90
+    listed_since: "2000-08"
+    themes: []
+
+  - ticker: VALE
+    name: "Vale"
+    country: BR
+    sector: Materials
+    sub_sector: Mining
+    mcap_usd_b: 50
+    listed_since: "2002-03"
+    themes: []
+
+  - ticker: GGB
+    name: "Gerdau"
+    country: BR
+    sector: Materials
+    sub_sector: Steel
+    mcap_usd_b: 8
+    listed_since: "1999-03"
+    themes: []
+
+  - ticker: SQM
+    name: "Sociedad Quimica y Minera de Chile"
+    country: CL
+    sector: Materials
+    sub_sector: Lithium
+    mcap_usd_b: 12
+    listed_since: "1993-09"
+    themes: []
+
+  - ticker: CIB
+    name: "Bancolombia"
+    country: CO
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 10
+    listed_since: "1995-07"
+    themes: []
+
+  - ticker: EC
+    name: "Ecopetrol"
+    country: CO
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 20
+    listed_since: "2008-09"
+    themes: []
+
+  - ticker: VIST
+    name: "Vista Energy"
+    country: MX
+    sector: Energy
+    sub_sector: E&P
+    mcap_usd_b: 8
+    listed_since: "2019-07"
+    themes: []
+
+  - ticker: SPOT
+    name: "Spotify Technology"
+    country: LU
+    sector: Internet
+    sub_sector: Streaming
+    mcap_usd_b: 120
+    listed_since: "2018-04"
+    themes: [ai_software]
+    notes: "US-listed foreign issuer, not an ADR."
+
+  - ticker: SE
+    name: "Sea Limited"
+    country: SG
+    sector: Internet
+    sub_sector: E-commerce/Gaming
+    mcap_usd_b: 80
+    listed_since: "2017-10"
+    themes: []
+
+  - ticker: TME
+    name: "Tencent Music Entertainment"
+    country: CN
+    sector: Internet
+    sub_sector: Music Streaming
+    mcap_usd_b: 20
+    listed_since: "2018-12"
+    themes: [china_tech_adr]
+
+  - ticker: ZTO
+    name: "ZTO Express"
+    country: CN
+    sector: Industrials
+    sub_sector: Logistics
+    mcap_usd_b: 18
+    listed_since: "2016-10"
+    themes: [china_tech_adr]
+
+  - ticker: BEKE
+    name: "KE Holdings"
+    country: CN
+    sector: Real Estate
+    sub_sector: Housing Platform
+    mcap_usd_b: 20
+    listed_since: "2020-08"
+    themes: [china_tech_adr]
+
+  - ticker: YMM
+    name: "Full Truck Alliance"
+    country: CN
+    sector: Industrials
+    sub_sector: Logistics Platform
+    mcap_usd_b: 12
+    listed_since: "2021-06"
+    themes: [china_tech_adr]
+    notes: "Newer listing: latest scoring usable, long backtests partial."
+
+  - ticker: EDU
+    name: "New Oriental Education"
+    country: CN
+    sector: Consumer Discretionary
+    sub_sector: Education
+    mcap_usd_b: 12
+    listed_since: "2006-09"
+    themes: [china_tech_adr]
+
+  - ticker: TAL
+    name: "TAL Education"
+    country: CN
+    sector: Consumer Discretionary
+    sub_sector: Education
+    mcap_usd_b: 10
+    listed_since: "2010-10"
+    themes: [china_tech_adr]
+
+  - ticker: FUTU
+    name: "Futu Holdings"
+    country: HK
+    sector: Financial
+    sub_sector: Brokerage
+    mcap_usd_b: 15
+    listed_since: "2019-03"
+    themes: [china_tech_adr]
+
+  - ticker: LI
+    name: "Li Auto"
+    country: CN
+    sector: Auto
+    sub_sector: EV
+    mcap_usd_b: 25
+    listed_since: "2020-07"
+    themes: [china_tech_adr]
+    notes: "Newer listing: latest scoring usable, long backtests partial."
+
+  - ticker: NIO
+    name: "NIO"
+    country: CN
+    sector: Auto
+    sub_sector: EV
+    mcap_usd_b: 8
+    listed_since: "2018-09"
+    themes: [china_tech_adr]
+
+  - ticker: BBVA
+    name: "Banco Bilbao Vizcaya Argentaria"
+    country: ES
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 80
+    listed_since: "1988-12"
+    themes: []
+
+  - ticker: SAN
+    name: "Banco Santander"
+    country: ES
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 90
+    listed_since: "1987-07"
+    themes: []
+
+  - ticker: ING
+    name: "ING Groep"
+    country: NL
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 70
+    listed_since: "1997-03"
+    themes: []
+
+  - ticker: DB
+    name: "Deutsche Bank"
+    country: DE
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 35
+    listed_since: "2001-10"
+    themes: []
+
+  - ticker: UBS
+    name: "UBS Group"
+    country: CH
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 110
+    listed_since: "2000-05"
+    themes: []
+
+  - ticker: BCS
+    name: "Barclays"
+    country: UK
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 50
+    listed_since: "1986-09"
+    themes: []
+
+  - ticker: LYG
+    name: "Lloyds Banking Group"
+    country: UK
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 50
+    listed_since: "2001-11"
+    themes: []
+
+  - ticker: RACE
+    name: "Ferrari"
+    country: NL
+    sector: Auto
+    sub_sector: Luxury Auto
+    mcap_usd_b: 80
+    listed_since: "2015-10"
+    themes: []
+
+  - ticker: STLA
+    name: "Stellantis"
+    country: NL
+    sector: Auto
+    sub_sector: OEM
+    mcap_usd_b: 60
+    listed_since: "2010-06"
+    themes: []
+
+  - ticker: ERIC
+    name: "Ericsson"
+    country: SE
+    sector: Telecom Equipment
+    sub_sector: Networks
+    mcap_usd_b: 25
+    listed_since: "1989-09"
+    themes: []
+
+  - ticker: NOK
+    name: "Nokia"
+    country: FI
+    sector: Telecom Equipment
+    sub_sector: Networks
+    mcap_usd_b: 20
+    listed_since: "1994-07"
+    themes: []
+
+  - ticker: VOD
+    name: "Vodafone Group"
+    country: UK
+    sector: Telecom
+    sub_sector: Wireless
+    mcap_usd_b: 25
+    listed_since: "1988-10"
+    themes: []
+
+  - ticker: BTI
+    name: "British American Tobacco"
+    country: UK
+    sector: Consumer Staples
+    sub_sector: Tobacco
+    mcap_usd_b: 90
+    listed_since: "1980-01"
+    themes: []
+
+  - ticker: BUD
+    name: "Anheuser-Busch InBev"
+    country: BE
+    sector: Consumer Staples
+    sub_sector: Beverages
+    mcap_usd_b: 120
+    listed_since: "2009-07"
+    themes: []
+
+  - ticker: PHG
+    name: "Koninklijke Philips"
+    country: NL
+    sector: Health Care
+    sub_sector: Medical Devices
+    mcap_usd_b: 25
+    listed_since: "1987-09"
+    themes: []
+
+  - ticker: SNY
+    name: "Sanofi"
+    country: FR
+    sector: Pharma
+    sub_sector: Mixed
+    mcap_usd_b: 120
+    listed_since: "2002-07"
+    themes: [pharma_large_cap]
+
+  - ticker: TAK
+    name: "Takeda Pharmaceutical"
+    country: JP
+    sector: Pharma
+    sub_sector: Mixed
+    mcap_usd_b: 35
+    listed_since: "2018-12"
+    themes: [pharma_large_cap]
+
+  - ticker: ARGX
+    name: "argenx"
+    country: NL
+    sector: Biotech
+    sub_sector: Immunology
+    mcap_usd_b: 35
+    listed_since: "2017-05"
+    themes: [pharma_large_cap]
+
+  - ticker: SHOP
+    name: "Shopify"
+    country: CA
+    sector: Software
+    sub_sector: Commerce Platform
+    mcap_usd_b: 120
+    listed_since: "2015-05"
+    themes: [ai_software]
+    notes: "US-listed Canadian foreign issuer; included for shared global alpha universe."
+
+  - ticker: RY
+    name: "Royal Bank of Canada"
+    country: CA
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 170
+    listed_since: "1995-10"
+    themes: []
+
+  - ticker: TD
+    name: "Toronto-Dominion Bank"
+    country: CA
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 110
+    listed_since: "1996-08"
+    themes: []
+
+  - ticker: BMO
+    name: "Bank of Montreal"
+    country: CA
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 80
+    listed_since: "1995-10"
+    themes: []
+
+  - ticker: BNS
+    name: "Bank of Nova Scotia"
+    country: CA
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 70
+    listed_since: "1999-03"
+    themes: []
+
+  - ticker: CM
+    name: "Canadian Imperial Bank of Commerce"
+    country: CA
+    sector: Financial
+    sub_sector: Bank
+    mcap_usd_b: 55
+    listed_since: "1997-05"
+    themes: []
+
+  - ticker: MFC
+    name: "Manulife Financial"
+    country: CA
+    sector: Financial
+    sub_sector: Insurance
+    mcap_usd_b: 50
+    listed_since: "1999-09"
+    themes: []
+
+  - ticker: SLF
+    name: "Sun Life Financial"
+    country: CA
+    sector: Financial
+    sub_sector: Insurance
+    mcap_usd_b: 40
+    listed_since: "2000-03"
+    themes: []
+
+  - ticker: ENB
+    name: "Enbridge"
+    country: CA
+    sector: Energy
+    sub_sector: Midstream
+    mcap_usd_b: 100
+    listed_since: "1984-12"
+    themes: []
+
+  - ticker: CNQ
+    name: "Canadian Natural Resources"
+    country: CA
+    sector: Energy
+    sub_sector: E&P
+    mcap_usd_b: 70
+    listed_since: "2000-07"
+    themes: []
+
+  - ticker: SU
+    name: "Suncor Energy"
+    country: CA
+    sector: Energy
+    sub_sector: Integrated Oil
+    mcap_usd_b: 50
+    listed_since: "1992-03"
+    themes: []
+
+  - ticker: TRP
+    name: "TC Energy"
+    country: CA
+    sector: Energy
+    sub_sector: Midstream
+    mcap_usd_b: 45
+    listed_since: "1984-10"
+    themes: []
+
+  - ticker: PBA
+    name: "Pembina Pipeline"
+    country: CA
+    sector: Energy
+    sub_sector: Midstream
+    mcap_usd_b: 25
+    listed_since: "2010-10"
+    themes: []
+
+  - ticker: CNI
+    name: "Canadian National Railway"
+    country: CA
+    sector: Industrials
+    sub_sector: Railroad
+    mcap_usd_b: 70
+    listed_since: "1996-11"
+    themes: []
+
+  - ticker: CP
+    name: "Canadian Pacific Kansas City"
+    country: CA
+    sector: Industrials
+    sub_sector: Railroad
+    mcap_usd_b: 70
+    listed_since: "1983-12"
+    themes: []
+
+  - ticker: TU
+    name: "TELUS"
+    country: CA
+    sector: Telecom
+    sub_sector: Wireless
+    mcap_usd_b: 25
+    listed_since: "1996-05"
+    themes: []
+
+  - ticker: BCE
+    name: "BCE"
+    country: CA
+    sector: Telecom
+    sub_sector: Wireless
+    mcap_usd_b: 25
+    listed_since: "1982-09"
+    themes: []
+
+  - ticker: GIB
+    name: "CGI"
+    country: CA
+    sector: Software
+    sub_sector: IT Services
+    mcap_usd_b: 25
+    listed_since: "1998-10"
+    themes: [ai_software]
+
+  - ticker: NTR
+    name: "Nutrien"
+    country: CA
+    sector: Materials
+    sub_sector: Fertilizer
+    mcap_usd_b: 25
+    listed_since: "2018-01"
+    themes: []
+
+  - ticker: TECK
+    name: "Teck Resources"
+    country: CA
+    sector: Materials
+    sub_sector: Mining
+    mcap_usd_b: 25
+    listed_since: "1999-07"
+    themes: []
+
+  - ticker: AEM
+    name: "Agnico Eagle Mines"
+    country: CA
+    sector: Materials
+    sub_sector: Gold
+    mcap_usd_b: 40
+    listed_since: "1980-01"
+    themes: []
+
+  - ticker: FNV
+    name: "Franco-Nevada"
+    country: CA
+    sector: Materials
+    sub_sector: Gold Royalty
+    mcap_usd_b: 25
+    listed_since: "2007-12"
+    themes: []
+
+  - ticker: WPM
+    name: "Wheaton Precious Metals"
+    country: CA
+    sector: Materials
+    sub_sector: Precious Metals Streaming
+    mcap_usd_b: 25
+    listed_since: "2004-12"
+    themes: []
+
+  - ticker: GOLD
+    name: "Barrick Gold"
+    country: CA
+    sector: Materials
+    sub_sector: Gold
+    mcap_usd_b: 35
+    listed_since: "1985-02"
+    themes: []
+
+  - ticker: KGC
+    name: "Kinross Gold"
+    country: CA
+    sector: Materials
+    sub_sector: Gold
+    mcap_usd_b: 12
+    listed_since: "1981-03"
+    themes: []
+
+  - ticker: CCJ
+    name: "Cameco"
+    country: CA
+    sector: Energy
+    sub_sector: Uranium
+    mcap_usd_b: 35
+    listed_since: "1996-02"
+    themes: []
 
 
 # ============== Future ADR watchlist ==============

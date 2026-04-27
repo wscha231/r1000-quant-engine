@@ -528,7 +528,7 @@ def main() -> int:
         runtime_overrides["universe_mode"] = universe_mode
     if backtest_years is not None:
         runtime_overrides["default_backtest_years"] = int(backtest_years)
-        runtime_overrides["backtest_window_comparison_years"] = sorted({5, 8, int(backtest_years)})
+        runtime_overrides["backtest_window_comparison_years"] = sorted({5, 8, 10, int(backtest_years)})
 
     # Banner
     sha, dirty = resolve_commit_sha()

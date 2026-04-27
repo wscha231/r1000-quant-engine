@@ -476,18 +476,7 @@ def clear_latest_only_signal_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> pd.DataFrame:
     d = df.copy()
-    required_cols = [c for c in CORE_FUNDAMENTAL_MINIMUM_FIELDS if c in d.columns]
-    if not required_cols:
-        d["core_fundamental_fields_present"] = 0
-        d["sector_adjusted_fields_present"] = 0
-        d["partial_scout_confirmation_score"] = 0.0
-        d["sector_adjusted_fundamental_pass"] = False
-        d["partial_scout_fundamental_pass"] = False
-        d["fundamental_lane_label"] = "insufficient"
-        d["core_fundamental_minimum_pass"] = False
-        return d
-
-    d["core_fundamental_fields_present"] = count_present_columns(d, required_cols)
+    d["core_fundamental_fields_present"] = count_present_columns(d, CORE_FUNDAMENTAL_MINIMUM_FIELDS)
     full_pass = d["core_fundamental_fields_present"] >= int(cfg.min_core_fundamental_fields_required)
 
     sector_labels = normalized_sector_labels(d)
@@ -660,20 +649,58 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
             >= float(getattr(cfg, "early_scout_confirmation_min", 0.34))
         )
     )
+    adr_source = (
+        d.get("universe_source", pd.Series("", index=d.index, dtype=object))
+        .fillna("")
+        .astype(str)
+        .str.contains("adr", case=False, na=False)
+    )
+    if bool(getattr(cfg, "adr_global_alpha_fallback_enabled", True)):
+        adr_confirmation = row_mean(
+            [
+                (numeric_series_or_default(d, "mom_6m", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "mom_12m", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "rs_benchmark_6m", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "relative_strength_composite", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "price_above_ma50", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "price_above_ma200", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "trend_template_relaxed", 0.0) > 0.0).astype(float),
+                (numeric_series_or_default(d, "dynamic_leader_score", 0.0) > 0.0).astype(float),
+            ],
+            d.index,
+        ).fillna(0.0)
+        if score_series.notna().any():
+            adr_score_floor = max(
+                float(getattr(cfg, "adr_global_alpha_score_floor", 1.50)),
+                float(score_series.quantile(float(getattr(cfg, "adr_global_alpha_score_quantile_floor", 0.60)))),
+            )
+        else:
+            adr_score_floor = float("inf")
+        adr_fallback_pass = (
+            adr_source
+            & (adr_confirmation >= float(getattr(cfg, "adr_global_alpha_confirmation_min", 0.50)))
+            & (score_series >= adr_score_floor)
+        )
+    else:
+        adr_confirmation = pd.Series(0.0, index=d.index, dtype=float)
+        adr_fallback_pass = pd.Series(False, index=d.index, dtype=bool)
 
     d["sector_adjusted_fields_present"] = sector_adjusted_fields_present.astype(int)
     d["partial_scout_confirmation_score"] = partial_confirmation
     d["future_winner_confirmation_score"] = future_confirmation
     d["early_scout_confirmation_score"] = early_confirmation
+    d["adr_global_alpha_confirmation_score"] = adr_confirmation
+    d["adr_global_alpha_fallback_pass"] = adr_fallback_pass
     d["sector_adjusted_fundamental_pass"] = sector_adjusted_pass
     d["partial_scout_fundamental_pass"] = partial_scout_pass
-    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass
-    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass
+    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass
+    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass
     d["fundamental_lane_label"] = "insufficient"
+    d.loc[adr_fallback_pass, "fundamental_lane_label"] = "adr_global_alpha_fallback"
     d.loc[partial_scout_pass, "fundamental_lane_label"] = "partial_scout"
     d.loc[sector_adjusted_pass, "fundamental_lane_label"] = "sector_adjusted"
     d.loc[full_pass, "fundamental_lane_label"] = "full_ttm"
-    d["core_fundamental_minimum_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass
+    d["core_fundamental_minimum_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass
     return d
 
 
@@ -712,6 +739,14 @@ def annotate_portfolio_candidate_gate(
         "portfolio_sleeve_label",
         d.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=d.index, dtype=object)),
     ).fillna("core_compounder").astype(str)
+    adr_fallback_pass = d.get(
+        "adr_global_alpha_fallback_pass",
+        pd.Series(False, index=d.index, dtype=bool),
+    ).fillna(False).astype(bool)
+    adr_sparse_growth = adr_fallback_pass & sleeve_label.isin(["unassigned", "core_compounder"])
+    if adr_sparse_growth.any():
+        d.loc[adr_sparse_growth, "portfolio_sleeve_label"] = "future_winner"
+        sleeve_label = d["portfolio_sleeve_label"].fillna("core_compounder").astype(str)
     gate_keep = pd.Series(False, index=d.index, dtype=bool)
     gate_keep = gate_keep | (
         sleeve_label.eq("core_compounder")
@@ -739,6 +774,7 @@ def annotate_portfolio_candidate_gate(
         sleeve_label.eq("early_scout") & gate_keep,
         "portfolio_candidate_gate_label",
     ] = "early_relaxed"
+    d.loc[adr_fallback_pass & gate_keep, "portfolio_candidate_gate_label"] = "adr_global_alpha_fallback"
     return d
 
 
@@ -1696,6 +1732,16 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("concentrated_max_single_name_weight must be in (0, 1].")
     if int(cfg.concentrated_monitoring_review_days) < 1:
         raise ValueError("concentrated_monitoring_review_days must be >= 1.")
+    if float(getattr(cfg, "adr_universe_min_mcap_usd_b", 0.0)) < 0:
+        raise ValueError("adr_universe_min_mcap_usd_b must be >= 0.")
+    for name in [
+        "adr_global_alpha_confirmation_min",
+        "adr_global_alpha_score_quantile_floor",
+    ]:
+        if not (0.0 <= float(getattr(cfg, name)) <= 1.0):
+            raise ValueError(f"{name} must be between 0 and 1.")
+    if float(getattr(cfg, "adr_global_alpha_score_floor", 0.0)) < 0:
+        raise ValueError("adr_global_alpha_score_floor must be >= 0.")
     for name in [
         "sleeve_cap_policy_objective_excess_weight",
         "sleeve_cap_policy_objective_sharpe_weight",
@@ -2691,7 +2737,7 @@ def normalize_engine_universe_mode(mode: Any) -> str:
     }.get(raw, raw)
 
 
-def load_adr_universe_frame(min_mcap_usd_b: float = 30.0) -> pd.DataFrame:
+def load_adr_universe_frame(min_mcap_usd_b: float = 8.0) -> pd.DataFrame:
     try:
         from aggressive.universe import load_adr_universe
     except Exception as exc:
@@ -3106,7 +3152,9 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         prev = pd.DataFrame()
 
     if adr_only:
-        uni = load_adr_universe_frame()
+        uni = load_adr_universe_frame(
+            min_mcap_usd_b=float(getattr(cfg, "adr_universe_min_mcap_usd_b", 8.0))
+        )
         if uni.empty:
             raise RuntimeError("universe_mode='adr' requested but adr_universe.yaml produced no tickers.")
     elif not hist_membership.empty:
@@ -3161,7 +3209,9 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         uni["universe_source"] = "current_constituents_proxy"
 
     if include_adr and not adr_only:
-        adr_frame = load_adr_universe_frame()
+        adr_frame = load_adr_universe_frame(
+            min_mcap_usd_b=float(getattr(cfg, "adr_universe_min_mcap_usd_b", 8.0))
+        )
         if not adr_frame.empty:
             before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
             adr_add = adr_frame[~adr_frame["ticker"].astype(str).isin(before)].copy()

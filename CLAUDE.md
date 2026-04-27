@@ -177,10 +177,11 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Top holdings from verdict artifact: GOOGL 18.2%, NVDA 12.1%, GEV 8.8%, MRVL 6.3%, FTI 6.3%
 - Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
 
-## Phase 14 verdict note — ADR universe still untested
+## Phase 14 verdict note — ADR universe contribution still pending
 - Phase 14 hybrid alpha SHIP verdict confirmed via GitHub Actions run 24961673988: CAGR +0.67pp, Sharpe +0.006, MaxDD +3.09pp better vs Phase 9 C3 + CE v2.
 - New cfg.features (6): rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
 - Critical caveat: `r1000+adr` did not actually exercise ADRs in that run (0/26 ADRs in `scored_latest.csv`; all rows came from `historical_membership_file`).
+- Follow-up run 24974747494 proved ADR injection worked mechanically, but only 5 ADR/global-alpha rows reached `scored_latest.csv` and 0 were selected. ADR v2 expands the whitelist and adds `adr_global_alpha_fallback` for sparse foreign-issuer fundamentals; rerun full rebuild to measure contribution.
 - Next open task: debug `.github/workflows/full_rebuild_manual.yml` input handling and `r1000_data_collector.py build_candidate_universe` before treating ADR alpha as tested.
 - Artifacts are archived in `research/phase14_artifact/`.
 

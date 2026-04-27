@@ -24,12 +24,12 @@ on:
           - r1000+adr_phase14_off
         default: global_alpha_universe
       backtest_years:
-        description: 'default out-of-sample backtest window years'
+        description: 'official out-of-sample backtest window years (8 = current SHIP standard; 10 remains research/partial until full coverage)'
         type: choice
         options:
-          - '10'
           - '8'
-        default: '10'
+          - '10'
+        default: '8'
       skip_collector:
         description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
         type: boolean
