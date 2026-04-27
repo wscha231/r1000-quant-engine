@@ -2001,12 +2001,29 @@ def load_local_companyfacts_bulk_payload(
     return payload
 
 
+# Module-level counters surfaced into acceptance_checks so silent stale-cache
+# fallbacks become visible in the verdict output instead of being buried in WARN
+# log lines.
+COMPANYFACTS_STATS: dict[str, int] = {
+    "fresh_cache_hits": 0,
+    "fetched_ok": 0,
+    "stale_cache_used": 0,
+    "missing_cik": 0,
+}
+
+
+def reset_companyfacts_stats() -> None:
+    for k in COMPANYFACTS_STATS:
+        COMPANYFACTS_STATS[k] = 0
+
+
 def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: str) -> dict[str, Any]:
     cik10 = str(cik).zfill(10)
     cache_path = companyfacts_cache_file(paths, cik10)
     if is_cache_fresh(cache_path, cfg.companyfacts_refresh_days):
         try:
             payload = json.loads(cache_path.read_text())
+            COMPANYFACTS_STATS["fresh_cache_hits"] += 1
             return payload if isinstance(payload, dict) else {}
         except Exception:
             pass
@@ -2025,6 +2042,7 @@ def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: s
             if isinstance(payload, dict) and payload.get("facts"):
                 cache_path.write_text(json.dumps(payload))
                 time.sleep(cfg.sec_sleep)
+                COMPANYFACTS_STATS["fetched_ok"] += 1
                 return payload
             last_err = "empty companyfacts payload"
         except Exception as e:
@@ -2037,12 +2055,15 @@ def load_sec_companyfacts_json(cfg: EngineConfig, paths: dict[str, Path], cik: s
         try:
             payload = json.loads(cache_path.read_text())
             if last_err:
+                COMPANYFACTS_STATS["stale_cache_used"] += 1
                 log(f"[WARN] companyfacts fetch failed for CIK{cik10}; using stale cache ({last_err})")
             return payload if isinstance(payload, dict) else {}
         except Exception:
+            COMPANYFACTS_STATS["missing_cik"] += 1
             return {}
     if last_err:
         log(f"[WARN] companyfacts fetch failed for CIK{cik10}: {last_err}")
+    COMPANYFACTS_STATS["missing_cik"] += 1
     return {}
 
 
@@ -9237,6 +9258,21 @@ def run_acceptance_checks(
         and checks["core_fundamental_minimum_ok"]
     )
     checks["fundamental_coverage_warning"] = not checks["fundamental_coverage_ok"]
+    # Surface companyfacts data freshness — silent stale-cache fallback is the
+    # #1 cause of "portfolio empty / CAGR stale" symptoms in cloud runs that
+    # use --no-collector. If stale_cache_used > 5% of total, escalate.
+    cf_stats = dict(COMPANYFACTS_STATS)
+    cf_total = sum(cf_stats.values())
+    cf_stats["total"] = cf_total
+    cf_stats["stale_ratio"] = (cf_stats["stale_cache_used"] / cf_total) if cf_total else 0.0
+    cf_stats["missing_ratio"] = (cf_stats["missing_cik"] / cf_total) if cf_total else 0.0
+    checks["companyfacts_stats"] = cf_stats
+    checks["companyfacts_stale_warning"] = bool(
+        cf_total > 0 and cf_stats["stale_ratio"] > 0.05
+    )
+    checks["companyfacts_missing_warning"] = bool(
+        cf_total > 0 and cf_stats["missing_ratio"] > 0.10
+    )
     checks["comprehensive_fundamental_coverage_warning"] = bool(
         checks["comprehensive_fundamental_coverage_mean"] < 0.75
     )
