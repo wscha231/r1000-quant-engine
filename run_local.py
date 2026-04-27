@@ -371,10 +371,16 @@ def print_verdict(base_dir: Path) -> int:
     if "portfolio_sleeve_label" in pf.columns:
         print(f"  Sleeve dist: {pf.groupby('portfolio_sleeve_label').size().to_dict()}")
     if "weight" in pf.columns and "ticker" in pf.columns:
-        top = pf.nlargest(10, "weight")
-        keep = [c for c in ["ticker", "portfolio_sleeve_label", "weight"] if c in top.columns]
-        print(f"  Top 10 by weight:")
-        print(top[keep].to_string(index=False))
+        top_source = pf.copy()
+        top_source["weight"] = pd.to_numeric(top_source["weight"], errors="coerce")
+        top_source = top_source.dropna(subset=["weight"])
+        if top_source.empty:
+            print("  Top 10 by weight: n/a (no numeric position weights)")
+        else:
+            top = top_source.nlargest(10, "weight")
+            keep = [c for c in ["ticker", "portfolio_sleeve_label", "weight"] if c in top.columns]
+            print(f"  Top 10 by weight:")
+            print(top[keep].to_string(index=False))
 
     print("\n" + "=" * 70)
     print(f"METRICS vs baseline: {CURRENT_BASELINE['name']}")
