@@ -3,16 +3,23 @@
 #   .github/workflows/daily_review.yml
 #   .github/workflows/finnhub_weekly.yml
 #   .github/workflows/theme_discovery.yml
-#   .github/workflows/paper_executor_dryrun.yml  (new — Layer 3 needs yfinance)
+#   .github/workflows/paper_executor_dryrun.yml  (Layer 3 needs yfinance)
+#   .github/workflows/tactical_after_close.yml   (imports r1000_pipeline)
+#   .github/workflows/layer4_monthly_swap.yml    (imports advisor v3 -> r1000_pipeline)
+#   .github/workflows/monthly_ic_monitor.yml     (imports r1000_pipeline)
 #
-# Excludes heavy ML packages (catboost, lightgbm, tensorflow) that are only
-# needed for 정석 engine training. Cloud workflows consume existing
-# scored_latest.csv and focus on: data collection, scanning, advisor, alerts.
+# Excludes truly heavy ML (catboost, lightgbm) which are installed only by
+# `full_rebuild_manual.yml` for engine training. scikit-learn is small (~30 MB)
+# and is required by `r1000_pipeline.py` at module-level (LogisticRegression,
+# Ridge import at line 69), so any workflow that imports r1000_pipeline (even
+# just to read a helper function) needs it. Including it here keeps lightweight
+# cron jobs runnable without per-workflow extra install steps.
 
 pandas>=2.2.0,<3.0       # engine requires pandas 2.x (smoke_test guards this)
 numpy>=1.26.0
 pyarrow>=15.0.0          # parquet I/O
 scipy>=1.12.0            # hierarchical clustering for theme discovery
+scikit-learn>=1.4.0      # r1000_pipeline imports LogisticRegression/Ridge at module top
 requests>=2.31.0
 pyyaml>=6.0
 
