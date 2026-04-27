@@ -177,13 +177,25 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - Top 5: NVDA 14%, GOOG 14%, AVGO 8.2%, AAPL 7.8%, JNJ 7.8%
 - Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
 
-## 🚧 Phase 14 hybrid alpha + r1000+adr universe — VERDICT PENDING (2026-04-26)
-- Code shipped (`5a41219` Phase 14 + `d62fbb6` ADR + Phase 1-6 follow-ups) but **FULL rebuild not yet run** → CURRENT_BASELINE not yet rotated.
+## 🟢 Phase 14 hybrid alpha + r1000+adr universe — SHIP VERIFIED, BASELINE ROTATION PENDING (2026-04-27)
+- Code shipped (`5a41219` Phase 14 + `d62fbb6` ADR + Phase 1-6 follow-ups + `c6887c8` import requests fix).
 - New cfg.features (6): rs_acceleration_score, h1_oversold_value_score, h6_dynamic_leader_score, stage2_overext_penalty, theme_phase_multiplier_primary, theme_phase_multiplier_max.
 - New universe option: `r1000+adr` (1008 R1000 + 26 ADRs incl. ASML, TSM, BABA, NVO).
-- 8 GitHub Actions workflows operational (daily_review / unified_monthly / theme_discovery / finnhub_weekly / paper_executor_dryrun / layer4_monthly_swap / monthly_ic_monitor / full_rebuild_manual).
-- **Next step**: trigger `full_rebuild_manual.yml` with `universe_mode=r1000+adr` (and `r1000` baseline control), then `py -3 tools/compare_adr_backtest.py` for SHIP/PARTIAL/REGRESS verdict. Detailed procedure in `PHASE14_VERDICT_PROCEDURE.md`.
-- Pre-flight verified: smoke 56/56, audit 238 features 0 leakage, PIT-safe, NaN-robust, call order verified.
+- 8 GitHub Actions workflows operational.
+- **Cloud Full Rebuild (run 24961673988, 2026-04-26 7h)**:
+  - Verdict: **--> SHIP vs Phase 9 C3 + CE v2 (SHIPPED 2026-04-18)**
+  - Lifetime CAGR: **23.48%** over 6.84 years (+0.57pp vs 22.91% baseline)
+  - Lifetime total: **+323.45%** ($100k → $423k)
+  - Ship gate (ΔCAGR ≥ +0.5pp) PASSED.
+- **BUT**: results in GitHub Actions artifact only (365d retention). Push race
+  + Telegram URL bug prevented `cloud_results/` commit. Both fixed in `b6c8bf8`.
+- **Next step (pick A or B)**:
+  - **A**: Download artifact (run 24961673988) → extract → rotate CURRENT_BASELINE
+    in `run_local.py` + CLAUDE.md + CHANGELOG. See `ARTIFACT_DOWNLOAD_GUIDE.md`.
+  - **B**: Re-trigger `full_rebuild_manual.yml` (b6c8bf8 has push retry + Telegram
+    fix + fast_mode input). Cache from prior run reused. ~2-3h with fast_mode=true.
+    Result auto-publishes to cloud_results + Telegram + (optional) gdrive.
+- Pre-flight verified: smoke 61/61, audit 238 features 0 leakage, PIT-safe.
 
 ## 🎯 Concentrated Champion — CAGR 30%+ goal achieved
 - **N=5 / monthly rebalance / score_power weighting → CAGR 34.75% / Sharpe 1.254 / MaxDD -26.74% / IR 1.073**

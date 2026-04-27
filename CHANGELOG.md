@@ -51,6 +51,85 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-27
+
+### 09:30 KST - cloud-full-rebuild-SHIP-verification
+
+- scope:
+  - First successful cloud Full Rebuild (run 24961673988) verified Phase 14
+    + ADR universe SHIPS vs Phase 9 C3 baseline (CAGR 23.48% vs 22.91%,
+    +0.57pp). Lifetime backtest: $100k -> $423k over 6.84 years (+323.45%).
+    Push race + Telegram URL bug prevented results from reaching repo;
+    artifact preserved for 365d. Subsequent fixes (b6c8bf8, 1e7b426)
+    address both issues so next run will auto-publish.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` -> add fast_mode input
+     (1e7b426); replace `git push || true` with 3-attempt retry+rebase
+     loop (b6c8bf8); fix Telegram URL encoding heredoc -> one-liner +
+     length guard (b6c8bf8)
+  - `tools/auto_verdict_summary.py` -> NEW (ecd8b6d): generates
+     Telegram-ready verdict text (ΔCAGR/ΔSharpe/ΔMaxDD vs baseline +
+     sleeve composition + top picks + recommended action)
+  - `r1000_helpers.py` -> add `import requests` (c6887c8): fixes
+     NameError on first cloud run when historical_universe_membership
+     cache absent and IWB live-fetch path triggered
+  - `colab_run.ipynb` -> Cell 2 typo fix (5e7797d): _set_phase_env
+     called with 3 positional args; fixed to 2; FAST_MODE default False
+     (0d7dc8b) for full walk-forward
+  - `aggressive/data_alpaca.py` -> _ONCE_FLAGS to suppress per-ticker
+     credential FAIL spam (45d80f5)
+  - `tools/sync_cloud_to_drive.py` -> NEW (8e10672): copies
+     cloud_results -> Drive with --dry-run + --mode override + custom
+     drive-base support
+  - `tools/auto_sync_to_drive.bat` -> NEW (d6ab9a4): Task Scheduler-
+     friendly Windows .bat for hourly sync
+  - `ARTIFACT_DOWNLOAD_GUIDE.md` -> NEW (this commit): step-by-step
+     guide for retrieving run 24961673988 artifact + extraction +
+     verification commands
+- symbols_added:
+  - `tools/auto_verdict_summary.py:main()` -> CLI tool emitting Telegram-
+     ready multi-line verdict text from outputs/ JSON+CSV artifacts
+  - `tools/sync_cloud_to_drive.py:main()` -> bridges cloud_results ->
+     local Drive mirror with multi-fallback path resolution
+- symbols_changed:
+  - `r1000_helpers.py` (top of file) -> add `import requests`
+  - `aggressive/data_alpaca.py:_ONCE_FLAGS` -> dict gating per-call
+     credential warnings to first-occurrence only
+- config_fields_added:
+  - workflow input `fast_mode: boolean = true` (full_rebuild_manual.yml)
+  - workflow input `cache_key_suffix: string = ""` (full_rebuild_manual.yml)
+  - workflow input `override_regime_halt: boolean = false`
+     (paper_executor_dryrun.yml — already shipped earlier)
+- breaking_changes:
+  - none. fast_mode=true (new default) produces a slightly less
+    accurate backtest (5 windows vs 84 months full) but ship-gate
+    judgment remains valid. Set fast_mode=false to recover full
+    walk-forward (now feasible after collector cache populated by
+    run 24961673988).
+- outputs:
+  - `cloud_results/full_rebuild/<date>_<mode>/` -> committed automatically
+     after each successful run
+  - `cloud_results/full_rebuild/latest_<mode>/` -> latest pointer for
+     sync helper convenience
+  - GitHub Actions artifact (90-365 day retention) for fallback retrieval
+- validation:
+  - run 24961673988 verdict.log: "--> SHIP vs Phase 9 C3 + CE v2"
+  - Lifetime CAGR: 23.48% over 6.84 years (anchor 2026-01-30, equity 4.3246)
+  - Lifetime total: +323.45%
+  - vs baseline CAGR (22.91%): +0.57pp
+  - smoke 61/61 PASS on every commit
+- risks_or_notes:
+  - run 24961673988 used commit c6887c8 (before push-retry fix). Results
+    are in artifact, NOT in cloud_results/. Need to (a) download artifact
+    + manually rotate CURRENT_BASELINE, OR (b) trigger another run with
+    fast_mode=true (now ~2-3h, results auto-published).
+  - Telegram failed on this run; subsequent runs have URL-encoding fix
+    so notification will arrive.
+  - Push race condition was triggered by user pushing 5 fixes during
+    the 7h run. b6c8bf8 retry-with-rebase prevents recurrence.
+  - CURRENT_BASELINE in run_local.py NOT YET ROTATED. Rotate after
+    artifact download or successful re-run confirms SHIP.
+
 ## 2026-04-26
 
 ### 00:30 KST - phase14-hybrid-alpha-and-system-audit

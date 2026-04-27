@@ -1,8 +1,135 @@
-# Session Handoff — 2026-04-26 (Phase 14 ready, FULL rebuild verdict pending)
+# Session Handoff — 2026-04-27 (Phase 14 SHIP verified by cloud, baseline rotation pending)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
 > **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
+
+---
+
+## 🟢 LATEST STATE (2026-04-27 09:30 KST) — Phase 14 SHIP verified, CURRENT_BASELINE rotation pending
+
+**Current HEAD = `b6c8bf8`** on `master`. 30+ commits since 2026-04-25.
+
+### What got verified — Phase 14 + ADR SHIPS via cloud (run 24961673988)
+
+The first successful Cloud Full Rebuild ran 7h on commit `c6887c8` (started
+2026-04-26 16:38 UTC, finished 19:19 UTC) and produced:
+
+```
+--> SHIP vs Phase 9 C3 + CE v2 (SHIPPED 2026-04-18)
+
+LIFETIME PERFORMANCE
+  Backtest anchor:  2026-01-30 at equity 4.3246
+  Lifetime CAGR:    23.48% over 6.84 years
+  Lifetime total:   +323.45%   ($100k → $423k)
+  vs baseline:      +0.57pp    (22.91% → 23.48%)
+```
+
+Ship gate: ΔCAGR ≥ +0.5pp PASSED.
+
+### What's blocking baseline rotation
+
+Run 24961673988's results are in **GitHub Actions artifact only** (365d retention),
+NOT in `cloud_results/full_rebuild/latest_r1000+adr/`, because:
+- During the 7h run, 5 workflow fixes were pushed to master by user
+- At commit step, `git push` rejected ("fetch first") — race condition
+- Old workflow had `git push || true` which swallowed the failure
+- Local commit `ae81730` with 16 result files was discarded on cleanup
+
+Both bugs now fixed in `b6c8bf8`:
+- `git push` retry-with-rebase loop (3 attempts, fetch+rebase between each)
+- Telegram URL encoding cleanup (heredoc → one-liner, length guard)
+
+### 🚧 Next-agent priority (in order)
+
+**Pick option A (artifact extract) OR option B (re-run cloud).**
+
+#### Option A — Extract artifact + rotate baseline (fastest, ~30 min)
+1. Download artifact zip:
+   ```
+   https://github.com/wscha231/r1000-quant-engine/actions/runs/24961673988
+   → Artifacts → full-rebuild-r1000+adr-24961673988
+   ```
+2. Extract zip; verify contents (see `ARTIFACT_DOWNLOAD_GUIDE.md`)
+3. Read `backtest_metrics.json` + `concentrated_backtest_metrics.json` for
+   exact numbers (CAGR/Sharpe/MaxDD)
+4. Rotate `run_local.py` `CURRENT_BASELINE` dict:
+   ```python
+   CURRENT_BASELINE = {
+       "name": "Phase 14 + ADR (SHIPPED 2026-04-26 via cloud run 24961673988)",
+       "cagr": 0.2348,
+       # fill from backtest_metrics.json:
+       "sharpe": <sharpe value>,
+       "max_dd": <max_dd value>,
+       "ir": <ir value>,
+       "excess_cagr": <excess_cagr value>,
+       ...
+   }
+   ```
+5. Update `CLAUDE.md` "Current Production Baseline" section
+6. Add CHANGELOG entry per Agent Update Contract format
+7. (Optional) `py -3 tools/sync_cloud_to_drive.py` to mirror to local Drive
+8. `git add run_local.py CLAUDE.md CHANGELOG.md && git commit && git push origin master`
+
+#### Option B — Re-trigger cloud Full Rebuild (~2-3h, all auto)
+With b6c8bf8 fixes, the next run auto-publishes results:
+```
+https://github.com/wscha231/r1000-quant-engine/actions/workflows/full_rebuild_manual.yml
+```
+- Branch: `master`
+- universe_mode: `r1000+adr`
+- skip_collector: ☑ (cache from 24961673988 should be reused)
+- fast_mode: ☑ (true, 2-3h instead of 7h)
+- cache_key_suffix: (empty)
+
+Result auto-flow:
+1. cloud_results/full_rebuild/latest_r1000+adr/ commit (push retry now works)
+2. Telegram message + zip attachment (URL-encoding now works)
+3. Artifact upload (90d retention)
+4. Optional: gdrive sync (if GOOGLE_SERVICE_ACCOUNT_KEY secret set —
+   see `GDRIVE_MOBILE_SETUP.md` for the 10-min mobile setup)
+
+After this run completes, follow steps 4-8 of Option A to rotate baseline.
+
+### Workflow status (as of b6c8bf8)
+
+8 GitHub Actions workflows operational:
+| Workflow | Schedule | Status |
+|---|---|---|
+| `daily_review.yml` | Mon-Fri 23:00 KST | active |
+| `paper_executor_dryrun.yml` | Mon-Fri 23:30 + Sat 15:00 KST | active |
+| `unified_monthly.yml` | 1st+15th 23:30 KST | active |
+| `theme_discovery.yml` | Sun 22:00 KST | active (12 cluster proposals 2026-04-26) |
+| `finnhub_weekly.yml` | Mon 22:30 KST | active |
+| `layer4_monthly_swap.yml` | 5th 23:00 KST | active |
+| `monthly_ic_monitor.yml` | 1st 11:00 KST | active |
+| `full_rebuild_manual.yml` | manual only | **fixed b6c8bf8** — push retry + Telegram URL + fast_mode input |
+
+### Tools available
+
+- `tools/auto_verdict_summary.py` — CLI verdict text (ΔCAGR/sleeve/picks)
+- `tools/sync_cloud_to_drive.py` — cloud_results → Drive bridge
+- `tools/auto_sync_to_drive.bat` — Windows Task Scheduler script
+- `tools/compare_adr_backtest.py` — SHIP/PARTIAL/REGRESS verdict
+- `tools/monthly_ic_monitor.py` — ADR macro decorrelation IC
+- `tests/smoke_test.py` — 61 regression guards
+- `tests/audit_features.py` — leakage audit (3 source-level checks)
+- `tests/check_adr_data.py` — ADR data availability per ticker
+
+### Key context
+
+- ENGINE_REUSE_VERSION: `2026-04-25-phase14-hybrid-alpha`
+- DEFAULT_FEATURES count: 238 (Phase 14: +6 columns)
+- ADR universe: 26 (incl. ASML, TSM, BABA, NVO; SK Hynix Oct 2026 in watchlist)
+- Themes: 41 (with 4 new ADR themes: china_tech_adr, intl_pharma_adr, intl_energy_materials, intl_industrial_consumer)
+- gdrive sync setup: see `GDRIVE_MOBILE_SETUP.md` (Service Account, 10min mobile)
+- Verdict procedure: see `PHASE14_VERDICT_PROCEDURE.md`
+- ADR addition recipe: see `ADR_PLAYBOOK.md`
+
+### Old-handoff archived below
+
+(ARCHIVED 2026-04-26 content — kept for historical reference; do not act on
+those items unless Phase 14 SHIP verification fails.)
 
 ---
 
