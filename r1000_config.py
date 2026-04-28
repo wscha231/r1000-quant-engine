@@ -222,6 +222,19 @@ PHASE9_C3_TURNAROUND_COLUMNS = [
     "ocf_under_loss_growth",
     "fcf_under_loss_growth",
     "ni_loss_narrowing_4q",
+    # Phase 15-A wiring fix (2026-04-28): the ni/op/ocf/fcf sign-flip flags
+    # are produced by compute_fundamental_trend_features but were missing
+    # from the keep_cols whitelist, so they got dropped before reaching
+    # scored_latest.csv. Phase 15-A cycle_recovery_score and Phase 15-B
+    # early_cycle_inflection_score both read any_profit_sign_flip_pos as
+    # their EPS-turn condition. Adding the underlying flags ensures the
+    # signals survive build_feature_store and reach the ML feature set.
+    "any_profit_sign_flip_pos",
+    "ni_sign_flip_pos",
+    "op_income_sign_flip_pos",
+    "ocf_sign_flip_pos",
+    "fcf_sign_flip_pos",
+    "gp_sign_flip_pos",
 ]
 
 # =====================================================================

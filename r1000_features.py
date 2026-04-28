@@ -4781,23 +4781,29 @@ def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
     institutional accumulation, no consensus yet, earnings just turning, but
     price still near MA200 (not yet broken out).
 
-    Six conditions, weighted-sum scoring (each contributes 0.10-0.20):
+    Six conditions split into a multiplicative GATE and an additive BOOST:
 
-      1. Price near breakout zone (20%)        : -10% <= dist_ma200 <= +5%
-      2. Long-term momentum cycle-bottom (20%) : -0.30 <= mom_12m <= +0.05
-      3. Short-term early turn (20%)           : -0.05 <= mom_3m <= +0.20
-      4. EPS revision turning up (15%)         : eps_revision_proxy > +0.03
-      5. Profitability turning (15%)           : any_profit_sign_flip_pos = 1
-      6. Industry mid-recovery (10%)           : 0.20 <= industry_breadth_above_ma200 <= 0.50
+      GATE (must all fire — multiplicative, score=0 if any fails):
+        1. Price near MA200 zone (-10% <= dist_ma200 <= +5%)
+        2. mom_12m still cycle-bottom (-30% <= mom_12m <= +5%)
+        3. mom_3m early turn (-5% <= mom_3m <= +20%)
 
-    Returns continuous score [0.0, 1.0]. >= 0.50 = strong early-cycle signal,
-    >= 0.70 = textbook setup. Use as ML feature AND as sleeve assignment
-    override (similar to cycle_recovery but for earlier-stage names).
+      BOOST (additive bonuses on top of gate):
+        4. eps_revision_proxy > +3% (40% boost weight)
+        5. any_profit_sign_flip_pos = 1 (30% boost weight)
+        6. industry_breadth_above_ma200 mid-recovery (30% boost weight)
 
-    Trade-off: looser conditions catch more potential winners but admit more
-    value-traps and dead-cat-bounces. The two scores are complements:
-      cycle_recovery_score : already-turning, lower variance, smaller alpha
-      early_cycle_inflection_score : pre-breakout, higher variance, larger alpha
+    Final: score = gate * (0.50 + 0.50 * boost). Gate-only fire -> 0.50,
+    full gate + full boost -> 1.00.
+
+    The multiplicative gate is critical: previous additive design was admitting
+    already-extended names (NEU mom_12m +23%, CEG +50%) into top 30 because
+    cond1+cond3+cond6 partial credit was overriding cond2 (cycle bottom)
+    failure. The new design hard-rejects names outside the cycle-bottom zone.
+
+    Returns continuous score [0.0, 1.0]. >= 0.50 = full gate fires (early-cycle
+    setup confirmed), >= 0.70 = strong setup with eps + industry support,
+    >= 0.85 = textbook "next SNDK 6mo prior" signal.
     """
     d = df.copy() if df is not None else pd.DataFrame()
     if d.empty:
@@ -4810,40 +4816,44 @@ def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
     any_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
     ind_breadth = numeric_series_or_default(d, "industry_breadth_above_ma200", np.nan)
 
-    # 1. Near breakout zone (peaks at midpoint -2.5%, decays toward edges).
-    cond1_center = -0.025
-    cond1_half_width = 0.075
-    cond1 = 1.0 - ((dist_ma200 - cond1_center).abs() / cond1_half_width).clip(lower=0.0, upper=1.0)
+    # GATE 1: Price near breakout zone. Hard reject if outside [-10%, +5%].
+    cond1 = pd.Series(0.0, index=d.index, dtype=float)
+    in_zone1 = (dist_ma200 >= -0.10) & (dist_ma200 <= 0.05)
+    cond1 = cond1.mask(in_zone1,
+                       1.0 - ((dist_ma200 - (-0.025)).abs() / 0.075).clip(lower=0.0, upper=1.0))
     cond1 = cond1.where(dist_ma200.notna(), 0.0).clip(lower=0.0, upper=1.0)
 
-    # 2. Cycle-bottom 12m (peaks at -0.10, OK from -0.30 to +0.05).
+    # GATE 2: Cycle-bottom 12m. Hard reject if outside [-30%, +5%].
     cond2 = pd.Series(0.0, index=d.index, dtype=float)
-    cond2 = cond2.mask((mom_12m >= -0.30) & (mom_12m <= 0.05),
-                      1.0 - ((mom_12m - (-0.10)).abs() / 0.20).clip(lower=0.0, upper=1.0))
+    in_zone2 = (mom_12m >= -0.30) & (mom_12m <= 0.05)
+    cond2 = cond2.mask(in_zone2,
+                       1.0 - ((mom_12m - (-0.10)).abs() / 0.20).clip(lower=0.0, upper=1.0))
     cond2 = cond2.where(mom_12m.notna(), 0.0).clip(lower=0.0, upper=1.0)
 
-    # 3. Early-turn 3m (peaks at +0.075, OK from -0.05 to +0.20).
+    # GATE 3: Early-turn 3m. Hard reject if outside [-5%, +20%].
     cond3 = pd.Series(0.0, index=d.index, dtype=float)
-    cond3 = cond3.mask((mom_3m >= -0.05) & (mom_3m <= 0.20),
-                      1.0 - ((mom_3m - 0.075).abs() / 0.125).clip(lower=0.0, upper=1.0))
+    in_zone3 = (mom_3m >= -0.05) & (mom_3m <= 0.20)
+    cond3 = cond3.mask(in_zone3,
+                       1.0 - ((mom_3m - 0.075).abs() / 0.125).clip(lower=0.0, upper=1.0))
     cond3 = cond3.where(mom_3m.notna(), 0.0).clip(lower=0.0, upper=1.0)
 
-    # 4. EPS revision turning up: 0 at +0.03, 1.0 at +0.15.
-    cond4 = ((eps_rev - 0.03) / 0.12).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # Multiplicative gate — any single failure zeros the score.
+    gate = (cond1 * cond2 * cond3).clip(lower=0.0, upper=1.0)
 
-    # 5. Profitability turning (binary, Phase 9 C3 sign flip).
-    cond5 = (any_flip > 0).astype(float)
+    # BOOST 4: EPS revision turning up: 0 at +0.03, 1.0 at +0.15.
+    boost4 = ((eps_rev - 0.03) / 0.12).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # BOOST 5: Profitability sign-flip (Phase 9 C3 binary).
+    boost5 = (any_flip > 0).astype(float)
+    # BOOST 6: Industry mid-recovery (peaks at 0.35, OK from 0.20 to 0.50).
+    boost6 = pd.Series(0.0, index=d.index, dtype=float)
+    boost6 = boost6.mask((ind_breadth >= 0.20) & (ind_breadth <= 0.50),
+                         1.0 - ((ind_breadth - 0.35).abs() / 0.15).clip(lower=0.0, upper=1.0))
+    boost6 = boost6.where(ind_breadth.notna(), 0.0).clip(lower=0.0, upper=1.0)
 
-    # 6. Industry mid-recovery (peaks at 0.35, OK from 0.20 to 0.50).
-    cond6 = pd.Series(0.0, index=d.index, dtype=float)
-    cond6 = cond6.mask((ind_breadth >= 0.20) & (ind_breadth <= 0.50),
-                      1.0 - ((ind_breadth - 0.35).abs() / 0.15).clip(lower=0.0, upper=1.0))
-    cond6 = cond6.where(ind_breadth.notna(), 0.0).clip(lower=0.0, upper=1.0)
+    boost = (0.40 * boost4 + 0.30 * boost5 + 0.30 * boost6).clip(lower=0.0, upper=1.0)
 
-    score = (
-        0.20 * cond1 + 0.20 * cond2 + 0.20 * cond3
-        + 0.15 * cond4 + 0.15 * cond5 + 0.10 * cond6
-    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # Combine: gate-only fire -> 0.50, full gate + full boost -> 1.00.
+    score = (gate * (0.50 + 0.50 * boost)).clip(lower=0.0, upper=1.0).fillna(0.0)
     d["early_cycle_inflection_score"] = score
     return d
 

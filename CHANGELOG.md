@@ -53,6 +53,119 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-28
 
+### 11:30 KST - phase15-validators-and-multiplicative-gate-fix
+
+- scope:
+  - Pre-rebuild validation tooling (P9 / P11) and a critical correctness
+    fix to the Phase 15-B early_cycle_inflection_score. Built on user's
+    insight that we should validate the design BEFORE burning 3-3.5h on
+    the next cloud full_rebuild. Running the validator on the existing
+    SHIPPED scored_latest.csv exposed two real bugs in the score.
+- files:
+  - `tools/validate_early_inflection.py` ->new validator with --mode
+    latest (sanity-checks Phase 15-B candidate ranking against the
+    existing scored_latest.csv without requiring a rebuild) and --mode
+    historical (post-rebuild validation against feature_store_*.parquet
+    -- did the score fire on SNDK / MU / WDC etc. BEFORE their +100%+
+    moves?).
+  - `tools/aggregate_portfolio_performance.py` ->new tool implementing
+    P11 portfolio-of-portfolios aggregation. Reads core ML +
+    concentrated + event-driven sleeve outputs, applies a capital
+    allocation split (default 60/30/10), and reports per-sleeve and
+    aggregate CAGR / Sharpe / MaxDD / N holdings. Solves the user's
+    request for "포트별 별개 + 합산 평가".
+  - `r1000_features.py` ->fix compute_early_cycle_inflection_score:
+    cond1/cond2/cond3 now form a multiplicative GATE (any single failure
+    zeros the score) instead of additive partial credit. cond4/cond5/
+    cond6 remain additive boost. Final: gate * (0.50 + 0.50 * boost).
+    Validation showed the additive design admitted NEU (mom_12m +23%)
+    and CEG (mom_12m +50%) into top-30 because cond1+cond3+cond6 partial
+    credit overrode the cond2 (cycle bottom) failure. New design
+    hard-rejects names outside [-30%, +5%] mom_12m / [-10%, +5%]
+    dist_ma200 / [-5%, +20%] mom_3m simultaneously.
+  - `r1000_config.py` ->expand PHASE9_C3_TURNAROUND_COLUMNS to include
+    any_profit_sign_flip_pos / ni_sign_flip_pos / op_income_sign_flip_pos
+    / ocf_sign_flip_pos / fcf_sign_flip_pos / gp_sign_flip_pos. These
+    are computed by compute_fundamental_trend_features but were
+    previously missing from the keep_cols whitelist, so they got
+    silently dropped before reaching scored_latest.csv. Phase 15-A
+    cycle_recovery_score and Phase 15-B early_cycle_inflection_score
+    both depend on any_profit_sign_flip_pos.
+- symbols_added:
+  - `tools/validate_early_inflection.py:run_latest_mode(...)` ->ranks
+    by Phase 15-B score, prints per-condition breakdown, score
+    distribution, sanity-check guidelines.
+  - `tools/validate_early_inflection.py:run_historical_mode(...)`
+    ->scans feature_store across all rebalance dates, finds peak mom_3m
+    per winner, looks N months prior, reports whether score fired.
+  - `tools/aggregate_portfolio_performance.py:main()` ->loads core +
+    concentrated + event sleeve metrics + portfolio CSVs, prints
+    per-sleeve + aggregate table, writes aggregate_performance.json.
+- symbols_changed:
+  - `compute_early_cycle_inflection_score(df) -> df` ->multiplicative
+    gate (cond1*cond2*cond3) replaces additive 0.20+0.20+0.20 weights.
+    Boost (cond4+cond5+cond6) scales gate from 0.50 to 1.00 multiplier.
+    Score interpretation:
+      * 0.0 -> any of dist_ma200 / mom_12m / mom_3m outside zone
+      * 0.50 -> all 3 gate conds fully fire, no boosts
+      * 0.70-0.85 -> gate + 1-2 boosts
+      * 0.85-1.00 -> textbook setup (gate + all 3 boosts)
+- config_fields_added:
+  - none (PHASE9_C3_TURNAROUND_COLUMNS list expansion is not a new
+    config field, just a wider whitelist)
+- breaking_changes:
+  - feature_store schema gains 6 columns from the PHASE9_C3 whitelist
+    expansion (any_profit_sign_flip_pos and 5 sign-flip flags). These
+    columns are already produced upstream — only the keep_cols
+    whitelist changes — so existing per-CIK panel data does not need
+    refetching, only feature_store_*.parquet regenerates on next FULL
+    rebuild via the existing ENGINE_REUSE_VERSION bump
+    `2026-04-28-phase15b-early-inflection`. No additional version bump.
+  - Phase 15-B score values change for every ticker (multiplicative
+    gate is much stricter). Top-30 ranking on the existing SHIPPED
+    scored_latest.csv goes from 4 names >= 0.50 to 0 names >= 0.50
+    (the boost-providing eps_revision_proxy + any_profit_sign_flip_pos
+    are NaN/missing in that snapshot, so gate-only fire caps at 0.50;
+    next rebuild restores them and scores rise into the >= 0.50 band).
+- outputs:
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/aggregate_performance.json`
+    ->produced by the new aggregate tool from the SHIPPED Phase 14
+    metrics. Sample 60/30/10 split: aggregate CAGR 23.46%, MaxDD
+    proxy -23.52%, Sharpe 1.185.
+- validation:
+  - `python tools/validate_early_inflection.py --mode latest --top 30`
+    ->ran twice: pre-fix top 30 contained NEU / CEG; post-fix top 30
+    is dominated by ZBH / TW / DLB / POST / FTNT / CDW / AMT / CCI -
+    all reasonable cycle-bottom turnaround setups with mom_12m in
+    [-21%, +2%] and dist_ma200 in [-7%, +4%]. No outliers.
+  - `python tools/aggregate_portfolio_performance.py
+    --base-dir cloud_results/full_rebuild/latest_global_alpha_universe`
+    ->prints clean per-sleeve table; surfaces the existing "core_ml has
+    0 holdings, concentrated has 1" symptom from the SHIPPED snapshot,
+    confirming aggregate tool correctly reflects portfolio state.
+  - `python tests/smoke_test.py --quick` ->17/17 pass
+  - `python tests/audit_features.py --no-runtime` ->241 features, 0
+    leakage
+- risks_or_notes:
+  - aggregate_portfolio_performance.py uses linear-approx CAGR
+    (allocation-weighted average), not compound. Real compound is
+    higher when sleeves rebalance independently. For sleeve-mix
+    decisions this approximation is dominant enough; for actual
+    portfolio P&L tracking a daily-NAV ledger (P11b TODO) is needed.
+  - max_dd_proxy is pessimistic — assumes correlated DD across sleeves.
+    Real-world DD depends on inter-sleeve correlation. P11b daily-NAV
+    ledger would compute realized DD correctly.
+  - Phase 15-B score on the SHIPPED snapshot has eps_revision_proxy
+    all-NaN. This is a pre-existing data-pipeline bug (the column is
+    in DEFAULT_FEATURES but not being populated upstream). Filed as
+    follow-up; does not block the multiplicative gate fix.
+  - When the next FULL rebuild lands with the fixed PHASE9_C3 whitelist,
+    re-run --mode historical with --winners SNDK,MU,WDC,AMKR,MRVL,CIEN
+    to confirm the score actually fires N months before each winner's
+    breakout. If <50% fire rate, tighten the gate widths (cond1
+    half-width 0.075 -> 0.050, etc.) before promoting to a hard sleeve
+    override.
+
 ### 10:15 KST - phase15b-early-cycle-inflection-detector
 
 - scope:
