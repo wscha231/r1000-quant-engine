@@ -1427,9 +1427,20 @@ def compute_sage_sector_labels(df: pd.DataFrame) -> pd.Series:
 # that feeds the sleeve composite at latest-scoring time.
 
 def datetime_series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
+    """Convert column to datetime[ns] Series, returning NaT for invalid.
+
+    Phase 15-C fix (2026-04-28): also mask 1970-01-01 (Unix epoch 0) as NaT.
+    `pd.to_datetime(0)` returns 1970-01-01, which leaks into outputs when an
+    upstream source has integer 0 for missing periods (e.g. some SEC
+    companyfacts payloads). For SEC fundamentals + market dates, anything
+    pre-1990 is bogus by construction. Mask these to NaT so downstream
+    code (and CSV exports) shows blanks instead of 1970 placeholders.
+    """
     if col not in df.columns:
         return pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
-    return pd.to_datetime(df[col], errors="coerce")
+    out = pd.to_datetime(df[col], errors="coerce")
+    # Mask 1970-era false positives — only valid SEC/market dates land here.
+    return out.where(out >= pd.Timestamp("1990-01-01"), pd.NaT)
 
 
 def count_present_columns(df: pd.DataFrame, cols: list[str]) -> pd.Series:

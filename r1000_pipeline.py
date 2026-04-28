@@ -6362,9 +6362,17 @@ def asof_join_fundamentals(
         chunks.append(m)
     out = pd.concat(chunks, ignore_index=True)
     if "accepted" in out.columns and "fund_accepted" not in out.columns:
-        out["fund_accepted"] = pd.to_datetime(out["accepted"], errors="coerce")
+        # Phase 15-C fix: mask 1970-01-01 epoch placeholders as NaT.
+        out["fund_accepted"] = pd.to_datetime(out["accepted"], errors="coerce").where(
+            pd.to_datetime(out["accepted"], errors="coerce") >= pd.Timestamp("1990-01-01"),
+            pd.NaT,
+        )
     if "period" in out.columns and "fund_period" not in out.columns:
-        out["fund_period"] = pd.to_datetime(out["period"], errors="coerce")
+        # Phase 15-C fix: mask 1970-01-01 epoch placeholders as NaT.
+        out["fund_period"] = pd.to_datetime(out["period"], errors="coerce").where(
+            pd.to_datetime(out["period"], errors="coerce") >= pd.Timestamp("1990-01-01"),
+            pd.NaT,
+        )
     if "source" in out.columns and "fund_source" not in out.columns:
         out["fund_source"] = out["source"]
     if "asof_quarter" in out.columns and "fund_asof_quarter" not in out.columns:
@@ -7412,7 +7420,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
-        clip=1e12,
+        clip=1e14,
     )
     fs["rebalance_date"] = pd.to_datetime(fs["rebalance_date"], errors="coerce")
     fs["feature_date"] = pd.to_datetime(fs["feature_date"], errors="coerce")
@@ -8570,7 +8578,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         d,
         model_features
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
-        clip=1e12,
+        clip=1e14,
     )
 
     y_all, ybin_all = make_targets(d, cfg)
@@ -10790,7 +10798,7 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         hist,
         model_features
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
-        clip=1e12,
+        clip=1e14,
     )
     hist = hist[hist["feature_date"].notna()]
     hist = hist[hist["r_1m"].notna() | hist["r_3m"].notna() | hist["r_6m"].notna()]
