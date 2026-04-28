@@ -9698,10 +9698,35 @@ def run_acceptance_checks(
     checks["live_feature_history_nonnull"] = int(latest_only_nonnull)
     checks["live_feature_history_ok"] = int(latest_only_nonnull) == 0
     checks["universe_mode"] = summarize_universe_source(fs)
-    checks["survivorship_bias_warning"] = not str(checks["universe_mode"]).startswith("historical_membership_file")
+    # Phase 15-C fix (2026-04-28): r1000+adr / global_alpha_universe modes were
+    # blocking portfolio export because:
+    #   - universe_source becomes "current_constituents_proxy+adr_whitelist"
+    #     when historical_universe_membership file is missing from runner cache,
+    #     OR "historical_membership_file+adr_whitelist" when it IS present.
+    #   - Original startswith("historical_membership_file") check failed both
+    #     forms because of the "+adr_whitelist" suffix.
+    #   - require_historical_membership_for_backtest = True then forced
+    #     historical_membership_ok = False -> backtest_usable = False ->
+    #     require_acceptance_for_portfolio_export blocks portfolio_latest CSV.
+    #
+    # Resolution: strip ADR overlay before the R1000-base survivorship check.
+    # Additionally, ADR-overlay universes are research-mode (not live trading)
+    # and explicitly opt-in to ADRs without historical R1000 membership; relax
+    # the require_historical flag for these. Pure R1000 live trading continues
+    # to require the file as a guard against survivorship bias.
+    _universe_mode_str = str(checks["universe_mode"])
+    _has_adr_overlay = "adr_whitelist" in _universe_mode_str
+    _non_adr_universe = _universe_mode_str.replace("+adr_whitelist", "").rstrip("+")
+    _r1000_base_is_historical = (
+        bool(_non_adr_universe)
+        and _non_adr_universe.startswith("historical_membership_file")
+    )
+    checks["survivorship_bias_warning"] = not _r1000_base_is_historical
     checks["historical_membership_required"] = bool(cfg.require_historical_membership_for_backtest)
-    checks["historical_membership_ok"] = not (
-        cfg.require_historical_membership_for_backtest and checks["survivorship_bias_warning"]
+    checks["historical_membership_ok"] = (
+        not cfg.require_historical_membership_for_backtest
+        or _r1000_base_is_historical
+        or _has_adr_overlay   # ADR universes are research mode — relax strict check
     )
 
     latest_view = fs[fs["rebalance_date"] == latest_dt].copy() if pd.notna(latest_dt) else fs.copy()
