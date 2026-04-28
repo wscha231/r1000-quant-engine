@@ -51,6 +51,127 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-28
+
+### 09:47 KST - phase15-cycle-leader-rescue-and-risk-discipline
+
+- scope:
+  - Selection mechanism strengthening (P1-P4) plus risk discipline (P5-P7)
+    targeting the user-flagged gap: cyclical leaders (SNDK / MU / WDC /
+    CIEN class) with rank top-decile but excluded from both Core and
+    Concentrated portfolios. Diagnosed against research/phase14_artifact
+    scored_latest.csv:
+      - SNDK rank 37/595 score 3.69 sleeve=unassigned (Phase 9 thesis-gate
+        rejected because multi_year_winner_score=0 from cycle bottom)
+      - MU rank 19/595 score 5.02 sleeve=core_compounder, excluded by
+        Information Technology sector cap (NVDA + LRCX absorbed it)
+      - WDC / CIEN / AVGO same IT sector cap pattern
+- files:
+  - `r1000_features.py` ->add compute_cycle_recovery_score and
+    compute_eps_revision_score; export both in `__all__`.
+  - `r1000_config.py` ->add PHASE15_ALPHA_COLUMNS, append to
+    DEFAULT_FEATURES, bump ENGINE_REUSE_VERSION to
+    `2026-04-28-phase15-cycle-recovery`. Lower
+    concentrated_min_confirmation 0.45 -> 0.30. Add sub_industry_cap_*
+    config block. Add concentrated_stop_loss_pct /
+    concentrated_trailing_stop_pct / concentrated_regime_cash_* config.
+  - `r1000_pipeline.py` ->import + call cycle_recovery / eps_revision
+    after Phase 14 block, gated by phase_is_enabled
+    (PHASE_PHASE15_CYCLE_RECOVERY_ENABLED). Append PHASE15_ALPHA_COLUMNS
+    to keep_cols whitelist + hard_sanitize numeric list. New
+    rank_fallback_top_decile lane in select_concentrated_portfolio_topk
+    (admits high-score names regardless of sleeve label / confirmation
+    when thesis-gated lanes can't fill top_n).
+  - `r1000_signals.py` ->select_topn_with_sector_limits gains
+    sub_industry sub-cap inside Information Technology / Communication
+    Services / Health Care / Financials / Consumer Discretionary
+    sectors. No-op when sub_industry / industry_group not populated.
+  - `aggressive/signals_technical.py` ->tier1_stage2_breakout adds 50d
+    volume ratio + quality_volume_50d check. Fire gate now requires both
+    structure (ma_aligned + ma200_rising + near_52w_high) AND volume
+    support (2x 20d surge OR 1.5x 50d average); single-day spike
+    breakouts without sustained accumulation get 30% score haircut.
+- symbols_added:
+  - `compute_cycle_recovery_score(df) -> df` ->fires on
+    mom_24m<0.10 AND mom_6m>0.30 AND mom_3m>0.10 AND
+    any_profit_sign_flip_pos. [0.0, 1.0] continuous score.
+  - `compute_eps_revision_score(df) -> df` ->wraps eps_revision_proxy
+    into [0.0, 1.0]: 0% revision -> 0, +20% -> 1.0.
+  - `PHASE15_ALPHA_COLUMNS` (in r1000_config.py) ->canonical list of
+    Phase 15 feature columns for keep_cols / hard_sanitize / phase
+    toggle wiring.
+  - `rank_fallback_top_decile` lane in
+    `select_concentrated_portfolio_topk()` ->admits top-decile by
+    concentrated_score regardless of sleeve label.
+- symbols_changed:
+  - `select_concentrated_portfolio_topk(cfg, month_df, top_n)` ->lower
+    min_confirmation default 0.45 -> 0.30 + new rank_fallback lane
+    after the existing 3 thesis-gated lanes. enforce_confirmation arg
+    on inner _take helper.
+  - `select_topn_with_sector_limits(cfg, month_df, caps, target_n)`
+    ->add sub_industry sub-cap inside flagged sectors using cfg fields.
+  - `tier1_stage2_breakout(df) -> TierSignal` ->require volume
+    confirmation (2x 20d OR 1.5x 50d) for fire; haircut single-day
+    spike breakouts.
+- config_fields_added:
+  - `concentrated_min_confirmation: float = 0.30` ->relaxed from 0.45
+  - `sub_industry_cap_enabled: bool = True` ->P2 master switch
+  - `sub_industry_max_per_sector: int = 2` ->cap names per
+    sub_industry inside flagged sectors
+  - `sub_industry_cap_sectors: list[str] = [Information Technology,
+    Communication Services, Health Care, Financials,
+    Consumer Discretionary]`
+  - `concentrated_stop_loss_pct: float = 0.15` ->vs core 0.25
+  - `concentrated_trailing_stop_pct: float = 0.12` ->trailing from peak
+  - `concentrated_trailing_stop_enabled: bool = True`
+  - `concentrated_regime_cash_vix_threshold: float = 25.0` ->vs core 30
+  - `concentrated_regime_cash_breadth_threshold: float = 0.30`
+    ->breadth_above_ma200 floor
+  - `concentrated_regime_cash_pct: float = 0.30` ->force 30% cash on
+    regime risk-off
+- breaking_changes:
+  - ENGINE_REUSE_VERSION bumped 2026-04-25-phase14-hybrid-alpha
+    -> 2026-04-28-phase15-cycle-recovery. feature_store cache
+    invalidates. ONE FULL REBUILD required per machine before
+    QUICK_RESCORE works again. Cloud workflow will rebuild
+    automatically on next dispatch with the new version.
+  - DEFAULT_FEATURES count 238 -> 240 (audit verified 0 forward-return
+    columns).
+  - tier1_stage2_breakout fire gate is stricter — pure-price near-52w-
+    high breakouts without volume support no longer fire. Estimated
+    impact: 10-20% fewer T1 candidates per scanner run, lower false-
+    positive rate.
+- outputs:
+  - `outputs/scored_latest.csv` ->gains cycle_recovery_score and
+    eps_revision_score columns
+  - `outputs/feature_store_*.parquet` ->new schema, regenerates on next
+    FULL rebuild
+- validation:
+  - `python tests/smoke_test.py` ->66/66 passed (~14s)
+  - `python tests/audit_features.py --no-runtime` ->240 features, 0
+    leakage, all forward horizons banned
+  - syntax check on r1000_pipeline.py / r1000_config.py /
+    r1000_features.py / r1000_signals.py / aggressive/signals_technical.py
+    ->all clean
+- risks_or_notes:
+  - cycle_recovery_score relies on any_profit_sign_flip_pos already
+    populated by Phase 9 C3. If C3 disabled (PHASE_PHASE9_C3_TURNAROUND_ENABLED=0),
+    cycle_recovery_score effectively gates on momentum-only and may fire
+    less. Retest after C3 toggle if used.
+  - sub_industry_max_per_sector=2 is conservative — increase to 3 if A/B
+    shows too many names dropped from IT (e.g. all of NVDA/AMD/LRCX/AMAT
+    /MU at top of score want a slot).
+  - concentrated_trailing_stop_pct activates only when
+    concentrated_trailing_stop_enabled=True. Backtest will use trailing
+    from peak; live trading will need to track actual peak in
+    portfolio_state per ticker.
+  - tier1_stage2_breakout volume threshold (1.5x 50d) is an empirical
+    choice — IBD canonical is 1.5x 50d for institutional accumulation.
+    Tighten to 2.0x for higher-quality breakouts only if backtest shows
+    the looser threshold leaks too many low-quality names.
+  - Backtest on the new feature_store will take 3-3.5h on cloud GHA
+    full_rebuild_manual.yml (still within 5h50m timeout).
+
 ## 2026-04-27
 
 ### 10:44 KST - wire-adr-universe-mode-into-main-engine

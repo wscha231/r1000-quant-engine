@@ -111,6 +111,12 @@ def tier1_stage2_breakout(df: pd.DataFrame) -> TierSignal:
     """Weinstein Stage 2 breakout detection.
 
     Signal fires when a stock transitions from Stage 1 accumulation to Stage 2 markup.
+
+    Phase 15-A (2026-04-28): adds 50-day volume ratio and quality flag to
+    distinguish institutional accumulation breakouts from low-volume drifts.
+    Low-volume breakouts get a 30% score haircut and a warning in the
+    trade_card; the fire gate requires either a 2x 20d volume surge OR a
+    1.5x 50d volume average — but not pure-price-only breakouts.
     """
     if len(df) < 210:
         return TierSignal(1, "Stage 2 Breakout", False, 0.0,
@@ -122,6 +128,7 @@ def tier1_stage2_breakout(df: pd.DataFrame) -> TierSignal:
     ma50 = sma(c, 50)
     ma200 = sma(c, 200)
     v20 = sma(v, 20)
+    v50 = sma(v, 50)
 
     price_latest = float(c.iloc[-1])
     price_52w_high = float(c.tail(252).max())
@@ -136,6 +143,10 @@ def tier1_stage2_breakout(df: pd.DataFrame) -> TierSignal:
     ma200_rising = ma200_slope > 0.02   # ~0.5%/month
     near_high = range52 >= 0.95          # in top 5% of 52w range
     vol_surge = float(v.iloc[-1]) >= 2.0 * float(v20.iloc[-1])
+    # Phase 15-A: 50d ratio is a softer floor — quality breakouts should run
+    # at least 1.5x the 50d average even if today's specific candle isn't 2x.
+    vol_50d_ratio = float(v.iloc[-1]) / float(v50.iloc[-1] + 1e-9)
+    quality_volume = vol_50d_ratio >= 1.5
 
     # 10-day price strength (breakout confirmation)
     ret_10d = pct_change(c, 10)
@@ -147,6 +158,7 @@ def tier1_stage2_breakout(df: pd.DataFrame) -> TierSignal:
         "near_52w_high": bool(near_high),
         "volume_surge_2x": bool(vol_surge),
         "strong_10d_return": bool(strong_10d),
+        "quality_volume_50d": bool(quality_volume),
     }
     metrics = {
         "price": price_latest,
@@ -154,20 +166,33 @@ def tier1_stage2_breakout(df: pd.DataFrame) -> TierSignal:
         "range52_pct": range52 * 100.0,
         "ma200_slope_pct_per_bar": float(ma200_slope),
         "volume_ratio_20d": float(v.iloc[-1]) / float(v20.iloc[-1] + 1e-9),
+        "volume_ratio_50d": vol_50d_ratio,
         "ret_10d_pct": ret_10d,
     }
 
     n_passed = sum(checks.values())
-    # Require ma_aligned + ma200_rising + (near_high OR vol_surge) as minimum
-    fired = checks["ma_aligned_bullish"] and checks["ma200_rising"] and (
-        checks["near_52w_high"] or checks["volume_surge_2x"]
+    # Phase 15-A: fire gate now requires BOTH structure and volume — at least
+    # ONE of (2x 20d surge / 1.5x 50d average). Pure-price breakouts (near_high
+    # only) without ANY volume support no longer fire — they were the low-
+    # quality breakouts the user flagged (SNDK loose-base example).
+    has_volume_support = checks["volume_surge_2x"] or checks["quality_volume_50d"]
+    fired = (
+        checks["ma_aligned_bullish"]
+        and checks["ma200_rising"]
+        and checks["near_52w_high"]
+        and has_volume_support
     )
-    score = (n_passed / 5.0) * 100.0 if fired else (n_passed / 5.0) * 40.0
+    score_base = (n_passed / 6.0) * 100.0 if fired else (n_passed / 6.0) * 40.0
+    # Score haircut for breakouts that fire on volume_surge_2x but lack the
+    # 1.5x 50d average (single-day spike vs sustained accumulation).
+    if fired and checks["volume_surge_2x"] and not checks["quality_volume_50d"]:
+        score_base *= 0.70
+    score = score_base
 
     rationale = (
         f"Range52={range52*100:.0f}%, MA200 slope={ma200_slope:+.3f}%/bar, "
-        f"vol={metrics['volume_ratio_20d']:.1f}x, 10d={ret_10d:+.1f}% "
-        f"[{n_passed}/5 checks]"
+        f"vol={metrics['volume_ratio_20d']:.1f}x20d / {vol_50d_ratio:.1f}x50d, "
+        f"10d={ret_10d:+.1f}% [{n_passed}/6 checks]"
     )
 
     return TierSignal(1, "Stage 2 Breakout", fired, score, checks, metrics, rationale)

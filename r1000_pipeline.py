@@ -84,6 +84,7 @@ from r1000_config import (
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
+    PHASE15_ALPHA_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -275,6 +276,8 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    compute_cycle_recovery_score,
+    compute_eps_revision_score,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7214,6 +7217,22 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p14_col in PHASE14_HYBRID_ALPHA_COLUMNS:
             universe[_p14_col] = 0.0
 
+    # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst.
+    # Runs AFTER Phase 14 because cycle_recovery uses any_profit_sign_flip_pos
+    # (Phase 9 C3 flag) and mom_24m / mom_3m / mom_6m (already in universe).
+    # eps_revision wraps eps_revision_proxy already computed by
+    # compute_live_factor_columns from Finnhub forward EPS estimates.
+    if phase_is_enabled("phase15_cycle_recovery", default=True):
+        universe = compute_cycle_recovery_score(universe)
+        universe = compute_eps_revision_score(universe)
+    else:
+        log(
+            "[phase15_cycle_recovery] disabled via env PHASE_PHASE15_CYCLE_RECOVERY_ENABLED=0 "
+            "- zero-filling Phase 15 feature columns."
+        )
+        for _p15_col in PHASE15_ALPHA_COLUMNS:
+            universe[_p15_col] = 0.0
+
     keep_cols = list(
         dict.fromkeys(
             [
@@ -7277,6 +7296,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
+            + PHASE15_ALPHA_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7307,6 +7327,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
+        + PHASE15_ALPHA_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -12528,11 +12549,20 @@ def select_concentrated_portfolio_topk(
     # producing identical metrics because the grid was silently clamping
     # back to 3 here. See CHANGELOG 19:30 KST entry.
     top_n = max(1, min(int(top_n), 30))
-    min_confirmation = float(getattr(cfg, "concentrated_min_confirmation", 0.45))
+    # Phase 15-A (2026-04-28): concentrated thesis-gate relaxation. Default
+    # min_confirmation 0.45 was rejecting cyclical leaders (memory/foundry
+    # equipment) that have valid score but weak multi_year/market_confirmation
+    # signals from cycle bottom. New default 0.30 plus a "rank-fallback" lane
+    # that admits high-score names regardless of sleeve label / confirmation
+    # if the top thesis-gated lanes can't fill `top_n`. Empirical observation:
+    # SNDK (rank 37/595, score 3.69, sleeve=unassigned) was being completely
+    # excluded despite having selection_confirmation_score=1.0 — because the
+    # `concentrated_preferred_sleeve` mask was empty.
+    min_confirmation = float(getattr(cfg, "concentrated_min_confirmation", 0.30))
     selected_parts: list[pd.DataFrame] = []
     selected_tickers: set[str] = set()
 
-    def _take(mask: pd.Series, source: str, limit: int) -> None:
+    def _take(mask: pd.Series, source: str, limit: int, *, enforce_confirmation: bool = True) -> None:
         nonlocal selected_tickers
         if limit <= 0:
             return
@@ -12544,9 +12574,10 @@ def select_concentrated_portfolio_topk(
             pool = pool[~pool["ticker"].astype(str).isin(selected_tickers)].copy()
         if pool.empty:
             return
-        pool = pool.loc[
-            pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
-        ].copy()
+        if enforce_confirmation:
+            pool = pool.loc[
+                pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
+            ].copy()
         if pool.empty:
             return
         pool = pool.sort_values(
@@ -12569,6 +12600,20 @@ def select_concentrated_portfolio_topk(
     if remaining > 0:
         score_cut = float(pd.to_numeric(d["concentrated_score"], errors="coerce").quantile(0.80)) if len(d) else 0.0
         _take(pd.to_numeric(d["concentrated_score"], errors="coerce").fillna(0.0) >= score_cut, "score_fallback", remaining)
+    # Phase 15-A: cycle-leader rank-fallback lane. If the thesis-gated lanes
+    # leave slots open, admit the highest `concentrated_score` names from the
+    # entire frame regardless of sleeve label or confirmation. This rescues
+    # cycle leaders (SNDK / MU-class) where multi_year_winner_score=0 but
+    # rank is top decile.
+    remaining = top_n - sum(len(x) for x in selected_parts)
+    if remaining > 0:
+        rank_pool_score_cut = float(pd.to_numeric(d["concentrated_score"], errors="coerce").quantile(0.92)) if len(d) else 0.0
+        _take(
+            pd.to_numeric(d["concentrated_score"], errors="coerce").fillna(0.0) >= rank_pool_score_cut,
+            "rank_fallback_top_decile",
+            remaining,
+            enforce_confirmation=False,
+        )
     if not selected_parts:
         return d.iloc[0:0].copy()
     out = pd.concat(selected_parts, ignore_index=False)

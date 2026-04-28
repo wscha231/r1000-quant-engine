@@ -200,6 +200,17 @@ PHASE14_HYBRID_ALPHA_COLUMNS = [
     "theme_phase_multiplier_max",           # themes.yaml phase classifier (max across themes)
 ]
 
+# Phase 15-A (2026-04-28) cycle-leader rescue + earnings-revision catalyst.
+# Two new ML features that target the gap exposed by the SHIPPED Phase 14
+# scored_latest.csv: SNDK rank 37/595 score 3.69 was completely unassigned
+# (sleeve=unassigned) because multi_year_winner_score=0 from sitting at the
+# memory cycle bottom. ENGINE_REUSE_VERSION bump REQUIRED — feature_store
+# schema gains 2 columns. One FULL REBUILD per machine.
+PHASE15_ALPHA_COLUMNS = [
+    "cycle_recovery_score",                 # cycle bottom + 6m turn + EPS sign flip
+    "eps_revision_score",                   # forward EPS estimate change (analyst upgrade catalyst)
+]
+
 
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
@@ -589,7 +600,7 @@ DEFAULT_FEATURES = [
     "val_residual_ep",
     "val_residual_sp",
     "val_residual_fcfy",
-] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS
+] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + PHASE15_ALPHA_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
     "institutional_flow_actual_score",
@@ -1364,7 +1375,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"
+ENGINE_REUSE_VERSION = "2026-04-28-phase15-cycle-recovery"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1543,7 +1554,12 @@ class EngineConfig:
     concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
     concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
-    concentrated_min_confirmation: float = 0.45
+    # Phase 15-A (2026-04-28): relaxed 0.45 -> 0.30. Default rejected cyclical
+    # leaders (SNDK/MU/WDC class) where score is high but multi_year_winner_score
+    # is 0 because price is recovering from a memory cycle bottom. Combined with
+    # the new `rank_fallback_top_decile` lane in select_concentrated_portfolio_topk
+    # this admits high-rank cycle plays without breaking the diversified core.
+    concentrated_min_confirmation: float = 0.30
     concentrated_score_future_weight: float = 0.95
     concentrated_score_early_weight: float = 1.05
     concentrated_score_sage_weight: float = 0.45
@@ -1632,6 +1648,21 @@ class EngineConfig:
     sub_industry_leader_laggard_enabled: bool = False
     sub_industry_min_group_size: int = 6
     sub_industry_leader_gap_threshold: float = 0.8
+    # Phase 15-A (2026-04-28): sub-industry sub-cap to prevent mega-cap
+    # dominance inside broad sectors like Information Technology. Within each
+    # listed sector, cap names per sub_industry / industry_group at this
+    # count. Solves the SHIPPED Phase 14 case where NVDA+LRCX absorbed the IT
+    # sector cap and locked out MU/WDC/CIEN/SNDK (memory + networking
+    # sub-industries with valid scores).
+    sub_industry_cap_enabled: bool = True
+    sub_industry_max_per_sector: int = 2
+    sub_industry_cap_sectors: list[str] = field(default_factory=lambda: [
+        "Information Technology",
+        "Communication Services",
+        "Health Care",
+        "Financials",
+        "Consumer Discretionary",
+    ])
     export_extended_outputs: bool = True
     export_explain_outputs: bool = True
     turnover_cap_monthly: float = 0.55
@@ -1762,6 +1793,17 @@ class EngineConfig:
     speculative_weight_max: float = 0.04
     speculative_total_weight_max: float = 0.15
     speculative_min_rs_composite: float = 0.0
+    # Phase 15-A (2026-04-28): concentrated-sleeve specific stop-loss + regime
+    # cash gates. Concentrated has only 5 names so a single -25% drawdown
+    # contributes -5% to the sleeve total — too loose. Use a tighter trailing
+    # stop. Combined with the tighter VIX gate below this is the loss-min
+    # half of the "수익 극대 / 손실 최소" mandate.
+    concentrated_stop_loss_pct: float = 0.15            # -15% hard stop (vs core -25%)
+    concentrated_trailing_stop_pct: float = 0.12        # -12% trailing from peak
+    concentrated_trailing_stop_enabled: bool = True
+    concentrated_regime_cash_vix_threshold: float = 25.0  # VIX > 25 (vs core 30)
+    concentrated_regime_cash_breadth_threshold: float = 0.30  # breadth_above_ma200 < 30%
+    concentrated_regime_cash_pct: float = 0.30          # force 30% cash when regime risk-off
     # Phase 15-R1 (2026-04-21): trailing stop from peak on early_scout positions.
     # Complements the entry-point -25% hard stop with a peak-relative exit so
     # the engine preserves realized gains when a held position rolls over.

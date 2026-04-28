@@ -2325,6 +2325,20 @@ def select_topn_with_sector_limits(
     limit_n = int(target_n or cfg.top_n)
     count_caps = {s: max(1, int(math.floor(w * limit_n))) for s, w in caps.items()}
     default_cap = max(1, int(math.floor(cfg.cap_base_weight * limit_n)))
+    # Phase 15-A (2026-04-28): sub-industry sub-cap inside Information Technology.
+    # The legacy sector cap is too coarse — NVDA + LRCX (mega-cap GPU/Equipment)
+    # dominate the IT bucket and lock out cycle leaders (MU/SNDK/WDC/CIEN) that
+    # belong to different IT sub-industries. New behavior: within the IT sector
+    # (and similarly broad sectors flagged in cfg), cap each sub_industry at
+    # `cfg.sub_industry_max_per_sector` (default 2) so multiple IT sub-types
+    # can coexist. No-op if sub_industry / industry_group not populated.
+    sub_cap_enabled = bool(getattr(cfg, "sub_industry_cap_enabled", True))
+    sub_cap_n = int(getattr(cfg, "sub_industry_max_per_sector", 2))
+    sub_cap_sectors = set(getattr(cfg, "sub_industry_cap_sectors", [
+        "Information Technology", "Communication Services", "Health Care",
+        "Financials", "Consumer Discretionary",
+    ]))
+    sub_count: dict[tuple[str, str], int] = {}
     picked = []
     sec_count: dict[str, int] = {}
     cik_count: dict[str, int] = {}
@@ -2333,6 +2347,19 @@ def select_topn_with_sector_limits(
         cap = count_caps.get(sec, default_cap)
         if sec_count.get(sec, 0) >= cap:
             continue
+        # Sub-industry sub-cap inside flagged sectors
+        if sub_cap_enabled and sec in sub_cap_sectors:
+            sub = (
+                getattr(r, "sub_industry", None)
+                or getattr(r, "subindustry", None)
+                or getattr(r, "industry_group", None)
+                or getattr(r, "industry", None)
+            )
+            if sub and str(sub).lower() not in ("nan", "none", "unknown", ""):
+                key = (sec, str(sub))
+                if sub_count.get(key, 0) >= sub_cap_n:
+                    continue
+                sub_count[key] = sub_count.get(key, 0) + 1
         cik = str(getattr(r, "cik10", ""))
         if cfg.max_names_per_cik > 0 and cik and cik.lower() != "nan":
             if cik_count.get(cik, 0) >= cfg.max_names_per_cik:

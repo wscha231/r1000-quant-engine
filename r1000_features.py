@@ -1964,6 +1964,9 @@ __all__ = [
     "compute_stage2_overext_penalty",
     "compute_theme_phase_features",
     "PHASE14_HYBRID_ALPHA_COLUMNS",
+    # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
+    "compute_cycle_recovery_score",
+    "compute_eps_revision_score",
 ]
 
 
@@ -4760,6 +4763,83 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-A cycle recovery — rescue cyclical leaders from gate exclusion.
+
+    Memory / foundry-equipment / cyclical-semis names (SNDK / MU / WDC /
+    AMKR class) systematically fail the Phase 9 thesis-gate because their
+    `multi_year_winner_score` is 0 — by construction. They've spent the last
+    24-36 months in a cycle bottom, so mom_24m and mom_36m are negative or
+    near zero, but mom_6m / mom_3m are strongly positive as the cycle turns.
+
+    This score fires when ALL of:
+      - mom_24m < 0.10           (still below 24mo ago, i.e. cycle bottom)
+      - mom_6m  > 0.30           (turning up sharply)
+      - mom_3m  > 0.10           (recent confirmation)
+      - any_profit_sign_flip_pos  (EPS just turned positive — Phase 9 C3 flag)
+
+    Returns continuous score [0.0, 1.0]. Used by Phase 15-A as a thesis-gate
+    bypass: tickers with cycle_recovery_score >= 0.5 can be assigned to a
+    sleeve even when multi_year_winner_score is too low.
+
+    Does NOT require sub_industry classification — purely technical/fundamental.
+    Captures the same "cycle bottom + EPS turn" signal that the user's
+    intuition flagged as missing for SNDK / MU.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["cycle_recovery_score"] = pd.Series(dtype=float)
+        return d
+    mom_24m = numeric_series_or_default(d, "mom_24m", np.nan)
+    mom_6m = numeric_series_or_default(d, "mom_6m", 0.0)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    any_profit_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+
+    # Bottom signal: still below 24mo ago (recovering, not yet exceeded prior peak)
+    bottom_part = ((0.10 - mom_24m) / 0.30).clip(lower=0.0, upper=1.0)
+    # Turn-up signal: 6m strongly positive
+    turn_part = ((mom_6m - 0.30) / 0.20).clip(lower=0.0, upper=1.0)
+    # Recent confirmation: 3m positive too
+    recent_part = ((mom_3m - 0.10) / 0.20).clip(lower=0.0, upper=1.0)
+    # EPS turn-positive (Phase 9 C3 sign flip)
+    eps_part = (any_profit_flip > 0).astype(float)
+
+    score = (bottom_part * turn_part * recent_part * eps_part).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # If mom_24m is NaN (insufficient history), score is 0 (no cycle context)
+    score = score.where(mom_24m.notna(), 0.0)
+    d["cycle_recovery_score"] = score
+    return d
+
+
+def compute_eps_revision_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-A EPS revision momentum — analyst upgrade catalyst signal.
+
+    Wraps the existing `eps_revision_proxy` column (already computed by
+    compute_live_factor_columns from Finnhub forward EPS estimates) and
+    compresses it to a continuous [0.0, 1.0] score for ML consumption.
+
+    The proxy is the 3m / 6m / 12m change in forward EPS estimate (or
+    ((current_eps - prior_eps) / |prior_eps|)). Positive = analysts upgrading
+    forecasts, typically a 1-2 month leading indicator before price action
+    on cyclical turnarounds. Captures the "earnings catalyst" gap that the
+    pure-momentum and pure-fundamental scores miss.
+
+    Returns score [0.0, 1.0]:
+      - 1.0 at +20% revision
+      - 0.5 at +10% revision
+      - 0.0 at <= 0% revision
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["eps_revision_score"] = pd.Series(dtype=float)
+        return d
+    revision = numeric_series_or_default(d, "eps_revision_proxy", 0.0)
+    # Map revision to [0, 1]: 0% -> 0, +10% -> 0.5, +20% -> 1.0
+    score = (revision / 0.20).clip(lower=0.0, upper=1.0).fillna(0.0)
+    d["eps_revision_score"] = score
     return d
 
 
