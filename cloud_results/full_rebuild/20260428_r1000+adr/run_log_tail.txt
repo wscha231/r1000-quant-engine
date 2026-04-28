@@ -1,73 +1,301 @@
-Traceback (most recent call last):
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 656, in main
-    result = run_default_pipeline(pipeline_cfg)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 422, in run_default_pipeline
-    return run_last_n_years_backtest(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 409, in run_last_n_years_backtest
-    return run_all(cfg_obj)
-           ^^^^^^^^^^^^^^^^
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 16580, in run_all
-    feature_store = build_feature_store(cfg)
-                    ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 7299, in build_feature_store
-    universe = compute_sub_industry_rs_score(universe)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_features.py", line 4810, in compute_sub_industry_rs_score
-    if chosen is None or score_col.isna().all():
-                         ^^^^^^^^^^^^^^
-AttributeError: 'numpy.float64' object has no attribute 'isna'
-======================================================================
-r1000 Quant Engine -- local run
-======================================================================
-  commit:        cc4bcff (DIRTY)
-  started:       2026-04-28 18:55:58 KST
-  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
-  end_date:      2026-04-28
-  mode:          FULL REBUILD
-  fast_mode:     True
-  universe_mode: r1000+adr
-  backtest_years: 8
-  collector:     skipped
-  verdict_only:  False
-  Phase 9 C1:    auto
-  Phase 9 C2:    auto
-  Phase 9 C3:    auto
-  Phase 14:      auto
-======================================================================
-WARNING: feature_store missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
-OK: companyfacts.zip 0.3d old, 1306 MB
+[15:34:18] Phase 5: running monthly portfolio backtest ...
+[15:34:19] Portfolio candidate set: sleeve-aware gate kept=214, removed=306, gate_modes={'early_relaxed': 100, 'future_relaxed': 89, 'core_strict': 21, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 101, 'future_winner': 92, 'core_compounder': 21}
+[15:34:20] Portfolio candidate set: sleeve-aware gate kept=309, removed=231, gate_modes={'early_relaxed': 185, 'future_relaxed': 97, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 185, 'future_winner': 103, 'core_compounder': 21}
+[15:34:22] Portfolio candidate set: sleeve-aware gate kept=206, removed=337, gate_modes={'future_relaxed': 94, 'early_relaxed': 85, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'future_winner': 100, 'early_scout': 85, 'core_compounder': 21}
+[15:34:23] Portfolio candidate set: sleeve-aware gate kept=182, removed=371, gate_modes={'future_relaxed': 88, 'early_relaxed': 66, 'core_strict': 23, 'adr_global_alpha_fallback': 5}, sleeves={'future_winner': 91, 'early_scout': 68, 'core_compounder': 23}
+[15:34:25] Portfolio candidate set: sleeve-aware gate kept=220, removed=330, gate_modes={'early_relaxed': 105, 'future_relaxed': 91, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 106, 'future_winner': 92, 'core_compounder': 22}
+[15:34:26] Portfolio candidate set: sleeve-aware gate kept=234, removed=305, gate_modes={'early_relaxed': 106, 'future_relaxed': 104, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 107, 'early_scout': 106, 'core_compounder': 21}
+[15:34:28] Portfolio candidate set: sleeve-aware gate kept=191, removed=365, gate_modes={'future_relaxed': 92, 'early_relaxed': 75, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 95, 'early_scout': 75, 'core_compounder': 21}
+[15:34:29] Portfolio candidate set: sleeve-aware gate kept=231, removed=334, gate_modes={'early_relaxed': 138, 'future_relaxed': 77, 'core_strict': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 138, 'future_winner': 79, 'core_compounder': 14}
+[15:34:30] Portfolio candidate set: sleeve-aware gate kept=144, removed=418, gate_modes={'early_relaxed': 90, 'future_relaxed': 39, 'core_strict': 12, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 91, 'future_winner': 41, 'core_compounder': 12}
+[15:34:32] Portfolio candidate set: sleeve-aware gate kept=161, removed=413, gate_modes={'early_relaxed': 103, 'future_relaxed': 45, 'core_strict': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 103, 'future_winner': 46, 'core_compounder': 12}
+[15:34:33] Portfolio candidate set: sleeve-aware gate kept=74, removed=496, gate_modes={'future_relaxed': 30, 'early_relaxed': 30, 'core_strict': 14}, sleeves={'future_winner': 30, 'early_scout': 30, 'core_compounder': 14}
+[15:34:35] Portfolio candidate set: sleeve-aware gate kept=177, removed=400, gate_modes={'early_relaxed': 78, 'future_relaxed': 76, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 78, 'future_winner': 77, 'core_compounder': 22}
+[15:34:37] Portfolio candidate set: sleeve-aware gate kept=233, removed=329, gate_modes={'future_relaxed': 109, 'early_relaxed': 98, 'core_strict': 24, 'adr_global_alpha_fallback': 2}, sleeves={'future_winner': 111, 'early_scout': 98, 'core_compounder': 24}
+[15:34:38] Portfolio candidate set: sleeve-aware gate kept=164, removed=403, gate_modes={'early_relaxed': 84, 'future_relaxed': 58, 'core_strict': 22}, sleeves={'early_scout': 84, 'future_winner': 58, 'core_compounder': 22}
+[15:34:40] Portfolio candidate set: sleeve-aware gate kept=123, removed=419, gate_modes={'early_relaxed': 53, 'future_relaxed': 47, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 53, 'future_winner': 48, 'core_compounder': 22}
+[15:34:42] Portfolio candidate set: sleeve-aware gate kept=85, removed=449, gate_modes={'early_relaxed': 31, 'future_relaxed': 30, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 32, 'future_winner': 31, 'core_compounder': 22}
+[15:34:43] Portfolio candidate set: sleeve-aware gate kept=149, removed=401, gate_modes={'early_relaxed': 86, 'future_relaxed': 38, 'core_strict': 22, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 87, 'future_winner': 40, 'core_compounder': 22}
+[15:34:45] Portfolio candidate set: sleeve-aware gate kept=131, removed=407, gate_modes={'early_relaxed': 77, 'future_relaxed': 33, 'core_strict': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 34, 'core_compounder': 20}
+[15:34:46] Portfolio candidate set: sleeve-aware gate kept=97, removed=444, gate_modes={'early_relaxed': 50, 'future_relaxed': 27, 'core_strict': 20}, sleeves={'early_scout': 50, 'future_winner': 27, 'core_compounder': 20}
+[15:34:48] Portfolio candidate set: sleeve-aware gate kept=110, removed=437, gate_modes={'early_relaxed': 71, 'future_relaxed': 24, 'core_strict': 15}, sleeves={'early_scout': 71, 'future_winner': 24, 'core_compounder': 15}
+[15:34:49] Portfolio candidate set: sleeve-aware gate kept=152, removed=389, gate_modes={'early_relaxed': 124, 'future_relaxed': 14, 'core_strict': 12, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 125, 'future_winner': 15, 'core_compounder': 12}
+[15:34:51] Portfolio candidate set: sleeve-aware gate kept=93, removed=441, gate_modes={'early_relaxed': 72, 'core_strict': 11, 'future_relaxed': 10}, sleeves={'early_scout': 72, 'core_compounder': 11, 'future_winner': 10}
+[15:34:52] Portfolio candidate set: sleeve-aware gate kept=183, removed=360, gate_modes={'early_relaxed': 153, 'core_strict': 14, 'future_relaxed': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 154, 'future_winner': 15, 'core_compounder': 14}
+[15:34:54] Portfolio candidate set: sleeve-aware gate kept=168, removed=391, gate_modes={'early_relaxed': 127, 'core_strict': 20, 'future_relaxed': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 127, 'future_winner': 21, 'core_compounder': 20}
+[15:34:56] Portfolio candidate set: sleeve-aware gate kept=115, removed=440, gate_modes={'early_relaxed': 75, 'core_strict': 21, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 75, 'core_compounder': 21, 'future_winner': 19}
+[15:34:57] Portfolio candidate set: sleeve-aware gate kept=136, removed=411, gate_modes={'early_relaxed': 97, 'core_strict': 20, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 97, 'core_compounder': 20, 'future_winner': 19}
+[15:34:59] Portfolio candidate set: sleeve-aware gate kept=130, removed=410, gate_modes={'early_relaxed': 101, 'core_strict': 19, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 101, 'core_compounder': 19, 'future_winner': 10}
+[15:35:01] Portfolio candidate set: sleeve-aware gate kept=201, removed=347, gate_modes={'early_relaxed': 161, 'core_strict': 20, 'future_relaxed': 19, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 161, 'future_winner': 20, 'core_compounder': 20}
+[15:35:02] Portfolio candidate set: sleeve-aware gate kept=253, removed=301, gate_modes={'early_relaxed': 209, 'core_strict': 21, 'future_relaxed': 21, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 209, 'future_winner': 23, 'core_compounder': 21}
+[15:35:03] Portfolio candidate set: sleeve-aware gate kept=131, removed=410, gate_modes={'early_relaxed': 99, 'core_strict': 22, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 99, 'core_compounder': 22, 'future_winner': 10}
+[15:35:05] Portfolio candidate set: sleeve-aware gate kept=96, removed=449, gate_modes={'early_relaxed': 61, 'core_strict': 21, 'future_relaxed': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 61, 'core_compounder': 21, 'future_winner': 14}
+[15:35:06] Portfolio candidate set: sleeve-aware gate kept=59, removed=491, gate_modes={'early_relaxed': 40, 'core_strict': 14, 'future_relaxed': 5}, sleeves={'early_scout': 40, 'core_compounder': 14, 'future_winner': 5}
+[15:35:08] Portfolio candidate set: sleeve-aware gate kept=131, removed=414, gate_modes={'early_relaxed': 111, 'core_strict': 13, 'future_relaxed': 7}, sleeves={'early_scout': 111, 'core_compounder': 13, 'future_winner': 7}
+[15:35:10] Portfolio candidate set: sleeve-aware gate kept=197, removed=362, gate_modes={'early_relaxed': 175, 'core_strict': 13, 'future_relaxed': 8, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 175, 'core_compounder': 13, 'future_winner': 9}
+[15:35:11] Portfolio candidate set: sleeve-aware gate kept=170, removed=393, gate_modes={'early_relaxed': 141, 'core_strict': 16, 'future_relaxed': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 141, 'core_compounder': 16, 'future_winner': 13}
+[15:35:13] Portfolio candidate set: sleeve-aware gate kept=246, removed=331, gate_modes={'early_relaxed': 183, 'future_relaxed': 37, 'core_strict': 23, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 183, 'future_winner': 40, 'core_compounder': 23}
+[15:35:14] Portfolio candidate set: sleeve-aware gate kept=239, removed=330, gate_modes={'early_relaxed': 179, 'future_relaxed': 35, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 179, 'future_winner': 36, 'core_compounder': 24}
+[15:35:16] Portfolio candidate set: sleeve-aware gate kept=161, removed=425, gate_modes={'early_relaxed': 93, 'future_relaxed': 41, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 93, 'future_winner': 44, 'core_compounder': 24}
+[15:35:17] Portfolio candidate set: sleeve-aware gate kept=178, removed=403, gate_modes={'early_relaxed': 102, 'future_relaxed': 49, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 102, 'future_winner': 52, 'core_compounder': 24}
+[15:35:19] Portfolio candidate set: sleeve-aware gate kept=167, removed=419, gate_modes={'early_relaxed': 85, 'future_relaxed': 57, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 85, 'future_winner': 58, 'core_compounder': 24}
+[15:35:20] Portfolio candidate set: sleeve-aware gate kept=257, removed=353, gate_modes={'early_relaxed': 178, 'future_relaxed': 54, 'core_strict': 25}, sleeves={'early_scout': 178, 'future_winner': 54, 'core_compounder': 25}
+[15:35:22] Portfolio candidate set: sleeve-aware gate kept=221, removed=366, gate_modes={'early_relaxed': 144, 'future_relaxed': 54, 'core_strict': 23}, sleeves={'early_scout': 144, 'future_winner': 54, 'core_compounder': 23}
+[15:35:23] Portfolio candidate set: sleeve-aware gate kept=254, removed=339, gate_modes={'early_relaxed': 148, 'future_relaxed': 84, 'core_strict': 20, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 148, 'future_winner': 86, 'core_compounder': 20}
+[15:35:25] Portfolio candidate set: sleeve-aware gate kept=183, removed=426, gate_modes={'early_relaxed': 134, 'future_relaxed': 34, 'core_strict': 15}, sleeves={'early_scout': 134, 'future_winner': 34, 'core_compounder': 15}
+[15:35:26] Portfolio candidate set: sleeve-aware gate kept=207, removed=412, gate_modes={'early_relaxed': 153, 'future_relaxed': 40, 'core_strict': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 153, 'future_winner': 41, 'core_compounder': 13}
+[15:35:28] Portfolio candidate set: sleeve-aware gate kept=88, removed=526, gate_modes={'future_relaxed': 38, 'early_relaxed': 35, 'core_strict': 15}, sleeves={'future_winner': 38, 'early_scout': 35, 'core_compounder': 15}
+[15:35:30] Portfolio candidate set: sleeve-aware gate kept=150, removed=469, gate_modes={'early_relaxed': 102, 'future_relaxed': 31, 'core_strict': 16, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 102, 'future_winner': 32, 'core_compounder': 16}
+[15:35:32] Portfolio candidate set: sleeve-aware gate kept=198, removed=430, gate_modes={'early_relaxed': 111, 'future_relaxed': 63, 'core_strict': 23, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 111, 'future_winner': 64, 'core_compounder': 23}
+[15:35:34] Portfolio candidate set: sleeve-aware gate kept=159, removed=472, gate_modes={'early_relaxed': 77, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 56, 'core_compounder': 26}
+[15:35:36] Portfolio candidate set: sleeve-aware gate kept=153, removed=469, gate_modes={'early_relaxed': 66, 'future_relaxed': 58, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 66, 'future_winner': 61, 'core_compounder': 26}
+[15:35:37] Portfolio candidate set: sleeve-aware gate kept=200, removed=411, gate_modes={'early_relaxed': 107, 'future_relaxed': 66, 'core_strict': 22, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 107, 'future_winner': 71, 'core_compounder': 22}
+[15:35:39] Portfolio candidate set: sleeve-aware gate kept=231, removed=390, gate_modes={'early_relaxed': 141, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 142, 'future_winner': 65, 'core_compounder': 24}
+[15:35:40] Portfolio candidate set: sleeve-aware gate kept=232, removed=408, gate_modes={'early_relaxed': 148, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 149, 'future_winner': 57, 'core_compounder': 26}
+[15:35:41] Portfolio candidate set: sleeve-aware gate kept=234, removed=384, gate_modes={'early_relaxed': 142, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 142, 'future_winner': 68, 'core_compounder': 24}
+[15:35:43] Portfolio candidate set: sleeve-aware gate kept=211, removed=410, gate_modes={'early_relaxed': 114, 'future_relaxed': 69, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 115, 'future_winner': 72, 'core_compounder': 24}
+[15:35:44] Portfolio candidate set: sleeve-aware gate kept=171, removed=466, gate_modes={'early_relaxed': 86, 'future_relaxed': 58, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 86, 'future_winner': 64, 'core_compounder': 21}
+[15:35:46] Portfolio candidate set: sleeve-aware gate kept=127, removed=499, gate_modes={'early_relaxed': 66, 'future_relaxed': 38, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 66, 'future_winner': 44, 'core_compounder': 17}
+[15:35:47] Portfolio candidate set: sleeve-aware gate kept=131, removed=492, gate_modes={'early_relaxed': 73, 'future_relaxed': 35, 'core_strict': 18, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 73, 'future_winner': 40, 'core_compounder': 18}
+[15:35:49] Portfolio candidate set: sleeve-aware gate kept=180, removed=448, gate_modes={'early_relaxed': 116, 'future_relaxed': 35, 'core_strict': 19, 'adr_global_alpha_fallback': 10}, sleeves={'early_scout': 118, 'future_winner': 43, 'core_compounder': 19}
+[15:35:50] [WARN] _http_get_inner attempt 1/3 failed: 500 Server Error: Internal Server Error for url: https://api.stlouisfed.org/fred/series/observations?series_id=SP500&api_key=dac25101c8dc447c12fa29c8bff99ba3&file_type=json. Retry in 1.0s
+[15:35:51] Phase 5: running monthly portfolio backtest ...
+[15:35:52] Portfolio candidate set: sleeve-aware gate kept=245, removed=246, gate_modes={'early_relaxed': 173, 'future_relaxed': 53, 'core_strict': 17, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 173, 'future_winner': 55, 'core_compounder': 17}
+[15:35:53] Portfolio candidate set: sleeve-aware gate kept=247, removed=250, gate_modes={'early_relaxed': 182, 'future_relaxed': 46, 'core_strict': 16, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 182, 'future_winner': 49, 'core_compounder': 16}
+[15:35:54] Portfolio candidate set: sleeve-aware gate kept=139, removed=350, gate_modes={'early_relaxed': 78, 'future_relaxed': 45, 'core_strict': 16}, sleeves={'early_scout': 78, 'future_winner': 45, 'core_compounder': 16}
+[15:35:56] Portfolio candidate set: sleeve-aware gate kept=224, removed=276, gate_modes={'early_relaxed': 147, 'future_relaxed': 59, 'core_strict': 18}, sleeves={'early_scout': 147, 'future_winner': 59, 'core_compounder': 18}
+[15:35:57] Portfolio candidate set: sleeve-aware gate kept=229, removed=278, gate_modes={'early_relaxed': 152, 'future_relaxed': 58, 'core_strict': 17, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 152, 'future_winner': 60, 'core_compounder': 17}
+[15:35:59] Portfolio candidate set: sleeve-aware gate kept=176, removed=323, gate_modes={'early_relaxed': 104, 'future_relaxed': 52, 'core_strict': 19, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 104, 'future_winner': 53, 'core_compounder': 19}
+[15:36:00] Portfolio candidate set: sleeve-aware gate kept=163, removed=343, gate_modes={'early_relaxed': 99, 'future_relaxed': 45, 'core_strict': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 100, 'future_winner': 45, 'core_compounder': 18}
+[15:36:02] Portfolio candidate set: sleeve-aware gate kept=177, removed=333, gate_modes={'early_relaxed': 132, 'future_relaxed': 27, 'core_strict': 15, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 134, 'future_winner': 28, 'core_compounder': 15}
+[15:36:04] Portfolio candidate set: sleeve-aware gate kept=172, removed=330, gate_modes={'early_relaxed': 135, 'future_relaxed': 20, 'core_strict': 15, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 136, 'future_winner': 21, 'core_compounder': 15}
+[15:36:05] Portfolio candidate set: sleeve-aware gate kept=167, removed=334, gate_modes={'early_relaxed': 130, 'future_relaxed': 23, 'core_strict': 12, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 131, 'future_winner': 24, 'core_compounder': 12}
+[15:36:07] Portfolio candidate set: sleeve-aware gate kept=169, removed=340, gate_modes={'early_relaxed': 129, 'future_relaxed': 21, 'core_strict': 15, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 131, 'future_winner': 23, 'core_compounder': 15}
+[15:36:08] Portfolio candidate set: sleeve-aware gate kept=190, removed=344, gate_modes={'early_relaxed': 133, 'future_relaxed': 32, 'core_strict': 20, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 134, 'future_winner': 36, 'core_compounder': 20}
+[15:36:10] Portfolio candidate set: sleeve-aware gate kept=72, removed=394, gate_modes={'early_relaxed': 35, 'core_strict': 19, 'future_relaxed': 15, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 36, 'core_compounder': 19, 'future_winner': 17}
+[15:36:11] Portfolio candidate set: sleeve-aware gate kept=119, removed=356, gate_modes={'early_relaxed': 64, 'future_relaxed': 30, 'core_strict': 19, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 65, 'future_winner': 35, 'core_compounder': 19}
+[15:36:13] Portfolio candidate set: sleeve-aware gate kept=166, removed=293, gate_modes={'early_relaxed': 96, 'future_relaxed': 47, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 97, 'future_winner': 52, 'core_compounder': 17}
+[15:36:14] Portfolio candidate set: sleeve-aware gate kept=148, removed=313, gate_modes={'early_relaxed': 83, 'future_relaxed': 38, 'core_strict': 18, 'adr_global_alpha_fallback': 9}, sleeves={'early_scout': 85, 'future_winner': 45, 'core_compounder': 18}
+[15:36:16] Portfolio candidate set: sleeve-aware gate kept=201, removed=258, gate_modes={'early_relaxed': 130, 'future_relaxed': 44, 'core_strict': 18, 'adr_global_alpha_fallback': 9}, sleeves={'early_scout': 132, 'future_winner': 51, 'core_compounder': 18}
+[15:36:17] Portfolio candidate set: sleeve-aware gate kept=162, removed=280, gate_modes={'early_relaxed': 99, 'future_relaxed': 42, 'core_strict': 15, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 100, 'future_winner': 47, 'core_compounder': 15}
+[15:36:18] Portfolio candidate set: sleeve-aware gate kept=121, removed=339, gate_modes={'early_relaxed': 60, 'future_relaxed': 40, 'core_strict': 15, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 61, 'future_winner': 45, 'core_compounder': 15}
+[15:36:20] Portfolio candidate set: sleeve-aware gate kept=131, removed=339, gate_modes={'early_relaxed': 76, 'future_relaxed': 38, 'core_strict': 10, 'adr_global_alpha_fallback': 7}, sleeves={'early_scout': 77, 'future_winner': 44, 'core_compounder': 10}
+[15:36:21] Portfolio candidate set: sleeve-aware gate kept=187, removed=288, gate_modes={'early_relaxed': 134, 'future_relaxed': 36, 'core_strict': 9, 'adr_global_alpha_fallback': 8}, sleeves={'early_scout': 136, 'future_winner': 42, 'core_compounder': 9}
+[15:36:23] Portfolio candidate set: sleeve-aware gate kept=179, removed=291, gate_modes={'early_relaxed': 110, 'future_relaxed': 52, 'core_strict': 11, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 111, 'future_winner': 57, 'core_compounder': 11}
+[15:36:25] Portfolio candidate set: sleeve-aware gate kept=150, removed=330, gate_modes={'early_relaxed': 92, 'future_relaxed': 38, 'core_strict': 13, 'adr_global_alpha_fallback': 7}, sleeves={'early_scout': 93, 'future_winner': 44, 'core_compounder': 13}
+[15:36:26] Portfolio candidate set: sleeve-aware gate kept=250, removed=248, gate_modes={'early_relaxed': 150, 'future_relaxed': 77, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 151, 'future_winner': 82, 'core_compounder': 17}
+[15:36:28] Portfolio candidate set: sleeve-aware gate kept=214, removed=306, gate_modes={'early_relaxed': 100, 'future_relaxed': 89, 'core_strict': 21, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 101, 'future_winner': 92, 'core_compounder': 21}
+[15:36:29] Portfolio candidate set: sleeve-aware gate kept=309, removed=231, gate_modes={'early_relaxed': 185, 'future_relaxed': 97, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 185, 'future_winner': 103, 'core_compounder': 21}
+[15:36:31] Portfolio candidate set: sleeve-aware gate kept=206, removed=337, gate_modes={'future_relaxed': 94, 'early_relaxed': 85, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'future_winner': 100, 'early_scout': 85, 'core_compounder': 21}
+[15:36:33] Portfolio candidate set: sleeve-aware gate kept=182, removed=371, gate_modes={'future_relaxed': 88, 'early_relaxed': 66, 'core_strict': 23, 'adr_global_alpha_fallback': 5}, sleeves={'future_winner': 91, 'early_scout': 68, 'core_compounder': 23}
+[15:36:34] Portfolio candidate set: sleeve-aware gate kept=220, removed=330, gate_modes={'early_relaxed': 105, 'future_relaxed': 91, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 106, 'future_winner': 92, 'core_compounder': 22}
+[15:36:35] Portfolio candidate set: sleeve-aware gate kept=234, removed=305, gate_modes={'early_relaxed': 106, 'future_relaxed': 104, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 107, 'early_scout': 106, 'core_compounder': 21}
+[15:36:37] Portfolio candidate set: sleeve-aware gate kept=191, removed=365, gate_modes={'future_relaxed': 92, 'early_relaxed': 75, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 95, 'early_scout': 75, 'core_compounder': 21}
+[15:36:39] Portfolio candidate set: sleeve-aware gate kept=231, removed=334, gate_modes={'early_relaxed': 138, 'future_relaxed': 77, 'core_strict': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 138, 'future_winner': 79, 'core_compounder': 14}
+[15:36:40] Portfolio candidate set: sleeve-aware gate kept=144, removed=418, gate_modes={'early_relaxed': 90, 'future_relaxed': 39, 'core_strict': 12, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 91, 'future_winner': 41, 'core_compounder': 12}
+[15:36:42] Portfolio candidate set: sleeve-aware gate kept=161, removed=413, gate_modes={'early_relaxed': 103, 'future_relaxed': 45, 'core_strict': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 103, 'future_winner': 46, 'core_compounder': 12}
+[15:36:43] Portfolio candidate set: sleeve-aware gate kept=74, removed=496, gate_modes={'future_relaxed': 30, 'early_relaxed': 30, 'core_strict': 14}, sleeves={'future_winner': 30, 'early_scout': 30, 'core_compounder': 14}
+[15:36:44] Portfolio candidate set: sleeve-aware gate kept=177, removed=400, gate_modes={'early_relaxed': 78, 'future_relaxed': 76, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 78, 'future_winner': 77, 'core_compounder': 22}
+[15:36:46] Portfolio candidate set: sleeve-aware gate kept=233, removed=329, gate_modes={'future_relaxed': 109, 'early_relaxed': 98, 'core_strict': 24, 'adr_global_alpha_fallback': 2}, sleeves={'future_winner': 111, 'early_scout': 98, 'core_compounder': 24}
+[15:36:48] Portfolio candidate set: sleeve-aware gate kept=164, removed=403, gate_modes={'early_relaxed': 84, 'future_relaxed': 58, 'core_strict': 22}, sleeves={'early_scout': 84, 'future_winner': 58, 'core_compounder': 22}
+[15:36:49] Portfolio candidate set: sleeve-aware gate kept=123, removed=419, gate_modes={'early_relaxed': 53, 'future_relaxed': 47, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 53, 'future_winner': 48, 'core_compounder': 22}
+[15:36:51] Portfolio candidate set: sleeve-aware gate kept=85, removed=449, gate_modes={'early_relaxed': 31, 'future_relaxed': 30, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 32, 'future_winner': 31, 'core_compounder': 22}
+[15:36:52] Portfolio candidate set: sleeve-aware gate kept=149, removed=401, gate_modes={'early_relaxed': 86, 'future_relaxed': 38, 'core_strict': 22, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 87, 'future_winner': 40, 'core_compounder': 22}
+[15:36:54] Portfolio candidate set: sleeve-aware gate kept=131, removed=407, gate_modes={'early_relaxed': 77, 'future_relaxed': 33, 'core_strict': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 34, 'core_compounder': 20}
+[15:36:55] Portfolio candidate set: sleeve-aware gate kept=97, removed=444, gate_modes={'early_relaxed': 50, 'future_relaxed': 27, 'core_strict': 20}, sleeves={'early_scout': 50, 'future_winner': 27, 'core_compounder': 20}
+[15:36:57] Portfolio candidate set: sleeve-aware gate kept=110, removed=437, gate_modes={'early_relaxed': 71, 'future_relaxed': 24, 'core_strict': 15}, sleeves={'early_scout': 71, 'future_winner': 24, 'core_compounder': 15}
+[15:36:58] Portfolio candidate set: sleeve-aware gate kept=152, removed=389, gate_modes={'early_relaxed': 124, 'future_relaxed': 14, 'core_strict': 12, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 125, 'future_winner': 15, 'core_compounder': 12}
+[15:37:00] Portfolio candidate set: sleeve-aware gate kept=93, removed=441, gate_modes={'early_relaxed': 72, 'core_strict': 11, 'future_relaxed': 10}, sleeves={'early_scout': 72, 'core_compounder': 11, 'future_winner': 10}
+[15:37:02] Portfolio candidate set: sleeve-aware gate kept=183, removed=360, gate_modes={'early_relaxed': 153, 'core_strict': 14, 'future_relaxed': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 154, 'future_winner': 15, 'core_compounder': 14}
+[15:37:03] Portfolio candidate set: sleeve-aware gate kept=168, removed=391, gate_modes={'early_relaxed': 127, 'core_strict': 20, 'future_relaxed': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 127, 'future_winner': 21, 'core_compounder': 20}
+[15:37:05] Portfolio candidate set: sleeve-aware gate kept=115, removed=440, gate_modes={'early_relaxed': 75, 'core_strict': 21, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 75, 'core_compounder': 21, 'future_winner': 19}
+[15:37:07] Portfolio candidate set: sleeve-aware gate kept=136, removed=411, gate_modes={'early_relaxed': 97, 'core_strict': 20, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 97, 'core_compounder': 20, 'future_winner': 19}
+[15:37:08] Portfolio candidate set: sleeve-aware gate kept=130, removed=410, gate_modes={'early_relaxed': 101, 'core_strict': 19, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 101, 'core_compounder': 19, 'future_winner': 10}
+[15:37:10] Portfolio candidate set: sleeve-aware gate kept=201, removed=347, gate_modes={'early_relaxed': 161, 'core_strict': 20, 'future_relaxed': 19, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 161, 'future_winner': 20, 'core_compounder': 20}
+[15:37:11] Portfolio candidate set: sleeve-aware gate kept=253, removed=301, gate_modes={'early_relaxed': 209, 'core_strict': 21, 'future_relaxed': 21, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 209, 'future_winner': 23, 'core_compounder': 21}
+[15:37:13] Portfolio candidate set: sleeve-aware gate kept=131, removed=410, gate_modes={'early_relaxed': 99, 'core_strict': 22, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 99, 'core_compounder': 22, 'future_winner': 10}
+[15:37:14] Portfolio candidate set: sleeve-aware gate kept=96, removed=449, gate_modes={'early_relaxed': 61, 'core_strict': 21, 'future_relaxed': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 61, 'core_compounder': 21, 'future_winner': 14}
+[15:37:15] Portfolio candidate set: sleeve-aware gate kept=59, removed=491, gate_modes={'early_relaxed': 40, 'core_strict': 14, 'future_relaxed': 5}, sleeves={'early_scout': 40, 'core_compounder': 14, 'future_winner': 5}
+[15:37:17] Portfolio candidate set: sleeve-aware gate kept=131, removed=414, gate_modes={'early_relaxed': 111, 'core_strict': 13, 'future_relaxed': 7}, sleeves={'early_scout': 111, 'core_compounder': 13, 'future_winner': 7}
+[15:37:19] Portfolio candidate set: sleeve-aware gate kept=197, removed=362, gate_modes={'early_relaxed': 175, 'core_strict': 13, 'future_relaxed': 8, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 175, 'core_compounder': 13, 'future_winner': 9}
+[15:37:20] Portfolio candidate set: sleeve-aware gate kept=170, removed=393, gate_modes={'early_relaxed': 141, 'core_strict': 16, 'future_relaxed': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 141, 'core_compounder': 16, 'future_winner': 13}
+[15:37:22] Portfolio candidate set: sleeve-aware gate kept=246, removed=331, gate_modes={'early_relaxed': 183, 'future_relaxed': 37, 'core_strict': 23, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 183, 'future_winner': 40, 'core_compounder': 23}
+[15:37:23] Portfolio candidate set: sleeve-aware gate kept=239, removed=330, gate_modes={'early_relaxed': 179, 'future_relaxed': 35, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 179, 'future_winner': 36, 'core_compounder': 24}
+[15:37:25] Portfolio candidate set: sleeve-aware gate kept=161, removed=425, gate_modes={'early_relaxed': 93, 'future_relaxed': 41, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 93, 'future_winner': 44, 'core_compounder': 24}
+[15:37:27] Portfolio candidate set: sleeve-aware gate kept=178, removed=403, gate_modes={'early_relaxed': 102, 'future_relaxed': 49, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 102, 'future_winner': 52, 'core_compounder': 24}
+[15:37:28] Portfolio candidate set: sleeve-aware gate kept=167, removed=419, gate_modes={'early_relaxed': 85, 'future_relaxed': 57, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 85, 'future_winner': 58, 'core_compounder': 24}
+[15:37:30] Portfolio candidate set: sleeve-aware gate kept=257, removed=353, gate_modes={'early_relaxed': 178, 'future_relaxed': 54, 'core_strict': 25}, sleeves={'early_scout': 178, 'future_winner': 54, 'core_compounder': 25}
+[15:37:31] Portfolio candidate set: sleeve-aware gate kept=221, removed=366, gate_modes={'early_relaxed': 144, 'future_relaxed': 54, 'core_strict': 23}, sleeves={'early_scout': 144, 'future_winner': 54, 'core_compounder': 23}
+[15:37:33] Portfolio candidate set: sleeve-aware gate kept=254, removed=339, gate_modes={'early_relaxed': 148, 'future_relaxed': 84, 'core_strict': 20, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 148, 'future_winner': 86, 'core_compounder': 20}
+[15:37:34] Portfolio candidate set: sleeve-aware gate kept=183, removed=426, gate_modes={'early_relaxed': 134, 'future_relaxed': 34, 'core_strict': 15}, sleeves={'early_scout': 134, 'future_winner': 34, 'core_compounder': 15}
+[15:37:36] Portfolio candidate set: sleeve-aware gate kept=207, removed=412, gate_modes={'early_relaxed': 153, 'future_relaxed': 40, 'core_strict': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 153, 'future_winner': 41, 'core_compounder': 13}
+[15:37:38] Portfolio candidate set: sleeve-aware gate kept=88, removed=526, gate_modes={'future_relaxed': 38, 'early_relaxed': 35, 'core_strict': 15}, sleeves={'future_winner': 38, 'early_scout': 35, 'core_compounder': 15}
+[15:37:39] Portfolio candidate set: sleeve-aware gate kept=150, removed=469, gate_modes={'early_relaxed': 102, 'future_relaxed': 31, 'core_strict': 16, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 102, 'future_winner': 32, 'core_compounder': 16}
+[15:37:41] Portfolio candidate set: sleeve-aware gate kept=198, removed=430, gate_modes={'early_relaxed': 111, 'future_relaxed': 63, 'core_strict': 23, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 111, 'future_winner': 64, 'core_compounder': 23}
+[15:37:43] Portfolio candidate set: sleeve-aware gate kept=159, removed=472, gate_modes={'early_relaxed': 77, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 56, 'core_compounder': 26}
+[15:37:45] Portfolio candidate set: sleeve-aware gate kept=153, removed=469, gate_modes={'early_relaxed': 66, 'future_relaxed': 58, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 66, 'future_winner': 61, 'core_compounder': 26}
+[15:37:46] Portfolio candidate set: sleeve-aware gate kept=200, removed=411, gate_modes={'early_relaxed': 107, 'future_relaxed': 66, 'core_strict': 22, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 107, 'future_winner': 71, 'core_compounder': 22}
+[15:37:48] Portfolio candidate set: sleeve-aware gate kept=231, removed=390, gate_modes={'early_relaxed': 141, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 142, 'future_winner': 65, 'core_compounder': 24}
+[15:37:49] Portfolio candidate set: sleeve-aware gate kept=232, removed=408, gate_modes={'early_relaxed': 148, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 149, 'future_winner': 57, 'core_compounder': 26}
+[15:37:51] Portfolio candidate set: sleeve-aware gate kept=234, removed=384, gate_modes={'early_relaxed': 142, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 142, 'future_winner': 68, 'core_compounder': 24}
+[15:37:52] Portfolio candidate set: sleeve-aware gate kept=211, removed=410, gate_modes={'early_relaxed': 114, 'future_relaxed': 69, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 115, 'future_winner': 72, 'core_compounder': 24}
+[15:37:54] Portfolio candidate set: sleeve-aware gate kept=171, removed=466, gate_modes={'early_relaxed': 86, 'future_relaxed': 58, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 86, 'future_winner': 64, 'core_compounder': 21}
+[15:37:55] Portfolio candidate set: sleeve-aware gate kept=127, removed=499, gate_modes={'early_relaxed': 66, 'future_relaxed': 38, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 66, 'future_winner': 44, 'core_compounder': 17}
+[15:37:57] Portfolio candidate set: sleeve-aware gate kept=131, removed=492, gate_modes={'early_relaxed': 73, 'future_relaxed': 35, 'core_strict': 18, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 73, 'future_winner': 40, 'core_compounder': 18}
+[15:37:58] Portfolio candidate set: sleeve-aware gate kept=180, removed=448, gate_modes={'early_relaxed': 116, 'future_relaxed': 35, 'core_strict': 19, 'adr_global_alpha_fallback': 10}, sleeves={'early_scout': 118, 'future_winner': 43, 'core_compounder': 19}
+[15:38:00] Phase 5: running monthly portfolio backtest ...
+[15:38:01] Portfolio candidate set: sleeve-aware gate kept=245, removed=246, gate_modes={'early_relaxed': 173, 'future_relaxed': 53, 'core_strict': 17, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 173, 'future_winner': 55, 'core_compounder': 17}
+[15:38:02] Portfolio candidate set: sleeve-aware gate kept=247, removed=250, gate_modes={'early_relaxed': 182, 'future_relaxed': 46, 'core_strict': 16, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 182, 'future_winner': 49, 'core_compounder': 16}
+[15:38:04] Portfolio candidate set: sleeve-aware gate kept=139, removed=350, gate_modes={'early_relaxed': 78, 'future_relaxed': 45, 'core_strict': 16}, sleeves={'early_scout': 78, 'future_winner': 45, 'core_compounder': 16}
+[15:38:05] Portfolio candidate set: sleeve-aware gate kept=224, removed=276, gate_modes={'early_relaxed': 147, 'future_relaxed': 59, 'core_strict': 18}, sleeves={'early_scout': 147, 'future_winner': 59, 'core_compounder': 18}
+[15:38:07] Portfolio candidate set: sleeve-aware gate kept=229, removed=278, gate_modes={'early_relaxed': 152, 'future_relaxed': 58, 'core_strict': 17, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 152, 'future_winner': 60, 'core_compounder': 17}
+[15:38:08] Portfolio candidate set: sleeve-aware gate kept=176, removed=323, gate_modes={'early_relaxed': 104, 'future_relaxed': 52, 'core_strict': 19, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 104, 'future_winner': 53, 'core_compounder': 19}
+[15:38:10] Portfolio candidate set: sleeve-aware gate kept=163, removed=343, gate_modes={'early_relaxed': 99, 'future_relaxed': 45, 'core_strict': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 100, 'future_winner': 45, 'core_compounder': 18}
+[15:38:11] Portfolio candidate set: sleeve-aware gate kept=177, removed=333, gate_modes={'early_relaxed': 132, 'future_relaxed': 27, 'core_strict': 15, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 134, 'future_winner': 28, 'core_compounder': 15}
+[15:38:13] Portfolio candidate set: sleeve-aware gate kept=172, removed=330, gate_modes={'early_relaxed': 135, 'future_relaxed': 20, 'core_strict': 15, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 136, 'future_winner': 21, 'core_compounder': 15}
+[15:38:15] Portfolio candidate set: sleeve-aware gate kept=167, removed=334, gate_modes={'early_relaxed': 130, 'future_relaxed': 23, 'core_strict': 12, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 131, 'future_winner': 24, 'core_compounder': 12}
+[15:38:16] Portfolio candidate set: sleeve-aware gate kept=169, removed=340, gate_modes={'early_relaxed': 129, 'future_relaxed': 21, 'core_strict': 15, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 131, 'future_winner': 23, 'core_compounder': 15}
+[15:38:17] Portfolio candidate set: sleeve-aware gate kept=190, removed=344, gate_modes={'early_relaxed': 133, 'future_relaxed': 32, 'core_strict': 20, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 134, 'future_winner': 36, 'core_compounder': 20}
+[15:38:19] Portfolio candidate set: sleeve-aware gate kept=72, removed=394, gate_modes={'early_relaxed': 35, 'core_strict': 19, 'future_relaxed': 15, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 36, 'core_compounder': 19, 'future_winner': 17}
+[15:38:20] Portfolio candidate set: sleeve-aware gate kept=119, removed=356, gate_modes={'early_relaxed': 64, 'future_relaxed': 30, 'core_strict': 19, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 65, 'future_winner': 35, 'core_compounder': 19}
+[15:38:22] Portfolio candidate set: sleeve-aware gate kept=166, removed=293, gate_modes={'early_relaxed': 96, 'future_relaxed': 47, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 97, 'future_winner': 52, 'core_compounder': 17}
+[15:38:23] Portfolio candidate set: sleeve-aware gate kept=148, removed=313, gate_modes={'early_relaxed': 83, 'future_relaxed': 38, 'core_strict': 18, 'adr_global_alpha_fallback': 9}, sleeves={'early_scout': 85, 'future_winner': 45, 'core_compounder': 18}
+[15:38:25] Portfolio candidate set: sleeve-aware gate kept=201, removed=258, gate_modes={'early_relaxed': 130, 'future_relaxed': 44, 'core_strict': 18, 'adr_global_alpha_fallback': 9}, sleeves={'early_scout': 132, 'future_winner': 51, 'core_compounder': 18}
+[15:38:26] Portfolio candidate set: sleeve-aware gate kept=162, removed=280, gate_modes={'early_relaxed': 99, 'future_relaxed': 42, 'core_strict': 15, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 100, 'future_winner': 47, 'core_compounder': 15}
+[15:38:27] Portfolio candidate set: sleeve-aware gate kept=121, removed=339, gate_modes={'early_relaxed': 60, 'future_relaxed': 40, 'core_strict': 15, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 61, 'future_winner': 45, 'core_compounder': 15}
+[15:38:29] Portfolio candidate set: sleeve-aware gate kept=131, removed=339, gate_modes={'early_relaxed': 76, 'future_relaxed': 38, 'core_strict': 10, 'adr_global_alpha_fallback': 7}, sleeves={'early_scout': 77, 'future_winner': 44, 'core_compounder': 10}
+[15:38:30] Portfolio candidate set: sleeve-aware gate kept=187, removed=288, gate_modes={'early_relaxed': 134, 'future_relaxed': 36, 'core_strict': 9, 'adr_global_alpha_fallback': 8}, sleeves={'early_scout': 136, 'future_winner': 42, 'core_compounder': 9}
+[15:38:32] Portfolio candidate set: sleeve-aware gate kept=179, removed=291, gate_modes={'early_relaxed': 110, 'future_relaxed': 52, 'core_strict': 11, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 111, 'future_winner': 57, 'core_compounder': 11}
+[15:38:34] Portfolio candidate set: sleeve-aware gate kept=150, removed=330, gate_modes={'early_relaxed': 92, 'future_relaxed': 38, 'core_strict': 13, 'adr_global_alpha_fallback': 7}, sleeves={'early_scout': 93, 'future_winner': 44, 'core_compounder': 13}
+[15:38:35] Portfolio candidate set: sleeve-aware gate kept=250, removed=248, gate_modes={'early_relaxed': 150, 'future_relaxed': 77, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 151, 'future_winner': 82, 'core_compounder': 17}
+[15:38:37] Portfolio candidate set: sleeve-aware gate kept=214, removed=306, gate_modes={'early_relaxed': 100, 'future_relaxed': 89, 'core_strict': 21, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 101, 'future_winner': 92, 'core_compounder': 21}
+[15:38:38] Portfolio candidate set: sleeve-aware gate kept=309, removed=231, gate_modes={'early_relaxed': 185, 'future_relaxed': 97, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 185, 'future_winner': 103, 'core_compounder': 21}
+[15:38:40] Portfolio candidate set: sleeve-aware gate kept=206, removed=337, gate_modes={'future_relaxed': 94, 'early_relaxed': 85, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'future_winner': 100, 'early_scout': 85, 'core_compounder': 21}
+[15:38:42] Portfolio candidate set: sleeve-aware gate kept=182, removed=371, gate_modes={'future_relaxed': 88, 'early_relaxed': 66, 'core_strict': 23, 'adr_global_alpha_fallback': 5}, sleeves={'future_winner': 91, 'early_scout': 68, 'core_compounder': 23}
+[15:38:43] Portfolio candidate set: sleeve-aware gate kept=220, removed=330, gate_modes={'early_relaxed': 105, 'future_relaxed': 91, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 106, 'future_winner': 92, 'core_compounder': 22}
+[15:38:45] Portfolio candidate set: sleeve-aware gate kept=234, removed=305, gate_modes={'early_relaxed': 106, 'future_relaxed': 104, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 107, 'early_scout': 106, 'core_compounder': 21}
+[15:38:46] Portfolio candidate set: sleeve-aware gate kept=191, removed=365, gate_modes={'future_relaxed': 92, 'early_relaxed': 75, 'core_strict': 21, 'adr_global_alpha_fallback': 3}, sleeves={'future_winner': 95, 'early_scout': 75, 'core_compounder': 21}
+[15:38:48] Portfolio candidate set: sleeve-aware gate kept=231, removed=334, gate_modes={'early_relaxed': 138, 'future_relaxed': 77, 'core_strict': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 138, 'future_winner': 79, 'core_compounder': 14}
+[15:38:49] Portfolio candidate set: sleeve-aware gate kept=144, removed=418, gate_modes={'early_relaxed': 90, 'future_relaxed': 39, 'core_strict': 12, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 91, 'future_winner': 41, 'core_compounder': 12}
+[15:38:51] Portfolio candidate set: sleeve-aware gate kept=161, removed=413, gate_modes={'early_relaxed': 103, 'future_relaxed': 45, 'core_strict': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 103, 'future_winner': 46, 'core_compounder': 12}
+[15:38:52] Portfolio candidate set: sleeve-aware gate kept=74, removed=496, gate_modes={'future_relaxed': 30, 'early_relaxed': 30, 'core_strict': 14}, sleeves={'future_winner': 30, 'early_scout': 30, 'core_compounder': 14}
+[15:38:53] Portfolio candidate set: sleeve-aware gate kept=177, removed=400, gate_modes={'early_relaxed': 78, 'future_relaxed': 76, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 78, 'future_winner': 77, 'core_compounder': 22}
+[15:38:55] Portfolio candidate set: sleeve-aware gate kept=233, removed=329, gate_modes={'future_relaxed': 109, 'early_relaxed': 98, 'core_strict': 24, 'adr_global_alpha_fallback': 2}, sleeves={'future_winner': 111, 'early_scout': 98, 'core_compounder': 24}
+[15:38:57] Portfolio candidate set: sleeve-aware gate kept=164, removed=403, gate_modes={'early_relaxed': 84, 'future_relaxed': 58, 'core_strict': 22}, sleeves={'early_scout': 84, 'future_winner': 58, 'core_compounder': 22}
+[15:38:58] Portfolio candidate set: sleeve-aware gate kept=123, removed=419, gate_modes={'early_relaxed': 53, 'future_relaxed': 47, 'core_strict': 22, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 53, 'future_winner': 48, 'core_compounder': 22}
+[15:39:00] Portfolio candidate set: sleeve-aware gate kept=85, removed=449, gate_modes={'early_relaxed': 31, 'future_relaxed': 30, 'core_strict': 22, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 32, 'future_winner': 31, 'core_compounder': 22}
+[15:39:01] Portfolio candidate set: sleeve-aware gate kept=149, removed=401, gate_modes={'early_relaxed': 86, 'future_relaxed': 38, 'core_strict': 22, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 87, 'future_winner': 40, 'core_compounder': 22}
+[15:39:03] Portfolio candidate set: sleeve-aware gate kept=131, removed=407, gate_modes={'early_relaxed': 77, 'future_relaxed': 33, 'core_strict': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 34, 'core_compounder': 20}
+[15:39:04] Portfolio candidate set: sleeve-aware gate kept=97, removed=444, gate_modes={'early_relaxed': 50, 'future_relaxed': 27, 'core_strict': 20}, sleeves={'early_scout': 50, 'future_winner': 27, 'core_compounder': 20}
+[15:39:05] Portfolio candidate set: sleeve-aware gate kept=110, removed=437, gate_modes={'early_relaxed': 71, 'future_relaxed': 24, 'core_strict': 15}, sleeves={'early_scout': 71, 'future_winner': 24, 'core_compounder': 15}
+[15:39:07] Portfolio candidate set: sleeve-aware gate kept=152, removed=389, gate_modes={'early_relaxed': 124, 'future_relaxed': 14, 'core_strict': 12, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 125, 'future_winner': 15, 'core_compounder': 12}
+[15:39:09] Portfolio candidate set: sleeve-aware gate kept=93, removed=441, gate_modes={'early_relaxed': 72, 'core_strict': 11, 'future_relaxed': 10}, sleeves={'early_scout': 72, 'core_compounder': 11, 'future_winner': 10}
+[15:39:10] Portfolio candidate set: sleeve-aware gate kept=183, removed=360, gate_modes={'early_relaxed': 153, 'core_strict': 14, 'future_relaxed': 14, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 154, 'future_winner': 15, 'core_compounder': 14}
+[15:39:12] Portfolio candidate set: sleeve-aware gate kept=168, removed=391, gate_modes={'early_relaxed': 127, 'core_strict': 20, 'future_relaxed': 20, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 127, 'future_winner': 21, 'core_compounder': 20}
+[15:39:14] Portfolio candidate set: sleeve-aware gate kept=115, removed=440, gate_modes={'early_relaxed': 75, 'core_strict': 21, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 75, 'core_compounder': 21, 'future_winner': 19}
+[15:39:15] Portfolio candidate set: sleeve-aware gate kept=136, removed=411, gate_modes={'early_relaxed': 97, 'core_strict': 20, 'future_relaxed': 18, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 97, 'core_compounder': 20, 'future_winner': 19}
+[15:39:17] Portfolio candidate set: sleeve-aware gate kept=130, removed=410, gate_modes={'early_relaxed': 101, 'core_strict': 19, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 101, 'core_compounder': 19, 'future_winner': 10}
+[15:39:18] Portfolio candidate set: sleeve-aware gate kept=201, removed=347, gate_modes={'early_relaxed': 161, 'core_strict': 20, 'future_relaxed': 19, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 161, 'future_winner': 20, 'core_compounder': 20}
+[15:39:20] Portfolio candidate set: sleeve-aware gate kept=253, removed=301, gate_modes={'early_relaxed': 209, 'core_strict': 21, 'future_relaxed': 21, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 209, 'future_winner': 23, 'core_compounder': 21}
+[15:39:21] Portfolio candidate set: sleeve-aware gate kept=131, removed=410, gate_modes={'early_relaxed': 99, 'core_strict': 22, 'future_relaxed': 9, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 99, 'core_compounder': 22, 'future_winner': 10}
+[15:39:22] Portfolio candidate set: sleeve-aware gate kept=96, removed=449, gate_modes={'early_relaxed': 61, 'core_strict': 21, 'future_relaxed': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 61, 'core_compounder': 21, 'future_winner': 14}
+[15:39:24] Portfolio candidate set: sleeve-aware gate kept=59, removed=491, gate_modes={'early_relaxed': 40, 'core_strict': 14, 'future_relaxed': 5}, sleeves={'early_scout': 40, 'core_compounder': 14, 'future_winner': 5}
+[15:39:26] Portfolio candidate set: sleeve-aware gate kept=131, removed=414, gate_modes={'early_relaxed': 111, 'core_strict': 13, 'future_relaxed': 7}, sleeves={'early_scout': 111, 'core_compounder': 13, 'future_winner': 7}
+[15:39:27] Portfolio candidate set: sleeve-aware gate kept=197, removed=362, gate_modes={'early_relaxed': 175, 'core_strict': 13, 'future_relaxed': 8, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 175, 'core_compounder': 13, 'future_winner': 9}
+[15:39:29] Portfolio candidate set: sleeve-aware gate kept=170, removed=393, gate_modes={'early_relaxed': 141, 'core_strict': 16, 'future_relaxed': 12, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 141, 'core_compounder': 16, 'future_winner': 13}
+[15:39:30] Portfolio candidate set: sleeve-aware gate kept=246, removed=331, gate_modes={'early_relaxed': 183, 'future_relaxed': 37, 'core_strict': 23, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 183, 'future_winner': 40, 'core_compounder': 23}
+[15:39:32] Portfolio candidate set: sleeve-aware gate kept=239, removed=330, gate_modes={'early_relaxed': 179, 'future_relaxed': 35, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 179, 'future_winner': 36, 'core_compounder': 24}
+[15:39:33] Portfolio candidate set: sleeve-aware gate kept=161, removed=425, gate_modes={'early_relaxed': 93, 'future_relaxed': 41, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 93, 'future_winner': 44, 'core_compounder': 24}
+[15:39:35] Portfolio candidate set: sleeve-aware gate kept=178, removed=403, gate_modes={'early_relaxed': 102, 'future_relaxed': 49, 'core_strict': 24, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 102, 'future_winner': 52, 'core_compounder': 24}
+[15:39:36] Portfolio candidate set: sleeve-aware gate kept=167, removed=419, gate_modes={'early_relaxed': 85, 'future_relaxed': 57, 'core_strict': 24, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 85, 'future_winner': 58, 'core_compounder': 24}
+[15:39:38] Portfolio candidate set: sleeve-aware gate kept=257, removed=353, gate_modes={'early_relaxed': 178, 'future_relaxed': 54, 'core_strict': 25}, sleeves={'early_scout': 178, 'future_winner': 54, 'core_compounder': 25}
+[15:39:39] Portfolio candidate set: sleeve-aware gate kept=221, removed=366, gate_modes={'early_relaxed': 144, 'future_relaxed': 54, 'core_strict': 23}, sleeves={'early_scout': 144, 'future_winner': 54, 'core_compounder': 23}
+[15:39:41] Portfolio candidate set: sleeve-aware gate kept=254, removed=339, gate_modes={'early_relaxed': 148, 'future_relaxed': 84, 'core_strict': 20, 'adr_global_alpha_fallback': 2}, sleeves={'early_scout': 148, 'future_winner': 86, 'core_compounder': 20}
+[15:39:42] Portfolio candidate set: sleeve-aware gate kept=183, removed=426, gate_modes={'early_relaxed': 134, 'future_relaxed': 34, 'core_strict': 15}, sleeves={'early_scout': 134, 'future_winner': 34, 'core_compounder': 15}
+[15:39:44] Portfolio candidate set: sleeve-aware gate kept=207, removed=412, gate_modes={'early_relaxed': 153, 'future_relaxed': 40, 'core_strict': 13, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 153, 'future_winner': 41, 'core_compounder': 13}
+[15:39:46] Portfolio candidate set: sleeve-aware gate kept=88, removed=526, gate_modes={'future_relaxed': 38, 'early_relaxed': 35, 'core_strict': 15}, sleeves={'future_winner': 38, 'early_scout': 35, 'core_compounder': 15}
+[15:39:47] Portfolio candidate set: sleeve-aware gate kept=150, removed=469, gate_modes={'early_relaxed': 102, 'future_relaxed': 31, 'core_strict': 16, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 102, 'future_winner': 32, 'core_compounder': 16}
+[15:39:49] Portfolio candidate set: sleeve-aware gate kept=198, removed=430, gate_modes={'early_relaxed': 111, 'future_relaxed': 63, 'core_strict': 23, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 111, 'future_winner': 64, 'core_compounder': 23}
+[15:39:51] Portfolio candidate set: sleeve-aware gate kept=159, removed=472, gate_modes={'early_relaxed': 77, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 1}, sleeves={'early_scout': 77, 'future_winner': 56, 'core_compounder': 26}
+[15:39:53] Portfolio candidate set: sleeve-aware gate kept=153, removed=469, gate_modes={'early_relaxed': 66, 'future_relaxed': 58, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 66, 'future_winner': 61, 'core_compounder': 26}
+[15:39:54] Portfolio candidate set: sleeve-aware gate kept=200, removed=411, gate_modes={'early_relaxed': 107, 'future_relaxed': 66, 'core_strict': 22, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 107, 'future_winner': 71, 'core_compounder': 22}
+[15:39:55] Portfolio candidate set: sleeve-aware gate kept=231, removed=390, gate_modes={'early_relaxed': 141, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 142, 'future_winner': 65, 'core_compounder': 24}
+[15:39:57] Portfolio candidate set: sleeve-aware gate kept=232, removed=408, gate_modes={'early_relaxed': 148, 'future_relaxed': 55, 'core_strict': 26, 'adr_global_alpha_fallback': 3}, sleeves={'early_scout': 149, 'future_winner': 57, 'core_compounder': 26}
+[15:39:58] Portfolio candidate set: sleeve-aware gate kept=234, removed=384, gate_modes={'early_relaxed': 142, 'future_relaxed': 62, 'core_strict': 24, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 142, 'future_winner': 68, 'core_compounder': 24}
+[15:40:00] Portfolio candidate set: sleeve-aware gate kept=211, removed=410, gate_modes={'early_relaxed': 114, 'future_relaxed': 69, 'core_strict': 24, 'adr_global_alpha_fallback': 4}, sleeves={'early_scout': 115, 'future_winner': 72, 'core_compounder': 24}
+[15:40:01] Portfolio candidate set: sleeve-aware gate kept=171, removed=466, gate_modes={'early_relaxed': 86, 'future_relaxed': 58, 'core_strict': 21, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 86, 'future_winner': 64, 'core_compounder': 21}
+[15:40:03] Portfolio candidate set: sleeve-aware gate kept=127, removed=499, gate_modes={'early_relaxed': 66, 'future_relaxed': 38, 'core_strict': 17, 'adr_global_alpha_fallback': 6}, sleeves={'early_scout': 66, 'future_winner': 44, 'core_compounder': 17}
+[15:40:04] Portfolio candidate set: sleeve-aware gate kept=131, removed=492, gate_modes={'early_relaxed': 73, 'future_relaxed': 35, 'core_strict': 18, 'adr_global_alpha_fallback': 5}, sleeves={'early_scout': 73, 'future_winner': 40, 'core_compounder': 18}
+[15:40:05] Portfolio candidate set: sleeve-aware gate kept=180, removed=448, gate_modes={'early_relaxed': 116, 'future_relaxed': 35, 'core_strict': 19, 'adr_global_alpha_fallback': 10}, sleeves={'early_scout': 118, 'future_winner': 43, 'core_compounder': 19}
+[15:41:06] [Phase 16-lite] market_leaders_latest.csv: top 30 leaders, 0/30 in current portfolio
+[15:41:06] [Phase 12C] lifetime equity curve: 83 rows, CAGR 24.09% over 6.84 years (live_method=no_live_data)
+[15:41:06] [Phase 13-lite] portfolio summaries written: main n=0, conc n=3
+[15:41:06] [Phase 13-lite] recent_trades.json written: 0 events in last 90d
+[15:41:07] Validation suite report saved to /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/full_validation_suite.json
+[2026-04-29 00:41:07 KST] Pipeline OK in 171.2 min
+  acceptance_checks: {'pit_violation_count': 0, 'pit_ok': True, 'feature_leakage_columns': [], 'leakage_ok': True, 'oos_missing_months': [], 'oos_month_coverage_ok': True, 'backtest_months': 83, 'turnover_avg': 0.47829063509994807, 'cost_bps_roundtrip': 50.0, 'live_feature_history_nonnull': 0, 'live_feature_history_ok': True, 'universe_mode': 'current_constituents_proxy+adr_whitelist', 'survivorship_bias_warning': True, 'historical_membership_required': True, 'historical_membership_ok': False, 'critical_ttm_coverage': {'revenues_ttm': 0.7855946398659966, 'net_income_ttm': 0.7872696817420436, 'op_margin_ttm': 0.7604690117252931}, 'critical_valuation_coverage': {'ep_ttm': 0.7872696817420436, 'sp_ttm': 0.7855946398659966, 'fcfy_ttm': 0.6130653266331658}, 'comprehensive_fundamental_coverage': {'shares': 1.0, 'assets': 1.0, 'liabilities': 0.7671691792294807, 'revenues_ttm': 0.7855946398659966, 'gross_profit_ttm': 0.5577889447236181, 'op_income_ttm': 0.7621440536013401, 'net_income_ttm': 0.7872696817420436, 'ocf_ttm': 0.7855946398659966, 'capex_ttm': 0.6130653266331658, 'sales_growth_yoy': 0.8676716917922948, 'net_income_growth_yoy': 0.05527638190954774, 'op_income_growth_yoy': 0.05862646566164154, 'ocf_growth_yoy': 0.06365159128978225, 'sales_cagr_1y': 0.7738693467336684, 'sales_cagr_2y': 0.7554438860971524, 'sales_cagr_3y': 0.7353433835845896, 'sales_cagr_5y': 0.7035175879396985, 'sales_cagr_best': 0.7805695142378559, 'op_income_cagr_1y': 0.6884422110552764, 'op_income_cagr_2y': 0.6683417085427136, 'op_income_cagr_3y': 0.6398659966499163, 'op_income_cagr_5y': 0.5628140703517588, 'op_income_cagr_best': 0.7085427135678392, 'net_income_cagr_1y': 0.6934673366834171, 'net_income_cagr_2y': 0.6800670016750419, 'net_income_cagr_3y': 0.6381909547738693, 'net_income_cagr_5y': 0.5644891122278057, 'net_income_cagr_best': 0.7169179229480737, 'ocf_cagr_1y': 0.7487437185929648, 'ocf_cagr_2y': 0.7303182579564489, 'ocf_cagr_3y': 0.6934673366834171, 'ocf_cagr_5y': 0.6566164154103853, 'ocf_cagr_best': 0.7654941373534339, 'roe_proxy': 0.5946398659966499, 'return_on_equity_effective': 0.8224455611390284, 'roa_proxy': 0.7855946398659966, 'asset_turnover_ttm': 0.7839195979899497, 'book_to_market_proxy': 0.7654941373534339, 'capital_efficiency_score': 1.0, 'sector_adjusted_quality_score': 1.0, 'debt_to_equity': 0.7654941373534339, 'accruals_to_assets': 0.7839195979899497, 'gross_margins': 0.8257956448911222, 'operating_margins': 0.8844221105527639, 'eps_ttm': 0.1407035175879397, 'eps_growth_yoy': 0.6867671691792295, 'eps_cagr_1y': 0.6582914572864321, 'eps_cagr_2y': 0.6415410385259631, 'eps_cagr_3y': 0.6046901172529313, 'eps_cagr_5y': 0.5376884422110553, 'eps_cagr_best': 0.6800670016750419, 'fcf_ttm': 0.6130653266331658, 'fcf_growth_yoy': 0.23953098827470687, 'fcf_cagr_1y': 0.5728643216080402, 'fcf_cagr_2y': 0.5561139028475712, 'fcf_cagr_3y': 0.52428810720268, 'fcf_cagr_5y': 0.47571189279731996, 'fcf_cagr_best': 0.5879396984924623, 'fund_history_quarters_available': 1.0, 'fcf_margin': 0.09212730318257957, 'net_margin': 0.12060301507537688, 'gross_margin_ttm': 0.07035175879396985, 'rule_of_40': 0.09045226130653267, 'sbc_to_revenue': 0.006700167504187605, 'rd_intensity': 0.0016750418760469012, 'roic_approx': 0.01675041876046901, 'interest_coverage': 0.0016750418760469012, 'dilution_penalty': 0.9932998324958124, 'sage_composite_score': 1.0, 'sage_g_score': 1.0, 'sage_v_score': 1.0, 'sage_q_score': 1.0, 'sage_c_score': 1.0, 'sage_sector': 1.0}, 'critical_ttm_coverage_mean': 0.7777777777777778, 'critical_valuation_coverage_mean': 0.7286432160804021, 'comprehensive_fundamental_coverage_mean': 0.6342297070940287, 'coverage_excludes_adrs': True, 'core_fundamental_pass_ratio': 0.9229534510433387, 'core_fundamental_pass_count': 575, 'adr_count': 26, 'adr_pass_count': 25, 'adr_pass_ratio': 0.9615384615384616, 'non_adr_core_fundamental_pass_count': 550, 'non_adr_core_fundamental_pass_ratio': 0.9212730318257957, 'core_fundamental_minimum_ok': True, 'fundamental_coverage_ok': True, 'fundamental_coverage_warning': False, 'companyfacts_stats': {'fresh_cache_hits': 1068, 'fetched_ok': 1, 'stale_cache_used': 0, 'missing_cik': 3, 'total': 1072, 'stale_ratio': 0.0, 'missing_ratio': 0.002798507462686567}, 'companyfacts_stale_warning': False, 'companyfacts_missing_warning': False, 'comprehensive_fundamental_coverage_warning': True, 'backtest_research_only': True, 'backtest_usable': False, 'all_pass': False, 'cagr_coverage_per_month_sample': {'2025-11-28': {'revenues_ttm': 0.249, 'sales_cagr_3y': 0.212, 'sales_cagr_5y': 0.193}, '2025-12-31': {'revenues_ttm': 0.255, 'sales_cagr_3y': 0.217, 'sales_cagr_5y': 0.197}, '2026-01-30': {'revenues_ttm': 0.264, 'sales_cagr_3y': 0.225, 'sales_cagr_5y': 0.204}, '2026-02-27': {'revenues_ttm': 0.754, 'sales_cagr_3y': 0.683, 'sales_cagr_5y': 0.659}, '2026-03-31': {'revenues_ttm': 0.769, 'sales_cagr_3y': 0.697, 'sales_cagr_5y': 0.671}, '2026-04-28': {'revenues_ttm': 0.787, 'sales_cagr_3y': 0.716, 'sales_cagr_5y': 0.685}}, 'cagr_3y_coverage_mean': 0.517, 'cagr_3y_low_months': 11, 'historical_data_quality_latest': {'fundamental_history_coverage_score_mean': 0.64, 'growth_sleeve_data_confidence_mean': 0.645, 'growth_sleeve_sparse_history_penalty_mean': 0.073, 'forward_return_coverage_score_mean': 0.0, 'quality_label_counts': {'full_history': 359, 'usable_history': 113, 'sparse_growth_history': 111, 'latest_or_price_only': 40}}}
+  portfolio_shape:   {'stock_count': 0, 'cash_weight': 0.0}
 
-[2026-04-28 18:55:59 KST] >>> Step 1: Collector SKIPPED
+[2026-04-29 00:41:07 KST] TOTAL runtime: 171.2 min
 
-[2026-04-28 18:55:59 KST] >>> Step 2: Pipeline (FULL REBUILD)
-[09:55:59] [commit=cc4bcff] [engine_version=2026-04-28-phase15c-entry-quality] Running default full pipeline with rolling window (years=8, end_date=2026-04-28, reuse_existing_artifacts=True, resume_partial_walkforward=False)
-[09:55:59] Running rolling backtest window 2018-04-28 -> 2026-04-28 (window_years=8, train_lookback_years=5)
-[09:55:59] [fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.
-[09:55:59] Phase 3: building feature store ...
-[09:55:59] Phase 1/2: building monthly universe ...
-[09:55:59] Building candidate universe from free sources ...
-[09:56:04] Global alpha universe injection: mode=r1000+adr, whitelist=105, added=101
-[09:56:04] Downloading SEC company_tickers.json ...
-[09:56:05] Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.
-[09:56:05] Universe change detected: current=1092, added=1092, removed=0
-[09:56:05] Universe added sample: A, AA, AAL, AAON, AAPL, ABBV, ABEV, ABNB, ABT, ACGL
-[09:56:05] Updating price cache for 1,087 tickers (blacklist=5) ...
-[10:20:29] [WARN] companyfacts fetch failed for CIK0001103838: 404 Client Error: Not Found for url: https://data.sec.gov/api/xbrl/companyfacts/CIK0001103838.json
-[10:29:09] [WARN] companyfacts fetch failed for CIK0001569650: 404 Client Error: Not Found for url: https://data.sec.gov/api/xbrl/companyfacts/CIK0001569650.json
-[10:33:43] [WARN] companyfacts fetch failed for CIK0002078008: empty companyfacts payload
-[10:54:12] [yf_quarterly] Loaded 159 rows for 27 CIKs
-[11:02:52] [yf_industry] Fetching industry metadata for 1 tickers (cached=967, refresh_days=60) ...
-[11:02:52] [yf_industry]   progress: 1/1
-[11:02:58] [phase5_leader_laggard] disabled via env PHASE_PHASE5_LEADER_LAGGARD_ENABLED=0 — skipping sub-industry leader/laggard signals.
-[11:03:22] Updating price cache for 9 tickers (blacklist=0) ...
-[11:03:23] [WARN] _http_get_inner attempt 1/3 failed: 500 Server Error: Internal Server Error for url: https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key=dac25101c8dc447c12fa29c8bff99ba3&file_type=json. Retry in 1.0s
-[11:03:23] [WARN] _http_get_inner attempt 1/3 failed: 500 Server Error: Internal Server Error for url: https://api.stlouisfed.org/fred/series/observations?series_id=BAMLH0A0HYM2&api_key=dac25101c8dc447c12fa29c8bff99ba3&file_type=json. Retry in 1.0s
-[11:03:28] Updating price cache for 3 tickers (blacklist=0) ...
-[11:03:32] Universe snapshot: source=current_constituents_proxy, latest_rows=622, candidate_tickers=965
-[11:03:32] Core fundamental coverage (latest universe): revenues_ttm=78.6%, gross_profit_ttm=56.4%, op_income_ttm=76.2%, op_margin_ttm=75.7%, net_income_ttm=79.3%, roe_proxy=60.6%, gross_margins=82.8%, operating_margins=88.4%, return_on_equity_live=59.5%
-[11:03:32] Core fundamental coverage (latest universe) low-coverage fields: gross_profit_ttm=56.4%, roe_proxy=60.6%, return_on_equity_live=59.5%
-[11:03:32] Core fundamental minimum pass rate (latest universe): 92.3%
-[2026-04-28 20:06:32 KST] Pipeline FAILED:
-Captured tail of: outputs/full_rebuild_logs/20260428_095558_r1000+adr.log (72 total lines)
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 623
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         379
+early_scout        112
+future_winner       80
+core_compounder     52
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=623
+  phase9_core_eligible                      mean=0.087  sum=54
+  phase9_future_eligible                    mean=0.119  sum=74
+  phase9_early_eligible                     mean=0.180  sum=112
+  phase9_unassigned                         mean=0.615  sum=383
+  phase9_mktcap_percentile                  mean=0.501  sum=312
+
+Final portfolio: 0 positions
+  Top 10 by weight: n/a (no numeric position weights)
+
+======================================================================
+METRICS vs baseline: Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.2405     0.2358        +0.47pp
+  sharpe                       1.2618     1.1783        +0.0835
+  max_dd                      -0.2620    -0.2317        -3.03pp
+  ir                           1.0174     0.9955        +0.0219
+  avg_turnover_monthly         0.4783     0.4550        +2.33pp
+  avg_stock_names             24.1566    21.9900        +2.1666
+  beat_month_ratio             0.5422     0.6265        -0.0843
+  excess_cagr                  0.1055     0.1008        +0.47pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.0, 'future_winner': 0.0, 'early_scout': 0.0}
+  actual:  {'core_compounder': 0.0, 'future_winner': 0.0, 'early_scout': 0.0}
+  counts:  {'core_compounder': 0, 'future_winner': 0, 'early_scout': 0}
+
+=== VERDICT ===
+  dCAGR    +0.47pp   (gate >= +0.5pp)
+  dSharpe  +0.0835    (gate >= -0.05)
+  dMaxDD   -3.03pp   (gate >= -3pp; positive better)
+  early_scout selected: 0    (gate >= 4)
+
+  --> REGRESS vs Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective). See SESSION_HANDOFF.md §3c (rollback).
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-01-30 at equity 4.4396
+  Lifetime CAGR:   24.09% over 6.84 years
+  Lifetime total:  337.79%
+  vs baseline CAGR (23.58%): +0.51pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.
+Captured tail of: outputs/full_rebuild_logs/20260428_124956_r1000+adr.log (1725 total lines)
