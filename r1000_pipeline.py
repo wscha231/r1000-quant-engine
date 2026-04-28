@@ -7777,6 +7777,83 @@ def _safe_unlink(path: Path) -> None:
         pass
 
 
+# Phase 15-C export hygiene (2026-04-28): prune empty/zero-fill columns from
+# scored_latest.csv to make the file scannable on mobile / spreadsheet apps.
+# Full unpruned data is preserved in outputs/feature_store_*.parquet for ML.
+_PRUNE_EXPORT_KEEP_COLUMNS: set[str] = {
+    # Identity / metadata
+    "ticker", "Name", "name", "sector", "industry", "industry_group",
+    "subindustry", "sub_industry", "cik10", "rebalance_date", "feature_date",
+    "entry_date", "universe_source", "fund_join_status", "fund_join_gap_days",
+    "fund_accepted", "fund_period", "fund_effective_accepted",
+    "fund_effective_period", "fund_effective_age_days", "fund_source",
+    "country",
+    # Selection / portfolio
+    "portfolio_sleeve_label", "portfolio_sleeve_label_raw",
+    "score", "score_total", "score_model_core", "score_focus_bonus",
+    "portfolio_seed_score", "weight", "rank", "px", "open_px", "mktcap",
+    "is_selected", "selected",
+    # Phase 14 hybrid alpha (always keep — even if 0 some runs)
+    "rs_acceleration_score", "h1_oversold_value_score",
+    "h6_dynamic_leader_score", "stage2_overext_penalty",
+    "theme_phase_multiplier_primary", "theme_phase_multiplier_max",
+    # Phase 15 alpha (always keep — even if currently sparse)
+    "cycle_recovery_score", "eps_revision_score",
+    "early_cycle_inflection_score", "entry_quality_score",
+    "ml_technical_agreement_score", "sub_industry_rs_score",
+    "insider_cluster_boost_score",
+    # Phase 9 C3 turnaround (always keep)
+    "any_profit_sign_flip_pos", "any_profitability_turn_positive_4q",
+    "phase9_c3_eps_turn_positive", "ni_loss_narrowing_4q",
+    "profit_turn_positive_4q",
+    # Confirmation scores (always keep — used by selection)
+    "selection_confirmation_score", "selection_fundamental_confirmation_score",
+    "selection_market_confirmation_score",
+}
+
+
+def _prune_export_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop ALL-NaN + all-zero columns for cleaner CSV export.
+
+    Keeps metadata + key score/weight columns regardless of cardinality.
+    Drops:
+      - columns where every value is NaN (~97 cols on 2026-04-28 export)
+      - columns where every non-NaN value equals 0 (zero-fill placeholders
+        from data sources that didn't populate, e.g. sec13f_* when 13F
+        collection skipped)
+
+    Preserves:
+      - non-zero constants (e.g. macro variables like cpi_yoy that are
+        legitimately universe-wide and inform context)
+      - metadata in _PRUNE_EXPORT_KEEP_COLUMNS
+    """
+    if df is None or df.empty:
+        return df
+    drop: list[str] = []
+    for c in df.columns:
+        if c in _PRUNE_EXPORT_KEEP_COLUMNS:
+            continue
+        col = df[c]
+        # 1) All-NaN — pure waste
+        if col.isna().all():
+            drop.append(c)
+            continue
+        # 2) All-zero (or single-value-zero) — zero-fill placeholder
+        nonnan = col.dropna()
+        if len(nonnan) == 0:
+            drop.append(c)
+            continue
+        try:
+            num = pd.to_numeric(nonnan, errors="coerce")
+            if num.notna().all() and (num == 0).all():
+                drop.append(c)
+        except Exception:
+            pass
+    if not drop:
+        return df
+    return df.drop(columns=drop)
+
+
 def save_phase4_latest_scoring_artifacts(
     paths: dict[str, Path],
     model_features: list[str],
@@ -15141,7 +15218,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational.to_csv(portfolio_path, index=False)
-    scored_latest.to_csv(scored_path, index=False)
+    # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
+    # from scored_latest.csv export to keep the file scannable. Audit on the
+    # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
+    # Full unpruned data remains in outputs/feature_store_*.parquet.
+    _prune_export_columns(scored_latest).to_csv(scored_path, index=False)
     if bool(cfg.export_extended_outputs):
         full_rank.to_csv(full_rank_path, index=False)
         partial_watchlist.to_csv(partial_watchlist_path, index=False)
@@ -15552,7 +15633,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational.to_csv(portfolio_path, index=False)
-    scored_latest.to_csv(scored_path, index=False)
+    # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
+    # from scored_latest.csv export to keep the file scannable. Audit on the
+    # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
+    # Full unpruned data remains in outputs/feature_store_*.parquet.
+    _prune_export_columns(scored_latest).to_csv(scored_path, index=False)
 
     # Phase 16-lite (2026-04-23): market leaders output — user '주도주 파악' request.
     # Engine computes 3 leader scores (oneil / dynamic / emergence) per ticker but
