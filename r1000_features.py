@@ -4784,22 +4784,44 @@ def compute_sub_industry_rs_score(df: pd.DataFrame) -> pd.DataFrame:
     REWARD being top within the sub-industry. A name that's #1 in its
     sub_industry should rank higher than a name that's #5.
 
-    This score: cross-sectional rank of `score` within sub_industry.
-      - 1.0 = #1 in sub_industry
+    This score: cross-sectional rank of `mom_12m` within sub_industry.
+      - 1.0 = #1 in sub_industry by 12-month momentum
       - 0.5 = median in sub_industry
       - 0.0 = bottom in sub_industry
 
     Captures "leader of leaders" effect — when memory is hot, MU + WDC + SNDK
-    all rise but MU as the leader rises most. ML weight should be positive.
+    all rise but MU as the strongest 12mo performer ranks highest.
+
+    Falls back to mom_6m, mom_3m as ranking signal cascade when mom_12m
+    is unavailable (e.g. recent IPOs).
 
     Falls back to industry_group, then industry, then sector if sub_industry
-    not populated. Pure ranking — no extra data dependency.
+    not populated. Pure ranking — uses mom_*m which is always present in the
+    feature_store (unlike `score` which is computed post-ML).
+
+    Phase 15-C bug fix (2026-04-28 22:30 KST): original used `d.get("score")`
+    which returned scalar NaN when "score" column didn't exist (during
+    build_feature_store before ML runs), crashing with AttributeError
+    'numpy.float64 object has no attribute isna'. Switched to mom_12m
+    (always available) and added explicit Series guard.
     """
     d = df.copy() if df is not None else pd.DataFrame()
     if d.empty:
         d["sub_industry_rs_score"] = pd.Series(dtype=float)
         return d
-    score_col = pd.to_numeric(d.get("score"), errors="coerce")
+
+    # Pick first available ranking signal — cascade through 12m -> 6m -> 3m.
+    rank_signal = None
+    for col in ("mom_12m", "mom_6m", "mom_3m"):
+        if col in d.columns:
+            cand = pd.to_numeric(d[col], errors="coerce")
+            if isinstance(cand, pd.Series) and cand.notna().any():
+                rank_signal = cand
+                break
+    if rank_signal is None:
+        d["sub_industry_rs_score"] = 0.5
+        return d
+
     # Group by best available granularity
     group_col_priority = ["sub_industry", "subindustry", "industry_group", "industry", "sector"]
     chosen = None
@@ -4807,12 +4829,13 @@ def compute_sub_industry_rs_score(df: pd.DataFrame) -> pd.DataFrame:
         if c in d.columns and d[c].notna().any():
             chosen = c
             break
-    if chosen is None or score_col.isna().all():
+    if chosen is None:
         d["sub_industry_rs_score"] = 0.5
         return d
+
     group_series = d[chosen].astype(str).fillna("Unknown")
     # Rank within group (pct rank, 0=lowest, 1=highest)
-    rank_within = score_col.groupby(group_series).rank(pct=True, method="average")
+    rank_within = rank_signal.groupby(group_series).rank(pct=True, method="average")
     d["sub_industry_rs_score"] = rank_within.fillna(0.5).astype(float)
     return d
 
