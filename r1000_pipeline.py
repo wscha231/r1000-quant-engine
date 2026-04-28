@@ -278,6 +278,7 @@ from r1000_features import (
     compute_theme_phase_features,
     compute_cycle_recovery_score,
     compute_eps_revision_score,
+    compute_early_cycle_inflection_score,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7225,6 +7226,19 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     if phase_is_enabled("phase15_cycle_recovery", default=True):
         universe = compute_cycle_recovery_score(universe)
         universe = compute_eps_revision_score(universe)
+        # Phase 15-B: early-cycle inflection detector. Runs after eps_revision
+        # because cond4 reads eps_revision_proxy (used directly, not the
+        # compressed score, so order is technically only matters for column
+        # presence). Independent toggle so it can be A/B'd separately:
+        # PHASE_PHASE15B_EARLY_INFLECTION_ENABLED=0 zeroes just this score.
+        if phase_is_enabled("phase15b_early_inflection", default=True):
+            universe = compute_early_cycle_inflection_score(universe)
+        else:
+            log(
+                "[phase15b_early_inflection] disabled — zero-filling "
+                "early_cycle_inflection_score."
+            )
+            universe["early_cycle_inflection_score"] = 0.0
     else:
         log(
             "[phase15_cycle_recovery] disabled via env PHASE_PHASE15_CYCLE_RECOVERY_ENABLED=0 "

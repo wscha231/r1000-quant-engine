@@ -53,6 +53,77 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-28
 
+### 10:15 KST - phase15b-early-cycle-inflection-detector
+
+- scope:
+  - Add a separate scoring lane for "the next SNDK / MU before they break
+    out". Phase 15-A cycle_recovery_score requires mom_6m > 30% AND mom_3m
+    > 10% — by that point names like SNDK are already +125% in 3 months
+    (per the SHIPPED scanner output) and the alpha is captured by chasers,
+    not by the engine. User explicitly flagged this gap: the goal is to
+    BUY THE NEXT SNDK in advance, not to rescue current SNDK after the
+    move. Phase 15-B is the early-detector complement to 15-A's late-rescue.
+- files:
+  - `r1000_features.py` ->add compute_early_cycle_inflection_score (6
+    weighted-sum conditions targeting Stage 1 -> Stage 2 transitions
+    BEFORE breakout). Add to __all__.
+  - `r1000_config.py` ->add `early_cycle_inflection_score` to
+    PHASE15_ALPHA_COLUMNS. Bump ENGINE_REUSE_VERSION to
+    `2026-04-28-phase15b-early-inflection`.
+  - `r1000_pipeline.py` ->import compute_early_cycle_inflection_score;
+    call after eps_revision under independent phase toggle
+    PHASE_PHASE15B_EARLY_INFLECTION_ENABLED (so it can be A/B'd vs
+    Phase 15-A's other scores separately).
+- symbols_added:
+  - `compute_early_cycle_inflection_score(df) -> df` ->[0.0, 1.0]
+    weighted-sum score combining: 1) price near MA200 (-10% to +5%, 20%
+    weight), 2) mom_12m still cycle-bottom (-30% to +5%, 20%), 3) mom_3m
+    early turn-up (-5% to +20%, 20%), 4) eps_revision_proxy > +3% (15%),
+    5) any_profit_sign_flip_pos sign flip (15%), 6) industry_breadth
+    mid-recovery (20-50%, 10%).
+- symbols_changed:
+  - `PHASE15_ALPHA_COLUMNS` ->expanded from 2 to 3 columns; adds
+    early_cycle_inflection_score.
+- config_fields_added:
+  - none (uses existing phase_is_enabled / env var infrastructure)
+- breaking_changes:
+  - ENGINE_REUSE_VERSION bumped 2026-04-28-phase15-cycle-recovery ->
+    2026-04-28-phase15b-early-inflection. feature_store cache
+    invalidates again. Combine with the Phase 15-A bump in the same
+    full rebuild (no intermediate rebuild needed).
+  - DEFAULT_FEATURES count 240 -> 241.
+- outputs:
+  - `outputs/scored_latest.csv` ->gains early_cycle_inflection_score
+    column. Walk-forward Ridge/Logistic learn the weight against
+    forward returns; if the score predicts well it gets positive
+    weight and naturally raises the overall `score` for names that
+    look like 6mo-pre-SNDK / 6mo-pre-MU setups. No hard sleeve
+    override yet — empirical first, override only if alpha proven.
+- validation:
+  - syntax check: r1000_pipeline.py / r1000_config.py / r1000_features.py
+    ->all clean
+  - smoke_test --quick ->17/17 pass
+  - audit_features --no-runtime ->241 features, 0 leakage
+- risks_or_notes:
+  - Trade-off: looser conditions catch more potential winners but admit
+    more value-traps and dead-cat-bounces. The two scores are
+    complements: cycle_recovery_score (already-turning, lower variance,
+    smaller alpha) + early_cycle_inflection_score (pre-breakout, higher
+    variance, larger alpha). ML walk-forward should resolve which gets
+    weight in which regime.
+  - Score depends on mom_12m being available — names with <12mo history
+    (recent IPOs) auto-score 0 on cond2. This is intentional (no cycle
+    context).
+  - cond6 industry_breadth_above_ma200 requires Phase 2 industry
+    metadata — if PHASE2_INDUSTRY_ENABLED=0 this condition contributes
+    0 (score caps at 0.90 instead of 1.00).
+  - Default phase toggle ON. Disable with
+    PHASE_PHASE15B_EARLY_INFLECTION_ENABLED=0 for A/B isolation.
+  - If next backtest shows the score has near-zero or negative ML
+    weight, consider tightening the conditions (e.g. require minimum
+    +3% mom_1m for cond3). Don't add hard sleeve override unless ML
+    proves the signal.
+
 ### 09:47 KST - phase15-cycle-leader-rescue-and-risk-discipline
 
 - scope:

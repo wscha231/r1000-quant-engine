@@ -1967,6 +1967,8 @@ __all__ = [
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
     "compute_cycle_recovery_score",
     "compute_eps_revision_score",
+    # Phase 15-B (2026-04-28): early-cycle inflection — find next SNDK/MU early
+    "compute_early_cycle_inflection_score",
 ]
 
 
@@ -4763,6 +4765,86 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-B early-cycle inflection — find the next SNDK / MU before breakout.
+
+    The Phase 15-A cycle_recovery_score requires mom_6m > 30% AND mom_3m > 10% —
+    by that point the breakout is well underway (e.g. SNDK +125% mom_3m as of
+    SHIPPED scored_latest.csv). That score rescues already-extended cycle
+    leaders but captures little forward alpha.
+
+    This score targets the OPPOSITE end: tickers that look like SNDK / MU did
+    6 months BEFORE their move. Stage 1 -> Stage 2 transition with early
+    institutional accumulation, no consensus yet, earnings just turning, but
+    price still near MA200 (not yet broken out).
+
+    Six conditions, weighted-sum scoring (each contributes 0.10-0.20):
+
+      1. Price near breakout zone (20%)        : -10% <= dist_ma200 <= +5%
+      2. Long-term momentum cycle-bottom (20%) : -0.30 <= mom_12m <= +0.05
+      3. Short-term early turn (20%)           : -0.05 <= mom_3m <= +0.20
+      4. EPS revision turning up (15%)         : eps_revision_proxy > +0.03
+      5. Profitability turning (15%)           : any_profit_sign_flip_pos = 1
+      6. Industry mid-recovery (10%)           : 0.20 <= industry_breadth_above_ma200 <= 0.50
+
+    Returns continuous score [0.0, 1.0]. >= 0.50 = strong early-cycle signal,
+    >= 0.70 = textbook setup. Use as ML feature AND as sleeve assignment
+    override (similar to cycle_recovery but for earlier-stage names).
+
+    Trade-off: looser conditions catch more potential winners but admit more
+    value-traps and dead-cat-bounces. The two scores are complements:
+      cycle_recovery_score : already-turning, lower variance, smaller alpha
+      early_cycle_inflection_score : pre-breakout, higher variance, larger alpha
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["early_cycle_inflection_score"] = pd.Series(dtype=float)
+        return d
+    dist_ma200 = numeric_series_or_default(d, "dist_ma200", np.nan)
+    mom_12m = numeric_series_or_default(d, "mom_12m", np.nan)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    eps_rev = numeric_series_or_default(d, "eps_revision_proxy", 0.0)
+    any_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+    ind_breadth = numeric_series_or_default(d, "industry_breadth_above_ma200", np.nan)
+
+    # 1. Near breakout zone (peaks at midpoint -2.5%, decays toward edges).
+    cond1_center = -0.025
+    cond1_half_width = 0.075
+    cond1 = 1.0 - ((dist_ma200 - cond1_center).abs() / cond1_half_width).clip(lower=0.0, upper=1.0)
+    cond1 = cond1.where(dist_ma200.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # 2. Cycle-bottom 12m (peaks at -0.10, OK from -0.30 to +0.05).
+    cond2 = pd.Series(0.0, index=d.index, dtype=float)
+    cond2 = cond2.mask((mom_12m >= -0.30) & (mom_12m <= 0.05),
+                      1.0 - ((mom_12m - (-0.10)).abs() / 0.20).clip(lower=0.0, upper=1.0))
+    cond2 = cond2.where(mom_12m.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # 3. Early-turn 3m (peaks at +0.075, OK from -0.05 to +0.20).
+    cond3 = pd.Series(0.0, index=d.index, dtype=float)
+    cond3 = cond3.mask((mom_3m >= -0.05) & (mom_3m <= 0.20),
+                      1.0 - ((mom_3m - 0.075).abs() / 0.125).clip(lower=0.0, upper=1.0))
+    cond3 = cond3.where(mom_3m.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    # 4. EPS revision turning up: 0 at +0.03, 1.0 at +0.15.
+    cond4 = ((eps_rev - 0.03) / 0.12).clip(lower=0.0, upper=1.0).fillna(0.0)
+
+    # 5. Profitability turning (binary, Phase 9 C3 sign flip).
+    cond5 = (any_flip > 0).astype(float)
+
+    # 6. Industry mid-recovery (peaks at 0.35, OK from 0.20 to 0.50).
+    cond6 = pd.Series(0.0, index=d.index, dtype=float)
+    cond6 = cond6.mask((ind_breadth >= 0.20) & (ind_breadth <= 0.50),
+                      1.0 - ((ind_breadth - 0.35).abs() / 0.15).clip(lower=0.0, upper=1.0))
+    cond6 = cond6.where(ind_breadth.notna(), 0.0).clip(lower=0.0, upper=1.0)
+
+    score = (
+        0.20 * cond1 + 0.20 * cond2 + 0.20 * cond3
+        + 0.15 * cond4 + 0.15 * cond5 + 0.10 * cond6
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    d["early_cycle_inflection_score"] = score
     return d
 
 
