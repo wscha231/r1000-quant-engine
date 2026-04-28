@@ -4842,8 +4842,20 @@ def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
 
     # BOOST 4: EPS revision turning up: 0 at +0.03, 1.0 at +0.15.
     boost4 = ((eps_rev - 0.03) / 0.12).clip(lower=0.0, upper=1.0).fillna(0.0)
-    # BOOST 5: Profitability sign-flip (Phase 9 C3 binary).
-    boost5 = (any_flip > 0).astype(float)
+    # BOOST 5: Profitability improving — broad signal (Phase 15-C fix).
+    # Original used `any_profit_sign_flip_pos` only (2/625 firing on SHIPPED
+    # snapshot). New: any of sign_flip / loss_narrowing / eps_growth>10% /
+    # phase9_c3_eps_turn_positive. Covers SNDK-class (still loss but
+    # narrowing) which the strict sign-flip never captured.
+    loss_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0)
+    eps_growth_yoy = numeric_series_or_default(d, "eps_growth_yoy", 0.0)
+    c3_eps_turn = numeric_series_or_default(d, "phase9_c3_eps_turn_positive", 0.0)
+    boost5 = (
+        (any_flip > 0)
+        | (loss_narrowing > 0)
+        | (eps_growth_yoy > 0.10)
+        | (c3_eps_turn > 0)
+    ).astype(float)
     # BOOST 6: Industry mid-recovery (peaks at 0.35, OK from 0.20 to 0.50).
     boost6 = pd.Series(0.0, index=d.index, dtype=float)
     boost6 = boost6.mask((ind_breadth >= 0.20) & (ind_breadth <= 0.50),
@@ -4871,7 +4883,20 @@ def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
       - mom_24m < 0.10           (still below 24mo ago, i.e. cycle bottom)
       - mom_6m  > 0.30           (turning up sharply)
       - mom_3m  > 0.10           (recent confirmation)
-      - any_profit_sign_flip_pos  (EPS just turned positive — Phase 9 C3 flag)
+      - earnings improving       (broad EPS trend signal — see below)
+
+    Phase 15-C fix (2026-04-28): the original definition used only
+    `any_profit_sign_flip_pos` which is genuinely sparse (only 2/625 firing
+    in the SHIPPED scored_latest because most R1000 names are either long-
+    profitable or still in deep loss). SNDK is currently loss-making
+    (net_income_ttm = -$1.64B) so the sign-flip flag legitimately = 0 —
+    BUT SNDK is exactly the cycle-recovery name we want to capture.
+
+    Broader EPS-improving signal: any of
+      (a) any_profit_sign_flip_pos = 1  (just turned positive)
+      (b) ni_loss_narrowing_4q = 1       (still loss but loss decreasing)
+      (c) eps_growth_yoy > 0.10          (positive EPS growth >= 10%)
+      (d) phase9_c3_eps_turn_positive    (Phase 9 C3 combined signal)
 
     Returns continuous score [0.0, 1.0]. Used by Phase 15-A as a thesis-gate
     bypass: tickers with cycle_recovery_score >= 0.5 can be assigned to a
@@ -4888,7 +4913,15 @@ def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
     mom_24m = numeric_series_or_default(d, "mom_24m", np.nan)
     mom_6m = numeric_series_or_default(d, "mom_6m", 0.0)
     mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
-    any_profit_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+
+    # Broad earnings-improving signal (Phase 15-C): any of 4 conditions fires.
+    sign_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
+    loss_narrowing = numeric_series_or_default(d, "ni_loss_narrowing_4q", 0.0)
+    eps_growth = numeric_series_or_default(d, "eps_growth_yoy", 0.0)
+    c3_eps_turn = numeric_series_or_default(d, "phase9_c3_eps_turn_positive", 0.0)
+    earnings_improving = (
+        (sign_flip > 0) | (loss_narrowing > 0) | (eps_growth > 0.10) | (c3_eps_turn > 0)
+    ).astype(float)
 
     # Bottom signal: still below 24mo ago (recovering, not yet exceeded prior peak)
     bottom_part = ((0.10 - mom_24m) / 0.30).clip(lower=0.0, upper=1.0)
@@ -4896,10 +4929,8 @@ def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
     turn_part = ((mom_6m - 0.30) / 0.20).clip(lower=0.0, upper=1.0)
     # Recent confirmation: 3m positive too
     recent_part = ((mom_3m - 0.10) / 0.20).clip(lower=0.0, upper=1.0)
-    # EPS turn-positive (Phase 9 C3 sign flip)
-    eps_part = (any_profit_flip > 0).astype(float)
 
-    score = (bottom_part * turn_part * recent_part * eps_part).clip(lower=0.0, upper=1.0).fillna(0.0)
+    score = (bottom_part * turn_part * recent_part * earnings_improving).clip(lower=0.0, upper=1.0).fillna(0.0)
     # If mom_24m is NaN (insufficient history), score is 0 (no cycle context)
     score = score.where(mom_24m.notna(), 0.0)
     d["cycle_recovery_score"] = score
@@ -4909,28 +4940,37 @@ def compute_cycle_recovery_score(df: pd.DataFrame) -> pd.DataFrame:
 def compute_eps_revision_score(df: pd.DataFrame) -> pd.DataFrame:
     """Phase 15-A EPS revision momentum — analyst upgrade catalyst signal.
 
-    Wraps the existing `eps_revision_proxy` column (already computed by
-    compute_live_factor_columns from Finnhub forward EPS estimates) and
-    compresses it to a continuous [0.0, 1.0] score for ML consumption.
+    Phase 15-C fix (2026-04-28): the original implementation read
+    `eps_revision_proxy` which depends on Alpha Vantage `quarterlyEstimates`
+    data. AV free tier is 25 calls/day, so in the SHIPPED Phase 15 backtest
+    the column was 0/625 populated — the score was effectively dead.
 
-    The proxy is the 3m / 6m / 12m change in forward EPS estimate (or
-    ((current_eps - prior_eps) / |prior_eps|)). Positive = analysts upgrading
-    forecasts, typically a 1-2 month leading indicator before price action
-    on cyclical turnarounds. Captures the "earnings catalyst" gap that the
-    pure-momentum and pure-fundamental scores miss.
+    New implementation cascades through 3 sources:
+      1. eps_revision_proxy        (AV estimates — primary, sparse)
+      2. eps_growth_yoy             (computed from EPS history — 419/625)
+      3. eps_cagr_1y                (1-year EPS trend — 406/625)
+
+    The cascade lets the score fire on ~67% of universe instead of 0%.
+    Captures "earnings improving" as a proxy for "analysts revising up"
+    when AV estimates are missing.
 
     Returns score [0.0, 1.0]:
-      - 1.0 at +20% revision
-      - 0.5 at +10% revision
-      - 0.0 at <= 0% revision
+      - 1.0 at +20% revision/growth
+      - 0.5 at +10%
+      - 0.0 at <= 0%
     """
     d = df.copy() if df is not None else pd.DataFrame()
     if d.empty:
         d["eps_revision_score"] = pd.Series(dtype=float)
         return d
-    revision = numeric_series_or_default(d, "eps_revision_proxy", 0.0)
-    # Map revision to [0, 1]: 0% -> 0, +10% -> 0.5, +20% -> 1.0
-    score = (revision / 0.20).clip(lower=0.0, upper=1.0).fillna(0.0)
+    # Cascade through 3 sources, taking first non-NaN value per row.
+    revision = numeric_series_or_default(d, "eps_revision_proxy", np.nan)
+    eps_growth = numeric_series_or_default(d, "eps_growth_yoy", np.nan)
+    eps_cagr_1y = numeric_series_or_default(d, "eps_cagr_1y", np.nan)
+    effective = revision.where(revision.notna(), eps_growth)
+    effective = effective.where(effective.notna(), eps_cagr_1y).fillna(0.0)
+    # Map to [0, 1]: 0% -> 0, +10% -> 0.5, +20% -> 1.0
+    score = (effective / 0.20).clip(lower=0.0, upper=1.0).fillna(0.0)
     d["eps_revision_score"] = score
     return d
 
