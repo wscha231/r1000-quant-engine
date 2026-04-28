@@ -211,6 +211,9 @@ PHASE15_ALPHA_COLUMNS = [
     "eps_revision_score",                   # forward EPS estimate change (analyst upgrade catalyst)
     "early_cycle_inflection_score",         # 6mo-pre-breakout detector — find next SNDK/MU early
     "entry_quality_score",                  # Phase 15-C: scanner trade_card quality internalized
+    "ml_technical_agreement_score",         # Phase 15-C: ML conviction × technical confirmation
+    "sub_industry_rs_score",                # Phase 15-C P19: best-of-best in sub_industry rank
+    "insider_cluster_boost_score",          # Phase 15-C P20: 3+ insider buyers = high conviction
 ]
 
 
@@ -1819,15 +1822,18 @@ class EngineConfig:
     concentrated_regime_cash_vix_threshold: float = 25.0  # VIX > 25 (vs core 30)
     concentrated_regime_cash_breadth_threshold: float = 0.30  # breadth_above_ma200 < 30%
     concentrated_regime_cash_pct: float = 0.30          # force 30% cash when regime risk-off
-    # Phase 15-R1 (2026-04-21): trailing stop from peak on early_scout positions.
+    # Phase 15-R1 (2026-04-21): trailing stop from peak.
     # Complements the entry-point -25% hard stop with a peak-relative exit so
     # the engine preserves realized gains when a held position rolls over.
-    # Dual-gate: both cfg flag AND env var PHASE_PHASE15_R1_TRAILING_ENABLED
-    # must be truthy for the trailing stop to activate — default OFF until A/B
-    # ship gate passes.
-    trailing_stop_enabled: bool = False
-    trailing_stop_early_scout_pct: float = 0.15
-    trailing_stop_future_winner_pct: float = 0.0  # 0 = disabled; A/B cell D tests 0.15
+    # Phase 15-C (2026-04-28): activated default ON (was OFF) and added
+    # core_compounder threshold. Reasoning: prior backtest showed -25% hard
+    # stop was too loose (single position blowup -25% = ~1.4% portfolio drag
+    # for diversified, ~5% for concentrated). Trailing stops cap drawdown
+    # contribution per position regardless of entry-relative move.
+    trailing_stop_enabled: bool = True
+    trailing_stop_early_scout_pct: float = 0.15      # tightest — early stage
+    trailing_stop_future_winner_pct: float = 0.18    # was 0.0 (disabled)
+    trailing_stop_core_compounder_pct: float = 0.22  # most lenient — let winners run
     # Phase 15-R2 (2026-04-22): force-exit a position when its analyst revision
     # score is negative for N consecutive months. Triggers AFTER fundamental
     # thesis breaks but BEFORE -25% hard stop. Default OFF.

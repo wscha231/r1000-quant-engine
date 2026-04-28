@@ -1971,6 +1971,12 @@ __all__ = [
     "compute_early_cycle_inflection_score",
     # Phase 15-C (2026-04-28): scanner trade_card discipline internalized
     "compute_entry_quality_score",
+    # Phase 15-C (2026-04-28): ML conviction × technical confirmation gate
+    "compute_ml_technical_agreement_score",
+    # Phase 15-C P19 (2026-04-28): best-of-best in sub_industry rank
+    "compute_sub_industry_rs_score",
+    # Phase 15-C P20 (2026-04-28): insider buy cluster boost
+    "compute_insider_cluster_boost_score",
 ]
 
 
@@ -4767,6 +4773,136 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_sub_industry_rs_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C P19: sub-industry-relative RS rank (best of best in industry).
+
+    Existing P2 sub_industry sector cap prevents NVDA + LRCX from absorbing
+    the IT sector cap (good — diversifies sub-industries). But it doesn't
+    REWARD being top within the sub-industry. A name that's #1 in its
+    sub_industry should rank higher than a name that's #5.
+
+    This score: cross-sectional rank of `score` within sub_industry.
+      - 1.0 = #1 in sub_industry
+      - 0.5 = median in sub_industry
+      - 0.0 = bottom in sub_industry
+
+    Captures "leader of leaders" effect — when memory is hot, MU + WDC + SNDK
+    all rise but MU as the leader rises most. ML weight should be positive.
+
+    Falls back to industry_group, then industry, then sector if sub_industry
+    not populated. Pure ranking — no extra data dependency.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["sub_industry_rs_score"] = pd.Series(dtype=float)
+        return d
+    score_col = pd.to_numeric(d.get("score"), errors="coerce")
+    # Group by best available granularity
+    group_col_priority = ["sub_industry", "subindustry", "industry_group", "industry", "sector"]
+    chosen = None
+    for c in group_col_priority:
+        if c in d.columns and d[c].notna().any():
+            chosen = c
+            break
+    if chosen is None or score_col.isna().all():
+        d["sub_industry_rs_score"] = 0.5
+        return d
+    group_series = d[chosen].astype(str).fillna("Unknown")
+    # Rank within group (pct rank, 0=lowest, 1=highest)
+    rank_within = score_col.groupby(group_series).rank(pct=True, method="average")
+    d["sub_industry_rs_score"] = rank_within.fillna(0.5).astype(float)
+    return d
+
+
+def compute_insider_cluster_boost_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C P20: insider buy cluster confirmation boost.
+
+    Finnhub collector already produces:
+      - fh_insider_cluster_30d_score: aggregate cluster signal
+      - fh_insider_n_buyers_30d:      number of distinct buyers (>=3 = cluster)
+      - fh_insider_buy_value_30d:     total $ value
+      - fh_insider_n_sales_30d:       sales counter (negative signal)
+
+    Currently `insider_flow_actual_score` exists but tends to be 0/1 binary.
+    This score gives a continuous boost when MULTIPLE insiders are buying
+    (cluster signal — strongest when >= 3 distinct insiders, low confidence
+    when only 1 buyer).
+
+    Returns [0, 1]:
+      0.0  = no insider buys (or net selling)
+      0.3  = 1 buyer (weak)
+      0.6  = 2 buyers
+      1.0  = 3+ buyers (cluster — high conviction)
+      Capped lower if sales > buyers (selling cluster overrides).
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["insider_cluster_boost_score"] = pd.Series(dtype=float)
+        return d
+    n_buyers = numeric_series_or_default(d, "fh_insider_n_buyers_30d", 0.0)
+    n_sales = numeric_series_or_default(d, "fh_insider_n_sales_30d", 0.0)
+
+    # Buyer-count progression
+    boost = pd.Series(0.0, index=d.index, dtype=float)
+    boost = boost.where(n_buyers < 1, 0.3)
+    boost = boost.where(n_buyers < 2, 0.6)
+    boost = boost.where(n_buyers < 3, 1.0)
+
+    # Sale override — if more sellers than buyers, cap at 0.3
+    sale_dominant = (n_sales > n_buyers)
+    boost = boost.where(~sale_dominant, boost.clip(upper=0.3))
+
+    d["insider_cluster_boost_score"] = boost.fillna(0.0)
+    return d
+
+
+def compute_ml_technical_agreement_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C ML x technical agreement — demote false-positive ML picks.
+
+    ML score (Ridge / Logistic blend) sometimes ranks high on names whose
+    technicals warn (negative momentum, RS broken, weak relative strength
+    vs benchmark). These are typically value-trap or fundamental-improving-
+    but-price-rolling-over names. Walk-forward backtest training period
+    might reward them historically (e.g. 2020 covid bottom buyers won)
+    but live execution catches them mid-decline.
+
+    This score gates ML conviction by technical confirmation:
+      Agreement = 1.0 when ALL of:
+        - mom_3m > 0
+        - rs_benchmark_3m > 0
+        - mom_1m > -0.05  (no fresh weakness)
+      Agreement = 0.5 partial when 2 of 3 fire
+      Agreement = 0.2 when only 1 fires
+      Agreement = 0.0 when none fire
+
+    Used in selection as a multiplier on the ML score for ranking — names
+    with strong ML score but failing technical agreement get demoted out
+    of the top-N. Also as a feature so ML can recursively learn its weight.
+
+    Returns continuous score [0.0, 1.0].
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["ml_technical_agreement_score"] = pd.Series(dtype=float)
+        return d
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    rs_3m = numeric_series_or_default(d, "rs_benchmark_3m", 0.0)
+    mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)
+
+    cond1 = (mom_3m > 0).astype(float)
+    cond2 = (rs_3m > 0).astype(float)
+    cond3 = (mom_1m > -0.05).astype(float)
+    n_fire = cond1 + cond2 + cond3
+
+    # Step function: 3 fire = 1.0, 2 fire = 0.5, 1 fire = 0.2, 0 fire = 0.0
+    score = pd.Series(0.0, index=d.index, dtype=float)
+    score = score.where(n_fire < 1, 0.2)
+    score = score.where(n_fire < 2, 0.5)
+    score = score.where(n_fire < 3, 1.0)
+    d["ml_technical_agreement_score"] = score
     return d
 
 

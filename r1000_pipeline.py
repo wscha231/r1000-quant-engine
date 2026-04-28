@@ -280,6 +280,9 @@ from r1000_features import (
     compute_eps_revision_score,
     compute_early_cycle_inflection_score,
     compute_entry_quality_score,
+    compute_ml_technical_agreement_score,
+    compute_sub_industry_rs_score,
+    compute_insider_cluster_boost_score,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -1400,6 +1403,7 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
     "trailing_stop_enabled",
     "trailing_stop_early_scout_pct",
     "trailing_stop_future_winner_pct",
+    "trailing_stop_core_compounder_pct",
     "revision_break_exit_enabled",
     "revision_break_consecutive_months",
     "revision_break_score_threshold",
@@ -7290,12 +7294,20 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         # learns the weight; selection logic can also read directly.
         if phase_is_enabled("phase15c_entry_quality", default=True):
             universe = compute_entry_quality_score(universe)
+            universe = compute_ml_technical_agreement_score(universe)
+            # P19+P20: sub-industry RS rank + insider cluster boost
+            universe = compute_sub_industry_rs_score(universe)
+            universe = compute_insider_cluster_boost_score(universe)
         else:
             log(
                 "[phase15c_entry_quality] disabled — zero-filling "
-                "entry_quality_score (neutral 0.5)."
+                "entry_quality_score / ml_technical_agreement_score / "
+                "sub_industry_rs_score / insider_cluster_boost_score."
             )
             universe["entry_quality_score"] = 0.5
+            universe["ml_technical_agreement_score"] = 0.5
+            universe["sub_industry_rs_score"] = 0.5
+            universe["insider_cluster_boost_score"] = 0.0
     else:
         log(
             "[phase15_cycle_recovery] disabled via env PHASE_PHASE15_CYCLE_RECOVERY_ENABLED=0 "
@@ -9983,6 +9995,9 @@ def backtest_portfolio(
     _p15r1_active = phase_is_enabled("phase15_r1_trailing", default=_p15r1_cfg_on)
     _p15r1_es_pct = float(getattr(cfg, "trailing_stop_early_scout_pct", 0.15))
     _p15r1_fw_pct = float(getattr(cfg, "trailing_stop_future_winner_pct", 0.0))
+    # Phase 15-C extension: core_compounder trailing stop (most lenient — let
+    # winners run longer because they're our highest-conviction names).
+    _p15r1_cc_pct = float(getattr(cfg, "trailing_stop_core_compounder_pct", 0.0))
     trailing_position_cum_ret: dict[str, float] = {}
     trailing_position_peak_ret: dict[str, float] = {}
     # -----------------------------------------------------------------
@@ -10474,6 +10489,8 @@ def backtest_portfolio(
                     _pct = _p15r1_es_pct
                 elif _sleeve == "future_winner":
                     _pct = _p15r1_fw_pct
+                elif _sleeve == "core_compounder":
+                    _pct = _p15r1_cc_pct
                 else:
                     continue
                 if _pct <= 0:
