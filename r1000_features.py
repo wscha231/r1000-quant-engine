@@ -1969,6 +1969,8 @@ __all__ = [
     "compute_eps_revision_score",
     # Phase 15-B (2026-04-28): early-cycle inflection — find next SNDK/MU early
     "compute_early_cycle_inflection_score",
+    # Phase 15-C (2026-04-28): scanner trade_card discipline internalized
+    "compute_entry_quality_score",
 ]
 
 
@@ -4765,6 +4767,84 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_entry_quality_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 15-C entry quality — internalize scanner trade_card discipline.
+
+    The Aggressive scanner produces a `trade_card` per candidate with pivot,
+    buy_zone, stop_loss, base_tightness, extension_from_pivot, R:R ratio,
+    entry_status (READY/EARLY/EXTENDED) and warnings. This data is precise
+    but lives in scanner JSON and is consumed only by `daily_review` /
+    advisor v3 — the main backtest pipeline never sees it.
+
+    Phase 15-C fix: compute the equivalent quality metrics directly from
+    existing feature_store columns so EVERY historical rebalance month
+    benefits, not just live entries. Backtest sees the filter retroactively
+    and the ML walk-forward learns the proper weight.
+
+    Score [0.0, 1.0] combines 4 conditions multiplicatively:
+
+      1. Extension penalty (peaks at +0% to +5% above 52w-MA, decays
+         toward 0 at +30% above i.e. chasing).
+      2. RSI zone (peaks at 50-65, decays at <30 or >75).
+      3. Momentum sweet spot (peaks at mom_3m +5% to +15%, penalizes
+         mom_3m > +50% as already-extended).
+      4. Volume confirmation (boost when volume_ratio_50d >= 1.5).
+
+    Higher score = "ideal entry setup" (READY in scanner terms). Lower =
+    EXTENDED / chase-worthy / low-conviction.
+
+    Used as ML feature so Ridge/Logistic learn weight, AND as a
+    cross-sectional rank input for sleeve assignment via the
+    `entry_quality_score` column entering DEFAULT_FEATURES.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["entry_quality_score"] = pd.Series(dtype=float)
+        return d
+    dist_ma200 = numeric_series_or_default(d, "dist_ma200", 0.0)
+    rsi14 = numeric_series_or_default(d, "rsi14", 50.0)
+    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    near_52w_high = numeric_series_or_default(d, "near_52w_high_pct", 0.0)
+    # Volume ratio is scanner-only; use mom_3m * volatility proxy if absent.
+    # Most feature_store doesn't carry the 50d volume ratio — fall back to
+    # neutral 1.0 (no boost / no penalty) when missing.
+    volume_ratio_50d = numeric_series_or_default(d, "volume_ratio_50d", 1.0)
+
+    # 1. Extension penalty: +0-5% above 200-MA = ideal, decay above +20%.
+    extension_part = pd.Series(1.0, index=d.index, dtype=float)
+    extension_part = extension_part.mask(
+        dist_ma200 > 0.05,
+        (1.0 - ((dist_ma200 - 0.05) / 0.25)).clip(lower=0.0, upper=1.0),
+    )
+    extension_part = extension_part.mask(
+        dist_ma200 < -0.20,
+        (1.0 + ((dist_ma200 + 0.20) / 0.20)).clip(lower=0.0, upper=1.0),
+    )
+
+    # 2. RSI zone: 50-65 ideal, decay outside [40, 75].
+    rsi_part = pd.Series(1.0, index=d.index, dtype=float)
+    rsi_part = rsi_part.mask(
+        (rsi14 < 40) | (rsi14 > 75),
+        0.4,
+    )
+    rsi_part = rsi_part.mask(rsi14 > 80, 0.0)
+
+    # 3. Momentum sweet spot: mom_3m +5% to +15% = ideal, > +50% = chase.
+    mom_part = pd.Series(1.0, index=d.index, dtype=float)
+    mom_part = mom_part.mask(
+        mom_3m > 0.50,
+        (1.0 - ((mom_3m - 0.50) / 0.50)).clip(lower=0.0, upper=1.0),
+    )
+    mom_part = mom_part.mask(mom_3m < -0.10, 0.5)
+
+    # 4. Volume confirmation boost (multiplicative, capped at 1.2x).
+    vol_boost = (1.0 + ((volume_ratio_50d - 1.0) * 0.2)).clip(lower=0.5, upper=1.2)
+
+    score = (extension_part * rsi_part * mom_part * vol_boost).clip(lower=0.0, upper=1.0).fillna(0.5)
+    d["entry_quality_score"] = score
     return d
 
 

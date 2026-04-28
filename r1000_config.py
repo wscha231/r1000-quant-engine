@@ -210,6 +210,7 @@ PHASE15_ALPHA_COLUMNS = [
     "cycle_recovery_score",                 # cycle bottom + 6m turn + EPS sign flip
     "eps_revision_score",                   # forward EPS estimate change (analyst upgrade catalyst)
     "early_cycle_inflection_score",         # 6mo-pre-breakout detector — find next SNDK/MU early
+    "entry_quality_score",                  # Phase 15-C: scanner trade_card quality internalized
 ]
 
 
@@ -1389,7 +1390,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-28-phase15b-early-inflection"
+ENGINE_REUSE_VERSION = "2026-04-28-phase15c-entry-quality"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")

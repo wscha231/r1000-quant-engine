@@ -279,6 +279,7 @@ from r1000_features import (
     compute_cycle_recovery_score,
     compute_eps_revision_score,
     compute_early_cycle_inflection_score,
+    compute_entry_quality_score,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7282,6 +7283,19 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "early_cycle_inflection_score."
             )
             universe["early_cycle_inflection_score"] = 0.0
+        # Phase 15-C (2026-04-28): entry_quality_score internalizes the
+        # Aggressive scanner's trade_card discipline (extension penalty,
+        # RSI zone, mom sweet spot, volume confirmation). Universal — applies
+        # to every backtest month, not just live entries. ML walk-forward
+        # learns the weight; selection logic can also read directly.
+        if phase_is_enabled("phase15c_entry_quality", default=True):
+            universe = compute_entry_quality_score(universe)
+        else:
+            log(
+                "[phase15c_entry_quality] disabled — zero-filling "
+                "entry_quality_score (neutral 0.5)."
+            )
+            universe["entry_quality_score"] = 0.5
     else:
         log(
             "[phase15_cycle_recovery] disabled via env PHASE_PHASE15_CYCLE_RECOVERY_ENABLED=0 "
