@@ -290,6 +290,11 @@ jobs:
           rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" 2>&1 || true
           rclone copy outputs/backtest_metrics.json "$DEST/" 2>&1 || true
           rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" 2>&1 || true
+          # Phase 15-A fix (2026-04-28): include the SEC bulk archive so user
+          # gdrive reflects the freshly downloaded companyfacts.zip. Previously
+          # the file refreshed inside the GHA runner cache but never reached
+          # gdrive — user could only see "stale" file from a manual upload.
+          rclone copy outputs/companyfacts.zip "$DEST/" 2>&1 || true
           rclone copy outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>&1 || true
           rclone copy outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>&1 || true
           rclone copy outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>&1 || true
