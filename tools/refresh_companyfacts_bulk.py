@@ -18,7 +18,7 @@ Usage
 -----
     python tools/refresh_companyfacts_bulk.py \\
         --base-dir "$(pwd)/outputs" \\
-        --max-age-days 14 \\
+        --max-age-days 7 \\
         --required
 
 Exits 0 on success / fresh-cache-skip, 1 on download/validation failure
@@ -108,8 +108,8 @@ def download_with_retry(url: str, dest: Path, user_agent: str, retries: int = 4)
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--base-dir", default=".", help="directory containing (or to receive) companyfacts.zip")
-    p.add_argument("--max-age-days", type=float, default=14.0,
-                   help="skip download if existing zip newer than this (default 14)")
+    p.add_argument("--max-age-days", type=float, default=7.0,
+                   help="skip download if existing zip newer than this (default 7 = weekly)")
     p.add_argument("--required", action="store_true",
                    help="exit 1 on any failure (default: warn-only)")
     p.add_argument("--user-agent", default=os.environ.get("SEC_USER_AGENT", DEFAULT_USER_AGENT))

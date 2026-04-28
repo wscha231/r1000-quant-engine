@@ -96,11 +96,13 @@ jobs:
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
 
-      # Refresh SEC companyfacts.zip bulk archive if missing or older than 14d.
+      # Refresh SEC companyfacts.zip bulk archive if missing or older than 7d.
       # Without this, the pipeline silently falls back to per-CIK API calls
       # which respect companyfacts_refresh_days, but with --no-collector that
       # path never executes either — fundamentals lane goes stale →
       # fundamental_coverage_ok=False → portfolio_latest.csv blocked.
+      # 7-day threshold = weekly refresh. Runs less than 7 days apart reuse
+      # cache; longer gaps trigger re-download (~1GB once).
       - name: Refresh SEC companyfacts bulk archive
         env:
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
@@ -108,7 +110,7 @@ jobs:
           mkdir -p outputs
           python tools/refresh_companyfacts_bulk.py \
             --base-dir "$(pwd)/outputs" \
-            --max-age-days 14 \
+            --max-age-days 7 \
             --required
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
