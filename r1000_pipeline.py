@@ -13002,6 +13002,16 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             * cross_sectional_robust_z(d, "relative_strength_composite"),
             0.25 * numeric_series_or_default(d, "score_future_winner_model", 0.0),
             0.20 * numeric_series_or_default(d, "future_winner_scout_score", 0.0),
+            # Phase 16-E4 (2026-04-29): Phase 15-A/B alpha into concentrated_score.
+            # cycle_recovery: late-rescue lane (already-turning leaders).
+            # early_inflection: 6mo-pre-breakout signal (find next SNDK early).
+            # entry_quality: penalize chase entries (extension + RSI + mom).
+            float(getattr(cfg, "concentrated_score_cycle_recovery_weight", 0.50))
+            * numeric_series_or_default(d, "cycle_recovery_score", 0.0),
+            float(getattr(cfg, "concentrated_score_early_inflection_weight", 0.40))
+            * numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
+            float(getattr(cfg, "concentrated_score_entry_quality_weight", 0.25))
+            * numeric_series_or_default(d, "entry_quality_score", 0.5),
             -float(getattr(cfg, "concentrated_score_exit_risk_penalty", 0.40))
             * numeric_series_or_default(d, "portfolio_hold_policy_exit_risk", 0.0),
             -0.20 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),

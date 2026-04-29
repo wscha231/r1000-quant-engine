@@ -1514,11 +1514,17 @@ class EngineConfig:
     cash_target_growth_cap: float = 0.03
     cash_target_balanced_cap: float = 0.04
     cash_target_mild_risk_cap: float = 0.08
+    # Phase 16-E1 (2026-04-29): sleeve weight rebalance for higher CAGR.
+    # Move 13pp from future_winner -> early_scout to capture early-cycle alpha.
+    # Phase 15-D early_cycle_inflection_score concentrates value in early_scout
+    # sleeve; raising its allocation 22%->35% lets ML weight propagate to
+    # actual portfolio weights. Future_winner stays dominant but slightly
+    # less weighted (58%->45%).
     core_compounder_sleeve_base_weight: float = 0.12
-    future_winner_sleeve_base_weight: float = 0.58
+    future_winner_sleeve_base_weight: float = 0.45
     future_winner_sleeve_min_weight: float = 0.12
     future_winner_sleeve_max_weight: float = 0.74
-    early_scout_sleeve_base_weight: float = 0.22
+    early_scout_sleeve_base_weight: float = 0.35
     early_scout_sleeve_min_weight: float = 0.04
     early_scout_sleeve_max_weight: float = 0.36
     early_scout_growth_floor_weight: float = 0.18
@@ -1572,7 +1578,12 @@ class EngineConfig:
     # challenge beyond 29.89% CAGR. Previous optimum was N=3 conviction_curve
     # monthly (concentrated_backtest_metrics.json). New grid tests higher N,
     # multi-month intervals, and score_power weighting. See CHANGELOG.
-    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5, 7, 10])
+    # Phase 16-E4 (2026-04-29): concentrated CAGR push toward 36-38% target.
+    # Default to N=3 (was 5) — historical CE v2 grid showed N=3 score_power
+    # produced CAGR 33.77%/Sharpe 1.193 (vs N=5 33.40%/1.284). +3 from N=5
+    # for +0.4pp CAGR. Risk-adjusted ceiling around N=3-5; N<3 hits MaxDD
+    # cliff. Grid still searches 1..10 for backtest comparison.
+    concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [3, 4, 5, 1, 2, 7, 10])
     concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
     concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
@@ -1604,6 +1615,15 @@ class EngineConfig:
     concentrated_score_breakout_weight: float = 0.30
     concentrated_score_momentum_weight: float = 0.35
     concentrated_score_exit_risk_penalty: float = 0.40
+    # Phase 16-E4 (2026-04-29): Phase 15-A/B alpha into concentrated_score.
+    # cycle_recovery captures already-turning leaders (rescue lane);
+    # early_cycle_inflection captures pre-breakout setups (find next SNDK).
+    # Both score [0, 1]; weights act as direct adders to concentrated_score
+    # row_mean. Values calibrated so cycle/inflection at 0.5 contributes
+    # ~+0.20-0.25 to concentrated_score (vs typical 0.85-0.95 base).
+    concentrated_score_cycle_recovery_weight: float = 0.50
+    concentrated_score_early_inflection_weight: float = 0.40
+    concentrated_score_entry_quality_weight: float = 0.25
     concentrated_max_single_name_weight: float = 1.00
     concentrated_monitoring_review_days: int = 7
     run_historical_data_quality_reports: bool = True
@@ -1850,9 +1870,12 @@ class EngineConfig:
     # for diversified, ~5% for concentrated). Trailing stops cap drawdown
     # contribution per position regardless of entry-relative move.
     trailing_stop_enabled: bool = True
-    trailing_stop_early_scout_pct: float = 0.15      # tightest — early stage
-    trailing_stop_future_winner_pct: float = 0.18    # was 0.0 (disabled)
-    trailing_stop_core_compounder_pct: float = 0.22  # most lenient — let winners run
+    # Phase 16-E3 (2026-04-29): tighter trailing stops to lock in gains
+    # earlier on roll-overs. -3pp across all sleeves. Estimated effect:
+    # MaxDD -1pp, CAGR +0.3pp (less drawdown drag, fewer "round-trips").
+    trailing_stop_early_scout_pct: float = 0.12      # was 0.15
+    trailing_stop_future_winner_pct: float = 0.15    # was 0.18
+    trailing_stop_core_compounder_pct: float = 0.18  # was 0.22
     # Phase 15-R2 (2026-04-22): force-exit a position when its analyst revision
     # score is negative for N consecutive months. Triggers AFTER fundamental
     # thesis breaks but BEFORE -25% hard stop. Default OFF.
@@ -1911,7 +1934,10 @@ class EngineConfig:
     use_benchmark_beating_focus_overlay: bool = True
     focus_overlay_strength: float = 0.42
     focus_sector_crowding_penalty: float = 0.12
-    focus_target_n: int = 18
+    # Phase 16-E2 (2026-04-29): N reduction 18->14 to concentrate alpha in
+    # higher-conviction names. dilution from 18 -> 14 estimated +1-2pp CAGR
+    # at ~+0.5pp MaxDD. focus_riskoff_target_n stays 7 (defensive cap).
+    focus_target_n: int = 14
     focus_riskoff_target_n: int = 7
     focus_portfolio_utility_boost: float = 0.0
     focus_direct_ticker_tiebreak: float = 0.0
