@@ -1511,9 +1511,12 @@ class EngineConfig:
     stock_weight_max_no_ttm_confirmed: float = 0.20
     cash_buffer_enabled: bool = True
     cash_weight_max: float = 0.60
-    cash_target_growth_cap: float = 0.03
-    cash_target_balanced_cap: float = 0.04
-    cash_target_mild_risk_cap: float = 0.08
+    # Phase 17 v3 L10 (2026-04-29): cash reduction. Phase 15-D portfolio held
+    # 5% CASH at all times — drag without alpha. Baseline cash 0; only
+    # accumulate via regime defensive (Layer 1 / Phase 6 drawdown breaker).
+    cash_target_growth_cap: float = 0.0     # was 0.03
+    cash_target_balanced_cap: float = 0.0   # was 0.04
+    cash_target_mild_risk_cap: float = 0.05  # was 0.08 (regime defensive only)
     # Phase 16-E1 (2026-04-29): sleeve weight rebalance for higher CAGR.
     # Move 13pp from future_winner -> early_scout to capture early-cycle alpha.
     # Phase 15-D early_cycle_inflection_score concentrates value in early_scout
@@ -1563,13 +1566,19 @@ class EngineConfig:
     ai_four_sleeve_max_candidates: int = 8
     sleeve_cap_policy_apply_champion: bool = True
     sleeve_cap_policy_max_candidates: int = 6
-    sleeve_cap_policy_objective_excess_weight: float = 1.15
-    sleeve_cap_policy_objective_sharpe_weight: float = 1.0
-    sleeve_cap_policy_objective_sortino_weight: float = 0.50
-    sleeve_cap_policy_objective_drawdown_weight: float = 0.65
-    sleeve_cap_policy_objective_turnover_weight: float = 0.20
-    sleeve_cap_policy_objective_concentration_weight: float = 0.25
-    sleeve_cap_policy_objective_cash_drag_weight: float = 0.15
+    # Phase 17 v3 L13 (2026-04-29): aggressive tilt — reduce drawdown penalty,
+    # raise excess CAGR weight. Phase 15-D actual was core=44% / future=37%
+    # / early=14% because objective biased defensive (drawdown_weight=0.65
+    # too high). Cloud verdict log showed defensive_drawdown_control policy
+    # auto-selected. With these new weights, growth_balanced / aggressive_growth
+    # candidates score higher in non-bear regimes.
+    sleeve_cap_policy_objective_excess_weight: float = 1.50      # was 1.15
+    sleeve_cap_policy_objective_sharpe_weight: float = 1.0       # unchanged
+    sleeve_cap_policy_objective_sortino_weight: float = 0.50     # unchanged
+    sleeve_cap_policy_objective_drawdown_weight: float = 0.35    # was 0.65
+    sleeve_cap_policy_objective_turnover_weight: float = 0.10    # was 0.20
+    sleeve_cap_policy_objective_concentration_weight: float = 0.15  # was 0.25
+    sleeve_cap_policy_objective_cash_drag_weight: float = 0.20   # was 0.15
     run_standalone_sleeve_backtest_comparison: bool = True
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])

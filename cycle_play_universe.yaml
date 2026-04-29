@@ -43,7 +43,8 @@ cycle_play_universe:
     cycle_focus: clean_energy
     mcap_usd_b: 8
     listed_since: "2018-07"
-    notes: "Solid oxide fuel cell — datacenter + microgrid. Cyclical earnings."
+    notes: "Solid oxide fuel cell — datacenter + microgrid. AI power demand catalyst (Microsoft/Google contracts). +1000% in 12mo as of 2026-04. manual_pin: do not auto-drop."
+    manual_pin: true
 
   - ticker: PLUG
     name: "Plug Power"
@@ -52,7 +53,8 @@ cycle_play_universe:
     cycle_focus: clean_energy
     mcap_usd_b: 4
     listed_since: "1999-10"
-    notes: "Hydrogen fuel cell + green H2. Long cycle bottom 2023-2024, recent recovery."
+    notes: "Hydrogen fuel cell + green H2. Long cycle bottom 2023-2024, recent recovery. AI power adjacent. manual_pin per user request."
+    manual_pin: true
 
   - ticker: FCEL
     name: "FuelCell Energy"
@@ -79,7 +81,8 @@ cycle_play_universe:
     cycle_focus: clean_energy
     mcap_usd_b: 5
     listed_since: "2012-03"
-    notes: "Microinverter + battery. Was R1000 graduate now in cycle bottom."
+    notes: "Microinverter + battery. Was R1000 graduate now in cycle bottom. manual_pin per user request."
+    manual_pin: true
 
   - ticker: RUN
     name: "Sunrun"
@@ -116,7 +119,8 @@ cycle_play_universe:
     cycle_focus: ev_battery
     mcap_usd_b: 14
     listed_since: "2021-11"
-    notes: "Electric truck + Amazon delivery van. Production ramp cycle."
+    notes: "Electric truck + Amazon delivery van. Production ramp cycle. manual_pin per user request."
+    manual_pin: true
 
   - ticker: LCID
     name: "Lucid Motors"

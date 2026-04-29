@@ -11815,6 +11815,36 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             cash_target_mild_risk_cap=0.16,
             min_dynamic_port_names=12,
         ),
+        candidate(
+            "aggressive_growth",
+            "Phase 17 v3 L13 (2026-04-29): maximum future+early tilt for bull regimes. "
+            "Core minimal stabilizer; future+early ~95% invested. Targets sustained "
+            "explosive movers (BE-class) in early sleeve. Auto-selected when objective "
+            "weights favor excess CAGR over drawdown protection.",
+            core_compounder_sleeve_base_weight=0.05,
+            future_winner_sleeve_base_weight=0.55,
+            future_winner_sleeve_min_weight=0.20,
+            future_winner_sleeve_max_weight=0.78,
+            early_scout_sleeve_base_weight=0.40,
+            early_scout_sleeve_min_weight=0.10,
+            early_scout_sleeve_max_weight=0.50,
+            early_scout_growth_floor_weight=0.25,
+            early_scout_growth_floor_min_signal=0.25,
+            early_scout_growth_floor_max_risk=0.50,
+            future_winner_entry_weight_cap=0.18,
+            future_winner_drift_weight_cap=0.32,
+            future_winner_hard_weight_cap=0.45,
+            early_scout_entry_weight_cap=0.10,
+            early_scout_drift_weight_cap=0.22,
+            early_scout_hard_weight_cap=0.35,
+            sleeve_drift_headroom_pct=0.70,
+            stock_weight_max=0.25,
+            stock_weight_max_high_conviction=0.55,
+            cash_target_growth_cap=0.0,
+            cash_target_balanced_cap=0.0,
+            cash_target_mild_risk_cap=0.10,
+            min_dynamic_port_names=8,
+        ),
     ]
 
 
