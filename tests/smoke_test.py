@@ -745,6 +745,107 @@ def test_mktcap_percentile() -> None:
     assert list(pct) == sorted(pct), "percentile rank must be monotonic"
 
 
+@_test("logic.adr_mktcap_proxy_normalizes_adr_ratio")
+def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
+    """ADR price times ordinary-share count must not inflate market cap.
+
+    Regression: TSM ADR px * Taiwan ordinary shares made TSM appear larger
+    than NVDA. ADR rows must be normalized to USD company marketCap proxy.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    original = pipe.ensure_mktcap_proxy
+    try:
+        pipe.ensure_mktcap_proxy = lambda cfg, paths, tickers, max_new=500: pd.DataFrame(
+            {"ticker": ["TSM"], "mktcap_proxy": [2.0e12], "updated_at": ["2026-04-29T00:00:00"]}
+        )
+        df = pd.DataFrame(
+            {
+                "rebalance_date": pd.to_datetime(["2026-04-29", "2026-04-29"]),
+                "ticker": ["TSM", "NVDA"],
+                "universe_source": ["adr_whitelist", "current_constituents_proxy"],
+                "mktcap": [1.0e13, 5.0e12],
+            }
+        )
+        out = pipe.apply_adr_usd_mktcap_proxy(df, EngineConfig(), {})
+    finally:
+        pipe.ensure_mktcap_proxy = original
+
+    tsm = out.loc[out["ticker"].eq("TSM")].iloc[0]
+    nvda = out.loc[out["ticker"].eq("NVDA")].iloc[0]
+    assert abs(float(tsm["mktcap"]) - 2.0e12) < 1e6, f"TSM mktcap not normalized: {tsm['mktcap']}"
+    assert abs(float(nvda["mktcap"]) - 5.0e12) < 1e6, "non-ADR mktcap should not change"
+    assert str(tsm["mktcap_source"]) == "adr_yf_usd_proxy_ratio"
+
+
+@_test("logic.adr_valuation_uses_adr_equivalent_shares")
+def test_adr_valuation_uses_adr_equivalent_shares() -> None:
+    """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    df = pd.DataFrame(
+        {
+            "ticker": ["TSM"],
+            "universe_source": ["adr_whitelist"],
+            "mktcap": [2.0e12],
+            "px": [400.0],
+            "shares": [25.0e9],
+            "net_income_ttm": [40.0e9],
+        }
+    )
+    out = pipe.compute_valuation_columns(df, EngineConfig())
+    row = out.iloc[0]
+    assert abs(float(row["shares_effective"]) - 5.0e9) < 1e3, row["shares_effective"]
+    assert abs(float(row["forward_pe_final"]) - 50.0) < 1e-6, row["forward_pe_final"]
+
+
+@_test("logic.companyfacts_prefers_usd_units")
+def test_companyfacts_prefers_usd_units() -> None:
+    """When SEC companyfacts exposes USD and local currency, choose USD."""
+    if _args.quick:
+        return
+    import r1000_pipeline as pipe
+
+    payload = {
+        "facts": {
+            "ifrs-full": {
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "units": {
+                        "TWD": [
+                            {
+                                "end": "2026-03-31",
+                                "filed": "2026-04-20",
+                                "form": "20-F",
+                                "val": 3000.0,
+                            }
+                        ],
+                        "USD": [
+                            {
+                                "end": "2026-03-31",
+                                "filed": "2026-04-20",
+                                "form": "20-F",
+                                "val": 100.0,
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+    out = pipe.extract_companyfacts_records(payload, "1046179", "revenues")
+    assert len(out) == 1, out
+    assert str(out.iloc[0]["unit"]) == "USD", out
+    assert abs(float(out.iloc[0]["value"]) - 100.0) < 1e-9, out
+
+
 # ======================================================================
 # Group 5: regression pins -- historical bugs must stay fixed
 # ======================================================================

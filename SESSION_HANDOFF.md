@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 13:41 KST (Phase 15-D cloud preflight fixed, awaiting rebuild)
+# Session Handoff - 2026-04-29 18:00 KST (ADR mktcap bug fixed, rebuild needed)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,18 +6,21 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 13:41 KST) - Phase 15-D cloud rebuild + verification
+## ACTIVE INBOX (2026-04-29 18:00 KST) - ADR USD market-cap fix + Phase 15-D rerun
 
-**TL;DR** — Phase 15-A/B/C/D all shipped to master. Production baseline still
-Phase 14 (CAGR 23.58% Sharpe 1.178 MaxDD -23.17%). Cloud preflight was fixed
-before triggering the next full_rebuild so Phase 15-D can be tested fairly:
-cycle-play price caches must be collected on this first run and Finnhub fallback
-state must be visible to GitHub Actions.
+**TL;DR** — Run `25091384080` completed successfully and synced to GDrive, but
+verdict was PARTIAL, not SHIP. User spotted a real ADR market-cap bug: TSM was
+larger than NVDA because the engine multiplied USD ADR price by ordinary local
+shares. Code now normalizes ADR market cap to yfinance USD marketCap and uses
+ADR-equivalent shares for valuation. A new full_rebuild is required before
+judging Phase 15-D again.
 
-**State of master (as of 2026-04-29 13:41 KST)**
+**State of master (as of 2026-04-29 18:00 KST)**
 
 ```
-HEAD: pending/current master after phase15d cloud preflight fix
+HEAD: pending/current master after ADR USD market-cap normalization
+       5bc9ef0  chore(bot): full rebuild [global_alpha_universe] 2026-04-29 [skip ci]
+       959b76a  fix(actions): expose finnhub state for phase15d rebuild
        180d854  docs: CHANGELOG + SESSION_HANDOFF for Phase 15-D handoff
        3db9386  feat(phase15d): cycle_play universe + multi-source fallback + chase prevention
        e7c6ff9  fix(acceptance): unblock portfolio for r1000+adr universe (research mode)
@@ -30,7 +33,7 @@ HEAD: pending/current master after phase15d cloud preflight fix
 
 ENGINE_REUSE_VERSION: 2026-04-28-phase15c-entry-quality (Phase 15-D additive only)
 DEFAULT_FEATURES: 245
-Smoke: 66/66 pass after preflight fix; audit 0 leakage; workflow YAML parse pass
+Smoke: 69/69 pass after ADR mktcap fix; audit 0 leakage
 Working tree: clean
 ```
 
@@ -70,12 +73,28 @@ auto-refresh (`tools/refresh_cycle_play_universe.py` +
 
 **Latest cloud run state**
 
-The 2026-04-28 r1000+adr full rebuild produced:
-- CAGR +0.47pp vs Phase 14 (24.05% vs 23.58%) — 0.03pp shy of SHIP gate
-- MaxDD -3.03pp vs gate -3pp — 0.03pp shy
-- Verdict: REGRESS (early_scout count = 0 sleeve collapse + dCAGR fail)
-- portfolio_latest.csv: EMPTY (acceptance gate blocked — fixed in e7c6ff9)
-- concentrated_portfolio: 3 names (AMKR / WDC / FTI all chase — D2 will block)
+Run `25091384080` (commit `959b76a`) completed successfully:
+- GitHub Actions: success; artifact `full-rebuild-global_alpha_universe-25091384080`
+- GDrive sync: success; outputs under `G:\내 드라이브\r1000_top30_institutional\outputs`
+- Bot commit: `5bc9ef0`
+- Main metrics: CAGR 23.48%, Sharpe 1.251, MaxDD -23.79%
+- Verdict: PARTIAL vs Phase 14 (dCAGR -0.10pp, dSharpe +0.0727, dMaxDD -0.62pp)
+- Concentrated: CAGR 25.43%, Sharpe 1.246, MaxDD -21.62%, 5 names
+- ADRs worked: 30 scored, 4 in main portfolio (NTES, TSM, ZTO, ASML)
+- Cycle-play weak: 33 injected / 20 added, but only 2 scored and 0 selected
+- Do **not** rotate CURRENT_BASELINE.
+
+**Critical post-run bug found and fixed (2026-04-29 18:00 KST)**
+
+- TSM `mktcap` was ~10.17T because `px=392 USD ADR price` was multiplied by
+  `shares=25.9B Taiwan ordinary shares`. True yfinance USD marketCap proxy is
+  ~2.03T. Similar ADR-ratio distortions exist for NTES/PDD/ZTO.
+- Fix: `apply_adr_usd_mktcap_proxy` anchors ADR market cap to yfinance USD
+  marketCap and applies the ADR-ratio factor to historical px*shares rows.
+- Fix: `compute_valuation_columns` uses `mktcap / px` as ADR-equivalent shares
+  for ADR EPS/PE math.
+- Fix: `extract_companyfacts_records` now prefers USD companyfacts units when
+  SEC exposes multiple monetary unit buckets.
 
 **Pre-trigger correction (2026-04-29 13:41 KST)**
 
@@ -92,7 +111,7 @@ The 2026-04-28 r1000+adr full rebuild produced:
 
 **Recommended next agent action sequence**
 
-1. **TRIGGER**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
+1. **TRIGGER AGAIN AFTER ADR FIX**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
    ```
    universe_mode:    global_alpha_universe   ← includes R1000 + ADR + cycle play
    backtest_years:   8
@@ -100,7 +119,8 @@ The 2026-04-28 r1000+adr full rebuild produced:
    fast_mode:        true
    cache_key_suffix: phase15d-cycle
    ```
-   Expected runtime: ~3-4h because collector must fill missing cycle-play price caches.
+   Expected runtime: ~2-3h if cache restored; use `skip_collector=false` if
+   cycle-play price cache is still missing in the runner.
 
 2. **VERIFY POST-REBUILD**:
    - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`

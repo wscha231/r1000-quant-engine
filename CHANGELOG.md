@@ -246,6 +246,52 @@ All entries must be written in English. Entries must be predictable and machine-
     20/33 active cycle-play tickers were missing from the local/GDrive price
     cache before this fix.
 
+### 18:00 KST - adr-usd-marketcap-normalization
+
+- scope:
+  - Fix confirmed ADR market-cap unit distortion found after run `25091384080`.
+    TSM was ranked above NVDA because the engine multiplied USD ADR price by
+    ordinary local share count. ADR rows now use a yfinance USD marketCap anchor
+    and an ADR-ratio factor before size ranking and valuation.
+- files:
+  - `r1000_pipeline.py` ->add ADR USD market-cap normalization helper, extend
+    yfinance market-cap proxy cache with currency/share diagnostics, make ADR
+    EPS/PE math use ADR-equivalent shares, and prefer USD companyfacts units
+    when SEC exposes multiple monetary units.
+  - `tests/smoke_test.py` ->add regression tests for ADR market-cap
+    normalization, ADR-equivalent share valuation, and USD companyfacts unit
+    preference.
+- symbols_added:
+  - `preferred_companyfacts_unit_keys(field_name, unit_keys) -> list[str]`
+    ->prefers USD monetary facts and share-count facts when companyfacts has
+    multiple unit buckets.
+  - `apply_adr_usd_mktcap_proxy(monthly, cfg, paths) -> DataFrame`
+    ->normalizes ADR market cap using yfinance USD marketCap as live anchor.
+- symbols_changed:
+  - `extract_companyfacts_records(payload, cik, field_name)` ->records unit and
+    applies unit preference before building companyfacts rows.
+  - `fetch_mktcap_proxy(ticker)` ->returns price currency, financial currency,
+    shares outstanding, and implied shares outstanding diagnostics.
+  - `build_universe_monthly(cfg)` ->applies ADR USD market-cap normalization
+    immediately after px*shares market-cap calculation and before size ranking.
+  - `compute_valuation_columns(df, cfg)` ->uses mktcap/ADR price as
+    ADR-equivalent shares for ADR valuation math.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smoke_test.py` ->PASS, 69/69.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->PASS,
+    no leakage detected.
+- risks_or_notes:
+  - This fixes the confirmed ADR price/share-count mismatch. Full historical FX
+    conversion for non-USD-only companyfacts remains a separate larger task.
+  - A new full_rebuild is required before evaluating Phase 15-D again because
+    run `25091384080` used the inflated ADR market caps.
+
 ### 11:30 KST - phase15-validators-and-multiplicative-gate-fix
 
 - scope:

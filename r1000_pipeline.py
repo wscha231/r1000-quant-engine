@@ -2220,9 +2220,27 @@ def companyfacts_duration_days(start: Any, end: Any) -> Optional[int]:
     return int((e - s).days) + 1
 
 
+def preferred_companyfacts_unit_keys(field_name: str, unit_keys: Iterable[Any]) -> list[str]:
+    """Prefer USD monetary facts and share-count facts when SEC exposes multiple units.
+
+    Foreign issuers may expose both reporting-currency and USD-translated facts.
+    Using mixed units against USD market caps distorts valuation ratios. When a
+    USD monetary unit exists, use it; otherwise keep the available unit so the
+    pipeline degrades to sparse coverage instead of fabricating FX conversion.
+    """
+    keys = [str(k) for k in unit_keys if str(k)]
+    if not keys:
+        return []
+    if field_name == "shares":
+        share_keys = [k for k in keys if "shares" in k.lower()]
+        return share_keys or keys
+    usd_keys = [k for k in keys if k.upper() == "USD"]
+    return usd_keys or keys
+
+
 def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: str) -> pd.DataFrame:
     if not payload or "facts" not in payload:
-        return pd.DataFrame(columns=["cik", "period", "accepted", "fy", "fp", "form", "field_name", "value"])
+        return pd.DataFrame(columns=["cik", "period", "accepted", "fy", "fp", "form", "field_name", "unit", "value"])
 
     facts = payload.get("facts", {})
     rows = []
@@ -2238,7 +2256,8 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
             units = fact.get("units", {})
             if not isinstance(units, dict):
                 continue
-            for _, vals in units.items():
+            for unit_key in preferred_companyfacts_unit_keys(field_name, units.keys()):
+                vals = units.get(unit_key)
                 if not isinstance(vals, list):
                     continue
                 for item in vals:
@@ -2274,6 +2293,7 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
                             "duration_days": companyfacts_duration_days(item.get("start"), item.get("end")),
                             "field_name": field_name,
                             "source_tag": alias,
+                            "unit": str(unit_key),
                             "value": float(val),
                         }
                     )
@@ -4878,14 +4898,30 @@ def save_mktcap_proxy_cache(paths: dict[str, Path], df: pd.DataFrame) -> None:
 
 
 def fetch_mktcap_proxy(ticker: str) -> dict[str, Any]:
+    price_currency = ""
+    financial_currency = ""
+    shares_outstanding = np.nan
+    implied_shares_outstanding = np.nan
     try:
         t = yf.Ticker(to_yf_symbol(ticker))
         info = t.info or {}
         val = info.get("marketCap")
         mkt = float(val) if val is not None else np.nan
+        price_currency = str(info.get("currency") or "")
+        financial_currency = str(info.get("financialCurrency") or "")
+        shares_outstanding = safe_float(info.get("sharesOutstanding"))
+        implied_shares_outstanding = safe_float(info.get("impliedSharesOutstanding"))
     except Exception:
         mkt = np.nan
-    return {"ticker": ticker, "mktcap_proxy": mkt, "updated_at": datetime.utcnow().isoformat(timespec="seconds")}
+    return {
+        "ticker": ticker,
+        "mktcap_proxy": mkt,
+        "price_currency": price_currency,
+        "financial_currency": financial_currency,
+        "shares_outstanding_proxy": shares_outstanding,
+        "implied_shares_outstanding_proxy": implied_shares_outstanding,
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
 
 
 def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list[str], max_new: int = 500) -> pd.DataFrame:
@@ -4906,6 +4942,106 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
         cache = cache.sort_values("updated_at").drop_duplicates("ticker", keep="last")
         save_mktcap_proxy_cache(paths, cache)
     return cache
+
+
+def apply_adr_usd_mktcap_proxy(monthly: pd.DataFrame, cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
+    """Normalize ADR market cap to USD company market cap.
+
+    `px * shares` is valid for ordinary US shares, but ADR rows often combine a
+    USD ADR price with ordinary local shares from SEC companyfacts. TSM is the
+    canonical failure mode: ADR price * Taiwan ordinary shares inflated market
+    cap by ~5x. Use yfinance's USD company marketCap as the live anchor and
+    apply the resulting ADR-ratio factor to historical px*shares rows.
+    """
+    if monthly is None or monthly.empty or "universe_source" not in monthly.columns or "ticker" not in monthly.columns:
+        return monthly
+    d = monthly.copy()
+    adr_mask = d["universe_source"].astype(str).str.contains("adr_whitelist", case=False, na=False)
+    if not bool(adr_mask.any()):
+        return d
+
+    d["mktcap"] = pd.to_numeric(d.get("mktcap"), errors="coerce")
+    d["mktcap_px_shares_raw"] = d["mktcap"]
+    adr_tickers = sorted(d.loc[adr_mask, "ticker"].dropna().astype(str).unique().tolist())
+    proxy = ensure_mktcap_proxy(cfg, paths, adr_tickers, max_new=max(len(adr_tickers), 1))
+    if proxy.empty or "mktcap_proxy" not in proxy.columns:
+        log("[WARN] ADR mktcap USD proxy unavailable; retaining px*shares market cap.")
+        return d
+
+    keep_cols = [
+        c for c in [
+            "ticker",
+            "mktcap_proxy",
+            "price_currency",
+            "financial_currency",
+            "shares_outstanding_proxy",
+            "implied_shares_outstanding_proxy",
+        ]
+        if c in proxy.columns
+    ]
+    proxy = (
+        proxy[keep_cols]
+        .dropna(subset=["ticker"])
+        .drop_duplicates("ticker", keep="last")
+        .rename(
+            columns={
+                "mktcap_proxy": "adr_mktcap_proxy_usd",
+                "price_currency": "adr_price_currency",
+                "financial_currency": "adr_financial_currency",
+            }
+        )
+    )
+    d = d.drop(
+        columns=[
+            "adr_mktcap_proxy_usd",
+            "adr_price_currency",
+            "adr_financial_currency",
+            "adr_mktcap_adjustment_factor",
+        ],
+        errors="ignore",
+    ).merge(proxy, on="ticker", how="left")
+
+    latest_cols = ["ticker", "mktcap_px_shares_raw", "adr_mktcap_proxy_usd"]
+    if "rebalance_date" in d.columns:
+        latest_cols.append("rebalance_date")
+    latest = d.loc[adr_mask, latest_cols].copy()
+    latest["mktcap_px_shares_raw"] = pd.to_numeric(latest["mktcap_px_shares_raw"], errors="coerce")
+    latest["adr_mktcap_proxy_usd"] = pd.to_numeric(latest["adr_mktcap_proxy_usd"], errors="coerce")
+    latest = latest[(latest["mktcap_px_shares_raw"] > 0) & (latest["adr_mktcap_proxy_usd"] > 0)].copy()
+    if latest.empty:
+        return d
+    if "rebalance_date" in latest.columns:
+        latest["rebalance_date"] = pd.to_datetime(latest["rebalance_date"], errors="coerce")
+        latest = latest.sort_values(["ticker", "rebalance_date"])
+    latest = latest.drop_duplicates("ticker", keep="last")
+    latest["factor"] = latest["adr_mktcap_proxy_usd"] / latest["mktcap_px_shares_raw"]
+    latest = latest[latest["factor"].between(0.01, 100.0)].copy()
+    factors = latest.set_index("ticker")["factor"].to_dict()
+    if not factors:
+        return d
+
+    d["adr_mktcap_adjustment_factor"] = d["ticker"].map(factors)
+    raw = pd.to_numeric(d["mktcap_px_shares_raw"], errors="coerce")
+    factor = pd.to_numeric(d["adr_mktcap_adjustment_factor"], errors="coerce")
+    apply_mask = adr_mask & raw.notna() & factor.notna()
+    if "mktcap_source" not in d.columns:
+        d["mktcap_source"] = "px_times_shares"
+    d.loc[apply_mask, "mktcap"] = raw.loc[apply_mask] * factor.loc[apply_mask]
+    d.loc[apply_mask, "mktcap_source"] = "adr_yf_usd_proxy_ratio"
+    if "market_cap_live" not in d.columns:
+        d["market_cap_live"] = np.nan
+    d.loc[adr_mask, "market_cap_live"] = pd.to_numeric(
+        d.loc[adr_mask, "market_cap_live"], errors="coerce"
+    ).fillna(pd.to_numeric(d.loc[adr_mask, "adr_mktcap_proxy_usd"], errors="coerce"))
+
+    adjusted = int(d.loc[apply_mask, "ticker"].nunique())
+    sample = latest.assign(raw_t=latest["mktcap_px_shares_raw"] / 1e12, proxy_t=latest["adr_mktcap_proxy_usd"] / 1e12)
+    sample_txt = ", ".join(
+        f"{r.ticker}:{r.factor:.3f}x ${r.raw_t:.2f}T->${r.proxy_t:.2f}T"
+        for r in sample.head(6).itertuples(index=False)
+    )
+    log(f"ADR USD mktcap normalization: adjusted={adjusted}/{len(adr_tickers)} via yfinance marketCap ratio. {sample_txt}")
+    return d
 
 
 # =====================================================================
@@ -6525,6 +6661,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     write_stage_coverage_report(paths, "fund_panel_latest", panel, CORE_FUNDAMENTAL_COLUMNS + ["sales_growth_yoy", "op_margin_ttm", "roe_proxy"])
 
     monthly["mktcap"] = pd.to_numeric(monthly["px"], errors="coerce") * pd.to_numeric(monthly.get("shares"), errors="coerce")
+    monthly = apply_adr_usd_mktcap_proxy(monthly, cfg, paths)
     if monthly["mktcap"].notna().mean() < 0.30:
         log("[WARN] FSDS shares coverage is low; applying bounded Yahoo marketCap proxy fallback.")
         mc = ensure_mktcap_proxy(cfg, paths, monthly["ticker"].dropna().unique().tolist(), max_new=600)
@@ -7060,6 +7197,10 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     d["dividends_ttm_ps"] = dividends_ps
     shares_proxy = d["mktcap"] / px
     shares_effective = shares.fillna(shares_proxy.replace([np.inf, -np.inf], np.nan))
+    if "universe_source" in d.columns:
+        adr_mask = d["universe_source"].astype(str).str.contains("adr_whitelist", case=False, na=False)
+        adr_shares = shares_proxy.replace([np.inf, -np.inf], np.nan)
+        shares_effective.loc[adr_mask] = adr_shares.loc[adr_mask].fillna(shares.loc[adr_mask])
     d["shares_effective"] = shares_effective
     eps_ttm = net_income_ttm / shares_effective.replace(0, np.nan)
     dividends_total = dividends_ps * shares_effective
