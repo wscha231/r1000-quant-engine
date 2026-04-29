@@ -48,7 +48,9 @@ jobs:
       - name: Restore Finnhub per-ticker cache
         uses: actions/cache@v4
         with:
-          path: aggressive/cache/finnhub
+          path: |
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
           key: finnhub-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             finnhub-cache-${{ runner.os }}-
@@ -78,7 +80,8 @@ jobs:
           mkdir -p cloud_results/scanner
           cp aggressive/state/scanner/latest.json \
              "cloud_results/scanner/$(date +%Y%m%d).json" 2>/dev/null || true
-          git add cloud_results/ aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
+          git add cloud_results/ 2>/dev/null || true
+          git add -f aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): daily scan $(date +%Y-%m-%d) [skip ci]"
           git push || true

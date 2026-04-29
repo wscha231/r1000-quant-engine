@@ -198,6 +198,54 @@ All entries must be written in English. Entries must be predictable and machine-
     documented in cycle_play_universe.yaml entries — add to specific
     rows when curating high-conviction picks that should never auto-drop.
 
+### 13:41 KST - phase15d-cloud-preflight-finnhub-state
+
+- scope:
+  - Pre-trigger cloud execution fix for Phase 15-D verification. The first
+    global_alpha_universe rebuild must collect missing cycle-play price caches
+    and must see the Finnhub fallback parquet in GitHub Actions.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->cache
+    `aggressive/state/finnhub`, add Phase 15-D preflight diagnostics for
+    cycle-play missing price caches and Finnhub fallback parquet shape.
+  - `.github/workflows/finnhub_weekly.yml` ->cache
+    `aggressive/state/finnhub` alongside per-ticker Finnhub cache and force-add
+    the ignored fallback parquet when committing weekly refresh output.
+  - `.github/workflows/daily_review.yml` ->cache
+    `aggressive/state/finnhub` and force-add the ignored fallback parquet when
+    committing scanner summaries.
+  - `.github/workflows/unified_monthly.yml` ->cache
+    `aggressive/state/finnhub` so unified universe rebuilds share the same
+    fallback state.
+  - `aggressive/state/finnhub/r1000_features.parquet` ->latest successful
+    Finnhub weekly artifact (`25003804766`), 1008 rows x 53 columns, force-added
+    so the immediate cloud rebuild can use Phase 15-D PE/PEG fallback.
+  - `SESSION_HANDOFF.md` ->correct next-run instructions from
+    `skip_collector=true` to `skip_collector=false` and document preflight
+    reasoning.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `aggressive/state/finnhub/r1000_features.parquet` ->Finnhub weekly fallback
+    feature table used by `r1000_features._load_finnhub_features_for_fallback`.
+- validation:
+  - `py -3 tests\smoke_test.py` ->PASS, 66/66.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->PASS,
+    no leakage detected.
+  - Parsed modified GitHub workflow YAML files with PyYAML ->PASS.
+- risks_or_notes:
+  - This does not change model features or ranking weights. It only fixes cloud
+    state visibility before the next expensive full_rebuild.
+  - First fair Phase 15-D rebuild should use `skip_collector=false` because
+    20/33 active cycle-play tickers were missing from the local/GDrive price
+    cache before this fix.
+
 ### 11:30 KST - phase15-validators-and-multiplicative-gate-fix
 
 - scope:

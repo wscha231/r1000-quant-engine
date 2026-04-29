@@ -89,6 +89,7 @@ jobs:
             cache_live_fund
             aggressive/cache/bars
             aggressive/cache/finnhub
+            aggressive/state/finnhub
             outputs/sec_companyfacts
             outputs/macro
             outputs/companyfacts.zip
@@ -131,6 +132,39 @@ jobs:
         run: |
           python tests/smoke_test.py
           python tests/audit_features.py --no-runtime
+
+      - name: Phase 15-D data preflight
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          import pandas as pd
+
+          from aggressive.universe import load_cycle_play_universe
+          from r1000_helpers import px_cache_name
+
+          cycle_tickers, _ = load_cycle_play_universe()
+          missing_prices = [
+              t for t in sorted(cycle_tickers)
+              if not (Path("cache_prices") / px_cache_name(t)).exists()
+          ]
+          print(
+              "[cycle] active=%d missing_price_cache_before_collector=%d"
+              % (len(cycle_tickers), len(missing_prices))
+          )
+          if missing_prices:
+              print("[cycle] missing sample: " + ", ".join(missing_prices[:30]))
+
+          p = Path("aggressive/state/finnhub/r1000_features.parquet")
+          if p.exists():
+              df = pd.read_parquet(p)
+              print(
+                  "[finnhub] fallback parquet present rows=%d cols=%d"
+                  % (len(df), len(df.columns))
+              )
+          else:
+              print("[finnhub] WARN fallback parquet missing; Phase 15-D fallback will degrade")
+          PY
 
       - name: Run FULL rebuild
         env:

@@ -35,7 +35,9 @@ jobs:
       - name: Restore Finnhub cache
         uses: actions/cache@v4
         with:
-          path: aggressive/cache/finnhub
+          path: |
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
           key: finnhub-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             finnhub-cache-${{ runner.os }}-
@@ -89,7 +91,7 @@ jobs:
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
-          git add aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
+          git add -f aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): finnhub weekly $(date +%Y-%m-%d) [skip ci]"
           git push || true

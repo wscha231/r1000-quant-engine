@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 12:22 KST (Phase 15-D shipped, awaiting cloud verification)
+# Session Handoff - 2026-04-29 13:41 KST (Phase 15-D cloud preflight fixed, awaiting rebuild)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,16 +6,20 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 12:22 KST) - Phase 15-D cloud rebuild + verification
+## ACTIVE INBOX (2026-04-29 13:41 KST) - Phase 15-D cloud rebuild + verification
 
 **TL;DR** — Phase 15-A/B/C/D all shipped to master. Production baseline still
-Phase 14 (CAGR 23.58% Sharpe 1.178 MaxDD -23.17%). Awaiting cloud full_rebuild
-to validate Phase 15 alpha contribution.
+Phase 14 (CAGR 23.58% Sharpe 1.178 MaxDD -23.17%). Cloud preflight was fixed
+before triggering the next full_rebuild so Phase 15-D can be tested fairly:
+cycle-play price caches must be collected on this first run and Finnhub fallback
+state must be visible to GitHub Actions.
 
-**State of master (as of 2026-04-29 12:22 KST)**
+**State of master (as of 2026-04-29 13:41 KST)**
 
 ```
-HEAD: 3db9386  feat(phase15d): cycle_play universe + multi-source fallback + chase prevention
+HEAD: pending/current master after phase15d cloud preflight fix
+       180d854  docs: CHANGELOG + SESSION_HANDOFF for Phase 15-D handoff
+       3db9386  feat(phase15d): cycle_play universe + multi-source fallback + chase prevention
        e7c6ff9  fix(acceptance): unblock portfolio for r1000+adr universe (research mode)
        186f9f5  fix(phase15c): mktcap $1T clip + 1970 epoch fund_period leak
        50f432b  fix(phase15c): sub_industry_rs_score crash (build_feature_store)
@@ -26,7 +30,7 @@ HEAD: 3db9386  feat(phase15d): cycle_play universe + multi-source fallback + cha
 
 ENGINE_REUSE_VERSION: 2026-04-28-phase15c-entry-quality (Phase 15-D additive only)
 DEFAULT_FEATURES: 245
-Smoke: 66/66 pass, audit 0 leakage
+Smoke: 66/66 pass after preflight fix; audit 0 leakage; workflow YAML parse pass
 Working tree: clean
 ```
 
@@ -73,17 +77,30 @@ The 2026-04-28 r1000+adr full rebuild produced:
 - portfolio_latest.csv: EMPTY (acceptance gate blocked — fixed in e7c6ff9)
 - concentrated_portfolio: 3 names (AMKR / WDC / FTI all chase — D2 will block)
 
+**Pre-trigger correction (2026-04-29 13:41 KST)**
+
+- Do **not** use `skip_collector=true` for the first Phase 15-D verification.
+  Local/GDrive price cache only has 13/33 active cycle-play tickers; 20 are
+  missing and need the collector to fetch their history.
+- Latest successful Finnhub weekly artifact (`25003804766`) was downloaded into
+  `aggressive/state/finnhub/r1000_features.parquet` and force-added so cloud
+  full_rebuild can immediately use Phase 15-D Finnhub PE/PEG fallback.
+- GitHub Actions now caches/restores `aggressive/state/finnhub` and prints
+  pre-run diagnostics:
+  - `[cycle] active=... missing_price_cache_before_collector=...`
+  - `[finnhub] fallback parquet present rows=... cols=...`
+
 **Recommended next agent action sequence**
 
 1. **TRIGGER**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
    ```
    universe_mode:    global_alpha_universe   ← includes R1000 + ADR + cycle play
    backtest_years:   8
-   skip_collector:   true (cache reused, ENGINE_REUSE_VERSION unchanged)
+   skip_collector:   false (first fair Phase 15-D run must collect missing cycle prices)
    fast_mode:        true
-   cache_key_suffix: (empty)
+   cache_key_suffix: phase15d-cycle
    ```
-   Expected runtime: ~2-2.5h.
+   Expected runtime: ~3-4h because collector must fill missing cycle-play price caches.
 
 2. **VERIFY POST-REBUILD**:
    - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`

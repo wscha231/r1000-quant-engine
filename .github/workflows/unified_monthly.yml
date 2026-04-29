@@ -48,7 +48,9 @@ jobs:
       - name: Restore Finnhub cache
         uses: actions/cache@v4
         with:
-          path: aggressive/cache/finnhub
+          path: |
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
           key: finnhub-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             finnhub-cache-${{ runner.os }}-
