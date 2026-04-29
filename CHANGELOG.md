@@ -254,6 +254,9 @@ All entries must be written in English. Entries must be predictable and machine-
     ordinary local share count. ADR rows now use a yfinance USD marketCap anchor
     and an ADR-ratio factor before size ranking and valuation.
 - files:
+  - `r1000_config.py` ->bump `ENGINE_REUSE_VERSION` to
+    `2026-04-29-adr-usd-mktcap` so the next full_rebuild cannot reuse stale
+    feature_store artifacts with inflated ADR market caps.
   - `r1000_pipeline.py` ->add ADR USD market-cap normalization helper, extend
     yfinance market-cap proxy cache with currency/share diagnostics, make ADR
     EPS/PE math use ADR-equivalent shares, and prefer USD companyfacts units
@@ -268,6 +271,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - `apply_adr_usd_mktcap_proxy(monthly, cfg, paths) -> DataFrame`
     ->normalizes ADR market cap using yfinance USD marketCap as live anchor.
 - symbols_changed:
+  - `ENGINE_REUSE_VERSION` ->bumped from
+    `2026-04-28-phase15c-entry-quality` to `2026-04-29-adr-usd-mktcap`.
   - `extract_companyfacts_records(payload, cik, field_name)` ->records unit and
     applies unit preference before building companyfacts rows.
   - `fetch_mktcap_proxy(ticker)` ->returns price currency, financial currency,
@@ -279,7 +284,9 @@ All entries must be written in English. Entries must be predictable and machine-
 - config_fields_added:
   - none
 - breaking_changes:
-  - none
+  - Cached feature_store artifacts are intentionally invalidated on the next
+    full_rebuild because mktcap, valuation, and size-rank features change for
+    ADR rows.
 - outputs:
   - none
 - validation:

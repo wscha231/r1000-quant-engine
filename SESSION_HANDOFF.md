@@ -31,7 +31,7 @@ HEAD: pending/current master after ADR USD market-cap normalization
        47875dd  feat(phase15c): entry_quality_score
        9bd5606  fix(phase15): activate sleeping cycle_recovery + eps_revision
 
-ENGINE_REUSE_VERSION: 2026-04-28-phase15c-entry-quality (Phase 15-D additive only)
+ENGINE_REUSE_VERSION: 2026-04-29-adr-usd-mktcap
 DEFAULT_FEATURES: 245
 Smoke: 69/69 pass after ADR mktcap fix; audit 0 leakage
 Working tree: clean
@@ -95,6 +95,8 @@ Run `25091384080` (commit `959b76a`) completed successfully:
   for ADR EPS/PE math.
 - Fix: `extract_companyfacts_records` now prefers USD companyfacts units when
   SEC exposes multiple monetary unit buckets.
+- `ENGINE_REUSE_VERSION` bumped to `2026-04-29-adr-usd-mktcap`; next
+  full_rebuild must regenerate feature_store/scored artifacts.
 
 **Pre-trigger correction (2026-04-29 13:41 KST)**
 
