@@ -170,12 +170,19 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
   - `industry_group_strength_score`, `industry_within_leader_rank`
   - `oneil_leadership_score`, `industry_rotation_signal`
 
-## Current Production Baseline — Phase 14 hybrid alpha (SHIPPED 2026-04-27)
-- **Main diversified: CAGR 23.58% / Sharpe 1.1783 / MaxDD -23.17% / IR 0.9955 / excess_cagr +10.08%**
-- 19 current positions, avg_stock_names 21.99, beat_month_ratio 62.65%, turnover 45.5%
-- Sleeve counts: core 7 / future 7 / early 4 (run 24961673988 artifact verdict.log)
-- Top holdings from verdict artifact: GOOGL 18.2%, NVDA 12.1%, GEV 8.8%, MRVL 6.3%, FTI 6.3%
-- Defined in `run_local.py` `CURRENT_BASELINE` dict, `colab_run.ipynb` Cell 10 `BASELINE` dict, and this section.
+## Current Production Baseline — Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+- **Main diversified: CAGR 24.51% / Sharpe 1.2453 / MaxDD -25.79% / IR 1.0244 / excess_cagr +11.02%**
+- 18 current positions, avg_stock_names 24.33, beat_month_ratio 56.63%, turnover 48.5%
+- Sleeve counts: core 6 / future 7 / early 4 (run d6bc807 verdict.log)
+- Lifetime CAGR: **24.53% over 6.84y, +348.7%** (vs Phase 14 baseline +0.95pp)
+- Top holdings: GOOG 12%, GEV 12%, NVDA 7.4%, TSM 7%, ASML 7%, ZTO 7%, CASH 5%, ADI 4.8%, MRVL 4.7%, LRCX 4.5%
+- Universe: R1000 + 26 ADR + 5 cycle plays (BE/ALAB/ONTO/HIMX/INSM)
+- Verdict: SHIP (dCAGR +0.93pp ≥ +0.5pp gate, dSharpe +0.067 ≥ -0.05, dMaxDD -2.62pp ≥ -3pp, early_scout=4 ≥ 4)
+- Defined in `run_local.py` `CURRENT_BASELINE` dict (this section). Prior Phase 14 baseline preserved as `PHASE14_HYBRID_ALPHA_BASELINE` for historical delta calculations.
+
+## Prior Production Baseline (archived) — Phase 14 hybrid alpha (SHIPPED 2026-04-27)
+- Main diversified: CAGR 23.58% / Sharpe 1.1783 / MaxDD -23.17% / IR 0.9955 / excess_cagr +10.08%
+- 19 positions, avg_stock_names 21.99, sleeve core 7 / future 7 / early 4 (run 24961673988)
 
 ## Phase 14 verdict note — ADR universe contribution still pending
 - Phase 14 hybrid alpha SHIP verdict confirmed via GitHub Actions run 24961673988: CAGR +0.67pp, Sharpe +0.006, MaxDD +3.09pp better vs Phase 9 C3 + CE v2.

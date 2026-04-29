@@ -67,6 +67,48 @@ DEFAULT_BASE_DIR = r"G:\내 드라이브\r1000_top30_institutional"
 # When next phase SHIPs, rotate CURRENT_BASELINE again per SESSION_HANDOFF.md.
 # ------------------------------------------------------------------
 CURRENT_BASELINE = {
+    # Phase 15-D SHIPPED 2026-04-29 12:22 KST. Cloud run d6bc807 (date=20260429,
+    # universe_mode=global_alpha_universe = R1000 + 26 ADR + 5 cycle plays).
+    # Verdict: SHIP (dCAGR +0.93pp, dSharpe +0.067, dMaxDD -2.62pp, early_scout=4
+    # all gates passed). Lifetime CAGR 24.53% over 6.84y (+348.7%).
+    #
+    # Phase 15-D adds 7 ML features (cycle_recovery_score, eps_revision_score,
+    # early_cycle_inflection_score, entry_quality_score, ml_technical_agreement_score,
+    # sub_industry_rs_score, insider_cluster_boost_score) + cycle_play_universe.yaml
+    # 36-entry small-mid cap whitelist + monthly auto-refresh.
+    "name": "Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)",
+    "cagr": 0.2451,
+    "sharpe": 1.2453,
+    "max_dd": -0.2579,
+    "ir": 1.0244,
+    "avg_turnover_monthly": 0.4854,
+    "avg_stock_names": 24.33,
+    "beat_month_ratio": 0.5663,
+    "excess_cagr": 0.1102,
+    # Sleeve counts from run d6bc807 verdict.log (final portfolio: 18 positions).
+    "sleeve_counts_reference": {"core_compounder": 6, "future_winner": 7, "early_scout": 4},
+    # Top 10 holdings (informational): GOOG/GEV 12%, NVDA 7.4%, TSM/ASML/ZTO 7%,
+    # CASH 5%, ADI 4.8%, MRVL 4.7%, LRCX 4.5%.
+    # Alternate policy metrics (not used for verdict; informational)
+    "alt_policies": {
+        "concentrated_champion": {
+            "target_stock_names": 4,
+            "rebalance_interval_months": 1,
+            "weighting_mode": "score_power",
+            "cagr_estimated": 0.30,    # est from concentrated_score weighting
+            "holdings": ["WDC (28%)", "CIEN (26%)", "MRVL (25%)", "AMKR (20%)"],
+            "note": "D2b continuation override admits these high-momentum winners despite entry_quality=0",
+        },
+        "tactical_5name": {
+            "from_workflow": "tactical_after_close.yml",
+            "rebalance": "daily after US close (22:30 UTC)",
+            "current_holdings": ["WDC (26%)", "MRVL (24%)", "AMKR (22%)", "FTI (17%)", "ONTO (11%)"],
+        },
+    },
+}
+
+# Prior production baseline (pre-Phase-15-D) — kept for historical delta calc
+PHASE14_HYBRID_ALPHA_BASELINE = {
     "name": "Phase 14 hybrid alpha (SHIPPED 2026-04-27, R1000-only effective)",
     "cagr": 0.2358,
     "sharpe": 1.1783,
@@ -76,9 +118,7 @@ CURRENT_BASELINE = {
     "avg_stock_names": 21.99,
     "beat_month_ratio": 0.6265,
     "excess_cagr": 0.1008,
-    # Sleeve counts from run 24961673988 artifact verdict.log.
     "sleeve_counts_reference": {"core_compounder": 7, "future_winner": 7, "early_scout": 4},
-    # Alternate policy metrics (not used for verdict; informational)
     "alt_policies": {
         "concentrated_champion": {
             "target_stock_names": 5,
