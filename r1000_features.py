@@ -1478,6 +1478,36 @@ def sector_keyword_mask(sector_series: pd.Series, keywords: tuple[str, ...]) -> 
     return sector_series.astype(str).str.contains(pattern, regex=True, na=False)
 
 
+def _load_finnhub_features_for_fallback() -> pd.DataFrame:
+    """Phase 15-D D1 (2026-04-29): load the aggressive Finnhub features parquet
+    so main pipeline's compute_live_factor_columns can use it as fallback for
+    eps_ttm / forward_pe / peg / dividend_yield when SEC + AlphaVantage chain
+    yields NaN.
+
+    On the SHIPPED 2026-04-28 scored_latest.csv: eps_ttm was 17% populated,
+    peg_final 49%, forward_pe_final 74%. Adding Finnhub TTM fallback lifts
+    each by 20-40% expected (Finnhub API has 99% R1000 coverage).
+
+    Returns DataFrame with ticker + fh_pe_ratio / fh_peg / fh_eps_ttm /
+    fh_dividend_yield columns. Empty DataFrame if file not found.
+    """
+    try:
+        from pathlib import Path as _Path
+        # Locate the Finnhub parquet relative to the package root.
+        repo_root = _Path(__file__).resolve().parent
+        candidate_paths = [
+            repo_root / "aggressive" / "state" / "finnhub" / "r1000_features.parquet",
+            repo_root.parent / "aggressive" / "state" / "finnhub" / "r1000_features.parquet",
+        ]
+        for p in candidate_paths:
+            if p.exists():
+                df = pd.read_parquet(p)
+                return df
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
 def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
 
@@ -1526,8 +1556,32 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         numeric_series_or_default(d, "roe_proxy", np.nan)
     )
 
+    # Phase 15-D D1 (2026-04-29): merge Finnhub fallback features once per call
+    # for use across forward_pe / peg / eps_ttm / dividend cascades. The main
+    # pipeline doesn't read aggressive/state/finnhub/r1000_features.parquet
+    # directly — only the advisor v3 does. Without this merge, eps_ttm was
+    # 17% / forward_pe_final 74% / peg_final 49% on SHIPPED data because
+    # SEC companyfacts + AlphaVantage free-tier (25 calls/day) leaves a wide
+    # gap. Finnhub has near-100% R1000 coverage.
+    _fh_features = _load_finnhub_features_for_fallback()
+    if not _fh_features.empty and "ticker" in d.columns:
+        # Use prefix to avoid collision with existing fh_* columns already in df
+        _fh_subset = _fh_features.rename(
+            columns={c: f"_fh_lookup_{c}" for c in _fh_features.columns if c != "ticker"}
+        )
+        d = d.merge(_fh_subset, on="ticker", how="left", suffixes=("", "_dup"))
+        # Drop any duplicate columns from suffix
+        d = d.loc[:, ~d.columns.duplicated(keep="first")]
+
+    def _fh_lookup(col: str) -> pd.Series:
+        """Helper to fetch finnhub fallback Series by original column name."""
+        return numeric_series_or_default(d, f"_fh_lookup_{col}", np.nan)
+
     d["forward_pe_final"] = numeric_series_or_default(d, "av_forward_pe", np.nan)
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "forward_pe", np.nan))
+    # Phase 15-D D1: Finnhub TTM PE fallback (peExclExtraTTM is the canonical TTM PE)
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(_fh_lookup("fh_peExclExtra_ttm"))
+    d["forward_pe_final"] = d["forward_pe_final"].fillna(_fh_lookup("fh_peBasicExclExtra_ttm"))
     d["forward_pe_final"] = d["forward_pe_final"].fillna(
         (1.0 / numeric_series_or_default(d, "ep_ttm", np.nan)).where(
             numeric_series_or_default(d, "ep_ttm", np.nan) > 0
@@ -1537,6 +1591,9 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
 
     d["peg_final"] = numeric_series_or_default(d, "av_peg_ratio", np.nan)
     d["peg_final"] = d["peg_final"].fillna(numeric_series_or_default(d, "peg_ratio", np.nan))
+    # Phase 15-D D1: Finnhub PEG fallback (peg_5y based on peExclExtraTTM / 5Y growth)
+    d["peg_final"] = d["peg_final"].fillna(_fh_lookup("fh_peg_5y"))
+    d["peg_final"] = d["peg_final"].fillna(_fh_lookup("fh_peg_quarterly"))
 
     d["earnings_growth_final"] = numeric_series_or_default(d, "earnings_growth_final", np.nan)
     d["earnings_growth_final"] = d["earnings_growth_final"].fillna(
@@ -1741,6 +1798,41 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
         cross_sectional_robust_z(d, "earn_gap_1d")
         + cross_sectional_robust_z(d, "mom_1m")
     ) / 2.0
+
+    # Phase 15-D D4 (2026-04-29): PER/PEG verification — recompute trailing PE
+    # from raw mktcap / net_income and log delta vs forward_pe_final source.
+    # Helps catch data freshness issues (stale prices, mcap clipped) and lets
+    # users sanity-check valuation in scored_latest.csv.
+    _ni_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
+    _mcap = numeric_series_or_default(d, "mktcap", np.nan)
+    # trailing PE = mktcap / net_income_ttm (positive earnings only)
+    d["trailing_pe_recomputed"] = (
+        _mcap.where(_mcap > 0) / _ni_ttm.where(_ni_ttm > 0)
+    )
+    # earnings yield from raw fundamentals (independent of analyst estimates)
+    d["earnings_yield_recomputed"] = (
+        _ni_ttm / _mcap.where(_mcap > 0)
+    )
+    # Source tracking — which fallback path produced forward_pe_final
+    fwd = numeric_series_or_default(d, "forward_pe_final", np.nan)
+    av = numeric_series_or_default(d, "av_forward_pe", np.nan)
+    legacy = numeric_series_or_default(d, "forward_pe", np.nan)
+    fh = numeric_series_or_default(d, "_fh_lookup_fh_peExclExtra_ttm", np.nan)  # NaN if already cleaned
+    # Order of fallback in compute_live_factor_columns above:
+    # 1) av_forward_pe, 2) forward_pe (legacy), 3) fh_peExclExtra_ttm, 4) 1/ep_ttm
+    forward_pe_source = pd.Series("none", index=d.index, dtype=object)
+    forward_pe_source = forward_pe_source.where(fwd.isna(), "ep_ttm")
+    forward_pe_source = forward_pe_source.where(fh.isna() | fwd.isna() | (fwd != fh), "finnhub")
+    forward_pe_source = forward_pe_source.where(legacy.isna() | fwd.isna() | (fwd != legacy), "legacy")
+    forward_pe_source = forward_pe_source.where(av.isna() | fwd.isna() | (fwd != av), "alpha_vantage")
+    d["forward_pe_source"] = forward_pe_source
+
+    # Phase 15-D D1 (2026-04-29): drop the temporary _fh_lookup_* columns
+    # used only for Finnhub fallback merges; downstream code should reference
+    # forward_pe_final / peg_final / etc. (already-merged final values).
+    _fh_lookup_cols = [c for c in d.columns if c.startswith("_fh_lookup_")]
+    if _fh_lookup_cols:
+        d = d.drop(columns=_fh_lookup_cols)
 
     return d
 

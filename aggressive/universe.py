@@ -202,6 +202,7 @@ def fetch_from_themes() -> list[str]:
 # --- Main entrypoint -------------------------------------------------------
 
 _ADR_UNIVERSE_PATH = Path(__file__).parent.parent / "adr_universe.yaml"
+_CYCLE_PLAY_UNIVERSE_PATH = Path(__file__).parent.parent / "cycle_play_universe.yaml"
 
 
 def load_adr_universe(
@@ -249,12 +250,59 @@ def load_adr_universe(
     return sorted(set(tickers)), meta_list
 
 
+def load_cycle_play_universe(
+    min_mcap_usd_b: float = 0.3,
+    max_mcap_usd_b: float = 30.0,
+    include_skip: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Load curated cycle-play whitelist from cycle_play_universe.yaml.
+
+    Phase 15-D (2026-04-29): small-mid cap cycle / disruption plays that fall
+    below R1000 size threshold but have catalyst potential (BE / PLUG /
+    RIVN / ENPH etc.). Filters by mcap range — names that grow into R1000
+    (mcap > $30B) are auto-excluded.
+
+    Returns (tickers, metadata_list).
+    """
+    if not _CYCLE_PLAY_UNIVERSE_PATH.exists():
+        return [], []
+    try:
+        import yaml
+    except ImportError:
+        return [], []
+    try:
+        payload = yaml.safe_load(_CYCLE_PLAY_UNIVERSE_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return [], []
+    raw = payload.get("cycle_play_universe", [])
+    if not isinstance(raw, list):
+        return [], []
+    tickers: list[str] = []
+    meta_list: list[dict] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("skip") and not include_skip:
+            continue
+        t = str(rec.get("ticker", "")).upper().strip()
+        if not _is_valid_ticker(t):
+            continue
+        mcap = float(rec.get("mcap_usd_b") or 0.0)
+        if mcap < min_mcap_usd_b or mcap > max_mcap_usd_b:
+            continue
+        tickers.append(t)
+        meta_list.append(rec)
+    return sorted(set(tickers)), meta_list
+
+
 def load_universe(
     source: str = "r1000",
     tickers: Optional[list[str]] = None,
     max_age_hours: int = 24,
     min_market_value_musd: float = 0.0,
     adr_min_mcap_usd_b: float = 8.0,
+    cycle_play_min_mcap_usd_b: float = 0.3,
+    cycle_play_max_mcap_usd_b: float = 30.0,
 ) -> tuple[list[str], dict]:
     """Load tradeable universe. Returns (tickers, metadata).
 
@@ -275,6 +323,8 @@ def load_universe(
         "global-alpha": "global_alpha_universe",
         "global_alpha": "global_alpha_universe",
         "global+adr": "global_alpha_universe",
+        "r1000+adr+cycle": "global_alpha_universe",   # Phase 15-D alias
+        "r1000+cycle": "r1000+cycle",
     }.get(str(source), str(source))
     meta = {"source_requested": source, "fetched_at": datetime.now().isoformat()}
 
@@ -300,13 +350,44 @@ def load_universe(
         )
         # 2. Pull ADR whitelist
         adr_tickers, _ = load_adr_universe(min_mcap_usd_b=adr_min_mcap_usd_b)
-        # 3. Union, dedup, sort
-        combined = sorted(set(r1000_tickers) | set(adr_tickers))
+        # 3. Phase 15-D: also include cycle play whitelist for global_alpha
+        # (R1000 + ADR + cycle plays). r1000+adr legacy mode keeps cycle off.
+        cycle_tickers: list[str] = []
+        if source == "global_alpha_universe":
+            cycle_tickers, _ = load_cycle_play_universe(
+                min_mcap_usd_b=cycle_play_min_mcap_usd_b,
+                max_mcap_usd_b=cycle_play_max_mcap_usd_b,
+            )
+        # 4. Union, dedup, sort
+        combined = sorted(set(r1000_tickers) | set(adr_tickers) | set(cycle_tickers))
         meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+global_alpha"
         meta["count"] = len(combined)
         meta["r1000_count"] = len(r1000_tickers)
         meta["adr_count"] = len(adr_tickers)
         meta["adr_added_to_r1000"] = sorted(set(adr_tickers) - set(r1000_tickers))
+        if cycle_tickers:
+            meta["cycle_play_count"] = len(cycle_tickers)
+            meta["cycle_play_added"] = sorted(
+                set(cycle_tickers) - set(r1000_tickers) - set(adr_tickers)
+            )
+        return combined, meta
+
+    if source == "r1000+cycle":
+        # R1000 + cycle play (no ADR) — minor variant for cycle-only research
+        r1000_tickers, r1000_meta = load_universe(
+            "r1000", max_age_hours=max_age_hours,
+            min_market_value_musd=min_market_value_musd,
+        )
+        cycle_tickers, _ = load_cycle_play_universe(
+            min_mcap_usd_b=cycle_play_min_mcap_usd_b,
+            max_mcap_usd_b=cycle_play_max_mcap_usd_b,
+        )
+        combined = sorted(set(r1000_tickers) | set(cycle_tickers))
+        meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+cycle"
+        meta["count"] = len(combined)
+        meta["r1000_count"] = len(r1000_tickers)
+        meta["cycle_play_count"] = len(cycle_tickers)
+        meta["cycle_play_added"] = sorted(set(cycle_tickers) - set(r1000_tickers))
         return combined, meta
 
     if source in ("r1000", "auto"):

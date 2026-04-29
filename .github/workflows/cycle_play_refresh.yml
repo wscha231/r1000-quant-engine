@@ -1,0 +1,83 @@
+name: Cycle Play Universe Refresh (Monthly)
+
+# Auto-curates cycle_play_universe.yaml on the 1st of each month at 14:00 UTC
+# (= 23:00 KST). Drops names that grew into R1000 (mcap > $30B) or fell below
+# the $0.3B floor / $30M daily volume liquidity floor. Updates mcap_usd_b values
+# to current market levels.
+#
+# Phase 15-D D5 (2026-04-29).
+
+on:
+  schedule:
+    - cron: '0 14 1 * *'   # 1st of month, 14:00 UTC = 23:00 KST
+  workflow_dispatch:        # manual trigger
+
+permissions:
+  contents: write           # commit yaml updates back to master
+
+jobs:
+  cycle_play_refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml yfinance
+
+      - name: Refresh cycle_play_universe.yaml
+        run: |
+          python tools/refresh_cycle_play_universe.py 2>&1 | tee refresh.log
+
+      - name: Show diff
+        if: always()
+        run: |
+          git diff cycle_play_universe.yaml || true
+
+      - name: Commit yaml updates
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          git add cycle_play_universe.yaml
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): cycle_play_universe refresh $(date +%Y-%m-%d) [skip ci]"
+          git push || true
+
+      - name: Telegram digest of changes
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "[telegram] secrets not set, skipping"
+            exit 0
+          fi
+          # Extract DROP/ADD/KEEP shifts from refresh.log
+          DROPPED=$(grep -c "^  DROP " refresh.log || echo "0")
+          KEPT=$(grep -c "^  KEEP " refresh.log || echo "0")
+          MCAP_SHIFT=$(grep -c "mcap.*->" refresh.log || echo "0")
+
+          MSG="📋 cycle_play_universe refresh%0A"
+          MSG+="$(date +%Y-%m-%d) UTC%0A"
+          MSG+="kept=${KEPT}, dropped=${DROPPED}, mcap_shifts=${MCAP_SHIFT}%0A"
+          MSG+="run: https://github.com/wscha231/r1000-quant-engine/actions/runs/${GITHUB_RUN_ID}"
+
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MSG}" \
+            -d "disable_web_page_preview=true" \
+            > /dev/null || echo "[telegram] notification failed"

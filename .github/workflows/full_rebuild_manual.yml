@@ -15,12 +15,13 @@ on:
   workflow_dispatch:
     inputs:
       universe_mode:
-        description: 'r1000 baseline | global_alpha_universe (R1000 + curated ADR/global alpha) | r1000+adr_phase14_off control'
+        description: 'r1000 baseline | r1000+adr | global_alpha_universe (R1000+ADR+cycle play) | r1000+cycle | r1000+adr_phase14_off control'
         type: choice
         options:
           - global_alpha_universe
           - r1000
           - r1000+adr
+          - r1000+cycle
           - r1000+adr_phase14_off
         default: global_alpha_universe
       backtest_years:

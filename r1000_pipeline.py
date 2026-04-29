@@ -2773,6 +2773,7 @@ def summarize_universe_source(df: pd.DataFrame) -> str:
         "historical_membership_file",
         "current_constituents_proxy",
         "adr_whitelist",
+        "cycle_play_whitelist",
     ]
     ordered = [x for x in preferred if x in sources]
     ordered.extend(sorted(sources - set(ordered)))
@@ -2786,6 +2787,10 @@ def normalize_engine_universe_mode(mode: Any) -> str:
         "global-alpha": "global_alpha_universe",
         "global_alpha": "global_alpha_universe",
         "global+adr": "global_alpha_universe",
+        # Phase 15-D (2026-04-29): cycle play overlays
+        "r1000+adr+cycle": "global_alpha_universe",  # full overlay alias
+        "r1000+cycle": "r1000+cycle",
+        "global+adr+cycle": "global_alpha_universe",
     }.get(raw, raw)
 
 
@@ -2820,6 +2825,54 @@ def load_adr_universe_frame(min_mcap_usd_b: float = 8.0) -> pd.DataFrame:
                 "sector": str(rec.get("sector", "ADR")),
                 "cik10": np.nan,
                 "universe_source": "adr_whitelist",
+            }
+        )
+    return pd.DataFrame(rows, columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+
+def load_cycle_play_universe_frame(
+    min_mcap_usd_b: float = 0.3,
+    max_mcap_usd_b: float = 30.0,
+) -> pd.DataFrame:
+    """Phase 15-D (2026-04-29): cycle play whitelist as DataFrame.
+
+    Parallels load_adr_universe_frame but for the small-mid cap cycle
+    play whitelist (BE / PLUG / RIVN / ENPH / FCEL / etc.). Auto-filters
+    by mcap range so names that grow into R1000 (mcap > $30B) are
+    excluded automatically.
+    """
+    try:
+        from aggressive.universe import load_cycle_play_universe
+    except Exception as exc:
+        log(f"[WARN] cycle_play universe requested but aggressive.universe could not import: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+    try:
+        cp_tickers, cp_meta = load_cycle_play_universe(
+            min_mcap_usd_b=min_mcap_usd_b, max_mcap_usd_b=max_mcap_usd_b
+        )
+    except Exception as exc:
+        log(f"[WARN] cycle_play_universe.yaml load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+    meta_by_ticker = {
+        normalize_ticker(str(rec.get("ticker", ""))): rec
+        for rec in cp_meta
+        if isinstance(rec, dict)
+    }
+    rows: list[dict[str, Any]] = []
+    for ticker in cp_tickers:
+        t = normalize_ticker(str(ticker))
+        if not is_valid_ticker(t):
+            continue
+        rec = meta_by_ticker.get(t, {})
+        rows.append(
+            {
+                "ticker": t,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Unknown")),
+                "cik10": np.nan,
+                "universe_source": "cycle_play_whitelist",
             }
         )
     return pd.DataFrame(rows, columns=["ticker", "Name", "sector", "cik10", "universe_source"])
@@ -3197,6 +3250,11 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     universe_mode = normalize_engine_universe_mode(getattr(cfg, "universe_mode", "historical_snapshot_preferred"))
     include_adr = universe_mode in {"r1000+adr", "r1000+adr_phase14_off", "global_alpha_universe", "adr"}
     adr_only = universe_mode == "adr"
+    # Phase 15-D (2026-04-29): cycle_play whitelist injection for global_alpha
+    # universe — captures BE/PLUG/RIVN/ENPH-class small-mid cap cycle plays
+    # below R1000 size threshold. r1000+adr stays clean (no cycle_play) for
+    # legacy comparison; global_alpha_universe gets the full overlay.
+    include_cycle_play = universe_mode in {"global_alpha_universe", "r1000+cycle"}
     hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
         prev = pd.read_parquet(out_path) if out_path.exists() else pd.DataFrame()
@@ -3275,6 +3333,26 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             )
         else:
             log(f"[WARN] universe_mode={universe_mode} requested global alpha ADR injection, but ADR whitelist was empty.")
+
+    # Phase 15-D (2026-04-29): cycle_play whitelist injection — small-mid cap
+    # cycle plays (BE / PLUG / RIVN / ENPH / FCEL / etc.). Auto-filters mcap
+    # range; names that grow into R1000 (mcap > $30B) auto-excluded by yaml.
+    if include_cycle_play and not adr_only:
+        cp_frame = load_cycle_play_universe_frame(
+            min_mcap_usd_b=float(getattr(cfg, "cycle_play_universe_min_mcap_usd_b", 0.3)),
+            max_mcap_usd_b=float(getattr(cfg, "cycle_play_universe_max_mcap_usd_b", 30.0)),
+        )
+        if not cp_frame.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            cp_add = cp_frame[~cp_frame["ticker"].astype(str).isin(before)].copy()
+            if not cp_add.empty:
+                uni = pd.concat([uni, cp_add], ignore_index=True, sort=False)
+            log(
+                "Cycle play universe injection: "
+                f"mode={universe_mode}, whitelist={len(cp_frame)}, added={len(cp_add)}"
+            )
+        else:
+            log(f"[INFO] universe_mode={universe_mode} requested cycle_play injection, but cycle_play_universe.yaml was empty.")
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
@@ -9716,17 +9794,24 @@ def run_acceptance_checks(
     # to require the file as a guard against survivorship bias.
     _universe_mode_str = str(checks["universe_mode"])
     _has_adr_overlay = "adr_whitelist" in _universe_mode_str
-    _non_adr_universe = _universe_mode_str.replace("+adr_whitelist", "").rstrip("+")
+    _has_cycle_overlay = "cycle_play_whitelist" in _universe_mode_str
+    _non_overlay_universe = (
+        _universe_mode_str
+        .replace("+adr_whitelist", "")
+        .replace("+cycle_play_whitelist", "")
+        .rstrip("+")
+    )
     _r1000_base_is_historical = (
-        bool(_non_adr_universe)
-        and _non_adr_universe.startswith("historical_membership_file")
+        bool(_non_overlay_universe)
+        and _non_overlay_universe.startswith("historical_membership_file")
     )
     checks["survivorship_bias_warning"] = not _r1000_base_is_historical
     checks["historical_membership_required"] = bool(cfg.require_historical_membership_for_backtest)
     checks["historical_membership_ok"] = (
         not cfg.require_historical_membership_for_backtest
         or _r1000_base_is_historical
-        or _has_adr_overlay   # ADR universes are research mode — relax strict check
+        or _has_adr_overlay      # ADR overlay = research mode — relax strict check
+        or _has_cycle_overlay    # Cycle play overlay = research mode — same relaxation
     )
 
     latest_view = fs[fs["rebalance_date"] == latest_dt].copy() if pd.notna(latest_dt) else fs.copy()
@@ -12810,6 +12895,14 @@ def select_concentrated_portfolio_topk(
     # excluded despite having selection_confirmation_score=1.0 — because the
     # `concentrated_preferred_sleeve` mask was empty.
     min_confirmation = float(getattr(cfg, "concentrated_min_confirmation", 0.30))
+    # Phase 15-D D2 (2026-04-29): chase-prevention hard filter on concentrated.
+    # Without this, concentrated kept ending up with names like AMKR (mom_12m
+    # +340%, dist_ma200 +97%, RSI 77) and WDC (mom_12m +902% !!) — these are
+    # already-extended winners, not entry zones. entry_quality_score < 0.30
+    # specifically targets that profile (peak at 0% above MA200, decay above
+    # +20%; peak RSI 50-65; peak mom_3m +5-15%; haircut for mom_3m > +50%).
+    # Hard filter rejects entries below this threshold.
+    min_entry_quality = float(getattr(cfg, "concentrated_min_entry_quality", 0.30))
     selected_parts: list[pd.DataFrame] = []
     selected_tickers: set[str] = set()
 
@@ -12828,6 +12921,12 @@ def select_concentrated_portfolio_topk(
         if enforce_confirmation:
             pool = pool.loc[
                 pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
+            ].copy()
+        # Phase 15-D D2: entry quality hard filter — chase-prevention.
+        # Skip when entry_quality_score column is absent (older feature_store).
+        if "entry_quality_score" in pool.columns and min_entry_quality > 0:
+            pool = pool.loc[
+                pd.to_numeric(pool.get("entry_quality_score"), errors="coerce").fillna(0.5) >= min_entry_quality
             ].copy()
         if pool.empty:
             return

@@ -1460,6 +1460,10 @@ class EngineConfig:
     adr_universe_min_mcap_usd_b: float = 8.0
     adr_global_alpha_fallback_enabled: bool = True
     adr_global_alpha_confirmation_min: float = 0.50
+    # Phase 15-D (2026-04-29): cycle_play_universe.yaml mcap range filter.
+    # Names below 0.3B = too small for backtest; above 30B = already R1000.
+    cycle_play_universe_min_mcap_usd_b: float = 0.3
+    cycle_play_universe_max_mcap_usd_b: float = 30.0
     adr_global_alpha_score_floor: float = 1.50
     adr_global_alpha_score_quantile_floor: float = 0.60
     archive_current_universe_snapshots: bool = True
@@ -1578,6 +1582,13 @@ class EngineConfig:
     # the new `rank_fallback_top_decile` lane in select_concentrated_portfolio_topk
     # this admits high-rank cycle plays without breaking the diversified core.
     concentrated_min_confirmation: float = 0.30
+    # Phase 15-D (2026-04-29): chase-prevention hard filter — reject entries
+    # at entry_quality_score < 0.30 (already-extended). Targets the AMKR
+    # mom_12m +340% / WDC +902% / RSI 75+ profile that was getting into
+    # concentrated despite being far past ideal entry zone. Set to 0.0 to
+    # disable; 0.30 = ~SNDK/MU class (chase) blocked, mid-cycle ~ ZBH/POST
+    # class (entry zone) admitted.
+    concentrated_min_entry_quality: float = 0.30
     concentrated_score_future_weight: float = 0.95
     concentrated_score_early_weight: float = 1.05
     concentrated_score_sage_weight: float = 0.45
