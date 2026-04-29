@@ -299,6 +299,63 @@ All entries must be written in English. Entries must be predictable and machine-
   - A new full_rebuild is required before evaluating Phase 15-D again because
     run `25091384080` used the inflated ADR market caps.
 
+### 19:08 KST - concentrated-continuation-winner-override
+
+- scope:
+  - Fix concentrated CAGR regression caused by treating entry_quality_score as
+    an unconditional hard stop. The concentrated sleeve is the CAGR-max sleeve,
+    so extended but intact high-rank continuation winners should remain
+    selectable while broken low-quality chase entries stay blocked.
+- files:
+  - `r1000_config.py` ->bump `ENGINE_REUSE_VERSION` to
+    `2026-04-29-concentrated-continuation` and add continuation override
+    controls for the concentrated entry-quality gate.
+  - `r1000_pipeline.py` ->change `select_concentrated_portfolio_topk` so
+    `entry_quality_score < concentrated_min_entry_quality` can pass only when
+    concentrated score is top-decile, confirmation/trend are intact, and exit
+    risk / broken-momentum risk are low.
+  - `tests/smoke_test.py` ->add a synthetic regression test proving a live
+    continuation winner passes while a broken low-quality chase candidate does
+    not.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `select_concentrated_portfolio_topk(cfg, month_df, top_n) -> DataFrame`
+    ->entry-quality gate now has a strict continuation-winner override instead
+    of rejecting all extended winners.
+  - `ENGINE_REUSE_VERSION` ->bumped from `2026-04-29-adr-usd-mktcap` to
+    `2026-04-29-concentrated-continuation`.
+- config_fields_added:
+  - `concentrated_entry_quality_continuation_override: bool = True` ->enable
+    high-rank continuation override for concentrated entry-quality gate.
+  - `concentrated_entry_quality_continuation_quantile: float = 0.90` ->minimum
+    concentrated_score quantile required for override eligibility.
+  - `concentrated_entry_quality_continuation_min_confirmation: float = 0.80`
+    ->minimum selection confirmation for override eligibility.
+  - `concentrated_entry_quality_continuation_max_exit_risk: float = 0.45`
+    ->maximum hold-policy exit risk allowed for override eligibility.
+  - `concentrated_entry_quality_continuation_max_broken: float = 0.30`
+    ->maximum broken-momentum penalty allowed for override eligibility.
+- breaking_changes:
+  - Cached feature_store/scored artifacts are intentionally invalidated on the
+    next full_rebuild so the new concentrated selection behavior is measured
+    cleanly after the ADR market-cap fix.
+- outputs:
+  - none
+- validation:
+  - Latest stale scored snapshot simulation ->selected WDC / CIEN / MRVL /
+    AMKR / FTI for concentrated with `concentrated_entry_quality_override=True`
+    instead of the lower-momentum ETR / ZTO / KIM / CW / PEG set.
+  - `py -3 tests\smoke_test.py` ->PASS, 70/70.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->PASS,
+    no leakage detected.
+- risks_or_notes:
+  - This is a targeted regression fix for concentrated CAGR recovery, not a
+    blind weight increase. Actual CAGR/Sharpe/MaxDD verdict still requires a
+    new `global_alpha_universe` full_rebuild after the ADR market-cap fix.
+  - The override deliberately remains unavailable to broken-trend or high
+    exit-risk names.
+
 ### 11:30 KST - phase15-validators-and-multiplicative-gate-fix
 
 - scope:

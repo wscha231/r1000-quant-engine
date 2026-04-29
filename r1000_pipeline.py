@@ -13063,12 +13063,32 @@ def select_concentrated_portfolio_topk(
             pool = pool.loc[
                 pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
             ].copy()
-        # Phase 15-D D2: entry quality hard filter — chase-prevention.
+        # Phase 15-D2b: chase-prevention gate with continuation-winner override.
         # Skip when entry_quality_score column is absent (older feature_store).
         if "entry_quality_score" in pool.columns and min_entry_quality > 0:
-            pool = pool.loc[
-                pd.to_numeric(pool.get("entry_quality_score"), errors="coerce").fillna(0.5) >= min_entry_quality
-            ].copy()
+            entry_quality = numeric_series_or_default(pool, "entry_quality_score", 0.5)
+            entry_ok = entry_quality >= min_entry_quality
+            continuation_ok = pd.Series(False, index=pool.index, dtype=bool)
+            if bool(getattr(cfg, "concentrated_entry_quality_continuation_override", True)):
+                continuation_quantile = float(
+                    min(max(getattr(cfg, "concentrated_entry_quality_continuation_quantile", 0.90), 0.50), 0.99)
+                )
+                score_cut = float(pd.to_numeric(d["concentrated_score"], errors="coerce").quantile(continuation_quantile))
+                continuation_ok = (
+                    numeric_series_or_default(pool, "concentrated_score", 0.0).ge(score_cut)
+                    & numeric_series_or_default(pool, "selection_confirmation_score", 0.0)
+                    .ge(float(getattr(cfg, "concentrated_entry_quality_continuation_min_confirmation", 0.80)))
+                    & numeric_series_or_default(pool, "trend_template_full", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "price_above_ma50", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "price_above_ma200", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "portfolio_hold_policy_exit_risk", 0.0)
+                    .le(float(getattr(cfg, "concentrated_entry_quality_continuation_max_exit_risk", 0.45)))
+                    & numeric_series_or_default(pool, "broken_momentum_penalty", 0.0)
+                    .le(float(getattr(cfg, "concentrated_entry_quality_continuation_max_broken", 0.30)))
+                )
+            pool["concentrated_entry_quality_gate_pass"] = (entry_ok | continuation_ok).astype(bool)
+            pool["concentrated_entry_quality_override"] = ((~entry_ok) & continuation_ok).astype(bool)
+            pool = pool.loc[pool["concentrated_entry_quality_gate_pass"]].copy()
         if pool.empty:
             return
         pool = pool.sort_values(

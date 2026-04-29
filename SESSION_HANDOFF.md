@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 18:00 KST (ADR mktcap bug fixed, rebuild needed)
+# Session Handoff - 2026-04-29 19:08 KST (ADR mktcap + concentrated CAGR regression fixes, rebuild needed)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,19 +6,23 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 18:00 KST) - ADR USD market-cap fix + Phase 15-D rerun
+## ACTIVE INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
 
 **TL;DR** — Run `25091384080` completed successfully and synced to GDrive, but
 verdict was PARTIAL, not SHIP. User spotted a real ADR market-cap bug: TSM was
 larger than NVDA because the engine multiplied USD ADR price by ordinary local
 shares. Code now normalizes ADR market cap to yfinance USD marketCap and uses
-ADR-equivalent shares for valuation. A new full_rebuild is required before
-judging Phase 15-D again.
+ADR-equivalent shares for valuation. A second regression was found in
+concentrated: Phase 15-D entry_quality hard filter suppressed high-momentum
+continuation winners and cut concentrated CAGR. Code now allows only high-rank,
+trend-intact continuation winners through that gate. A new full_rebuild is
+required before judging Phase 15-D again.
 
-**State of master (as of 2026-04-29 18:00 KST)**
+**State of master (as of 2026-04-29 19:08 KST)**
 
 ```
-HEAD: pending/current master after ADR USD market-cap normalization
+HEAD: pending/current master after ADR USD market-cap normalization +
+      concentrated continuation-winner override
        5bc9ef0  chore(bot): full rebuild [global_alpha_universe] 2026-04-29 [skip ci]
        959b76a  fix(actions): expose finnhub state for phase15d rebuild
        180d854  docs: CHANGELOG + SESSION_HANDOFF for Phase 15-D handoff
@@ -31,10 +35,10 @@ HEAD: pending/current master after ADR USD market-cap normalization
        47875dd  feat(phase15c): entry_quality_score
        9bd5606  fix(phase15): activate sleeping cycle_recovery + eps_revision
 
-ENGINE_REUSE_VERSION: 2026-04-29-adr-usd-mktcap
+ENGINE_REUSE_VERSION: 2026-04-29-concentrated-continuation
 DEFAULT_FEATURES: 245
-Smoke: 69/69 pass after ADR mktcap fix; audit 0 leakage
-Working tree: clean
+Smoke: 70/70 pass after concentrated continuation fix; audit 0 leakage
+Working tree: pending commit/push if this handoff is read before finalization
 ```
 
 **What Phase 15-A/B/C/D added (cumulative)**
@@ -67,9 +71,13 @@ auto-refresh (`tools/refresh_cycle_play_universe.py` +
 5. CSV export pruner (0e8ced2): scored_latest.csv 638 cols -> 483 cols
    (24% reduction) by dropping all-NaN + all-zero placeholder columns.
    Phase 14/15 score columns whitelisted regardless.
-6. Concentrated entry_quality hard filter (3db9386): rejects pool entries
-   below `cfg.concentrated_min_entry_quality=0.30` so AMKR (mom_12m +340%)
-   / WDC (+902%!) / FTI (+175%) chase entries no longer enter concentrated.
+6. Concentrated entry_quality continuation override (latest pending commit):
+   Phase 15-D hard filter was too blunt for the CAGR-max sleeve. It blocked
+   high-rank, trend-intact continuation winners like WDC/MRVL/CIEN/AMKR/FTI
+   and replaced them with lower-momentum names, contributing to concentrated
+   CAGR falling to 25.43%. The gate now still blocks broken/exit-risk chase
+   entries but allows top-decile continuation winners when confirmation/trend
+   are intact.
 
 **Latest cloud run state**
 
@@ -95,8 +103,21 @@ Run `25091384080` (commit `959b76a`) completed successfully:
   for ADR EPS/PE math.
 - Fix: `extract_companyfacts_records` now prefers USD companyfacts units when
   SEC exposes multiple monetary unit buckets.
-- `ENGINE_REUSE_VERSION` bumped to `2026-04-29-adr-usd-mktcap`; next
-  full_rebuild must regenerate feature_store/scored artifacts.
+- `ENGINE_REUSE_VERSION` was later bumped again to
+  `2026-04-29-concentrated-continuation`; next full_rebuild must regenerate
+  feature_store/scored artifacts.
+
+**Critical concentrated CAGR regression fixed (2026-04-29 19:08 KST)**
+
+- Latest stale scored snapshot under the new continuation rule selects
+  WDC / CIEN / MRVL / AMKR / FTI for concentrated, each marked
+  `concentrated_entry_quality_override=True`.
+- The prior hard filter selected ETR / ZTO / KIM / CW / PEG and the latest
+  concentrated backtest fell to 25.43%, below both the Phase 14 33.40% champion
+  and prior 36% research runs.
+- This does not prove a new SHIP verdict. It restores the correct aggressive
+  selection surface so the next cloud run can measure whether CAGR recovers.
+- `ENGINE_REUSE_VERSION` is now `2026-04-29-concentrated-continuation`.
 
 **Pre-trigger correction (2026-04-29 13:41 KST)**
 
@@ -113,7 +134,7 @@ Run `25091384080` (commit `959b76a`) completed successfully:
 
 **Recommended next agent action sequence**
 
-1. **TRIGGER AGAIN AFTER ADR FIX**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
+1. **TRIGGER AGAIN AFTER ADR + CONCENTRATED FIXES**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
    ```
    universe_mode:    global_alpha_universe   ← includes R1000 + ADR + cycle play
    backtest_years:   8
@@ -127,8 +148,9 @@ Run `25091384080` (commit `959b76a`) completed successfully:
 2. **VERIFY POST-REBUILD**:
    - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`
      should be NON-EMPTY (e7c6ff9 unblocks)
-   - concentrated_portfolio entries should NOT be AMKR/WDC/FTI class
-     (D2 blocks entry_quality < 0.30)
+   - concentrated_portfolio should be allowed to include WDC/MRVL/CIEN/AMKR/FTI
+     only when `concentrated_entry_quality_override=True` and trend/exit-risk
+     gates are clean.
    - scored_latest.csv should include cycle play tickers (BE/PLUG/RIVN/...)
    - new columns: trailing_pe_recomputed, earnings_yield_recomputed,
      forward_pe_source, sub_industry_rs_score, insider_cluster_boost_score

@@ -1393,7 +1393,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-29-adr-usd-mktcap"
+ENGINE_REUSE_VERSION = "2026-04-29-concentrated-continuation"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1589,6 +1589,14 @@ class EngineConfig:
     # disable; 0.30 = ~SNDK/MU class (chase) blocked, mid-cycle ~ ZBH/POST
     # class (entry zone) admitted.
     concentrated_min_entry_quality: float = 0.30
+    # Concentrated is the CAGR-max sleeve, so a low entry-quality score can
+    # still pass when the name is a high-rank continuation winner with intact
+    # trend and low exit risk.
+    concentrated_entry_quality_continuation_override: bool = True
+    concentrated_entry_quality_continuation_quantile: float = 0.90
+    concentrated_entry_quality_continuation_min_confirmation: float = 0.80
+    concentrated_entry_quality_continuation_max_exit_risk: float = 0.45
+    concentrated_entry_quality_continuation_max_broken: float = 0.30
     concentrated_score_future_weight: float = 0.95
     concentrated_score_early_weight: float = 1.05
     concentrated_score_sage_weight: float = 0.45

@@ -1009,6 +1009,73 @@ def test_ce_defaults_widened() -> None:
     )
 
 
+@_test("logic.concentrated_entry_quality_allows_continuation_winner")
+def test_concentrated_entry_quality_continuation_override() -> None:
+    """Phase 15-D2b: concentrated must not reject every extended winner.
+
+    Low entry_quality_score blocks weak/broken chase entries, but a high-rank
+    continuation winner with intact trend and low exit risk should remain
+    selectable for the CAGR-max sleeve.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    original_prepare = pipe.prepare_standalone_sleeve_frame
+    pipe.prepare_standalone_sleeve_frame = lambda _cfg, frame: frame.copy()
+    try:
+        base = {
+            "portfolio_sleeve_label": "future_winner",
+            "portfolio_sleeve_label_raw": "future_winner",
+            "selection_confirmation_score": 1.0,
+            "portfolio_future_winner_engine_score": 1.0,
+            "portfolio_early_scout_engine_score": 1.0,
+            "sage_composite_score": 1.0,
+            "breakout_setup_quality_score": 1.0,
+            "relative_strength_composite": 1.0,
+            "score_future_winner_model": 1.0,
+            "future_winner_scout_score": 1.0,
+            "trend_template_full": 1.0,
+            "price_above_ma50": 1.0,
+            "price_above_ma200": 1.0,
+            "portfolio_hold_policy_exit_risk": 0.0,
+            "broken_momentum_penalty": 0.0,
+        }
+        rows = [
+            {"ticker": "CONT", "score": 10.0, "entry_quality_score": 0.0, **base},
+            {
+                "ticker": "BROKEN",
+                "score": 9.0,
+                "entry_quality_score": 0.0,
+                "trend_template_full": 0.0,
+                "price_above_ma50": 0.0,
+                "portfolio_hold_policy_exit_risk": 0.80,
+                "broken_momentum_penalty": 0.80,
+                **{k: v for k, v in base.items() if k not in {
+                    "trend_template_full",
+                    "price_above_ma50",
+                    "portfolio_hold_policy_exit_risk",
+                    "broken_momentum_penalty",
+                }},
+            },
+            {"ticker": "GOOD", "score": 3.0, "entry_quality_score": 0.70, **base},
+        ]
+        selected = pipe.select_concentrated_portfolio_topk(cfg, pd.DataFrame(rows), 2)
+    finally:
+        pipe.prepare_standalone_sleeve_frame = original_prepare
+
+    tickers = set(selected["ticker"].astype(str))
+    assert "CONT" in tickers, "continuation winner was blocked by entry_quality hard gate"
+    assert "BROKEN" not in tickers, "broken low-quality chase entry bypassed the gate"
+    cont = selected.set_index("ticker").loc["CONT"]
+    assert bool(cont.get("concentrated_entry_quality_override", False)), (
+        "continuation winner should be marked as entry-quality override"
+    )
+
+
 @_test("regression.phase9_c3_gate_wired_in_early_scout")
 def test_phase9_c3_gate_wired() -> None:
     """Phase 9 C2 early-scout gate must call _p9_c3_admit as an OR branch.
