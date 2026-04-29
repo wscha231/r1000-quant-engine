@@ -51,7 +51,152 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
-## 2026-04-28
+## 2026-04-29
+
+### 12:22 KST - phase15d-cycle-play-universe-and-chase-prevention
+
+- scope:
+  - User-driven Phase 15-D bundle responding to 4 explicit questions
+    after Phase 15-C SHIPPED:
+      1. "BE/PLUG/FCEL 같은 cycle play 가 universe 에 없다"
+      2. "현재 portfolio 종목들이 already-risen — chase 차단 안 됨"
+      3. "PER/PEG 가 종가 시총 기반 정확한가"
+      4. "scored_latest 의 재무 컬럼이 비어있다"
+  - Plus auto-maintenance request: "월 1회 자동 갱신 가능?"
+- files:
+  - `cycle_play_universe.yaml` (new) ->36-entry hand-curated whitelist
+    of small-mid cap cycle plays across 7 themes (clean energy, EV/battery,
+    AI infra, memory/semi small, biotech, fintech, robotics).
+  - `aggressive/universe.py` ->add `load_cycle_play_universe` loader +
+    extend `load_universe` with cycle injection for `r1000+adr+cycle` /
+    `global_alpha_universe` aliases. New `r1000+cycle` standalone mode.
+  - `r1000_pipeline.py` ->add `load_cycle_play_universe_frame` (mirror
+    of ADR loader). `build_candidate_universe` injects cycle play
+    whitelist when universe_mode in {global_alpha_universe, r1000+cycle}.
+    `summarize_universe_source` preferred list adds 'cycle_play_whitelist'.
+    Survivorship + historical_membership_ok checks strip
+    +cycle_play_whitelist suffix the same as +adr_whitelist.
+    `select_concentrated_portfolio_topk` adds entry_quality hard filter
+    (>=0.30 default) — chase prevention. `normalize_engine_universe_mode`
+    adds aliases.
+  - `r1000_features.py` ->add `_load_finnhub_features_for_fallback`
+    helper + cascade Finnhub TTM PE / PEG into existing forward_pe_final
+    + peg_final fallback chain in `compute_live_factor_columns`. Add
+    trailing_pe_recomputed + earnings_yield_recomputed + forward_pe_source
+    columns (D4 verification). Drop temp `_fh_lookup_*` columns at end.
+  - `r1000_config.py` ->add `cycle_play_universe_min/max_mcap_usd_b`
+    and `concentrated_min_entry_quality` fields.
+  - `tools/refresh_cycle_play_universe.py` (new) ->monthly auto-curation
+    script. Reads yaml, fetches yfinance .info per ticker, drops if
+    mcap > $30B (graduated to R1000), drops if mcap < $0.3B or
+    daily $vol < $30M. Preserves manual_pin: true entries. Writes yaml
+    grouped by cycle_focus theme.
+  - `.github/workflows/cycle_play_refresh.yml` (new) ->monthly cron
+    workflow (1st of month, 14:00 UTC = 23:00 KST). Runs refresh script,
+    commits yaml diff back to master with [skip ci], sends Telegram
+    digest.
+  - `.github/workflows/full_rebuild_manual.yml` ->add r1000+cycle to
+    universe_mode choices.
+- symbols_added:
+  - `aggressive/universe.py:load_cycle_play_universe(min_mcap_usd_b,
+    max_mcap_usd_b, include_skip) -> (tickers, meta)` ->loads + filters
+    cycle_play_universe.yaml with mcap range guard.
+  - `r1000_pipeline.py:load_cycle_play_universe_frame(min_mcap_usd_b,
+    max_mcap_usd_b) -> DataFrame` ->wraps loader for universe injection.
+    Returns ticker / Name / sector / cik10 / universe_source columns.
+  - `r1000_features.py:_load_finnhub_features_for_fallback() -> DataFrame`
+    ->reads aggressive/state/finnhub/r1000_features.parquet for use as
+    PE / PEG / dividend fallback in compute_live_factor_columns. Returns
+    empty DataFrame if file not found (graceful).
+  - `tools/refresh_cycle_play_universe.py:refresh_existing_entry(entry)
+    -> (entry_or_None, action_note)` ->per-ticker refresh decision.
+  - `tools/refresh_cycle_play_universe.py:fetch_yfinance_metadata(ticker)
+    -> dict` ->yfinance .info wrapper.
+  - `tools/refresh_cycle_play_universe.py:write_yaml(entries, dry_run)`
+    ->serializes back to yaml grouped by theme.
+- symbols_changed:
+  - `aggressive/universe.py:load_universe(source, ...)` ->extend alias
+    map to recognize 'r1000+adr+cycle' (alias for global_alpha_universe)
+    and 'r1000+cycle' standalone. Adds cycle injection in
+    global_alpha_universe + r1000+cycle branches; r1000+adr legacy mode
+    intentionally keeps cycle off for backwards-compat backtest
+    comparison. Returns metadata 'cycle_play_count' and 'cycle_play_added'.
+  - `r1000_pipeline.py:build_candidate_universe(cfg, paths)` ->add
+    `include_cycle_play` flag for global_alpha_universe + r1000+cycle.
+    Cycle play injection mirrors ADR injection (dedup against R1000 +
+    ADR before append). Logs 'Cycle play universe injection: mode=...,
+    whitelist=..., added=...'.
+  - `r1000_pipeline.py:select_concentrated_portfolio_topk(cfg, month_df,
+    top_n)` ->`_take` inner function adds entry_quality hard filter
+    (entry_quality_score < cfg.concentrated_min_entry_quality rejected)
+    when the column is present. Skip cleanly on older feature_store.
+  - `r1000_pipeline.py:summarize_universe_source(df) -> str` ->preferred
+    ordering list extended with 'cycle_play_whitelist' for stable string
+    construction.
+  - `r1000_pipeline.py:run_acceptance_checks ...` ->survivorship_bias
+    check now strips both +adr_whitelist and +cycle_play_whitelist
+    suffixes before evaluating R1000 base. historical_membership_ok
+    relaxes for both ADR and cycle overlays (research mode).
+  - `r1000_pipeline.py:normalize_engine_universe_mode(mode) -> str`
+    ->alias map adds r1000+adr+cycle, r1000+cycle, global+adr+cycle.
+  - `r1000_features.py:compute_live_factor_columns(df, cfg)` ->merges
+    Finnhub features parquet once at start; uses _fh_lookup helper for
+    cascading fallback into forward_pe_final / peg_final; adds D4
+    verification columns at end; drops _fh_lookup_* before return.
+- config_fields_added:
+  - `cycle_play_universe_min_mcap_usd_b: float = 0.3` ->floor for cycle
+    whitelist (drops names too small for backtest data).
+  - `cycle_play_universe_max_mcap_usd_b: float = 30.0` ->ceiling that
+    triggers auto-graduation into R1000 (excluded from cycle list).
+  - `concentrated_min_entry_quality: float = 0.30` ->reject concentrated
+    pool entries below this entry_quality_score. Set 0.0 to disable.
+- breaking_changes:
+  - none. ENGINE_REUSE_VERSION unchanged
+    (`2026-04-28-phase15c-entry-quality`). Phase 15-D adds 3 export-only
+    columns (trailing_pe_recomputed / earnings_yield_recomputed /
+    forward_pe_source) which are NOT in DEFAULT_FEATURES — feature_store
+    schema and ML training inputs unchanged. Cache reusable.
+  - r1000+adr universe_mode behavior unchanged (no cycle injection).
+    Only global_alpha_universe and new r1000+cycle modes inject cycle
+    play whitelist, so existing baselines still comparable.
+- outputs:
+  - `cycle_play_universe.yaml` ->36 entries (33 currently pass mcap
+    range filter on first run; 3 borderline below $0.3B).
+  - `cloud_results/cycle_play_universe.yaml` ->updated monthly by
+    workflow with [skip ci] commit.
+  - `outputs/scored_latest.csv` ->gains 3 new columns
+    (trailing_pe_recomputed, earnings_yield_recomputed, forward_pe_source)
+    via D4. forward_pe_final / peg_final now use Finnhub fallback.
+- validation:
+  - `python tests/smoke_test.py` ->66/66 pass (1.7-12.1s across reruns)
+  - `python tests/audit_features.py --no-runtime` ->245 features, 0 leakage
+  - syntax check on all 5 modified Python files + 3 yaml files: clean
+  - load_universe('r1000+adr+cycle') functional test:
+      cycle_play_count=33, cycle_play_added=31 (2 dedup with R1000/ADR)
+- risks_or_notes:
+  - Cycle play backtest data sparse for newer IPOs (RIVN 2021, ASTS 2021,
+    BBAI 2021, etc.) — 84-month full backtest will have NaN early periods.
+    The fundamental_coverage_warning may TRUE for cycle_play_whitelist
+    rows; acceptance gate already relaxed for ADR/cycle overlays so
+    portfolio export not blocked.
+  - Finnhub fallback in `compute_live_factor_columns` reads
+    aggressive/state/finnhub/r1000_features.parquet which is populated
+    by the daily_review or finnhub_weekly cron. If those crons are
+    disabled (Telegram silence Apr 23 onward suggests possible GHA
+    quota issue), the fallback degrades gracefully — forward_pe_final
+    falls back to legacy chain only. Verify Finnhub parquet freshness:
+      `ls -la aggressive/state/finnhub/r1000_features.parquet`
+  - concentrated_min_entry_quality=0.30 may temporarily produce
+    fewer-than-target N concentrated names if all candidates are
+    extended (e.g. late bull market). Backtest will reveal whether
+    holding fewer high-quality entries beats forced fill.
+  - cycle_play_refresh.yml uses yfinance for mcap which is rate-limited.
+    Sleep 0.2s/ticker = ~10s for 36 names. Could fail under heavy
+    yfinance load — run is non-critical (yaml stays prior version
+    on failure).
+  - manual_pin: true is honored by refresh script but not yet
+    documented in cycle_play_universe.yaml entries — add to specific
+    rows when curating high-conviction picks that should never auto-drop.
 
 ### 11:30 KST - phase15-validators-and-multiplicative-gate-fix
 

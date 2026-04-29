@@ -1,10 +1,147 @@
-# Session Handoff - 2026-04-27 18:40 KST (8y official + ADR v2 prepared)
+# Session Handoff - 2026-04-29 12:22 KST (Phase 15-D shipped, awaiting cloud verification)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
 > **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
 
 ---
+
+## ACTIVE INBOX (2026-04-29 12:22 KST) - Phase 15-D cloud rebuild + verification
+
+**TL;DR** — Phase 15-A/B/C/D all shipped to master. Production baseline still
+Phase 14 (CAGR 23.58% Sharpe 1.178 MaxDD -23.17%). Awaiting cloud full_rebuild
+to validate Phase 15 alpha contribution.
+
+**State of master (as of 2026-04-29 12:22 KST)**
+
+```
+HEAD: 3db9386  feat(phase15d): cycle_play universe + multi-source fallback + chase prevention
+       e7c6ff9  fix(acceptance): unblock portfolio for r1000+adr universe (research mode)
+       186f9f5  fix(phase15c): mktcap $1T clip + 1970 epoch fund_period leak
+       50f432b  fix(phase15c): sub_industry_rs_score crash (build_feature_store)
+       0e8ced2  fix(export): prune empty / zero-fill columns from scored_latest.csv
+       cc4bcff  feat(phase15c): risk discipline + ML×tech gate + sub-industry rank
+       47875dd  feat(phase15c): entry_quality_score
+       9bd5606  fix(phase15): activate sleeping cycle_recovery + eps_revision
+
+ENGINE_REUSE_VERSION: 2026-04-28-phase15c-entry-quality (Phase 15-D additive only)
+DEFAULT_FEATURES: 245
+Smoke: 66/66 pass, audit 0 leakage
+Working tree: clean
+```
+
+**What Phase 15-A/B/C/D added (cumulative)**
+
+7 ML features in `PHASE15_ALPHA_COLUMNS`:
+1. `cycle_recovery_score`     — late-rescue cycle leaders (mom_24m bottom + mom_6m turn)
+2. `eps_revision_score`        — eps_growth fallback when AV estimates missing
+3. `early_cycle_inflection_score` — multiplicative gate (price near MA200 + mom_12m bottom + mom_3m early turn) + boost (eps revision + sign flip + industry breadth)
+4. `entry_quality_score`       — chase-prevention (extension penalty + RSI zone + mom sweet spot + volume confirmation)
+5. `ml_technical_agreement_score` — demote ML-strong-tech-weak names
+6. `sub_industry_rs_score`     — best-of-best in sub_industry pct rank
+7. `insider_cluster_boost_score` — 3+ insider buyers boost
+
+Plus 36-name `cycle_play_universe.yaml` (BE/PLUG/RIVN/ENPH/...) with monthly
+auto-refresh (`tools/refresh_cycle_play_universe.py` +
+`.github/workflows/cycle_play_refresh.yml`, 1st of month 14:00 UTC).
+
+**Critical fixes shipped (read these before re-debugging)**
+
+1. ADR carve-out (8172c0d): exempts ADRs from R1000 SEC fundamentals gate
+   denominator so R1000-only metrics don't degrade when ADR overlay added.
+2. Acceptance gate relaxation (e7c6ff9): r1000+adr / global_alpha_universe
+   modes no longer block portfolio_latest export when historical_membership
+   file missing (research mode, ADR overlay = research, relax strict check).
+3. mktcap clip $1T -> $100T (186f9f5): NVDA / AAPL / MSFT etc no longer get
+   collapsed into single $1T tier. Was bug at 3 sites (build_feature_store,
+   training, historical scoring); previously only patched at 1 site.
+4. fund_period 1970 epoch leak (186f9f5): pd.to_datetime(0) returned
+   1970-01-01 for missing periods. Now masked to NaT for any date < 1990.
+5. CSV export pruner (0e8ced2): scored_latest.csv 638 cols -> 483 cols
+   (24% reduction) by dropping all-NaN + all-zero placeholder columns.
+   Phase 14/15 score columns whitelisted regardless.
+6. Concentrated entry_quality hard filter (3db9386): rejects pool entries
+   below `cfg.concentrated_min_entry_quality=0.30` so AMKR (mom_12m +340%)
+   / WDC (+902%!) / FTI (+175%) chase entries no longer enter concentrated.
+
+**Latest cloud run state**
+
+The 2026-04-28 r1000+adr full rebuild produced:
+- CAGR +0.47pp vs Phase 14 (24.05% vs 23.58%) — 0.03pp shy of SHIP gate
+- MaxDD -3.03pp vs gate -3pp — 0.03pp shy
+- Verdict: REGRESS (early_scout count = 0 sleeve collapse + dCAGR fail)
+- portfolio_latest.csv: EMPTY (acceptance gate blocked — fixed in e7c6ff9)
+- concentrated_portfolio: 3 names (AMKR / WDC / FTI all chase — D2 will block)
+
+**Recommended next agent action sequence**
+
+1. **TRIGGER**: GitHub Actions `Full Rebuild (Manual / Long-Run)` with:
+   ```
+   universe_mode:    global_alpha_universe   ← includes R1000 + ADR + cycle play
+   backtest_years:   8
+   skip_collector:   true (cache reused, ENGINE_REUSE_VERSION unchanged)
+   fast_mode:        true
+   cache_key_suffix: (empty)
+   ```
+   Expected runtime: ~2-2.5h.
+
+2. **VERIFY POST-REBUILD**:
+   - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`
+     should be NON-EMPTY (e7c6ff9 unblocks)
+   - concentrated_portfolio entries should NOT be AMKR/WDC/FTI class
+     (D2 blocks entry_quality < 0.30)
+   - scored_latest.csv should include cycle play tickers (BE/PLUG/RIVN/...)
+   - new columns: trailing_pe_recomputed, earnings_yield_recomputed,
+     forward_pe_source, sub_industry_rs_score, insider_cluster_boost_score
+   - `tools/aggregate_portfolio_performance.py --base-dir
+     cloud_results/full_rebuild/latest_global_alpha_universe` to summarize
+     per-sleeve + aggregate.
+
+3. **DECIDE BASELINE ROTATION**:
+   - If verdict SHIP (dCAGR ≥ +0.5pp, dSharpe ≥ -0.05, dMaxDD ≥ -3pp,
+     early_scout selected ≥ 4): rotate CURRENT_BASELINE in
+     `run_local.py` and update CLAUDE.md "Current Production Baseline"
+     section.
+   - If REGRESS: identify which Phase 15 feature has negative ML weight
+     (read backtest_metrics.json model_coef section), disable via env
+     var (PHASE_PHASE15C_ENTRY_QUALITY_ENABLED=0 etc), re-trigger.
+   - If PARTIAL: investigate sleeve mix; concentrated likely shipping
+     (33%+ CAGR threshold); main may need next iteration.
+
+4. **TELEGRAM SILENCE since Apr 23**:
+   - cron workflows (daily_review, paper_executor, tactical_after_close)
+     stopped firing for 5 days. Manual triggers still work
+     (full_rebuild ran successfully Apr 28).
+   - Suspected cause: GHA scheduled workflow auto-disable due to free-tier
+     quota (~15-20h consumed by recent full_rebuild runs).
+   - Diagnose: GitHub Actions tab → check for "disabled" badge on
+     daily_review workflow. Settings → Billing → see GHA usage.
+   - If disabled: click "Enable workflow" on each affected cron file.
+     Manual trigger of daily_review can validate Telegram works.
+
+5. **D5 CYCLE PLAY AUTO-REFRESH**:
+   - Workflow `.github/workflows/cycle_play_refresh.yml` runs 1st of
+     each month at 14:00 UTC.
+   - First scheduled fire: 2026-05-01 14:00 UTC.
+   - Manually trigger to test: Actions tab → Cycle Play Universe Refresh
+     → Run workflow.
+
+**Files to read in order for new agent pickup**
+
+1. This file (SESSION_HANDOFF.md) — current.
+2. CHANGELOG.md top section (2026-04-29 entry) — Phase 15-D detail.
+3. CLAUDE.md "Current Production Baseline" — Phase 14 still production.
+4. cycle_play_universe.yaml — 36 entries by theme.
+5. r1000_features.py compute_entry_quality_score / compute_cycle_recovery_score
+   — current alpha logic.
+6. Recent backtest_metrics.json (cloud_results/full_rebuild/latest_*) — last run.
+
+---
+
+## PRIOR INBOX (archived — Phase 14 / Apr 27)
+
+Below is the previous session handoff (Phase 14 SHIP + ADR v2 prep). Useful
+for understanding the Phase 14 baseline that Phase 15-D extends.
 
 ## ACTIVE INBOX (2026-04-27 18:40 KST) - ADR v2 / 8y official run next
 
