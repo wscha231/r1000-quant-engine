@@ -4839,6 +4839,40 @@ def compute_regime_state_classifier(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def tactical_allocation_for_regime(
+    regime_state: str,
+    cfg: Optional[EngineConfig] = None,
+) -> float:
+    """Phase 17 v3 L7 — return tactical sleeve allocation pct for a given
+    regime_state. Reads `cfg.tactical_sleeve_allocation_by_regime` map;
+    falls back to `cfg.tactical_sleeve_allocation_default` (0.0) for
+    unknown states. Pure lookup — no side effects.
+
+    Used by:
+      * r1000_tactical_backtest.py to scale weekly position sizes.
+      * Future main pipeline integration when tactical sleeve becomes
+        a first-class portfolio component.
+    """
+    if cfg is None:
+        # Default mapping if no cfg supplied (off-regime safe).
+        defaults = {
+            "deep_bear": 0.0,
+            "bear": 0.0,
+            "neutral": 0.0,
+            "bull": 0.05,
+            "strong_bull": 0.10,
+        }
+        return float(defaults.get(str(regime_state), 0.0))
+    mapping = getattr(cfg, "tactical_sleeve_allocation_by_regime", None) or {}
+    if not isinstance(mapping, dict):
+        return float(getattr(cfg, "tactical_sleeve_allocation_default", 0.0))
+    val = mapping.get(str(regime_state), getattr(cfg, "tactical_sleeve_allocation_default", 0.0))
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # =====================================================================
 # Phase 17 v3 Layer 11 (2026-04-29): Explosive likelihood scoring.
 # Inference for the dual entry/exit XGBoost models trained by

@@ -1547,6 +1547,19 @@ class EngineConfig:
     sleeve_cap_policy_objective_turnover_weight: float = 0.20
     sleeve_cap_policy_objective_concentration_weight: float = 0.25
     sleeve_cap_policy_objective_cash_drag_weight: float = 0.15
+    # Phase 17 v3 L7 (2026-04-30): tactical sleeve allocation gated by
+    # 5-state regime classifier (compute_regime_state_classifier). Maps
+    # regime_state -> tactical_pct of total NAV. Off-regime -> 0% (do
+    # not deploy tactical alpha when macro is hostile). Helper:
+    # tactical_allocation_for_regime(state, cfg) returns the float.
+    tactical_sleeve_allocation_by_regime: dict = field(default_factory=lambda: {
+        "deep_bear": 0.00,
+        "bear": 0.00,
+        "neutral": 0.00,
+        "bull": 0.05,
+        "strong_bull": 0.10,
+    })
+    tactical_sleeve_allocation_default: float = 0.00
     run_standalone_sleeve_backtest_comparison: bool = True
     standalone_sleeve_top_n: int = 7
     standalone_sleeve_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 3])

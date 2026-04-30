@@ -120,12 +120,36 @@ def load_history(path: Path) -> Optional[pd.DataFrame]:
     return pd.read_parquet(path)
 
 
+# Phase 17 v3 L7 (2026-04-30): tactical allocation by regime state.
+# Picks scale by this map -- prevents tactical alpha from leaking into
+# bear regimes where the +explosion_entry / +rs_acceleration signals
+# historically mis-fire (validated in 18b IC matrix).
+TACTICAL_ALLOCATION_BY_REGIME = {
+    "deep_bear": 0.00,
+    "bear": 0.00,
+    "neutral": 0.00,
+    "bull": 0.05,
+    "strong_bull": 0.10,
+}
+
+
+def regime_for_date(snap: pd.DataFrame) -> str:
+    """Pull regime_state from a per-date snapshot. Macro fields are
+    constant within a date so any non-empty row is fine. Defaults to
+    'neutral' if column absent."""
+    if "regime_state" not in snap.columns or snap.empty:
+        return "neutral"
+    s = snap["regime_state"].dropna().astype(str)
+    return str(s.iloc[0]) if len(s) else "neutral"
+
+
 def backtest_loop(
     history: pd.DataFrame,
     top_n: int,
     blend: dict,
     start: Optional[pd.Timestamp],
     end: Optional[pd.Timestamp],
+    regime_gated: bool = True,
 ) -> tuple[list[WeeklyResult], dict]:
     """Walk forward through weekly rebalance dates."""
     if "rebalance_date" not in history.columns:
@@ -161,6 +185,19 @@ def backtest_loop(
         eligible = filter_eligible(snap)
         if eligible.empty:
             continue
+        # L7 regime gate: if regime is off-list, allocation = 0 -> skip
+        # the period entirely (no positions, port_ret = 0).
+        if regime_gated:
+            reg = regime_for_date(snap)
+            alloc = TACTICAL_ALLOCATION_BY_REGIME.get(reg, 0.0)
+            if alloc <= 0.0:
+                results.append(WeeklyResult(
+                    week_start=date, holdings=[], port_ret=0.0,
+                    spy_ret=spy_ret_by_date.get(date),
+                ))
+                continue
+        else:
+            alloc = 1.0
         score = compute_tactical_score(eligible, blend)
         eligible = eligible.assign(_score=score.values)
         eligible = eligible.sort_values("_score", ascending=False)
@@ -170,7 +207,9 @@ def backtest_loop(
         picks = eligible.head(top_n)
         if picks.empty:
             continue
-        port_ret = float(picks["fwd_ret"].dropna().mean()) if not picks["fwd_ret"].dropna().empty else 0.0
+        # alloc scales the realized return (rest of NAV is in cash @ 0%).
+        gross_ret = float(picks["fwd_ret"].dropna().mean()) if not picks["fwd_ret"].dropna().empty else 0.0
+        port_ret = alloc * gross_ret
         results.append(WeeklyResult(
             week_start=date,
             holdings=picks["ticker"].astype(str).tolist() if "ticker" in picks.columns else [],
@@ -235,6 +274,9 @@ def main() -> int:
     p.add_argument("--end", default=None, help="YYYY-MM-DD")
     p.add_argument("--blend-json", default=None,
                    help="optional JSON file overriding DEFAULT_BLEND weights")
+    p.add_argument("--no-regime-gate", action="store_true",
+                   help="Phase 17 v3 L7: disable regime-based allocation gate "
+                        "(default: tactical sleeve allocation = 0%% in non-bull regimes)")
     args = p.parse_args()
 
     history_path = (REPO_ROOT / args.history) if not Path(args.history).is_absolute() else Path(args.history)
@@ -255,7 +297,8 @@ def main() -> int:
     print(f"[tactical-bt] history rows: {len(history)}  unique dates: {history['rebalance_date'].nunique() if 'rebalance_date' in history.columns else 'n/a'}")
     print(f"[tactical-bt] top_n={args.top_n}  blend={blend}")
 
-    results, metrics = backtest_loop(history, args.top_n, blend, start, end)
+    results, metrics = backtest_loop(history, args.top_n, blend, start, end,
+                                     regime_gated=not args.no_regime_gate)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     weekly_df = pd.DataFrame([
