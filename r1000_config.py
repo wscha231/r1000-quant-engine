@@ -1651,6 +1651,7 @@ class EngineConfig:
     run_sleeve_regime_comparison: bool = True
     sleeve_regime_comparison_cash_max: float = 0.02
     sleeve_regime_apply_champion: bool = True
+    regime_conditioned_min_learned_months: int = 12
     regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
     manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
     run_regime_map_method_comparison: bool = True

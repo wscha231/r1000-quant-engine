@@ -1535,6 +1535,67 @@ def test_phase18c_auto_learning_gate_wired() -> None:
         assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
 
 
+@_test("regression.regime_learned_map_requires_min_months")
+def test_regime_learned_map_requires_min_months() -> None:
+    """Low-sample learned regime winners must not override exact manual maps.
+
+    Regression: a 7-month growth_reentry_alert sample learned core_only and
+    overrode the manual growth map, cutting future/early exposure in live runs.
+    """
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    assert int(cfg.regime_conditioned_min_learned_months) >= 12
+    learned = {
+        "growth_reentry_alert": {
+            "core": 1.0,
+            "future": 0.0,
+            "early": 0.0,
+            "cash": 0.0,
+            "policy_label": "core_only",
+            "months": 7,
+        },
+        "ALL": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 83,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "growth_reentry_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]).startswith("manual_growth_alert"), selected
+    assert meta["lookup_source"] == "manual", meta
+
+
+@_test("regression.regime_guardrail_treats_cash_as_separate_sleeve")
+def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
+    """Guardrails operate on equity sleeve fractions, not equity * (1-cash)."""
+    import r1000_pipeline as pipe
+    from r1000_config import default_manual_regime_conditioned_sleeve_map
+
+    manual = pipe.normalize_regime_conditioned_sleeve_map(
+        default_manual_regime_conditioned_sleeve_map(),
+        fallback_source="manual",
+    )
+    selected = manual["growth_reentry_alert"]
+    guarded, meta = pipe.apply_regime_policy_guardrails("growth_reentry_alert", selected)
+    assert guarded is not None
+    assert not meta["guardrail_applied"], (guarded, meta)
+    assert abs(float(guarded["core"]) - float(selected["core"])) < 1e-12
+    assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
+    assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
+    assert abs(float(guarded["cash"]) - 0.08) < 1e-12
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the

@@ -3806,6 +3806,7 @@ def resolve_regime_conditioned_sleeve_override(
         live_label,
         learned_regime_map=raw_map,
         manual_regime_map=manual_map,
+        min_learned_months=int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)),
     )
     selected, guardrail_meta = apply_regime_policy_guardrails(live_label, selected)
     if not isinstance(selected, dict):

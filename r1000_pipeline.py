@@ -1413,6 +1413,7 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
     "run_concentrated_backtest_comparison",
     "run_ai_four_sleeve_comparison",
     "run_regime_map_method_comparison",
+    "regime_conditioned_min_learned_months",
     # Phase 15 post-ML composite gates (downstream of cached model predictions)
     "phase15_a1_drop_negative_features_enabled",
     "phase15_s1a_future_prune_enabled",
@@ -1788,6 +1789,8 @@ def validate_config(cfg: EngineConfig) -> None:
         )
     if cfg.sector_adjusted_financial_min_fields < 1 or cfg.sector_adjusted_realasset_min_fields < 1 or cfg.sector_adjusted_resource_min_fields < 1:
         raise ValueError("sector-adjusted minimum field counts must be >= 1.")
+    if int(getattr(cfg, "regime_conditioned_min_learned_months", 0)) < 0:
+        raise ValueError("regime_conditioned_min_learned_months must be >= 0.")
     if cfg.partial_scout_min_fields < 1:
         raise ValueError("partial_scout_min_fields must be >= 1.")
     if not (0.0 <= cfg.partial_scout_confirmation_min <= 1.0):
@@ -12059,6 +12062,7 @@ def compare_sleeve_cap_policy_backtests(
                 live_label,
                 learned_regime_map=regime_map,
                 manual_regime_map=manual_regime_map,
+                min_learned_months=int(getattr(champion_cfg, "regime_conditioned_min_learned_months", 0)),
             )
             out.attrs["sleeve_regime_grid"] = regime_grid
             out.attrs["sleeve_regime_best"] = regime_best
@@ -12196,18 +12200,21 @@ def apply_regime_policy_guardrails(
     cash = float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0))
     original = {"core": core, "future": future, "early": early, "cash": cash}
 
+    # core/future/early are equity-sleeve fractions. Cash is stored as a
+    # separate portfolio-level sleeve, and build_target_portfolio applies it
+    # later. Guardrails therefore operate in equity space instead of shrinking
+    # equity weights by (1 - cash).
     future = max(future, float(guard.get("future_min", 0.0)))
     early = max(early, float(guard.get("early_min", 0.0)))
     cash = min(cash, float(guard.get("cash_max", 1.0)))
-    invested_share = max(1.0 - cash, 0.0)
     exploratory_total = future + early
-    if exploratory_total > invested_share and exploratory_total > 1e-8:
-        scale = invested_share / exploratory_total
+    if exploratory_total > 1.0 and exploratory_total > 1e-8:
+        scale = 1.0 / exploratory_total
         future *= scale
         early *= scale
         core = 0.0
     else:
-        core = max(invested_share - future - early, 0.0)
+        core = max(1.0 - future - early, 0.0)
 
     updated = {
         "core": float(core),
@@ -12255,9 +12262,17 @@ def resolve_regime_policy_selection(
     *,
     learned_regime_map: Optional[dict[str, Any]] = None,
     manual_regime_map: Optional[dict[str, Any]] = None,
+    min_learned_months: int = 0,
 ) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
     learned = normalize_regime_conditioned_sleeve_map(learned_regime_map, fallback_source="learned")
     manual = normalize_regime_conditioned_sleeve_map(manual_regime_map, fallback_source="manual")
+    min_months = max(int(min_learned_months), 0)
+    if min_months > 0 and learned:
+        learned = {
+            label: payload
+            for label, payload in learned.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_months
+        }
     lookup_chain = build_regime_label_lookup_chain(live_label)
     normalized_live_label = str(live_label or "").strip() or "balanced"
     meta = {
@@ -12266,6 +12281,7 @@ def resolve_regime_policy_selection(
         "lookup_source": "",
         "lookup_label": "",
         "fallback_used": False,
+        "min_learned_months": int(min_months),
     }
     for lookup_label in lookup_chain:
         for lookup_source, regime_map in (("learned", learned), ("manual", manual)):
@@ -12323,6 +12339,7 @@ def compare_regime_conditioned_sleeve_map_methods(
             live_label,
             learned_regime_map=regime_map if method_label == "learned_regime_map" else None,
             manual_regime_map=regime_map if method_label != "learned_regime_map" else None,
+            min_learned_months=int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)),
         )
         selected = dict(selected or {})
         policy_cfg = clone_cfg_with_updates(
@@ -12456,9 +12473,10 @@ def sleeve_regime_policy_objective(row: dict[str, Any]) -> float:
     )
 
 
-def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
+def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame], cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
         return {}
+    cfg_obj = to_cfg(cfg) if cfg is not None else EngineConfig()
     ok = policy_compare[policy_compare["policy_status"].astype(str).eq("ok")].copy()
     if ok.empty:
         return {}
@@ -12469,6 +12487,13 @@ def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str
         dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="learned",
     )
+    min_learned_months = max(int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)), 0)
+    if min_learned_months > 0 and learned_regime_map:
+        learned_regime_map = {
+            label: payload
+            for label, payload in learned_regime_map.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_learned_months
+        }
     manual_regime_map = normalize_regime_conditioned_sleeve_map(
         dict((policy_compare.attrs or {}).get("manual_regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="manual",
@@ -17107,7 +17132,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         log("Phase 5c: running sleeve/cap policy comparison ...")
         try:
             sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
-            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare)
+            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare, cfg)
             if bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)) and selected_sleeve_cap_policy:
                 cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
                 log(f"[INFO] Applied champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', '?')}")

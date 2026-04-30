@@ -51,6 +51,56 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-01
+
+### 00:43 KST - regime-learned-support-guard
+
+- scope:
+  - Prevent low-sample learned regime sleeve policies from overriding exact
+    manual regime maps after the Phase 20 rebuild learned `core_only` from
+    only seven `growth_reentry_alert` months.
+- files:
+  - `r1000_config.py` ->adds the minimum learned-regime sample support config
+    field.
+  - `r1000_pipeline.py` ->filters learned regime maps below the support floor,
+    passes the floor through sleeve policy selection/comparison, validates the
+    new field, and fixes cash-aware guardrail math so cash is treated as a
+    separate sleeve.
+  - `r1000_signals.py` ->passes the learned-regime support floor into live
+    regime-conditioned sleeve override resolution.
+  - `tests/smoke_test.py` ->adds regression coverage for low-sample learned
+    fallback and cash-separate guardrail math.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_regime_policy_guardrails(live_label, selected_policy)` ->operates
+    on equity sleeve fractions instead of shrinking them by `(1 - cash)`.
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->filters learned exact/nearest labels with insufficient sample months before falling back to manual maps.
+  - `choose_sleeve_cap_policy(policy_compare, cfg)` ->uses
+    `regime_conditioned_min_learned_months` when attaching the learned
+    regime-conditioned map to the selected champion policy.
+  - `resolve_regime_conditioned_sleeve_override(cfg, month_df)` ->passes the
+    configured support floor into regime policy lookup.
+- config_fields_added:
+  - `regime_conditioned_min_learned_months: int = 12` ->minimum per-regime
+    months required before learned sleeve policy labels can override exact
+    manual regime maps.
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged; this affects
+    post-model portfolio sleeve policy resolution only.
+- outputs:
+  - none directly. The next full rebuild should avoid
+    `core_only_guardrailed` for seven-month `growth_reentry_alert` samples and
+    should surface the fallback through portfolio policy labels.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (76/76)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This is a conservative anti-overfit guard, not a blind weight tune. A later
+    A/B can raise or lower the 12-month floor, but unsupported learned maps
+    should not ship automatically.
+
 ## 2026-04-30
 
 ### 19:40 KST - workflow-cadence-consolidation
