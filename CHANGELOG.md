@@ -53,6 +53,41 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-30
 
+### 26:15 KST - phase17v3-L9-explosive-mover-daily-scan
+
+- scope: daily scanner over the latest scored output that surfaces FRESH (24h dedup) explosion candidates above L11 thresholds + regime gate, posts Telegram alerts so user catches BE-class moves before next-day open
+- files:
+  - `tools/explosive_mover_scan_daily.py` ->new scanner with filter + dedup + telegram digest
+  - `.github/workflows/explosive_mover_daily.yml` ->weekday 22:30 UTC cron + dispatch inputs (top_n, entry_threshold, reset_seen)
+- symbols_added:
+  - `find_scored_file(override) -> Optional[Path]` ->4-path fallback locator
+  - `load_seen(path, ttl_hours=24) -> dict` ->TTL-aware dedup state loader
+  - `telegram_send(msg)` ->minimal http poster
+  - `THR_ENTRY: float = 0.65` (entry threshold)
+  - `THR_NET: float = 0.40` (net signal threshold)
+  - `THR_EXIT_MAX: float = 0.50` (avoid peak)
+  - `THR_MCAP_MIN: float = 300_000_000` (mirrors L11 mining floor)
+  - `ALLOWED_REGIMES: set = {bull, strong_bull, neutral}`
+  - `SEEN_TTL_HOURS: int = 24`
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none -> read-only over scored_latest.csv; writes only to cloud_results/explosive_movers/
+- outputs:
+  - `cloud_results/explosive_movers/scan_YYYY-MM-DD.json` ->daily snapshot with fresh_candidates list
+  - `cloud_results/explosive_movers/seen.json` ->rolling dedup state (24h TTL per ticker)
+  - `cloud_results/explosive_movers/latest.json`
+- validation:
+  - `python3 tests/smoke_test.py --quick` ->16/16 passed
+  - synthetic 30-row scored frame (5 BE-class bull explosion + 5 over-extended + 5 bear + 15 random low) -> Run 1 emitted exactly 5 fresh; Run 2 (dedup) emitted 0 fresh; Run 3 (--reset-seen) emitted 5 fresh again
+- risks_or_notes:
+  - L11 explosion_* models must be trained for scores to be non-zero (workflow currently no-ops gracefully when scores are all 0). After first explosive_pattern_train_monthly cron run (15th of month 16:00 UTC) the scanner becomes live
+  - Filter ALLOWED_REGIMES includes neutral (in addition to bull/strong_bull) so user gets early heads-up before regime fully transitions; tunable
+  - Telegram body capped to ~10 names; for very fertile markets, --top-n higher via dispatch input
+  - 24h TTL dedup means same ticker won't spam if it stays high for multiple days; tunable via --ttl-hours
+
 ### 25:30 KST - phase17v3-L2-L8-wire-and-18c-pattern-block-enforce
 
 - scope: batched 3 followup items (L8 sector cap wire-in + 18c pattern-block enforcement + L2 mandate registry) so cloud FULL rebuild can verify all in one shot rather than 3 sequential rebuilds (test time saver per user mandate)
