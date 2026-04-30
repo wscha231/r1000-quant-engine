@@ -51,6 +51,76 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-30
+
+### 19:40 KST - workflow-cadence-consolidation
+
+- scope:
+  - Consolidate scheduled GitHub Actions around the current core /
+    concentrated / tactical system and require future system changes to update
+    the automation owner workflow and smoke topology guard in the same commit.
+- files:
+  - `.github/workflows/after_close_daily.yml` ->new consolidated daily
+    after-close workflow for scanner, macro pulse, ETF leadership,
+    explosive mover scan, tactical review, paper dry-run, and Layer 4
+    suggestions.
+  - `.github/workflows/weekly_data_refresh.yml` ->new weekly data refresh
+    workflow combining Finnhub substrate collection and theme discovery.
+  - `.github/workflows/monthly_research.yml` ->new monthly research workflow
+    combining cycle-play universe refresh, ADR/macro IC monitoring, tactical
+    sleeve backtest, and explosive pattern model retraining.
+  - `.github/workflows/quarterly_auto_learning.yml` ->new quarterly
+    auto-learning workflow combining trade insights, feature-gate proposal,
+    and promotion-gate dry-run/manual promotion.
+  - `.github/workflows/layer4_monthly_swap.yml` ->renamed behavior to
+    proposal-first, moved schedule to after-close UTC, and preserved manual
+    execute=true live-paper guard.
+  - `.github/workflows/unified_monthly.yml` ->moved schedule to after-close
+    UTC so legacy unified bridge no longer runs during the US session.
+  - `.github/workflows/* retired scheduled files` ->old duplicate daily,
+    weekly, monthly, and quarterly one-purpose workflows removed after
+    consolidation.
+  - `AUTOMATION_STRATEGY.md` ->new cadence matrix and rules for updating
+    automation whenever sleeves/features/data sources change.
+  - `tests/smoke_test.py` ->updated workflow guards from legacy filenames to
+    consolidated cadence topology and after-close scheduling.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_paper_executor_workflow()` ->now validates `after_close_daily.yml`
+    as the paper/tactical/scanner owner workflow.
+  - `test_paper_executor_weekday()` ->now validates after-close weekday and
+    weekend review schedules in `after_close_daily.yml`.
+  - `test_tactical_after_close_workflow()` ->now validates tactical review
+    inside the consolidated daily workflow.
+  - `test_monthly_ic_monitor()` ->now validates monthly IC monitoring inside
+    `monthly_research.yml`.
+  - `test_layer4_monthly_workflow()` ->now validates dry-run/proposal default
+    and after-close schedule.
+  - `test_workflow_topology_consolidated()` ->new smoke guard for the
+    consolidated workflow set and retired duplicate files.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Scheduled automation file names changed. Use `after_close_daily.yml`,
+    `weekly_data_refresh.yml`, `monthly_research.yml`, and
+    `quarterly_auto_learning.yml` instead of the retired one-purpose workflow
+    files.
+- outputs:
+  - `AUTOMATION_STRATEGY.md` ->owner matrix for workflow cadence and future
+    automation updates.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 73/73.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The currently running GitHub full_rebuild on the previous branch SHA is
+    unaffected. This change only updates future scheduled/manual workflow
+    behavior after the branch is pushed or merged.
+
 ## 2026-04-29
 
 ### 12:22 KST - phase15d-cycle-play-universe-and-chase-prevention

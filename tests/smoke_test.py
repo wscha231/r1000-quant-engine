@@ -1230,58 +1230,59 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
-@_test("regression.paper_executor_workflow_yaml_valid")
+@_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
-    """The cloud workflow that runs r1000_paper_executor.py must exist with
-    workflow_dispatch + schedule, properly wire ALPACA secrets, and call
-    smoke_test as a pre-flight check.
-
-    History:
-      45d80f5 spam fix in data_alpaca
-      this    paper_executor_dryrun.yml — cloud-side dry-run / execute
-
-    Without this guard, a refactor that drops the workflow file silently
-    disables cloud paper trading.
+    """The consolidated daily cloud workflow must run paper execution
+    dry-runs plus scanner, tactical, macro, ETF, explosive, and Layer 4
+    review surfaces.
     """
-    wf_path = ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml"
-    assert wf_path.exists(), "paper_executor_dryrun.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
     assert "workflow_dispatch" in wf, "manual trigger missing in paper_executor workflow"
     assert "secrets.ALPACA_API_KEY" in wf, "ALPACA_API_KEY secret not wired"
     assert "secrets.ALPACA_API_SECRET" in wf, "ALPACA_API_SECRET secret not wired"
-    assert "tests/smoke_test.py" in wf, (
+    assert "tests/smoke_test.py --quick" in wf, (
         "smoke_test pre-flight missing — workflow could ship code that fails guards"
     )
     assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    for token in (
+        "tests/audit_features.py --no-runtime",
+        "aggressive/scanner.py",
+        "tools/macro_daily_snapshot.py",
+        "tools/etf_leadership_snapshot.py",
+        "tools/explosive_mover_scan_daily.py",
+        "r1000_tactical_alpha.py",
+        "r1000_layer4_swap.py",
+    ):
+        assert token in wf, f"after_close_daily.yml missing: {token}"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
 
 
-@_test("regression.paper_executor_weekday_schedule")
+@_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """paper_executor_dryrun.yml must have weekday schedule (Mon-Fri 23:30 KST)
-    in addition to Saturday 15:00 KST. Phase 5 J — daily review enables user
-    to see regime + plan via Telegram each weekday before --execute decision.
+    """after_close_daily.yml must have weekday after-close schedule plus a
+    Saturday review pass. Live execution remains manual only.
     """
-    wf = (ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml").read_text(encoding="utf-8")
-    assert "30 14 * * 1-5" in wf, (
-        "weekday Mon-Fri 14:30 UTC schedule missing in paper_executor_dryrun.yml"
-    )
+    wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
+    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
     assert "0 6 * * 6" in wf, (
         "Saturday 06:00 UTC schedule must remain"
     )
+    assert "execute=true" in wf, "manual live execution guard not documented"
 
 
 @_test("regression.tactical_after_close_workflow")
 def test_tactical_after_close_workflow() -> None:
-    """Daily tactical alpha review must run after the US close and call the
-    separate tactical engine, not the core monthly rebuild.
+    """Daily tactical alpha review must remain in the after-close workflow and
+    call the separate tactical engine, not the core monthly rebuild.
     """
-    wf_path = ROOT / ".github" / "workflows" / "tactical_after_close.yml"
-    assert wf_path.exists(), "tactical_after_close.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
-    assert "30 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
     assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
     assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
     req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
@@ -1317,8 +1318,8 @@ def test_advisor_v3_layer4_info() -> None:
 
 @_test("regression.monthly_ic_monitor_exists")
 def test_monthly_ic_monitor() -> None:
-    """Phase 6 L: tools/monthly_ic_monitor.py + workflow must exist with
-    monthly cadence (cron 0 2 1 * *) and Telegram alerting on threshold trips.
+    """Phase 6 L: tools/monthly_ic_monitor.py must remain wired through the
+    consolidated monthly research workflow.
 
     User mandate (2026-04-25): "1-2개월 cadence가 훨씬 합리적".
     Threshold trips: ADR avg IC < 0.01, China-IC > US-IC by 0.05+.
@@ -1331,12 +1332,60 @@ def test_monthly_ic_monitor() -> None:
                 "load_adr_universe"):
         assert tok in src, f"monthly_ic_monitor.py missing: {tok}"
 
-    wf = ROOT / ".github" / "workflows" / "monthly_ic_monitor.yml"
-    assert wf.exists(), "monthly_ic_monitor.yml workflow missing"
+    wf = ROOT / ".github" / "workflows" / "monthly_research.yml"
+    assert wf.exists(), "monthly_research.yml workflow missing"
     wf_src = wf.read_text(encoding="utf-8")
-    for tok in ("0 2 1 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
-                "FRED_API_KEY", "tests/smoke_test.py"):
-        assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
+    for tok in ("45 22 15 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
+                "FRED_API_KEY", "tests/smoke_test.py --quick",
+                "refresh_cycle_play_universe.py", "r1000_tactical_backtest.py",
+                "build_explosive_pattern_db.py", "train_explosion_classifier.py"):
+        assert tok in wf_src, f"monthly_research.yml missing: {tok}"
+
+
+@_test("regression.workflow_topology_consolidated")
+def test_workflow_topology_consolidated() -> None:
+    """Scheduled automation is compressed by cadence so future system changes
+    update one owner workflow instead of several stale duplicates.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    expected = {
+        "after_close_daily.yml",
+        "weekly_data_refresh.yml",
+        "monthly_research.yml",
+        "quarterly_auto_learning.yml",
+        "full_rebuild_manual.yml",
+        "unified_monthly.yml",
+        "layer4_monthly_swap.yml",
+        "gdrive_smoke_test.yml",
+    }
+    missing = sorted(name for name in expected if not (wf_dir / name).exists())
+    assert not missing, f"missing consolidated workflows: {missing}"
+
+    retired = {
+        "daily_review.yml",
+        "paper_executor_dryrun.yml",
+        "tactical_after_close.yml",
+        "macro_daily_snapshot.yml",
+        "etf_leadership_daily.yml",
+        "explosive_mover_daily.yml",
+        "finnhub_weekly.yml",
+        "theme_discovery.yml",
+        "cycle_play_refresh.yml",
+        "monthly_ic_monitor.yml",
+        "tactical_backtest_monthly.yml",
+        "explosive_pattern_train_monthly.yml",
+        "quarterly_trade_insights.yml",
+        "auto_feature_gate_proposal_quarterly.yml",
+    }
+    still_present = sorted(name for name in retired if (wf_dir / name).exists())
+    assert not still_present, f"retired duplicate workflows still present: {still_present}"
+
+    strategy = ROOT / "AUTOMATION_STRATEGY.md"
+    assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
+    text = strategy.read_text(encoding="utf-8")
+    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
+                  "update `tests/smoke_test.py`"):
+        assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
 
 
 @_test("regression.helpers_imports_requests")
@@ -1521,17 +1570,17 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml workflow runs Layer 4 swap on 5th of each month.
-    Schedule + workflow_dispatch + ALPACA secrets + Telegram secrets must all
-    be wired or the auto-apply doesn't actually happen.
+    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
+    preserving manual execution wiring.
     """
     wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
     assert wf_path.exists(), "layer4_monthly_swap.yml missing"
     wf = wf_path.read_text(encoding="utf-8")
     for token in (
         "schedule:",
-        "0 14 5 * *",                  # 5th of month, 23:00 KST
+        "45 22 5 * *",
         "workflow_dispatch:",
+        "default: false",
         "secrets.ALPACA_API_KEY",
         "secrets.TELEGRAM_BOT_TOKEN",
         "r1000_layer4_swap.py",
