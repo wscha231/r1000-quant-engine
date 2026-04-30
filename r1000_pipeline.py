@@ -279,6 +279,7 @@ from r1000_features import (
     compute_theme_phase_features,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
+    apply_phase18c_gates_to_frame,
 )
 
 # Phase 18a (2026-04-30): trade journal + auto-grading. Hooked into
@@ -7111,6 +7112,11 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # transform on top of macro columns; downstream sleeve / tactical
     # logic branches on regime_state_score.
     universe = compute_regime_state_classifier(universe)
+    # Phase 18c (2026-04-30): apply auto feature gates from
+    # research/auto_feature_gates.yaml. No-op when yaml has empty gates
+    # (initial state). Reads regime_state column produced just above so
+    # ordering matters -- must run AFTER compute_regime_state_classifier.
+    universe = apply_phase18c_gates_to_frame(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -7177,6 +7183,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
+            + ["applied_gates_count"]    # Phase 18c: count of gates fired this row
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )

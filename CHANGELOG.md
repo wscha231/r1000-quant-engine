@@ -53,6 +53,47 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-30
 
+### 24:30 KST - phase18c-auto-feature-gate-self-improvement-loop
+
+- scope: closes the AlphaTrade self-improvement loop -> auto-drafts research/auto_feature_gates.yaml from Phase 18b insights (IC matrix + cluster win-rates), engine reads + applies gates per row's regime_state. PR-based human-in-loop review preserves safety.
+- files:
+  - `tools/feature_gate_proposal.py` ->new tool: reads insights/{ic_matrix,cluster_winrate}.csv, drafts conservative gates, hand-renders YAML for clean diffs
+  - `research/auto_feature_gates.yaml` ->initial empty (gates: []) -- safe default no-op behavior
+  - `r1000_features.py` ->add `_parse_simple_yaml`, `load_auto_feature_gates`, `apply_signal_regime_gate`, `apply_signal_regime_gate_series`, `apply_phase18c_gates_to_frame` (5 helpers + cache)
+  - `r1000_pipeline.py` ->import + call `apply_phase18c_gates_to_frame(universe)` after `compute_regime_state_classifier()` in build_feature_store; add `applied_gates_count` to keep_cols
+  - `.github/workflows/auto_feature_gate_proposal_quarterly.yml` ->Q-2nd day @ 06:00 UTC, drafts proposal + opens PULL REQUEST (NOT direct push) so user reviews before merge
+- symbols_added:
+  - `propose_signal_regime_gates(ic_df, ic_disable, ic_amplify, min_n) -> list[dict]` (tool)
+  - `propose_pattern_blocks(cluster_df, winrate_max, min_n) -> list[dict]` (tool)
+  - `render_yaml(proposals, generated_at, lifetime_days) -> str` (tool)
+  - `diff_yaml(old, new) -> str` (tool)
+  - `_parse_simple_yaml(text) -> dict` (r1000_features.py; pyyaml-optional fallback)
+  - `load_auto_feature_gates(force_reload=False) -> dict` (cached; auto-expires past expires_at)
+  - `apply_signal_regime_gate(value, signal, regime) -> float` (scalar)
+  - `apply_signal_regime_gate_series(series, signal, regimes) -> Series` (vectorized)
+  - `apply_phase18c_gates_to_frame(df) -> DataFrame` (one-call gate application; emits applied_gates_count)
+  - `_AUTO_GATES_CACHE: dict | None` (module-level cache)
+  - `_AUTO_GATES_PATH: Path` (= research/auto_feature_gates.yaml)
+- symbols_changed:
+  - `build_feature_store()` (r1000_pipeline.py) ->after compute_regime_state_classifier, calls apply_phase18c_gates_to_frame; adds applied_gates_count to keep_cols whitelist
+- config_fields_added:
+  - none -> behavior controlled entirely by research/auto_feature_gates.yaml
+- breaking_changes:
+  - none -> empty initial gates list = no-op. ENGINE_REUSE_VERSION NOT bumped because gate applications produce different signal values only when yaml has non-empty gates (which only happens after a quarterly cycle ships).
+- outputs:
+  - `research/auto_feature_gates.yaml` ->the gate registry (tracked in git)
+  - `outputs/trade_journal/insights/proposal_diff.md` ->human-readable diff for PR review
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - end-to-end: synthetic yaml with 3 gates (rs_accel disable in bear, theme_phase_max disable in deep_bear, explosion_entry amplify 1.3x in strong_bull) applied to 5-row frame -> values exactly as expected; applied_gates_count tags fired rows correctly
+  - proposal tool real-end test: synthetic IC matrix + cluster CSVs -> 5 signal x regime proposals + 1 pattern_block proposal generated, yaml rendered with full rationale per gate
+- risks_or_notes:
+  - PR-based review is the human-in-loop checkpoint. Workflow does NOT auto-merge -- separates "auto improvement" from "auto risk-taking".
+  - Gates auto-expire 90d after generation (configurable via --lifetime-days). Past expires_at, loader returns empty rules -> engine reverts to ungated.
+  - `_parse_simple_yaml` is intentionally minimal. If gate yaml schema grows, switch to pyyaml (already in requirements_github.txt).
+  - First real proposal will fire AFTER one quarterly_trade_insights run AND one auto_feature_gate_proposal run. Until then auto_feature_gates.yaml stays at gates:[].
+  - Pattern_block proposals are EMITTED in yaml but NOT YET applied by apply_phase18c_gates_to_frame (signal-x-regime gates only). Pattern_block enforcement is deferred to 18c-followup -- requires per-trade feature_signature matching at scoring time.
+
 ### 23:55 KST - phase17v3-L8-etf-leadership-adaptive-cap
 
 - scope: ETF leadership tracker + per-sector adaptive cap multiplier (relax cap when sector ETF is hot, tighten when lagging)

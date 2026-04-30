@@ -4924,6 +4924,226 @@ def adaptive_sector_cap_multiplier(sector: str, default: float = 1.0) -> float:
     }.get(state, float(default))
 
 
+# =====================================================================
+# Phase 18c (2026-04-30): auto feature-gate application.
+# Reads research/auto_feature_gates.yaml (drafted by
+# tools/feature_gate_proposal.py from Phase 18b insights, gated by
+# human PR review). Provides:
+#   * load_auto_feature_gates() -> dict of normalized gate rules
+#   * apply_signal_regime_gate(value, signal, regime) -> float
+# Engine code that wants to honor gates calls apply_* on each signal
+# value. The gates auto-expire after `expires_at` -- post-expiry the
+# loader returns no rules so engine reverts to ungated behavior.
+# =====================================================================
+
+_AUTO_GATES_CACHE: Optional[dict] = None
+_AUTO_GATES_PATH = Path("research/auto_feature_gates.yaml")
+
+
+def _parse_simple_yaml(text: str) -> dict:
+    """Minimal YAML parser sufficient for auto_feature_gates.yaml.
+
+    Avoids a hard dependency on pyyaml so the engine can import even in
+    environments where yaml isn't installed (eg minimal smoke harness).
+    Falls back to pyyaml if available for robustness.
+    """
+    try:
+        import yaml  # type: ignore
+        return yaml.safe_load(text) or {}
+    except ImportError:
+        pass
+
+    out: dict = {"gates": []}
+    current_gate: Optional[dict] = None
+    in_signature = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        # top-level scalar (generated_at / expires_at / n_proposals)
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if indent == 0 and ":" in stripped and not stripped.startswith("-"):
+            key, _, val = stripped.partition(":")
+            val = val.strip().strip("'\"")
+            if key == "gates":
+                continue
+            out[key] = val
+            continue
+        # gate list item start
+        if stripped.startswith("- kind:"):
+            current_gate = {"kind": stripped.split(":", 1)[1].strip()}
+            out["gates"].append(current_gate)
+            in_signature = False
+            continue
+        if current_gate is None:
+            continue
+        if "feature_signature_z:" in stripped:
+            current_gate["feature_signature_z"] = {}
+            in_signature = True
+            continue
+        if in_signature and indent >= 6 and ":" in stripped:
+            k, _, v = stripped.partition(":")
+            try:
+                current_gate["feature_signature_z"][k.strip()] = float(v.strip())
+            except ValueError:
+                in_signature = False
+        if not in_signature and ":" in stripped and not stripped.startswith("-"):
+            k, _, v = stripped.partition(":")
+            v = v.strip().strip("'\"")
+            try:
+                current_gate[k.strip()] = float(v)
+            except ValueError:
+                current_gate[k.strip()] = v
+            in_signature = False
+    return out
+
+
+def load_auto_feature_gates(force_reload: bool = False) -> dict:
+    """Load + cache the auto_feature_gates.yaml. Returns a dict with
+    keys:
+        gates_by_signal_regime: {(signal, regime): factor}
+        pattern_blocks:         list of dicts (cluster_id, signature, ...)
+        expired:                bool (true if past expires_at)
+    """
+    global _AUTO_GATES_CACHE
+    if _AUTO_GATES_CACHE is not None and not force_reload:
+        return _AUTO_GATES_CACHE
+    out = {
+        "gates_by_signal_regime": {},
+        "pattern_blocks": [],
+        "expired": False,
+        "generated_at": None,
+    }
+    if not _AUTO_GATES_PATH.exists():
+        _AUTO_GATES_CACHE = out
+        return out
+    try:
+        text = _AUTO_GATES_PATH.read_text()
+        parsed = _parse_simple_yaml(text)
+    except Exception:
+        _AUTO_GATES_CACHE = out
+        return out
+
+    out["generated_at"] = parsed.get("generated_at")
+    expires_at = str(parsed.get("expires_at", ""))
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(expires_at)
+            now = datetime.now(timezone.utc).replace(tzinfo=None) if exp_dt.tzinfo is None else datetime.now(timezone.utc)
+            out["expired"] = now > exp_dt
+        except Exception:
+            out["expired"] = False
+
+    if out["expired"]:
+        _AUTO_GATES_CACHE = out
+        return out
+
+    for g in parsed.get("gates", []) or []:
+        kind = str(g.get("kind", ""))
+        if kind in ("signal_regime_disable", "signal_regime_amplify"):
+            sig = str(g.get("signal", ""))
+            reg = str(g.get("regime", ""))
+            try:
+                factor = float(g.get("factor", 1.0))
+            except (TypeError, ValueError):
+                factor = 1.0
+            if sig and reg:
+                out["gates_by_signal_regime"][(sig, reg)] = factor
+        elif kind == "pattern_block":
+            out["pattern_blocks"].append({
+                "cluster_id": g.get("cluster_id"),
+                "signature": g.get("feature_signature_z", {}),
+                "win_rate": g.get("win_rate"),
+                "n": g.get("n"),
+            })
+    _AUTO_GATES_CACHE = out
+    return out
+
+
+def apply_signal_regime_gate(
+    value: float,
+    signal: str,
+    regime: str,
+) -> float:
+    """Multiply a raw signal value by its gate factor (1.0 if no gate
+    matches). Pure lookup; no side effects.
+
+    Engine call sites:
+        gated = apply_signal_regime_gate(value, "rs_acceleration_score", regime)
+    """
+    if value is None or not signal or not regime:
+        return value
+    gates = load_auto_feature_gates()
+    factor = gates.get("gates_by_signal_regime", {}).get((str(signal), str(regime)), 1.0)
+    if factor == 1.0:
+        return value
+    try:
+        return float(value) * float(factor)
+    except (TypeError, ValueError):
+        return value
+
+
+def apply_signal_regime_gate_series(
+    series: pd.Series,
+    signal: str,
+    regimes: pd.Series,
+) -> pd.Series:
+    """Vectorized variant -- multiply each row's value by the gate factor
+    for that row's regime. NaN-safe."""
+    if series is None or len(series) == 0:
+        return series
+    gates = load_auto_feature_gates()
+    by_sr = gates.get("gates_by_signal_regime", {})
+    if not by_sr:
+        return series
+    factors = pd.Series(1.0, index=series.index)
+    if regimes is None or len(regimes) == 0:
+        return series
+    aligned_regimes = regimes.reindex(series.index).astype(str).fillna("")
+    for (sig, reg), factor in by_sr.items():
+        if sig != signal:
+            continue
+        mask = aligned_regimes == reg
+        factors = factors.where(~mask, factor)
+    return pd.to_numeric(series, errors="coerce") * factors
+
+
+def apply_phase18c_gates_to_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Walk all Phase 14 + Phase 17 signal columns and apply auto gates
+    based on each row's regime_state. Pure transform; idempotent.
+
+    Called once at the end of the feature pipeline (after all
+    compute_* functions and after compute_regime_state_classifier).
+    Returns the same DataFrame with gated values in place. Adds an
+    `applied_gates_count` column tagging how many gates fired per row
+    (useful for backtest_journal -> 18c effectiveness audit).
+    """
+    if df is None or df.empty:
+        return df
+    gates = load_auto_feature_gates()
+    by_sr = gates.get("gates_by_signal_regime", {})
+    if not by_sr or "regime_state" not in df.columns:
+        if "applied_gates_count" not in df.columns:
+            df["applied_gates_count"] = 0
+        return df
+    out = df.copy()
+    regimes = out["regime_state"].astype(str).fillna("")
+    fire_count = pd.Series(0, index=out.index)
+    # Gate each signal column individually for vectorized speed.
+    signals_to_check = [s for s in {sig for (sig, _) in by_sr.keys()} if s in out.columns]
+    for sig in signals_to_check:
+        out[sig] = apply_signal_regime_gate_series(out[sig], sig, regimes)
+        # Tag rows where a gate (factor != 1.0) fired
+        for (gate_sig, gate_reg), factor in by_sr.items():
+            if gate_sig != sig or factor == 1.0:
+                continue
+            mask = regimes == gate_reg
+            fire_count = fire_count + mask.astype(int)
+    out["applied_gates_count"] = fire_count.astype(int)
+    return out
+
+
 def tactical_allocation_for_regime(
     regime_state: str,
     cfg: Optional[EngineConfig] = None,

@@ -20,7 +20,8 @@
 | `17ef460` | **18a** | trade journal foundation: persist + pair entry/exit + auto-grade WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL |
 | `486a654` | **18b** | trade insights: IC-by-regime matrix + k-means clustering + SHAP + quarterly workflow |
 | `c1248ef` | **17v3 L7** | tactical sleeve regime gate (0% off-regime, 5%/10% bull/strong_bull) |
-| (pending push) | **17v3 L8** | ETF leadership tracker + adaptive sector cap multiplier helpers + daily workflow |
+| `3258ce1` | **17v3 L8** | ETF leadership tracker + adaptive sector cap multiplier helpers + daily workflow |
+| (pending push) | **18c** | auto feature gate self-improvement loop (proposal tool + engine wire-in + PR-based workflow) |
 
 ### Phase 17 v3 layer status (per `PHASE_18_PROPOSAL.md` + this branch)
 
@@ -41,7 +42,32 @@ L9   explosive mover real-time alerts              PLANNED  uses L11
 Phase 18 (AlphaTrade self-improvement loop):
   18a  trade journal foundation                    SHIPPED  17ef460
   18b  trade insights (IC matrix + cluster + SHAP) SHIPPED  486a654
-  18c  auto feature gate proposals                 PLANNED  reads 18b CSVs
+  18c  auto feature gate (proposal + engine apply) SHIPPED  pending push
+       -- self-improvement loop is now CLOSED end-to-end --
+```
+
+### Self-improvement loop status (closed end-to-end)
+
+```
+[backtest] -> [holdings_history.parquet]      18a
+   |              |
+   v              v
+[trades.parquet] [grades.parquet]              18a
+   |              |
+   v              v
+[insights/{ic_matrix,cluster_winrate,shap}.csv] 18b  (quarterly cron)
+   |
+   v
+[auto_feature_gates.yaml proposal]              18c  (quarterly cron, opens PR)
+   |
+   v
+[HUMAN PR REVIEW + MERGE]
+   |
+   v
+[apply_phase18c_gates_to_frame in build_feature_store] 18c (engine wire)
+   |
+   v
+[next FULL rebuild] -> [new trade journal] -> ... [loop continues]
 ```
 
 ### 🆕 Phase 18 — AlphaTrade Journal & Self-Improvement Loop
