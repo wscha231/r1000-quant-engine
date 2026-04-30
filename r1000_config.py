@@ -225,6 +225,14 @@ PHASE17_EXPLOSION_COLUMNS = [
     "explosion_net_score",                  # entry - exit (>0 = buy, <0 = exit)
 ]
 
+# Phase 17 v3 Layer 1 (2026-04-30): 5-state regime classifier.
+# Discrete label + numeric score (deep_bear=-2, bear=-1, neutral=0,
+# bull=+1, strong_bull=+2). Used by L2/L7/L8 sleeve + tactical logic.
+PHASE17_REGIME_STATE_COLUMNS = [
+    "regime_state",
+    "regime_state_score",
+]
+
 # =====================================================================
 # Stage 1b (2026-04-20): column whitelists + macro/event/sleeve data
 # =====================================================================
@@ -2166,6 +2174,7 @@ __all__ = [
     "PHASE9_C3_TURNAROUND_COLUMNS",
     "PHASE14_HYBRID_ALPHA_COLUMNS",
     "PHASE17_EXPLOSION_COLUMNS",
+    "PHASE17_REGIME_STATE_COLUMNS",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",

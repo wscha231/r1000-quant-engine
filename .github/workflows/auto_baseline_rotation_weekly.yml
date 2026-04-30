@@ -1,0 +1,115 @@
+name: Auto Baseline Rotation (Weekly)
+
+# Phase 17 v3 Layer 14 (2026-04-30) — automated CURRENT_BASELINE rotation.
+#
+# After the weekly FULL rebuild posts metrics to cloud_results/, this
+# workflow checks the ship gate (ΔCAGR>=+0.5pp, ΔSharpe>=-0.05,
+# ΔMaxDD>=-3pp, early_scout>=4) and rotates run_local.py's
+# CURRENT_BASELINE dict if PASS. Telegram alert on either outcome so
+# the user has clear visibility.
+
+on:
+  schedule:
+    # Sunday 04:00 UTC = 13:00 KST Sunday (after weekly full rebuild)
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      metrics_path:
+        description: 'override metrics.json path'
+        type: string
+        default: ''
+      name:
+        description: 'override baseline rotation name'
+        type: string
+        default: ''
+      dry_run:
+        description: 'dry-run only (no file write)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Run rotation evaluator
+        id: rotate
+        env:
+          METRICS_OVERRIDE: ${{ github.event.inputs.metrics_path }}
+          NAME_OVERRIDE: ${{ github.event.inputs.name }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          ARGS=""
+          if [ -n "$METRICS_OVERRIDE" ]; then ARGS="$ARGS --metrics $METRICS_OVERRIDE"; fi
+          if [ -n "$NAME_OVERRIDE" ]; then ARGS="$ARGS --name '$NAME_OVERRIDE'"; fi
+          if [ "$DRY_RUN" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          set +e
+          eval python tools/auto_baseline_rotation.py $ARGS | tee rotate_output.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" = "0" ]; then
+            echo "verdict=SHIP" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "1" ]; then
+            echo "verdict=HOLD" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Telegram digest
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERDICT: ${{ steps.rotate.outputs.verdict }}
+        run: |
+          python - <<'PY'
+          import os, urllib.parse, urllib.request, pathlib
+          tok = os.getenv("TELEGRAM_BOT_TOKEN")
+          chat = os.getenv("TELEGRAM_CHAT_ID")
+          if not (tok and chat):
+              print("no telegram creds; skipping")
+              raise SystemExit(0)
+          verdict = os.getenv("VERDICT", "ERROR")
+          out = pathlib.Path("rotate_output.txt").read_text() if pathlib.Path("rotate_output.txt").exists() else "(no output)"
+          msg = f"[auto-baseline-rotation {verdict}]\n{out[:3500]}"
+          url = f"https://api.telegram.org/bot{tok}/sendMessage"
+          data = urllib.parse.urlencode({"chat_id": chat, "text": msg}).encode()
+          urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15).read()
+          PY
+
+      - name: Commit + push if rotated
+        if: steps.rotate.outputs.verdict == 'SHIP'
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          git add run_local.py
+          git diff --cached --quiet || \
+            git commit -m "chore(baseline): auto-rotate CURRENT_BASELINE $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done

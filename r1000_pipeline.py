@@ -85,6 +85,7 @@ from r1000_config import (
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
+    PHASE17_REGIME_STATE_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -277,6 +278,7 @@ from r1000_features import (
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
     compute_explosion_likelihood_score,
+    compute_regime_state_classifier,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7094,6 +7096,10 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # XGBoost dual entry/exit boosters from outputs/explosive_pattern_db/
     # models/. If models / xgboost / inputs absent, fills 0.0 — no error.
     universe = compute_explosion_likelihood_score(universe, cfg)
+    # Phase 17 v3 L1 (2026-04-30): 5-state regime classifier. Pure
+    # transform on top of macro columns; downstream sleeve / tactical
+    # logic branches on regime_state_score.
+    universe = compute_regime_state_classifier(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -7159,6 +7165,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
+            + PHASE17_REGIME_STATE_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7190,6 +7197,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
+        + ["regime_state_score"]    # numeric only; regime_state is string, skip sanitize
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )
@@ -12259,6 +12267,19 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
         return d
     labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
     raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
+    # Phase 17 v3 L5 (2026-04-30): chase-prevention penalty.
+    # Even continuation winners (e.g. WDC mom_12m +900%) shouldn't enter
+    # the concentrated portfolio at extreme extension. Penalty fires
+    # when (mom_12m > 100% AND near_52w_high_pct > -0.05) OR mom_12m > 200%.
+    # Subtracts up to 0.50 from concentrated_score — enough to push the
+    # name out of top-N unless conviction overwhelms.
+    _mom12 = pd.to_numeric(d.get("mom_12m"), errors="coerce").fillna(0.0)
+    _near_high = pd.to_numeric(d.get("near_52w_high_pct"), errors="coerce").fillna(-1.0)
+    _hot_chase = (((_mom12 > 1.00) & (_near_high > -0.05)) | (_mom12 > 2.00)).astype(float)
+    # Smooth ramp on top of the binary trigger so 150-200% mom_12m gets
+    # partial penalty instead of all-or-nothing.
+    _ramp = ((_mom12 - 1.0) / 1.0).clip(lower=0.0, upper=1.0)
+    chase_penalty = (0.30 * _hot_chase + 0.20 * _ramp).clip(lower=0.0, upper=0.50)
     sleeve_bonus = labels.map(
         {
             "early_scout": 0.35,
@@ -12290,7 +12311,7 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             -0.20 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
-    ).fillna(0.0) + pd.to_numeric(sleeve_bonus, errors="coerce").fillna(0.0)
+    ).fillna(0.0) + pd.to_numeric(sleeve_bonus, errors="coerce").fillna(0.0) - chase_penalty
     return d
 
 

@@ -4764,6 +4764,82 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =====================================================================
+# Phase 17 v3 Layer 1 (2026-04-30): 5-state market regime classifier.
+# Discrete label on top of existing market_regime_score / vix_z_63d /
+# spy_above_ma200 / spy_ret_3m so downstream sleeve weight + tactical
+# allocation logic can branch on a clean state instead of a continuous
+# blend. Used by L2/L7/L8 to swap policy candidates by regime.
+#
+# States (ordered):
+#   deep_bear    SPY < MA200 AND spy_ret_3m < -10% AND vix_z_63d > 2.0
+#   bear         SPY < MA200 OR (vix_z_63d > 1.0 AND spy_ret_3m < -3%)
+#   neutral      everything else
+#   bull         SPY > MA200 AND vix_z_63d < 0 AND spy_ret_3m > 5%
+#   strong_bull  SPY > MA200 AND vix_z_63d < -0.5 AND spy_ret_3m > 10%
+#                AND market_breadth_above_ma200 > 0.6
+#
+# Emits two columns per row:
+#   regime_state            string (one of 5 above)
+#   regime_state_score      int  -2/-1/0/+1/+2  (numeric for ML)
+# =====================================================================
+
+PHASE17_REGIME_STATE_COLUMNS = [
+    "regime_state",
+    "regime_state_score",
+]
+
+_REGIME_STATE_NUMERIC = {
+    "deep_bear": -2,
+    "bear": -1,
+    "neutral": 0,
+    "bull": 1,
+    "strong_bull": 2,
+}
+
+
+def compute_regime_state_classifier(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 17 v3 L1 — discrete 5-state regime label per row.
+
+    Pure transform. Reads existing macro columns; if any are missing,
+    uses neutral defaults (vix_z=0, spy_above_ma200=1, spy_ret_3m=0,
+    breadth=0.5) so the function always emits both columns.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["regime_state"] = pd.Series(dtype=object)
+        d["regime_state_score"] = pd.Series(dtype=int)
+        return d
+
+    spy_above = numeric_series_or_default(d, "spy_above_ma200", 1.0).astype(float)
+    vix_z = numeric_series_or_default(d, "vix_z_63d", 0.0).astype(float)
+    spy_3m = numeric_series_or_default(d, "spy_ret_3m", 0.0).astype(float)
+    breadth = numeric_series_or_default(d, "market_breadth_above_ma200", 0.5).astype(float)
+
+    # Order matters: evaluate strongest conditions first, fall through
+    # to milder ones, default neutral.
+    deep_bear = (spy_above < 0.5) & (spy_3m < -0.10) & (vix_z > 2.0)
+    bear = (spy_above < 0.5) | ((vix_z > 1.0) & (spy_3m < -0.03))
+    bull = (spy_above >= 0.5) & (vix_z < 0.0) & (spy_3m > 0.05)
+    strong_bull = (
+        (spy_above >= 0.5)
+        & (vix_z < -0.5)
+        & (spy_3m > 0.10)
+        & (breadth > 0.6)
+    )
+
+    label = pd.Series("neutral", index=d.index, dtype=object)
+    # Apply in increasing severity so later assignments override
+    label = label.mask(bear, "bear")
+    label = label.mask(deep_bear, "deep_bear")
+    label = label.mask(bull & ~bear, "bull")
+    label = label.mask(strong_bull & ~bear, "strong_bull")
+
+    d["regime_state"] = label
+    d["regime_state_score"] = label.map(_REGIME_STATE_NUMERIC).fillna(0).astype(int)
+    return d
+
+
+# =====================================================================
 # Phase 17 v3 Layer 11 (2026-04-29): Explosive likelihood scoring.
 # Inference for the dual entry/exit XGBoost models trained by
 # tools/train_explosion_classifier.py on the historical event database

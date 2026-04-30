@@ -1,0 +1,64 @@
+name: Macro Daily Snapshot
+
+# Phase 17 v3 Layer 12 (2026-04-30) — daily macro pulse so the engine
+# reacts to regime shifts faster than monthly cadence. Captures:
+#   * SPY close + MA200 + 1m/3m return
+#   * VIX level + 63d z-score
+#   * HY OAS, DGS10, UNRATE (if FRED_API_KEY set)
+# Computes regime_state via the same logic as L1's classifier and
+# Telegram-alerts when a regime transition or MA200 cross is detected.
+
+on:
+  schedule:
+    # Every weekday 21:30 UTC (16:30 ET, 30min after US close)
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance>=0.2
+
+      - name: Run macro daily snapshot
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python tools/macro_daily_snapshot.py --telegram
+
+      - name: Commit snapshot
+        if: always()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          git add cloud_results/macro_daily/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): macro daily snapshot $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done
