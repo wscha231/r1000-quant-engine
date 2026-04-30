@@ -12181,6 +12181,15 @@ REGIME_EXPLORATORY_GUARDRAILS: dict[str, dict[str, float]] = {
 }
 
 
+DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...] = (
+    "risk_off",
+    "systemic",
+    "war_oil_rate",
+    "stagflation",
+    "carry_unwind",
+)
+
+
 def apply_regime_policy_guardrails(
     live_label: Optional[str],
     selected_policy: Optional[dict[str, Any]],
@@ -12282,24 +12291,51 @@ def resolve_regime_policy_selection(
         "lookup_label": "",
         "fallback_used": False,
         "min_learned_months": int(min_months),
+        "manual_fallback_deferred": False,
     }
+    deferred_manual: list[tuple[str, dict[str, Any]]] = []
+    defensive_manual_ok = any(token in normalized_live_label for token in DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS)
     for lookup_label in lookup_chain:
-        for lookup_source, regime_map in (("learned", learned), ("manual", manual)):
-            if not regime_map:
-                continue
-            selected = regime_map.get(lookup_label)
-            if not isinstance(selected, dict):
-                continue
-            payload = dict(selected)
+        learned_selected = learned.get(lookup_label) if learned else None
+        if isinstance(learned_selected, dict):
+            payload = dict(learned_selected)
             payload.setdefault("source_regime", lookup_label)
             meta.update(
                 {
-                    "lookup_source": lookup_source,
+                    "lookup_source": "learned",
                     "lookup_label": lookup_label,
-                    "fallback_used": lookup_source != "learned" or lookup_label != normalized_live_label,
+                    "fallback_used": lookup_label != normalized_live_label,
+                    "manual_fallback_deferred": bool(deferred_manual),
                 }
             )
             return payload, meta
+
+        manual_selected = manual.get(lookup_label) if manual else None
+        if isinstance(manual_selected, dict):
+            payload = dict(manual_selected)
+            payload.setdefault("source_regime", lookup_label)
+            if defensive_manual_ok:
+                meta.update(
+                    {
+                        "lookup_source": "manual",
+                        "lookup_label": lookup_label,
+                        "fallback_used": lookup_label != normalized_live_label,
+                    }
+                )
+                return payload, meta
+            deferred_manual.append((lookup_label, payload))
+            continue
+    if deferred_manual:
+        lookup_label, payload = deferred_manual[0]
+        meta.update(
+            {
+                "lookup_source": "manual",
+                "lookup_label": lookup_label,
+                "fallback_used": lookup_label != normalized_live_label,
+                "manual_fallback_deferred": True,
+            }
+        )
+        return payload, meta
     return None, meta
 
 

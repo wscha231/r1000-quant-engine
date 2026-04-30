@@ -1535,12 +1535,14 @@ def test_phase18c_auto_learning_gate_wired() -> None:
         assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
 
 
-@_test("regression.regime_learned_map_requires_min_months")
-def test_regime_learned_map_requires_min_months() -> None:
-    """Low-sample learned regime winners must not override exact manual maps.
+@_test("regression.regime_low_support_growth_prefers_learned_fallback")
+def test_regime_low_support_growth_prefers_learned_fallback() -> None:
+    """Low-sample learned growth winners fall back to high-support learned maps.
 
     Regression: a 7-month growth_reentry_alert sample learned core_only and
     overrode the manual growth map, cutting future/early exposure in live runs.
+    The exact learned map is too small to trust, but the untested manual growth
+    map should not beat a high-support learned balanced fallback.
     """
     import r1000_pipeline as pipe
     from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
@@ -1555,6 +1557,14 @@ def test_regime_learned_map_requires_min_months() -> None:
             "cash": 0.0,
             "policy_label": "core_only",
             "months": 7,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
         },
         "ALL": {
             "core": 0.35,
@@ -1572,8 +1582,47 @@ def test_regime_learned_map_requires_min_months() -> None:
         min_learned_months=cfg.regime_conditioned_min_learned_months,
     )
     assert selected is not None
-    assert str(selected["policy_label"]).startswith("manual_growth_alert"), selected
+    assert str(selected["policy_label"]) == "aggr_35_30_35", selected
+    assert meta["lookup_source"] == "learned", meta
+    assert meta["lookup_label"] == "balanced", meta
+    assert meta["manual_fallback_deferred"], meta
+
+
+@_test("regression.regime_low_support_risk_uses_manual_safety")
+def test_regime_low_support_risk_uses_manual_safety() -> None:
+    """Risk-off labels keep manual safety maps when learned samples are thin."""
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    learned = {
+        "risk_off_alert": {
+            "core": 0.40,
+            "future": 0.40,
+            "early": 0.20,
+            "cash": 0.0,
+            "policy_label": "growth_40_40_20",
+            "months": 9,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "risk_off_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]).startswith("manual_riskoff"), selected
     assert meta["lookup_source"] == "manual", meta
+    assert meta["lookup_label"] == "risk_off_alert", meta
 
 
 @_test("regression.regime_guardrail_treats_cash_as_separate_sleeve")

@@ -101,6 +101,40 @@ All entries must be written in English. Entries must be predictable and machine-
     A/B can raise or lower the 12-month floor, but unsupported learned maps
     should not ship automatically.
 
+### 03:37 KST - learned-fallback-before-growth-manual
+
+- scope:
+  - Make regime fallback more data-driven after the rerun showed the
+    unsupported manual growth map worsened main CAGR and drawdown.
+- files:
+  - `r1000_pipeline.py` ->defers non-defensive manual regime maps until
+    high-support learned fallback labels have been checked; risk-off/systemic
+    manual safety maps still apply immediately.
+  - `tests/smoke_test.py` ->updates low-support growth fallback coverage and
+    adds a risk-off manual safety regression test.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...]` ->labels whose
+    exact manual safety maps can override learned fallback when learned support
+    is below the sample floor.
+- symbols_changed:
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->prefers high-support learned fallback for non-defensive growth/neutral labels before using deferred manual maps.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged.
+- outputs:
+  - none directly. The next full rebuild should prefer the high-support learned
+    balanced/ALL map over unvalidated manual `growth_reentry_alert` when the
+    exact learned growth label has fewer than 12 months.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (77/77)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This may improve the current growth-alert regression, but it still requires
+    a full rebuild verdict because regime fallback order is a portfolio
+    behavior change.
+
 ## 2026-04-30
 
 ### 19:40 KST - workflow-cadence-consolidation
