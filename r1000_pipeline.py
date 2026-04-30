@@ -85,6 +85,8 @@ from r1000_config import (
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
+    PHASE17_EXPLOSION_COLUMNS,
+    PHASE17_REGIME_STATE_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -276,6 +278,8 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    compute_explosion_likelihood_score,
+    compute_regime_state_classifier,
     compute_cycle_recovery_score,
     compute_eps_revision_score,
     compute_early_cycle_inflection_score,
@@ -283,6 +287,17 @@ from r1000_features import (
     compute_ml_technical_agreement_score,
     compute_sub_industry_rs_score,
     compute_insider_cluster_boost_score,
+)
+
+# Phase 18a (2026-04-30): sidecar trade journal. The hook writes
+# outputs/trade_journal/ from already-computed backtest holdings; failures
+# are treated as non-fatal so production metrics are not blocked.
+from r1000_trade_journal import (
+    attach_signal_breakdown,
+    grade_trades,
+    pair_entries_with_exits,
+    persist_holdings_history,
+    summary_digest,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7543,6 +7558,13 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p15_col in PHASE15_ALPHA_COLUMNS:
             universe[_p15_col] = 0.0
 
+    # Phase 17 v3 sidecar features. These columns are surfaced in
+    # feature_store/scored outputs for scanners, journal analysis, and future
+    # A/B tests. They are not appended to DEFAULT_FEATURES in this integration
+    # pass, so the current production model/selection behavior is preserved.
+    universe = compute_explosion_likelihood_score(universe, cfg)
+    universe = compute_regime_state_classifier(universe)
+
     keep_cols = list(
         dict.fromkeys(
             [
@@ -7607,6 +7629,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE15_ALPHA_COLUMNS
+            + PHASE17_EXPLOSION_COLUMNS
+            + PHASE17_REGIME_STATE_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7638,6 +7662,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
+        + PHASE17_EXPLOSION_COLUMNS
+        + ["regime_state_score"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
     )
@@ -10727,6 +10753,12 @@ def backtest_portfolio(
                         sleeve_interval_map.get(sleeve_label_value, active_interval_months)
                     ),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                    "entry_signal_breakdown": json.dumps(
+                        attach_signal_breakdown(mm, str(tkr)),
+                        default=str,
+                    ),
+                    "regime_state": str(row["regime_state"].iloc[0]) if not row.empty and "regime_state" in row.columns else "neutral",
+                    "regime_state_score": int(row["regime_state_score"].iloc[0]) if not row.empty and "regime_state_score" in row.columns and pd.notna(row["regime_state_score"].iloc[0]) else 0,
                 }
             )
 
@@ -11069,6 +11101,30 @@ def backtest_portfolio(
         if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
             _equity_cols.append(_diag_col)
     equity_df = ret_df[_equity_cols].copy()
+
+    try:
+        if not holdings_df.empty:
+            persist_holdings_history(holdings_df, paths, ENGINE_REUSE_VERSION)
+            benchmark_returns = ret_df[["rebalance_date", "bench_return"]].copy() if "bench_return" in ret_df.columns else None
+            trades_df = pair_entries_with_exits(
+                holdings_df,
+                paths,
+                ENGINE_REUSE_VERSION,
+                benchmark_returns=benchmark_returns,
+            )
+            if trades_df is not None and not trades_df.empty:
+                grades_df = grade_trades(trades_df, paths)
+                digest = summary_digest(grades_df)
+                log(
+                    "[trade-journal] "
+                    f"{digest.get('n_trades')} trades graded; "
+                    f"win_rate={digest.get('win_rate')} "
+                    f"loss_rate={digest.get('loss_rate')} "
+                    f"label_counts={digest.get('label_counts')}"
+                )
+    except Exception as journal_exc:
+        log(f"[trade-journal] persist failed (non-fatal): {journal_exc}")
+
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 

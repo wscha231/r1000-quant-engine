@@ -70,7 +70,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
-          pip install catboost>=1.2 lightgbm>=4.0 xgboost>=2.0 scikit-learn>=1.4
+          pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
