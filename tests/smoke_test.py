@@ -1478,19 +1478,38 @@ def test_full_rebuild_commits_portfolios() -> None:
 @_test("regression.full_rebuild_preserves_auto_learning_artifacts")
 def test_full_rebuild_preserves_auto_learning_artifacts() -> None:
     """Phase 20: full rebuild must preserve the training substrate for
-    automatic learning. If trade_journal/insights disappear after a cloud run,
-    challenger promotion has no data to learn from.
+    automatic learning. If trade_journal/insights or the candidate gate YAML
+    disappear after a cloud run, challenger promotion has no data to learn from.
     """
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
     for needed in (
         "outputs/trade_journal/",
         "outputs/auto_learning/",
+        "auto_feature_gates_candidate.yaml",
         "tools/trade_insights.py",
-        "tools/feature_gate_proposal.py --dry-run",
-        "tools/auto_learning_promote.py --dry-run",
+        'tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES"',
+        'tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES"',
         "copy_if_exists",
     ):
         assert needed in wf, f"full_rebuild_manual.yml missing auto-learning artifact token: {needed}"
+
+
+@_test("regression.full_rebuild_pushes_results_to_dispatch_branch")
+def test_full_rebuild_pushes_results_to_dispatch_branch() -> None:
+    """Full rebuild result commits must target the dispatched branch.
+
+    The Phase 20 branch rebuild succeeded but its cloud_results commit failed
+    because the workflow retried by rebasing a branch run onto master. That is
+    wrong for branch validation and can also mask the failure because the step
+    is intentionally best-effort.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert 'RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"' in wf
+    assert "refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" in wf
+    assert 'git push origin "HEAD:$RESULT_BRANCH"' in wf
+    commit_section = wf.split("Commit verdict + portfolio CSVs", 1)[-1]
+    assert "git fetch origin master" not in commit_section
+    assert "git pull --rebase origin master" not in commit_section
 
 
 @_test("regression.phase18c_auto_learning_gate_wired")

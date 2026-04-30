@@ -252,9 +252,11 @@ jobs:
         if: always()
         run: |
           mkdir -p outputs/auto_learning
+          CANDIDATE_GATES="outputs/auto_learning/auto_feature_gates_candidate.yaml"
+          rm -f "$CANDIDATE_GATES"
           python tools/trade_insights.py --no-shap 2>&1 | tee outputs/auto_learning/trade_insights.log || true
-          python tools/feature_gate_proposal.py --dry-run 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
-          python tools/auto_learning_promote.py --dry-run 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          python tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
+          python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -454,6 +456,23 @@ jobs:
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
+          RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+          if [ -z "$RESULT_BRANCH" ] || [ "$RESULT_BRANCH" = "HEAD" ]; then
+            RESULT_BRANCH="${{ github.ref_name }}"
+          fi
+          echo "[push] result branch: $RESULT_BRANCH"
+          fetch_result_branch() {
+            git fetch --prune --depth=100 origin "+refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" 2>&1
+          }
+          if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+            if ! git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1; then
+              git rebase --abort 2>&1 || true
+              echo "[push] pre-stage rebase failed; artifacts and GDrive sync are already preserved, skipping cloud_results commit."
+              exit 0
+            fi
+          else
+            echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
+          fi
           mkdir -p cloud_results/full_rebuild
           DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           mkdir -p "$DEST"
@@ -490,17 +509,22 @@ jobs:
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
 
-          # Push with rebase-on-conflict (race condition guard).
-          # Previous run 24961673988 SUCCEEDED with all results committed locally,
-          # but git push was rejected because user pushed fixes during the 7h run.
-          # Now retry up to 3 times with fetch+rebase between each attempt.
+          # Push with rebase-on-conflict (race condition guard). Use the
+          # dispatch branch, not master, so branch test runs do not replay
+          # master-only commits and conflict after a long rebuild.
+          PUSHED="no"
           for attempt in 1 2 3; do
-            if git push 2>&1; then
+            if git push origin "HEAD:$RESULT_BRANCH" 2>&1; then
               echo "[push] attempt $attempt: success"
+              PUSHED="yes"
               break
             fi
             echo "[push] attempt $attempt: failed — fetch+rebase and retry"
-            git fetch origin master
-            git pull --rebase origin master 2>&1 || git rebase --abort 2>&1 || true
+            if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+              git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1 || git rebase --abort 2>&1 || true
+            fi
             sleep $((attempt * 2))
           done
+          if [ "$PUSHED" != "yes" ]; then
+            echo "[push] WARN: result commit was not pushed after retries."
+          fi

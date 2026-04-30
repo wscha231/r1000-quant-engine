@@ -121,6 +121,47 @@ All entries must be written in English. Entries must be predictable and machine-
     unaffected. This change only updates future scheduled/manual workflow
     behavior after the branch is pushed or merged.
 
+### 20:56 KST - full-rebuild-result-branch-and-learning-candidate
+
+- scope:
+  - Fix post-run full rebuild automation discovered from run 25154642964:
+    result commits must push to the dispatched branch, and auto-learning must
+    preserve an actual candidate gate artifact instead of only a dry-run log.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->generates
+    `outputs/auto_learning/auto_feature_gates_candidate.yaml`, evaluates the
+    promotion gate against that candidate in dry-run mode, and pushes
+    `cloud_results/` commits to the current dispatch branch with branch-aware
+    fetch/rebase retry.
+  - `.gitignore` ->ignores local `research/phase20_artifact/` GitHub artifact
+    downloads.
+  - `tests/smoke_test.py` ->updates auto-learning artifact assertions and adds
+    a guard that full rebuild result pushes do not rebase branch runs onto
+    master.
+- symbols_added:
+  - `test_full_rebuild_pushes_results_to_dispatch_branch()` ->guards the
+    branch-aware full rebuild result push path.
+- symbols_changed:
+  - `test_full_rebuild_preserves_auto_learning_artifacts()` ->now requires a
+    candidate feature-gate YAML artifact and candidate-aware promotion dry-run.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/auto_learning/auto_feature_gates_candidate.yaml` ->candidate
+    learned feature-gate proposal emitted by full rebuild diagnostics.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 74/74.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The candidate gate file is generated and evaluated in dry-run mode only;
+    live promotion still requires a separate tested challenger/promotion path.
+
 ## 2026-04-29
 
 ### 12:22 KST - phase15d-cycle-play-universe-and-chase-prevention
