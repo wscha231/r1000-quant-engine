@@ -1426,6 +1426,47 @@ def test_full_rebuild_commits_portfolios() -> None:
         assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
 
 
+@_test("regression.full_rebuild_preserves_auto_learning_artifacts")
+def test_full_rebuild_preserves_auto_learning_artifacts() -> None:
+    """Phase 20: full rebuild must preserve the training substrate for
+    automatic learning. If trade_journal/insights disappear after a cloud run,
+    challenger promotion has no data to learn from.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for needed in (
+        "outputs/trade_journal/",
+        "outputs/auto_learning/",
+        "tools/trade_insights.py",
+        "tools/feature_gate_proposal.py --dry-run",
+        "tools/auto_learning_promote.py --dry-run",
+        "copy_if_exists",
+    ):
+        assert needed in wf, f"full_rebuild_manual.yml missing auto-learning artifact token: {needed}"
+
+
+@_test("regression.phase18c_auto_learning_gate_wired")
+def test_phase18c_auto_learning_gate_wired() -> None:
+    """Phase 20: learned gates should apply automatically only when the
+    auto-promoted YAML exists; no YAML remains a no-op. scored_latest must keep
+    explosion/regime audit columns even when they are all zero.
+    """
+    pipe_src = _pipeline_src()
+    for token in (
+        "apply_phase18c_gates_to_frame",
+        "explosion_entry_score",
+        "explosion_exit_score",
+        "explosion_net_score",
+        "applied_gates_count",
+        "pattern_blocked",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing auto-learning wiring: {token}"
+    promote = ROOT / "tools" / "auto_learning_promote.py"
+    assert promote.exists(), "tools/auto_learning_promote.py missing"
+    promote_src = promote.read_text(encoding="utf-8")
+    for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
+        assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the

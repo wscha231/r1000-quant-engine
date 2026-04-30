@@ -287,6 +287,7 @@ from r1000_features import (
     compute_ml_technical_agreement_score,
     compute_sub_industry_rs_score,
     compute_insider_cluster_boost_score,
+    apply_phase18c_gates_to_frame,
 )
 
 # Phase 18a (2026-04-30): sidecar trade journal. The hook writes
@@ -7564,6 +7565,11 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     # pass, so the current production model/selection behavior is preserved.
     universe = compute_explosion_likelihood_score(universe, cfg)
     universe = compute_regime_state_classifier(universe)
+    # Phase 18c automatic learning hook. No-op unless
+    # research/auto_feature_gates.yaml exists and has not expired. When a
+    # challenger is auto-promoted, learned signal/regime gates apply before
+    # scoring across both historical walk-forward rows and latest scoring rows.
+    universe = apply_phase18c_gates_to_frame(universe)
 
     keep_cols = list(
         dict.fromkeys(
@@ -7631,6 +7637,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
+            + ["applied_gates_count", "pattern_blocked"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7663,7 +7670,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
-        + ["regime_state_score"]
+        + ["regime_state_score", "applied_gates_count", "pattern_blocked"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
     )
@@ -8042,6 +8049,11 @@ _PRUNE_EXPORT_KEEP_COLUMNS: set[str] = {
     "rs_acceleration_score", "h1_oversold_value_score",
     "h6_dynamic_leader_score", "stage2_overext_penalty",
     "theme_phase_multiplier_primary", "theme_phase_multiplier_max",
+    # Phase 17/18 auto-learning diagnostics. Keep even when all-zero so
+    # scanner and trade-journal jobs can rely on a stable scored_latest schema.
+    "explosion_entry_score", "explosion_exit_score", "explosion_net_score",
+    "regime_state", "regime_state_score", "applied_gates_count",
+    "pattern_blocked",
     # Phase 15 alpha (always keep — even if currently sparse)
     "cycle_recovery_score", "eps_revision_score",
     "early_cycle_inflection_score", "entry_quality_score",

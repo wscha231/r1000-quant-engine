@@ -248,6 +248,14 @@ jobs:
         run: |
           python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
 
+      - name: Auto-learning diagnostics (sidecar)
+        if: always()
+        run: |
+          mkdir -p outputs/auto_learning
+          python tools/trade_insights.py --no-shap 2>&1 | tee outputs/auto_learning/trade_insights.log || true
+          python tools/feature_gate_proposal.py --dry-run 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
+          python tools/auto_learning_promote.py --dry-run 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+
       - name: Upload artifact (logs + scored CSVs)
         if: always()
         uses: actions/upload-artifact@v4
@@ -263,6 +271,8 @@ jobs:
             outputs/run_summary.json
             outputs/reports/backtest_window_comparison.csv
             outputs/reports/global_alpha_sleeve_audit_*.csv
+            outputs/trade_journal/
+            outputs/auto_learning/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -319,20 +329,39 @@ jobs:
             LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
           fi
           echo "[gdrive-sync] copying outputs/ to $DEST/"
-          rclone copy outputs/scored_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/scored_unified.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/portfolio_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/backtest_metrics.json "$DEST/" 2>&1 || true
-          rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" 2>&1 || true
+          copy_if_exists() {
+            local src="$1"
+            local dst="$2"
+            if [ -e "$src" ]; then
+              rclone copy "$src" "$dst/" 2>&1 || true
+            else
+              echo "[gdrive-sync] skip missing: $src"
+            fi
+          }
+          copy_if_exists outputs/scored_latest.csv "$DEST"
+          copy_if_exists outputs/scored_unified.csv "$DEST"
+          copy_if_exists outputs/portfolio_latest.csv "$DEST"
+          copy_if_exists outputs/concentrated_portfolio_latest.csv "$DEST"
+          copy_if_exists outputs/backtest_metrics.json "$DEST"
+          copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
           # Phase 15-A fix (2026-04-28): include the SEC bulk archive so user
           # gdrive reflects the freshly downloaded companyfacts.zip. Previously
           # the file refreshed inside the GHA runner cache but never reached
           # gdrive — user could only see "stale" file from a manual upload.
-          rclone copy outputs/companyfacts.zip "$DEST/" 2>&1 || true
-          rclone copy outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>&1 || true
-          rclone copy outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>&1 || true
-          rclone copy outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>&1 || true
+          copy_if_exists outputs/companyfacts.zip "$DEST"
+          copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
+          copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
+          copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"
+          if [ -d outputs/trade_journal ]; then
+            rclone copy outputs/trade_journal "$DEST/trade_journal/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/trade_journal"
+          fi
+          if [ -d outputs/auto_learning ]; then
+            rclone copy outputs/auto_learning "$DEST/auto_learning/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/auto_learning"
+          fi
 
           # Also sync log + verdict for diagnostic visibility
           rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/" 2>&1 || true
@@ -398,6 +427,8 @@ jobs:
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
+          cp -r outputs/trade_journal/ /tmp/bundle/trade_journal/ 2>/dev/null || true
+          cp -r outputs/auto_learning/ /tmp/bundle/auto_learning/ 2>/dev/null || true
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -448,6 +479,8 @@ jobs:
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp -r outputs/trade_journal "$DEST/trade_journal" 2>/dev/null || true
+          cp -r outputs/auto_learning "$DEST/auto_learning" 2>/dev/null || true
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience
