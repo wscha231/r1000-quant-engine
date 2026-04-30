@@ -4839,6 +4839,91 @@ def compute_regime_state_classifier(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+# =====================================================================
+# Phase 17 v3 Layer 8 (2026-04-30): ETF leadership-aware adaptive cap.
+# Reads cloud_results/etf_leadership/latest.json (written by
+# tools/etf_leadership_snapshot.py daily). Returns a sector-cap multiplier
+# in [0.5, 2.0] -- relax when leading sector ETF is hot, tighten when
+# lagging. Falls through to 1.0 (neutral) if file missing.
+# =====================================================================
+
+# Map GICS sector label -> sector ETF ticker (must match SECTOR_ETFS in
+# tools/etf_leadership_snapshot.py).
+_SECTOR_TO_ETF = {
+    "technology": "XLK",
+    "information technology": "XLK",
+    "financials": "XLF",
+    "energy": "XLE",
+    "health care": "XLV",
+    "healthcare": "XLV",
+    "consumer discretionary": "XLY",
+    "industrials": "XLI",
+    "materials": "XLB",
+    "consumer staples": "XLP",
+    "utilities": "XLU",
+    "real estate": "XLRE",
+    "communication services": "XLC",
+    "communications": "XLC",
+}
+
+_ETF_LEADER_CACHE: dict = {}
+_ETF_LEADER_CACHE_PATH: Optional[str] = None
+
+
+def _load_etf_leader_state() -> dict:
+    """Read cloud_results/etf_leadership/latest.json once (cached)."""
+    global _ETF_LEADER_CACHE, _ETF_LEADER_CACHE_PATH
+    if _ETF_LEADER_CACHE:
+        return _ETF_LEADER_CACHE
+    path = Path("cloud_results/etf_leadership/latest.json")
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        _ETF_LEADER_CACHE = data.get("sector_states", {}) or {}
+        _ETF_LEADER_CACHE_PATH = str(path)
+    except Exception:
+        _ETF_LEADER_CACHE = {}
+    return _ETF_LEADER_CACHE
+
+
+def etf_leader_state_for_sector(sector: str) -> str:
+    """Return the latest ETF state for a GICS sector ('hot', 'warm',
+    'neutral', 'lagging', 'capitulating', 'unknown'). Defaults to 'unknown'
+    when ETF leadership snapshot hasn't been generated yet."""
+    if not sector:
+        return "unknown"
+    states = _load_etf_leader_state()
+    if not states:
+        return "unknown"
+    label = _SECTOR_TO_ETF.get(str(sector).strip().lower())
+    if label is None:
+        return "unknown"
+    # states map is keyed by friendly label (eg 'tech' for XLK), built in
+    # etf_leadership_snapshot.py via SECTOR_ETFS dict. Reverse-map ticker -> friendly.
+    from tools.etf_leadership_snapshot import SECTOR_ETFS  # type: ignore
+    friendly = SECTOR_ETFS.get(label, label.lower())
+    return str(states.get(friendly, "unknown"))
+
+
+def adaptive_sector_cap_multiplier(sector: str, default: float = 1.0) -> float:
+    """Phase 17 v3 L8 -- adjust per-sector position cap based on ETF
+    leadership state. Hot leader -> 1.5x cap (let winners run). Lagging
+    -> 0.7x. Capitulating -> 0.5x.
+
+    Returns multiplier as a float; caller multiplies by base sector_cap.
+    """
+    state = etf_leader_state_for_sector(sector)
+    return {
+        "hot": 1.50,
+        "warm": 1.20,
+        "neutral": 1.00,
+        "lagging": 0.70,
+        "capitulating": 0.50,
+        "unknown": float(default),
+    }.get(state, float(default))
+
+
 def tactical_allocation_for_regime(
     regime_state: str,
     cfg: Optional[EngineConfig] = None,

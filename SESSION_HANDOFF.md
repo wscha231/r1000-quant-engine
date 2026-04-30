@@ -17,23 +17,31 @@
 | `e6aa6c6` | 17v3 Step A | aggressive sleeve tilt + cash 0% + manual_pin BE/PLUG/RIVN/ENPH |
 | `79a8a36` | 17v3 Step B | L11 explosive pattern DB miner + dual XGBoost classifier + L15 tactical backtester + 2 monthly workflows |
 | `afeb723` | 17v3 Step C | L1 5-state regime classifier + L5 chase penalty + L12 daily macro snapshot + L14 auto baseline rotation |
-| (pending push) | **18a** | trade journal foundation: persist + pair entry/exit + auto-grade WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL |
+| `17ef460` | **18a** | trade journal foundation: persist + pair entry/exit + auto-grade WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL |
+| `486a654` | **18b** | trade insights: IC-by-regime matrix + k-means clustering + SHAP + quarterly workflow |
+| `c1248ef` | **17v3 L7** | tactical sleeve regime gate (0% off-regime, 5%/10% bull/strong_bull) |
+| (pending push) | **17v3 L8** | ETF leadership tracker + adaptive sector cap multiplier helpers + daily workflow |
 
 ### Phase 17 v3 layer status (per `PHASE_18_PROPOSAL.md` + this branch)
 
 ```
 L1   regime_state classifier (5-state)        SHIPPED  afeb723
 L5   chase prevention penalty                 SHIPPED  afeb723
+L7   tactical regime gate                     SHIPPED  c1248ef (5%/10% bull/strong_bull)
+L8   ETF leadership + adaptive cap helpers    SHIPPED  pending  (helpers ready, wire-in deferred)
 L11  explosive likelihood scoring (XGBoost)   SHIPPED  79a8a36 (models await first cron run)
 L12  daily macro snapshot                     SHIPPED  afeb723 (workflow at weekday 21:30 UTC)
+L13  aggressive sleeve tilt                   SHIPPED  e6aa6c6
 L14  auto baseline rotation                   SHIPPED  afeb723 (workflow at Sunday 04:00 UTC)
 L15  tactical backtester                      SHIPPED  79a8a36
 
-L2   mandate split (main mo / conc wk / tact dy)   PLANNED  uses L1 regime_state
-L7   tactical 10% allocation gated by regime       PLANNED  uses L1
-L8   ETF leadership + adaptive cap                 PLANNED  uses L1
+L2   mandate split (main mo / conc wk / tact dy)   PLANNED  architectural
 L9   explosive mover real-time alerts              PLANNED  uses L11
-L13  (already in Step A)
+
+Phase 18 (AlphaTrade self-improvement loop):
+  18a  trade journal foundation                    SHIPPED  17ef460
+  18b  trade insights (IC matrix + cluster + SHAP) SHIPPED  486a654
+  18c  auto feature gate proposals                 PLANNED  reads 18b CSVs
 ```
 
 ### 🆕 Phase 18 — AlphaTrade Journal & Self-Improvement Loop

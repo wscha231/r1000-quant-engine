@@ -53,6 +53,101 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-30
 
+### 23:55 KST - phase17v3-L8-etf-leadership-adaptive-cap
+
+- scope: ETF leadership tracker + per-sector adaptive cap multiplier (relax cap when sector ETF is hot, tighten when lagging)
+- files:
+  - `tools/etf_leadership_snapshot.py` ->new daily ETF tracker (11 sector SPDRs + 10 theme ETFs); writes cloud_results/etf_leadership/{snapshot_DATE,latest}.json + leaderboard CSV
+  - `r1000_features.py` ->add `etf_leader_state_for_sector(sector) -> str` + `adaptive_sector_cap_multiplier(sector, default=1.0) -> float` helpers; reads cloud_results/etf_leadership/latest.json with cache
+  - `.github/workflows/etf_leadership_daily.yml` ->weekday 22:00 UTC cron + Telegram digest
+- symbols_added:
+  - `SECTOR_ETFS: dict` ->{XLK, XLF, ..., XLC} -> friendly label
+  - `THEME_ETFS: dict` ->{SOXX, XBI, ARKK, ICLN, KWEB, TAN, XME, XOP, XHB, IBB} -> friendly label
+  - `ALL_ETFS: dict` ->merged
+  - `compute_etf_metrics(ticker, label) -> dict|None` (etf_leadership_snapshot.py)
+  - `classify_state(ret_1m) -> str` ->'hot'/'warm'/'neutral'/'lagging'/'capitulating'
+  - `build_snapshot() -> dict` ->complete snapshot with leaders/laggards/sector_states
+  - `_load_etf_leader_state() -> dict` (r1000_features.py, cached)
+  - `etf_leader_state_for_sector(sector) -> str` ->maps GICS sector label to ETF state
+  - `adaptive_sector_cap_multiplier(sector, default=1.0) -> float` ->1.5/1.2/1.0/0.7/0.5 per state
+  - `_SECTOR_TO_ETF: dict` ->GICS-label-lower -> ETF ticker
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none -> helpers are passive; only return non-1.0 multipliers when latest.json exists. Engine code that calls them needs to be added later (defer to future commit since main pipeline sector-cap already lives in sleeve policy)
+- outputs:
+  - `cloud_results/etf_leadership/snapshot_YYYY-MM-DD.json` + `latest.json`
+  - `cloud_results/etf_leadership/leaderboard_30d.csv`
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - synthetic latest.json with {tech: hot, energy: lagging, real_estate: capitulating} -> helper correctly returned multipliers 1.5 / 0.7 / 0.5
+- risks_or_notes:
+  - L8 helpers are NOT yet wired into the main scoring/picker pipeline. They're available for future integration. Wire-in pattern: in `prepare_concentrated_frame` or sleeve-cap policy resolver, multiply per-sector cap by `adaptive_sector_cap_multiplier(sector)`.
+  - Cache `_ETF_LEADER_CACHE` is process-lifetime; restart engine after new snapshot lands.
+  - Tracked ETFs assume USD listing; international (KWEB, ICLN) may have ADR pricing quirks.
+
+### 23:30 KST - phase17v3-L7-tactical-regime-gate
+
+- scope: tactical sleeve allocation gated by regime_state (0% off-regime, 5% bull, 10% strong_bull) -- closes the loop where +explosion_entry / +rs_acceleration signals mis-fire in bear regimes per Phase 18b synthetic IC matrix
+- files:
+  - `r1000_config.py` ->add `tactical_sleeve_allocation_by_regime: dict` + `tactical_sleeve_allocation_default: float` to EngineConfig
+  - `r1000_features.py` ->add `tactical_allocation_for_regime(state, cfg=None) -> float` helper (cfg=None falls back to hardcoded defaults)
+  - `r1000_tactical_backtest.py` ->`backtest_loop(..., regime_gated=True)` skips off-regime periods (port_ret=0); active periods scaled by alloc map; new `--no-regime-gate` CLI flag for A/B
+- symbols_added:
+  - `tactical_allocation_for_regime(regime_state, cfg=None) -> float` (r1000_features.py)
+  - `regime_for_date(snap) -> str` (r1000_tactical_backtest.py)
+  - `TACTICAL_ALLOCATION_BY_REGIME: dict` (r1000_tactical_backtest.py)
+- symbols_changed:
+  - `backtest_loop()` ->new `regime_gated` kwarg; off-regime periods record empty WeeklyResult with port_ret=0
+- config_fields_added:
+  - `tactical_sleeve_allocation_by_regime: dict = {deep_bear: 0.0, bear: 0.0, neutral: 0.0, bull: 0.05, strong_bull: 0.10}` ->maps regime label to tactical sleeve pct of NAV
+  - `tactical_sleeve_allocation_default: float = 0.0` ->fallback for unknown regime states
+- breaking_changes:
+  - none -> backwards-compatible additive fields; backtester gate is opt-out via --no-regime-gate
+- outputs:
+  - none new (existing outputs/tactical_backtest/{weekly_returns,metrics}.{parquet,csv,json} populated with gated values)
+- validation:
+  - `python3 tests/smoke_test.py --quick` ->16/16 passed
+  - `tactical_allocation_for_regime` sanity test: all 5 states + 'unknown' + cfg=None -> correct values
+- risks_or_notes:
+  - L7 only affects the standalone tactical backtester (r1000_tactical_backtest.py). When tactical sleeve gets wired into the main portfolio (planned), the helper + cfg fields are already in place.
+  - Allocation values (5%/10%) are conservative; tunable via cfg without touching code.
+
+### 23:00 KST - phase18b-trade-insights
+
+- scope: AlphaTrade analysis layer -> IC matrix per signal x regime, k-means cluster win-rate, SHAP/gain importance, human-readable summary digest. Reads outputs/trade_journal/{trades,grades}.parquet (produced by 18a). Phase 18c will consume these outputs to auto-draft feature gates.
+- files:
+  - `tools/trade_insights.py` ->new analysis tool with IC matrix + clustering + SHAP + summary
+  - `.github/workflows/quarterly_trade_insights.yml` ->1st of Jan/Apr/Jul/Oct at 05:00 UTC + Telegram digest
+- symbols_added:
+  - `expand_signal_breakdown(trades) -> DataFrame` ->parses entry_signal_breakdown JSON into feat_* columns
+  - `compute_ic_matrix(trades_expanded, min_n=8) -> DataFrame` ->Spearman rank-IC per signal x regime
+  - `compute_cluster_winrate(trades_expanded, n_clusters=8, min_cluster_size=5) -> DataFrame` ->k-means + win-rate per cluster + top-3 dominant signals
+  - `compute_shap_importance(trades_expanded, n_estimators=200) -> DataFrame` ->XGBoost meta-model + SHAP (falls back to gain importance if shap not installed)
+  - `write_summary(out_dir, n_trades, ic_df, cluster_df, shap_df) -> Path` ->human-readable Markdown digest
+  - `EXPECTED_SIGNALS: tuple` ->signal registry kept in sync with r1000_trade_journal.SIGNAL_BREAKDOWN_COLUMNS
+  - `REGIME_ORDER: list` ->[deep_bear, bear, neutral, bull, strong_bull]
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none -> tool reads journal artifacts only, no engine integration
+- outputs:
+  - `outputs/trade_journal/insights/ic_matrix.csv` ->Spearman IC per signal x regime
+  - `outputs/trade_journal/insights/cluster_winrate.csv` ->per-cluster win-rate + signature
+  - `outputs/trade_journal/insights/shap_importance.csv` ->global SHAP/gain ranking
+  - `outputs/trade_journal/insights/summary.md` ->actionable digest with worst/best signal x regime cells + cluster signatures
+- validation:
+  - `python3 tests/smoke_test.py --quick` ->16/16 passed
+  - synthetic 207-trade test (rs_acceleration intentionally pos-correlated in bull, neg in bear) -> IC matrix RECOVERED EXACTLY: rs_acceleration in bull +0.533, in bear -0.749, in deep_bear -0.526. Cluster 2 (explosion_entry+1.12 dominant) win_rate 0.64 (best). Cluster 0 (h1_oversold+0.81 dominant) win_rate 0.43 (worst).
+- risks_or_notes:
+  - shap library is optional; falls through to xgboost gain importance gracefully
+  - sklearn KMeans + StandardScaler required (already in requirements_github.txt)
+  - Phase 18c next: tools/feature_gate_proposal.py reads ic_matrix.csv + cluster_winrate.csv -> auto-drafts research/auto_feature_gates.yaml. Human PR review gates the change. Next FULL rebuild applies gates.
+
 ### 22:30 KST - phase18a-trade-journal-foundation
 
 - scope: AlphaTrade Journal foundation -> persists every walk-forward trade with entry signal breakdown + auto-graded label, so Phase 18b/c can build IC matrix / clustering / SHAP / auto-feature-gate on top
