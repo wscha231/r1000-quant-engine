@@ -1,12 +1,86 @@
-# Session Handoff — 2026-04-27 (Phase 14 SHIP verified by cloud, baseline rotation pending)
+# Session Handoff — 2026-04-30 (Phase 17 v3 Step B+C shipped on branch + Phase 18a foundation)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
-> **LIFETIME**: rewrite this file whenever a phase ships or a new blocker appears. One active handoff only.
+> **LIFETIME**: rewrite the §1 top block whenever a phase ships or a new blocker appears. Older state preserved below for context.
 
 ---
 
-## 🟢 LATEST STATE (2026-04-27 09:30 KST) — Phase 14 SHIP verified, CURRENT_BASELINE rotation pending
+## 🟢 LATEST STATE (2026-04-30 22:30 KST) — Phase 17 v3 + Phase 18a on branch `claude/analyze-updated-code-OfEbu`
+
+> **BRANCH WARNING**: All recent work (commits `e6aa6c6` Phase 17v3-A, `79a8a36` Phase 17v3-B, `afeb723` Phase 17v3-C, plus current Phase 18a) is on branch `claude/analyze-updated-code-OfEbu` which diverged from `master` at `8172c0d` (2026-04-25, 4 commits behind). **Do NOT merge to master without a careful conflict-resolution pass** — master has 30+ unrelated commits including bot scans, baseline rotations, and cloud workflow fixes.
+
+### What shipped on this branch (in order)
+
+| Commit | Phase | Headline |
+|---|---|---|
+| `e6aa6c6` | 17v3 Step A | aggressive sleeve tilt + cash 0% + manual_pin BE/PLUG/RIVN/ENPH |
+| `79a8a36` | 17v3 Step B | L11 explosive pattern DB miner + dual XGBoost classifier + L15 tactical backtester + 2 monthly workflows |
+| `afeb723` | 17v3 Step C | L1 5-state regime classifier + L5 chase penalty + L12 daily macro snapshot + L14 auto baseline rotation |
+| (pending push) | **18a** | trade journal foundation: persist + pair entry/exit + auto-grade WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL |
+
+### Phase 17 v3 layer status (per `PHASE_18_PROPOSAL.md` + this branch)
+
+```
+L1   regime_state classifier (5-state)        SHIPPED  afeb723
+L5   chase prevention penalty                 SHIPPED  afeb723
+L11  explosive likelihood scoring (XGBoost)   SHIPPED  79a8a36 (models await first cron run)
+L12  daily macro snapshot                     SHIPPED  afeb723 (workflow at weekday 21:30 UTC)
+L14  auto baseline rotation                   SHIPPED  afeb723 (workflow at Sunday 04:00 UTC)
+L15  tactical backtester                      SHIPPED  79a8a36
+
+L2   mandate split (main mo / conc wk / tact dy)   PLANNED  uses L1 regime_state
+L7   tactical 10% allocation gated by regime       PLANNED  uses L1
+L8   ETF leadership + adaptive cap                 PLANNED  uses L1
+L9   explosive mover real-time alerts              PLANNED  uses L11
+L13  (already in Step A)
+```
+
+### 🆕 Phase 18 — AlphaTrade Journal & Self-Improvement Loop
+
+Design doc: `PHASE_18_PROPOSAL.md` (3-stage rollout, schemas, ship gate, AlphaGo analogy, 18b/18c roadmap).
+
+**18a (this commit)**:
+- `r1000_trade_journal.py` — 5 public functions + 9-signal breakdown registry
+- `r1000_pipeline.py` — `backtest_portfolio()` now persists per-month `holdings_history.parquet`, pairs entries with exits into `trades.parquet`, auto-grades into `grades.parquet` (try/except wrapped, non-fatal)
+- `tools/grade_trades.py` — ad-hoc CLI for re-grading existing journal files
+
+After one FULL rebuild, `outputs/trade_journal/` will contain ~1,680 graded trades across 84 months — immediate Phase 18b training substrate.
+
+### Verdict status
+
+- **Phase 14 + ADR cloud SHIP** verified on master (run 24961673988, +0.57pp CAGR vs baseline). Baseline rotation pending on master (separate workflow).
+- **Phase 17 v3 + 18a verdict**: not yet measured. Requires one cloud FULL rebuild on this branch (or after merge to master).
+
+### 🚧 Next-agent priority (in order)
+
+1. **Push current branch** if not yet done: `git push origin claude/analyze-updated-code-OfEbu`
+2. **Decide merge strategy for master**: branch is 4 commits behind, master has 30+ unrelated commits. Options:
+   - (a) Cherry-pick `e6aa6c6 → 79a8a36 → afeb723 → <18a>` onto master one at a time (safest, sees each conflict)
+   - (b) Open PR from branch to master and resolve via rebase
+   - (c) Keep branch separate, run cloud FULL rebuild here, decide based on verdict
+3. **Cloud FULL rebuild** to verify 17v3 + 18a effect (estimate: CAGR 24.5% baseline → 26-28% with 17v3 aggressive tilt + chase penalty + regime-aware sleeve)
+4. **First trade journal inspection**: `python tools/grade_trades.py --print-digest` after rebuild → confirm grade distribution looks reasonable (target: WIN/GOOD_EXIT 35-50%, LOSS/TRAP 10-25%)
+5. **Begin Phase 18b** (IC-by-regime matrix + clustering + SHAP) — needs only `outputs/trade_journal/{trades,grades}.parquet`
+
+### How to bootstrap a fresh agent
+
+```
+1. git checkout claude/analyze-updated-code-OfEbu && git log --oneline -5
+2. Read this file (SESSION_HANDOFF.md) §1
+3. Read CLAUDE.md (project basics)
+4. Read PHASE_18_PROPOSAL.md (latest design)
+5. Read CHANGELOG.md last ~200 lines (Phase 17v3 Step B/C + 18a entries)
+6. Run python3 tests/smoke_test.py (expect 60/60 PASS)
+```
+
+### Telegram silence note
+
+Telegram has been silent since Apr 23 (suspected GHA quota or scheduled workflow disable). Daily/weekly cron workflows still run but alerts may not arrive. L12 (macro_daily) and L14 (auto_baseline_rotation) and tactical_backtest workflows all include Telegram steps but won't visibly fire until quota resets.
+
+---
+
+## 📦 ARCHIVED — 2026-04-27 (Phase 14 SHIP verified by cloud, baseline rotation pending — relevant for master only)
 
 **Current HEAD = `b6c8bf8`** on `master`. 30+ commits since 2026-04-25.
 

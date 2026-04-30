@@ -51,6 +51,125 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-04-30
+
+### 22:30 KST - phase18a-trade-journal-foundation
+
+- scope: AlphaTrade Journal foundation -> persists every walk-forward trade with entry signal breakdown + auto-graded label, so Phase 18b/c can build IC matrix / clustering / SHAP / auto-feature-gate on top
+- files:
+  - `PHASE_18_PROPOSAL.md` ->new design doc (3-stage rollout, schemas, ship gate, AlphaGo analogy, 18b/18c roadmap)
+  - `r1000_trade_journal.py` ->new module (5 public functions + 9-signal breakdown registry)
+  - `r1000_pipeline.py` ->import `r1000_trade_journal`, capture entry_signal_breakdown + regime_state per holdings_rows.append, call persist + pair + grade after backtest_portfolio (try/except wrapped, non-fatal)
+  - `tools/grade_trades.py` ->new CLI for ad-hoc re-grading on existing journal files
+- symbols_added:
+  - `attach_signal_breakdown(month_df, ticker, extra_cols=None) -> dict` ->JSON-friendly Phase 14/17 signal contributions for a single ticker at one rebalance date
+  - `regime_at_row(month_df, ticker) -> tuple[str, int]` ->fetch (regime_state, regime_state_score) for one ticker
+  - `persist_holdings_history(holdings_df, paths, engine_version) -> Path` ->write outputs/trade_journal/holdings_history.parquet + .csv
+  - `pair_entries_with_exits(holdings_df, paths, engine_version, benchmark_returns=None) -> DataFrame` ->build trades.parquet by detecting contiguous holding blocks per ticker (45-day gap = new trade)
+  - `grade_trades(trades_df, paths) -> DataFrame` ->auto-label WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL via threshold rules
+  - `summary_digest(grades_df) -> dict` ->compact stats for log line / Telegram digest
+  - `SIGNAL_BREAKDOWN_COLUMNS: tuple[str, ...]` ->canonical 9-signal registry kept in sync with PHASE14 + PHASE17 columns
+- symbols_changed:
+  - `backtest_portfolio()` ->each holdings_rows.append now includes entry_signal_breakdown (JSON), regime_state, regime_state_score; right before return BacktestResult, calls persist_holdings_history + pair_entries_with_exits + grade_trades wrapped in try/except (non-fatal on failure)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none -> trade_journal hook is purely additive; backtest result + metrics unchanged
+- outputs:
+  - `outputs/trade_journal/holdings_history.parquet` (+ .csv) ->per-month holding snapshot with entry signal breakdown JSON + regime tag + engine_version
+  - `outputs/trade_journal/trades.parquet` (+ .csv) ->entry-exit pair per round-trip (trade_id, entry/exit dates + prices, holding_days, realized_return, alpha_vs_benchmark)
+  - `outputs/trade_journal/grades.parquet` (+ .csv) ->per-trade auto-applied label (WIN/LOSS/TRAP/GOOD_EXIT/NEUTRAL) + grade_reason
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - synthetic 6-month / 4-ticker journal end-to-end test ->NVDA GOOD_EXIT, ENPH TRAP, BBBY LOSS, AAPL NEUTRAL (all 4 grades correctly applied)
+  - syntax check on all 3 modified Python files
+- risks_or_notes:
+  - 18a tags exit_reason as `scheduled_rebalance` only; stop_loss / trailing / revision_break reasons are computed inside backtest_portfolio loop but not propagated back to holdings_rows. Will fix in 18a-followup.
+  - Engine version drift: trade_journal stamps ENGINE_REUSE_VERSION on every row. When engine bumps, prior journal becomes stale -> next FULL rebuild regenerates entire journal under the new version (acceptable since walk-forward sim is deterministic).
+  - Standalone sleeve + concentrated backtest variants (`backtest_standalone_sleeve_topn`, `backtest_concentrated_portfolio`) are NOT yet wired -> only main `backtest_portfolio` writes journal. To extend, copy the 7-line wire-in block.
+  - 18b roadmap (next): IC-by-regime matrix, k-means pattern clustering, SHAP attribution -> all consume `outputs/trade_journal/{trades,grades}.parquet`.
+  - User intent: AlphaGo-style self-improvement. Walk-forward backtest = self-play training data (engine-deterministic). One FULL rebuild yields ~1,680 graded trades immediately (no waiting for paper-trade accumulation).
+
+### 21:45 KST - phase17v3-stepC-l1-l5-l12-l14
+
+- scope: Phase 17 v3 Step C -> regime classifier + chase penalty + daily macro snapshot + auto baseline rotation
+- files:
+  - `r1000_features.py` ->add `compute_regime_state_classifier()` + `PHASE17_REGIME_STATE_COLUMNS` constant
+  - `r1000_config.py` ->add PHASE17_REGIME_STATE_COLUMNS to __all__
+  - `r1000_pipeline.py` ->wire regime classifier into build_feature_store + add chase-prevention penalty in `prepare_concentrated_frame` (subtracts up to 0.50 from concentrated_score for mom_12m > 100% near 52w high OR mom_12m > 200%) + keep_cols + sanitize whitelist
+  - `tools/macro_daily_snapshot.py` ->new daily macro pulse tool (yfinance SPY/VIX + FRED HY OAS / DGS10 / UNRATE)
+  - `tools/auto_baseline_rotation.py` ->new auto baseline rotation tool (ast-based dict parser/rewriter + ship gate evaluator)
+  - `.github/workflows/macro_daily_snapshot.yml` ->weekday 21:30 UTC cron
+  - `.github/workflows/auto_baseline_rotation_weekly.yml` ->Sunday 04:00 UTC cron
+- symbols_added:
+  - `compute_regime_state_classifier(df) -> DataFrame` ->emits regime_state (string label) + regime_state_score (-2/-1/0/+1/+2)
+  - `PHASE17_REGIME_STATE_COLUMNS: list[str]` ->[regime_state, regime_state_score]
+  - `_REGIME_STATE_NUMERIC: dict` ->label-to-score mapping
+  - `compute_snapshot()` (macro_daily_snapshot.py) ->build daily macro snap dict
+  - `classify_regime(snap)` (macro_daily_snapshot.py) ->same threshold logic as L1
+  - `detect_transitions(today, prev)` (macro_daily_snapshot.py) ->regime/MA200/VIX-spike crossings
+  - `parse_current_baseline(text)` (auto_baseline_rotation.py) ->ast-parse CURRENT_BASELINE dict literal
+  - `replace_current_baseline(text, new_dict)` (auto_baseline_rotation.py) ->rewrite literal preserving formatting
+  - `evaluate_gate(baseline, candidate) -> tuple[bool, list[str]]` ->ship gate check (ΔCAGR>=+0.5pp, ΔSharpe>=-0.05, ΔMaxDD>=-3pp, early_scout>=4)
+  - `build_candidate_baseline(metrics, name) -> dict` ->map raw metrics.json to baseline dict
+- symbols_changed:
+  - `prepare_concentrated_frame()` ->subtract `chase_penalty` from final concentrated_score (Phase 17 v3 L5)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `ENGINE_REUSE_VERSION` bumped 2026-04-25-phase14-hybrid-alpha -> 2026-04-29-phase17v3-l11-explosion (already in Step B commit) -> regime classifier reuses same version (additive features, no new schema). Subsequent FULL rebuild required for L1 regime_state to populate feature_store.
+- outputs:
+  - `cloud_results/macro_daily/snapshot_YYYY-MM-DD.json` + `latest.json`
+  - `outputs/regime_state` (in feature_store_latest.parquet via keep_cols)
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - synthetic 5-row regime input -> deep_bear/bear/neutral/bull/strong_bull correctly classified
+  - synthetic metrics.json (CAGR 26.91%) -> SHIP verdict produced, dict literal rewritten preserving formatting
+- risks_or_notes:
+  - L5 chase penalty is on concentrated picks ONLY (prepare_concentrated_frame), NOT on main monthly portfolio.
+  - L12 macro_daily_snapshot regime thresholds duplicate L1's (compute_regime_state_classifier). Keep them synchronized when tuning.
+  - L14 ship gate constants live in tools/auto_baseline_rotation.py (DELTA_CAGR_MIN etc.). If CLAUDE.md ship gate moves, update tool too.
+
+### 19:30 KST - phase17v3-stepB-explosive-pattern-db-and-tactical-backtest
+
+- scope: Phase 17 v3 Step B -> historical explosion miner + dual XGBoost classifier (entry T-12/-6/-3 + exit T0/+3/+6) + weekly tactical backtester + monthly retraining workflows
+- files:
+  - `tools/build_explosive_pattern_db.py` ->mine yfinance R3000 history for sustained explosions (+150-800% in 6mo, mcap >= $300M, sustained at T+24mo)
+  - `tools/train_explosion_classifier.py` ->train 6 binary XGBoost classifiers with on-demand 15-feature computation + stratified 5-fold CV
+  - `r1000_features.py` ->add `compute_explosion_likelihood_score()` lazy-loads boosters, emits 3 columns (entry/exit/net), falls through to 0.0 if models absent
+  - `r1000_config.py` ->add `PHASE17_EXPLOSION_COLUMNS` + bump ENGINE_REUSE_VERSION to 2026-04-29-phase17v3-l11-explosion
+  - `r1000_pipeline.py` ->wire compute_explosion_likelihood_score into build_feature_store + keep_cols + hard_sanitize
+  - `r1000_tactical_backtest.py` ->new weekly top-N backtester with tactical_score blend, reports CAGR/Sharpe/MaxDD/hit_rate/beat_spy
+  - `.github/workflows/explosive_pattern_train_monthly.yml` ->15th of month 16:00 UTC mine+train+commit
+  - `.github/workflows/tactical_backtest_monthly.yml` ->16th of month 03:00 UTC backtest + Telegram regression alert
+- symbols_added:
+  - `compute_explosion_likelihood_score(df, cfg=None) -> DataFrame` ->loads XGBoost JSON boosters, emits explosion_entry_score / exit_score / net_score
+  - `_EXPLOSION_FEATURE_MAP: list` ->trainer feature -> feature_store column candidates with defaults
+  - `_load_explosion_models() -> dict` ->lazy booster loader (cached)
+  - `_build_explosion_feature_matrix(df) -> ndarray` ->15-column feature matrix in trainer order
+  - `PHASE17_EXPLOSION_COLUMNS: list[str]` ->[explosion_entry_score, explosion_exit_score, explosion_net_score]
+  - `ExplosionEvent` dataclass (build_explosive_pattern_db.py) ->one historical sustained explosion case
+  - `Snapshot` dataclass (train_explosion_classifier.py) ->per-event feature snapshot
+  - `WeeklyResult` dataclass (r1000_tactical_backtest.py) ->one weekly rebalance result
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `ENGINE_REUSE_VERSION` bumped 2026-04-25-phase14-hybrid-alpha -> 2026-04-29-phase17v3-l11-explosion. One FULL REBUILD required per machine for the new explosion_* columns to populate feature_store.
+- outputs:
+  - `outputs/explosive_pattern_db/events.parquet` ->historical event mining results
+  - `outputs/explosive_pattern_db/models/{entry_12mo,entry_6mo,entry_3mo,exit_at_peak,exit_post_peak_3mo,exit_post_peak_6mo}.json` ->XGBoost boosters
+  - `outputs/explosive_pattern_db/models/cv_metrics.json` + `feature_importance.csv`
+  - `outputs/tactical_backtest/{weekly_returns,metrics}.{parquet,csv,json}` ->tactical L15 results
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed (including new structural test for phase_is_enabled snake_case key)
+  - syntax check on all 5 new files
+- risks_or_notes:
+  - Models do NOT exist yet -> first run of `compute_explosion_likelihood_score` returns all-zero columns (acceptable fallthrough). After first explosive_pattern_train_monthly cron run, scores become live.
+  - Tactical backtest requires multi-week scored_history.parquet -> exits cleanly with rc=2 if missing. No fabrication.
+  - phase_is_enabled key for explosion sleeve must be snake_case (`phase17_explosion`); 17_EXPLOSION (initial draft) was caught by smoke regression test.
+
 ## 2026-04-27
 
 ### 09:30 KST - cloud-full-rebuild-SHIP-verification
