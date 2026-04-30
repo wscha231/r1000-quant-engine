@@ -4763,6 +4763,161 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+# =====================================================================
+# Phase 17 v3 Layer 11 (2026-04-29): Explosive likelihood scoring.
+# Inference for the dual entry/exit XGBoost models trained by
+# tools/train_explosion_classifier.py on the historical event database
+# produced by tools/build_explosive_pattern_db.py.
+#
+# Emits 3 columns per ticker:
+#   explosion_entry_score    max of P(entry) at -12/-6/-3 mo horizons
+#   explosion_exit_score     max of P(exit) at peak/+3/+6 mo horizons
+#   explosion_net_score      entry - exit (net signal; >0 = buy, <0 = exit)
+#
+# If models are missing OR xgboost not installed OR feature inputs are
+# absent, all three columns fall back to 0.0 — keep_cols whitelist
+# survives, walk-forward training silently picks up zero contribution.
+# =====================================================================
+
+PHASE17_EXPLOSION_COLUMNS = [
+    "explosion_entry_score",
+    "explosion_exit_score",
+    "explosion_net_score",
+]
+
+_EXPLOSION_MODEL_CACHE: dict = {}
+
+# Mapping: trainer feature name -> (column candidates in feature_store, default)
+_EXPLOSION_FEATURE_MAP = [
+    ("mom_1m",                  ["mom_1m"],                                  0.0),
+    ("mom_3m",                  ["mom_3m"],                                  0.0),
+    ("mom_6m",                  ["mom_6m"],                                  0.0),
+    ("mom_12m",                 ["mom_12m"],                                 0.0),
+    ("vol_30d",                 ["volatility_30d", "atr14_pct"],             0.20),
+    ("vol_90d",                 ["volatility_90d", "atr14_pct"],             0.25),
+    ("max_dd_90d",              ["max_drawdown_90d", "max_dd_90d"],          0.0),
+    ("rs_vs_spy_3m",            ["rs_benchmark_3m"],                         0.0),
+    ("rs_vs_spy_6m",            ["rs_benchmark_6m"],                         0.0),
+    ("rsi_14",                  ["rsi14"],                                   50.0),
+    ("price_vs_sma_50",         ["price_vs_sma_50", "near_52w_high_pct"],    0.0),
+    ("price_vs_sma_200",        ["price_vs_sma_200", "ma200_slope_1m"],      0.0),
+    ("volume_surge",            ["volume_surge_30_180", "breakout_volume_z"], 1.0),
+    ("dollar_vol_avg_20d_log",  ["dollar_vol_avg_20d_log"],                  0.0),
+    ("mcap_proxy_log",          ["log_mktcap", "mcap_proxy_log"],            0.0),
+]
+
+
+def _load_explosion_models() -> dict:
+    """Lazy-load XGBoost JSON boosters from outputs/explosive_pattern_db/models/.
+
+    Returns dict {target_name: booster} or {} if anything fails.
+    Cached after first successful load.
+    """
+    if _EXPLOSION_MODEL_CACHE:
+        return _EXPLOSION_MODEL_CACHE
+    try:
+        import xgboost as xgb
+    except ImportError:
+        return {}
+    model_dir = Path("outputs/explosive_pattern_db/models")
+    if not model_dir.exists():
+        return {}
+    targets = [
+        "entry_12mo", "entry_6mo", "entry_3mo",
+        "exit_at_peak", "exit_post_peak_3mo", "exit_post_peak_6mo",
+    ]
+    out: dict = {}
+    for tgt in targets:
+        p = model_dir / f"{tgt}.json"
+        if not p.exists():
+            continue
+        try:
+            booster = xgb.XGBClassifier()
+            booster.load_model(str(p))
+            out[tgt] = booster
+        except Exception:
+            continue
+    if out:
+        _EXPLOSION_MODEL_CACHE.update(out)
+    return out
+
+
+def _build_explosion_feature_matrix(df: pd.DataFrame) -> Optional[np.ndarray]:
+    """Assemble the 15-column feature matrix in trainer order.
+
+    For each (trainer_name, candidates, default), pick the first candidate
+    present in df; fill NaN with the default. Special-case mcap_proxy_log:
+    if log_mktcap missing but mktcap present, compute log1p(mktcap).
+    """
+    if df is None or df.empty:
+        return None
+    cols: list[np.ndarray] = []
+    for trainer_name, candidates, default in _EXPLOSION_FEATURE_MAP:
+        s: Optional[pd.Series] = None
+        for c in candidates:
+            if c in df.columns:
+                s = pd.to_numeric(df[c], errors="coerce")
+                break
+        if s is None and trainer_name == "mcap_proxy_log" and "mktcap" in df.columns:
+            mc = pd.to_numeric(df["mktcap"], errors="coerce").clip(lower=0)
+            s = np.log1p(mc)
+        if s is None:
+            s = pd.Series(default, index=df.index, dtype=float)
+        cols.append(s.fillna(default).to_numpy(dtype=float))
+    return np.column_stack(cols)
+
+
+def compute_explosion_likelihood_score(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
+    """Phase 17 v3 L11 — score explosion entry / exit probabilities.
+
+    Loads the 6 XGBoost classifiers trained on historical sustained
+    explosions (+150% to +800% in 6mo, mcap >= $300M, sustained at
+    T+24mo). Emits 3 ML-friendly columns. Falls through to zeros if
+    models or features are absent — engine continues without error.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    for col in PHASE17_EXPLOSION_COLUMNS:
+        d[col] = 0.0
+
+    if d.empty or not phase_is_enabled("phase17_explosion", default=True):
+        return d
+
+    models = _load_explosion_models()
+    if not models:
+        return d
+
+    X = _build_explosion_feature_matrix(d)
+    if X is None or len(X) == 0:
+        return d
+
+    entry_targets = ["entry_12mo", "entry_6mo", "entry_3mo"]
+    exit_targets = ["exit_at_peak", "exit_post_peak_3mo", "exit_post_peak_6mo"]
+
+    entry_probs: list[np.ndarray] = []
+    exit_probs: list[np.ndarray] = []
+    for tgt in entry_targets:
+        if tgt in models:
+            try:
+                entry_probs.append(models[tgt].predict_proba(X)[:, 1])
+            except Exception:
+                continue
+    for tgt in exit_targets:
+        if tgt in models:
+            try:
+                exit_probs.append(models[tgt].predict_proba(X)[:, 1])
+            except Exception:
+                continue
+
+    if entry_probs:
+        d["explosion_entry_score"] = np.maximum.reduce(entry_probs)
+    if exit_probs:
+        d["explosion_exit_score"] = np.maximum.reduce(exit_probs)
+    d["explosion_net_score"] = (
+        d["explosion_entry_score"] - d["explosion_exit_score"]
+    ).clip(lower=-1.0, upper=1.0)
+    return d
+
+
 def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     """Wrap r1000_themes.attach_per_ticker_theme_features for production engine.
 

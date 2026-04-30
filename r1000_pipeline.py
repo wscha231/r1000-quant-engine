@@ -84,6 +84,7 @@ from r1000_config import (
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
+    PHASE17_EXPLOSION_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -275,6 +276,7 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    compute_explosion_likelihood_score,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -7088,6 +7090,10 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     universe = compute_h6_dynamic_leader_score(universe)
     universe = compute_stage2_overext_penalty(universe)
     universe = compute_theme_phase_features(universe)
+    # Phase 17 v3 L11 (2026-04-29): explosive likelihood scoring. Loads
+    # XGBoost dual entry/exit boosters from outputs/explosive_pattern_db/
+    # models/. If models / xgboost / inputs absent, fills 0.0 — no error.
+    universe = compute_explosion_likelihood_score(universe, cfg)
 
     keep_cols = list(
         dict.fromkeys(
@@ -7152,6 +7158,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
+            + PHASE17_EXPLOSION_COLUMNS
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7182,6 +7189,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
+        + PHASE17_EXPLOSION_COLUMNS
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e12,
     )

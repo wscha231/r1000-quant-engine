@@ -213,6 +213,19 @@ PHASE9_C3_TURNAROUND_COLUMNS = [
 ]
 
 # =====================================================================
+# Phase 17 v3 Layer 11 (2026-04-29): Explosive likelihood scoring.
+# Inference for XGBoost dual entry/exit models trained on historical
+# sustained explosions (+150% to +800% in 6mo, mcap >= $300M, sustained
+# at T+24mo). Models live in outputs/explosive_pattern_db/models/.
+# Falls through to 0.0 if models / xgboost / inputs absent.
+# =====================================================================
+PHASE17_EXPLOSION_COLUMNS = [
+    "explosion_entry_score",                # max P(entry) at T-12/-6/-3mo horizons
+    "explosion_exit_score",                 # max P(exit) at peak/+3/+6mo horizons
+    "explosion_net_score",                  # entry - exit (>0 = buy, <0 = exit)
+]
+
+# =====================================================================
 # Stage 1b (2026-04-20): column whitelists + macro/event/sleeve data
 # =====================================================================
 # Extracted from r1000_top30_institutional.py lines 399-1173 (pre-move).
@@ -589,7 +602,7 @@ DEFAULT_FEATURES = [
     "val_residual_ep",
     "val_residual_sp",
     "val_residual_fcfy",
-] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS
+] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + PHASE17_EXPLOSION_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
     "institutional_flow_actual_score",
@@ -1364,7 +1377,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-25-phase14-hybrid-alpha"
+ENGINE_REUSE_VERSION = "2026-04-29-phase17v3-l11-explosion"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -2151,6 +2164,8 @@ __all__ = [
     "PHASE1_ALPHA_COLUMNS",
     "PHASE8B_LONG_LOOKBACK_COLUMNS",
     "PHASE9_C3_TURNAROUND_COLUMNS",
+    "PHASE14_HYBRID_ALPHA_COLUMNS",
+    "PHASE17_EXPLOSION_COLUMNS",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",
