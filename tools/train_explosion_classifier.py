@@ -1,52 +1,25 @@
 #!/usr/bin/env python3
-"""train_explosion_classifier — Phase 17 v3 Layer 11 dual entry/exit trainer.
+"""train_explosion_classifier - Phase 17 v3 Layer 11 dual entry/exit trainer.
 
-Reads outputs/explosive_pattern_db/events.parquet (produced by
-build_explosive_pattern_db.py) and trains 6 XGBoost binary classifiers:
-
-    entry models  : was-this-snapshot-12mo-before-an-explosion?
-                    (T-12mo / T-6mo / T-3mo)
-    exit models   : will-price-be-lower-from-here-N-months-out?
-                    (T+0 peak / T+3mo post-peak / T+6mo post-peak)
-
-Features at each snapshot are computed on-demand from yfinance price
-history (price-derived only — momentum, vol, RS-vs-SPY, RSI, MA-cross,
-volume surge, log mcap proxy). Negative samples for entry models drawn
-from random non-event dates within the same universe.
+Reads outputs/explosive_pattern_db/events.parquet and trains entry and exit
+classifiers for the explosion sleeve. Entry models look for future explosive
+moves; exit models learn peak and post-peak risk.
 
 Outputs
-=======
-    outputs/explosive_pattern_db/models/
-        entry_12mo.json
-        entry_6mo.json
-        entry_3mo.json
-        exit_at_peak.json
-        exit_post_peak_3mo.json
-        exit_post_peak_6mo.json
-        feature_importance.csv
-        cv_metrics.json
-
-Inference is NOT in this script. r1000_features.py:
-compute_explosion_likelihood_score loads these JSON booster files and
-emits the score column during the main pipeline.
+-------
+    outputs/explosive_pattern_db/models/entry_12mo.json
+    outputs/explosive_pattern_db/models/entry_6mo.json
+    outputs/explosive_pattern_db/models/entry_3mo.json
+    outputs/explosive_pattern_db/models/exit_at_peak.json
+    outputs/explosive_pattern_db/models/exit_post_peak_3mo.json
+    outputs/explosive_pattern_db/models/exit_post_peak_6mo.json
+    outputs/explosive_pattern_db/models/cv_metrics.json
 
 Usage
-=====
+-----
     python tools/train_explosion_classifier.py
     python tools/train_explosion_classifier.py --neg-per-pos 5 --cv-folds 5
     python tools/train_explosion_classifier.py --dry-run
-
-Design notes
-============
-* yfinance is the data source (matches the miner). On-demand fetch is
-  slow but the event count is small (expect 200-800 events globally),
-  so total training time stays under ~30 min.
-* If xgboost is missing, falls back to sklearn GradientBoostingClassifier
-  so the workflow still produces a model (lower quality but bootstraps
-  the pipeline).
-* Negative sampling uses random dates from the SAME ticker universe
-  excluding any 12-month window around real events — keeps survivorship
-  / sector mix balanced.
 """
 from __future__ import annotations
 
@@ -240,7 +213,7 @@ def build_event_snapshots(events_df, args) -> tuple[list[Snapshot], dict]:
 
     Returns
     -------
-    snapshots : flat list (one Snapshot per event × offset)
+    snapshots : flat list (one Snapshot per event x offset)
     by_target : {target_name: list[Snapshot]} grouping for trainer
     """
     import pandas as pd
@@ -261,7 +234,7 @@ def build_event_snapshots(events_df, args) -> tuple[list[Snapshot], dict]:
             continue
         ticker = str(row["ticker"]).upper()
         peak_date = pd.to_datetime(row["peak_date"])
-        # Need: T-12mo .. T+12mo coverage (training feature window 252d → fetch +1y back)
+        # Need: T-12mo .. T+12mo coverage (training feature window 252d -> fetch +1y back)
         fetch_start = (peak_date - pd.Timedelta(days=int(2 * 365.25))).strftime("%Y-%m-%d")
         fetch_end = (peak_date + pd.Timedelta(days=int(1.5 * 365.25))).strftime("%Y-%m-%d")
         hist = fetch_history(ticker, fetch_start, fetch_end)
@@ -281,7 +254,7 @@ def build_event_snapshots(events_df, args) -> tuple[list[Snapshot], dict]:
             if feats is None:
                 continue
 
-            # Entry label: positive iff offset matches an entry target (e.g. -12 → entry_12mo)
+            # Entry label: positive iff offset matches an entry target (e.g. -12 -> entry_12mo)
             for tgt_name, tgt_off in ENTRY_TARGETS.items():
                 if offset_m == tgt_off:
                     s = Snapshot(ticker, str(hist.index[snap_idx].date()), label=1, features=feats)
@@ -386,7 +359,7 @@ def train_one(target_name: str, snaps: list[Snapshot], args) -> dict:
     """Train one binary classifier; return CV metric dict."""
     import pandas as pd
     if len(snaps) < 20:
-        print(f"[train] {target_name}: skipped — only {len(snaps)} samples")
+        print(f"[train] {target_name}: skipped - only {len(snaps)} samples")
         return {"target": target_name, "n_samples": len(snaps), "skipped": True}
 
     X = pd.DataFrame([s.features for s in snaps])[FEATURE_COLUMNS].astype(float)
@@ -442,7 +415,7 @@ def train_one(target_name: str, snaps: list[Snapshot], args) -> dict:
         except ValueError:
             pass
 
-    # Final model on all data → save
+    # Final model on all data -> save
     if booster_kind == "xgboost":
         final = xgb.XGBClassifier(**clf_kwargs)
         final.fit(X, y)

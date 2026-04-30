@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""trade_insights — Phase 18b (2026-04-30) AlphaTrade analysis layer.
+"""trade_insights - Phase 18b (2026-04-30) AlphaTrade analysis layer.
 
 Reads outputs/trade_journal/{trades,grades}.parquet (produced by 18a)
 and emits three artifacts under outputs/trade_journal/insights/:
@@ -170,7 +170,7 @@ def compute_cluster_winrate(
     realized = pd.to_numeric(trades_expanded["realized_return"], errors="coerce").fillna(0.0).to_numpy()
     grade_label = trades_expanded.get("grade_label")  # may be NaN if grades not yet merged
 
-    centroids_unscaled = km.cluster_centers_  # in standardized space — for centroid display, invert
+    centroids_unscaled = km.cluster_centers_  # in standardized space - for centroid display, invert
     rows: list[dict] = []
     for k in range(n_clusters):
         mask = labels == k
@@ -272,10 +272,10 @@ def write_summary(
     # IC findings
     lines.append("## 1. Signal IC by regime (rank correlation)")
     if ic_df.empty:
-        lines.append("_(no IC data — too few trades or signals missing)_")
+        lines.append("_(no IC data - too few trades or signals missing)_")
     else:
         lines.append("Top actionable findings:")
-        # Most negative IC per signal × regime
+        # Most negative IC per signal x regime
         long = ic_df.melt(id_vars=["signal"],
                           value_vars=[c for c in ic_df.columns if c.startswith("ic_") and c != "ic_all"],
                           var_name="regime", value_name="ic")
@@ -284,12 +284,12 @@ def write_summary(
         if not long.empty:
             worst = long.sort_values("ic").head(3)
             lines.append("")
-            lines.append("**Worst signal × regime cells (potential gate candidates)**:")
+            lines.append("**Worst signal x regime cells (potential gate candidates)**:")
             for _, r in worst.iterrows():
                 lines.append(f"- `{r['signal']}` in **{r['regime']}**: IC = {r['ic']:+.3f}")
             best = long.sort_values("ic", ascending=False).head(3)
             lines.append("")
-            lines.append("**Best signal × regime cells (amplify candidates)**:")
+            lines.append("**Best signal x regime cells (amplify candidates)**:")
             for _, r in best.iterrows():
                 lines.append(f"- `{r['signal']}` in **{r['regime']}**: IC = {r['ic']:+.3f}")
         lines.append("")
@@ -299,7 +299,7 @@ def write_summary(
     # Cluster findings
     lines.append("## 2. Trade pattern clusters")
     if cluster_df.empty or "error" in cluster_df.columns:
-        lines.append(f"_(no clusters — {cluster_df.iloc[0]['error'] if not cluster_df.empty else 'no data'})_")
+        lines.append(f"_(no clusters - {cluster_df.iloc[0]['error'] if not cluster_df.empty else 'no data'})_")
     else:
         worst = cluster_df.sort_values("win_rate").head(2)
         lines.append("**Worst pattern clusters (block candidates)**:")
@@ -319,7 +319,7 @@ def write_summary(
     # SHAP
     lines.append("## 3. SHAP / model importance")
     if shap_df.empty or "error" in shap_df.columns:
-        lines.append(f"_(no SHAP — {shap_df.iloc[0]['error'] if not shap_df.empty else 'no data'})_")
+        lines.append(f"_(no SHAP - {shap_df.iloc[0]['error'] if not shap_df.empty else 'no data'})_")
     else:
         method = shap_df.iloc[0].get("method", "shap")
         lines.append(f"**Top 5 features by {method} importance** (impact on realized_return):")

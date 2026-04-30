@@ -1,38 +1,12 @@
 #!/usr/bin/env python3
-"""etf_leadership_snapshot — Phase 17 v3 Layer 8 (2026-04-30) ETF leadership tracker.
+"""etf_leadership_snapshot - Phase 17 v3 Layer 8 ETF leadership tracker.
 
-User insight (2026-04-29):
-  "intel/qcom 등 반도체 주식들이 급등중이다. 시장 주도 섹터를 파악하기 위해
-   ETF들도 참고하는게 어때. ETF 수익률들과 안에 내용물도. 섹터 분산 강요할
-   필요 없음."
-
-Captures the trailing 1m / 3m / 6m return of major sector + theme ETFs
-and ranks them. The leader_state output feeds:
-  * adaptive sector cap (relax when sector ETF is leading)
-  * concentrated picker bias (boost stocks inside leading ETFs)
-  * monthly Telegram digest
-
-Tracked ETFs
-============
-    Sector S&P SPDRs:
-        XLK (tech), XLF (financials), XLE (energy), XLV (health),
-        XLY (cons disc), XLI (industrials), XLB (materials),
-        XLP (cons staples), XLU (utilities), XLRE (real estate),
-        XLC (communication services)
-    Themes:
-        SOXX (semis), XBI (biotech), ARKK (innovation),
-        ICLN (clean energy), KWEB (china internet), TAN (solar),
-        XME (mining), XOP (oil & gas E&P), XHB (homebuilders),
-        IBB (big biotech)
-
-Output
-======
-    cloud_results/etf_leadership/snapshot_YYYY-MM-DD.json
-    cloud_results/etf_leadership/latest.json
-    cloud_results/etf_leadership/leaderboard_30d.csv
+Captures trailing 1m / 3m / 6m returns for major sector and theme ETFs. The
+leader_state output can feed adaptive sector caps, concentrated picker bias,
+and monthly alerting.
 
 Usage
-=====
+-----
     python tools/etf_leadership_snapshot.py
     python tools/etf_leadership_snapshot.py --telegram
 """

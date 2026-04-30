@@ -1,48 +1,22 @@
 #!/usr/bin/env python3
-"""r1000_tactical_backtest — Phase 17 v3 Layer 15 weekly tactical sleeve backtester.
+"""r1000_tactical_backtest - Phase 17 v3 Layer 15 tactical sleeve backtester.
 
-User insight (2026-04-29):
-  "tactical 백테스트는 없는듯한데 신규 전략도 믿을만한지 데이터화하자."
-
-The tactical sleeve picks ~5 names weekly using a blended explosion +
-acceleration score. Until now it was trusted blindly. This module
-backtests that strategy against history and produces the standard
-performance dict (CAGR / Sharpe / MaxDD / weekly hit rate) so the
-sleeve can be ship-gated like any other phase.
+Backtests the tactical sleeve before trusting it as a production signal.
+The sleeve picks about five names using a blended explosion and relative-strength
+score, then reports CAGR / Sharpe / MaxDD / hit rate so it can be ship-gated.
 
 Strategy
-========
-Weekly cadence — every Monday close:
-  1. Score all eligible names (mcap >= $300M, dollar_vol >= $3M)
-  2. tactical_score =
-        +0.30 * rs_acceleration_score
-        +0.25 * h6_dynamic_leader_score
-        +0.25 * explosion_entry_score          (Phase 17 L11)
-        -0.25 * explosion_exit_score
-        -0.20 * stage2_overext_penalty
-        +0.15 * (theme_phase_multiplier_max - 1.0)
-  3. Pick top-N (default 5)
-  4. Equal-weight, hold 1 week
-  5. On Monday close next week: sell all, repeat
-
-Output
-======
-    outputs/tactical_backtest/
-        weekly_returns.parquet   ts, port_ret, spy_ret, holdings_json
-        metrics.json             cagr, sharpe, max_dd, hit_rate, ...
-
-Usage
-=====
-    python r1000_tactical_backtest.py
-    python r1000_tactical_backtest.py --top-n 5 --start 2020-01-01
-    python r1000_tactical_backtest.py --history outputs/scored_history.parquet
+--------
+Weekly cadence when r_1w exists; otherwise monthly proxy from r_1m:
+  1. Score all eligible names (mcap >= $300M, dollar_vol >= $3M).
+  2. Rank by tactical_score.
+  3. Pick top-N (default 5).
+  4. Equal weight inside the active tactical allocation.
 
 Notes
-=====
-* Requires multi-week historical scored data (feature_store_latest has
-  only the latest snapshot). If the history file is missing, prints a
-  clear message and exits with rc=2 — does NOT fabricate data.
-* Walk-forward safe: at week W, only uses features known at W-1 close.
+-----
+* Requires historical scored snapshots; it exits with rc=2 if history is absent.
+* Walk-forward safe: each period only uses features available at that date.
 """
 from __future__ import annotations
 
@@ -60,7 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = REPO_ROOT / "outputs" / "tactical_backtest"
 
 # Default tactical_score blend weights (sum-positive coefs add to ~0.95;
-# they are NOT a normalized weight vector — the formula produces a
+# they are NOT a normalized weight vector - the formula produces a
 # dimensionless score, then top-N selection ranks across the cross
 # section).
 DEFAULT_BLEND = {
@@ -104,8 +78,13 @@ def filter_eligible(df: pd.DataFrame) -> pd.DataFrame:
     if "mktcap" in out.columns:
         mc = pd.to_numeric(out["mktcap"], errors="coerce")
         out = out[(mc >= ELIGIBILITY_MCAP_MIN) | mc.isna()]
-    if "dollar_vol_avg_20d" in out.columns:
-        dv = pd.to_numeric(out["dollar_vol_avg_20d"], errors="coerce")
+    dollar_vol_col = None
+    for candidate in ("dollar_vol_20d", "dollar_vol_avg_20d"):
+        if candidate in out.columns:
+            dollar_vol_col = candidate
+            break
+    if dollar_vol_col:
+        dv = pd.to_numeric(out[dollar_vol_col], errors="coerce")
         out = out[(dv >= ELIGIBILITY_DOLLAR_VOL_MIN) | dv.isna()]
     return out
 
@@ -201,7 +180,7 @@ def backtest_loop(
         score = compute_tactical_score(eligible, blend)
         eligible = eligible.assign(_score=score.values)
         eligible = eligible.sort_values("_score", ascending=False)
-        # Skip if all scores are zero (no signal — likely models missing)
+        # Skip if all scores are zero (no signal - likely models missing)
         if float(eligible["_score"].abs().max()) < 1e-9:
             continue
         picks = eligible.head(top_n)

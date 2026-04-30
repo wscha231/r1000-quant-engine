@@ -1,66 +1,37 @@
 #!/usr/bin/env python3
-"""build_explosive_pattern_db — Phase 17 v3 Layer 11 historical explosion miner.
+"""build_explosive_pattern_db - Phase 17 v3 Layer 11 historical explosion miner.
 
-User insight (2026-04-29):
-  "올랐다 내리더라도 파는 타이밍도 학습하면 됨. 단 파산 / pre-explosion 보다
-   낮아지는 수준은 회피. 단기 테마라도 exit timing 잡으면 OK. mcap floor $300M."
-
-Mines Russell 3000 (2018-2025) for sustainable explosive movers and
-captures features at multiple pre-explosion + post-peak time-points so
-a downstream classifier can learn BOTH entry timing (T-12mo / T-6mo /
-T-3mo) AND exit timing (peak detection / T+3mo post-peak).
+Mines a broad equity universe for sustainable explosive movers and captures
+pre-explosion plus post-peak feature snapshots. The downstream classifier can
+learn both entry timing and exit timing.
 
 Filter chain
-============
-
-Stage 1 — Pre-explosion eligibility:
-    mcap_min            $300M (user-set floor)
-    mcap_max            $30B  (above = R1000 mega-cap, not "explosive" candidate)
+------------
+Stage 1 - Pre-explosion eligibility:
+    mcap_min            $300M
+    mcap_max            $30B
     daily_dollar_vol    >= $3M/day
-    listed_years        >= 2  (need 2y price history minimum)
+    listed_years        >= 2
 
-Stage 2 — Explosion event:
+Stage 2 - Explosion event:
     6-month return      +150% to +800%
-    max_single_day      < 50% of total move (filter pump-of-the-day)
+    max_single_day      < 50% of total move
 
-Stage 3 — Exclusion (USER-SET: only 2 conditions reject):
-    bankruptcy_within_24mo               -> reject
-    price_at_T+24mo < pre_explosion_price -> reject (didn't sustain at all)
-
-Everything else is INCLUDED — short-term themes that came back down 50%
-are valid training data for EXIT timing learning.
+Stage 3 - Exclusion:
+    bankruptcy_within_24mo                -> reject
+    price_at_T+24mo < pre_explosion_price -> reject
 
 Outputs
-=======
-    outputs/explosive_pattern_db/
-        events.parquet          ticker, peak_date, pre_price, peak_price, ...
-        features_t_minus_12mo.parquet
-        features_t_minus_6mo.parquet
-        features_t_minus_3mo.parquet
-        features_at_peak.parquet
-        features_t_plus_3mo.parquet
-        features_t_plus_6mo.parquet
-        labels.parquet          per-snapshot binary labels for entry/exit
-
-Auto-refresh
-============
-    .github/workflows/explosive_pattern_train_monthly.yml runs the
-    miner + classifier monthly (15th @ 16:00 UTC). New events from the
-    most recent 30 days are appended.
+-------
+    outputs/explosive_pattern_db/events.parquet
+    outputs/explosive_pattern_db/features_*.parquet
+    outputs/explosive_pattern_db/labels.parquet
 
 Usage
-=====
+-----
     python tools/build_explosive_pattern_db.py
     python tools/build_explosive_pattern_db.py --years 8
     python tools/build_explosive_pattern_db.py --dry-run --tickers AAPL,NVDA
-
-Note
-====
-This is the MINING phase only — produces the historical event database
-and feature snapshots. Classifier training (XGBoost) lives in
-tools/train_explosion_classifier.py. Inference runs from
-r1000_features.py:compute_explosion_likelihood_score during the main
-pipeline.
 """
 from __future__ import annotations
 
@@ -202,7 +173,7 @@ def fetch_price_history(ticker: str, start: str, end: str):
             return None
         df = df.rename(columns={"Close": "close", "Volume": "volume"})
         df["dollar_vol"] = df["close"] * df["volume"]
-        # Note: mcap_proxy = close × shares_outstanding from .info — single
+        # Note: mcap_proxy = close x shares_outstanding from .info - single
         # snapshot for now. For PIT correctness, would need historical
         # shares from SEC filings. Acceptable for filter purposes.
         info = t.info or {}
@@ -268,7 +239,7 @@ def detect_explosions(ticker: str, hist) -> list[ExplosionEvent]:
         if pre_dv < DAILY_DOLLAR_VOL_MIN_USD:
             continue
 
-        # Sustainability check (Stage 3 — only 2 exclusion conditions)
+        # Sustainability check (Stage 3 - only 2 exclusion conditions)
         forward_window = int(POST_PEAK_FORWARD_MONTHS * 21)
         if peak_loc + forward_window < len(closes):
             t_plus_12mo_idx = peak_loc + int(12 * 21)
@@ -278,7 +249,7 @@ def detect_explosions(ticker: str, hist) -> list[ExplosionEvent]:
             sustained_12 = t_plus_12mo_price > pre_price * 1.0
             sustained_24 = t_plus_24mo_price > pre_price * 1.0
         else:
-            # not enough forward data — skip (need 24mo of post)
+            # not enough forward data - skip (need 24mo of post)
             continue
 
         # Apply Stage 3 exclusion (per user: bankruptcy / below-pre only)
