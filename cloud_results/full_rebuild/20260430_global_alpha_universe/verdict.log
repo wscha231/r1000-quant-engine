@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        366ea20 (DIRTY)
-  started:       2026-05-01 03:22:01 KST
+  commit:        b4b824e (DIRTY)
+  started:       2026-05-01 05:00:11 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-05-01
   mode:          QUICK_RESCORE
@@ -18,75 +18,7 @@ r1000 Quant Engine -- local run
 ======================================================================
 OK: companyfacts.zip 0.3d old, 1308 MB
 
-======================================================================
-CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
-======================================================================
-
-Scored rows: 646
-
-Sleeve distribution (raw):
-portfolio_sleeve_label
-unassigned         392
-early_scout        123
-future_winner       80
-core_compounder     51
-
-Phase 9 diagnostic columns (expect populated if C2 active):
-  phase9_thesis_gate_active                 mean=1.000  sum=646
-  phase9_core_eligible                      mean=0.082  sum=53
-  phase9_future_eligible                    mean=0.111  sum=72
-  phase9_early_eligible                     mean=0.190  sum=123
-  phase9_unassigned                         mean=0.616  sum=398
-  phase9_mktcap_percentile                  mean=0.501  sum=324
-
-Final portfolio: 18 positions
-  Sleeve dist: {'core_compounder': 4, 'early_scout': 4, 'future_winner': 9}
-  Top 10 by weight:
-ticker portfolio_sleeve_label   weight
-  GOOG        core_compounder 0.128800
-  CASH                    NaN 0.080000
-  MRVL          future_winner 0.059079
-   FTI          future_winner 0.057450
-   ZTO          future_winner 0.057438
-  LRCX        core_compounder 0.057417
-   TSM          future_winner 0.057209
-   WDC          future_winner 0.057136
-   LNG        core_compounder 0.056422
-  ASML          future_winner 0.056390
-
-======================================================================
-METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
-======================================================================
-  metric                          new   baseline          delta
-  cagr                         0.2149     0.2451        -3.02pp
-  sharpe                       1.1953     1.2453        -0.0500
-  max_dd                      -0.2945    -0.2579        -3.66pp
-  ir                           0.7504     1.0244        -0.2740
-  avg_turnover_monthly         0.4917     0.4854        +0.63pp
-  avg_stock_names             26.2195    24.3300        +1.8895
-  beat_month_ratio             0.6220     0.5663        +0.0557
-  excess_cagr                  0.0815     0.1102        -2.87pp
-
-=== SLEEVE ALLOCATION ===
-  target:  {'core_compounder': 0.14000000000000004, 'future_winner': 0.48, 'early_scout': 0.30000000000000004}
-  actual:  {'core_compounder': 0.2794395328019804, 'future_winner': 0.49336046719801974, 'early_scout': 0.14720000000000003}
-  counts:  {'core_compounder': 4, 'future_winner': 9, 'early_scout': 4}
-
-=== VERDICT ===
-  dCAGR    -3.02pp   (gate >= +0.5pp)
-  dSharpe  -0.0500    (gate >= -0.05)
-  dMaxDD   -3.66pp   (gate >= -3pp; positive better)
-  early_scout selected: 4    (gate >= 4)
-
-  --> REGRESS vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). See SESSION_HANDOFF.md §3c (rollback).
-
-======================================================================
-LIFETIME PERFORMANCE (backtest + live, Phase 12D)
-======================================================================
-  Backtest anchor: 2026-01-30 at equity 3.7824
-  Lifetime CAGR:   21.95% over 6.75 years
-  Lifetime total:  281.96%
-  vs baseline CAGR (24.51%): -2.56pp
-  Live extension:  method=no_live_data (no live data yet)
-  HINT: edit base_dir/manual_positions.yaml with real broker holdings
-        (avg_cost, shares, entry_date) to activate lifetime CAGR.
+VERDICT: outputs missing -- cannot run Cell E verdict:
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/backtest_metrics.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/weights_latest.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv

@@ -1,1 +1,1 @@
-job_status: success
+job_status: failure
