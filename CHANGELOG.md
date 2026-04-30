@@ -135,6 +135,42 @@ All entries must be written in English. Entries must be predictable and machine-
     a full rebuild verdict because regime fallback order is a portfolio
     behavior change.
 
+### 05:25 KST - adr-mktcap-cache-date-normalization
+
+- scope:
+  - Fix the failed Phase 20 rebuild where `yf_mktcap_proxy.parquet` mixed
+    legacy ISO-string timestamps with pandas Timestamp rows and crashed while
+    sorting `updated_at`.
+- files:
+  - `r1000_pipeline.py` ->normalizes ADR market-cap proxy cache timestamps
+    before and after cache refresh concat, and stores new fetch rows as
+    Timestamp values.
+  - `tests/smoke_test.py` ->adds regression coverage for mixed cache
+    timestamp types.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `fetch_mktcap_proxy(ticker)` ->returns a pandas Timestamp for
+    `updated_at` instead of an ISO string.
+  - `ensure_mktcap_proxy(cfg, paths, tickers, max_new)` ->coerces
+    `updated_at` to datetime before concat, after concat, before sort, and
+    before returning.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is cache dtype normalization only; feature definitions and
+    portfolio behavior are unchanged.
+- outputs:
+  - none directly. The next full rebuild should pass the ADR market-cap proxy
+    cache refresh step instead of failing before feature-store construction.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (78/78)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - The failed run did not produce valid backtest metrics, so it cannot be used
+    as a strategy verdict.
+
 ## 2026-04-30
 
 ### 19:40 KST - workflow-cadence-consolidation

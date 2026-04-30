@@ -782,6 +782,55 @@ def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
     assert str(tsm["mktcap_source"]) == "adr_yf_usd_proxy_ratio"
 
 
+@_test("logic.adr_mktcap_proxy_cache_dates_are_normalized")
+def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
+    """Legacy ISO-string cache rows must coexist with new Timestamp rows.
+
+    Regression: GitHub full rebuild 25182904974 crashed while sorting
+    `yf_mktcap_proxy.parquet` because `updated_at` contained both strings and
+    pandas Timestamps after a cache refresh.
+    """
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+    from pandas.api.types import is_datetime64_any_dtype
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        seed = pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": [pd.Timestamp.utcnow().tz_localize(None)],
+            }
+        )
+        seed.to_parquet(cache_dir / "yf_mktcap_proxy.parquet", index=False)
+
+        original = pipe.fetch_mktcap_proxy
+        try:
+            pipe.fetch_mktcap_proxy = lambda ticker: {
+                "ticker": ticker,
+                "mktcap_proxy": 1.5e12,
+                "price_currency": "USD",
+                "financial_currency": "USD",
+                "shares_outstanding_proxy": 1.0e9,
+                "implied_shares_outstanding_proxy": 1.0e9,
+                "updated_at": "2026-04-30T00:00:00",
+            }
+            out = pipe.ensure_mktcap_proxy(EngineConfig(), paths, ["TSM", "ASML"], max_new=5)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+
+    assert set(out["ticker"].astype(str)) == {"TSM", "ASML"}
+    assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
+
+
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
 def test_adr_valuation_uses_adr_equivalent_shares() -> None:
     """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""

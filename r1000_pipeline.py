@@ -4939,7 +4939,7 @@ def fetch_mktcap_proxy(ticker: str) -> dict[str, Any]:
         "financial_currency": financial_currency,
         "shares_outstanding_proxy": shares_outstanding,
         "implied_shares_outstanding_proxy": implied_shares_outstanding,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "updated_at": pd.Timestamp.utcnow().tz_localize(None),
     }
 
 
@@ -4957,9 +4957,20 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
             if i % 40 == 0:
                 time.sleep(1.0)
         add = pd.DataFrame(rows)
+        if "updated_at" in add.columns:
+            add["updated_at"] = pd.to_datetime(add["updated_at"], errors="coerce")
+        if not cache.empty and "updated_at" in cache.columns:
+            cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
         cache = pd.concat([cache, add], ignore_index=True) if not cache.empty else add
-        cache = cache.sort_values("updated_at").drop_duplicates("ticker", keep="last")
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
+        cache = (
+            cache.sort_values("updated_at", na_position="first")
+            .drop_duplicates("ticker", keep="last")
+            .reset_index(drop=True)
+        )
         save_mktcap_proxy_cache(paths, cache)
+    if "updated_at" in cache.columns and not cache.empty:
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
     return cache
 
 
