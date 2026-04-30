@@ -5109,38 +5109,129 @@ def apply_signal_regime_gate_series(
     return pd.to_numeric(series, errors="coerce") * factors
 
 
+# Pattern block tolerance — distance threshold between row's z-scored
+# signal vector and the cluster centroid, normalized by signature size.
+# 0.6 is roughly "row is within 0.6 std of centroid on each top-3
+# signal" -- conservative so we don't over-block. Tunable.
+PATTERN_BLOCK_DISTANCE_TOL = 0.6
+# Score-multiplier penalty applied to flagged rows. 0.0 = full block;
+# 0.5 = halve the score (let it survive but unlikely to be picked).
+PATTERN_BLOCK_SCORE_PENALTY = 0.0
+
+
+def _row_matches_pattern_signature(
+    row: pd.Series,
+    signature: dict,
+    z_lookup: dict,
+    tol: float = PATTERN_BLOCK_DISTANCE_TOL,
+) -> bool:
+    """Test if a row's signal values (after cross-sectional z-scoring
+    via z_lookup) lie within `tol` of every signature dimension."""
+    if not signature or not z_lookup:
+        return False
+    n = 0
+    for sig_name, target_z in signature.items():
+        if sig_name not in z_lookup:
+            return False
+        try:
+            actual = float(z_lookup[sig_name].get(row.name, 0.0))
+        except (TypeError, ValueError):
+            return False
+        try:
+            target = float(target_z)
+        except (TypeError, ValueError):
+            return False
+        if abs(actual - target) > tol:
+            return False
+        n += 1
+    return n > 0
+
+
 def apply_phase18c_gates_to_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Walk all Phase 14 + Phase 17 signal columns and apply auto gates
     based on each row's regime_state. Pure transform; idempotent.
 
     Called once at the end of the feature pipeline (after all
     compute_* functions and after compute_regime_state_classifier).
-    Returns the same DataFrame with gated values in place. Adds an
-    `applied_gates_count` column tagging how many gates fired per row
-    (useful for backtest_journal -> 18c effectiveness audit).
+    Returns the same DataFrame with gated values in place. Adds two
+    audit columns:
+        applied_gates_count   how many signal x regime gates fired
+        pattern_blocked       1 if row matched a pattern_block centroid
     """
     if df is None or df.empty:
         return df
     gates = load_auto_feature_gates()
     by_sr = gates.get("gates_by_signal_regime", {})
-    if not by_sr or "regime_state" not in df.columns:
+    pattern_blocks = gates.get("pattern_blocks", []) or []
+    if (not by_sr and not pattern_blocks) or "regime_state" not in df.columns:
         if "applied_gates_count" not in df.columns:
             df["applied_gates_count"] = 0
+        if "pattern_blocked" not in df.columns:
+            df["pattern_blocked"] = 0
         return df
     out = df.copy()
     regimes = out["regime_state"].astype(str).fillna("")
     fire_count = pd.Series(0, index=out.index)
-    # Gate each signal column individually for vectorized speed.
+
+    # 1. Signal x regime gates (existing behavior)
     signals_to_check = [s for s in {sig for (sig, _) in by_sr.keys()} if s in out.columns]
     for sig in signals_to_check:
         out[sig] = apply_signal_regime_gate_series(out[sig], sig, regimes)
-        # Tag rows where a gate (factor != 1.0) fired
         for (gate_sig, gate_reg), factor in by_sr.items():
             if gate_sig != sig or factor == 1.0:
                 continue
             mask = regimes == gate_reg
             fire_count = fire_count + mask.astype(int)
     out["applied_gates_count"] = fire_count.astype(int)
+
+    # 2. Pattern block matching (Phase 18c-followup, 2026-04-30).
+    # For each pattern_block, compute cross-sectional z of every signature
+    # signal (within this rebalance batch -- approximated globally if
+    # rebalance_date column missing). Match rows whose every signature
+    # signal is within tol of the centroid. Flag + apply score penalty.
+    pattern_blocked = pd.Series(0, index=out.index)
+    if pattern_blocks:
+        # Collect all unique signature signals
+        all_sig_names: set[str] = set()
+        for pb in pattern_blocks:
+            all_sig_names.update((pb.get("signature") or {}).keys())
+        # Per-rebalance z-score lookup for these signals (or global if no
+        # rebalance_date). Stored as {signal_name: {index: z_value}}.
+        z_lookup: dict[str, dict] = {}
+        date_grouper = "rebalance_date" if "rebalance_date" in out.columns else None
+        for sig_name in all_sig_names:
+            if sig_name not in out.columns:
+                z_lookup[sig_name] = {}
+                continue
+            col = pd.to_numeric(out[sig_name], errors="coerce")
+            if date_grouper:
+                z = col.groupby(out[date_grouper], group_keys=False).transform(
+                    lambda s: (s - s.mean()) / s.std(ddof=0) if s.std(ddof=0) > 0 else s * 0.0
+                )
+            else:
+                std = col.std(ddof=0)
+                z = (col - col.mean()) / std if std > 0 else col * 0.0
+            z_lookup[sig_name] = z.to_dict()
+
+        for pb in pattern_blocks:
+            sig = pb.get("signature") or {}
+            if not sig:
+                continue
+            mask = out.apply(
+                lambda row, sig=sig: _row_matches_pattern_signature(row, sig, z_lookup),
+                axis=1,
+            )
+            pattern_blocked = pattern_blocked + mask.astype(int)
+        # Apply score penalty if score column exists. Multiplier 0 = block
+        # outright; tunable via PATTERN_BLOCK_SCORE_PENALTY.
+        if "score" in out.columns:
+            blocked_mask = pattern_blocked > 0
+            if blocked_mask.any():
+                out.loc[blocked_mask, "score"] = (
+                    pd.to_numeric(out.loc[blocked_mask, "score"], errors="coerce")
+                    * PATTERN_BLOCK_SCORE_PENALTY
+                )
+    out["pattern_blocked"] = pattern_blocked.clip(upper=1).astype(int)
     return out
 
 

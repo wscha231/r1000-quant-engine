@@ -7183,7 +7183,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
-            + ["applied_gates_count"]    # Phase 18c: count of gates fired this row
+            + ["applied_gates_count", "pattern_blocked"]    # Phase 18c audit cols
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )

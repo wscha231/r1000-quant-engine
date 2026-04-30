@@ -53,6 +53,46 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-30
 
+### 25:30 KST - phase17v3-L2-L8-wire-and-18c-pattern-block-enforce
+
+- scope: batched 3 followup items (L8 sector cap wire-in + 18c pattern-block enforcement + L2 mandate registry) so cloud FULL rebuild can verify all in one shot rather than 3 sequential rebuilds (test time saver per user mandate)
+- files:
+  - `r1000_signals.py` ->import `adaptive_sector_cap_multiplier`; multiply per-sector cap in `compute_dynamic_sector_caps` after base lagger/leader/overheated logic; clamp result to [0.0, 0.50]
+  - `r1000_features.py` ->extend `apply_phase18c_gates_to_frame` with pattern_block enforcement (cross-sectional z-score lookup + tolerance-based signature matching + score multiplier penalty + `pattern_blocked` audit column); add `_row_matches_pattern_signature`, `PATTERN_BLOCK_DISTANCE_TOL`, `PATTERN_BLOCK_SCORE_PENALTY`
+  - `r1000_pipeline.py` ->add `pattern_blocked` to keep_cols whitelist alongside `applied_gates_count`
+  - `r1000_config.py` ->add `MANDATE_REGISTRY` dict + 3 helper fns (`mandate_capacity_for_regime`, `mandate_cadence`, `mandate_target_n`); export via __all__
+- symbols_added:
+  - `_row_matches_pattern_signature(row, signature, z_lookup, tol) -> bool` (r1000_features.py)
+  - `PATTERN_BLOCK_DISTANCE_TOL: float = 0.6` ->z-distance tolerance per signature dimension
+  - `PATTERN_BLOCK_SCORE_PENALTY: float = 0.0` ->multiplier on `score` for blocked rows
+  - `MANDATE_REGISTRY: dict` ->canonical 3-mandate registry (main / concentrated / tactical) with cadence + capacity_pct_by_regime + weighting + stops
+  - `mandate_capacity_for_regime(mandate, regime_state) -> float`
+  - `mandate_cadence(mandate) -> str`
+  - `mandate_target_n(mandate, override=None) -> int`
+- symbols_changed:
+  - `compute_dynamic_sector_caps()` (r1000_signals.py) ->after assigning base/lagger/leader/overheated cap, multiply by `adaptive_sector_cap_multiplier(sector)` and clamp to [0.0, 0.50]; no-op when latest.json absent (multiplier defaults to 1.0)
+  - `apply_phase18c_gates_to_frame()` (r1000_features.py) ->added pattern_block matching loop; emits `pattern_blocked` audit col; applies `score *= PATTERN_BLOCK_SCORE_PENALTY` on flagged rows (default 0.0 = full block)
+- config_fields_added:
+  - none (MANDATE_REGISTRY is a module-level dict, not an EngineConfig field)
+- breaking_changes:
+  - none -> all changes are no-ops until the relevant data file exists:
+    - L8 wire-in: no-op until cloud_results/etf_leadership/latest.json populated
+    - pattern_block enforcement: no-op until research/auto_feature_gates.yaml has non-empty pattern_block entries
+    - MANDATE_REGISTRY: passive constant; no engine code reads it yet (Phase 18+ orchestrator will)
+- outputs:
+  - `pattern_blocked: int` column in feature_store_latest.parquet (0 by default; 1 when cluster centroid match)
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - L8 wire-in: synthetic latest.json + 5 sectors -> caps correctly scaled by 1.5/1.2/1.0/0.7/0.5
+  - Pattern block: 20-row frame with 1 row engineered to z-match centroid (1.4, 1.0) -> exactly 1 row blocked, score=0; 19 untouched
+  - MANDATE_REGISTRY capacity totals across regimes: 0.40/0.55/0.75/0.90/1.00 (cash buffer scales 60% deep_bear -> 0% strong_bull)
+- risks_or_notes:
+  - L8 cap multiplier clamp [0.0, 0.50] is a safety bound; 0.50 single-sector cap is the engine's documented absolute max regardless of leadership state
+  - Pattern block matching uses cross-sectional z within rebalance_date groups for robustness (if rebalance_date column missing, falls back to global z)
+  - PATTERN_BLOCK_SCORE_PENALTY=0.0 is full block. Tunable to 0.5 (halve) if 0.0 proves too aggressive after first quarterly cycle
+  - MANDATE_REGISTRY is the ONE source of truth for tactical capacity; EngineConfig.tactical_sleeve_allocation_by_regime mirrors it. Update both atomically when tuning
+  - Phase 19+ will add a `portfolio_orchestrator` that reads MANDATE_REGISTRY and produces a unified target weight map combining all 3 mandates. Until then, mandates run as 3 separate backtests; the registry is just the contract
+
 ### 24:30 KST - phase18c-auto-feature-gate-self-improvement-loop
 
 - scope: closes the AlphaTrade self-improvement loop -> auto-drafts research/auto_feature_gates.yaml from Phase 18b insights (IC matrix + cluster win-rates), engine reads + applies gates per row's regime_state. PR-based human-in-loop review preserves safety.

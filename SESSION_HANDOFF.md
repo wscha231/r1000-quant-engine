@@ -21,22 +21,23 @@
 | `486a654` | **18b** | trade insights: IC-by-regime matrix + k-means clustering + SHAP + quarterly workflow |
 | `c1248ef` | **17v3 L7** | tactical sleeve regime gate (0% off-regime, 5%/10% bull/strong_bull) |
 | `3258ce1` | **17v3 L8** | ETF leadership tracker + adaptive sector cap multiplier helpers + daily workflow |
-| (pending push) | **18c** | auto feature gate self-improvement loop (proposal tool + engine wire-in + PR-based workflow) |
+| `ff96dd8` | **18c** | auto feature gate self-improvement loop (proposal tool + engine wire-in + PR-based workflow) |
+| (pending push) | **batched** | L8 cap wire-in + 18c pattern-block enforce + L2 mandate registry (3-in-1 to save cloud test time) |
 
 ### Phase 17 v3 layer status (per `PHASE_18_PROPOSAL.md` + this branch)
 
 ```
 L1   regime_state classifier (5-state)        SHIPPED  afeb723
+L2   mandate registry (3-mandate config)      SHIPPED  pending push
 L5   chase prevention penalty                 SHIPPED  afeb723
 L7   tactical regime gate                     SHIPPED  c1248ef (5%/10% bull/strong_bull)
-L8   ETF leadership + adaptive cap helpers    SHIPPED  pending  (helpers ready, wire-in deferred)
+L8   ETF leadership + adaptive cap            SHIPPED  3258ce1 helpers + pending wire-in
 L11  explosive likelihood scoring (XGBoost)   SHIPPED  79a8a36 (models await first cron run)
 L12  daily macro snapshot                     SHIPPED  afeb723 (workflow at weekday 21:30 UTC)
 L13  aggressive sleeve tilt                   SHIPPED  e6aa6c6
 L14  auto baseline rotation                   SHIPPED  afeb723 (workflow at Sunday 04:00 UTC)
 L15  tactical backtester                      SHIPPED  79a8a36
 
-L2   mandate split (main mo / conc wk / tact dy)   PLANNED  architectural
 L9   explosive mover real-time alerts              PLANNED  uses L11
 
 Phase 18 (AlphaTrade self-improvement loop):

@@ -54,6 +54,7 @@ from r1000_helpers import (
     winsorize,
 )
 from r1000_features import (
+    adaptive_sector_cap_multiplier,
     compute_minervini_momentum_overlay,
     count_present_columns,
     datetime_series_or_default,
@@ -2303,6 +2304,15 @@ def compute_dynamic_sector_caps(cfg: EngineConfig, month_df: pd.DataFrame) -> di
             if pd.notna(r.avg_dist) and r.avg_dist > cfg.overheat_thr and r.sector not in active_crisis_sectors:
                 cap = cfg.cap_overheated_weight
         caps[r.sector] = cap
+    # Phase 17 v3 L8 (2026-04-30): apply ETF-leadership-aware multiplier.
+    # Hot sector ETF -> relax cap (let winners run); lagging -> tighten;
+    # capitulating -> half. Multiplier defaults to 1.0 when ETF leadership
+    # snapshot file is absent, so this is no-op until the daily workflow
+    # has populated cloud_results/etf_leadership/latest.json.
+    for sector_name in list(caps.keys()):
+        mult = adaptive_sector_cap_multiplier(sector_name, default=1.0)
+        if mult != 1.0:
+            caps[sector_name] = float(min(0.50, max(0.0, caps[sector_name] * mult)))
     return caps
 
 

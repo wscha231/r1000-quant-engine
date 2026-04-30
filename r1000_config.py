@@ -234,6 +234,109 @@ PHASE17_REGIME_STATE_COLUMNS = [
 ]
 
 # =====================================================================
+# Phase 17 v3 Layer 2 (2026-04-30): Mandate split registry.
+# Three mandates with distinct cadences + capacity targets:
+#
+#   main          monthly rebalance, 15-25 names, diversified (core
+#                 sleeve compounding, traditional ML walk-forward)
+#   concentrated  monthly rebalance, 3-5 names, conviction-weighted
+#                 (concentrated_score; chase-prevention enforced)
+#   tactical      weekly rebalance, 5 names, tactical_score blend,
+#                 regime-gated (5%/10% in bull/strong_bull only,
+#                 0% otherwise per L7)
+#
+# Each mandate has a capacity_pct -- the share of total NAV it can
+# own. Sum should be ~1.0; remainder is cash. Engine code branches on
+# mandate via MANDATE_REGISTRY (Phase 18+ portfolio orchestrator will
+# combine mandates into a unified target weight map).
+# =====================================================================
+
+# Capacity totals across mandates per regime (cash = 1.0 - sum):
+#   deep_bear   0.40 (60% cash)
+#   bear        0.55 (45% cash)
+#   neutral     0.75 (25% cash)
+#   bull        0.90 (10% cash)
+#   strong_bull 1.00 (0%  cash)
+MANDATE_REGISTRY = {
+    "main": {
+        "cadence": "monthly",
+        "default_target_n": 20,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.35,
+            "bear": 0.50,
+            "neutral": 0.65,
+            "bull": 0.75,
+            "strong_bull": 0.80,
+        },
+        "weighting_mode": "score_weighted_with_caps",
+        "stop_loss_pct": -0.15,
+        "trailing_stop_pct": -0.18,
+    },
+    "concentrated": {
+        "cadence": "monthly",
+        "default_target_n": 5,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.05,
+            "bear": 0.05,
+            "neutral": 0.10,
+            "bull": 0.10,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "score_power",
+        "stop_loss_pct": -0.10,
+        "trailing_stop_pct": -0.15,
+    },
+    "tactical": {
+        "cadence": "weekly",
+        "default_target_n": 5,
+        # Mirrors EngineConfig.tactical_sleeve_allocation_by_regime so
+        # the registry is the single source of truth for downstream
+        # orchestration. Update both atomically.
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.0,
+            "bear": 0.0,
+            "neutral": 0.0,
+            "bull": 0.05,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "equal",
+        "stop_loss_pct": -0.08,
+        "trailing_stop_pct": -0.12,
+    },
+}
+
+
+def mandate_capacity_for_regime(mandate: str, regime_state: str) -> float:
+    """Return the NAV share for a mandate at a given regime. Pure
+    lookup; defaults to 0.0 for unknown mandate/regime so callers
+    safely degrade to "no allocation" rather than crashing."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    if not spec:
+        return 0.0
+    cap_map = spec.get("capacity_pct_by_regime", {})
+    if not isinstance(cap_map, dict):
+        return 0.0
+    try:
+        return float(cap_map.get(str(regime_state), 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def mandate_cadence(mandate: str) -> str:
+    """Return cadence string ('weekly' / 'monthly') for a mandate. Defaults
+    to 'monthly' for unknown."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return str(spec.get("cadence", "monthly")) if spec else "monthly"
+
+
+def mandate_target_n(mandate: str, override: Optional[int] = None) -> int:
+    """Return target_n for a mandate, with optional override."""
+    if override is not None:
+        return int(override)
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return int(spec.get("default_target_n", 0)) if spec else 0
+
+# =====================================================================
 # Stage 1b (2026-04-20): column whitelists + macro/event/sleeve data
 # =====================================================================
 # Extracted from r1000_top30_institutional.py lines 399-1173 (pre-move).
@@ -2188,6 +2291,10 @@ __all__ = [
     "PHASE14_HYBRID_ALPHA_COLUMNS",
     "PHASE17_EXPLOSION_COLUMNS",
     "PHASE17_REGIME_STATE_COLUMNS",
+    "MANDATE_REGISTRY",
+    "mandate_capacity_for_regime",
+    "mandate_cadence",
+    "mandate_target_n",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",
