@@ -23,7 +23,8 @@
 | `3258ce1` | **17v3 L8** | ETF leadership tracker + adaptive sector cap multiplier helpers + daily workflow |
 | `ff96dd8` | **18c** | auto feature gate self-improvement loop (proposal tool + engine wire-in + PR-based workflow) |
 | `19c138d` | **batched** | L8 cap wire-in + 18c pattern-block enforce + L2 mandate registry (3-in-1 to save cloud test time) |
-| (pending push) | **17v3 L9** | daily explosive mover scanner -- L11 score filter + 24h dedup + regime gate + Telegram digest |
+| `750cdd1` | **17v3 L9** | daily explosive mover scanner -- L11 score filter + 24h dedup + regime gate + Telegram digest |
+| (pending push) | **19a** | portfolio orchestrator scaffolding (compose_unified_portfolio + CLI; additive only) |
 
 ### Phase 17 v3 layer status (per `PHASE_18_PROPOSAL.md` + this branch)
 
@@ -33,7 +34,7 @@ L2   mandate registry (3-mandate config)      SHIPPED  19c138d
 L5   chase prevention penalty                 SHIPPED  afeb723
 L7   tactical regime gate                     SHIPPED  c1248ef (5%/10% bull/strong_bull)
 L8   ETF leadership + adaptive cap            SHIPPED  3258ce1 helpers + 19c138d wire-in
-L9   explosive mover daily scanner            SHIPPED  pending push (Telegram alert + 24h dedup)
+L9   explosive mover daily scanner            SHIPPED  750cdd1
 L11  explosive likelihood scoring (XGBoost)   SHIPPED  79a8a36 (models await first cron run)
 L12  daily macro snapshot                     SHIPPED  afeb723 (workflow at weekday 21:30 UTC)
 L13  aggressive sleeve tilt                   SHIPPED  e6aa6c6
@@ -47,6 +48,10 @@ Phase 18 (AlphaTrade self-improvement loop):
   18b  trade insights (IC matrix + cluster + SHAP) SHIPPED  486a654
   18c  auto feature gate (proposal + engine apply) SHIPPED  ff96dd8 + 19c138d (pattern-block enforce)
        -- self-improvement loop is now CLOSED end-to-end --
+
+Phase 19 (Portfolio Orchestrator):
+  19a  scaffolding (compose_unified_portfolio CLI) SHIPPED  pending push -- additive only
+  19b  unified backtest replacing 3 separate sims  PLANNED  needs cfg flag + walk-forward integration
 ```
 
 ### Self-improvement loop status (closed end-to-end)

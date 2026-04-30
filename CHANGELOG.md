@@ -53,6 +53,43 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-04-30
 
+### 27:00 KST - phase19a-portfolio-orchestrator-scaffolding
+
+- scope: pure-transform portfolio orchestrator -> takes per-mandate weight maps + regime_state -> produces unified target weight dict + cash residual + conflict list. Additive only (no engine integration); Phase 19b will replace 3-separate-backtest workflow with one unified walk-forward sim.
+- files:
+  - `PHASE_19_PROPOSAL.md` ->new design doc (19a/19b roadmap, schema, conflict resolution algo)
+  - `r1000_orchestrator.py` ->new module: compose_unified_portfolio + helpers
+  - `tools/run_orchestrator.py` ->new CLI: pulls latest per-mandate outputs from disk and composes unified target dict
+- symbols_added:
+  - `compose_unified_portfolio(main_weights, concentrated_weights, tactical_weights, regime_state, cfg=None) -> dict` ->main public API
+  - `_normalize_weights(weights) -> dict` ->coerce input dicts to {str: float}
+  - `_scale_by_mandate_capacity(weights, mandate, regime_state) -> tuple[dict, float]` ->scale per-mandate weights to MANDATE_REGISTRY capacity for the given regime
+  - `_merge_with_max(main, conc, tact) -> tuple[dict, list]` ->ticker-level conflict resolution (max-weight wins; conflicts reported)
+  - `audit_unified_portfolio(result, tolerance=1e-6) -> dict` ->validation report with checks (weights nonneg, sum<=1, etc.)
+  - `write_orchestrator_output(result, out_dir, asof_date) -> Path` ->persist unified target JSON
+  - `OrchestratorResult` dataclass ->structured return type
+  - `load_main_weights / load_concentrated_weights / load_tactical_weights / load_regime_state` (run_orchestrator.py) ->4-path source loaders with --override CLI flags
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none -> orchestrator reads MANDATE_REGISTRY (already shipped in 19c138d)
+- breaking_changes:
+  - none -> 19a is purely additive scaffolding. No engine code consumes orchestrator output yet. Existing 3 backtests run unchanged.
+- outputs:
+  - `outputs/orchestrator/unified_target_YYYY-MM-DD.json` ->per-day unified target dict + audit checks
+  - `outputs/orchestrator/latest.json` ->same content (always-current pointer)
+- validation:
+  - `python3 tests/smoke_test.py` ->60/60 passed
+  - 3 end-to-end scenarios:
+    1. bull regime, 30 unique tickers, no conflicts -> capacity 0.75/0.10/0.05 = 0.90 invested, 0.10 cash, all audit checks pass
+    2. deep_bear with AAPL conflict (main 0.50 + conc 0.60) -> AAPL kept at main's scaled 0.175 (max wins), conflict logged with both mandates, cash 0.63
+    3. all empty inputs -> 100% cash, all_passed=true
+- risks_or_notes:
+  - Orchestrator is OPT-IN: no automatic invocation in build_feature_store or backtest_portfolio. To activate, call run_orchestrator.py CLI manually OR add to a workflow.
+  - Conflict resolution = MAX weight (conservative: avoids double-counting same-name exposure across mandates). Alternative SUM-with-cap policy deferred to Phase 19b
+  - Cash target = 1.0 - sum(scaled merged weights), clamped [0, 1]. Validated against MANDATE_REGISTRY total capacity for the regime in the audit dict
+  - Phase 19b: integrate into walk-forward backtest -> single equity curve combining all 3 mandates. Requires cfg.use_unified_orchestrator flag + new backtest_unified_portfolio function. Verify CAGR >= max(main, concentrated) within noise band before promoting to default
+
 ### 26:15 KST - phase17v3-L9-explosive-mover-daily-scan
 
 - scope: daily scanner over the latest scored output that surfaces FRESH (24h dedup) explosion candidates above L11 thresholds + regime gate, posts Telegram alerts so user catches BE-class moves before next-day open
