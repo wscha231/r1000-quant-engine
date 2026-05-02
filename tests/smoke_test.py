@@ -1627,6 +1627,30 @@ def test_alphaops_report_only_outputs_wired() -> None:
         assert token in wf, f"full_rebuild_manual.yml missing AlphaOps artifact token: {token}"
 
 
+@_test("logic.alphaops_adr_diagnostics_detect_universe_source")
+def test_alphaops_adr_diagnostics() -> None:
+    """AlphaOps baseline registry must count ADR rows from universe_source.
+
+    Cloud scored_latest currently exposes ADR membership through
+    universe_source=adr_whitelist and adr_global_alpha_fallback_pass, not a
+    generic is_adr column.
+    """
+    import pandas as pd
+    from r1000_alphaops_reporting import _scored_diagnostics
+
+    scored = pd.DataFrame({
+        "ticker": ["TSM", "NVDA", "ZTO"],
+        "universe_source": ["adr_whitelist", "current_constituents_proxy", "adr_whitelist"],
+        "adr_global_alpha_fallback_pass": [True, False, True],
+        "regime_state": ["neutral", "neutral", "neutral"],
+    })
+    portfolio = pd.DataFrame({"ticker": ["TSM", "NVDA"], "weight": [0.08, 0.12]})
+    diag = _scored_diagnostics(scored, portfolio)
+    assert diag["adr_rows"] == 2, diag
+    assert diag["adr_selected_count"] == 1, diag
+    assert "adr_global_alpha_fallback_pass" in diag["adr_indicator_columns"], diag
+
+
 @_test("regression.regime_low_support_growth_prefers_learned_fallback")
 def test_regime_low_support_growth_prefers_learned_fallback() -> None:
     """Low-sample learned growth winners fall back to high-support learned maps.

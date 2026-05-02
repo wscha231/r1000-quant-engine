@@ -23,7 +23,7 @@ from r1000_orchestrator import (
 )
 
 
-ALPHAOPS_REPORT_VERSION = "2026-05-02-alphaops-stage0-2"
+ALPHAOPS_REPORT_VERSION = "2026-05-02-alphaops-stage0-2a"
 
 BASELINE_CONTROLS = {
     "phase15d": {
@@ -133,11 +133,15 @@ def _scored_diagnostics(scored_latest: Optional[pd.DataFrame], portfolio_latest:
             "adr_global_alpha_member",
             "global_alpha_universe_member",
             "is_global_alpha_adr",
+            "adr_global_alpha_fallback_pass",
         }
     ]
     adr_mask = pd.Series(False, index=scored.index)
     for col in adr_cols:
         adr_mask = adr_mask | scored[col].fillna(False).astype(bool)
+    if "universe_source" in scored.columns:
+        universe_source = scored["universe_source"].fillna("").astype(str).str.lower()
+        adr_mask = adr_mask | universe_source.str.contains("adr", regex=False)
 
     explosion_cols = [c for c in ["explosion_entry_score", "explosion_exit_score", "explosion_net_score"] if c in scored.columns]
     explosion_nonzero = False
@@ -158,8 +162,8 @@ def _scored_diagnostics(scored_latest: Optional[pd.DataFrame], portfolio_latest:
         "explosion_columns_present": explosion_cols,
         "explosion_nonzero": explosion_nonzero,
         "adr_indicator_columns": adr_cols,
-        "adr_rows": int(adr_mask.sum()) if adr_cols else None,
-        "adr_selected_count": int(ticker_col[adr_mask].isin(tickers_selected).sum()) if adr_cols else None,
+        "adr_rows": int(adr_mask.sum()),
+        "adr_selected_count": int(ticker_col[adr_mask].isin(tickers_selected).sum()) if not ticker_col.empty else 0,
     }
 
 
@@ -445,4 +449,3 @@ def write_alphaops_report_pack(
     )
     out.update(write_config_audit(cfg, paths, run_identity=run_identity))
     return out
-
