@@ -1,0 +1,40 @@
+{
+  "unified_weights": {
+    "GOOGL": 0.25457774075777667,
+    "FTI": 0.11894613031916192,
+    "NVDA": 0.11664561449819565,
+    "LRCX": 0.07728279303115787,
+    "MLI": 0.059999999999999984,
+    "PWR": 0.0586279478901655,
+    "TSM": 0.05605799717687191,
+    "TER": 0.05276575675896157,
+    "PR": 0.04942248754654693,
+    "DTM": 0.040116165075576964,
+    "VRT": 0.039999999999999994,
+    "FIX": 0.039999999999999994
+  },
+  "cash_target": 0.03555736694558509,
+  "by_mandate_capacity": {
+    "main": 0.9644426330544149,
+    "concentrated": 0.0,
+    "tactical": 0.0
+  },
+  "conflicts": [],
+  "regime_state": "neutral",
+  "audit": {
+    "mode": "legacy_passthrough",
+    "n_unique_tickers": 12,
+    "generated_at": "2026-05-02T13:48:18Z"
+  },
+  "audit_checks": {
+    "weights_nonnegative": true,
+    "weights_at_most_one": true,
+    "cash_in_unit_range": true,
+    "invested_plus_cash_close_to_one": true,
+    "invested_amount": 0.9644426330544149,
+    "cash_amount": 0.03555736694558509,
+    "n_positions": 12,
+    "n_conflicts": 0,
+    "all_passed": true
+  }
+}

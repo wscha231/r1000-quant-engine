@@ -1,0 +1,17 @@
+rank,ticker,target_weight,regime_state,row_type
+1,GOOGL,0.1715763341656616,neutral,equity
+2,FTI,0.0801654572886276,neutral,equity
+3,NVDA,0.07861499152490219,neutral,equity
+4,LRCX,0.05208585119382458,neutral,equity
+5,MLI,0.04043786396759129,neutral,equity
+6,PWR,0.03951314969135906,neutral,equity
+7,TSM,0.03778109440223272,neutral,equity
+8,TER,0.03556224156609832,neutral,equity
+9,PR,0.03330899713912066,neutral,equity
+10,DTM,0.027036867103793636,neutral,equity
+11,FIX,0.026958575978394194,neutral,equity
+12,VRT,0.026958575978394194,neutral,equity
+13,AMKR,0.02694659993341915,neutral,equity
+14,MRVL,0.02302531666392015,neutral,equity
+15,CIEN,0.02124386650061562,neutral,equity
+16,CASH,0.278784216902045,neutral,cash

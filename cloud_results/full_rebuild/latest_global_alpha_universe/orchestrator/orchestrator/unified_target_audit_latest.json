@@ -1,0 +1,11 @@
+{
+  "weights_nonnegative": true,
+  "weights_at_most_one": true,
+  "cash_in_unit_range": true,
+  "invested_plus_cash_close_to_one": true,
+  "invested_amount": 0.721215783097955,
+  "cash_amount": 0.278784216902045,
+  "n_positions": 15,
+  "n_conflicts": 1,
+  "all_passed": true
+}

@@ -1,0 +1,75 @@
+{
+  "unified_weights": {
+    "GOOGL": 0.1715763341656616,
+    "FTI": 0.0801654572886276,
+    "NVDA": 0.07861499152490219,
+    "LRCX": 0.05208585119382458,
+    "MLI": 0.04043786396759129,
+    "PWR": 0.03951314969135906,
+    "TSM": 0.03778109440223272,
+    "TER": 0.03556224156609832,
+    "PR": 0.03330899713912066,
+    "DTM": 0.027036867103793636,
+    "FIX": 0.026958575978394194,
+    "VRT": 0.026958575978394194,
+    "AMKR": 0.02694659993341915,
+    "MRVL": 0.02302531666392015,
+    "CIEN": 0.02124386650061562
+  },
+  "cash_target": 0.278784216902045,
+  "by_mandate_capacity": {
+    "main": 0.65,
+    "concentrated": 0.1,
+    "tactical": 0.0
+  },
+  "conflicts": [
+    {
+      "ticker": "PR",
+      "mandates": [
+        "main",
+        "concentrated"
+      ],
+      "weights_per_mandate": {
+        "main": 0.03330899713912066,
+        "concentrated": 0.028784216902045096
+      },
+      "max_weight_used": 0.03330899713912066,
+      "winning_mandate": "main"
+    }
+  ],
+  "regime_state": "neutral",
+  "audit": {
+    "input_weights_sum": {
+      "main": 0.9644426330544149,
+      "concentrated": 1.0,
+      "tactical": 0
+    },
+    "scaled_weights_sum": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0
+    },
+    "policy_capacity": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0.0,
+      "expected_total_invested": 0.75,
+      "actual_total_invested_after_merge": 0.721215783097955,
+      "merged_below_expected_due_to_conflicts": 0.028784216902045023
+    },
+    "n_unique_tickers": 15,
+    "n_conflicts": 1,
+    "generated_at": "2026-05-02T13:48:18Z"
+  },
+  "audit_checks": {
+    "weights_nonnegative": true,
+    "weights_at_most_one": true,
+    "cash_in_unit_range": true,
+    "invested_plus_cash_close_to_one": true,
+    "invested_amount": 0.721215783097955,
+    "cash_amount": 0.278784216902045,
+    "n_positions": 15,
+    "n_conflicts": 1,
+    "all_passed": true
+  }
+}
