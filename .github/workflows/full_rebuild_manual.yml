@@ -271,6 +271,9 @@ jobs:
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
             outputs/run_summary.json
+            outputs/orchestrator/
+            outputs/reports/baseline_registry.*
+            outputs/reports/config_audit.*
             outputs/reports/backtest_window_comparison.csv
             outputs/reports/global_alpha_sleeve_audit_*.csv
             outputs/trade_journal/
@@ -346,6 +349,15 @@ jobs:
           copy_if_exists outputs/concentrated_portfolio_latest.csv "$DEST"
           copy_if_exists outputs/backtest_metrics.json "$DEST"
           copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
+          if [ -d outputs/orchestrator ]; then
+            rclone copy outputs/orchestrator "$DEST/orchestrator/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/orchestrator"
+          fi
+          copy_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
+          copy_if_exists outputs/reports/baseline_registry.md "$DEST/reports"
+          copy_if_exists outputs/reports/config_audit.json "$DEST/reports"
+          copy_if_exists outputs/reports/config_audit.md "$DEST/reports"
           # Phase 15-A fix (2026-04-28): include the SEC bulk archive so user
           # gdrive reflects the freshly downloaded companyfacts.zip. Previously
           # the file refreshed inside the GHA runner cache but never reached
@@ -424,7 +436,10 @@ jobs:
           cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
+          cp -r outputs/orchestrator/ /tmp/bundle/orchestrator/ 2>/dev/null || true
           mkdir -p /tmp/bundle/reports
+          cp outputs/reports/baseline_registry.* /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/config_audit.* /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
@@ -493,8 +508,11 @@ jobs:
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          cp -r outputs/orchestrator "$DEST/orchestrator" 2>/dev/null || true
           # Diagnostic reports for post-run analysis
           mkdir -p "$DEST/reports"
+          cp outputs/reports/baseline_registry.* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/config_audit.* "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true

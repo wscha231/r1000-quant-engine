@@ -56,6 +56,7 @@ SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 TACTICAL_PATH = ROOT / "r1000_tactical_alpha.py"
+ALPHAOPS_REPORTING_PATH = ROOT / "r1000_alphaops_reporting.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
 # --- tiny test framework ---
@@ -117,6 +118,12 @@ def test_run_local_syntax() -> None:
 @_test("syntax.tactical_alpha_py_parses")
 def test_tactical_alpha_syntax() -> None:
     src = TACTICAL_PATH.read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.alphaops_reporting_py_parses")
+def test_alphaops_reporting_syntax() -> None:
+    src = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
     ast.parse(src)
 
 
@@ -1582,6 +1589,42 @@ def test_phase18c_auto_learning_gate_wired() -> None:
     promote_src = promote.read_text(encoding="utf-8")
     for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
         assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+
+
+@_test("regression.alphaops_report_only_outputs_wired")
+def test_alphaops_report_only_outputs_wired() -> None:
+    """AlphaOps Stage 0-2 must remain report-only.
+
+    The reports provide baseline registry, config audit, and orchestrator shadow
+    targets for A/B governance. They must be exported and preserved by the full
+    rebuild workflow, but they must not replace portfolio_latest.csv.
+    """
+    reporting = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
+    for token in (
+        "write_baseline_registry",
+        "write_config_audit",
+        "write_orchestrator_shadow_outputs",
+        "write_alphaops_report_pack",
+        "active_auto_feature_gates_exists",
+    ):
+        assert token in reporting, f"r1000_alphaops_reporting.py missing: {token}"
+
+    orchestrator = (ROOT / "r1000_orchestrator.py").read_text(encoding="utf-8")
+    for token in ("write_orchestrator_output_bundle", "orchestrator_result_to_frame", "row_type"):
+        assert token in orchestrator, f"r1000_orchestrator.py missing CSV bundle token: {token}"
+
+    pipe_src = _pipeline_src()
+    assert "write_alphaops_report_pack" in pipe_src, "pipeline does not write AlphaOps reports"
+    assert "portfolio_latest.to_csv" not in reporting, "AlphaOps reporting must not write production portfolio_latest.csv"
+
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for token in (
+        "outputs/orchestrator/",
+        "outputs/reports/baseline_registry.*",
+        "outputs/reports/config_audit.*",
+        "outputs/orchestrator",
+    ):
+        assert token in wf, f"full_rebuild_manual.yml missing AlphaOps artifact token: {token}"
 
 
 @_test("regression.regime_low_support_growth_prefers_learned_fallback")

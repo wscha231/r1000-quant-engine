@@ -247,3 +247,77 @@ def write_orchestrator_output(
     daily_path.write_text(json.dumps(payload, indent=2, default=str))
     (out_dir / "latest.json").write_text(json.dumps(payload, indent=2, default=str))
     return daily_path
+
+
+def orchestrator_result_to_frame(result: dict) -> list[dict]:
+    """Convert an orchestrator result to stable CSV rows.
+
+    Includes a CASH row so the file reconciles to 100% exposure for operator
+    review. This is still report-only; no order routing consumes it.
+    """
+    rows: list[dict] = []
+    weights = result.get("unified_weights", {}) or {}
+    regime_state = str(result.get("regime_state", "neutral"))
+    for rank, (ticker, weight) in enumerate(
+        sorted(weights.items(), key=lambda kv: float(kv[1]), reverse=True),
+        start=1,
+    ):
+        rows.append({
+            "rank": rank,
+            "ticker": str(ticker),
+            "target_weight": float(weight),
+            "regime_state": regime_state,
+            "row_type": "equity",
+        })
+    rows.append({
+        "rank": len(rows) + 1,
+        "ticker": "CASH",
+        "target_weight": float(result.get("cash_target", 0.0) or 0.0),
+        "regime_state": regime_state,
+        "row_type": "cash",
+    })
+    return rows
+
+
+def write_orchestrator_output_bundle(
+    result: dict,
+    out_dir: Path,
+    asof_date: Optional[str] = None,
+    prefix: str = "unified_target",
+) -> dict[str, str]:
+    """Persist orchestrator JSON, audit JSON, and CSV shadow target."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if asof_date is None:
+        asof_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    audit = audit_unified_portfolio(result)
+    payload = dict(result)
+    payload["audit_checks"] = audit
+
+    daily_json = out_dir / f"{prefix}_{asof_date}.json"
+    latest_json = out_dir / f"{prefix}_latest.json"
+    audit_json = out_dir / f"{prefix}_audit_latest.json"
+    daily_csv = out_dir / f"{prefix}_{asof_date}.csv"
+    latest_csv = out_dir / f"{prefix}_latest.csv"
+
+    daily_json.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    latest_json.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    audit_json.write_text(json.dumps(audit, indent=2, default=str), encoding="utf-8")
+
+    try:
+        import pandas as pd
+
+        frame = pd.DataFrame(orchestrator_result_to_frame(payload))
+        frame.to_csv(daily_csv, index=False)
+        frame.to_csv(latest_csv, index=False)
+    except Exception:
+        # JSON outputs are enough for smoke/reporting if pandas is unavailable.
+        daily_csv.write_text("", encoding="utf-8")
+        latest_csv.write_text("", encoding="utf-8")
+
+    return {
+        "json": str(daily_json),
+        "latest_json": str(latest_json),
+        "audit_json": str(audit_json),
+        "csv": str(daily_csv),
+        "latest_csv": str(latest_csv),
+    }

@@ -16937,6 +16937,27 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["historical_data_quality_by_sleeve"] = str(historical_quality_sleeve_path)
         result_outputs["historical_data_quality_latest"] = str(historical_quality_latest_path)
     result_outputs.update(output_files)
+    try:
+        from r1000_alphaops_reporting import write_alphaops_report_pack
+
+        alphaops_outputs = write_alphaops_report_pack(
+            cfg,
+            paths,
+            run_identity=run_identity,
+            backtest_metrics=bt.metrics,
+            concentrated_metrics=concentrated_metrics_payload,
+            scored_latest=scored_latest,
+            portfolio_latest=portfolio_latest,
+            concentrated_latest=concentrated_latest_holdings,
+            backtest_window_compare=backtest_window_compare,
+            output_files=result_outputs,
+        )
+        result_outputs.update(alphaops_outputs)
+        output_files.update(alphaops_outputs)
+        summary["alphaops_reports"] = alphaops_outputs
+    except Exception as exc:
+        summary["alphaops_reports"] = {"error": str(exc)}
+        log(f"[WARN] AlphaOps report pack failed: {exc}")
     result_outputs["run_summary.json"] = str(summary_path)
     manifest = {
         "run_id": run_identity["run_id"],
