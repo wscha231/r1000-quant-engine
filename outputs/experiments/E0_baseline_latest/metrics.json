@@ -1,0 +1,113 @@
+{
+  "artifact_mode": "baseline_registry_normalized",
+  "avg_cash_weight": 0.07458527925955002,
+  "avg_stock_names": 25.50602409638554,
+  "avg_turnover_monthly": 0.4858881015027757,
+  "cagr": 0.21403316158616126,
+  "concentrated": {
+    "comparison_objective": 0.4175375015994229,
+    "max_dd": -0.22940113109440408,
+    "monitoring_review_days": 7,
+    "operating_notes": [
+      "Run a full rebalance monthly.",
+      "Run monitoring checks every 7 days.",
+      "Use concentrated holdings as a separate sleeve from the main portfolio.",
+      "Allow immediate review if exit risk spikes or breakout support fails."
+    ],
+    "portfolio_mode": "concentrated_alpha",
+    "rebalance_date": "2026-05-01",
+    "recommended_rebalance_interval_months": 1,
+    "selected_names": 5,
+    "sharpe": 1.4286886669635341,
+    "strategy_cagr": 0.3484912610130364,
+    "target_stock_names": 5,
+    "weighting_mode": "score_power"
+  },
+  "control": true,
+  "diagnostics": {
+    "adr_indicator_columns": [
+      "adr_global_alpha_fallback_pass"
+    ],
+    "adr_rows": 28,
+    "adr_selected_count": 2,
+    "explosion_columns_present": [
+      "explosion_entry_score",
+      "explosion_exit_score",
+      "explosion_net_score"
+    ],
+    "explosion_nonzero": false,
+    "live_event_alert_distribution": {
+      "balanced": 673
+    },
+    "n_scored_latest": 673,
+    "regime_distribution": {
+      "neutral": 673
+    }
+  },
+  "ending_capital_usd": 382467.5869209938,
+  "experiment_id": "E0_baseline_latest",
+  "generated_at_utc": "2026-05-03T18:13:27.450214+00:00",
+  "main": {
+    "adaptive_rebalance_policy": false,
+    "avg_cash_weight": 0.07458527925955002,
+    "avg_rebalance_interval_months": 1.0,
+    "avg_stock_names": 25.50602409638554,
+    "avg_turnover_monthly": 0.4858881015027757,
+    "beat_month_ratio": 0.6265060240963856,
+    "benchmark_cagr": 0.12431659548690965,
+    "benchmark_ending_capital_usd": 224894.91163684745,
+    "benchmark_source": "FRED:SP500 (fallback ^GSPC)",
+    "cagr": 0.21403316158616126,
+    "calmar": 0.784791443232738,
+    "cost_bps_roundtrip": 50.0,
+    "ending_capital_usd": 382467.5869209938,
+    "excess_cagr": 0.0897165660992516,
+    "ir": 0.8216565179691013,
+    "max_dd": -0.2727261662085777,
+    "months": 83,
+    "rebalance_count": 83,
+    "rebalance_interval_months": 1,
+    "rebalanced_month_ratio": 1.0,
+    "sharpe": 1.1831414285357171,
+    "sleeve_rebalance_counts": {
+      "core_compounder": 83,
+      "early_scout": 83,
+      "future_winner": 50
+    },
+    "sleeve_rebalance_interval_map": {
+      "core_compounder": 1,
+      "early_scout": 1,
+      "future_winner": 2
+    },
+    "sleeve_specific_rebalance_enabled": true,
+    "sortino": 1.9454682626812736,
+    "starting_capital_usd": 100000.0,
+    "target_n_override": null,
+    "trade_cost_bps_per_side": 25.0,
+    "vol_ann": 0.17857796345269306
+  },
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": -0.2727261662085777,
+  "months": 83,
+  "required_outputs": [
+    "metrics.json",
+    "equity_curve.csv",
+    "monthly_allocations.csv",
+    "sleeve_returns.csv",
+    "turnover.csv",
+    "stress_windows.csv",
+    "trade_journal_summary.md",
+    "experiment_report.md"
+  ],
+  "run_identity": {
+    "config_fingerprint": "22b9183daa179c2b0dd2e192d081bc9df146c718",
+    "engine_version": "2026-04-30-phase17-19-sidecar",
+    "git_commit": "8e1133062cd329d95e8ed2b9f65e4253e285c170",
+    "run_id": "20260502_102653__8e11330__2026-04-30-phase17-19-sidecar",
+    "run_ts": "20260502_102653"
+  },
+  "sharpe": 1.1831414285357171,
+  "sortino": 1.9454682626812736,
+  "source_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+  "status": "completed"
+}

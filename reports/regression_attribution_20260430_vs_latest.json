@@ -1,0 +1,811 @@
+{
+  "concentrated_metric_deltas": {
+    "comparison_objective": {
+      "delta": -0.02800427651963161,
+      "delta_pp": -2.800427651963161,
+      "left": 0.4455417781190545,
+      "right": 0.4175375015994229
+    },
+    "max_dd": {
+      "delta": 0.0011807888841051106,
+      "delta_pp": 0.11807888841051106,
+      "left": -0.2305819199785092,
+      "right": -0.22940113109440408
+    },
+    "selected_names": {
+      "delta": 0.0,
+      "delta_pp": 0.0,
+      "left": 5.0,
+      "right": 5.0
+    },
+    "sharpe": {
+      "delta": -0.018391512176604063,
+      "delta_pp": -1.8391512176604063,
+      "left": 1.4470801791401382,
+      "right": 1.4286886669635341
+    },
+    "strategy_cagr": {
+      "delta": -0.024790919450490723,
+      "delta_pp": -2.4790919450490723,
+      "left": 0.3732821804635271,
+      "right": 0.3484912610130364
+    }
+  },
+  "left_concentrated_metrics": {
+    "comparison_objective": 0.4455417781190545,
+    "max_dd": -0.2305819199785092,
+    "monitoring_review_days": 7,
+    "operating_notes": [
+      "Run a full rebalance monthly.",
+      "Run monitoring checks every 7 days.",
+      "Use concentrated holdings as a separate sleeve from the main portfolio.",
+      "Allow immediate review if exit risk spikes or breakout support fails."
+    ],
+    "portfolio_mode": "concentrated_alpha",
+    "rebalance_date": "2026-05-01",
+    "recommended_rebalance_interval_months": 1,
+    "selected_names": 5,
+    "sharpe": 1.4470801791401382,
+    "strategy_cagr": 0.3732821804635271,
+    "target_stock_names": 5,
+    "weighting_mode": "score_power"
+  },
+  "left_main_metrics": {
+    "adaptive_rebalance_policy": false,
+    "avg_cash_weight": 0.07641715391930294,
+    "avg_rebalance_interval_months": 1.0,
+    "avg_stock_names": 25.402439024390244,
+    "avg_turnover_monthly": 0.48725039883826693,
+    "beat_month_ratio": 0.6219512195121951,
+    "benchmark_cagr": 0.1334514959824611,
+    "benchmark_ending_capital_usd": 235371.25521166457,
+    "benchmark_source": "FRED:SP500 (fallback ^GSPC)",
+    "cagr": 0.23345157337391775,
+    "calmar": 0.98337916806835,
+    "cost_bps_roundtrip": 50.0,
+    "ending_capital_usd": 419437.93430727714,
+    "excess_cagr": 0.10000007739145667,
+    "ir": 0.9132267052021492,
+    "max_dd": -0.23739731423484012,
+    "months": 82,
+    "rebalance_count": 82,
+    "rebalance_interval_months": 1,
+    "rebalanced_month_ratio": 1.0,
+    "sharpe": 1.2948668236142666,
+    "sleeve_rebalance_counts": {
+      "core_compounder": 82,
+      "early_scout": 82,
+      "future_winner": 49
+    },
+    "sleeve_rebalance_interval_map": {
+      "core_compounder": 1,
+      "early_scout": 1,
+      "future_winner": 2
+    },
+    "sleeve_specific_rebalance_enabled": true,
+    "sortino": 2.2128306385742307,
+    "starting_capital_usd": 100000.0,
+    "target_n_override": null,
+    "trade_cost_bps_per_side": 25.0,
+    "vol_ann": 0.1751869511077135
+  },
+  "left_run": "cloud_results/full_rebuild/20260430_global_alpha_universe",
+  "left_scored_diagnostics": {
+    "adr_fallback_pass_count": 12,
+    "adr_rows_with_indicator": 28,
+    "explosion_columns_present": [
+      "explosion_entry_score",
+      "explosion_exit_score",
+      "explosion_net_score"
+    ],
+    "explosion_nonzero": false,
+    "live_event_alert_distribution": {
+      "growth_reentry_alert": 646
+    },
+    "max_abs_explosion_score": 0.0,
+    "regime_distribution": {
+      "neutral": 646
+    },
+    "row_count": 646
+  },
+  "left_top_holdings": [
+    {
+      "rank": 1,
+      "score": 6.435627255358769,
+      "sector": "Communication",
+      "sleeve": "core_compounder",
+      "ticker": "GOOG",
+      "weight": 0.1051762191313752
+    },
+    {
+      "rank": 2,
+      "score": 5.435760278054647,
+      "sector": "Industrials",
+      "sleeve": "core_compounder",
+      "ticker": "GEV",
+      "weight": 0.1051762191313752
+    },
+    {
+      "rank": 3,
+      "score": 4.819281683682133,
+      "sector": "Information Technology",
+      "sleeve": "core_compounder",
+      "ticker": "NVDA",
+      "weight": 0.09625559144555179
+    },
+    {
+      "rank": 4,
+      "score": 4.906179138581792,
+      "sector": "Consumer Discretionary",
+      "sleeve": "core_compounder",
+      "ticker": "AMZN",
+      "weight": 0.07770552792059289
+    },
+    {
+      "rank": 5,
+      "score": 5.41532955079446,
+      "sector": "Information Technology",
+      "sleeve": "future_winner",
+      "ticker": "MRVL",
+      "weight": 0.07
+    },
+    {
+      "rank": 6,
+      "score": 2.722494466599154,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "ZTO",
+      "weight": 0.06444354828609113
+    },
+    {
+      "rank": 7,
+      "score": 5.065810754122046,
+      "sector": "Semiconductors",
+      "sleeve": "future_winner",
+      "ticker": "TSM",
+      "weight": 0.05896905092414087
+    },
+    {
+      "rank": 8,
+      "score": 1.9973413749476754,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "BE",
+      "weight": 0.05748188209650025
+    },
+    {
+      "rank": 9,
+      "score": 2.8358419837803943,
+      "sector": "Real Estate",
+      "sleeve": "future_winner",
+      "ticker": "VTR",
+      "weight": 0.05478181866951309
+    },
+    {
+      "rank": 10,
+      "score": 6.425853319878356,
+      "sector": "Industrials",
+      "sleeve": "core_compounder",
+      "ticker": "VRT",
+      "weight": 0.04
+    },
+    {
+      "rank": 11,
+      "score": 2.7264627999123294,
+      "sector": "Energy",
+      "sleeve": "early_scout",
+      "ticker": "PR",
+      "weight": 0.04
+    },
+    {
+      "rank": 12,
+      "score": 3.182385298846958,
+      "sector": "Energy",
+      "sleeve": "future_winner",
+      "ticker": "FTI",
+      "weight": 0.04
+    },
+    {
+      "rank": 13,
+      "score": 2.2460740080389163,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "MLI",
+      "weight": 0.04
+    },
+    {
+      "rank": 14,
+      "score": 1.4489522550170857,
+      "sector": "Real Estate",
+      "sleeve": "early_scout",
+      "ticker": "KIM",
+      "weight": 0.038436635229735415
+    },
+    {
+      "rank": 15,
+      "score": 3.3880917692391703,
+      "sector": "Utilities",
+      "sleeve": "early_scout",
+      "ticker": "ETR",
+      "weight": 0.03787388780518858
+    },
+    {
+      "rank": 16,
+      "score": 2.0637990691405217,
+      "sector": "Industrials",
+      "sleeve": "early_scout",
+      "ticker": "DAL",
+      "weight": 0.03774414639040201
+    },
+    {
+      "rank": 17,
+      "score": 2.201069374416493,
+      "sector": "Consumer Staples",
+      "sleeve": "early_scout",
+      "ticker": "CASY",
+      "weight": 0.03595547296953366
+    }
+  ],
+  "left_trade_summary": {
+    "path": "cloud_results\\full_rebuild\\20260430_global_alpha_universe\\trade_journal\\insights\\summary.md",
+    "summary_text": "# Trade Insights Summary\n\n- trades analyzed: **696**\n- generated: 2026-04-30 15:26 UTC\n\n## 1. Signal IC by regime (rank correlation)\nTop actionable findings:\n\n**Worst signal x regime cells (potential gate candidates)**:\n- `theme_phase_multiplier_max` in **neutral**: IC = -0.096\n- `theme_phase_multiplier_primary` in **neutral**: IC = -0.081\n- `h6_dynamic_leader_score` in **bear**: IC = -0.019\n\n**Best signal x regime cells (amplify candidates)**:\n- `rs_acceleration_score` in **bear**: IC = +0.145\n- `theme_phase_multiplier_max` in **bear**: IC = +0.093\n- `theme_phase_multiplier_primary` in **bull**: IC = +0.085\n\nFull matrix in `ic_matrix.csv`.\n\n## 2. Trade pattern clusters\n**Worst pattern clusters (block candidates)**:\n- cluster 5: win_rate=0.00, n=12, signature: theme_phase_multiplier_max=-5.87, theme_phase_multiplier_primary=-5.81, h6_dynamic_leader_score=-0.60\n- cluster 1: win_rate=0.50, n=22, signature: theme_phase_multiplier_max=-2.82, theme_phase_multiplier_primary=-2.78, rs_acceleration_score=+0.22\n\n**Best pattern clusters (amplify candidates)**:\n- cluster 7: win_rate=0.68, n=77, signature: h6_dynamic_leader_score=+1.87, rs_acceleration_score=+1.08, theme_phase_multiplier_max=+0.30\n- cluster 2: win_rate=0.67, n=132, signature: rs_acceleration_score=+1.08, h6_dynamic_leader_score=-0.49, theme_phase_multiplier_primary=+0.28\n\nFull table in `cluster_winrate.csv`.\n\n## 3. SHAP / model importance\n_(no SHAP - no data)_\n\n---\n\n**Phase 18c next**: feed `ic_matrix.csv` + `cluster_winrate.csv` to `tools/feature_gate_proposal.py` to auto-draft `research/auto_feature_gates.yaml`.",
+    "trade_count": 696
+  },
+  "main_metric_deltas": {
+    "avg_cash_weight": {
+      "delta": -0.0018318746597529162,
+      "delta_pp": -0.18318746597529162,
+      "left": 0.07641715391930294,
+      "right": 0.07458527925955002
+    },
+    "avg_stock_names": {
+      "delta": 0.10358507199529754,
+      "delta_pp": 10.358507199529754,
+      "left": 25.402439024390244,
+      "right": 25.50602409638554
+    },
+    "avg_turnover_monthly": {
+      "delta": -0.0013622973354912027,
+      "delta_pp": -0.13622973354912027,
+      "left": 0.48725039883826693,
+      "right": 0.4858881015027757
+    },
+    "benchmark_cagr": {
+      "delta": -0.009134900495551435,
+      "delta_pp": -0.9134900495551435,
+      "left": 0.1334514959824611,
+      "right": 0.12431659548690965
+    },
+    "cagr": {
+      "delta": -0.019418411787756495,
+      "delta_pp": -1.9418411787756495,
+      "left": 0.23345157337391775,
+      "right": 0.21403316158616126
+    },
+    "calmar": {
+      "delta": -0.19858772483561205,
+      "delta_pp": -19.858772483561204,
+      "left": 0.98337916806835,
+      "right": 0.784791443232738
+    },
+    "ending_capital_usd": {
+      "delta": -36970.347386283334,
+      "delta_pp": -3697034.7386283334,
+      "left": 419437.93430727714,
+      "right": 382467.5869209938
+    },
+    "excess_cagr": {
+      "delta": -0.010283511292205061,
+      "delta_pp": -1.028351129220506,
+      "left": 0.10000007739145667,
+      "right": 0.0897165660992516
+    },
+    "ir": {
+      "delta": -0.09157018723304788,
+      "delta_pp": -9.157018723304787,
+      "left": 0.9132267052021492,
+      "right": 0.8216565179691013
+    },
+    "max_dd": {
+      "delta": -0.035328851973737585,
+      "delta_pp": -3.5328851973737585,
+      "left": -0.23739731423484012,
+      "right": -0.2727261662085777
+    },
+    "months": {
+      "delta": 1.0,
+      "delta_pp": 100.0,
+      "left": 82.0,
+      "right": 83.0
+    },
+    "sharpe": {
+      "delta": -0.1117253950785495,
+      "delta_pp": -11.17253950785495,
+      "left": 1.2948668236142666,
+      "right": 1.1831414285357171
+    },
+    "sortino": {
+      "delta": -0.2673623758929571,
+      "delta_pp": -26.73623758929571,
+      "left": 2.2128306385742307,
+      "right": 1.9454682626812736
+    }
+  },
+  "phase15d_control": {
+    "avg_stock_names": 24.33,
+    "avg_turnover_monthly": 0.4854,
+    "beat_month_ratio": 0.5663,
+    "cagr": 0.2451,
+    "excess_cagr": 0.1102,
+    "ir": 1.0244,
+    "max_dd": -0.2579,
+    "name": "Phase 15-D global_alpha_universe",
+    "sharpe": 1.2453
+  },
+  "portfolio_diff": {
+    "added": [
+      "DTM",
+      "FIX",
+      "LRCX",
+      "PWR",
+      "TER",
+      "WELL"
+    ],
+    "common_count": 12,
+    "largest_weight_deltas": [
+      {
+        "delta_weight": 0.02871101773796808,
+        "left_rank": 2,
+        "left_weight": 0.1051762191313752,
+        "right_rank": 1,
+        "right_weight": 0.13388723686934328,
+        "ticker": "GEV"
+      },
+      {
+        "delta_weight": -0.017557248609894945,
+        "left_rank": 7,
+        "left_weight": 0.05896905092414087,
+        "right_rank": 8,
+        "right_weight": 0.041411802314245925,
+        "ticker": "TSM"
+      },
+      {
+        "delta_weight": -0.014694459758733167,
+        "left_rank": 1,
+        "left_weight": 0.1051762191313752,
+        "right_rank": 3,
+        "right_weight": 0.09048175937264204,
+        "ticker": "GOOG"
+      },
+      {
+        "delta_weight": -0.012783216105905562,
+        "left_rank": 4,
+        "left_weight": 0.07770552792059289,
+        "right_rank": 6,
+        "right_weight": 0.06492231181468733,
+        "ticker": "AMZN"
+      },
+      {
+        "delta_weight": -0.012621938908650973,
+        "left_rank": 6,
+        "left_weight": 0.06444354828609113,
+        "right_rank": 7,
+        "right_weight": 0.05182160937744015,
+        "ticker": "ZTO"
+      },
+      {
+        "delta_weight": -0.005641132567167174,
+        "left_rank": 14,
+        "left_weight": 0.038436635229735415,
+        "right_rank": 18,
+        "right_weight": 0.03279550266256824,
+        "ticker": "KIM"
+      },
+      {
+        "delta_weight": 0.0008583765031568991,
+        "left_rank": 3,
+        "left_weight": 0.09625559144555179,
+        "right_rank": 2,
+        "right_weight": 0.09711396794870869,
+        "ticker": "NVDA"
+      },
+      {
+        "delta_weight": 0.0,
+        "left_rank": 12,
+        "left_weight": 0.04,
+        "right_rank": 12,
+        "right_weight": 0.04,
+        "ticker": "FTI"
+      },
+      {
+        "delta_weight": 0.0,
+        "left_rank": 13,
+        "left_weight": 0.04,
+        "right_rank": 14,
+        "right_weight": 0.04,
+        "ticker": "MLI"
+      },
+      {
+        "delta_weight": 0.0,
+        "left_rank": 5,
+        "left_weight": 0.07,
+        "right_rank": 4,
+        "right_weight": 0.07,
+        "ticker": "MRVL"
+      },
+      {
+        "delta_weight": 0.0,
+        "left_rank": 11,
+        "left_weight": 0.04,
+        "right_rank": 13,
+        "right_weight": 0.04,
+        "ticker": "PR"
+      },
+      {
+        "delta_weight": 0.0,
+        "left_rank": 10,
+        "left_weight": 0.04,
+        "right_rank": 9,
+        "right_weight": 0.04,
+        "ticker": "VRT"
+      }
+    ],
+    "left_count": 17,
+    "removed": [
+      "BE",
+      "CASY",
+      "DAL",
+      "ETR",
+      "VTR"
+    ],
+    "right_count": 18
+  },
+  "right_auto_learning": {
+    "active_gates": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/research/auto_feature_gates.yaml",
+    "approved": false,
+    "candidate_gates": "outputs/auto_learning/auto_feature_gates_candidate.yaml",
+    "checks": {
+      "candidate_exists": true,
+      "concentrated_cagr_floor": true,
+      "main_cagr_floor": false,
+      "main_max_dd_floor": false,
+      "main_sharpe_floor": false,
+      "trade_count_floor": true
+    },
+    "dry_run": true,
+    "generated_at": "2026-05-02T07:26:44Z",
+    "metrics": {
+      "concentrated_cagr": 0.3455123456211564,
+      "main_cagr": 0.20165834588806963,
+      "main_max_dd": -0.27307967491398366,
+      "main_sharpe": 1.0971959712745438,
+      "trade_count": 695
+    },
+    "promoted": false,
+    "reasons": [
+      "main_cagr_floor",
+      "main_sharpe_floor",
+      "main_max_dd_floor"
+    ],
+    "thresholds": {
+      "baseline_cagr": 0.2451,
+      "baseline_max_dd": -0.2579,
+      "baseline_sharpe": 1.2453,
+      "concentrated_cagr_floor": 0.3,
+      "max_cagr_regression_pp": 1.0,
+      "max_dd_worsening_pp": 1.0,
+      "max_sharpe_regression": 0.08,
+      "min_trades": 250
+    }
+  },
+  "right_concentrated_metrics": {
+    "comparison_objective": 0.4175375015994229,
+    "max_dd": -0.22940113109440408,
+    "monitoring_review_days": 7,
+    "operating_notes": [
+      "Run a full rebalance monthly.",
+      "Run monitoring checks every 7 days.",
+      "Use concentrated holdings as a separate sleeve from the main portfolio.",
+      "Allow immediate review if exit risk spikes or breakout support fails."
+    ],
+    "portfolio_mode": "concentrated_alpha",
+    "rebalance_date": "2026-05-01",
+    "recommended_rebalance_interval_months": 1,
+    "selected_names": 5,
+    "sharpe": 1.4286886669635341,
+    "strategy_cagr": 0.3484912610130364,
+    "target_stock_names": 5,
+    "weighting_mode": "score_power"
+  },
+  "right_main_metrics": {
+    "adaptive_rebalance_policy": false,
+    "avg_cash_weight": 0.07458527925955002,
+    "avg_rebalance_interval_months": 1.0,
+    "avg_stock_names": 25.50602409638554,
+    "avg_turnover_monthly": 0.4858881015027757,
+    "beat_month_ratio": 0.6265060240963856,
+    "benchmark_cagr": 0.12431659548690965,
+    "benchmark_ending_capital_usd": 224894.91163684745,
+    "benchmark_source": "FRED:SP500 (fallback ^GSPC)",
+    "cagr": 0.21403316158616126,
+    "calmar": 0.784791443232738,
+    "cost_bps_roundtrip": 50.0,
+    "ending_capital_usd": 382467.5869209938,
+    "excess_cagr": 0.0897165660992516,
+    "ir": 0.8216565179691013,
+    "max_dd": -0.2727261662085777,
+    "months": 83,
+    "rebalance_count": 83,
+    "rebalance_interval_months": 1,
+    "rebalanced_month_ratio": 1.0,
+    "sharpe": 1.1831414285357171,
+    "sleeve_rebalance_counts": {
+      "core_compounder": 83,
+      "early_scout": 83,
+      "future_winner": 50
+    },
+    "sleeve_rebalance_interval_map": {
+      "core_compounder": 1,
+      "early_scout": 1,
+      "future_winner": 2
+    },
+    "sleeve_specific_rebalance_enabled": true,
+    "sortino": 1.9454682626812736,
+    "starting_capital_usd": 100000.0,
+    "target_n_override": null,
+    "trade_cost_bps_per_side": 25.0,
+    "vol_ann": 0.17857796345269306
+  },
+  "right_orchestrator": {
+    "audit": {
+      "generated_at": "2026-05-02T07:26:39Z",
+      "input_weights_sum": {
+        "concentrated": 0.9999999999999999,
+        "main": 1.0,
+        "tactical": 0
+      },
+      "n_conflicts": 1,
+      "n_unique_tickers": 22,
+      "policy_capacity": {
+        "actual_total_invested_after_merge": 0.724392116773901,
+        "concentrated": 0.1,
+        "expected_total_invested": 0.75,
+        "main": 0.65,
+        "merged_below_expected_due_to_conflicts": 0.02560788322609897,
+        "tactical": 0.0
+      },
+      "scaled_weights_sum": {
+        "concentrated": 0.1,
+        "main": 0.65,
+        "tactical": 0
+      }
+    },
+    "audit_checks": {
+      "all_passed": true,
+      "cash_amount": 0.27560788322609897,
+      "cash_in_unit_range": true,
+      "invested_amount": 0.724392116773901,
+      "invested_plus_cash_close_to_one": true,
+      "n_conflicts": 1,
+      "n_positions": 22,
+      "weights_at_most_one": true,
+      "weights_nonnegative": true
+    },
+    "by_mandate_capacity": {
+      "concentrated": 0.1,
+      "main": 0.65,
+      "tactical": 0.0
+    },
+    "cash_target": 0.27560788322609897,
+    "conflicts": [
+      {
+        "mandates": [
+          "main",
+          "concentrated"
+        ],
+        "max_weight_used": 0.026000000000000002,
+        "ticker": "PR",
+        "weights_per_mandate": {
+          "concentrated": 0.025607883226099026,
+          "main": 0.026000000000000002
+        },
+        "winning_mandate": "main"
+      }
+    ],
+    "regime_state": "neutral",
+    "unified_weights": {
+      "AMKR": 0.018927996162275192,
+      "AMZN": 0.04145243698703679,
+      "CIEN": 0.01937423915660979,
+      "DTM": 0.021075135744277725,
+      "FIX": 0.026000000000000002,
+      "FTI": 0.04247122590176521,
+      "GEV": 0.08184207113677677,
+      "GLW": 0.015418742192592658,
+      "GOOGL": 0.0578667485849125,
+      "KIM": 0.020397868725050068,
+      "LRCX": 0.044577337968799466,
+      "MLI": 0.026000000000000002,
+      "MRVL": 0.020671139262423345,
+      "MTDR": 0.019430004900229173,
+      "NVDA": 0.07402379136909709,
+      "PR": 0.026000000000000002,
+      "PWR": 0.02809774170341377,
+      "TER": 0.02593300804089346,
+      "TSM": 0.030606947461387174,
+      "VRT": 0.026000000000000002,
+      "WELL": 0.02360050908593127,
+      "ZTO": 0.034625172390429566
+    }
+  },
+  "right_run": "cloud_results/full_rebuild/latest_global_alpha_universe",
+  "right_scored_diagnostics": {
+    "adr_fallback_pass_count": 11,
+    "adr_rows_with_indicator": 28,
+    "explosion_columns_present": [
+      "explosion_entry_score",
+      "explosion_exit_score",
+      "explosion_net_score"
+    ],
+    "explosion_nonzero": false,
+    "live_event_alert_distribution": {
+      "balanced": 673
+    },
+    "max_abs_explosion_score": 0.0,
+    "regime_distribution": {
+      "neutral": 673
+    },
+    "row_count": 673
+  },
+  "right_top_holdings": [
+    {
+      "rank": 1,
+      "score": 6.46886653237156,
+      "sector": "Industrials",
+      "sleeve": "core_compounder",
+      "ticker": "GEV",
+      "weight": 0.13388723686934328
+    },
+    {
+      "rank": 2,
+      "score": 5.212140665647661,
+      "sector": "Information Technology",
+      "sleeve": "core_compounder",
+      "ticker": "NVDA",
+      "weight": 0.09711396794870869
+    },
+    {
+      "rank": 3,
+      "score": 5.986436017339503,
+      "sector": "Communication",
+      "sleeve": "core_compounder",
+      "ticker": "GOOG",
+      "weight": 0.09048175937264204
+    },
+    {
+      "rank": 4,
+      "score": 5.500627564303487,
+      "sector": "Information Technology",
+      "sleeve": "future_winner",
+      "ticker": "MRVL",
+      "weight": 0.07
+    },
+    {
+      "rank": 5,
+      "score": 6.120679971651744,
+      "sector": "Information Technology",
+      "sleeve": "core_compounder",
+      "ticker": "LRCX",
+      "weight": 0.07
+    },
+    {
+      "rank": 6,
+      "score": 4.6005327378904255,
+      "sector": "Consumer Discretionary",
+      "sleeve": "core_compounder",
+      "ticker": "AMZN",
+      "weight": 0.06492231181468733
+    },
+    {
+      "rank": 7,
+      "score": 2.433939724836965,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "ZTO",
+      "weight": 0.05182160937744015
+    },
+    {
+      "rank": 8,
+      "score": 4.84178508800451,
+      "sector": "Semiconductors",
+      "sleeve": "future_winner",
+      "ticker": "TSM",
+      "weight": 0.041411802314245925
+    },
+    {
+      "rank": 9,
+      "score": 5.822746615937143,
+      "sector": "Industrials",
+      "sleeve": "core_compounder",
+      "ticker": "VRT",
+      "weight": 0.04
+    },
+    {
+      "rank": 10,
+      "score": 4.769210997405637,
+      "sector": "Information Technology",
+      "sleeve": "core_compounder",
+      "ticker": "TER",
+      "weight": 0.04
+    },
+    {
+      "rank": 11,
+      "score": 2.328274190212166,
+      "sector": "Industrials",
+      "sleeve": "core_compounder",
+      "ticker": "FIX",
+      "weight": 0.04
+    },
+    {
+      "rank": 12,
+      "score": 3.0603524626396497,
+      "sector": "Energy",
+      "sleeve": "future_winner",
+      "ticker": "FTI",
+      "weight": 0.04
+    },
+    {
+      "rank": 13,
+      "score": 2.5386439639588345,
+      "sector": "Energy",
+      "sleeve": "early_scout",
+      "ticker": "PR",
+      "weight": 0.04
+    },
+    {
+      "rank": 14,
+      "score": 2.465883556447199,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "MLI",
+      "weight": 0.04
+    },
+    {
+      "rank": 15,
+      "score": 3.3761596043931474,
+      "sector": "Industrials",
+      "sleeve": "future_winner",
+      "ticker": "PWR",
+      "weight": 0.03981444684470234
+    },
+    {
+      "rank": 16,
+      "score": 3.057593937008961,
+      "sector": "Real Estate",
+      "sleeve": "future_winner",
+      "ticker": "WELL",
+      "weight": 0.034605211551835276
+    },
+    {
+      "rank": 17,
+      "score": 2.8428599683229763,
+      "sector": "Energy",
+      "sleeve": "future_winner",
+      "ticker": "DTM",
+      "weight": 0.033146151243826694
+    },
+    {
+      "rank": 18,
+      "score": 1.8141122798608837,
+      "sector": "Real Estate",
+      "sleeve": "early_scout",
+      "ticker": "KIM",
+      "weight": 0.03279550266256824
+    }
+  ],
+  "right_trade_summary": {
+    "path": "cloud_results\\full_rebuild\\latest_global_alpha_universe\\trade_journal\\insights\\summary.md",
+    "summary_text": "# Trade Insights Summary\n\n- trades analyzed: **695**\n- generated: 2026-05-02 07:26 UTC\n\n## 1. Signal IC by regime (rank correlation)\nTop actionable findings:\n\n**Worst signal x regime cells (potential gate candidates)**:\n- `theme_phase_multiplier_primary` in **bear**: IC = -0.119\n- `theme_phase_multiplier_max` in **bear**: IC = -0.087\n- `h6_dynamic_leader_score` in **bear**: IC = -0.026\n\n**Best signal x regime cells (amplify candidates)**:\n- `rs_acceleration_score` in **bear**: IC = +0.141\n- `h1_oversold_value_score` in **bear**: IC = +0.119\n- `rs_acceleration_score` in **neutral**: IC = +0.054\n\nFull matrix in `ic_matrix.csv`.\n\n## 2. Trade pattern clusters\n**Worst pattern clusters (block candidates)**:\n- cluster 6: win_rate=0.00, n=19, signature: theme_phase_multiplier_max=-5.04, theme_phase_multiplier_primary=-4.92, h6_dynamic_leader_score=-0.59\n- cluster 0: win_rate=0.48, n=56, signature: h6_dynamic_leader_score=+1.62, rs_acceleration_score=-0.57, theme_phase_multiplier_primary=+0.23\n\n**Best pattern clusters (amplify candidates)**:\n- cluster 5: win_rate=0.67, n=94, signature: h6_dynamic_leader_score=+1.89, rs_acceleration_score=+0.89, theme_phase_multiplier_max=+0.28\n- cluster 1: win_rate=0.63, n=125, signature: rs_acceleration_score=+1.14, h6_dynamic_leader_score=-0.47, theme_phase_multiplier_primary=+0.29\n\nFull table in `cluster_winrate.csv`.\n\n## 3. SHAP / model importance\n_(no SHAP - no data)_\n\n---\n\n**Phase 18c next**: feed `ic_matrix.csv` + `cluster_winrate.csv` to `tools/feature_gate_proposal.py` to auto-draft `research/auto_feature_gates.yaml`.",
+    "trade_count": 695
+  }
+}
