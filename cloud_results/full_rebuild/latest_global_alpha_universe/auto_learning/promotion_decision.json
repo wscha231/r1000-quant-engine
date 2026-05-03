@@ -3,29 +3,27 @@
   "approved": false,
   "candidate_gates": "outputs/auto_learning/auto_feature_gates_candidate.yaml",
   "checks": {
-    "candidate_exists": false,
-    "concentrated_cagr_floor": false,
+    "candidate_exists": true,
+    "concentrated_cagr_floor": true,
     "main_cagr_floor": false,
-    "main_max_dd_floor": true,
+    "main_max_dd_floor": false,
     "main_sharpe_floor": false,
-    "trade_count_floor": false
+    "trade_count_floor": true
   },
   "dry_run": true,
-  "generated_at": "2026-05-03T14:21:37Z",
+  "generated_at": "2026-05-02T07:26:44Z",
   "metrics": {
-    "concentrated_cagr": 0.0,
-    "main_cagr": 0.0,
-    "main_max_dd": 0.0,
-    "main_sharpe": 0.0,
-    "trade_count": 0
+    "concentrated_cagr": 0.3455123456211564,
+    "main_cagr": 0.20165834588806963,
+    "main_max_dd": -0.27307967491398366,
+    "main_sharpe": 1.0971959712745438,
+    "trade_count": 695
   },
   "promoted": false,
   "reasons": [
-    "candidate_exists",
     "main_cagr_floor",
     "main_sharpe_floor",
-    "concentrated_cagr_floor",
-    "trade_count_floor"
+    "main_max_dd_floor"
   ],
   "thresholds": {
     "baseline_cagr": 0.2451,
