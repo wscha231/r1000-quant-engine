@@ -1,0 +1,47 @@
+version: aggressive_lab_production_gates_v1
+mode: approval_required
+description: >
+  Production gates are stricter than discovery gates. Passing these gates still
+  requires explicit human approval before any production default changes.
+
+baseline:
+  experiment_id: E0_baseline_latest
+  registry_source: cloud_results/full_rebuild/latest_global_alpha_universe/reports/baseline_registry.json
+
+required_metric_gates:
+  cagr_improvement_pp_min: 3.0
+  max_dd_floor: -0.25
+  sharpe_min: 1.20
+  turnover_monthly_max: 0.35
+  cap_violations_allowed: 0
+  stress_window_must_improve: true
+
+required_process_gates:
+  human_approval_required: true
+  production_defaults_unchanged_until_approval: true
+  rollback_plan_required: true
+  failure_modes_documented: true
+  no_broker_execution: true
+  no_leverage: true
+  active_gate_files_unchanged_until_approval: true
+
+required_artifacts:
+  - outputs/experiments/{experiment_id}/metrics.json
+  - outputs/experiments/{experiment_id}/equity_curve.csv
+  - outputs/experiments/{experiment_id}/monthly_allocations.csv
+  - outputs/experiments/{experiment_id}/sleeve_returns.csv
+  - outputs/experiments/{experiment_id}/turnover.csv
+  - outputs/experiments/{experiment_id}/stress_windows.csv
+  - outputs/experiments/{experiment_id}/trade_journal_summary.md
+  - outputs/experiments/{experiment_id}/experiment_report.md
+
+explicitly_excluded_from_auto_promotion:
+  - E8_alpha_sprint_sidecar
+  - E9_kitchen_sink_all_on
+
+promotion_decision_states:
+  - blocked
+  - discovery_only
+  - production_gate_failed
+  - production_gate_passed_pending_human
+  - approved_for_manual_activation

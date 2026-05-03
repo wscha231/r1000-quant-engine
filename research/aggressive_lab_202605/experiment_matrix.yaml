@@ -1,0 +1,234 @@
+version: aggressive_lab_202605_v1
+mode: research_only
+branch: codex/integrate-phase17-19
+production_defaults_mutable: false
+notes:
+  - Do not change production defaults.
+  - All experiments must write isolated outputs.
+  - Discovery gate is not production promotion.
+  - Failed experiments must be logged.
+  - Human approval is required before any production activation.
+
+common:
+  universe: global_alpha_universe
+  backtest_years: 8
+  starting_capital_usd: 100000
+  trade_cost_bps_per_side: 25
+  baseline_run: cloud_results/full_rebuild/latest_global_alpha_universe
+  outputs_root: outputs/experiments
+  stress_windows:
+    - "2020"
+    - "2022"
+    - "2025-2026 momentum"
+  required_outputs:
+    - metrics.json
+    - equity_curve.csv
+    - monthly_allocations.csv
+    - sleeve_returns.csv
+    - turnover.csv
+    - stress_windows.csv
+    - trade_journal_summary.md
+    - experiment_report.md
+
+experiments:
+  - id: E0_baseline_latest
+    description: Current latest production/shadow baseline.
+    category: control
+    production_candidate: true
+    overrides: {}
+
+  - id: E1_auto_feature_gates_on
+    description: Apply current auto feature gate candidate in challenger mode only.
+    category: feature_gates
+    production_candidate: false
+    overrides:
+      auto_feature_gates_candidate: true
+      bear_rs_acceleration_factor: 1.3
+      bear_h1_oversold_factor: 1.3
+      bear_theme_multiplier_factor: 0.0
+
+  - id: E2_main_v2_balanced
+    description: Main internal orchestrator, 15-name high-conviction winner book.
+    category: main_v2
+    production_candidate: false
+    overrides:
+      main_v2_enabled: true
+      main_target_n: 15
+      main_sleeve_weights:
+        core: 0.25
+        future_winner: 0.55
+        early_scout: 0.20
+      sleeve_rebalance_months:
+        core: 3
+        future_winner: 2
+        early_scout: 1
+      single_name_cap: 0.15
+      incumbent_buffer: 3
+      bear_feature_gate_overlay:
+        rs_acceleration_score_factor: 1.3
+        h1_oversold_value_score_factor: 1.3
+        theme_phase_multiplier_primary_factor: 0.0
+        theme_phase_multiplier_max_factor: 0.0
+
+  - id: E3_main_v2_aggressive
+    description: Main v2 with smaller N and stronger future winner allocation.
+    category: main_v2
+    production_candidate: false
+    overrides:
+      main_v2_enabled: true
+      main_target_n: 12
+      main_sleeve_weights:
+        core: 0.20
+        future_winner: 0.60
+        early_scout: 0.20
+      sleeve_rebalance_months:
+        core: 3
+        future_winner: 2
+        early_scout: 1
+      single_name_cap: 0.18
+      incumbent_buffer: 5
+      bear_feature_gate_overlay:
+        rs_acceleration_score_factor: 1.3
+        h1_oversold_value_score_factor: 1.3
+        theme_phase_multiplier_primary_factor: 0.0
+        theme_phase_multiplier_max_factor: 0.0
+
+  - id: E4_concentrated_balanced
+    description: Concentrated alpha as larger orchestrator sleeve with caps and dynamic N.
+    category: concentrated
+    production_candidate: false
+    overrides:
+      concentrated_capacity_by_regime:
+        deep_bear: 0.00
+        bear: 0.05
+        neutral: 0.20
+        bull: 0.25
+        strong_bull: 0.30
+      concentrated_target_n_by_regime:
+        deep_bear: 0
+        bear: 3
+        neutral: 5
+        bull: 5
+        strong_bull: 3
+      concentrated_single_name_cap: 0.25
+      concentrated_theme_cap: 0.45
+      concentrated_sector_cap: 0.55
+      weekly_review: true
+      staged_entry: true
+      hard_stop_range:
+        min: -0.10
+        max: -0.08
+      trailing_stop_range:
+        min: -0.15
+        max: -0.12
+
+  - id: E5_orchestrator_balanced
+    description: 83-month orchestrator backtest with balanced mandate capacities.
+    category: orchestrator
+    production_candidate: false
+    overrides:
+      orchestrator_backtest: true
+      merge_mode: sum_then_cap
+      merge_modes_to_compare:
+        - max
+        - sum_then_cap
+        - priority_concentrated
+        - risk_budget_blend
+      unified_single_name_cap: 0.20
+      mandate_capacity_by_regime:
+        deep_bear:
+          main: 0.35
+          concentrated: 0.00
+          alpha_sprint: 0.00
+          cash: 0.65
+        bear:
+          main: 0.50
+          concentrated: 0.05
+          alpha_sprint: 0.00
+          cash: 0.45
+        neutral:
+          main: 0.55
+          concentrated: 0.25
+          alpha_sprint: 0.00
+          cash: 0.20
+        bull:
+          main: 0.60
+          concentrated: 0.25
+          alpha_sprint: 0.05
+          cash: 0.10
+        strong_bull:
+          main: 0.55
+          concentrated: 0.30
+          alpha_sprint: 0.10
+          cash: 0.05
+
+  - id: E6_risk_sensing_on
+    description: Connect risk sensing actions into historical backtest in report/challenger mode.
+    category: risk_sensing
+    production_candidate: false
+    overrides:
+      risk_sensing_backtest: true
+      oneill_hard_stop: -0.08
+      trailing_stop: -0.15
+      rs_break_threshold_pp: -30
+      portfolio_dd_breaker: true
+      swap_engine: true
+      broker_execution: false
+
+  - id: E7_tactical_bull_only
+    description: Existing tactical sleeve activated only in bull and strong bull regimes.
+    category: tactical
+    production_candidate: false
+    overrides:
+      tactical_enabled: true
+      tactical_capacity_by_regime:
+        deep_bear: 0.00
+        bear: 0.00
+        neutral: 0.00
+        bull: 0.05
+        strong_bull: 0.10
+
+  - id: E8_alpha_sprint_sidecar
+    description: New Alpha Sprint sleeve, research-only.
+    category: alpha_sprint
+    production_candidate: false
+    overrides:
+      alpha_sprint_enabled: true
+      alpha_sprint_research_only: true
+      alpha_sprint_capacity_by_regime:
+        deep_bear: 0.00
+        bear: 0.00
+        neutral: 0.00
+        bull: 0.05
+        strong_bull: 0.10
+      alpha_sprint_target_n: 3
+      alpha_sprint_target_n_range:
+        min: 2
+        max: 5
+      alpha_sprint_hard_stop: -0.07
+      alpha_sprint_time_stop_days: 30
+      alpha_sprint_staged_entry: true
+      signals:
+        - rs_acceleration_score
+        - breakout_fresh_20d
+        - breakout_volume_z
+        - volatility_contraction_score
+        - entry_quality_score
+        - earnings_revision_confirmation
+        - theme_acceleration
+        - stage2_overext_penalty_block
+
+  - id: E9_kitchen_sink_all_on
+    description: Discovery-only all-on experiment. Not a production candidate.
+    category: discovery_stress
+    production_candidate: false
+    never_promote_to_production: true
+    overrides:
+      auto_feature_gates_candidate: true
+      main_v2_enabled: true
+      concentrated_capacity_expanded: true
+      orchestrator_backtest: true
+      risk_sensing_backtest: true
+      tactical_enabled: true
+      alpha_sprint_enabled: true
+      merge_mode: sum_then_cap
