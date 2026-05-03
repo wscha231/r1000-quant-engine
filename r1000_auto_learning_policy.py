@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import difflib
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -87,6 +88,156 @@ def empty_policy(evidence_summary: dict[str, Any] | None = None) -> dict[str, An
         "promotion_gates": {},
         "proposals": [],
     }
+
+
+def _parse_scalar(text: str) -> Any:
+    text = text.strip()
+    if text == "":
+        return ""
+    if text == "{}":
+        return {}
+    if text == "[]":
+        return []
+    if text in {"true", "True"}:
+        return True
+    if text in {"false", "False"}:
+        return False
+    if text in {"null", "None", "~"}:
+        return None
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        return text[1:-1]
+    try:
+        if any(ch in text for ch in (".", "e", "E")):
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _split_key_value(text: str) -> tuple[str, str]:
+    key, _, value = text.partition(":")
+    return key.strip(), value.strip()
+
+
+def _parse_yaml_block(lines: list[str], index: int, indent: int) -> tuple[Any, int]:
+    while index < len(lines) and (not lines[index].strip() or lines[index].lstrip().startswith("#")):
+        index += 1
+    if index >= len(lines):
+        return {}, index
+
+    first = lines[index]
+    first_indent = _line_indent(first)
+    if first_indent < indent:
+        return {}, index
+    is_list = first.lstrip().startswith("-") and first_indent == indent
+
+    if is_list:
+        items: list[Any] = []
+        while index < len(lines):
+            line = lines[index]
+            if not line.strip() or line.lstrip().startswith("#"):
+                index += 1
+                continue
+            cur_indent = _line_indent(line)
+            stripped = line.lstrip()
+            if cur_indent < indent or not stripped.startswith("-"):
+                break
+            if cur_indent != indent:
+                break
+            item_text = stripped[1:].strip()
+            index += 1
+            if item_text == "":
+                item, index = _parse_yaml_block(lines, index, indent + 2)
+            elif ":" in item_text and not item_text.startswith(("'", '"')):
+                key, value = _split_key_value(item_text)
+                item = {}
+                if value == "":
+                    child, index = _parse_yaml_block(lines, index, indent + 2)
+                    item[key] = child
+                else:
+                    item[key] = _parse_scalar(value)
+                if index < len(lines):
+                    child, new_index = _parse_yaml_block(lines, index, indent + 2)
+                    if isinstance(child, dict) and new_index != index:
+                        item.update(child)
+                        index = new_index
+            else:
+                item = _parse_scalar(item_text)
+            items.append(item)
+        return items, index
+
+    mapping: dict[str, Any] = {}
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        cur_indent = _line_indent(line)
+        if cur_indent < indent:
+            break
+        if cur_indent > indent:
+            break
+        stripped = line.strip()
+        if stripped.startswith("-"):
+            break
+        key, value = _split_key_value(stripped)
+        index += 1
+        if value == "":
+            child, index = _parse_yaml_block(lines, index, indent + 2)
+            mapping[key] = child
+        else:
+            mapping[key] = _parse_scalar(value)
+    return mapping, index
+
+
+def load_policy(path_like: str | Path) -> dict[str, Any]:
+    path = Path(path_like)
+    text = path.read_text(encoding="utf-8")
+    try:
+        import yaml  # type: ignore
+
+        parsed = yaml.safe_load(text)
+    except ModuleNotFoundError:
+        parsed, _ = _parse_yaml_block(text.splitlines(), 0, 0)
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
+
+
+def merge_candidate_policy(base_policy: dict[str, Any], candidate_policy: dict[str, Any]) -> dict[str, Any]:
+    """Shallow-recursive merge for review tooling.
+
+    This does not activate production behavior; callers use it to display what
+    would change if a candidate became the active policy.
+    """
+    merged = dict(base_policy or {})
+    for key, value in (candidate_policy or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_candidate_policy(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def expire_old_policy(policy: dict[str, Any], today: datetime | None = None) -> dict[str, Any]:
+    today_dt = today or utc_now()
+    expires_at = str(policy.get("expires_at") or "")
+    expired = False
+    if expires_at:
+        try:
+            expired = datetime.fromisoformat(expires_at.replace("Z", "+00:00")).date() < today_dt.date()
+        except ValueError:
+            expired = True
+    out = dict(policy)
+    out["expired"] = expired
+    if expired:
+        out["mode"] = "expired_proposal"
+        out.setdefault("guardrails", {})["production_activation_allowed"] = False
+    return out
 
 
 def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:

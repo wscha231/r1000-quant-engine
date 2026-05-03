@@ -1,0 +1,2 @@
+artifact,status,reason
+equity_curve.csv,not_available,E4 uses standalone concentrated historical metrics plus latest policy audit; no orchestrated portfolio backtest executed

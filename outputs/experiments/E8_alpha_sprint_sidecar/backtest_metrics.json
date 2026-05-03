@@ -1,0 +1,6 @@
+{
+  "production_activation_allowed": false,
+  "required_next_runner": "weekly_or_monthly_alpha_sprint_historical_backtest",
+  "research_only": true,
+  "status": "not_backtested_missing_historical_scored_snapshot"
+}

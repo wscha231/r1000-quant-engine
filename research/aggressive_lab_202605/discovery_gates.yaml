@@ -29,6 +29,7 @@ required_outputs:
   - turnover.csv
   - stress_windows.csv
   - trade_journal_summary.md
+  - regression_attribution.md
   - experiment_report.md
 
 failure_handling:

@@ -19,6 +19,7 @@
     "experiment_report.md": true,
     "metrics.json": true,
     "monthly_allocations.csv": true,
+    "regression_attribution.md": true,
     "sleeve_returns.csv": true,
     "stress_windows.csv": true,
     "trade_journal_summary.md": true,

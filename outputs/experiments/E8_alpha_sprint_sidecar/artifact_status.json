@@ -1,0 +1,67 @@
+[
+  {
+    "artifact": "alpha_sprint_latest.json",
+    "source": "outputs/alpha_sprint/alpha_sprint_latest.json",
+    "status": "copied"
+  },
+  {
+    "artifact": "candidates_latest.csv",
+    "source": "outputs/alpha_sprint/candidates_latest.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "portfolio_latest.csv",
+    "source": "outputs/alpha_sprint/portfolio_latest.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "risk_actions.csv",
+    "source": "outputs/alpha_sprint/risk_actions.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "weekly_returns.csv",
+    "source": "outputs/alpha_sprint/weekly_returns.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "backtest_metrics.json",
+    "source": "outputs/alpha_sprint/backtest_metrics.json",
+    "status": "copied"
+  },
+  {
+    "artifact": "equity_curve.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "turnover.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "stress_windows.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "monthly_allocations.csv",
+    "source": "",
+    "status": "derived_snapshot"
+  },
+  {
+    "artifact": "sleeve_returns.csv",
+    "source": "outputs/alpha_sprint/backtest_metrics.json",
+    "status": "limitation_logged"
+  },
+  {
+    "artifact": "trade_journal_summary.md",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/summary.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "metrics.json",
+    "source": "",
+    "status": "derived"
+  }
+]

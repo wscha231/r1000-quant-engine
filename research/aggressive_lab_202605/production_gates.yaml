@@ -33,6 +33,7 @@ required_artifacts:
   - outputs/experiments/{experiment_id}/turnover.csv
   - outputs/experiments/{experiment_id}/stress_windows.csv
   - outputs/experiments/{experiment_id}/trade_journal_summary.md
+  - outputs/experiments/{experiment_id}/regression_attribution.md
   - outputs/experiments/{experiment_id}/experiment_report.md
 
 explicitly_excluded_from_auto_promotion:

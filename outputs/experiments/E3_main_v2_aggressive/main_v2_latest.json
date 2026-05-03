@@ -1,0 +1,158 @@
+{
+  "audit": {
+    "actual_invested_after_cap": 0.98,
+    "cap_excess_to_cash": 0.020000000000000018,
+    "cash_target": 0.020000000000000018,
+    "expected_cash": 0.0,
+    "expected_invested_before_cap": 1.0,
+    "generated_at_utc": "2026-05-03T19:23:10Z",
+    "merge_mode": "sum_then_cap",
+    "n_conflicts": 0,
+    "n_positions": 11,
+    "policy_name": "E3_main_v2_aggressive",
+    "production_activation_allowed": false,
+    "raw_scaled_sleeve_sums": {
+      "core": 0.20000000000000004,
+      "early": 0.2,
+      "future": 0.6
+    },
+    "research_only": true,
+    "selected_n_by_sleeve": {
+      "core": 3,
+      "early": 1,
+      "future": 7
+    },
+    "single_name_cap": 0.18,
+    "target_n_by_sleeve": {
+      "core": 3,
+      "early": 2,
+      "future": 7
+    }
+  },
+  "by_sleeve_capacity": {
+    "cash": 0.0,
+    "core": 0.2,
+    "early": 0.2,
+    "future": 0.6
+  },
+  "cap_violations": [
+    {
+      "capped_weight": 0.18,
+      "excess_to_cash": 0.020000000000000018,
+      "raw_weight": 0.2,
+      "ticker": "ZTO"
+    }
+  ],
+  "cash_target": 0.020000000000000018,
+  "conflicts": [],
+  "main_v2_weights": {
+    "AAPL": 0.01842912398220471,
+    "CIEN": 0.09170814882321955,
+    "CW": 0.02436141892258884,
+    "FTI": 0.0684351687746502,
+    "GLW": 0.040192219757474744,
+    "MRVL": 0.154059217567007,
+    "NVDA": 0.15720945709520648,
+    "UI": 0.1347713373260986,
+    "VRT": 0.05600342195809573,
+    "WDC": 0.054830485793454176,
+    "ZTO": 0.18
+  },
+  "regime_state": "neutral",
+  "selected_by_sleeve": {
+    "core": [
+      {
+        "engine_score": 0.948529744011823,
+        "legacy_sleeve": "core_compounder",
+        "name": "NVIDIA CORP",
+        "score": 2.3212548306088236,
+        "sector": "Information Technology",
+        "ticker": "NVDA"
+      },
+      {
+        "engine_score": 0.5534345940715305,
+        "legacy_sleeve": "future_winner",
+        "name": "CURTISS WRIGHT CORP",
+        "score": 1.878514306536041,
+        "sector": "Industrials",
+        "ticker": "CW"
+      },
+      {
+        "engine_score": 0.6997489143258199,
+        "legacy_sleeve": "core_compounder",
+        "name": "APPLE INC",
+        "score": 1.8410797677111208,
+        "sector": "Information Technology",
+        "ticker": "AAPL"
+      }
+    ],
+    "early": [
+      {
+        "engine_score": 0.6800617009073076,
+        "legacy_sleeve": "future_winner",
+        "name": "ZTO Express",
+        "score": 0.6406384939872403,
+        "sector": "Industrials",
+        "ticker": "ZTO"
+      }
+    ],
+    "future": [
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "MARVELL TECHNOLOGY INC",
+        "score": 1.7314508927289076,
+        "sector": "Information Technology",
+        "ticker": "MRVL"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "UBIQUITI INC",
+        "score": 1.699787354435111,
+        "sector": "Information Technology",
+        "ticker": "UI"
+      },
+      {
+        "engine_score": 0.9072052167134002,
+        "legacy_sleeve": "future_winner",
+        "name": "CIENA CORP",
+        "score": 1.6196314356687251,
+        "sector": "Information Technology",
+        "ticker": "CIEN"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "TECHNIPFMC PLC",
+        "score": 1.5682143677696807,
+        "sector": "Energy",
+        "ticker": "FTI"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "core_compounder",
+        "name": "VERTIV HOLDINGS CLASS A",
+        "score": 1.5371006089892039,
+        "sector": "Industrials",
+        "ticker": "VRT"
+      },
+      {
+        "engine_score": 0.7932062434271903,
+        "legacy_sleeve": "unassigned",
+        "name": "WESTERN DIGITAL CORP",
+        "score": 1.5339939173481372,
+        "sector": "Information Technology",
+        "ticker": "WDC"
+      },
+      {
+        "engine_score": 0.8642741478089369,
+        "legacy_sleeve": "future_winner",
+        "name": "CORNING INC",
+        "score": 1.4919957946049056,
+        "sector": "Information Technology",
+        "ticker": "GLW"
+      }
+    ]
+  }
+}

@@ -21,4 +21,5 @@
 - `turnover.csv`: `True`
 - `stress_windows.csv`: `True`
 - `trade_journal_summary.md`: `True`
+- `regression_attribution.md`: `True`
 - `experiment_report.md`: `True`

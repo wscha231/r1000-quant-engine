@@ -1,0 +1,38 @@
+{
+  "artifact_mode": "risk_sensing_compare_normalized",
+  "avg_turnover_monthly": null,
+  "backtest_executed": true,
+  "cagr": 0.1846609658361189,
+  "cagr_delta_pp": -4.479286195768118,
+  "control": false,
+  "experiment_id": "E6_risk_sensing_on",
+  "generated_at_utc": "2026-05-03T19:23:12.860762+00:00",
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": -0.2162517256738774,
+  "maxdd_delta_pp": 4.582130179344137,
+  "metric_mode": "simplified_dd_breaker_backtest",
+  "original": {
+    "cagr_pct": 22.945382779380008,
+    "calmar": 0.8755339304133983,
+    "max_dd_pct": -26.207302746731877,
+    "n_months": 83,
+    "name": "jeongseok_v1 (original)",
+    "sharpe": 1.1694186021190283,
+    "vol_ann_pct": 19.40890446082804
+  },
+  "production_activation_allowed": false,
+  "production_defaults_mutable": false,
+  "requires_full_position_replay": true,
+  "sharpe": 1.1194872875548136,
+  "sharpe_delta": -0.049931314564214624,
+  "status": "simplified_layer2_backtest",
+  "with_risk_sensing": {
+    "cagr_pct": 18.46609658361189,
+    "calmar": 0.85391672718765,
+    "max_dd_pct": -21.62517256738774,
+    "n_months": 83,
+    "name": "jeongseok_v1 (+ risk sensing L2)",
+    "sharpe": 1.1194872875548136,
+    "vol_ann_pct": 16.46337566522794
+  }
+}

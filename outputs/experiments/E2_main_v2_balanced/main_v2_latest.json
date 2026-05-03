@@ -1,0 +1,196 @@
+{
+  "audit": {
+    "actual_invested_after_cap": 0.9217969369608626,
+    "cap_excess_to_cash": 0.07820306303913749,
+    "cash_target": 0.07820306303913738,
+    "expected_cash": 0.0,
+    "expected_invested_before_cap": 1.0,
+    "generated_at_utc": "2026-05-03T19:23:10Z",
+    "merge_mode": "sum_then_cap",
+    "n_conflicts": 1,
+    "n_positions": 12,
+    "policy_name": "E2_main_v2_balanced",
+    "production_activation_allowed": false,
+    "raw_scaled_sleeve_sums": {
+      "core": 0.25,
+      "early": 0.2,
+      "future": 0.55
+    },
+    "research_only": true,
+    "selected_n_by_sleeve": {
+      "core": 4,
+      "early": 1,
+      "future": 8
+    },
+    "single_name_cap": 0.15,
+    "target_n_by_sleeve": {
+      "core": 4,
+      "early": 3,
+      "future": 8
+    }
+  },
+  "by_sleeve_capacity": {
+    "cash": 0.0,
+    "core": 0.25,
+    "early": 0.2,
+    "future": 0.55
+  },
+  "cap_violations": [
+    {
+      "capped_weight": 0.15,
+      "excess_to_cash": 0.02820306303913747,
+      "raw_weight": 0.17820306303913747,
+      "ticker": "NVDA"
+    },
+    {
+      "capped_weight": 0.15,
+      "excess_to_cash": 0.05000000000000002,
+      "raw_weight": 0.2,
+      "ticker": "ZTO"
+    }
+  ],
+  "cash_target": 0.07820306303913738,
+  "conflicts": [
+    {
+      "final_weight": 0.1342000473025111,
+      "multi_sleeve_conviction_bonus": 0.020105168273680835,
+      "raw_weight": 0.1342000473025111,
+      "sleeves": [
+        "core",
+        "future"
+      ],
+      "ticker": "UI",
+      "weights_per_sleeve": {
+        "core": 0.020105168273680838,
+        "future": 0.11409487902883025
+      }
+    }
+  ],
+  "main_v2_weights": {
+    "AAPL": 0.02243997467927387,
+    "CIEN": 0.0792867827853689,
+    "CW": 0.029251794007907818,
+    "FTI": 0.06028434290580051,
+    "GLW": 0.03689821118678864,
+    "LITE": 0.030724531586306433,
+    "MRVL": 0.12958545626514587,
+    "NVDA": 0.15,
+    "UI": 0.1342000473025111,
+    "VRT": 0.05004782239591677,
+    "WDC": 0.049077973845842705,
+    "ZTO": 0.15
+  },
+  "regime_state": "neutral",
+  "selected_by_sleeve": {
+    "core": [
+      {
+        "engine_score": 0.948529744011823,
+        "legacy_sleeve": "core_compounder",
+        "name": "NVIDIA CORP",
+        "score": 2.3212548306088236,
+        "sector": "Information Technology",
+        "ticker": "NVDA"
+      },
+      {
+        "engine_score": 0.5534345940715305,
+        "legacy_sleeve": "future_winner",
+        "name": "CURTISS WRIGHT CORP",
+        "score": 1.878514306536041,
+        "sector": "Industrials",
+        "ticker": "CW"
+      },
+      {
+        "engine_score": 0.6997489143258199,
+        "legacy_sleeve": "core_compounder",
+        "name": "APPLE INC",
+        "score": 1.8410797677111208,
+        "sector": "Information Technology",
+        "ticker": "AAPL"
+      },
+      {
+        "engine_score": 0.948529744011823,
+        "legacy_sleeve": "future_winner",
+        "name": "UBIQUITI INC",
+        "score": 1.8269621728701368,
+        "sector": "Information Technology",
+        "ticker": "UI"
+      }
+    ],
+    "early": [
+      {
+        "engine_score": 0.6800617009073076,
+        "legacy_sleeve": "future_winner",
+        "name": "ZTO Express",
+        "score": 0.6406384939872403,
+        "sector": "Industrials",
+        "ticker": "ZTO"
+      }
+    ],
+    "future": [
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "MARVELL TECHNOLOGY INC",
+        "score": 1.7314508927289076,
+        "sector": "Information Technology",
+        "ticker": "MRVL"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "UBIQUITI INC",
+        "score": 1.699787354435111,
+        "sector": "Information Technology",
+        "ticker": "UI"
+      },
+      {
+        "engine_score": 0.9072052167134002,
+        "legacy_sleeve": "future_winner",
+        "name": "CIENA CORP",
+        "score": 1.6196314356687251,
+        "sector": "Information Technology",
+        "ticker": "CIEN"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "future_winner",
+        "name": "TECHNIPFMC PLC",
+        "score": 1.5682143677696807,
+        "sector": "Energy",
+        "ticker": "FTI"
+      },
+      {
+        "engine_score": 0.9258997438818788,
+        "legacy_sleeve": "core_compounder",
+        "name": "VERTIV HOLDINGS CLASS A",
+        "score": 1.5371006089892039,
+        "sector": "Industrials",
+        "ticker": "VRT"
+      },
+      {
+        "engine_score": 0.7932062434271903,
+        "legacy_sleeve": "unassigned",
+        "name": "WESTERN DIGITAL CORP",
+        "score": 1.5339939173481372,
+        "sector": "Information Technology",
+        "ticker": "WDC"
+      },
+      {
+        "engine_score": 0.8642741478089369,
+        "legacy_sleeve": "future_winner",
+        "name": "CORNING INC",
+        "score": 1.4919957946049056,
+        "sector": "Information Technology",
+        "ticker": "GLW"
+      },
+      {
+        "engine_score": 0.6886938700168209,
+        "legacy_sleeve": "future_winner",
+        "name": "LUMENTUM HOLDINGS INC",
+        "score": 1.4680276746337115,
+        "sector": "Information Technology",
+        "ticker": "LITE"
+      }
+    ]
+  }
+}

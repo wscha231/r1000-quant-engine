@@ -95,7 +95,7 @@
   ],
   "control": false,
   "experiment_id": "E1_auto_feature_gates_on",
-  "generated_at_utc": "2026-05-03T18:32:09.311611+00:00",
+  "generated_at_utc": "2026-05-03T19:23:09.378901+00:00",
   "matrix_version": "aggressive_lab_202605_v1",
   "max_dd": -0.27307967491398366,
   "metric_mode": "auto_learning_dry_run_metrics_when_available",

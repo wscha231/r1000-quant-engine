@@ -1,0 +1,42 @@
+[
+  {
+    "artifact": "risk_sensing_compare.json",
+    "source": "outputs/strategy_backtest/risk_sensing_compare.json",
+    "status": "copied"
+  },
+  {
+    "artifact": "equity_curve.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "monthly_allocations.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "turnover.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "stress_windows.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "sleeve_returns.csv",
+    "source": "outputs/strategy_backtest/risk_sensing_compare.json",
+    "status": "derived"
+  },
+  {
+    "artifact": "trade_journal_summary.md",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/summary.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "metrics.json",
+    "source": "",
+    "status": "derived"
+  }
+]

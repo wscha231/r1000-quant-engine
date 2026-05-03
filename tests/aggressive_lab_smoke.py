@@ -128,12 +128,50 @@ def test_e1_e5_report_only_adapters(tmp: Path) -> None:
     assert (outputs_root / "E5_orchestrator_balanced" / "proposed_unified_target_latest.csv").exists()
 
 
+def test_full_aggressive_matrix_runner(tmp: Path) -> None:
+    outputs_root = tmp / "experiments_full"
+    result = run_cmd(
+        [
+            "tools/run_aggressive_experiment_matrix.py",
+            "--outputs-root",
+            str(outputs_root),
+        ]
+    )
+    assert_ok(result)
+    expected = [
+        "E0_baseline_latest",
+        "E1_auto_feature_gates_on",
+        "E2_main_v2_balanced",
+        "E3_main_v2_aggressive",
+        "E4_concentrated_balanced",
+        "E5_orchestrator_balanced",
+        "E6_risk_sensing_on",
+        "E7_tactical_bull_only",
+        "E8_alpha_sprint_sidecar",
+        "E9_kitchen_sink_all_on",
+    ]
+    for exp_id in expected:
+        exp_dir = outputs_root / exp_id
+        assert (exp_dir / "metrics.json").exists(), exp_id
+        assert (exp_dir / "experiment_report.md").exists(), exp_id
+        assert (exp_dir / "gate_report.json").exists(), exp_id
+    assert (outputs_root / "experiment_matrix_ranking.md").exists()
+    summary = json.loads((outputs_root / "experiment_matrix_summary.json").read_text(encoding="utf-8"))
+    assert len(summary["rows"]) == len(expected)
+    e6 = json.loads((outputs_root / "E6_risk_sensing_on" / "metrics.json").read_text(encoding="utf-8"))
+    assert e6["backtest_executed"] is True
+    assert e6["maxdd_delta_pp"] > 0
+    e9 = json.loads((outputs_root / "E9_kitchen_sink_all_on" / "metrics.json").read_text(encoding="utf-8"))
+    assert e9["never_promote_to_production"] is True
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         test_regression_attribution(tmp)
         test_e0_lab_runner(tmp)
         test_e1_e5_report_only_adapters(tmp)
+        test_full_aggressive_matrix_runner(tmp)
     print("aggressive lab smoke passed")
     return 0
 

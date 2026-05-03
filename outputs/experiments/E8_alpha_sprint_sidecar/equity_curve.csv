@@ -1,0 +1,2 @@
+artifact,status,reason
+equity_curve.csv,not_available,E8 alpha sprint is candidate/latest only; no weekly historical backtest yet

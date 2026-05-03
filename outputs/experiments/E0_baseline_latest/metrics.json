@@ -46,7 +46,7 @@
   },
   "ending_capital_usd": 382467.5869209938,
   "experiment_id": "E0_baseline_latest",
-  "generated_at_utc": "2026-05-03T18:13:27.450214+00:00",
+  "generated_at_utc": "2026-05-03T19:23:08.847474+00:00",
   "main": {
     "adaptive_rebalance_policy": false,
     "avg_cash_weight": 0.07458527925955002,
@@ -97,6 +97,7 @@
     "turnover.csv",
     "stress_windows.csv",
     "trade_journal_summary.md",
+    "regression_attribution.md",
     "experiment_report.md"
   ],
   "run_identity": {
