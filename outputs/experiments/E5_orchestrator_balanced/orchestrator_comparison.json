@@ -1,0 +1,352 @@
+{
+  "current": {
+    "audit": {
+      "generated_at": "2026-05-02T07:26:39Z",
+      "input_weights_sum": {
+        "concentrated": 0.9999999999999999,
+        "main": 1.0,
+        "tactical": 0
+      },
+      "n_conflicts": 1,
+      "n_unique_tickers": 22,
+      "policy_capacity": {
+        "actual_total_invested_after_merge": 0.724392116773901,
+        "concentrated": 0.1,
+        "expected_total_invested": 0.75,
+        "main": 0.65,
+        "merged_below_expected_due_to_conflicts": 0.02560788322609897,
+        "tactical": 0.0
+      },
+      "scaled_weights_sum": {
+        "concentrated": 0.1,
+        "main": 0.65,
+        "tactical": 0
+      }
+    },
+    "audit_checks": {
+      "all_passed": true,
+      "cash_amount": 0.27560788322609897,
+      "cash_in_unit_range": true,
+      "invested_amount": 0.724392116773901,
+      "invested_plus_cash_close_to_one": true,
+      "n_conflicts": 1,
+      "n_positions": 22,
+      "weights_at_most_one": true,
+      "weights_nonnegative": true
+    },
+    "by_mandate_capacity": {
+      "concentrated": 0.1,
+      "main": 0.65,
+      "tactical": 0.0
+    },
+    "cash_target": 0.27560788322609897,
+    "conflicts": [
+      {
+        "mandates": [
+          "main",
+          "concentrated"
+        ],
+        "max_weight_used": 0.026000000000000002,
+        "ticker": "PR",
+        "weights_per_mandate": {
+          "concentrated": 0.025607883226099026,
+          "main": 0.026000000000000002
+        },
+        "winning_mandate": "main"
+      }
+    ],
+    "regime_state": "neutral",
+    "unified_weights": {
+      "AMKR": 0.018927996162275192,
+      "AMZN": 0.04145243698703679,
+      "CIEN": 0.01937423915660979,
+      "DTM": 0.021075135744277725,
+      "FIX": 0.026000000000000002,
+      "FTI": 0.04247122590176521,
+      "GEV": 0.08184207113677677,
+      "GLW": 0.015418742192592658,
+      "GOOGL": 0.0578667485849125,
+      "KIM": 0.020397868725050068,
+      "LRCX": 0.044577337968799466,
+      "MLI": 0.026000000000000002,
+      "MRVL": 0.020671139262423345,
+      "MTDR": 0.019430004900229173,
+      "NVDA": 0.07402379136909709,
+      "PR": 0.026000000000000002,
+      "PWR": 0.02809774170341377,
+      "TER": 0.02593300804089346,
+      "TSM": 0.030606947461387174,
+      "VRT": 0.026000000000000002,
+      "WELL": 0.02360050908593127,
+      "ZTO": 0.034625172390429566
+    }
+  },
+  "proposed": {
+    "by_mandate_capacity": {
+      "alpha_sprint": 0.0,
+      "concentrated": 0.25,
+      "main": 0.55
+    },
+    "capped_excess": 0.0,
+    "capped_names": [],
+    "cash_target": 0.19999999999999996,
+    "conflicts": [
+      {
+        "capped_weight": 0.08919716478591122,
+        "mandates": [
+          "concentrated",
+          "main"
+        ],
+        "raw_weight": 0.08919716478591122,
+        "ticker": "MRVL",
+        "weights_per_mandate": {
+          "concentrated": 0.05069716478591121,
+          "main": 0.038500000000000006
+        }
+      },
+      {
+        "capped_weight": 0.08761050601737726,
+        "mandates": [
+          "concentrated",
+          "main"
+        ],
+        "raw_weight": 0.08761050601737726,
+        "ticker": "PR",
+        "weights_per_mandate": {
+          "concentrated": 0.06561050601737725,
+          "main": 0.022000000000000002
+        }
+      }
+    ],
+    "expected_cash_from_matrix": 0.2,
+    "expected_invested_before_cap": 0.8,
+    "invested": 0.8,
+    "merge_mode": "sum_then_cap",
+    "n_conflicts": 2,
+    "n_positions": 21,
+    "regime_state": "neutral",
+    "rows": [
+      {
+        "capped_excess": 0.0,
+        "rank": 1,
+        "raw_weight": 0.08919716478591122,
+        "row_type": "equity",
+        "target_weight": 0.08919716478591122,
+        "ticker": "MRVL"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 2,
+        "raw_weight": 0.08761050601737726,
+        "row_type": "equity",
+        "target_weight": 0.08761050601737726,
+        "ticker": "PR"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 3,
+        "raw_weight": 0.07363798027813881,
+        "row_type": "equity",
+        "target_weight": 0.07363798027813881,
+        "ticker": "GEV"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 4,
+        "raw_weight": 0.05341268237178978,
+        "row_type": "equity",
+        "target_weight": 0.05341268237178978,
+        "ticker": "NVDA"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 5,
+        "raw_weight": 0.05043895085039828,
+        "row_type": "equity",
+        "target_weight": 0.05043895085039828,
+        "ticker": "AMKR"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 6,
+        "raw_weight": 0.04976496765495313,
+        "row_type": "equity",
+        "target_weight": 0.04976496765495313,
+        "ticker": "GOOG"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 7,
+        "raw_weight": 0.046620894300109676,
+        "row_type": "equity",
+        "target_weight": 0.046620894300109676,
+        "ticker": "CIEN"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 8,
+        "raw_weight": 0.038500000000000006,
+        "row_type": "equity",
+        "target_weight": 0.038500000000000006,
+        "ticker": "LRCX"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 9,
+        "raw_weight": 0.03663248404620357,
+        "row_type": "equity",
+        "target_weight": 0.03663248404620357,
+        "ticker": "GLW"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 10,
+        "raw_weight": 0.035707271498078036,
+        "row_type": "equity",
+        "target_weight": 0.035707271498078036,
+        "ticker": "AMZN"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 11,
+        "raw_weight": 0.028501885157592086,
+        "row_type": "equity",
+        "target_weight": 0.028501885157592086,
+        "ticker": "ZTO"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 12,
+        "raw_weight": 0.02277649127283526,
+        "row_type": "equity",
+        "target_weight": 0.02277649127283526,
+        "ticker": "TSM"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 13,
+        "raw_weight": 0.022000000000000002,
+        "row_type": "equity",
+        "target_weight": 0.022000000000000002,
+        "ticker": "VRT"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 14,
+        "raw_weight": 0.022000000000000002,
+        "row_type": "equity",
+        "target_weight": 0.022000000000000002,
+        "ticker": "TER"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 15,
+        "raw_weight": 0.022000000000000002,
+        "row_type": "equity",
+        "target_weight": 0.022000000000000002,
+        "ticker": "FIX"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 16,
+        "raw_weight": 0.022000000000000002,
+        "row_type": "equity",
+        "target_weight": 0.022000000000000002,
+        "ticker": "FTI"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 17,
+        "raw_weight": 0.022000000000000002,
+        "row_type": "equity",
+        "target_weight": 0.022000000000000002,
+        "ticker": "MLI"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 18,
+        "raw_weight": 0.02189794576458629,
+        "row_type": "equity",
+        "target_weight": 0.02189794576458629,
+        "ticker": "PWR"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 19,
+        "raw_weight": 0.019032866353509405,
+        "row_type": "equity",
+        "target_weight": 0.019032866353509405,
+        "ticker": "WELL"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 20,
+        "raw_weight": 0.018230383184104682,
+        "row_type": "equity",
+        "target_weight": 0.018230383184104682,
+        "ticker": "DTM"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 21,
+        "raw_weight": 0.018037526464412534,
+        "row_type": "equity",
+        "target_weight": 0.018037526464412534,
+        "ticker": "KIM"
+      },
+      {
+        "capped_excess": 0.0,
+        "rank": 22,
+        "raw_weight": 0.19999999999999996,
+        "row_type": "cash",
+        "target_weight": 0.19999999999999996,
+        "ticker": "CASH"
+      }
+    ],
+    "single_name_cap": 0.2,
+    "source_audit": {
+      "alpha_sprint": {
+        "reason": "capacity is zero for neutral regime",
+        "source": null,
+        "valid_positions": 0
+      },
+      "concentrated": {
+        "raw_weight_sum": 1.0,
+        "rows": 5,
+        "skipped_rows": 0,
+        "source": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_portfolio_latest.csv",
+        "valid_positions": 5
+      },
+      "main": {
+        "raw_weight_sum": 1.0,
+        "rows": 18,
+        "skipped_rows": 0,
+        "source": "cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv",
+        "valid_positions": 18
+      }
+    },
+    "unified_weights": {
+      "AMKR": 0.05043895085039828,
+      "AMZN": 0.035707271498078036,
+      "CIEN": 0.046620894300109676,
+      "DTM": 0.018230383184104682,
+      "FIX": 0.022000000000000002,
+      "FTI": 0.022000000000000002,
+      "GEV": 0.07363798027813881,
+      "GLW": 0.03663248404620357,
+      "GOOG": 0.04976496765495313,
+      "KIM": 0.018037526464412534,
+      "LRCX": 0.038500000000000006,
+      "MLI": 0.022000000000000002,
+      "MRVL": 0.08919716478591122,
+      "NVDA": 0.05341268237178978,
+      "PR": 0.08761050601737726,
+      "PWR": 0.02189794576458629,
+      "TER": 0.022000000000000002,
+      "TSM": 0.02277649127283526,
+      "VRT": 0.022000000000000002,
+      "WELL": 0.019032866353509405,
+      "ZTO": 0.028501885157592086
+    }
+  }
+}

@@ -81,11 +81,59 @@ def test_e0_lab_runner(tmp: Path) -> None:
     assert gate["passed_discovery"] is False
 
 
+def test_e1_e5_report_only_adapters(tmp: Path) -> None:
+    outputs_root = tmp / "experiments_report_only"
+    result = run_cmd(
+        [
+            "tools/run_aggressive_lab.py",
+            "--experiment-id",
+            "E1_auto_feature_gates_on",
+            "--experiment-id",
+            "E5_orchestrator_balanced",
+            "--outputs-root",
+            str(outputs_root),
+        ]
+    )
+    assert_ok(result)
+
+    required = [
+        "metrics.json",
+        "equity_curve.csv",
+        "monthly_allocations.csv",
+        "sleeve_returns.csv",
+        "turnover.csv",
+        "stress_windows.csv",
+        "trade_journal_summary.md",
+        "experiment_report.md",
+        "gate_report.json",
+    ]
+    for exp_id in ["E1_auto_feature_gates_on", "E5_orchestrator_balanced"]:
+        exp_dir = outputs_root / exp_id
+        missing = [name for name in required if not (exp_dir / name).exists()]
+        assert not missing, f"{exp_id} missing outputs: {missing}"
+        gate = json.loads((exp_dir / "gate_report.json").read_text(encoding="utf-8"))
+        assert gate["control"] is False
+        assert gate["passed_discovery"] is False
+
+    e1 = json.loads((outputs_root / "E1_auto_feature_gates_on" / "metrics.json").read_text(encoding="utf-8"))
+    assert e1["status"] == "candidate_only"
+    assert e1["backtest_executed"] is False
+    assert e1["proposal_count"] == 4
+    assert e1["promotion_approved"] is False
+
+    e5 = json.loads((outputs_root / "E5_orchestrator_balanced" / "metrics.json").read_text(encoding="utf-8"))
+    assert e5["status"] == "snapshot_report_only"
+    assert e5["backtest_executed"] is False
+    assert e5["proposed_cash_target"] <= e5["current_cash_target"]
+    assert (outputs_root / "E5_orchestrator_balanced" / "proposed_unified_target_latest.csv").exists()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         test_regression_attribution(tmp)
         test_e0_lab_runner(tmp)
+        test_e1_e5_report_only_adapters(tmp)
     print("aggressive lab smoke passed")
     return 0
 
