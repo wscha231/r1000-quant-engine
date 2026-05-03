@@ -42,15 +42,27 @@ jobs:
             tools/run_portfolio_system_guard.py \
             tools/run_auto_learning_v2.py \
             tools/run_orchestrator_replay.py \
+            tools/run_portfolio_goal_search.py \
             tests/portfolio_system_guard_smoke.py \
             tests/auto_learning_v2_smoke.py \
-            tests/orchestrator_replay_smoke.py
+            tests/orchestrator_replay_smoke.py \
+            tests/portfolio_goal_search_smoke.py
 
       - name: Run AutoLearning v2 snapshot
         if: ${{ github.event_name == 'pull_request' || inputs.refresh_auto_learning_v2 }}
         run: |
           LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
           python tools/run_auto_learning_v2.py --latest-run "$LATEST"
+
+      - name: Run concentrated orchestrator replay
+        run: |
+          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
+          python tools/run_orchestrator_replay.py --latest-run "$LATEST"
+
+      - name: Run portfolio goal search
+        run: |
+          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
+          python tools/run_portfolio_goal_search.py --latest-run "$LATEST"
 
       - name: Run portfolio system guard
         run: |
@@ -62,16 +74,12 @@ jobs:
           fi
           python tools/run_portfolio_system_guard.py $ARGS
 
-      - name: Run concentrated orchestrator replay
-        run: |
-          LATEST="${{ inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
-          python tools/run_orchestrator_replay.py --latest-run "$LATEST"
-
       - name: Smoke tests
         run: |
           python tests/portfolio_system_guard_smoke.py
           python tests/auto_learning_v2_smoke.py
           python tests/orchestrator_replay_smoke.py
+          python tests/portfolio_goal_search_smoke.py
 
       - name: Upload system guard artifacts
         if: always()
@@ -81,6 +89,7 @@ jobs:
           path: |
             outputs/portfolio_system_guard/
             outputs/orchestrator_replay/
+            outputs/portfolio_goal_search/
             outputs/auto_learning_v2/
             research/auto_learning_v2/
           retention-days: 365

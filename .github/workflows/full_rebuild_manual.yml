@@ -258,6 +258,12 @@ jobs:
           python tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
           python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
 
+      - name: Portfolio target replay + goal search (sidecar)
+        if: always()
+        run: |
+          python tools/run_orchestrator_replay.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/orchestrator_replay.log || true
+          python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+
       - name: Upload artifact (logs + scored CSVs)
         if: always()
         uses: actions/upload-artifact@v4
@@ -278,6 +284,8 @@ jobs:
             outputs/reports/global_alpha_sleeve_audit_*.csv
             outputs/trade_journal/
             outputs/auto_learning/
+            outputs/orchestrator_replay/
+            outputs/portfolio_goal_search/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -376,6 +384,16 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/auto_learning"
           fi
+          if [ -d outputs/orchestrator_replay ]; then
+            rclone copy outputs/orchestrator_replay "$DEST/orchestrator_replay/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/orchestrator_replay"
+          fi
+          if [ -d outputs/portfolio_goal_search ]; then
+            rclone copy outputs/portfolio_goal_search "$DEST/portfolio_goal_search/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
+          fi
 
           # Also sync log + verdict for diagnostic visibility
           rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/" 2>&1 || true
@@ -449,6 +467,8 @@ jobs:
           cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
           cp -r outputs/trade_journal/ /tmp/bundle/trade_journal/ 2>/dev/null || true
           cp -r outputs/auto_learning/ /tmp/bundle/auto_learning/ 2>/dev/null || true
+          cp -r outputs/orchestrator_replay/ /tmp/bundle/orchestrator_replay/ 2>/dev/null || true
+          cp -r outputs/portfolio_goal_search/ /tmp/bundle/portfolio_goal_search/ 2>/dev/null || true
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -524,6 +544,8 @@ jobs:
           cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
           cp -r outputs/trade_journal "$DEST/trade_journal" 2>/dev/null || true
           cp -r outputs/auto_learning "$DEST/auto_learning" 2>/dev/null || true
+          cp -r outputs/orchestrator_replay "$DEST/orchestrator_replay" 2>/dev/null || true
+          cp -r outputs/portfolio_goal_search "$DEST/portfolio_goal_search" 2>/dev/null || true
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience

@@ -78,6 +78,12 @@
       "severity": "ok"
     },
     {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
       "check": "github_workflows_available",
       "detail": ".github/workflows",
       "passed": true,
@@ -100,6 +106,30 @@
       "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
       "passed": false,
       "severity": "warn"
+    }
+  ],
+  "goal_search_candidates": [
+    {
+      "cagr": 0.1846609658361189,
+      "cagr_gap_pp": 6.5339,
+      "candidate_id": "experiment_E6_risk_sensing_on",
+      "governance_action": "blocked_both",
+      "max_dd": -0.2162517256738774,
+      "max_dd_gap_pp": 1.6252,
+      "portfolio": "main",
+      "target_pass": false,
+      "valid_for_production": false
+    },
+    {
+      "cagr": 0.3484912610130364,
+      "cagr_gap_pp": 5.1509,
+      "candidate_id": "concentrated_latest_champion",
+      "governance_action": "blocked_both",
+      "max_dd": -0.22940113109440408,
+      "max_dd_gap_pp": 0.9401,
+      "portfolio": "concentrated",
+      "target_pass": false,
+      "valid_for_production": true
     }
   ],
   "overall_status": "blocked",

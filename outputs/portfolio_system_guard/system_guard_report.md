@@ -22,6 +22,13 @@ Strict target mode: `false`
 | E3_main_v2_aggressive | `snapshot_report_only` | false | true | 0.00 | 0.00 |
 | E5_orchestrator_balanced | `snapshot_report_only` | false | true | 0.00 | 0.00 |
 
+## Goal Search
+
+| Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| main | `experiment_E6_risk_sensing_on` | 18.47% | 6.53pp | -21.63% | 1.63pp | false | `blocked_both` |
+| concentrated | `concentrated_latest_champion` | 34.85% | 5.15pp | -22.94% | 0.94pp | false | `blocked_both` |
+
 ## Error Checks
 
 - `PASS` main_metrics_available: cloud_results/full_rebuild/latest_global_alpha_universe/backtest_metrics.json
@@ -30,6 +37,7 @@ Strict target mode: `false`
 - `PASS` auto_learning_v2_challenger_available: outputs/auto_learning_v2/challenger_review.json
 - `PASS` auto_learning_v2_policy_available: outputs/auto_learning_v2/policy_candidate.json
 - `PASS` orchestrator_replay_available: outputs/orchestrator_replay/concentrated_balanced/metrics.json
+- `PASS` portfolio_goal_search_available: outputs/portfolio_goal_search/goal_search_summary.json
 - `PASS` github_workflows_available: .github/workflows
 - `WARN` counterfactual_replay_coverage: missing_counterfactual_count=4
 - `WARN` candidate_production_ready: production_ready_count=0

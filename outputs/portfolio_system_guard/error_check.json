@@ -37,6 +37,12 @@
       "severity": "ok"
     },
     {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
       "check": "github_workflows_available",
       "detail": ".github/workflows",
       "passed": true,

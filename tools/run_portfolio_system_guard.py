@@ -134,6 +134,7 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         "promotion_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "promotion_decision.json"),
         "policy_candidate_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "policy_candidate.json"),
         "orchestrator_replay": read_json(REPO_ROOT / "outputs" / "orchestrator_replay" / "concentrated_balanced" / "metrics.json"),
+        "goal_search": read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
         "workflows": existing_workflows(),
     }
 
@@ -152,6 +153,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any
         ("auto_learning_v2_challenger_available", bool(inputs["auto_learning_v2"]), "outputs/auto_learning_v2/challenger_review.json"),
         ("auto_learning_v2_policy_available", bool(inputs["policy_candidate_v2"]), "outputs/auto_learning_v2/policy_candidate.json"),
         ("orchestrator_replay_available", bool(inputs["orchestrator_replay"]), "outputs/orchestrator_replay/concentrated_balanced/metrics.json"),
+        ("portfolio_goal_search_available", bool(inputs["goal_search"]), "outputs/portfolio_goal_search/goal_search_summary.json"),
         ("github_workflows_available", bool(inputs["workflows"]), ".github/workflows"),
     ]
     out = []
@@ -230,6 +232,29 @@ def top_research_candidates(experiment_summary: dict[str, Any], orchestrator_rep
     return sorted(candidates, key=lambda row: safe_float(row.get("priority"), 0.0), reverse=True)[:8]
 
 
+def goal_search_candidates(goal_search: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    goal_search = goal_search or {}
+    out: list[dict[str, Any]] = []
+    for key in ("best_main", "best_concentrated"):
+        row = goal_search.get(key) or {}
+        if not row.get("candidate_id"):
+            continue
+        out.append(
+            {
+                "portfolio": row.get("portfolio"),
+                "candidate_id": row.get("candidate_id"),
+                "target_pass": bool(row.get("target_pass")),
+                "governance_action": row.get("governance_action"),
+                "cagr": row.get("cagr"),
+                "cagr_gap_pp": row.get("cagr_gap_pp"),
+                "max_dd": row.get("max_dd"),
+                "max_dd_gap_pp": row.get("max_dd_gap_pp"),
+                "valid_for_production": bool(row.get("valid_for_production")),
+            }
+        )
+    return out
+
+
 def candidate_priority(row: dict[str, Any]) -> float:
     score = safe_float(row.get("discovery_score"), 0.0)
     if row.get("passed_discovery"):
@@ -288,6 +313,7 @@ def render_report(
     main_status: dict[str, Any],
     concentrated_status: dict[str, Any],
     candidates: list[dict[str, Any]],
+    goal_candidates: list[dict[str, Any]],
     checks: list[dict[str, Any]],
     plan: dict[str, Any],
     strict_targets: bool,
@@ -335,6 +361,26 @@ def render_report(
         lines.append("No experiment candidates found.")
     lines.append("")
 
+    lines.extend(["## Goal Search", ""])
+    if goal_candidates:
+        lines.extend(["| Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |", "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"])
+        for row in goal_candidates:
+            lines.append(
+                "| {portfolio} | `{candidate}` | {cagr:.2%} | {cagr_gap:.2f}pp | {max_dd:.2%} | {dd_gap:.2f}pp | {passed} | `{action}` |".format(
+                    portfolio=row.get("portfolio"),
+                    candidate=row.get("candidate_id"),
+                    cagr=safe_float(row.get("cagr")),
+                    cagr_gap=safe_float(row.get("cagr_gap_pp")),
+                    max_dd=safe_float(row.get("max_dd")),
+                    dd_gap=safe_float(row.get("max_dd_gap_pp")),
+                    passed=str(row.get("target_pass")).lower(),
+                    action=row.get("governance_action"),
+                )
+            )
+    else:
+        lines.append("Goal search artifact is not available yet.")
+    lines.append("")
+
     lines.extend(["## Error Checks", ""])
     for check in checks:
         marker = "PASS" if check["passed"] else check["severity"].upper()
@@ -371,6 +417,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     targets_pass = all(row["target_pass"] for row in statuses)
     checks = error_checks(inputs, latest_run)
     candidates = top_research_candidates(inputs["experiment_summary"], inputs.get("orchestrator_replay"))
+    goal_candidates = goal_search_candidates(inputs.get("goal_search"))
     plan = automation_plan(inputs, targets_pass)
     hard_errors = [row for row in checks if row["severity"] == "error" and not row["passed"]]
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
@@ -381,6 +428,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "targets_pass": targets_pass,
         "portfolio_status": statuses,
         "top_research_candidates": candidates,
+        "goal_search_candidates": goal_candidates,
         "error_checks": checks,
         "automation_plan": plan,
     }
@@ -390,7 +438,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "error_check.json", {"checks": checks, "hard_error_count": len(hard_errors)})
     write_json(output_dir / "automation_plan.json", plan)
     write_text(output_dir / "automation_plan.md", render_automation_plan(plan))
-    report = render_report(main_status, concentrated_status, candidates, checks, plan, args.strict_targets)
+    report = render_report(main_status, concentrated_status, candidates, goal_candidates, checks, plan, args.strict_targets)
     write_text(output_dir / "system_guard_report.md", report)
 
     return payload
