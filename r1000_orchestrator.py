@@ -68,6 +68,7 @@ def _scale_by_mandate_capacity(
     weights: dict,
     mandate: str,
     regime_state: str,
+    capacity_override: Optional[dict] = None,
 ) -> tuple[dict, float]:
     """Multiply each weight by the mandate's capacity for this regime.
 
@@ -76,7 +77,13 @@ def _scale_by_mandate_capacity(
 
     Returns (scaled_weights, capacity_used).
     """
-    cap = float(mandate_capacity_for_regime(mandate, regime_state))
+    if isinstance(capacity_override, dict) and mandate in capacity_override:
+        try:
+            cap = float(capacity_override.get(mandate, 0.0))
+        except (TypeError, ValueError):
+            cap = 0.0
+    else:
+        cap = float(mandate_capacity_for_regime(mandate, regime_state))
     if cap <= 0 or not weights:
         return {}, cap
     raw_sum = sum(float(v) for v in weights.values())
@@ -121,28 +128,169 @@ def _merge_with_max(
     return merged, conflicts
 
 
+def _merge_scaled_weights(
+    scaled_by_mandate: dict[str, dict],
+    merge_mode: str = "max",
+    unified_single_name_cap: float = 1.0,
+    risk_budget_blend: float = 0.50,
+) -> tuple[dict, list]:
+    """Merge scaled mandate weights with an explicit mode.
+
+    `max` is the historical/default behavior. Other modes are research-only
+    hooks for aggressive lab backtests and do not activate unless requested.
+    """
+    mode = str(merge_mode or "max").strip().lower()
+    cap = max(float(unified_single_name_cap), 0.0)
+    if cap <= 0:
+        cap = 1.0
+    all_tickers = set()
+    for weights in scaled_by_mandate.values():
+        all_tickers |= set(weights)
+
+    merged: dict[str, float] = {}
+    conflicts: list[dict] = []
+    priority_order = ("concentrated", "tactical", "main")
+    for ticker in sorted(all_tickers):
+        parts = {
+            mandate: float(weights[ticker])
+            for mandate, weights in scaled_by_mandate.items()
+            if ticker in weights and float(weights[ticker]) > 0
+        }
+        if not parts:
+            continue
+        raw_sum = float(sum(parts.values()))
+        max_weight = float(max(parts.values()))
+        if mode == "sum_then_cap":
+            final_weight = min(raw_sum, cap)
+            winning = "sum_then_cap"
+        elif mode == "priority_concentrated":
+            used = 0.0
+            for mandate in priority_order:
+                used += min(float(parts.get(mandate, 0.0)), max(cap - used, 0.0))
+            for mandate, weight in parts.items():
+                if mandate not in priority_order:
+                    used += min(float(weight), max(cap - used, 0.0))
+            final_weight = min(used, cap)
+            winning = "priority_concentrated"
+        elif mode == "risk_budget_blend":
+            blend = min(max(float(risk_budget_blend), 0.0), 1.0)
+            final_weight = min(max_weight + blend * max(raw_sum - max_weight, 0.0), cap)
+            winning = "risk_budget_blend"
+        else:
+            final_weight = max_weight
+            winning = max(parts.items(), key=lambda item: item[1])[0]
+        merged[ticker] = final_weight
+        if len(parts) > 1:
+            conflicts.append(
+                {
+                    "ticker": ticker,
+                    "mandates": sorted(parts),
+                    "weights_per_mandate": parts,
+                    "raw_sum_weight": raw_sum,
+                    "max_weight_used": max_weight,
+                    "merged_weight": final_weight,
+                    "merge_mode": mode,
+                    "winning_mandate": winning,
+                    "cap_excess_to_cash": max(0.0, raw_sum - final_weight),
+                }
+            )
+    return merged, conflicts
+
+
 def compose_unified_portfolio(
     main_weights: Optional[dict] = None,
     concentrated_weights: Optional[dict] = None,
     tactical_weights: Optional[dict] = None,
+    mandate_weights: Optional[dict] = None,
     regime_state: str = "neutral",
     cfg=None,
+    merge_mode: str = "max",
+    unified_single_name_cap: float = 1.0,
+    capacity_override: Optional[dict] = None,
+    risk_budget_blend: float = 0.50,
 ) -> dict:
-    """Compose a unified target weight map from 3 per-mandate weight dicts.
+    """Compose a unified target weight map from per-mandate weight dicts.
 
     Algorithm
     ---------
     1. Normalize each input dict (str ticker -> float; drop NaN/None).
+       If `mandate_weights` is provided, it should be a mapping like
+       {"main": {...}, "concentrated": {...}, "alpha_sprint": {...}}.
+       The legacy main/concentrated/tactical arguments remain the default.
     2. For each mandate, scale weights so they sum to
        mandate_capacity_for_regime(mandate, regime_state).
        (e.g. if main has 5 names equal-weighted at 0.20 each = 1.0 sum,
        and main capacity in 'bull' is 0.75, output sums to 0.75.)
-    3. Merge the 3 scaled dicts via _merge_with_max -- conflicts (same
-       ticker in 2+ mandates) keep the highest scaled weight.
+    3. Merge the 3 scaled dicts. Default `merge_mode="max"` preserves the
+       historical behavior. Research callers can request `sum_then_cap`,
+       `priority_concentrated`, or `risk_budget_blend`.
     4. cash_target = 1.0 - sum(merged) (clamped to [0, 1]).
 
     Returns a dict matching OrchestratorResult.to_dict() schema.
     """
+    if mandate_weights is not None:
+        normalized_by_mandate: dict[str, dict] = {}
+        for mandate, weights in dict(mandate_weights).items():
+            mandate_name = str(mandate).strip()
+            if not mandate_name:
+                continue
+            normalized_by_mandate[mandate_name] = _normalize_weights(weights)
+
+        raw_sums = {
+            mandate: sum(weights.values())
+            for mandate, weights in normalized_by_mandate.items()
+        }
+        scaled_by_mandate: dict[str, dict] = {}
+        capacities: dict[str, float] = {}
+        for mandate, weights in normalized_by_mandate.items():
+            scaled, cap = _scale_by_mandate_capacity(
+                weights,
+                mandate,
+                regime_state,
+                capacity_override,
+            )
+            scaled_by_mandate[mandate] = scaled
+            capacities[mandate] = float(cap)
+
+        scaled_sums = {
+            mandate: sum(weights.values())
+            for mandate, weights in scaled_by_mandate.items()
+        }
+        merged, conflicts = _merge_scaled_weights(
+            scaled_by_mandate,
+            merge_mode=merge_mode,
+            unified_single_name_cap=unified_single_name_cap,
+            risk_budget_blend=risk_budget_blend,
+        )
+        invested = sum(merged.values())
+        cash_target = max(0.0, min(1.0, 1.0 - invested))
+        expected_total = sum(capacities.values())
+
+        result = OrchestratorResult(
+            unified_weights=dict(sorted(merged.items(), key=lambda kv: -kv[1])),
+            cash_target=float(cash_target),
+            by_mandate_capacity=dict(sorted(capacities.items())),
+            conflicts=conflicts,
+            regime_state=str(regime_state),
+            audit={
+                "input_weights_sum": raw_sums,
+                "scaled_weights_sum": scaled_sums,
+                "policy_capacity": {
+                    **dict(sorted(capacities.items())),
+                    "expected_total_invested": float(expected_total),
+                    "actual_total_invested_after_merge": float(invested),
+                    "merged_below_expected_due_to_conflicts": float(max(0.0, expected_total - invested)),
+                },
+                "merge_mode": str(merge_mode or "max"),
+                "unified_single_name_cap": float(unified_single_name_cap),
+                "n_unique_tickers": len(merged),
+                "n_conflicts": len(conflicts),
+                "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "research_only_arbitrary_mandates": True,
+            },
+        )
+        return result.to_dict()
+
     main_w = _normalize_weights(main_weights)
     conc_w = _normalize_weights(concentrated_weights)
     tact_w = _normalize_weights(tactical_weights)
@@ -153,9 +301,9 @@ def compose_unified_portfolio(
         "tactical": sum(tact_w.values()),
     }
 
-    main_scaled, main_cap = _scale_by_mandate_capacity(main_w, "main", regime_state)
-    conc_scaled, conc_cap = _scale_by_mandate_capacity(conc_w, "concentrated", regime_state)
-    tact_scaled, tact_cap = _scale_by_mandate_capacity(tact_w, "tactical", regime_state)
+    main_scaled, main_cap = _scale_by_mandate_capacity(main_w, "main", regime_state, capacity_override)
+    conc_scaled, conc_cap = _scale_by_mandate_capacity(conc_w, "concentrated", regime_state, capacity_override)
+    tact_scaled, tact_cap = _scale_by_mandate_capacity(tact_w, "tactical", regime_state, capacity_override)
 
     scaled_sums = {
         "main": sum(main_scaled.values()),
@@ -163,7 +311,19 @@ def compose_unified_portfolio(
         "tactical": sum(tact_scaled.values()),
     }
 
-    merged, conflicts = _merge_with_max(main_scaled, conc_scaled, tact_scaled)
+    if str(merge_mode or "max").lower() == "max" and float(unified_single_name_cap) >= 1.0 and not capacity_override:
+        merged, conflicts = _merge_with_max(main_scaled, conc_scaled, tact_scaled)
+    else:
+        merged, conflicts = _merge_scaled_weights(
+            {
+                "main": main_scaled,
+                "concentrated": conc_scaled,
+                "tactical": tact_scaled,
+            },
+            merge_mode=merge_mode,
+            unified_single_name_cap=unified_single_name_cap,
+            risk_budget_blend=risk_budget_blend,
+        )
     invested = sum(merged.values())
     cash_target = max(0.0, min(1.0, 1.0 - invested))
 
@@ -190,6 +350,8 @@ def compose_unified_portfolio(
                 "actual_total_invested_after_merge": float(invested),
                 "merged_below_expected_due_to_conflicts": float(max(0.0, expected_total - invested)),
             },
+            "merge_mode": str(merge_mode or "max"),
+            "unified_single_name_cap": float(unified_single_name_cap),
             "n_unique_tickers": len(merged),
             "n_conflicts": len(conflicts),
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
