@@ -17,10 +17,10 @@ Strict target mode: `false`
 | --- | --- | ---: | ---: | ---: | ---: |
 | E4_concentrated_balanced | `standalone_sleeve_policy_audit` | true | true | 13.45 | 4.33 |
 | E6_risk_sensing_on | `simplified_layer2_backtest` | true | false | -2.94 | 5.65 |
+| E4_concentrated_balanced_replay | `blocked_missing_concentrated_monthly` | false | true |  |  |
 | E2_main_v2_balanced | `snapshot_report_only` | false | true | 0.00 | 0.00 |
 | E3_main_v2_aggressive | `snapshot_report_only` | false | true | 0.00 | 0.00 |
 | E5_orchestrator_balanced | `snapshot_report_only` | false | true | 0.00 | 0.00 |
-| E7_tactical_bull_only | `sidecar_latest_only` | false | true |  |  |
 
 ## Error Checks
 
@@ -29,9 +29,11 @@ Strict target mode: `false`
 - `PASS` experiment_matrix_available: outputs/experiments/experiment_matrix_summary.json
 - `PASS` auto_learning_v2_challenger_available: outputs/auto_learning_v2/challenger_review.json
 - `PASS` auto_learning_v2_policy_available: outputs/auto_learning_v2/policy_candidate.json
+- `PASS` orchestrator_replay_available: outputs/orchestrator_replay/concentrated_balanced/metrics.json
 - `PASS` github_workflows_available: .github/workflows
 - `WARN` counterfactual_replay_coverage: missing_counterfactual_count=4
 - `WARN` candidate_production_ready: production_ready_count=0
+- `WARN` orchestrator_replay_valid_for_promotion: status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings
 
 ## Automation Plan
 

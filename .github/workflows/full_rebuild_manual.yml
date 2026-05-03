@@ -443,6 +443,9 @@ jobs:
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
           cp -r outputs/trade_journal/ /tmp/bundle/trade_journal/ 2>/dev/null || true
           cp -r outputs/auto_learning/ /tmp/bundle/auto_learning/ 2>/dev/null || true
@@ -516,6 +519,9 @@ jobs:
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
           cp -r outputs/trade_journal "$DEST/trade_journal" 2>/dev/null || true
           cp -r outputs/auto_learning "$DEST/auto_learning" 2>/dev/null || true
           # Run summary

@@ -31,6 +31,12 @@
       "severity": "ok"
     },
     {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
       "check": "github_workflows_available",
       "detail": ".github/workflows",
       "passed": true,
@@ -45,6 +51,12 @@
     {
       "check": "candidate_production_ready",
       "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings",
       "passed": false,
       "severity": "warn"
     }

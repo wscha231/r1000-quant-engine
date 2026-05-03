@@ -133,6 +133,7 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         "auto_learning_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "challenger_review.json"),
         "promotion_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "promotion_decision.json"),
         "policy_candidate_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "policy_candidate.json"),
+        "orchestrator_replay": read_json(REPO_ROOT / "outputs" / "orchestrator_replay" / "concentrated_balanced" / "metrics.json"),
         "workflows": existing_workflows(),
     }
 
@@ -150,6 +151,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any
         ("experiment_matrix_available", bool(inputs["experiment_summary"]), "outputs/experiments/experiment_matrix_summary.json"),
         ("auto_learning_v2_challenger_available", bool(inputs["auto_learning_v2"]), "outputs/auto_learning_v2/challenger_review.json"),
         ("auto_learning_v2_policy_available", bool(inputs["policy_candidate_v2"]), "outputs/auto_learning_v2/policy_candidate.json"),
+        ("orchestrator_replay_available", bool(inputs["orchestrator_replay"]), "outputs/orchestrator_replay/concentrated_balanced/metrics.json"),
         ("github_workflows_available", bool(inputs["workflows"]), ".github/workflows"),
     ]
     out = []
@@ -175,10 +177,20 @@ def error_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any
             "detail": f"production_ready_count={production_ready}",
         }
     )
+    replay = inputs.get("orchestrator_replay") or {}
+    replay_valid = bool(replay.get("valid_for_promotion"))
+    out.append(
+        {
+            "check": "orchestrator_replay_valid_for_promotion",
+            "passed": replay_valid,
+            "severity": "warn" if not replay_valid else "ok",
+            "detail": f"status={replay.get('status')}; data_mode={replay.get('data_mode')}",
+        }
+    )
     return out
 
 
-def top_research_candidates(experiment_summary: dict[str, Any]) -> list[dict[str, Any]]:
+def top_research_candidates(experiment_summary: dict[str, Any], orchestrator_replay: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     ranked = experiment_summary.get("ranked") or []
     candidates = []
     for row in ranked:
@@ -197,6 +209,24 @@ def top_research_candidates(experiment_summary: dict[str, Any]) -> list[dict[str
                     "priority": candidate_priority(row),
                 }
             )
+    replay = orchestrator_replay or {}
+    if replay:
+        unified = ((replay.get("metrics") or {}).get("unified_balanced") or {})
+        candidates.append(
+            {
+                "experiment_id": replay.get("experiment_id", "E4_concentrated_balanced_replay"),
+                "status": replay.get("status"),
+                "passed_discovery": bool(replay.get("valid_for_promotion")),
+                "requires_full_challenger_backtest": not bool(replay.get("valid_for_promotion")),
+                "cagr_delta_pp": None,
+                "maxdd_delta_pp": None,
+                "sharpe_delta": None,
+                "priority": 12.0 if replay.get("valid_for_promotion") else 4.0,
+                "replay_cagr": unified.get("cagr"),
+                "replay_max_dd": unified.get("max_dd"),
+                "data_mode": replay.get("data_mode"),
+            }
+        )
     return sorted(candidates, key=lambda row: safe_float(row.get("priority"), 0.0), reverse=True)[:8]
 
 
@@ -340,7 +370,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     statuses = [main_status, concentrated_status]
     targets_pass = all(row["target_pass"] for row in statuses)
     checks = error_checks(inputs, latest_run)
-    candidates = top_research_candidates(inputs["experiment_summary"])
+    candidates = top_research_candidates(inputs["experiment_summary"], inputs.get("orchestrator_replay"))
     plan = automation_plan(inputs, targets_pass)
     hard_errors = [row for row in checks if row["severity"] == "error" and not row["passed"]]
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
