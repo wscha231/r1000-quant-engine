@@ -202,38 +202,41 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
         rows = group.to_dict("records")
         by_ticker = {str(row.get("ticker") or "").upper(): row for row in rows}
 
-        # Mark-to-market and exit/trim existing positions first.
         raw_weights: dict[str, float] = {}
-        gross_return = 0.0
         active_state: dict[str, dict[str, Any]] = {}
         for ticker, pos in list(state.items()):
             row = by_ticker.get(ticker)
             if not row:
+                event_rows.append(
+                    {
+                        "rebalance_date": dt,
+                        "ticker": ticker,
+                        "action": "exit",
+                        "reason": "missing_from_candidate_book",
+                        "stage": pos.get("stage"),
+                    }
+                )
                 continue
-            ret = safe_float(row.get(return_col), 0.0)
             cum_before = safe_float(pos.get("cum_return"))
             peak_before = safe_float(pos.get("peak_return"))
             action, reason = classify_exit(row, safe_float(pos.get("last_return"), 0.0), cum_before, peak_before)
             if action == "exit":
                 event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": action, "reason": reason, "stage": pos.get("stage")})
                 continue
-            cum_after = (1.0 + cum_before) * (1.0 + ret) - 1.0
-            peak_after = max(peak_before, cum_after)
             score = monster_onset_score(row)
-            stage = next_stage(str(pos.get("stage", "scout")), score, cum_after, int(pos.get("months_held", 0)) + 1)
+            stage = next_stage(str(pos.get("stage", "scout")), score, cum_before, int(pos.get("months_held", 0)))
             weight = stage_weight(stage, policy)
             if action == "trim":
                 weight *= 0.5
             raw_weights[ticker] = weight
             active_state[ticker] = {
                 "stage": stage,
-                "cum_return": cum_after,
-                "peak_return": peak_after,
-                "months_held": int(pos.get("months_held", 0)) + 1,
+                "cum_return": cum_before,
+                "peak_return": peak_before,
+                "months_held": int(pos.get("months_held", 0)),
                 "last_score": score,
-                "last_return": ret,
+                "last_return": safe_float(pos.get("last_return"), 0.0),
             }
-            gross_return += safe_float(prev_weights.get(ticker), 0.0) * ret
             event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": action, "reason": reason, "stage": stage})
 
         # Add new scouts from broad candidate book.
@@ -266,6 +269,24 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
 
         weights = normalize_weights(raw_weights, safe_float(policy.get("capacity"), 1.0), safe_float(policy.get("max_single_name_weight"), 0.33))
         month_turnover = turnover(prev_weights, weights)
+        gross_return = 0.0
+        next_state: dict[str, dict[str, Any]] = {}
+        for ticker, weight in weights.items():
+            row = by_ticker.get(ticker, {})
+            pos = active_state.get(ticker, {})
+            ret = safe_float(row.get(return_col), 0.0)
+            cum_before = safe_float(pos.get("cum_return"))
+            cum_after = (1.0 + cum_before) * (1.0 + ret) - 1.0
+            peak_after = max(safe_float(pos.get("peak_return")), cum_after)
+            next_state[ticker] = {
+                "stage": pos.get("stage", "scout"),
+                "cum_return": cum_after,
+                "peak_return": peak_after,
+                "months_held": int(pos.get("months_held", 0)) + 1,
+                "last_score": safe_float(pos.get("last_score")),
+                "last_return": ret,
+            }
+            gross_return += weight * ret
         cost = month_turnover * (cost_bps / 10000.0)
         net_return = gross_return - cost
         monthly_rows.append(
@@ -286,7 +307,7 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
         )
         for ticker, weight in weights.items():
             row = by_ticker.get(ticker, {})
-            pos = active_state.get(ticker, {})
+            pos = next_state.get(ticker, {})
             ret = safe_float(row.get(return_col), 0.0)
             holding_rows.append(
                 {
@@ -309,7 +330,7 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "stage2_overext_penalty": row.get("stage2_overext_penalty", ""),
                 }
             )
-        state = active_state
+        state = next_state
         prev_weights = weights
 
     curve = equity_curve_rows(monthly_rows)

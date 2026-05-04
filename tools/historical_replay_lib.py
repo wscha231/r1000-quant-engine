@@ -88,7 +88,10 @@ def blocked_payload(reason: str, required_path: Path, output_dir: Path, experime
 
 def infer_return_col(frame: pd.DataFrame) -> str | None:
     for col in ("period_forward_return", "r_1m", "y_blend", "pred_forward_return"):
-        if col in frame.columns:
+        if col not in frame.columns:
+            continue
+        numeric = pd.to_numeric(frame[col], errors="coerce").dropna()
+        if not numeric.empty and bool(numeric.map(math.isfinite).any()):
             return col
     return None
 
@@ -117,15 +120,35 @@ def score_power_weights(rows: list[dict[str, Any]], score_key: str, single_name_
             continue
         shifted = max(safe_float(row.get(score_key), 0.0) - min_score + 0.25, 1e-6)
         raw[ticker] = shifted * shifted
+    if not raw:
+        return {}
     total = sum(raw.values())
     if total <= 0:
         equal = 1.0 / len(raw)
         return {ticker: min(equal, single_name_cap) for ticker in raw}
-    capped = {ticker: min(value / total, single_name_cap) for ticker, value in raw.items()}
-    capped_sum = sum(capped.values())
-    if capped_sum <= 0:
-        return capped
-    return {ticker: value / capped_sum for ticker, value in capped.items()}
+
+    cap = max(0.0, min(1.0, float(single_name_cap)))
+    weights: dict[str, float] = {}
+    remaining = 1.0
+    remaining_tickers = list(raw.keys())
+    while remaining_tickers and remaining > 1e-12:
+        remaining_total = sum(raw[ticker] for ticker in remaining_tickers)
+        if remaining_total <= 0:
+            equal = remaining / len(remaining_tickers)
+            for ticker in remaining_tickers:
+                weights[ticker] = min(equal, cap)
+            break
+        proposed = {ticker: remaining * raw[ticker] / remaining_total for ticker in remaining_tickers}
+        capped_now = [ticker for ticker, weight in proposed.items() if weight > cap]
+        if not capped_now:
+            weights.update(proposed)
+            remaining = 0.0
+            break
+        for ticker in capped_now:
+            weights[ticker] = cap
+            remaining -= cap
+        remaining_tickers = [ticker for ticker in remaining_tickers if ticker not in capped_now]
+    return {ticker: min(weight, cap) for ticker, weight in weights.items() if weight > 0}
 
 
 def turnover(prev: dict[str, float], cur: dict[str, float]) -> float:

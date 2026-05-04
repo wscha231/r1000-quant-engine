@@ -59,6 +59,12 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
         lookup = row_lookup(rows)
         result = compose_main_sleeve_portfolio(rows, policy=MAIN_V2_BALANCED_POLICY)
         weights = {str(k): float(v) for k, v in (result.get("main_v2_weights") or {}).items()}
+        score_lookup = {}
+        for sleeve_items in (result.get("selected_by_sleeve") or {}).values():
+            for item in sleeve_items:
+                ticker = str(item.get("ticker") or "").upper()
+                if ticker:
+                    score_lookup[ticker] = max(safe_float(score_lookup.get(ticker)), safe_float(item.get("score")))
         month_turnover = turnover(prev_weights, weights)
         gross_return = 0.0
         selected_names: list[str] = []
@@ -74,7 +80,7 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
                     "weight": weight,
                     "period_forward_return": period_return,
                     "weighted_forward_return": weight * period_return,
-                    "main_v2_score": source.get("main_v2_score", ""),
+                    "main_v2_score": score_lookup.get(ticker, ""),
                     "score": source.get("score", ""),
                     "sector": source.get("sector", ""),
                     "regime_state": result.get("regime_state"),

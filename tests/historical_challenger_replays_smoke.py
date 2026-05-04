@@ -16,6 +16,7 @@ from tools.run_concentrated_policy_replay import replay as concentrated_replay  
 from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
 from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
+from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
 
 
 def write_candidate_book(path: Path) -> None:
@@ -189,8 +190,25 @@ def test_historical_challenger_replays() -> None:
         assert (root / "conc" / "comparison.csv").exists()
         assert (root / "risk" / "actions.csv").exists()
         assert (root / "monster" / "events.csv").exists()
+        with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
+            assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
+        with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:
+            first_month = next(csv.DictReader(f))
+            assert float(first_month["gross_return"]) > 0.0
+
+
+def test_weight_caps_and_return_column_fallback() -> None:
+    rows = [{"ticker": "AAA", "score": 100.0}, {"ticker": "BBB", "score": 1.0}]
+    weights = score_power_weights(rows, "score", single_name_cap=0.5)
+    assert max(weights.values()) <= 0.5000001
+
+    import pandas as pd
+
+    frame = pd.DataFrame({"period_forward_return": [float("nan")], "y_blend": [0.12]})
+    assert infer_return_col(frame) == "y_blend"
 
 
 if __name__ == "__main__":
     test_historical_challenger_replays()
+    test_weight_caps_and_return_column_fallback()
     print("historical_challenger_replays_smoke: ok")

@@ -54,6 +54,10 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float, allow_neutra
             regime_for_policy = regime
         snapshot = build_alpha_sprint_snapshot(rows, regime_state=regime_for_policy, policy=ALPHA_SPRINT_POLICY)
         weights = {str(k): float(v) for k, v in (snapshot.get("portfolio", {}).get("weights") or {}).items()}
+        score_lookup = {
+            str(item.get("ticker") or "").upper(): safe_float(item.get("alpha_sprint_score"))
+            for item in (snapshot.get("candidates") or [])
+        }
         if regime not in ACTIVE_REGIMES and not allow_neutral:
             weights = {}
         active_months += 1 if weights else 0
@@ -74,7 +78,7 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float, allow_neutra
                     "risk_clipped_return": clipped_ret,
                     "weighted_forward_return": weight * clipped_ret,
                     "regime_state": regime,
-                    "alpha_sprint_score": source.get("alpha_sprint_score", ""),
+                    "alpha_sprint_score": score_lookup.get(ticker, ""),
                     "rs_acceleration_score": source.get("rs_acceleration_score", ""),
                     "breakout_setup_quality_score": source.get("breakout_setup_quality_score", ""),
                     "explosion_entry_score": source.get("explosion_entry_score", ""),

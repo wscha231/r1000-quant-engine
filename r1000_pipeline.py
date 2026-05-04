@@ -15881,8 +15881,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 if col not in replay_source.columns:
                     replay_source[col] = np.nan
             replay_book = replay_source[replay_cols].copy()
+            return_source = None
+            for col in ("r_1m", "y_blend"):
+                values = pd.to_numeric(replay_book[col] if col in replay_book.columns else np.nan, errors="coerce")
+                if values.notna().any():
+                    return_source = values
+                    break
             replay_book["period_forward_return"] = pd.to_numeric(
-                replay_book["r_1m"] if "r_1m" in replay_book.columns else np.nan,
+                return_source if return_source is not None else np.nan,
                 errors="coerce",
             )
             replay_book.to_csv(candidate_replay_book_path, index=False)
