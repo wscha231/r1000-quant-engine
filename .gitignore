@@ -16,5 +16,6 @@ aggressive/cache/
 outputs/regime_snapshot_cache.json
 outputs/winner_lifecycle/
 outputs/winner_onset_study/
+outputs/autolearning_winner_challenger/
 research/github_runs/
 research/phase20_artifact/

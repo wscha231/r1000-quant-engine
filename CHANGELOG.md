@@ -53,6 +53,63 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-04
 
+### 13:35 KST - autolearning-winner-challenger
+
+- scope:
+  - Add a separate research-only challenger harness that connects AutoLearning
+    v2 hypotheses with winner lifecycle and winner onset outputs, producing
+    event-level backtest evidence and portfolio-replay readiness without
+    touching production behavior.
+- files:
+  - `tools/run_autolearning_winner_challenger.py` ->adds a standalone harness that reads AutoLearning, lifecycle, onset, and baseline artifacts and writes a proposal-only challenger package.
+  - `tests/autolearning_winner_challenger_smoke.py` ->adds a synthetic artifact smoke test for the separate challenger harness.
+  - `.gitignore` ->ignores generated `outputs/autolearning_winner_challenger/` artifacts.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves repo-relative paths.
+  - `read_json(path, default)` ->loads JSON with a default fallback.
+  - `read_csv_rows(path)` ->loads CSV rows as dictionaries.
+  - `write_json(path, payload)` ->writes JSON artifacts.
+  - `write_csv(path, rows, fieldnames)` ->writes CSV artifacts.
+  - `write_text(path, text)` ->writes text artifacts.
+  - `safe_float(value, default)` ->normalizes numeric values.
+  - `pct(value)` ->formats percentages for reports.
+  - `load_baseline(latest_run)` ->loads main/concentrated baseline metrics.
+  - `load_autolearning(autolearning_dir)` ->loads AutoLearning v2 hypotheses and counterfactual metadata.
+  - `top_values(rows, col, n)` ->extracts top string values from report rows.
+  - `load_lifecycle(lifecycle_dir)` ->loads missed winner, stale winner, and rotation diagnostics.
+  - `return_stats(values)` ->computes event-level return distribution statistics.
+  - `load_onset(onset_dir)` ->loads onset study artifacts and event-level hold/exit stats.
+  - `replay_input_status(latest_run)` ->checks whether monthly books required for portfolio replay exist.
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, replay_status)` ->combines all evidence into one decision object.
+  - `decide_verdict(onset, lifecycle, replay_status)` ->classifies blocked/event-only/replay-ready state.
+  - `render_candidate_yaml(decision)` ->renders proposal-only experiment YAML.
+  - `render_report(decision, event_rows)` ->renders a Markdown challenger report.
+  - `run(args)` ->runs the separate challenger harness.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - `load_lifecycle(lifecycle_dir)` ->uses `held_ticker` from leadership rotation reports when rendering rotation pairs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/autolearning_winner_challenger/summary.json` ->combined decision and evidence object.
+  - `outputs/autolearning_winner_challenger/event_backtest.csv` ->event-level hold/exit stats from onset study outputs.
+  - `outputs/autolearning_winner_challenger/candidate_experiment.yaml` ->proposal-only experiment config for future portfolio replay.
+  - `outputs/autolearning_winner_challenger/challenger_report.md` ->human-readable separate challenger report.
+- validation:
+  - `py -3 -m py_compile tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study` ->passed, generated 16 event-level onset cases.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level evidence prioritizes rules but is not a substitute for portfolio-level CAGR/MaxDD replay.
+  - Portfolio replay remains blocked until the current full rebuild produces monthly books on this branch.
+
 ### 13:22 KST - winner-onset-study
 
 - scope:

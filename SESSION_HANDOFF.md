@@ -51,6 +51,11 @@ purpose: narrow hardening follow-up before judging PR #3 as a production candida
    proposal-only policy candidates. When sourced from `scored_latest.csv`, it
    defaults to a $5B current market-cap floor and $20M 20-day dollar-volume
    floor to avoid micro-cap multi-bagger noise.
+8. `tools/run_autolearning_winner_challenger.py` connects AutoLearning v2,
+   winner lifecycle, and winner onset outputs into a separate research-only
+   challenger package. Current local event-level run found 16 onset cases and
+   reports verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS` until the cloud
+   run provides monthly books.
 
 **Validation**
 
@@ -67,6 +72,9 @@ py -3 tests\winner_lifecycle_smoke.py
 py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20
 py -3 tests\winner_onset_study_smoke.py
 PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\autolearning_winner_challenger_smoke.py
+py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study
+py -3 tools\run_autolearning_winner_challenger.py
 ```
 
 **Next work**
