@@ -267,6 +267,7 @@ jobs:
           python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
           python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
           python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
+          python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy concentrated --output-dir outputs/monster_lifecycle_replay 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_replay.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -302,6 +303,7 @@ jobs:
             outputs/concentrated_policy_replay/
             outputs/alpha_sprint_backtest/
             outputs/position_aware_risk_replay/
+            outputs/monster_lifecycle_replay/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -429,7 +431,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay alpha_sprint_backtest position_aware_risk_replay; do
+          for d in main_v2_backtest concentrated_policy_replay alpha_sprint_backtest position_aware_risk_replay monster_lifecycle_replay; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -555,6 +557,7 @@ jobs:
           copy_dir_clean outputs/concentrated_policy_replay /tmp/bundle/concentrated_policy_replay
           copy_dir_clean outputs/alpha_sprint_backtest /tmp/bundle/alpha_sprint_backtest
           copy_dir_clean outputs/position_aware_risk_replay /tmp/bundle/position_aware_risk_replay
+          copy_dir_clean outputs/monster_lifecycle_replay /tmp/bundle/monster_lifecycle_replay
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -652,6 +655,7 @@ jobs:
           copy_dir_clean outputs/concentrated_policy_replay "$DEST/concentrated_policy_replay"
           copy_dir_clean outputs/alpha_sprint_backtest "$DEST/alpha_sprint_backtest"
           copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
+          copy_dir_clean outputs/monster_lifecycle_replay "$DEST/monster_lifecycle_replay"
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience

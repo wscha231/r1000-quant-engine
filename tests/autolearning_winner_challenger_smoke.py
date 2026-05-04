@@ -35,6 +35,7 @@ def main() -> int:
         concentrated_replay = root / "concentrated_replay"
         alpha_sprint_replay = root / "alpha_sprint_replay"
         position_risk_replay = root / "position_risk_replay"
+        monster_lifecycle_replay = root / "monster_lifecycle_replay"
         out = root / "out"
         latest.mkdir(parents=True)
         auto.mkdir(parents=True)
@@ -46,6 +47,7 @@ def main() -> int:
         concentrated_replay.mkdir(parents=True)
         alpha_sprint_replay.mkdir(parents=True)
         position_risk_replay.mkdir(parents=True)
+        monster_lifecycle_replay.mkdir(parents=True)
 
         write_json(latest / "backtest_metrics.json", {
             "strategy_cagr": 0.24,
@@ -128,6 +130,7 @@ def main() -> int:
             concentrated_replay_dir=str(concentrated_replay),
             alpha_sprint_replay_dir=str(alpha_sprint_replay),
             position_risk_replay_dir=str(position_risk_replay),
+            monster_lifecycle_replay_dir=str(monster_lifecycle_replay),
             output_dir=str(out),
         ))
         assert decision["production_activation_allowed"] is False
@@ -142,6 +145,7 @@ def main() -> int:
         assert decision["main_cash_drag_replay"]["status"] == "available"
         assert decision["main_v2_historical_replay"]["status"] == "missing"
         assert decision["concentrated_policy_replay"]["status"] == "missing"
+        assert decision["monster_lifecycle_replay"]["status"] == "missing"
         assert decision["winner_lifecycle"]["top_rotations"] == ["OLD->AAA"]
         assert decision["verdict"] == "EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS"
         assert (out / "summary.json").exists()

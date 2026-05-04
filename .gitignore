@@ -23,6 +23,7 @@ outputs/main_v2_backtest/
 outputs/concentrated_policy_replay/
 outputs/alpha_sprint_backtest/
 outputs/position_aware_risk_replay/
+outputs/monster_lifecycle_replay/
 cloud_results/
 research/github_runs/
 research/phase20_artifact/

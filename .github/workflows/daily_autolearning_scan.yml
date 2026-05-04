@@ -89,6 +89,10 @@ jobs:
             python tools/run_position_aware_risk_replay.py \
               --holdings outputs/main_v2_backtest/monthly_holdings.csv \
               --output-dir outputs/position_aware_risk_replay
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy concentrated \
+              --output-dir outputs/monster_lifecycle_replay
           else
             echo "WARN: $LATEST_RUN/reports/candidate_replay_book.csv missing; skipping historical challenger replays."
           fi
@@ -114,5 +118,6 @@ jobs:
             outputs/concentrated_policy_replay/
             outputs/alpha_sprint_backtest/
             outputs/position_aware_risk_replay/
+            outputs/monster_lifecycle_replay/
             outputs/autolearning_winner_challenger/
           retention-days: 90

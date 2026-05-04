@@ -45,6 +45,7 @@ DEFAULT_MAIN_V2_REPLAY_DIR = REPO_ROOT / "outputs" / "main_v2_backtest"
 DEFAULT_CONCENTRATED_REPLAY_DIR = REPO_ROOT / "outputs" / "concentrated_policy_replay"
 DEFAULT_ALPHA_SPRINT_REPLAY_DIR = REPO_ROOT / "outputs" / "alpha_sprint_backtest"
 DEFAULT_POSITION_RISK_REPLAY_DIR = REPO_ROOT / "outputs" / "position_aware_risk_replay"
+DEFAULT_MONSTER_LIFECYCLE_REPLAY_DIR = REPO_ROOT / "outputs" / "monster_lifecycle_replay"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "autolearning_winner_challenger"
 
 
@@ -335,6 +336,7 @@ def build_decision(
     concentrated_replay: dict[str, Any],
     alpha_sprint_replay: dict[str, Any],
     position_risk_replay: dict[str, Any],
+    monster_lifecycle_replay: dict[str, Any],
     replay_status: dict[str, Any],
 ) -> dict[str, Any]:
     best_event = None
@@ -367,6 +369,7 @@ def build_decision(
         "concentrated_policy_replay": concentrated_replay,
         "alpha_sprint_historical_sidecar": alpha_sprint_replay,
         "position_aware_risk_replay": position_risk_replay,
+        "monster_lifecycle_replay": monster_lifecycle_replay,
         "event_level_backtest": {
             "status": "available" if onset.get("status") == "available" and ready_events else "missing_onset_event_backtest",
             "best_strategy_by_median_return": best_event,
@@ -495,6 +498,7 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
     concentrated_replay = decision.get("concentrated_policy_replay") or {}
     alpha_sprint_replay = decision.get("alpha_sprint_historical_sidecar") or {}
     position_risk_replay = decision.get("position_aware_risk_replay") or {}
+    monster_lifecycle_replay = decision.get("monster_lifecycle_replay") or {}
     replay = decision.get("portfolio_level_replay") or {}
     lines = [
         "# AutoLearning Winner Challenger",
@@ -525,6 +529,7 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
         f"- Concentrated policy replay: {concentrated_replay.get('status')}",
         f"- Alpha Sprint historical sidecar: {alpha_sprint_replay.get('status')}",
         f"- Position-aware risk replay: {position_risk_replay.get('status')}",
+        f"- Monster lifecycle replay: {monster_lifecycle_replay.get('status')} policy={monster_lifecycle_replay.get('metrics', {}).get('policy')}",
         "",
         "## Event-Level Backtest",
         "",
@@ -578,6 +583,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     concentrated_replay_dir = repo_path(args.concentrated_replay_dir)
     alpha_sprint_replay_dir = repo_path(args.alpha_sprint_replay_dir)
     position_risk_replay_dir = repo_path(args.position_risk_replay_dir)
+    monster_lifecycle_replay_dir = repo_path(args.monster_lifecycle_replay_dir)
     output_dir = repo_path(args.output_dir)
 
     baseline = load_baseline(latest_run)
@@ -590,6 +596,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     concentrated_replay = load_replay_metric_dir(concentrated_replay_dir)
     alpha_sprint_replay = load_replay_metric_dir(alpha_sprint_replay_dir)
     position_risk_replay = load_replay_metric_dir(position_risk_replay_dir)
+    monster_lifecycle_replay = load_replay_metric_dir(monster_lifecycle_replay_dir)
     replay_status = replay_input_status(latest_run)
     decision = build_decision(
         baseline,
@@ -604,6 +611,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         concentrated_replay,
         alpha_sprint_replay,
         position_risk_replay,
+        monster_lifecycle_replay,
         replay_status,
     )
 
@@ -642,6 +650,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-replay-dir", default=str(DEFAULT_CONCENTRATED_REPLAY_DIR))
     parser.add_argument("--alpha-sprint-replay-dir", default=str(DEFAULT_ALPHA_SPRINT_REPLAY_DIR))
     parser.add_argument("--position-risk-replay-dir", default=str(DEFAULT_POSITION_RISK_REPLAY_DIR))
+    parser.add_argument("--monster-lifecycle-replay-dir", default=str(DEFAULT_MONSTER_LIFECYCLE_REPLAY_DIR))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     return parser.parse_args()
 

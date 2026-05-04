@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 from tools.run_alpha_sprint_backtest import replay as alpha_replay  # noqa: E402
 from tools.run_concentrated_policy_replay import replay as concentrated_replay  # noqa: E402
 from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
+from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 
 
@@ -178,13 +179,16 @@ def test_historical_challenger_replays() -> None:
         concentrated_metrics = concentrated_replay(book, root / "conc", [3, 5], [0.25, 0.50], cost_bps=0.0)
         alpha_metrics = alpha_replay(book, root / "alpha", cost_bps=0.0, allow_neutral=False)
         risk_metrics = risk_replay(root / "main_v2" / "monthly_holdings.csv", root / "risk", hard_stop=-0.08, trailing_stop=-0.15)
+        monster_metrics = monster_replay(book, root / "monster", policy_name="concentrated", cost_bps=0.0)
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
         assert alpha_metrics["status"] in {"completed", "inactive_no_bull_months_or_candidates"}
         assert risk_metrics["status"] == "completed"
+        assert monster_metrics["status"] == "completed"
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
         assert (root / "risk" / "actions.csv").exists()
+        assert (root / "monster" / "events.csv").exists()
 
 
 if __name__ == "__main__":
