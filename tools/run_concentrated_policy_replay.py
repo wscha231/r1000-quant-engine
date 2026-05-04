@@ -30,7 +30,9 @@ from r1000_concentrated_policy import (
     CONCENTRATED_POLICY_BY_REGIME,
     concentrated_conviction_score,
     entry_gate_flags,
+    monster_early_score,
     risk_gate_flags,
+    risk_entry_block_score,
 )
 
 
@@ -89,6 +91,9 @@ def run_variant(frame, return_col: str, target_n: int, single_cap: float, cost_b
                     "rs_acceleration_score": item.get("rs_acceleration_score", ""),
                     "stage2_overext_penalty": item.get("stage2_overext_penalty", ""),
                     "explosion_exit_score": item.get("explosion_exit_score", ""),
+                    "portfolio_monster_early_score": item.get("portfolio_monster_early_score", monster_early_score(item)),
+                    "portfolio_risk_entry_block_score": item.get("portfolio_risk_entry_block_score", risk_entry_block_score(item)),
+                    "portfolio_defensive_rotation_action": item.get("portfolio_defensive_rotation_action", ""),
                 }
             )
         cost = turn * (cost_bps / 10000.0)

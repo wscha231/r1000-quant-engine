@@ -109,6 +109,117 @@ def truthy(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
+def mean01(values: list[Any]) -> float:
+    vals = [clip01(value) for value in values]
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def monster_early_score(row: dict[str, Any]) -> float:
+    direct = numeric_or_none(row.get("portfolio_monster_early_score"))
+    if direct is not None:
+        return clip01(direct)
+
+    monster_engine = max(
+        safe_float(row.get("portfolio_future_winner_engine_score")),
+        safe_float(row.get("portfolio_early_scout_engine_score")),
+        safe_float(row.get("future_winner_scout_score")),
+    )
+    trend_confirmation = mean01(
+        [
+            1.0 if safe_float(row.get("price_above_ma50")) > 0 else 0.0,
+            1.0 if safe_float(row.get("price_above_ma200")) > 0 else 0.0,
+            1.0 if truthy(row.get("trend_template_full")) or safe_float(row.get("trend_template_full")) > 0 else 0.0,
+            1.0 if truthy(row.get("breakout_fresh_20d")) or safe_float(row.get("breakout_fresh_20d")) > 0 else 0.0,
+            safe_float(row.get("breakout_setup_quality_score")),
+            safe_float(row.get("post_breakout_hold_score")),
+        ]
+    )
+    rs_leadership = mean01(
+        [
+            safe_float(row.get("rs_acceleration_score")),
+            safe_float(row.get("relative_strength_composite")),
+            safe_float(row.get("oneil_leadership_score")),
+            safe_float(row.get("h6_dynamic_leader_score")),
+        ]
+    )
+    group_leadership = mean01(
+        [
+            safe_float(row.get("industry_group_strength_score")),
+            safe_float(row.get("sector_leader_score")),
+            safe_float(row.get("leader_emergence_score")),
+        ]
+    )
+    confirmation = mean01(
+        [
+            safe_float(row.get("fundamental_reliability_score"), 0.5),
+            safe_float(row.get("selection_confirmation_score")),
+            safe_float(row.get("ml_technical_agreement_score")),
+            safe_float(row.get("entry_quality_score")),
+        ]
+    )
+    inflection = mean01(
+        [
+            safe_float(row.get("profitability_inflection_score")),
+            safe_float(row.get("cashflow_inflection_under_loss_score")),
+            safe_float(row.get("revision_score")),
+            safe_float(row.get("eps_revision_score")),
+        ]
+    )
+    risk = mean01(
+        [
+            safe_float(row.get("risk_penalty")),
+            safe_float(row.get("stage2_overext_penalty")),
+            safe_float(row.get("explosion_exit_score")),
+            safe_float(row.get("live_event_risk_score")),
+        ]
+    )
+    raw = (
+        1.35 * clip01(monster_engine)
+        + 1.10 * trend_confirmation
+        + 1.00 * rs_leadership
+        + 0.85 * group_leadership
+        + 0.80 * confirmation
+        + 0.60 * inflection
+        - 0.70 * risk
+    )
+    return clip01(raw / 5.70)
+
+
+def risk_entry_block_score(row: dict[str, Any]) -> float:
+    direct = numeric_or_none(row.get("portfolio_risk_entry_block_score"))
+    if direct is not None:
+        return clip01(direct)
+
+    risk_positive = max(
+        safe_float(row.get("risk_penalty")),
+        safe_float(row.get("stage2_overext_penalty")),
+        safe_float(row.get("explosion_exit_score")),
+        safe_float(row.get("live_event_risk_score")),
+    )
+    entry_quality, _ = entry_quality_proxy(row)
+    breakout_quality = max(
+        safe_float(row.get("breakout_setup_quality_score")),
+        safe_float(row.get("post_breakout_hold_score")),
+        1.0 if truthy(row.get("breakout_fresh_20d")) or safe_float(row.get("breakout_fresh_20d")) > 0 else 0.0,
+    )
+    raw = (
+        1.30 * (1.0 if risk_positive > 1.00 else 0.0)
+        + 0.80 * (1.0 if safe_float(row.get("rs_acceleration_score")) < 0.0 else 0.0)
+        + 0.65 * (1.0 if entry_quality < 0.20 else 0.0)
+        + 0.55 * (1.0 if breakout_quality < 0.45 else 0.0)
+    )
+    return clip01(raw / 3.30)
+
+
+def is_monster_early_candidate(row: dict[str, Any]) -> bool:
+    return (
+        monster_early_score(row) >= 0.62
+        and risk_entry_block_score(row) < 0.55
+        and safe_float(row.get("price_above_ma50")) > 0
+        and safe_float(row.get("price_above_ma200")) > 0
+    )
+
+
 def infer_regime(rows: list[dict[str, Any]], default: str = "neutral") -> str:
     counts: dict[str, int] = {}
     for row in rows:
@@ -127,6 +238,14 @@ def entry_quality_proxy(row: dict[str, Any]) -> tuple[float, str]:
 
     if truthy(row.get("concentrated_entry_quality_gate_pass")):
         return 0.80, "concentrated_entry_quality_gate_pass"
+
+    monster = monster_early_score(row)
+    if (
+        monster >= 0.62
+        and safe_float(row.get("price_above_ma50")) > 0
+        and safe_float(row.get("price_above_ma200")) > 0
+    ):
+        return max(0.72, monster), "portfolio_monster_early_score"
 
     trend_fresh = max(
         1.0 if truthy(row.get("breakout_fresh_20d")) else 0.0,
@@ -156,6 +275,8 @@ def concentrated_conviction_score(row: dict[str, Any]) -> float:
         safe_float(row.get("leader_emergence_score")),
         safe_float(row.get("sector_leader_score")),
     )
+    monster = monster_early_score(row)
+    risk_block = risk_entry_block_score(row)
     return (
         0.25 * safe_float(row.get("portfolio_future_winner_engine_score"))
         + 0.20 * safe_float(row.get("multi_year_winner_score"))
@@ -164,18 +285,21 @@ def concentrated_conviction_score(row: dict[str, Any]) -> float:
         + 0.10 * safe_float(row.get("industry_group_strength_score"))
         + 0.10 * theme_leadership
         + 0.05 * revision_or_cycle
+        + 0.35 * monster
         - 0.20 * safe_float(row.get("stage2_overext_penalty"))
         - 0.20 * safe_float(row.get("risk_penalty"))
+        - 0.25 * risk_block
     )
 
 
 def entry_gate_flags(row: dict[str, Any], gate: dict[str, Any] | None = None) -> dict[str, bool]:
     gate = gate or CONCENTRATED_ENTRY_GATE
     entry_quality, _ = entry_quality_proxy(row)
+    monster_ok = is_monster_early_candidate(row)
     theme_primary = str(row.get("theme_phase_primary") or row.get("theme_phase") or "").lower()
     theme_block = bool(gate.get("block_if_theme_ending")) and theme_primary in {"ending", "dead"}
     return {
-        "entry_quality_ok": entry_quality >= safe_float(gate.get("min_entry_quality_score"), 0.70),
+        "entry_quality_ok": monster_ok or entry_quality >= safe_float(gate.get("min_entry_quality_score"), 0.70),
         "price_above_ma50_ok": (not gate.get("require_price_above_ma50")) or safe_float(row.get("price_above_ma50")) > 0,
         "price_above_ma200_ok": (not gate.get("require_price_above_ma200")) or safe_float(row.get("price_above_ma200")) > 0,
         "theme_not_blocked": not theme_block,
@@ -183,11 +307,14 @@ def entry_gate_flags(row: dict[str, Any], gate: dict[str, Any] | None = None) ->
 
 
 def risk_gate_flags(row: dict[str, Any]) -> dict[str, bool]:
+    monster_ok = is_monster_early_candidate(row)
+    block_score = risk_entry_block_score(row)
     return {
         "not_pattern_blocked": not truthy(row.get("pattern_blocked")),
         "overextension_ok": safe_float(row.get("stage2_overext_penalty")) < 1.0,
-        "rs_not_decaying": safe_float(row.get("rs_acceleration_score")) > -0.5,
-        "fundamental_reliability_ok": safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.45,
+        "rs_not_decaying": monster_ok or safe_float(row.get("rs_acceleration_score")) > -0.5,
+        "fundamental_reliability_ok": monster_ok or safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.45,
+        "risk_entry_block_ok": monster_ok or block_score < 0.55,
     }
 
 
@@ -227,6 +354,8 @@ def audit_concentrated_portfolio(
         sector_weights[sector] += weight
         conviction = concentrated_conviction_score(merged)
         entry_quality, entry_quality_source = entry_quality_proxy(merged)
+        monster_score = monster_early_score(merged)
+        risk_block_score = risk_entry_block_score(merged)
         entry_flags = entry_gate_flags(merged, dict(policy.get("entry") or {}))
         risk_flags = risk_gate_flags(merged)
         if weight > single_cap:
@@ -253,6 +382,9 @@ def audit_concentrated_portfolio(
                 "concentrated_conviction_score": conviction,
                 "entry_quality_proxy": entry_quality,
                 "entry_quality_source": entry_quality_source,
+                "portfolio_monster_early_score": monster_score,
+                "portfolio_risk_entry_block_score": risk_block_score,
+                "portfolio_defensive_rotation_action": merged.get("portfolio_defensive_rotation_action"),
                 "entry_gate_pass": all(entry_flags.values()),
                 "risk_gate_pass": all(risk_flags.values()),
                 "entry_failed": ",".join(k for k, v in entry_flags.items() if not v),

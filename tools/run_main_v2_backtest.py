@@ -88,6 +88,10 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
                     "stage2_overext_penalty": source.get("stage2_overext_penalty", ""),
                     "explosion_exit_score": source.get("explosion_exit_score", ""),
                     "rs_acceleration_score": source.get("rs_acceleration_score", ""),
+                    "portfolio_monster_early_score": source.get("portfolio_monster_early_score", ""),
+                    "portfolio_risk_entry_block_score": source.get("portfolio_risk_entry_block_score", ""),
+                    "portfolio_stale_mega_leader_score": source.get("portfolio_stale_mega_leader_score", ""),
+                    "portfolio_defensive_rotation_action": source.get("portfolio_defensive_rotation_action", ""),
                 }
             )
         cost = month_turnover * (cost_bps / 10000.0)

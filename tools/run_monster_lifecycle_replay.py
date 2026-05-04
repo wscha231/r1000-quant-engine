@@ -89,6 +89,8 @@ def trend_ok(row: dict[str, Any]) -> bool:
 
 def monster_onset_score(row: dict[str, Any]) -> float:
     """Blend technical, fundamental, theme, and leadership signals."""
+    portfolio_monster = safe_float(row.get("portfolio_monster_early_score"), 0.0)
+    portfolio_block = safe_float(row.get("portfolio_risk_entry_block_score"), 0.0)
     technical = (
         0.22 * safe_float(row.get("rs_acceleration_score"))
         + 0.16 * safe_float(row.get("breakout_setup_quality_score"))
@@ -124,7 +126,7 @@ def monster_onset_score(row: dict[str, Any]) -> float:
         + 0.18 * safe_float(row.get("live_event_risk_score"))
         + 0.08 * safe_float(row.get("overheat_penalty"))
     )
-    score = technical + fundamental + leadership - risk
+    score = technical + fundamental + leadership + 0.35 * portfolio_monster - risk - 0.15 * portfolio_block
     if turn_positive:
         score += 0.08
     if not trend_ok(row):
@@ -326,6 +328,9 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "rs_acceleration_score": row.get("rs_acceleration_score", ""),
                     "revenue_growth_final": row.get("revenue_growth_final", ""),
                     "revision_score": max_col(row, ("eps_revision_score", "revision_score", "eps_revision_proxy")),
+                    "portfolio_monster_early_score": row.get("portfolio_monster_early_score", ""),
+                    "portfolio_risk_entry_block_score": row.get("portfolio_risk_entry_block_score", ""),
+                    "portfolio_defensive_rotation_action": row.get("portfolio_defensive_rotation_action", ""),
                     "explosion_exit_score": row.get("explosion_exit_score", ""),
                     "stage2_overext_penalty": row.get("stage2_overext_penalty", ""),
                 }

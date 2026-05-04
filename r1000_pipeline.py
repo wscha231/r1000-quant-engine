@@ -15886,6 +15886,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+            "portfolio_sleeve_promoted",
+            "portfolio_sleeve_promotion_signal",
+            "portfolio_candidate_gate_label",
+            "portfolio_candidate_minimum_pass",
             "long_hold_compounder_score",
             "capital_efficiency_score",
             "sector_adjusted_quality_score",
@@ -15947,6 +15955,20 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if replay_source.empty:
             pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
         else:
+            if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+                try:
+                    if "rebalance_date" in replay_source.columns:
+                        replay_source = pd.concat(
+                            [
+                                compute_defensive_monster_rotation_overlay(month.copy(), cfg)
+                                for _, month in replay_source.groupby("rebalance_date", sort=False)
+                            ],
+                            ignore_index=True,
+                        )
+                    else:
+                        replay_source = compute_defensive_monster_rotation_overlay(replay_source.copy(), cfg)
+                except Exception as exc:
+                    print(f"[candidate_replay_book] WARN defensive monster overlay skipped: {exc}")
             for col in replay_cols:
                 if col not in replay_source.columns:
                     replay_source[col] = np.nan

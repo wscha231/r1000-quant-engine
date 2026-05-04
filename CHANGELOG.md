@@ -132,6 +132,59 @@ All entries must be written in English. Entries must be predictable and machine-
   - The overlay is generic and does not whitelist tickers. SNDK/LITE-like names enter only when the data satisfies monster early conditions.
   - Full-run metrics must be remeasured because this changes actual selection behavior, not only a sidecar replay.
 
+### 07:44 KST - monster-replay-policy-bridge
+
+- scope:
+  - Connect the defensive monster overlay to historical replay artifacts and align Main v2, concentrated policy replay, and monster lifecycle replay with the same candidate signals.
+- files:
+  - `r1000_pipeline.py` ->adds defensive monster overlay columns to `candidate_replay_book.csv` by applying the overlay month-by-month before sidecar replay exports.
+  - `r1000_main_v2.py` ->uses monster early, risk-entry block, and stale mega-cap scores in Main v2 sleeve scoring and gates.
+  - `r1000_concentrated_policy.py` ->adds row-level monster early and risk block helpers and uses them in concentrated conviction, entry gates, risk gates, and audit rows.
+  - `tools/run_main_v2_backtest.py` ->carries monster/defense columns into Main v2 monthly holdings for risk replay and inspection.
+  - `tools/run_concentrated_policy_replay.py` ->writes monster/defense scores into concentrated policy holdings.
+  - `tools/run_monster_lifecycle_replay.py` ->blends the shared monster early score into lifecycle onset scoring and exports the shared defense columns.
+  - `tests/concentrated_policy_smoke.py` ->adds a smoke check for monster early override behavior.
+  - `CHANGELOG.md` ->records the replay/policy bridge.
+- symbols_added:
+  - `mean01(values)` ->averages score-like values on a 0..1 scale.
+  - `monster_early_score(row)` ->returns the shared monster early score from replay columns or a fallback row-level proxy.
+  - `risk_entry_block_score(row)` ->returns the shared fragile-entry block score from replay columns or a fallback row-level proxy.
+  - `is_monster_early_candidate(row)` ->identifies price-confirmed monster early candidates that can pass concentrated gates despite low stale entry quality.
+- symbols_changed:
+  - `export_outputs()` ->applies `compute_defensive_monster_rotation_overlay()` to historical replay rows before writing `candidate_replay_book.csv`.
+  - `score_core()` ->penalizes stale mega-cap leaders in Main v2 core selection.
+  - `score_future()` ->boosts monster early candidates and penalizes fragile-entry blocks in Main v2 future selection.
+  - `score_early()` ->boosts monster early candidates and penalizes fragile-entry blocks in Main v2 early selection.
+  - `candidate_passes()` ->blocks fragile rows, rejects stale mega-cap core candidates, and allows price-confirmed monster early candidates into future/early sleeves.
+  - `concentrated_conviction_score()` ->adds monster early conviction and fragile-entry block terms.
+  - `entry_quality_proxy()` ->surfaces monster early setups as an entry-quality proxy when price confirmation exists.
+  - `entry_gate_flags()` ->allows monster early override through concentrated entry gates.
+  - `risk_gate_flags()` ->lets true monster early candidates bypass stale RS/fundamental fallback blockers while still respecting the block score.
+  - `audit_concentrated_portfolio()` ->reports monster early and risk block scores in audit rows.
+  - `replay()` in `tools/run_main_v2_backtest.py` ->adds monster/defense columns to Main v2 holdings.
+  - `run_variant()` ->adds monster/defense columns to concentrated policy replay holdings.
+  - `monster_onset_score()` ->uses `portfolio_monster_early_score` and `portfolio_risk_entry_block_score` when available.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/candidate_replay_book.csv` ->now includes `portfolio_monster_early_score`, `portfolio_stale_mega_leader_score`, `portfolio_risk_entry_block_score`, and `portfolio_defensive_rotation_action`.
+  - `outputs/main_v2_backtest/monthly_holdings.csv` ->now includes monster/defense columns for downstream risk replay.
+  - `outputs/concentrated_policy_replay/holdings.csv` ->now includes monster/defense columns for concentrated replay review.
+  - `outputs/monster_lifecycle_replay/holdings.csv` ->now includes monster/defense columns for lifecycle review.
+- validation:
+  - `python -m py_compile r1000_pipeline.py r1000_main_v2.py r1000_concentrated_policy.py tools\run_main_v2_backtest.py tools\run_concentrated_policy_replay.py tools\run_monster_lifecycle_replay.py tests\concentrated_policy_smoke.py` passed.
+  - `python tests\concentrated_policy_smoke.py` passed.
+  - `python tests\main_v2_policy_smoke.py` passed.
+  - `python tests\smoke_test.py` passed: 81/81.
+  - `python tools\run_main_v2_backtest.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\main_v2_backtest_connect_smoke` passed.
+  - `python tools\run_concentrated_policy_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\concentrated_policy_replay_connect_smoke` passed.
+  - `python tools\run_monster_lifecycle_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\monster_lifecycle_replay_connect_smoke` passed.
+- risks_or_notes:
+  - Local sidecar smoke used a prior run artifact whose candidate replay book did not yet contain the new overlay columns, so the new full run is required to measure the connected historical effect.
+  - Monster early selection remains ticker-agnostic; example names enter only when replay/book data satisfies the shared score and risk gates.
+
 ## 2026-05-04
 
 ### 13:48 KST - shakeout-breakdown-study

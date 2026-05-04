@@ -121,6 +121,7 @@ def score_core(row: dict[str, Any], regime_state: str = "neutral") -> float:
         + 0.08 * safe_float(row.get("fundamental_reliability_score"))
         - 0.12 * safe_float(row.get("risk_penalty"))
         - 0.08 * safe_float(row.get("stage2_overext_penalty"))
+        - 0.22 * safe_float(row.get("portfolio_stale_mega_leader_score"))
     )
     if safe_float(row.get("price_above_ma200")) <= 0:
         score -= 0.35
@@ -131,6 +132,8 @@ def score_future(row: dict[str, Any], regime_state: str = "neutral") -> float:
     rs = safe_float(row.get("rs_acceleration_score"))
     h1 = safe_float(row.get("h1_oversold_value_score"))
     theme = _theme_multiplier(row, regime_state)
+    monster = safe_float(row.get("portfolio_monster_early_score"))
+    risk_block = safe_float(row.get("portfolio_risk_entry_block_score"))
     if regime_state == "bear":
         rs *= 1.3
         h1 *= 1.3
@@ -143,8 +146,10 @@ def score_future(row: dict[str, Any], regime_state: str = "neutral") -> float:
         + 0.06 * safe_float(row.get("industry_group_strength_score"))
         + 0.05 * theme
         + 0.03 * h1
+        + 0.22 * monster
         - 0.12 * safe_float(row.get("stage2_overext_penalty"))
         - 0.08 * safe_float(row.get("overheat_penalty"))
+        - 0.14 * risk_block
     )
     if safe_float(row.get("price_above_ma200")) <= 0:
         score -= 0.50
@@ -156,6 +161,8 @@ def score_early(row: dict[str, Any], regime_state: str = "neutral") -> float:
         regime_penalty = 0.45
     else:
         regime_penalty = 0.0
+    monster = safe_float(row.get("portfolio_monster_early_score"))
+    risk_block = safe_float(row.get("portfolio_risk_entry_block_score"))
     turn_flags = sum(
         1.0
         for key in (
@@ -179,8 +186,10 @@ def score_early(row: dict[str, Any], regime_state: str = "neutral") -> float:
         + 0.10 * price_confirm
         + 0.08 * safe_float(row.get("cashflow_inflection_under_loss_score"))
         + 0.08 * _theme_multiplier(row, regime_state)
+        + 0.28 * monster
         - 0.18 * (1.0 - safe_float(row.get("fundamental_reliability_score"), 0.5))
         - 0.12 * safe_float(row.get("risk_penalty"))
+        - 0.16 * risk_block
         - regime_penalty
     )
     if price_confirm <= 0:
@@ -191,10 +200,21 @@ def score_early(row: dict[str, Any], regime_state: str = "neutral") -> float:
 def candidate_passes(row: dict[str, Any], sleeve: str, regime_state: str) -> bool:
     if truthy(row.get("pattern_blocked")):
         return False
+    risk_block = safe_float(row.get("portfolio_risk_entry_block_score"))
+    monster_ok = (
+        safe_float(row.get("portfolio_monster_early_score")) >= 0.62
+        and safe_float(row.get("price_above_ma50")) > 0
+        and safe_float(row.get("price_above_ma200")) > 0
+        and risk_block < 0.55
+    )
+    if risk_block >= 0.55 and not monster_ok:
+        return False
     if sleeve == "core":
+        if safe_float(row.get("portfolio_stale_mega_leader_score")) > 0:
+            return False
         return safe_float(row.get("score")) > 0 and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.45
     if sleeve == "future":
-        return safe_float(row.get("price_above_ma200")) > 0 and safe_float(row.get("score")) > 0
+        return monster_ok or (safe_float(row.get("price_above_ma200")) > 0 and safe_float(row.get("score")) > 0)
     if sleeve == "early":
         if regime_state == "deep_bear":
             return False
@@ -212,7 +232,7 @@ def candidate_passes(row: dict[str, Any], sleeve: str, regime_state: str) -> boo
             or safe_float(row.get("breakout_fresh_20d")) > 0
             or safe_float(row.get("post_breakout_hold_score")) >= 0.45
         )
-        return has_turn and has_price and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35
+        return monster_ok or (has_turn and has_price and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35)
     return False
 
 
@@ -346,6 +366,9 @@ def compose_main_sleeve_portfolio(
                 "score": safe_float(row.get("main_v2_score")),
                 "legacy_sleeve": row.get("portfolio_sleeve_label"),
                 "engine_score": safe_float(row.get(f"portfolio_{SLEEVE_NAME_MAP[sleeve]}_engine_score")),
+                "portfolio_monster_early_score": safe_float(row.get("portfolio_monster_early_score")),
+                "portfolio_risk_entry_block_score": safe_float(row.get("portfolio_risk_entry_block_score")),
+                "portfolio_defensive_rotation_action": row.get("portfolio_defensive_rotation_action"),
             }
             for row in selected
         ]
