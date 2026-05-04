@@ -87,6 +87,51 @@ All entries must be written in English. Entries must be predictable and machine-
   - Defensive lists are still monthly proxy artifacts, not execution-ready broker order lists.
   - A ticker such as NVDA can remain in `defensive_latest.csv` when the proxy action is `hold`; the output now shows that explicitly instead of only showing return metrics.
 
+### 07:25 KST - defensive-monster-selection-path
+
+- scope:
+  - Wire defense and monster/extreme early candidate logic into the actual main and concentrated selection paths instead of only producing post-hoc proxy metrics.
+- files:
+  - `r1000_config.py` ->adds tunables for defensive monster rotation, stale mega-cap leader penalties, monster early slots, and concentrated risk candidate filtering.
+  - `r1000_signals.py` ->adds a generic data-driven monster/defense overlay and applies it inside `build_target_portfolio()`.
+  - `r1000_pipeline.py` ->applies the same overlay inside concentrated scoring and reserves concentrated monster-extreme early slots.
+  - `r1000_top30_institutional.py` ->re-exports the new signal helper with the rest of the signal layer.
+- symbols_added:
+  - `compute_defensive_monster_rotation_overlay(month_df, cfg)` ->creates `portfolio_monster_early_score`, `portfolio_stale_mega_leader_score`, `portfolio_risk_entry_block_score`, and `portfolio_defensive_rotation_action`.
+- symbols_changed:
+  - `apply_portfolio_candidate_gate_filter()` ->allows high-quality monster early candidates through the candidate gate when risk block score is acceptable.
+  - `build_target_portfolio()` ->boosts monster early candidates, penalizes stale mega-cap/core names, and reserves actual main selection slots for monster candidates.
+  - `prepare_concentrated_frame()` ->adds monster early score and fragile-entry penalties directly to `concentrated_score`.
+  - `select_concentrated_portfolio_topk()` ->adds `monster_extreme_early` reserved selection before normal preferred-sleeve ranking and blocks fragile high-risk entries.
+- config_fields_added:
+  - `portfolio_defensive_rotation_enabled`
+  - `portfolio_monster_early_weight`
+  - `portfolio_fill_monster_early_weight`
+  - `portfolio_utility_monster_early_weight`
+  - `portfolio_stale_mega_leader_penalty_weight`
+  - `portfolio_stale_mega_mcap_min`
+  - `portfolio_stale_mega_rs_accel_max`
+  - `portfolio_stale_mega_rs_level_max`
+  - `portfolio_stale_mega_near_high_max`
+  - `portfolio_monster_promote_unassigned_to_future`
+  - `portfolio_monster_early_min_slots`
+  - `concentrated_monster_early_min_slots`
+  - `concentrated_score_monster_early_weight`
+  - `concentrated_score_risk_entry_penalty_weight`
+  - `concentrated_risk_candidate_filter_enabled`
+  - `concentrated_risk_candidate_block_threshold`
+  - `concentrated_entry_quality_monster_early_override`
+  - `concentrated_entry_quality_monster_early_min`
+- breaking_changes:
+  - Main and concentrated latest holdings can now change materially because monster/defense logic is applied before selection, not after metrics.
+- validation:
+  - `python -m py_compile r1000_config.py r1000_signals.py r1000_pipeline.py r1000_top30_institutional.py` passed.
+  - `PYTHONIOENCODING=utf-8 python tests/smoke_test.py` passed: 81/81.
+  - Latest scored smoke showed main no longer selected NVDA under the defensive monster overlay and concentrated selected `WDC`, `CIEN`, and `SNDK` through `monster_extreme_early` slots.
+- risks_or_notes:
+  - The overlay is generic and does not whitelist tickers. SNDK/LITE-like names enter only when the data satisfies monster early conditions.
+  - Full-run metrics must be remeasured because this changes actual selection behavior, not only a sidecar replay.
+
 ## 2026-05-04
 
 ### 13:48 KST - shakeout-breakdown-study

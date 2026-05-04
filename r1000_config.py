@@ -1727,6 +1727,28 @@ class EngineConfig:
     concentrated_score_cycle_recovery_weight: float = 0.50
     concentrated_score_early_inflection_weight: float = 0.40
     concentrated_score_entry_quality_weight: float = 0.25
+    # Defensive monster rotation (2026-05-05): apply the defense thesis to the
+    # actual selection path, not only to post-hoc return proxies. The overlay
+    # de-emphasizes stale mega-cap/core names with weakening leadership and
+    # promotes early monster/extreme candidates with price-confirmed leadership.
+    portfolio_defensive_rotation_enabled: bool = True
+    portfolio_monster_early_weight: float = 1.35
+    portfolio_fill_monster_early_weight: float = 1.15
+    portfolio_utility_monster_early_weight: float = 0.50
+    portfolio_stale_mega_leader_penalty_weight: float = 1.35
+    portfolio_stale_mega_mcap_min: float = 1_000_000_000_000.0
+    portfolio_stale_mega_rs_accel_max: float = -0.75
+    portfolio_stale_mega_rs_level_max: float = 1.00
+    portfolio_stale_mega_near_high_max: float = -0.05
+    portfolio_monster_promote_unassigned_to_future: bool = True
+    portfolio_monster_early_min_slots: int = 3
+    concentrated_monster_early_min_slots: int = 3
+    concentrated_score_monster_early_weight: float = 1.45
+    concentrated_score_risk_entry_penalty_weight: float = 1.10
+    concentrated_risk_candidate_filter_enabled: bool = True
+    concentrated_risk_candidate_block_threshold: float = 0.45
+    concentrated_entry_quality_monster_early_override: bool = True
+    concentrated_entry_quality_monster_early_min: float = 0.62
     concentrated_max_single_name_weight: float = 1.00
     concentrated_monitoring_review_days: int = 7
     run_historical_data_quality_reports: bool = True

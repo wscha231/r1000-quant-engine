@@ -2247,6 +2247,18 @@ def apply_portfolio_candidate_gate_filter(
         d.get("portfolio_sleeve_label_raw", pd.Series("core_compounder", index=d.index, dtype=object)),
     ).fillna("core_compounder").astype(str)
     gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and "portfolio_monster_early_score" in d.columns:
+        monster_keep = (
+            numeric_series_or_default(d, "portfolio_monster_early_score", 0.0)
+            >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+        ) & (
+            numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
+            < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+        )
+        if bool(monster_keep.any()):
+            d.loc[monster_keep & (~gate_keep), "portfolio_candidate_gate_label"] = "monster_early_override"
+            d.loc[monster_keep & (~gate_keep), "portfolio_candidate_minimum_pass"] = True
+            gate_keep = gate_keep | monster_keep
     removed = int((~gate_keep).sum())
     kept = int(gate_keep.sum())
     if removed > 0:
@@ -2678,6 +2690,178 @@ def apply_hold_policy_overlay(
     return d
 
 
+def compute_defensive_monster_rotation_overlay(
+    month_df: pd.DataFrame,
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    """Add data-driven monster/defense columns used by actual selection.
+
+    This is intentionally generic: it does not whitelist tickers. It promotes
+    early monster candidates only when multiple independent signs line up
+    (future/early engine strength, price confirmation, 52-week-high behavior,
+    group leadership, liquidity/confirmation, and acceptable risk), while
+    de-emphasizing stale mega-cap core names with weakening leadership.
+    """
+    d = month_df.copy()
+    if d.empty:
+        for col in [
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+        ]:
+            d[col] = np.nan
+        return d
+
+    idx = d.index
+
+    def _clip01(series: pd.Series | np.ndarray | float) -> pd.Series:
+        if isinstance(series, pd.Series):
+            raw = pd.to_numeric(series, errors="coerce").reindex(idx).fillna(0.0)
+        else:
+            raw = pd.Series(series, index=idx, dtype=float)
+        return raw.astype(float).clip(lower=0.0, upper=1.0)
+
+    def _flag(col: str) -> pd.Series:
+        return (numeric_series_or_default(d, col, 0.0) > 0.0).astype(float)
+
+    future_engine = numeric_series_or_default(d, "portfolio_future_winner_engine_score", 0.0)
+    early_engine = numeric_series_or_default(d, "portfolio_early_scout_engine_score", 0.0)
+    monster_engine = pd.Series(np.maximum(future_engine.to_numpy(float), early_engine.to_numpy(float)), index=idx)
+    monster_engine = _clip01(monster_engine)
+
+    trend_confirmation = row_mean(
+        [
+            _flag("price_above_ma50"),
+            _flag("price_above_ma200"),
+            _flag("trend_template_full"),
+            _clip01(numeric_series_or_default(d, "breakout_fresh_20d", 0.0)),
+        ],
+        idx,
+    ).fillna(0.0).clip(lower=0.0, upper=1.0)
+
+    rs_level = numeric_series_or_default(d, "relative_strength_composite", 0.0)
+    rs_leadership = (rs_level / 5.0).clip(lower=0.0, upper=1.0)
+    group_leadership = (numeric_series_or_default(d, "industry_group_strength_score", 0.0) / 3.0).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+    confirmation = numeric_series_or_default(
+        d,
+        "selection_confirmation_score",
+        numeric_series_or_default(d, "fundamental_reliability_score", 0.0),
+    ).clip(lower=0.0, upper=1.0)
+    near_high = (1.0 + 5.0 * numeric_series_or_default(d, "near_52w_high_pct", -0.20)).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+    risk_positive = numeric_series_or_default(d, "risk_penalty", 0.0).clip(lower=0.0)
+    risk_ok = (1.0 - risk_positive / 4.0).clip(lower=0.0, upper=1.0)
+    broken_ok = (1.0 - numeric_series_or_default(d, "broken_momentum_penalty", 0.0)).clip(lower=0.0, upper=1.0)
+    entry_quality = numeric_series_or_default(d, "entry_quality_score", 0.0).clip(lower=0.0, upper=1.0)
+    breakout_quality = (numeric_series_or_default(d, "breakout_setup_quality_score", 0.0) / 1.25 + 0.50).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+
+    d["portfolio_monster_early_score"] = row_mean(
+        [
+            1.35 * monster_engine,
+            1.10 * trend_confirmation,
+            1.00 * rs_leadership,
+            0.85 * group_leadership,
+            0.80 * confirmation,
+            0.75 * near_high,
+            0.65 * risk_ok,
+            0.45 * broken_ok,
+            0.35 * breakout_quality,
+        ],
+        idx,
+    ).fillna(0.0).clip(lower=0.0, upper=1.25)
+
+    # Candidate is risky when risk is explicit and technical behavior is not
+    # confirming. This blocks fragile early names without blocking monster
+    # candidates merely because entry_quality_score is zero at a new-high setup.
+    weak_rs = (numeric_series_or_default(d, "rs_acceleration_score", 0.0) < 0.0).astype(float)
+    low_entry = (entry_quality < 0.20).astype(float)
+    high_risk = (risk_positive > 1.00).astype(float)
+    weak_breakout = (breakout_quality < 0.45).astype(float)
+    d["portfolio_risk_entry_block_score"] = row_mean(
+        [
+            1.30 * high_risk,
+            0.80 * weak_rs,
+            0.65 * low_entry,
+            0.55 * weak_breakout,
+            0.65 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0).clip(lower=0.0, upper=1.0),
+            0.55 * numeric_series_or_default(d, "portfolio_hold_policy_exit_risk", 0.0).clip(lower=0.0, upper=1.0),
+        ],
+        idx,
+    ).fillna(0.0).clip(lower=0.0, upper=1.25)
+
+    labels = d.get("portfolio_sleeve_label", pd.Series("", index=idx, dtype=object)).fillna("").astype(str)
+    mcap = pd.Series(
+        np.maximum(
+            numeric_series_or_default(d, "market_cap_live", 0.0).to_numpy(float),
+            numeric_series_or_default(d, "mktcap", 0.0).to_numpy(float),
+        ),
+        index=idx,
+    )
+    rs_accel = numeric_series_or_default(d, "rs_acceleration_score", 0.0)
+    oneil = numeric_series_or_default(d, "oneil_leadership_score", 0.0)
+    stale_mask = (
+        labels.eq("core_compounder")
+        & (mcap >= float(getattr(cfg, "portfolio_stale_mega_mcap_min", 1_000_000_000_000.0)))
+        & (rs_accel <= float(getattr(cfg, "portfolio_stale_mega_rs_accel_max", -0.75)))
+        & (rs_level <= float(getattr(cfg, "portfolio_stale_mega_rs_level_max", 1.0)))
+        & (numeric_series_or_default(d, "near_52w_high_pct", 0.0) <= float(getattr(cfg, "portfolio_stale_mega_near_high_max", -0.05)))
+        & (oneil <= 0.0)
+    )
+    stale_severity = row_mean(
+        [
+            (-rs_accel / 3.0).clip(lower=0.0, upper=1.0),
+            (1.0 - (rs_level / 1.0)).clip(lower=0.0, upper=1.0),
+            (1.0 - near_high).clip(lower=0.0, upper=1.0),
+            (-oneil / 2.0).clip(lower=0.0, upper=1.0),
+        ],
+        idx,
+    ).fillna(0.0).clip(lower=0.0, upper=1.0)
+    d["portfolio_stale_mega_leader_score"] = np.where(stale_mask, stale_severity, 0.0)
+
+    monster_cut = max(0.60, float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62)))
+    risk_cut = float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+    d["portfolio_defensive_rotation_action"] = np.select(
+        [
+            d["portfolio_stale_mega_leader_score"] > 0.0,
+            d["portfolio_risk_entry_block_score"] >= risk_cut,
+            d["portfolio_monster_early_score"] >= monster_cut,
+        ],
+        [
+            "rotate_out_stale_mega_core",
+            "block_fragile_entry",
+            "promote_monster_early",
+        ],
+        default="neutral",
+    )
+    if bool(getattr(cfg, "portfolio_monster_promote_unassigned_to_future", True)):
+        labels = d.get("portfolio_sleeve_label", pd.Series("", index=idx, dtype=object)).fillna("").astype(str)
+        promote_mask = (
+            d["portfolio_defensive_rotation_action"].astype(str).eq("promote_monster_early")
+            & (~labels.isin(["future_winner", "early_scout", "multibagger_watch"]))
+        )
+        if bool(promote_mask.any()):
+            if "portfolio_sleeve_label_raw" not in d.columns:
+                d["portfolio_sleeve_label_raw"] = labels
+            d["portfolio_sleeve_promotion_signal"] = d.get(
+                "portfolio_sleeve_promotion_signal",
+                pd.Series("", index=idx, dtype=object),
+            ).fillna("").astype(object)
+            d.loc[promote_mask, "portfolio_sleeve_label_raw"] = labels.loc[promote_mask]
+            d.loc[promote_mask, "portfolio_sleeve_label"] = "future_winner"
+            d.loc[promote_mask, "portfolio_sleeve_promoted"] = True
+            d.loc[promote_mask, "portfolio_sleeve_promotion_signal"] = "monster_early_override"
+    return d
+
+
 def apply_sleeve_entry_drift_name_caps(
     cfg: EngineConfig,
     sel: pd.DataFrame,
@@ -2759,6 +2943,8 @@ def build_target_portfolio(
         month_df = compute_minervini_momentum_overlay(month_df)
     month_df = apply_hold_policy_overlay(month_df, prev_w, cfg)
     month_df = compute_portfolio_sleeve_columns(month_df, cfg)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+        month_df = compute_defensive_monster_rotation_overlay(month_df, cfg)
     month_df = apply_portfolio_candidate_gate_filter(
         month_df,
         cfg,
@@ -2798,10 +2984,14 @@ def build_target_portfolio(
         + 0.12 * numeric_series_or_default(month_df, "sage_g_score", 0.0)
         + 0.10 * numeric_series_or_default(month_df, "portfolio_future_winner_engine_score", 0.0)
         + 0.08 * numeric_series_or_default(month_df, "portfolio_early_scout_engine_score", 0.0)
+        + float(getattr(cfg, "portfolio_monster_early_weight", 0.0))
+        * numeric_series_or_default(month_df, "portfolio_monster_early_score", 0.0)
         + float(cfg.revision_seed_score_weight) * numeric_series_or_default(month_df, "revision_blueprint_score", 0.0)
         + float(cfg.minervini_portfolio_seed_weight) * numeric_series_or_default(month_df, "minervini_momentum_alive_score", 0.0)
         + 0.25 * numeric_series_or_default(month_df, "breakout_setup_quality_score", 0.0)
         - 0.50 * float(cfg.minervini_broken_trend_penalty_weight) * numeric_series_or_default(month_df, "broken_momentum_penalty", 0.0)
+        - float(getattr(cfg, "portfolio_stale_mega_leader_penalty_weight", 0.0))
+        * numeric_series_or_default(month_df, "portfolio_stale_mega_leader_score", 0.0)
         - val_extreme_penalty
     )
     month_df["conviction_hold_bonus"] = conviction_hold_bonus
@@ -2897,8 +3087,12 @@ def build_target_portfolio(
         * numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
         + (0.22 + 0.18 * growth_mix_target)
         * numeric_series_or_default(pool, "portfolio_early_scout_engine_score", 0.0)
+        + float(getattr(cfg, "portfolio_fill_monster_early_weight", 0.0))
+        * numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
         + 0.14 * numeric_series_or_default(pool, "sage_composite_score", 0.0)
         + 0.10 * numeric_series_or_default(pool, "sage_g_score", 0.0)
+        - float(getattr(cfg, "portfolio_stale_mega_leader_penalty_weight", 0.0))
+        * numeric_series_or_default(pool, "portfolio_stale_mega_leader_score", 0.0)
         + pool_fill_boost
     )
     # Phase 11 (2026-04-20): multibagger_watch count
@@ -2942,6 +3136,11 @@ def build_target_portfolio(
         early_target_n = 0
         multibagger_target_n = 0
     core_target_n = max(1, target_n - future_target_n - early_target_n - multibagger_target_n) if target_n > 0 else 0
+    monster_target_n = 0
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and target_n >= 8:
+        monster_target_n = int(max(0, min(int(getattr(cfg, "portfolio_monster_early_min_slots", 0)), target_n - 1)))
+        if monster_target_n > 0:
+            core_target_n = max(1, core_target_n - monster_target_n)
 
     score_top_rank = pool["score"].rank(method="first", ascending=False) if "score" in pool.columns else pd.Series(np.inf, index=pool.index)
     future_engine_score = numeric_series_or_default(pool, "portfolio_future_winner_engine_score", 0.0)
@@ -3003,12 +3202,46 @@ def build_target_portfolio(
             else:
                 future_target_n += 1
             core_target_n = max(1, target_n - future_target_n - early_target_n - multibagger_target_n)
+            if monster_target_n > 0:
+                core_target_n = max(1, core_target_n - monster_target_n)
     future_fallback_from_early = (
         sleeve_labels.eq("early_scout")
         & (score_top_rank <= max(target_n + 4, 14))
         & (future_engine_score >= future_engine_score.quantile(0.70))
         & ((early_engine_score - future_engine_score) < 0.45)
     )
+    monster_sel = pd.DataFrame()
+    if monster_target_n > 0 and "portfolio_monster_early_score" in pool.columns:
+        monster_pool = pool[
+            (
+                numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
+                >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+            )
+            & (
+                numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
+                < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.45))
+            )
+            & numeric_series_or_default(pool, "price_above_ma50", 0.0).ge(1.0)
+            & numeric_series_or_default(pool, "price_above_ma200", 0.0).ge(1.0)
+        ].copy()
+        if not monster_pool.empty:
+            monster_pool["portfolio_seed_score"] = row_mean(
+                [
+                    numeric_series_or_default(monster_pool, "portfolio_seed_score", 0.0),
+                    2.20 * numeric_series_or_default(monster_pool, "portfolio_monster_early_score", 0.0),
+                    0.80 * numeric_series_or_default(monster_pool, "portfolio_fill_priority", 0.0),
+                ],
+                monster_pool.index,
+            ).fillna(0.0)
+            monster_pool = monster_pool.sort_values(
+                ["portfolio_monster_early_score", "portfolio_seed_score", "score"],
+                ascending=False,
+            )
+            monster_sel = select_topn_with_sector_limits(cfg, monster_pool, caps, target_n=monster_target_n)
+            if not monster_sel.empty:
+                monster_sel = monster_sel.copy()
+                monster_sel["portfolio_sleeve_label"] = "future_winner"
+                monster_sel["portfolio_monster_slot"] = True
     core_pool = _prepare_sleeve_pool(
         pool,
         ~(sleeve_labels.eq("future_winner") | sleeve_labels.eq("early_scout")),
@@ -3094,7 +3327,7 @@ def build_target_portfolio(
     if early_shortfall_n > 0:
         supplemental_future_pool = pool.copy()
         selected_tickers: set[str] = set()
-        for frame in [core_sel, future_sel, early_sel, multibagger_sel]:
+        for frame in [monster_sel, core_sel, future_sel, early_sel, multibagger_sel]:
             if not frame.empty and "ticker" in frame.columns:
                 selected_tickers.update(frame["ticker"].astype(str).tolist())
         if selected_tickers and "ticker" in supplemental_future_pool.columns:
@@ -3148,7 +3381,7 @@ def build_target_portfolio(
             core_sel["portfolio_sleeve_label"],
         )
 
-    sleeve_frames = [frame for frame in [core_sel, future_sel, early_sel, multibagger_sel] if not frame.empty]
+    sleeve_frames = [frame for frame in [monster_sel, core_sel, future_sel, early_sel, multibagger_sel] if not frame.empty]
     sel = pd.concat(sleeve_frames, ignore_index=True) if sleeve_frames else pd.DataFrame()
     if not sel.empty:
         sel = dedupe_same_company_rows(sel, score_col="portfolio_seed_score")
@@ -3260,8 +3493,12 @@ def build_target_portfolio(
         sel["portfolio_alpha"]
         + sel["portfolio_sage_boost"]
         + conviction_util_bonus
+        + float(getattr(cfg, "portfolio_utility_monster_early_weight", 0.0))
+        * numeric_series_or_default(sel, "portfolio_monster_early_score", 0.0)
         + 0.08 * confirmation
         + sel["portfolio_existing_hold_bonus"]
+        - float(getattr(cfg, "portfolio_stale_mega_leader_penalty_weight", 0.0))
+        * numeric_series_or_default(sel, "portfolio_stale_mega_leader_score", 0.0)
     )
 
     score_component = pd.to_numeric(sel["portfolio_utility"], errors="coerce").fillna(0.0)

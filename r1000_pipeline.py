@@ -308,6 +308,7 @@ from r1000_signals import (
     resolve_regime_sleeve_multipliers,
     add_historical_data_quality_columns,
     compute_portfolio_sleeve_columns,
+    compute_defensive_monster_rotation_overlay,
     compute_portfolio_sleeve_policy,
     compute_regime_portfolio_controls,
     compute_benchmark_beating_focus_overlay,
@@ -13144,6 +13145,9 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     d = prepare_standalone_sleeve_frame(cfg, frame)
     if d.empty:
         return d
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+        # Defined in r1000_signals.py and already imported into this module.
+        d = compute_defensive_monster_rotation_overlay(d, cfg)
     labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
     raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
     sleeve_bonus = labels.map(
@@ -13182,8 +13186,12 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             * numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
             float(getattr(cfg, "concentrated_score_entry_quality_weight", 0.25))
             * numeric_series_or_default(d, "entry_quality_score", 0.5),
+            float(getattr(cfg, "concentrated_score_monster_early_weight", 0.0))
+            * numeric_series_or_default(d, "portfolio_monster_early_score", 0.0),
             -float(getattr(cfg, "concentrated_score_exit_risk_penalty", 0.40))
             * numeric_series_or_default(d, "portfolio_hold_policy_exit_risk", 0.0),
+            -float(getattr(cfg, "concentrated_score_risk_entry_penalty_weight", 0.0))
+            * numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0),
             -0.20 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
@@ -13227,7 +13235,14 @@ def select_concentrated_portfolio_topk(
     selected_parts: list[pd.DataFrame] = []
     selected_tickers: set[str] = set()
 
-    def _take(mask: pd.Series, source: str, limit: int, *, enforce_confirmation: bool = True) -> None:
+    def _take(
+        mask: pd.Series,
+        source: str,
+        limit: int,
+        *,
+        enforce_confirmation: bool = True,
+        sort_cols: Optional[list[str]] = None,
+    ) -> None:
         nonlocal selected_tickers
         if limit <= 0:
             return
@@ -13243,12 +13258,28 @@ def select_concentrated_portfolio_topk(
             pool = pool.loc[
                 pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
             ].copy()
+        if bool(getattr(cfg, "concentrated_risk_candidate_filter_enabled", True)) and "portfolio_risk_entry_block_score" in pool.columns:
+            block_threshold = float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+            block_score = numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
+            # Keep genuine monsters with confirming RS/breakout even when one
+            # risk input is noisy; block fragile high-risk early entries.
+            monster_override = (
+                numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
+                >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+            ) & (
+                numeric_series_or_default(pool, "breakout_setup_quality_score", 0.0) >= 0.45
+            ) & (
+                numeric_series_or_default(pool, "rs_acceleration_score", 0.0) >= 0.0
+            )
+            pool["concentrated_risk_candidate_gate_pass"] = ((block_score < block_threshold) | monster_override).astype(bool)
+            pool = pool.loc[pool["concentrated_risk_candidate_gate_pass"]].copy()
         # Phase 15-D2b: chase-prevention gate with continuation-winner override.
         # Skip when entry_quality_score column is absent (older feature_store).
         if "entry_quality_score" in pool.columns and min_entry_quality > 0:
             entry_quality = numeric_series_or_default(pool, "entry_quality_score", 0.5)
             entry_ok = entry_quality >= min_entry_quality
             continuation_ok = pd.Series(False, index=pool.index, dtype=bool)
+            monster_reentry_ok = pd.Series(False, index=pool.index, dtype=bool)
             if bool(getattr(cfg, "concentrated_entry_quality_continuation_override", True)):
                 continuation_quantile = float(
                     min(max(getattr(cfg, "concentrated_entry_quality_continuation_quantile", 0.90), 0.50), 0.99)
@@ -13266,16 +13297,28 @@ def select_concentrated_portfolio_topk(
                     & numeric_series_or_default(pool, "broken_momentum_penalty", 0.0)
                     .le(float(getattr(cfg, "concentrated_entry_quality_continuation_max_broken", 0.30)))
                 )
-            pool["concentrated_entry_quality_gate_pass"] = (entry_ok | continuation_ok).astype(bool)
-            pool["concentrated_entry_quality_override"] = ((~entry_ok) & continuation_ok).astype(bool)
+            if bool(getattr(cfg, "concentrated_entry_quality_monster_early_override", True)):
+                monster_reentry_ok = (
+                    numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
+                    .ge(float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62)))
+                    & numeric_series_or_default(pool, "price_above_ma50", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "price_above_ma200", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "trend_template_full", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
+                    .lt(float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55)))
+                )
+            pool["concentrated_entry_quality_gate_pass"] = (entry_ok | continuation_ok | monster_reentry_ok).astype(bool)
+            pool["concentrated_entry_quality_override"] = ((~entry_ok) & (continuation_ok | monster_reentry_ok)).astype(bool)
+            pool["concentrated_monster_early_override"] = ((~entry_ok) & monster_reentry_ok).astype(bool)
             pool = pool.loc[pool["concentrated_entry_quality_gate_pass"]].copy()
         if pool.empty:
             return
-        pool = pool.sort_values(
-            ["concentrated_score", "selection_confirmation_score", "score"],
-            ascending=False,
-        )
-        pool = dedupe_same_company_rows(pool, score_col="concentrated_score").head(limit).copy()
+        rank_cols = sort_cols or ["concentrated_score", "selection_confirmation_score", "score"]
+        rank_cols = [c for c in rank_cols if c in pool.columns]
+        if not rank_cols:
+            rank_cols = ["concentrated_score", "score"]
+        pool = pool.sort_values(rank_cols, ascending=[False] * len(rank_cols))
+        pool = dedupe_same_company_rows(pool, score_col=rank_cols[0]).head(limit).copy()
         if pool.empty:
             return
         pool["concentrated_selection_source"] = source
@@ -13283,7 +13326,34 @@ def select_concentrated_portfolio_topk(
         if "ticker" in pool.columns:
             selected_tickers.update(pool["ticker"].astype(str).tolist())
 
-    _take(pd.Series(d["concentrated_preferred_sleeve"], index=d.index), "preferred_final_label", top_n)
+    monster_slots = int(max(0, min(top_n, getattr(cfg, "concentrated_monster_early_min_slots", 0))))
+    if monster_slots > 0 and "portfolio_monster_early_score" in d.columns:
+        monster_mask = (
+            numeric_series_or_default(d, "portfolio_monster_early_score", 0.0)
+            >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+        ) & (
+            numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
+            < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.45))
+        ) & (
+            numeric_series_or_default(d, "price_above_ma50", 0.0).ge(1.0)
+        ) & (
+            numeric_series_or_default(d, "price_above_ma200", 0.0).ge(1.0)
+        )
+        _take(
+            monster_mask,
+            "monster_extreme_early",
+            monster_slots,
+            enforce_confirmation=False,
+            sort_cols=[
+                "portfolio_monster_early_score",
+                "concentrated_score",
+                "relative_strength_composite",
+                "score",
+            ],
+        )
+
+    remaining = top_n - sum(len(x) for x in selected_parts)
+    _take(pd.Series(d["concentrated_preferred_sleeve"], index=d.index), "preferred_final_label", remaining)
     remaining = top_n - sum(len(x) for x in selected_parts)
     if remaining > 0:
         _take(pd.Series(d["concentrated_preferred_sleeve_raw"], index=d.index), "preferred_raw_label", remaining)
