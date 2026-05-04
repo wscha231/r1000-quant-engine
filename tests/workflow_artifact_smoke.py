@@ -15,6 +15,7 @@ MONTHLY_BOOK_TOKENS = [
     "outputs/reports/alpha_sprint_monthly_weights.csv",
     "outputs/reports/regime_by_month.csv",
     "outputs/reports/sleeve_returns_by_month.csv",
+    "outputs/reports/candidate_replay_book.csv",
     "outputs/reports/concentrated_strategy_monthly.csv",
     "outputs/reports/concentrated_strategy_holdings.csv",
 ]
@@ -25,6 +26,13 @@ def test_workflow_keeps_monthly_books() -> None:
     for token in MONTHLY_BOOK_TOKENS:
         assert token in text, token
     assert "outputs/equity_curve.csv" in text
+    for token in (
+        "outputs/main_v2_backtest/",
+        "outputs/concentrated_policy_replay/",
+        "outputs/alpha_sprint_backtest/",
+        "outputs/position_aware_risk_replay/",
+    ):
+        assert token in text, token
 
 
 def test_cloud_results_copy_is_not_nested() -> None:
@@ -49,6 +57,7 @@ def test_pipeline_exports_monthly_books() -> None:
         "alpha_sprint_monthly_weights_path",
         "regime_by_month_path",
         "sleeve_returns_by_month_path",
+        "candidate_replay_book_path",
         "_write_monthly_mandate_books()",
     ]:
         assert token in text, token

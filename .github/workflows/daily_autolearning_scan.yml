@@ -76,6 +76,23 @@ jobs:
             echo "WARN: $LATEST_RUN/reports/main_monthly_weights.csv missing; skipping cash drag replay."
           fi
 
+          if [ -f "$LATEST_RUN/reports/candidate_replay_book.csv" ]; then
+            python tools/run_main_v2_backtest.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/main_v2_backtest
+            python tools/run_concentrated_policy_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/concentrated_policy_replay
+            python tools/run_alpha_sprint_backtest.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/alpha_sprint_backtest
+            python tools/run_position_aware_risk_replay.py \
+              --holdings outputs/main_v2_backtest/monthly_holdings.csv \
+              --output-dir outputs/position_aware_risk_replay
+          else
+            echo "WARN: $LATEST_RUN/reports/candidate_replay_book.csv missing; skipping historical challenger replays."
+          fi
+
           python tools/run_autolearning_winner_challenger.py \
             --latest-run "$LATEST_RUN" \
             --lifecycle-dir outputs/winner_lifecycle \
@@ -93,5 +110,9 @@ jobs:
             outputs/winner_onset_study/
             outputs/shakeout_breakdown_study/
             outputs/main_cash_drag_replay/
+            outputs/main_v2_backtest/
+            outputs/concentrated_policy_replay/
+            outputs/alpha_sprint_backtest/
+            outputs/position_aware_risk_replay/
             outputs/autolearning_winner_challenger/
           retention-days: 90

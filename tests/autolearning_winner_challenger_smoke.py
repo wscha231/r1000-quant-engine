@@ -31,6 +31,10 @@ def main() -> int:
         onset = root / "onset"
         shakeout = root / "shakeout"
         cash_drag = root / "cash_drag"
+        main_v2_replay = root / "main_v2_replay"
+        concentrated_replay = root / "concentrated_replay"
+        alpha_sprint_replay = root / "alpha_sprint_replay"
+        position_risk_replay = root / "position_risk_replay"
         out = root / "out"
         latest.mkdir(parents=True)
         auto.mkdir(parents=True)
@@ -38,6 +42,10 @@ def main() -> int:
         onset.mkdir(parents=True)
         shakeout.mkdir(parents=True)
         cash_drag.mkdir(parents=True)
+        main_v2_replay.mkdir(parents=True)
+        concentrated_replay.mkdir(parents=True)
+        alpha_sprint_replay.mkdir(parents=True)
+        position_risk_replay.mkdir(parents=True)
 
         write_json(latest / "backtest_metrics.json", {
             "strategy_cagr": 0.24,
@@ -116,6 +124,10 @@ def main() -> int:
             onset_dir=str(onset),
             shakeout_dir=str(shakeout),
             cash_drag_dir=str(cash_drag),
+            main_v2_replay_dir=str(main_v2_replay),
+            concentrated_replay_dir=str(concentrated_replay),
+            alpha_sprint_replay_dir=str(alpha_sprint_replay),
+            position_risk_replay_dir=str(position_risk_replay),
             output_dir=str(out),
         ))
         assert decision["production_activation_allowed"] is False
@@ -128,6 +140,8 @@ def main() -> int:
         assert decision["baseline"]["main"]["latest_cash_weight"] == 0.14
         assert decision["policy_value_replay"]["status"] == "CAGR_FIRST_REPLAY_REQUIRED"
         assert decision["main_cash_drag_replay"]["status"] == "available"
+        assert decision["main_v2_historical_replay"]["status"] == "missing"
+        assert decision["concentrated_policy_replay"]["status"] == "missing"
         assert decision["winner_lifecycle"]["top_rotations"] == ["OLD->AAA"]
         assert decision["verdict"] == "EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS"
         assert (out / "summary.json").exists()

@@ -41,6 +41,10 @@ DEFAULT_LIFECYCLE_DIR = REPO_ROOT / "outputs" / "winner_lifecycle"
 DEFAULT_ONSET_DIR = REPO_ROOT / "outputs" / "winner_onset_study"
 DEFAULT_SHAKEOUT_DIR = REPO_ROOT / "outputs" / "shakeout_breakdown_study"
 DEFAULT_CASH_DRAG_DIR = REPO_ROOT / "outputs" / "main_cash_drag_replay"
+DEFAULT_MAIN_V2_REPLAY_DIR = REPO_ROOT / "outputs" / "main_v2_backtest"
+DEFAULT_CONCENTRATED_REPLAY_DIR = REPO_ROOT / "outputs" / "concentrated_policy_replay"
+DEFAULT_ALPHA_SPRINT_REPLAY_DIR = REPO_ROOT / "outputs" / "alpha_sprint_backtest"
+DEFAULT_POSITION_RISK_REPLAY_DIR = REPO_ROOT / "outputs" / "position_aware_risk_replay"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "autolearning_winner_challenger"
 
 
@@ -290,12 +294,23 @@ def load_cash_drag(cash_drag_dir: Path) -> dict[str, Any]:
     }
 
 
+def load_replay_metric_dir(path: Path) -> dict[str, Any]:
+    metrics = read_json(path / "metrics.json", {}) or {}
+    return {
+        "status": metrics.get("status", "missing") if metrics else "missing",
+        "production_activation_allowed": bool(metrics.get("production_activation_allowed", False)) if metrics else False,
+        "metrics": metrics,
+        "source_dir": str(path),
+    }
+
+
 def replay_input_status(latest_run: Path) -> dict[str, Any]:
     required = {
         "main_monthly_weights": latest_run / "reports" / "main_monthly_weights.csv",
         "sleeve_returns_by_month": latest_run / "reports" / "sleeve_returns_by_month.csv",
         "regime_by_month": latest_run / "reports" / "regime_by_month.csv",
         "concentrated_strategy_monthly": latest_run / "reports" / "concentrated_strategy_monthly.csv",
+        "candidate_replay_book": latest_run / "reports" / "candidate_replay_book.csv",
     }
     exists = {name: path.exists() for name, path in required.items()}
     missing = [name for name, ok in exists.items() if not ok]
@@ -316,6 +331,10 @@ def build_decision(
     shakeout: dict[str, Any],
     shakeout_rows: list[dict[str, Any]],
     cash_drag: dict[str, Any],
+    main_v2_replay: dict[str, Any],
+    concentrated_replay: dict[str, Any],
+    alpha_sprint_replay: dict[str, Any],
+    position_risk_replay: dict[str, Any],
     replay_status: dict[str, Any],
 ) -> dict[str, Any]:
     best_event = None
@@ -344,6 +363,10 @@ def build_decision(
         "winner_onset": onset,
         "shakeout_breakdown": shakeout,
         "main_cash_drag_replay": cash_drag,
+        "main_v2_historical_replay": main_v2_replay,
+        "concentrated_policy_replay": concentrated_replay,
+        "alpha_sprint_historical_sidecar": alpha_sprint_replay,
+        "position_aware_risk_replay": position_risk_replay,
         "event_level_backtest": {
             "status": "available" if onset.get("status") == "available" and ready_events else "missing_onset_event_backtest",
             "best_strategy_by_median_return": best_event,
@@ -468,6 +491,10 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
     onset = decision.get("winner_onset") or {}
     shakeout = decision.get("shakeout_breakdown") or {}
     cash_drag = decision.get("main_cash_drag_replay") or {}
+    main_v2_replay = decision.get("main_v2_historical_replay") or {}
+    concentrated_replay = decision.get("concentrated_policy_replay") or {}
+    alpha_sprint_replay = decision.get("alpha_sprint_historical_sidecar") or {}
+    position_risk_replay = decision.get("position_aware_risk_replay") or {}
     replay = decision.get("portfolio_level_replay") or {}
     lines = [
         "# AutoLearning Winner Challenger",
@@ -494,6 +521,10 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
         f"- Onset events: {onset.get('event_count', 0)}",
         f"- Shakeout/breakdown events: {shakeout.get('event_count', 0)} labels={shakeout.get('label_counts', {})}",
         f"- Main cash-drag replay: {cash_drag.get('status')} best={cash_drag.get('best_by_cagr', {}).get('model')}",
+        f"- Main v2 historical replay: {main_v2_replay.get('status')}",
+        f"- Concentrated policy replay: {concentrated_replay.get('status')}",
+        f"- Alpha Sprint historical sidecar: {alpha_sprint_replay.get('status')}",
+        f"- Position-aware risk replay: {position_risk_replay.get('status')}",
         "",
         "## Event-Level Backtest",
         "",
@@ -543,6 +574,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     onset_dir = repo_path(args.onset_dir)
     shakeout_dir = repo_path(args.shakeout_dir)
     cash_drag_dir = repo_path(args.cash_drag_dir)
+    main_v2_replay_dir = repo_path(args.main_v2_replay_dir)
+    concentrated_replay_dir = repo_path(args.concentrated_replay_dir)
+    alpha_sprint_replay_dir = repo_path(args.alpha_sprint_replay_dir)
+    position_risk_replay_dir = repo_path(args.position_risk_replay_dir)
     output_dir = repo_path(args.output_dir)
 
     baseline = load_baseline(latest_run)
@@ -551,9 +586,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     onset, event_rows = load_onset(onset_dir)
     shakeout, shakeout_rows = load_shakeout(shakeout_dir)
     cash_drag = load_cash_drag(cash_drag_dir)
+    main_v2_replay = load_replay_metric_dir(main_v2_replay_dir)
+    concentrated_replay = load_replay_metric_dir(concentrated_replay_dir)
+    alpha_sprint_replay = load_replay_metric_dir(alpha_sprint_replay_dir)
+    position_risk_replay = load_replay_metric_dir(position_risk_replay_dir)
     replay_status = replay_input_status(latest_run)
     decision = build_decision(
-        baseline, autolearning, lifecycle, onset, event_rows, shakeout, shakeout_rows, cash_drag, replay_status
+        baseline,
+        autolearning,
+        lifecycle,
+        onset,
+        event_rows,
+        shakeout,
+        shakeout_rows,
+        cash_drag,
+        main_v2_replay,
+        concentrated_replay,
+        alpha_sprint_replay,
+        position_risk_replay,
+        replay_status,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -587,6 +638,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--onset-dir", default=str(DEFAULT_ONSET_DIR))
     parser.add_argument("--shakeout-dir", default=str(DEFAULT_SHAKEOUT_DIR))
     parser.add_argument("--cash-drag-dir", default=str(DEFAULT_CASH_DRAG_DIR))
+    parser.add_argument("--main-v2-replay-dir", default=str(DEFAULT_MAIN_V2_REPLAY_DIR))
+    parser.add_argument("--concentrated-replay-dir", default=str(DEFAULT_CONCENTRATED_REPLAY_DIR))
+    parser.add_argument("--alpha-sprint-replay-dir", default=str(DEFAULT_ALPHA_SPRINT_REPLAY_DIR))
+    parser.add_argument("--position-risk-replay-dir", default=str(DEFAULT_POSITION_RISK_REPLAY_DIR))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     return parser.parse_args()
 

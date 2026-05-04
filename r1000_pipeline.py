@@ -15676,6 +15676,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     alpha_sprint_monthly_weights_path = paths["reports"] / "alpha_sprint_monthly_weights.csv"
     regime_by_month_path = paths["reports"] / "regime_by_month.csv"
     sleeve_returns_by_month_path = paths["reports"] / "sleeve_returns_by_month.csv"
+    candidate_replay_book_path = paths["reports"] / "candidate_replay_book.csv"
     run_identity = build_run_identity(cfg)
 
     def _safe_unlink(path: Path) -> None:
@@ -15799,6 +15800,92 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         empty_sleeve_cols = ["rebalance_date", "ticker", "weight", "source", "data_available"]
         pd.DataFrame(columns=empty_sleeve_cols).to_csv(tactical_monthly_weights_path, index=False)
         pd.DataFrame(columns=empty_sleeve_cols).to_csv(alpha_sprint_monthly_weights_path, index=False)
+
+        replay_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "industry_group",
+            "source_universe",
+            "score",
+            "r_1m",
+            "y_blend",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_role",
+            "portfolio_core_compounder_engine_score",
+            "portfolio_future_winner_engine_score",
+            "portfolio_early_scout_engine_score",
+            "long_hold_compounder_score",
+            "capital_efficiency_score",
+            "sector_adjusted_quality_score",
+            "multi_year_winner_score",
+            "fundamental_reliability_score",
+            "risk_penalty",
+            "stage2_overext_penalty",
+            "overheat_penalty",
+            "price_above_ma200",
+            "price_above_ma50",
+            "near_52w_high_pct",
+            "rs_acceleration_score",
+            "h1_oversold_value_score",
+            "theme_phase_multiplier_primary",
+            "theme_phase_multiplier_max",
+            "theme_phase_primary",
+            "oneil_leadership_score",
+            "industry_group_strength_score",
+            "future_winner_scout_score",
+            "profitability_inflection_score",
+            "cashflow_inflection_under_loss_score",
+            "profit_turn_positive_4q",
+            "cashflow_turn_positive_4q",
+            "ni_loss_narrowing_4q",
+            "any_profit_sign_flip_pos",
+            "breakout_fresh_20d",
+            "post_breakout_hold_score",
+            "entry_quality_score",
+            "concentrated_entry_quality_gate_pass",
+            "concentrated_score",
+            "selection_confirmation_score",
+            "ml_technical_agreement_score",
+            "trend_template_full",
+            "breakout_setup_quality_score",
+            "volatility_contraction_score",
+            "explosion_entry_score",
+            "explosion_exit_score",
+            "explosion_net_score",
+            "h6_dynamic_leader_score",
+            "eps_revision_score",
+            "revision_score",
+            "eps_revision_proxy",
+            "actual_results_score",
+            "event_reaction_score",
+            "revenue_growth_final",
+            "rev_growth_accel_4q",
+            "live_event_risk_score",
+            "atr14_pct",
+            "rsi14",
+            "dollar_vol_20d",
+            "market_cap_live",
+            "mktcap",
+            "current_price_live",
+            "px",
+            "regime_state",
+            "regime_state_score",
+        ]
+        replay_source = scored.copy() if scored is not None else pd.DataFrame()
+        if replay_source.empty:
+            pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
+        else:
+            for col in replay_cols:
+                if col not in replay_source.columns:
+                    replay_source[col] = np.nan
+            replay_book = replay_source[replay_cols].copy()
+            replay_book["period_forward_return"] = pd.to_numeric(
+                replay_book["r_1m"] if "r_1m" in replay_book.columns else np.nan,
+                errors="coerce",
+            )
+            replay_book.to_csv(candidate_replay_book_path, index=False)
 
     _write_monthly_mandate_books()
 
@@ -16723,6 +16810,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "alpha_sprint_monthly_weights.csv": str(alpha_sprint_monthly_weights_path),
         "regime_by_month.csv": str(regime_by_month_path),
         "sleeve_returns_by_month.csv": str(sleeve_returns_by_month_path),
+        "candidate_replay_book.csv": str(candidate_replay_book_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -16981,6 +17069,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "alpha_sprint_monthly_weights": str(alpha_sprint_monthly_weights_path),
         "regime_by_month": str(regime_by_month_path),
         "sleeve_returns_by_month": str(sleeve_returns_by_month_path),
+        "candidate_replay_book": str(candidate_replay_book_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),

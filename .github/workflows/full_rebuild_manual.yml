@@ -263,6 +263,10 @@ jobs:
         run: |
           python tools/run_orchestrator_replay.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/orchestrator_replay.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+          python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
+          python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
+          python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
+          python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -289,10 +293,15 @@ jobs:
             outputs/reports/alpha_sprint_monthly_weights.csv
             outputs/reports/regime_by_month.csv
             outputs/reports/sleeve_returns_by_month.csv
+            outputs/reports/candidate_replay_book.csv
             outputs/trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/
             outputs/portfolio_goal_search/
+            outputs/main_v2_backtest/
+            outputs/concentrated_policy_replay/
+            outputs/alpha_sprint_backtest/
+            outputs/position_aware_risk_replay/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -399,6 +408,7 @@ jobs:
           copy_if_exists outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports"
           copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
+          copy_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
           if [ -d outputs/trade_journal ]; then
             rclone copy outputs/trade_journal "$DEST/trade_journal/"
           else
@@ -419,6 +429,13 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
+          for d in main_v2_backtest concentrated_policy_replay alpha_sprint_backtest position_aware_risk_replay; do
+            if [ -d "outputs/$d" ]; then
+              rclone copy "outputs/$d" "$DEST/$d/"
+            else
+              echo "[gdrive-sync] skip missing: outputs/$d"
+            fi
+          done
 
           # Also sync log + verdict for diagnostic visibility
           rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/"
@@ -445,6 +462,7 @@ jobs:
           verify_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
           verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
           verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
+          verify_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
 
           # Cleanup secret file
           rm -f /tmp/sa.json
@@ -527,11 +545,16 @@ jobs:
           cp outputs/reports/alpha_sprint_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/sleeve_returns_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/candidate_replay_book.csv /tmp/bundle/reports/ 2>/dev/null || true
           copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
           copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
           copy_dir_clean outputs/auto_learning /tmp/bundle/auto_learning
           copy_dir_clean outputs/orchestrator_replay /tmp/bundle/orchestrator_replay
           copy_dir_clean outputs/portfolio_goal_search /tmp/bundle/portfolio_goal_search
+          copy_dir_clean outputs/main_v2_backtest /tmp/bundle/main_v2_backtest
+          copy_dir_clean outputs/concentrated_policy_replay /tmp/bundle/concentrated_policy_replay
+          copy_dir_clean outputs/alpha_sprint_backtest /tmp/bundle/alpha_sprint_backtest
+          copy_dir_clean outputs/position_aware_risk_replay /tmp/bundle/position_aware_risk_replay
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -620,10 +643,15 @@ jobs:
           cp outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
           copy_dir_clean outputs/orchestrator_replay "$DEST/orchestrator_replay"
           copy_dir_clean outputs/portfolio_goal_search "$DEST/portfolio_goal_search"
+          copy_dir_clean outputs/main_v2_backtest "$DEST/main_v2_backtest"
+          copy_dir_clean outputs/concentrated_policy_replay "$DEST/concentrated_policy_replay"
+          copy_dir_clean outputs/alpha_sprint_backtest "$DEST/alpha_sprint_backtest"
+          copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience
