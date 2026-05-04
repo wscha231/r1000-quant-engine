@@ -53,6 +53,63 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-04
 
+### 13:22 KST - winner-onset-study
+
+- scope:
+  - Add a report-only historical major-winner onset miner that labels early
+    multi-month advance starts, studies phase snapshots around the onset, and
+    proposes non-production candidate hold/exit rules.
+- files:
+  - `tools/run_winner_onset_study.py` ->adds ticker-agnostic historical onset detection, phase snapshots, hold diagnostics, summary report, and proposal-only policy output.
+  - `tests/winner_onset_study_smoke.py` ->adds a synthetic multi-bagger onset fixture that verifies detection, snapshots, hold diagnostics, and proposal-only policy rendering.
+  - `.gitignore` ->ignores generated `outputs/winner_onset_study/` artifacts.
+- symbols_added:
+  - `OnsetEvent` ->dataclass for one detected historical major-winner onset event.
+  - `finite_float(value, default)` ->normalizes numeric values for robust report generation.
+  - `safe_return(close, idx, days)` ->computes trailing returns.
+  - `forward_return(close, idx, days)` ->computes forward returns.
+  - `max_forward_return(close, idx, days)` ->computes future peak return and peak index.
+  - `max_drawdown_between(close, start_idx, end_idx)` ->computes window drawdown.
+  - `normalize_history(raw)` ->standardizes price history into close/volume columns.
+  - `fetch_history(ticker, start, end)` ->fetches yfinance history for CLI studies.
+  - `compute_features(hist, idx, spy_hist)` ->computes onset timing features.
+  - `entry_readiness_score(features)` ->scores whether a date has early advance confirmation.
+  - `detect_onset_events(ticker, hist, spy_hist, min_peak_return_12m, min_forward_6m, readiness_min, min_gap_days, max_events_per_ticker)` ->detects actionable onset events before large future moves.
+  - `nearest_index(index, target)` ->finds the nearest trading-date index.
+  - `build_phase_snapshots(events, histories, spy_hist)` ->writes pre/onset/post feature snapshots.
+  - `first_exit_return(close, onset_idx, kind)` ->evaluates simple trend exit candidates.
+  - `build_hold_diagnostics(events, histories)` ->compares fixed hold and trend-exit outcomes.
+  - `summarize_patterns(events_df, snapshots_df, hold_df)` ->summarizes median onset and hold patterns.
+  - `pct(value)` ->formats percentages for Markdown output.
+  - `render_report(summary, events_df, output_dir)` ->renders `winner_onset_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only candidate rules.
+  - `load_tickers_from_scored(path, top_n, min_current_mcap_usd, min_dollar_vol_20d)` ->loads and filters a ticker universe from `scored_latest.csv`.
+  - `load_tickers(args)` ->loads tickers from CLI inputs.
+  - `run(args)` ->runs the onset study CLI.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/winner_onset_study/events.csv` ->detected major-winner onset events.
+  - `outputs/winner_onset_study/phase_snapshots.csv` ->feature snapshots from six months before to six months after onset.
+  - `outputs/winner_onset_study/hold_diagnostics.csv` ->fixed-hold and trend-exit diagnostics.
+  - `outputs/winner_onset_study/pattern_summary.json` ->machine-readable pattern summary.
+  - `outputs/winner_onset_study/winner_onset_report.md` ->human-readable report.
+  - `outputs/winner_onset_study/system_policy_candidates.yaml` ->proposal-only candidate rules, never production-active.
+- validation:
+  - `py -3 -m py_compile tools\run_winner_onset_study.py tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - yfinance CLI fetching can be rate-limited on large universes; start with targeted or top-ranked scored universes before broad mining.
+  - Scored-universe market-cap filtering defaults to current `market_cap_live`/`mktcap`, not point-in-time onset-date market cap; production use still requires challenger replay against monthly feature stores and costs.
+
 ### 13:10 KST - winner-lifecycle-daily-scan
 
 - scope:

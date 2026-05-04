@@ -45,6 +45,12 @@ purpose: narrow hardening follow-up before judging PR #3 as a production candida
    holding candidate.
 6. `.github/workflows/daily_autolearning_scan.yml` schedules the winner
    lifecycle diagnostics after the US close as an artifact-only daily scan.
+7. `tools/run_winner_onset_study.py` adds a report-only historical onset miner
+   for multi-month/multi-bagger advances. It studies the months before/after
+   detected onset events, evaluates hold/exit diagnostics, and emits only
+   proposal-only policy candidates. When sourced from `scored_latest.csv`, it
+   defaults to a $5B current market-cap floor and $20M 20-day dollar-volume
+   floor to avoid micro-cap multi-bagger noise.
 
 **Validation**
 
@@ -59,6 +65,8 @@ py -3 tests\smoke_test.py                         # 81/81 pass
 PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
 py -3 tests\winner_lifecycle_smoke.py
 py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20
+py -3 tests\winner_onset_study_smoke.py
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
 ```
 
 **Next work**
@@ -68,10 +76,13 @@ py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebu
 2. Confirm GDrive and artifact contain the monthly books above.
 3. Use winner lifecycle diagnostics to seed SNDK/NVDA-style counterfactual
    rules: acceleration override, stale trim, and leadership rotation.
-4. Implement true `tools/run_main_v2_backtest.py` using monthly books.
-5. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+4. Run `tools/run_winner_onset_study.py` on a targeted universe to mine
+   historical early-onset patterns before promoting any "hold winners longer"
+   rule.
+5. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+6. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
    and `concentrated_strategy_holdings.csv`.
-6. Only after true replays exist, test orchestrator merge policies
+7. Only after true replays exist, test orchestrator merge policies
    (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
 
 ---
