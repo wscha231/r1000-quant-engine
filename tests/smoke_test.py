@@ -1758,7 +1758,7 @@ def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
     assert abs(float(guarded["core"]) - float(selected["core"])) < 1e-12
     assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
     assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
-    assert abs(float(guarded["cash"]) - 0.08) < 1e-12
+    assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
 
 
 @_test("regression.paper_executor_advisor_path_fallbacks")

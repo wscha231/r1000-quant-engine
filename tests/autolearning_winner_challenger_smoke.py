@@ -41,6 +41,7 @@ def main() -> int:
             "strategy_cagr": 0.24,
             "sharpe": 1.2,
             "max_dd": -0.22,
+            "avg_cash_weight": 0.09,
             "months": 84,
         })
         write_json(latest / "concentrated_backtest_metrics.json", {
@@ -50,6 +51,11 @@ def main() -> int:
             "selected_names": 5,
         })
         write_json(auto / "hypotheses_latest.json", [{"id": "h1"}, {"id": "h2"}])
+        (latest / "reports").mkdir(parents=True)
+        pd.DataFrame([
+            {"rebalance_date": "2024-01-31", "ticker": "AAA", "weight": 0.86},
+            {"rebalance_date": "2024-01-31", "ticker": "CASH", "weight": 0.14},
+        ]).to_csv(latest / "reports" / "main_monthly_weights.csv", index=False)
         pd.DataFrame([{"hypothesis_id": "h1", "status": "needs_full_challenger_backtest"}]).to_csv(
             auto / "counterfactual_results.csv", index=False
         )
@@ -111,11 +117,14 @@ def main() -> int:
         assert decision["shakeout_breakdown"]["event_count"] == 2
         assert decision["event_level_backtest"]["status"] == "available"
         assert decision["shakeout_action_backtest"]["status"] == "available"
+        assert decision["baseline"]["main"]["latest_cash_weight"] == 0.14
+        assert decision["policy_value_replay"]["status"] == "CAGR_FIRST_REPLAY_REQUIRED"
         assert decision["winner_lifecycle"]["top_rotations"] == ["OLD->AAA"]
         assert decision["verdict"] == "EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS"
         assert (out / "summary.json").exists()
         assert (out / "candidate_experiment.yaml").exists()
         assert "production_activation_allowed: false" in (out / "candidate_experiment.yaml").read_text(encoding="utf-8")
+        assert "cash_drag_reduction_grid" in (out / "candidate_experiment.yaml").read_text(encoding="utf-8")
 
     print("autolearning_winner_challenger_smoke: PASS")
     return 0

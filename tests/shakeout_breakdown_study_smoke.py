@@ -32,6 +32,11 @@ def make_history(kind: str) -> pd.DataFrame:
         close[300:320] = np.linspace(100.0, 75.0, 20)
         close[320:500] = np.linspace(75.0, 48.0, 180)
         close[500:] = np.linspace(48.0, 45.0, len(dates) - 500)
+    elif kind == "distribution":
+        close[300:318] = np.linspace(100.0, 83.0, 18)
+        close[318:365] = np.linspace(83.0, 95.0, 47)
+        close[365:450] = np.linspace(95.0, 76.0, 85)
+        close[450:] = np.linspace(76.0, 72.0, len(dates) - 450)
     else:
         raise ValueError(kind)
     volume = np.full(len(dates), 1_000_000.0)
@@ -50,12 +55,15 @@ def main() -> int:
     spy = make_spy()
     shake_events = detect_drawdown_events("SHAK", make_history("shakeout"), spy_hist=spy, min_drop=0.12)
     break_events = detect_drawdown_events("BRKN", make_history("breakdown"), spy_hist=spy, min_drop=0.12)
+    dist_events = detect_drawdown_events("DIST", make_history("distribution"), spy_hist=spy, min_drop=0.12)
     assert shake_events, "expected synthetic shakeout event"
     assert break_events, "expected synthetic breakdown event"
+    assert dist_events, "expected synthetic distribution event"
     assert any(e.label in {"SHAKEOUT", "BUYABLE_RESET"} for e in shake_events), [e.label for e in shake_events]
     assert any(e.label in {"TRUE_BREAKDOWN", "DEAD_THEME"} for e in break_events), [e.label for e in break_events]
+    assert any(e.label == "DISTRIBUTION" for e in dist_events), [e.label for e in dist_events]
 
-    df = pd.DataFrame([e.__dict__ for e in [shake_events[0], break_events[0]]])
+    df = pd.DataFrame([e.__dict__ for e in [shake_events[0], break_events[0], dist_events[0]]])
     action = build_action_replay(df)
     summary = summarize(df, action, type("Args", (), {
         "min_drop": 0.12,
@@ -65,7 +73,8 @@ def main() -> int:
         "min_dollar_vol_20d": 20_000_000,
     })())
     assert summary["production_activation_allowed"] is False
-    assert summary["event_count"] == 2
+    assert summary["event_count"] == 3
+    assert "DISTRIBUTION" in summary["label_counts"]
     assert not action.empty
     assert set(action["action"]) >= {"hold", "trim50", "add25", "exit_to_cash"}
     print("shakeout_breakdown_study_smoke: PASS")

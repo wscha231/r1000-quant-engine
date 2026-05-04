@@ -100,14 +100,36 @@ def pct(value: Any) -> str:
     return f"{value:.2%}"
 
 
+def latest_main_cash_weight(latest_run: Path) -> float:
+    rows = read_csv_rows(latest_run / "reports" / "main_monthly_weights.csv")
+    if not rows:
+        return float("nan")
+    dates = sorted({str(row.get("rebalance_date", "")) for row in rows if row.get("rebalance_date")})
+    if not dates:
+        return float("nan")
+    latest_date = dates[-1]
+    latest_rows = [row for row in rows if str(row.get("rebalance_date", "")) == latest_date]
+    cash = 0.0
+    for row in latest_rows:
+        if str(row.get("ticker", "")).upper() == "CASH":
+            cash += safe_float(row.get("weight"), 0.0)
+    if cash > 0:
+        return cash
+    stock_sum = sum(safe_float(row.get("weight"), 0.0) for row in latest_rows)
+    return max(0.0, 1.0 - stock_sum)
+
+
 def load_baseline(latest_run: Path) -> dict[str, Any]:
     main = read_json(latest_run / "backtest_metrics.json", {}) or {}
     conc = read_json(latest_run / "concentrated_backtest_metrics.json", {}) or {}
+    latest_cash = latest_main_cash_weight(latest_run)
     return {
         "main": {
             "cagr": safe_float(main.get("cagr", main.get("strategy_cagr"))),
             "sharpe": safe_float(main.get("sharpe")),
             "max_dd": safe_float(main.get("max_dd")),
+            "avg_cash_weight": safe_float(main.get("avg_cash_weight"), 0.0),
+            "latest_cash_weight": latest_cash,
             "avg_turnover_monthly": safe_float(main.get("avg_turnover_monthly")),
             "months": safe_float(main.get("months")),
         },
@@ -286,6 +308,18 @@ def build_decision(
     ready_events = [row for row in event_rows if row.get("n") and row.get("median_return") is not None]
     if ready_events:
         best_event = max(ready_events, key=lambda row: safe_float(row.get("median_return"), -999.0))
+    main = baseline.get("main") or {}
+    conc = baseline.get("concentrated") or {}
+    main_cagr = safe_float(main.get("cagr"), 0.0)
+    main_avg_cash = safe_float(main.get("avg_cash_weight"), 0.0)
+    main_latest_cash = safe_float(main.get("latest_cash_weight"), 0.0)
+    cash_drag_warning = bool(main_avg_cash > 0.08 or main_latest_cash > 0.10)
+    main_cagr_gap_warning = bool(main_cagr < 0.25)
+    policy_value_status = (
+        "CAGR_FIRST_REPLAY_REQUIRED"
+        if cash_drag_warning or main_cagr_gap_warning
+        else "READY_FOR_VALUE_FUNCTION_REPLAY"
+    )
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "research_only",
@@ -303,6 +337,34 @@ def build_decision(
         "shakeout_action_backtest": {
             "status": "available" if shakeout.get("status") == "available" and shakeout_rows else "missing_shakeout_action_backtest",
             "rows": shakeout_rows,
+        },
+        "policy_value_replay": {
+            "status": policy_value_status,
+            "cash_drag_warning": cash_drag_warning,
+            "main_cagr_gap_warning": main_cagr_gap_warning,
+            "observed": {
+                "main_cagr": main_cagr,
+                "main_avg_cash_weight": main_avg_cash,
+                "main_latest_cash_weight": main_latest_cash,
+                "concentrated_cagr": safe_float(conc.get("cagr"), 0.0),
+                "concentrated_max_dd": safe_float(conc.get("max_dd"), 0.0),
+            },
+            "objective": {
+                "primary": "maximize_net_cagr_subject_to_drawdown",
+                "main_min_cagr": 0.25,
+                "main_max_dd_floor": -0.22,
+                "concentrated_min_cagr": 0.40,
+                "concentrated_max_dd_floor": -0.25,
+                "cash_drag_penalty": 0.30,
+                "turnover_penalty": 0.10,
+            },
+            "candidate_grids": {
+                "main_cash_cap_grid": [0.00, 0.03, 0.05, 0.08],
+                "main_single_name_cap_grid": [0.18, 0.22, 0.25, 0.33],
+                "concentrated_single_name_cap_grid": [0.25, 0.33, 0.40, 0.50],
+                "shakeout_action_grid": ["hold", "trim50", "exit_to_cash", "add25_when_quality_high"],
+                "distribution_action_grid": ["trim50", "exit_to_cash", "swap_to_new_leader"],
+            },
         },
         "portfolio_level_replay": replay_status,
         "verdict": decide_verdict(onset, lifecycle, shakeout, replay_status),
@@ -366,6 +428,15 @@ def render_candidate_yaml(decision: dict[str, Any]) -> str:
         "    concentrated_single_name_cap_grid: [0.25, 0.33, 0.40, 0.50]",
         "    main_single_name_cap_grid: [0.15, 0.20, 0.25, 0.33]",
         "    activation: challenger_only",
+        "  - id: cash_drag_reduction_grid",
+        "    status: proposal_only",
+        "    action: replay_main_cash_caps_before_any_production_change",
+        "    main_cash_cap_grid: [0.00, 0.03, 0.05, 0.08]",
+        "    objective: maximize_cagr_if_maxdd_and_turnover_do_not_regress",
+        "    activation: challenger_only",
+        "policy_value_replay:",
+        f"  status: {(decision.get('policy_value_replay') or {}).get('status', 'UNKNOWN')}",
+        "  objective: maximize_net_cagr_subject_to_drawdown",
     ]
     return "\n".join(lines) + "\n"
 
@@ -391,6 +462,7 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
         "## Baseline",
         "",
         f"- Main CAGR / Sharpe / MaxDD: {pct(main.get('cagr'))} / {main.get('sharpe')} / {pct(main.get('max_dd'))}",
+        f"- Main avg/latest cash: {pct(main.get('avg_cash_weight'))} / {pct(main.get('latest_cash_weight'))}",
         f"- Concentrated CAGR / Sharpe / MaxDD: {pct(conc.get('cagr'))} / {conc.get('sharpe')} / {pct(conc.get('max_dd'))}",
         "",
         "## Connected Signals",
@@ -435,6 +507,7 @@ def render_report(decision: dict[str, Any], event_rows: list[dict[str, Any]]) ->
         "",
         f"- status: `{replay.get('status')}`",
         f"- missing: {replay.get('missing', [])}",
+        f"- policy_value_replay: `{(decision.get('policy_value_replay') or {}).get('status')}`",
         "",
         "Event-level evidence can prioritize rules. It is not a substitute for portfolio-level CAGR/MaxDD replay.",
         "",

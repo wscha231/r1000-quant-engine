@@ -8,7 +8,9 @@ training events:
   positive forward return.
 * BUYABLE_RESET: the prior high is not fully recovered yet, but the reset leads
   to strong forward return.
-* TRUE_BREAKDOWN: the drawdown continues or forward return remains poor.
+* DISTRIBUTION: the stock bounces partway, fails, and makes a lower low
+  or slowly stair-steps lower with weak relative strength.
+* TRUE_BREAKDOWN: the drawdown continues directly or forward return remains poor.
 * DEAD_THEME: the stock fails to reclaim the prior high and trades below long
   trend while forward return is weak.
 
@@ -63,6 +65,12 @@ class DrawdownEvent:
     label_reason: str
     recovery_3m: int
     recovery_6m: int
+    half_recovery_3m: int
+    half_recovery_6m: int
+    lower_low_after_half_recovery_6m: int
+    fast_drop_flag: int
+    high_volume_panic_flag: int
+    v_recovery_days: int
     forward_1m_return: float
     forward_3m_return: float
     forward_6m_return: float
@@ -78,6 +86,7 @@ class DrawdownEvent:
     price_vs_sma50: float
     price_vs_sma200: float
     volume_surge: float
+    distribution_risk_score: float
     breakdown_risk_score: float
     shakeout_quality_score: float
 
@@ -141,21 +150,98 @@ def compute_event_features(hist: pd.DataFrame, idx: int, spy_hist: Optional[pd.D
     }
 
 
-def score_shakeout_quality(features: dict[str, float], drawdown: float, recovery_6m: bool, fwd6: float) -> float:
+def _days_to_reclaim(future: pd.Series, event_date: pd.Timestamp, level: float) -> int:
+    if future.empty or not np.isfinite(level):
+        return -1
+    hits = future[future >= level]
+    if hits.empty:
+        return -1
+    return int((pd.Timestamp(hits.index[0]) - pd.Timestamp(event_date)).days)
+
+
+def _half_recovery_flags(
+    future3: pd.Series,
+    future6: pd.Series,
+    *,
+    event_price: float,
+    prior_peak_price: float,
+) -> tuple[bool, bool, bool]:
+    if event_price <= 0 or prior_peak_price <= event_price:
+        return False, False, False
+    half_level = event_price + 0.50 * (prior_peak_price - event_price)
+    half3 = bool((future3 >= half_level).any()) if not future3.empty else False
+    half6 = bool((future6 >= half_level).any()) if not future6.empty else False
+    lower_low_after_half = False
+    if half6 and not future6.empty:
+        first_half_date = pd.Timestamp(future6[future6 >= half_level].index[0])
+        after_half = future6[future6.index > first_half_date]
+        lower_low_after_half = bool(not after_half.empty and float(after_half.min()) <= event_price * 0.98)
+    return half3, half6, lower_low_after_half
+
+
+def score_shakeout_quality(
+    features: dict[str, float],
+    drawdown: float,
+    recovery_6m: bool,
+    fwd6: float,
+    *,
+    days_since_peak: int,
+    half_recovery_3m: bool,
+    lower_low_after_half_recovery_6m: bool,
+) -> float:
+    vol = features.get("volume_surge", np.nan)
+    high_volume_panic = 1.50 <= vol <= 5.00
     checks = [
-        (drawdown >= -0.35, 0.12),
-        (features.get("rs_vs_spy_3m", np.nan) >= -0.08, 0.15),
-        (features.get("rs_vs_spy_6m", np.nan) >= -0.10, 0.10),
-        (features.get("price_vs_sma200", np.nan) >= -0.15, 0.12),
-        (features.get("volume_surge", np.nan) <= 2.50, 0.08),
-        (recovery_6m, 0.25),
-        (fwd6 >= 0.20, 0.18),
+        (drawdown >= -0.35, 0.08),
+        (days_since_peak <= 35, 0.12),
+        (features.get("rs_vs_spy_3m", np.nan) >= -0.08, 0.12),
+        (features.get("rs_vs_spy_6m", np.nan) >= -0.10, 0.08),
+        (features.get("price_vs_sma200", np.nan) >= -0.15, 0.10),
+        (high_volume_panic, 0.10),
+        (half_recovery_3m, 0.10),
+        (not lower_low_after_half_recovery_6m, 0.10),
+        (recovery_6m, 0.20),
+        (fwd6 >= 0.20, 0.10),
     ]
     weight = sum(w for _, w in checks)
     return sum(w for ok, w in checks if bool(ok)) / weight if weight else 0.0
 
 
-def score_breakdown_risk(features: dict[str, float], drawdown: float, recovery_6m: bool, fwd6: float, max_dd_6m: float) -> float:
+def score_distribution_risk(
+    features: dict[str, float],
+    drawdown: float,
+    recovery_6m: bool,
+    fwd6: float,
+    max_dd_6m: float,
+    *,
+    days_since_peak: int,
+    half_recovery_6m: bool,
+    lower_low_after_half_recovery_6m: bool,
+) -> float:
+    vol = features.get("volume_surge", np.nan)
+    checks = [
+        (drawdown <= -0.18, 0.08),
+        (days_since_peak >= 45, 0.12),
+        (half_recovery_6m, 0.13),
+        (lower_low_after_half_recovery_6m, 0.22),
+        (features.get("rs_vs_spy_3m", np.nan) < -0.08, 0.12),
+        (features.get("rs_vs_spy_6m", np.nan) < -0.12, 0.10),
+        (features.get("price_vs_sma200", np.nan) < -0.08, 0.10),
+        (vol <= 2.0, 0.05),
+        (not recovery_6m, 0.10),
+        (fwd6 <= 0.10 or max_dd_6m <= -0.22, 0.08),
+    ]
+    weight = sum(w for _, w in checks)
+    return sum(w for ok, w in checks if bool(ok)) / weight if weight else 0.0
+
+
+def score_breakdown_risk(
+    features: dict[str, float],
+    drawdown: float,
+    recovery_6m: bool,
+    fwd6: float,
+    max_dd_6m: float,
+) -> float:
     checks = [
         (drawdown <= -0.30, 0.15),
         (features.get("rs_vs_spy_3m", np.nan) < -0.10, 0.15),
@@ -173,16 +259,25 @@ def score_breakdown_risk(features: dict[str, float], drawdown: float, recovery_6
 def classify_event(
     recovery_3m: bool,
     recovery_6m: bool,
+    half_recovery_6m: bool,
+    lower_low_after_half_recovery_6m: bool,
     fwd6: float,
     max_forward_6m: float,
     max_dd_6m: float,
     features: dict[str, float],
+    days_since_peak: int,
 ) -> tuple[str, str]:
     under_200 = features.get("price_vs_sma200", np.nan) < -0.10
     weak_rs = features.get("rs_vs_spy_3m", np.nan) < -0.10
+    failed_half_recovery = half_recovery_6m and lower_low_after_half_recovery_6m
+    slow_stair_step = days_since_peak >= 45 and not recovery_6m
+    if failed_half_recovery and (fwd6 < 0.15 or under_200 or weak_rs or max_dd_6m <= -0.22):
+        return "DISTRIBUTION", "half_recovery_failed_then_lower_low"
+    if slow_stair_step and (under_200 or weak_rs) and fwd6 < 0.10:
+        return "DISTRIBUTION", "slow_stair_step_lower_with_weak_relative_strength"
     if recovery_6m and fwd6 >= 0.20:
         return "SHAKEOUT", "reclaimed_prior_high_with_positive_6m_return"
-    if not recovery_6m and fwd6 >= 0.30 and max_forward_6m >= 0.50:
+    if not recovery_6m and fwd6 >= 0.30 and max_forward_6m >= 0.50 and not failed_half_recovery:
         return "BUYABLE_RESET", "did_not_reclaim_high_but_generated_strong_forward_return"
     if (not recovery_6m) and under_200 and weak_rs and fwd6 < 0.10:
         return "DEAD_THEME", "failed_recovery_below_200dma_with_weak_relative_strength"
@@ -231,6 +326,13 @@ def detect_drawdown_events(
         future6 = close.iloc[idx + 1:min(len(close), idx + 127)]
         recovery_3m = bool((future3 >= peak_price * 0.98).any()) if not future3.empty else False
         recovery_6m = bool((future6 >= peak_price * 0.98).any()) if not future6.empty else False
+        half_recovery_3m, half_recovery_6m, lower_low_after_half = _half_recovery_flags(
+            future3,
+            future6,
+            event_price=event_price,
+            prior_peak_price=peak_price,
+        )
+        days_since_peak = int((hist.index[idx] - hist.index[peak_idx]).days)
         fwd1 = forward_return(close, idx, 21)
         fwd3 = forward_return(close, idx, 63)
         fwd6 = forward_return(close, idx, 126)
@@ -239,8 +341,38 @@ def detect_drawdown_events(
         maxdd3 = max_drawdown_between(close, idx, min(len(close) - 1, idx + 63))
         maxdd6 = max_drawdown_between(close, idx, min(len(close) - 1, idx + 126))
         features = compute_event_features(hist, idx, spy_hist)
-        label, reason = classify_event(recovery_3m, recovery_6m, fwd6, max6, maxdd6, features)
-        shake_score = score_shakeout_quality(features, drawdown, recovery_6m, fwd6)
+        vol = features.get("volume_surge", np.nan)
+        high_volume_panic = bool(1.50 <= vol <= 5.00)
+        label, reason = classify_event(
+            recovery_3m,
+            recovery_6m,
+            half_recovery_6m,
+            lower_low_after_half,
+            fwd6,
+            max6,
+            maxdd6,
+            features,
+            days_since_peak,
+        )
+        shake_score = score_shakeout_quality(
+            features,
+            drawdown,
+            recovery_6m,
+            fwd6,
+            days_since_peak=days_since_peak,
+            half_recovery_3m=half_recovery_3m,
+            lower_low_after_half_recovery_6m=lower_low_after_half,
+        )
+        distribution_score = score_distribution_risk(
+            features,
+            drawdown,
+            recovery_6m,
+            fwd6,
+            maxdd6,
+            days_since_peak=days_since_peak,
+            half_recovery_6m=half_recovery_6m,
+            lower_low_after_half_recovery_6m=lower_low_after_half,
+        )
         breakdown_score = score_breakdown_risk(features, drawdown, recovery_6m, fwd6, maxdd6)
         events.append(
             DrawdownEvent(
@@ -250,11 +382,17 @@ def detect_drawdown_events(
                 event_price=event_price,
                 prior_peak_price=peak_price,
                 drawdown_from_peak=drawdown,
-                days_since_peak=int((hist.index[idx] - hist.index[peak_idx]).days),
+                days_since_peak=days_since_peak,
                 label=label,
                 label_reason=reason,
                 recovery_3m=int(recovery_3m),
                 recovery_6m=int(recovery_6m),
+                half_recovery_3m=int(half_recovery_3m),
+                half_recovery_6m=int(half_recovery_6m),
+                lower_low_after_half_recovery_6m=int(lower_low_after_half),
+                fast_drop_flag=int(days_since_peak <= 35),
+                high_volume_panic_flag=int(high_volume_panic),
+                v_recovery_days=_days_to_reclaim(future6, hist.index[idx], peak_price * 0.98),
                 forward_1m_return=fwd1,
                 forward_3m_return=fwd3,
                 forward_6m_return=fwd6,
@@ -270,6 +408,7 @@ def detect_drawdown_events(
                 price_vs_sma50=features["price_vs_sma50"],
                 price_vs_sma200=features["price_vs_sma200"],
                 volume_surge=features["volume_surge"],
+                distribution_risk_score=distribution_score,
                 breakdown_risk_score=breakdown_score,
                 shakeout_quality_score=shake_score,
             )
@@ -292,7 +431,7 @@ def action_return(row: dict[str, Any], action: str, horizon: str) -> float:
         label = row.get("label")
         if label in {"SHAKEOUT", "BUYABLE_RESET"}:
             return 1.25 * fwd
-        if label in {"TRUE_BREAKDOWN", "DEAD_THEME"}:
+        if label in {"DISTRIBUTION", "TRUE_BREAKDOWN", "DEAD_THEME"}:
             return 0.0
         return 0.5 * fwd
     return float("nan")
@@ -353,8 +492,13 @@ def summarize(events_df: pd.DataFrame, action_df: pd.DataFrame, args: argparse.N
                 "median_drawdown_from_peak": finite_float(group["drawdown_from_peak"].median()),
                 "median_forward_6m_return": finite_float(group["forward_6m_return"].median()),
                 "median_shakeout_quality_score": finite_float(group["shakeout_quality_score"].median()),
+                "median_distribution_risk_score": finite_float(group["distribution_risk_score"].median()),
                 "median_breakdown_risk_score": finite_float(group["breakdown_risk_score"].median()),
                 "recovery_6m_rate": finite_float(pd.to_numeric(group["recovery_6m"], errors="coerce").mean()),
+                "half_recovery_6m_rate": finite_float(pd.to_numeric(group["half_recovery_6m"], errors="coerce").mean()),
+                "lower_low_after_half_recovery_6m_rate": finite_float(
+                    pd.to_numeric(group["lower_low_after_half_recovery_6m"], errors="coerce").mean()
+                ),
             }
     action_summary = summarize_action_replay(action_df)
     return {
@@ -378,7 +522,7 @@ def summarize(events_df: pd.DataFrame, action_df: pd.DataFrame, args: argparse.N
 
 def render_report(summary: dict[str, Any], events_df: pd.DataFrame) -> str:
     lines = [
-        "# Shakeout vs Breakdown Study",
+        "# Shakeout vs Distribution/Breakdown Study",
         "",
         "Report-only event study. No production behavior is changed.",
         "",
@@ -391,13 +535,16 @@ def render_report(summary: dict[str, Any], events_df: pd.DataFrame) -> str:
     for label, count in (summary.get("label_counts") or {}).items():
         lines.append(f"- `{label}`: {count}")
     lines.extend(["", "## Label Medians", ""])
-    lines.append("| Label | N | Median DD | Median 6m Return | Recovery 6m | Shakeout Quality | Breakdown Risk |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|")
+    lines.append("| Label | N | Median DD | Median 6m Return | Recovery 6m | Half Recovery 6m | Lower Low After Half | Shakeout Quality | Distribution Risk | Breakdown Risk |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for label, payload in (summary.get("by_label") or {}).items():
         lines.append(
             f"| {label} | {payload.get('n')} | {pct(payload.get('median_drawdown_from_peak'))} | "
             f"{pct(payload.get('median_forward_6m_return'))} | {pct(payload.get('recovery_6m_rate'))} | "
+            f"{pct(payload.get('half_recovery_6m_rate'))} | "
+            f"{pct(payload.get('lower_low_after_half_recovery_6m_rate'))} | "
             f"{finite_float(payload.get('median_shakeout_quality_score')):.3f} | "
+            f"{finite_float(payload.get('median_distribution_risk_score')):.3f} | "
             f"{finite_float(payload.get('median_breakdown_risk_score')):.3f} |"
         )
     lines.extend(["", "## Best Event-Level Actions By Label/Horizon", ""])
@@ -416,13 +563,16 @@ def render_report(summary: dict[str, Any], events_df: pd.DataFrame) -> str:
     if not events_df.empty:
         lines.extend(["", "## Recent / Largest Events", ""])
         show = events_df.sort_values(["event_date", "drawdown_from_peak"], ascending=[False, True]).head(15)
-        lines.append("| Ticker | Event | Label | DD | Fwd 6m | Recovery 6m | Quality | Risk |")
-        lines.append("|---|---:|---|---:|---:|---:|---:|---:|")
+        lines.append("| Ticker | Event | Label | DD | Fwd 6m | Recovery 6m | Half Recovery 6m | Lower Low | Quality | Dist Risk | Breakdown Risk |")
+        lines.append("|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
         for _, row in show.iterrows():
             lines.append(
                 f"| {row.get('ticker')} | {row.get('event_date')} | {row.get('label')} | "
                 f"{pct(row.get('drawdown_from_peak'))} | {pct(row.get('forward_6m_return'))} | "
-                f"{row.get('recovery_6m')} | {finite_float(row.get('shakeout_quality_score')):.3f} | "
+                f"{row.get('recovery_6m')} | {row.get('half_recovery_6m')} | "
+                f"{row.get('lower_low_after_half_recovery_6m')} | "
+                f"{finite_float(row.get('shakeout_quality_score')):.3f} | "
+                f"{finite_float(row.get('distribution_risk_score')):.3f} | "
                 f"{finite_float(row.get('breakdown_risk_score')):.3f} |"
             )
     lines.extend([
@@ -452,6 +602,13 @@ def render_policy_yaml(summary: dict[str, Any]) -> str:
         "      breakdown_risk_score_max: 0.45",
         "      max_initial_add_weight: 0.05",
         "      require_regime_not_deep_bear: true",
+        "  - id: distribution_exit_candidate",
+        "    status: proposal_only",
+        "    intent: trim or exit when a partial recovery fails into a lower low",
+        "    suggested_conditions:",
+        "      distribution_risk_score_min: 0.60",
+        "      lower_low_after_half_recovery_6m: true",
+        "      allow_swap_to_new_leader: true",
         "  - id: true_breakdown_exit_candidate",
         "    status: proposal_only",
         "    intent: exit or trim when drawdown pattern resembles failed recovery / dead theme",
