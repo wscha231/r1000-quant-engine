@@ -6,23 +6,24 @@
     "candidate_exists": true,
     "concentrated_cagr_floor": true,
     "main_cagr_floor": false,
-    "main_max_dd_floor": true,
+    "main_max_dd_floor": false,
     "main_sharpe_floor": false,
     "trade_count_floor": true
   },
   "dry_run": true,
-  "generated_at": "2026-05-04T03:05:20Z",
+  "generated_at": "2026-05-04T10:29:38Z",
   "metrics": {
-    "concentrated_cagr": 0.3203841394540401,
-    "main_cagr": 0.0,
-    "main_max_dd": 0.0,
-    "main_sharpe": 0.0,
-    "trade_count": 523
+    "concentrated_cagr": 0.362590685434073,
+    "main_cagr": 0.2202779241838535,
+    "main_max_dd": -0.2717871253986124,
+    "main_sharpe": 1.1506332268894586,
+    "trade_count": 561
   },
   "promoted": false,
   "reasons": [
     "main_cagr_floor",
-    "main_sharpe_floor"
+    "main_sharpe_floor",
+    "main_max_dd_floor"
   ],
   "thresholds": {
     "baseline_cagr": 0.2451,
