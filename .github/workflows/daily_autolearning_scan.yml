@@ -22,7 +22,7 @@ permissions:
 jobs:
   daily_scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -32,6 +32,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install scan dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance pyyaml pyarrow
 
       - name: Run winner lifecycle diagnostics
         run: |
@@ -43,10 +48,41 @@ jobs:
             --latest-run "$LATEST_RUN" \
             --output-dir outputs/winner_lifecycle
 
+          if [ -f "$LATEST_RUN/scored_latest.csv" ]; then
+            python tools/run_winner_onset_study.py \
+              --scored "$LATEST_RUN/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir outputs/winner_onset_study
+
+            python tools/run_shakeout_breakdown_study.py \
+              --scored "$LATEST_RUN/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir outputs/shakeout_breakdown_study
+          else
+            echo "WARN: $LATEST_RUN/scored_latest.csv missing; skipping onset and shakeout studies."
+          fi
+
+          python tools/run_autolearning_winner_challenger.py \
+            --latest-run "$LATEST_RUN" \
+            --lifecycle-dir outputs/winner_lifecycle \
+            --onset-dir outputs/winner_onset_study \
+            --shakeout-dir outputs/shakeout_breakdown_study \
+            --output-dir outputs/autolearning_winner_challenger
+
       - name: Upload daily diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-autolearning-scan-${{ github.run_id }}
-          path: outputs/winner_lifecycle/
+          path: |
+            outputs/winner_lifecycle/
+            outputs/winner_onset_study/
+            outputs/shakeout_breakdown_study/
+            outputs/autolearning_winner_challenger/
           retention-days: 90

@@ -29,11 +29,13 @@ def main() -> int:
         auto = root / "auto"
         lifecycle = root / "lifecycle"
         onset = root / "onset"
+        shakeout = root / "shakeout"
         out = root / "out"
         latest.mkdir(parents=True)
         auto.mkdir(parents=True)
         lifecycle.mkdir(parents=True)
         onset.mkdir(parents=True)
+        shakeout.mkdir(parents=True)
 
         write_json(latest / "backtest_metrics.json", {
             "strategy_cagr": 0.24,
@@ -74,19 +76,41 @@ def main() -> int:
             },
         ]).to_csv(onset / "hold_diagnostics.csv", index=False)
         pd.DataFrame([{"ticker": "AAA"}, {"ticker": "BBB"}]).to_csv(onset / "events.csv", index=False)
+        write_json(shakeout / "pattern_summary.json", {
+            "event_count": 2,
+            "production_activation_allowed": False,
+            "label_counts": {"SHAKEOUT": 1, "TRUE_BREAKDOWN": 1},
+        })
+        pd.DataFrame([{"ticker": "AAA"}, {"ticker": "BBB"}]).to_csv(shakeout / "events.csv", index=False)
+        pd.DataFrame([
+            {
+                "label": "SHAKEOUT",
+                "horizon": "6m",
+                "action": "add25",
+                "n": 1,
+                "avg_return": 0.5,
+                "median_return": 0.5,
+                "hit_rate": 1.0,
+                "worst_return": 0.5,
+                "best_return": 0.5,
+            }
+        ]).to_csv(shakeout / "action_summary.csv", index=False)
 
         decision = run(Namespace(
             latest_run=str(latest),
             autolearning_dir=str(auto),
             lifecycle_dir=str(lifecycle),
             onset_dir=str(onset),
+            shakeout_dir=str(shakeout),
             output_dir=str(out),
         ))
         assert decision["production_activation_allowed"] is False
         assert decision["autolearning"]["hypothesis_count"] == 2
         assert decision["winner_lifecycle"]["missed_count"] == 2
         assert decision["winner_onset"]["event_count"] == 2
+        assert decision["shakeout_breakdown"]["event_count"] == 2
         assert decision["event_level_backtest"]["status"] == "available"
+        assert decision["shakeout_action_backtest"]["status"] == "available"
         assert decision["winner_lifecycle"]["top_rotations"] == ["OLD->AAA"]
         assert decision["verdict"] == "EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS"
         assert (out / "summary.json").exists()

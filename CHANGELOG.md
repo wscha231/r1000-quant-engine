@@ -53,6 +53,67 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-04
 
+### 13:48 KST - shakeout-breakdown-study
+
+- scope:
+  - Add report-only shakeout-vs-breakdown event labeling and connect those
+    labels into the separate AutoLearning winner challenger and daily scan.
+- files:
+  - `tools/run_shakeout_breakdown_study.py` ->adds drawdown event labeling, action replay, summary/report/policy outputs for shakeout, buyable reset, true breakdown, and dead theme events.
+  - `tests/shakeout_breakdown_study_smoke.py` ->adds synthetic shakeout and breakdown fixtures with action replay assertions.
+  - `tools/run_autolearning_winner_challenger.py` ->loads shakeout/breakdown action summaries and includes them in the combined challenger decision/report.
+  - `tests/autolearning_winner_challenger_smoke.py` ->extends the challenger smoke fixture with shakeout/breakdown artifacts.
+  - `.github/workflows/daily_autolearning_scan.yml` ->installs scan dependencies and runs lifecycle, onset, shakeout/breakdown, and combined challenger diagnostics as artifact-only daily scans.
+  - `.gitignore` ->ignores generated `outputs/shakeout_breakdown_study/` artifacts.
+- symbols_added:
+  - `DrawdownEvent` ->dataclass for one labeled drawdown event.
+  - `compute_event_features(hist, idx, spy_hist)` ->computes drawdown-date momentum, relative strength, trend, and volume features.
+  - `score_shakeout_quality(features, drawdown, recovery_6m, fwd6)` ->scores whether a drawdown resembles a recoverable shakeout.
+  - `score_breakdown_risk(features, drawdown, recovery_6m, fwd6, max_dd_6m)` ->scores whether a drawdown resembles a true breakdown.
+  - `classify_event(recovery_3m, recovery_6m, fwd6, max_forward_6m, max_dd_6m, features)` ->labels events as SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, or AMBIGUOUS.
+  - `detect_drawdown_events(ticker, hist, spy_hist, min_drop, lookback_days, min_gap_days)` ->detects first-threshold drawdown events per ticker.
+  - `action_return(row, action, horizon)` ->computes event-level counterfactual action returns.
+  - `build_action_replay(events_df)` ->builds hold/trim/add/exit/oracle action rows.
+  - `summarize_action_replay(action_df)` ->summarizes action returns by label/horizon/action.
+  - `summarize(events_df, action_df, args)` ->builds machine-readable study summary.
+  - `render_report(summary, events_df)` ->renders `shakeout_breakdown_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only shakeout/breakdown candidate rules.
+  - `load_tickers(args)` ->loads a filtered ticker universe for the study.
+  - `run(args)` ->runs the shakeout/breakdown study.
+  - `parse_args()` ->parses CLI arguments.
+  - `load_shakeout(shakeout_dir)` ->loads shakeout/breakdown artifacts into the combined AutoLearning challenger.
+- symbols_changed:
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, shakeout, shakeout_rows, replay_status)` ->includes shakeout/breakdown evidence.
+  - `decide_verdict(onset, lifecycle, shakeout, replay_status)` ->allows event-level readiness from either onset or shakeout evidence.
+  - `render_candidate_yaml(decision)` ->adds shakeout hold/add or breakdown exit components and sizing grids.
+  - `render_report(decision, event_rows)` ->adds shakeout/breakdown action backtest rows.
+  - `run(args)` ->accepts and loads a shakeout/breakdown artifact directory.
+  - `parse_args()` ->adds `--shakeout-dir`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/shakeout_breakdown_study/events.csv` ->labeled drawdown events.
+  - `outputs/shakeout_breakdown_study/action_replay.csv` ->event-level hold/trim/add/exit counterfactual returns.
+  - `outputs/shakeout_breakdown_study/action_summary.csv` ->action stats by label and horizon.
+  - `outputs/shakeout_breakdown_study/pattern_summary.json` ->machine-readable label and action summary.
+  - `outputs/shakeout_breakdown_study/shakeout_breakdown_report.md` ->human-readable event study report.
+  - `outputs/shakeout_breakdown_study/system_policy_candidates.yaml` ->proposal-only candidate rules and sizing grids.
+- validation:
+  - `py -3 -m py_compile tools\run_shakeout_breakdown_study.py tests\shakeout_breakdown_study_smoke.py tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\shakeout_breakdown_study_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study` ->passed, generated 682 drawdown events.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level action replay is useful for policy discovery but not sufficient for production sizing.
+  - High single-name caps remain proposal-only until portfolio-level replay clears CAGR, MaxDD, turnover, and stress gates.
+
 ### 13:35 KST - autolearning-winner-challenger
 
 - scope:

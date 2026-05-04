@@ -56,6 +56,14 @@ purpose: narrow hardening follow-up before judging PR #3 as a production candida
    challenger package. Current local event-level run found 16 onset cases and
    reports verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS` until the cloud
    run provides monthly books.
+9. `tools/run_shakeout_breakdown_study.py` adds report-only drawdown event
+   labeling for SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, and
+   AMBIGUOUS events. It replays hold/trim/add/exit actions at event level and
+   feeds the separate AutoLearning winner challenger. Daily scan now uploads
+   lifecycle, onset, shakeout/breakdown, and combined challenger artifacts.
+   Local top-40 scored-universe probe found 682 events: 261 SHAKEOUT, 124
+   TRUE_BREAKDOWN, and 297 AMBIGUOUS. Six-month SHAKEOUT hold median was
+   +37.11%; TRUE_BREAKDOWN hold median was -17.58%.
 
 **Validation**
 
@@ -75,6 +83,8 @@ PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
 py -3 tests\autolearning_winner_challenger_smoke.py
 py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study
 py -3 tools\run_autolearning_winner_challenger.py
+py -3 tests\shakeout_breakdown_study_smoke.py
+py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study
 ```
 
 **Next work**
@@ -87,10 +97,13 @@ py -3 tools\run_autolearning_winner_challenger.py
 4. Run `tools/run_winner_onset_study.py` on a targeted universe to mine
    historical early-onset patterns before promoting any "hold winners longer"
    rule.
-5. Implement true `tools/run_main_v2_backtest.py` using monthly books.
-6. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+5. Use `tools/run_shakeout_breakdown_study.py` to mine whether sharp drawdowns
+   were recoverable shakeouts or true breakdowns before testing hold/add/exit
+   policies and high single-name cap grids.
+6. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+7. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
    and `concentrated_strategy_holdings.csv`.
-7. Only after true replays exist, test orchestrator merge policies
+8. Only after true replays exist, test orchestrator merge policies
    (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
 
 ---

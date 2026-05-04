@@ -17,5 +17,6 @@ outputs/regime_snapshot_cache.json
 outputs/winner_lifecycle/
 outputs/winner_onset_study/
 outputs/autolearning_winner_challenger/
+outputs/shakeout_breakdown_study/
 research/github_runs/
 research/phase20_artifact/
