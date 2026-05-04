@@ -12,9 +12,9 @@ on:
         type: string
         default: cloud_results/full_rebuild/latest_global_alpha_universe
   schedule:
-    # 21:30 UTC is after the regular US close in both DST and standard time.
-    # In Korea this is 06:30 KST on the following day.
-    - cron: '30 21 * * 1-5'
+    # 22:30 UTC is after the regular US close in both DST and standard time.
+    # In Korea this is 07:30 KST on the following day.
+    - cron: '30 22 * * 1-5'
 
 permissions:
   contents: read
