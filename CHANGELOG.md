@@ -51,6 +51,42 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-05
+
+### 06:49 KST - defensive-list-risk-proxy
+
+- scope:
+  - Add explicit defensive list outputs for risk proxy replays so target-pass proxy results are not return-only summaries.
+- files:
+  - `tools/run_position_aware_risk_replay.py` ->writes risk-defended holdings lists that move proxy-exited positions to cash while preserving hold/exit reasons for each ticker.
+  - `tools/run_concentrated_position_risk_replay.py` ->writes defensive holdings and latest defensive lists for the best concentrated hard-stop proxy variant.
+  - `tools/run_portfolio_goal_search.py` ->carries list-defense metadata into candidate params for proxy candidates.
+  - `CHANGELOG.md` ->records the defensive-list output change.
+- symbols_added:
+  - `build_defensive_holdings(grouped, best_key, monthly_rows)` ->builds concentrated proxy defensive holdings and latest defensive list rows for the selected variant.
+- symbols_changed:
+  - `replay()` in `tools/run_position_aware_risk_replay.py` ->adds `defensive_holdings.csv`, `defensive_latest.csv`, and list-defense metadata.
+  - `replay()` in `tools/run_concentrated_position_risk_replay.py` ->adds defensive list outputs for the selected concentrated hard-stop proxy.
+  - `render_report()` in `tools/run_position_aware_risk_replay.py` ->reports list-defense mode and latest defensive output path.
+  - `render_report()` in `tools/run_concentrated_position_risk_replay.py` ->reports list-defense mode and latest defensive output path.
+  - `candidate_from_json()` ->includes proxy/list-defense paths and warnings in goal-search candidate params.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/position_aware_risk_replay/defensive_holdings.csv` ->all main proxy holdings with original weight, defended weight, action, reason, and cash rows for proxy exits.
+  - `outputs/position_aware_risk_replay/defensive_latest.csv` ->latest main proxy defensive list.
+  - `outputs/concentrated_position_risk_replay/defensive_holdings.csv` ->all concentrated hard-stop proxy holdings with original weight, defended weight, action, reason, and cash rows for proxy exits.
+  - `outputs/concentrated_position_risk_replay/defensive_latest.csv` ->latest concentrated proxy defensive list.
+- validation:
+  - `python -m py_compile tools/run_position_aware_risk_replay.py tools/run_concentrated_position_risk_replay.py tools/run_portfolio_goal_search.py` passed.
+  - `python tools/run_concentrated_position_risk_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\concentrated_position_risk_replay_defense_smoke` passed.
+  - `python tools/run_position_aware_risk_replay.py --holdings C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984\main_v2_backtest\monthly_holdings.csv --output-dir outputs\position_aware_risk_replay_defense_smoke` blocked locally because pandas is not installed in the current Windows Python environment; GitHub Actions installs the required dependencies.
+- risks_or_notes:
+  - Defensive lists are still monthly proxy artifacts, not execution-ready broker order lists.
+  - A ticker such as NVDA can remain in `defensive_latest.csv` when the proxy action is `hold`; the output now shows that explicitly instead of only showing return metrics.
+
 ## 2026-05-04
 
 ### 13:48 KST - shakeout-breakdown-study

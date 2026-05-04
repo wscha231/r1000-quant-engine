@@ -139,6 +139,76 @@ def worst_month_rows(curve: list[dict[str, Any]], limit: int = 10) -> list[dict[
     return sorted(curve, key=lambda row: safe_float(row.get("net_return")))[:limit]
 
 
+def build_defensive_holdings(
+    grouped: dict[tuple[float, str, str, str, str], list[dict[str, str]]],
+    best_key: tuple[float, str, str, str],
+    monthly_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    hard_stop, target_n, weighting_mode, interval = best_key
+    defensive_rows: list[dict[str, Any]] = []
+    for month in monthly_rows:
+        dt = str(month.get("rebalance_date") or "")[:10]
+        rows = grouped.get((hard_stop, target_n, weighting_mode, interval, dt), [])
+        cash_after_defense = 0.0
+        for row in rows:
+            weight = safe_float(row.get("weight"))
+            period_return = safe_float(row.get("period_forward_return"))
+            should_exit = period_return < hard_stop
+            risk_return = max(period_return, hard_stop)
+            defended_weight = 0.0 if should_exit else weight
+            if should_exit:
+                cash_after_defense += weight
+            defensive_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": row.get("ticker"),
+                    "Name": row.get("Name", ""),
+                    "sector": row.get("sector", ""),
+                    "original_weight": weight,
+                    "defended_weight": defended_weight,
+                    "cash_after_defense": "",
+                    "list_action": "move_to_cash_proxy" if should_exit else "hold",
+                    "reason": "hard_stop_proxy" if should_exit else "hold",
+                    "period_forward_return": period_return,
+                    "risk_adjusted_return": risk_return,
+                    "hard_stop": hard_stop,
+                    "risk_exit_proxy": should_exit,
+                    "target_n": target_n,
+                    "weighting_mode": weighting_mode,
+                    "active_rebalance_interval_months": interval,
+                    "raw_score": row.get("raw_score", ""),
+                    "concentrated_score": row.get("concentrated_score", ""),
+                    "portfolio_sleeve_label": row.get("portfolio_sleeve_label", ""),
+                }
+            )
+        if cash_after_defense > 0:
+            defensive_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": "CASH",
+                    "Name": "Cash from risk exits",
+                    "sector": "Cash",
+                    "original_weight": 0.0,
+                    "defended_weight": cash_after_defense,
+                    "cash_after_defense": cash_after_defense,
+                    "list_action": "cash_from_risk_exits",
+                    "reason": "hard_stop_proxy_cash",
+                    "period_forward_return": 0.0,
+                    "risk_adjusted_return": 0.0,
+                    "hard_stop": hard_stop,
+                    "risk_exit_proxy": False,
+                    "target_n": target_n,
+                    "weighting_mode": weighting_mode,
+                    "active_rebalance_interval_months": interval,
+                    "raw_score": "",
+                    "concentrated_score": "",
+                    "portfolio_sleeve_label": "cash",
+                }
+            )
+    latest_date = max((str(row.get("rebalance_date")) for row in defensive_rows), default="")
+    return defensive_rows, [row for row in defensive_rows if str(row.get("rebalance_date")) == latest_date]
+
+
 def strategy_key(row: dict[str, Any]) -> tuple[str, str, str]:
     return (
         str(row.get("target_stock_names") or row.get("target_n") or ""),
@@ -277,12 +347,16 @@ def replay(
     assert best_key is not None and best_metrics is not None
     best_monthly = sorted(variants[best_key], key=lambda row: str(row.get("rebalance_date")))
     curve = equity_curve_rows(best_monthly)
+    defensive_rows, latest_defensive_rows = build_defensive_holdings(grouped, best_key, best_monthly)
     best_metrics.update(
         {
             "experiment_id": "concentrated_position_risk_replay",
             "status": "completed",
             "data_mode": "concentrated_monthly_position_proxy",
             "metric_mode": "hard_stop_proxy",
+            "list_defense_mode": "hard_stop_to_cash_proxy",
+            "defensive_holdings_path": str(output_dir / "defensive_holdings.csv"),
+            "latest_defensive_holdings_path": str(output_dir / "defensive_latest.csv"),
             "holdings_path": str(holdings_path),
             "monthly_path": str(monthly_path),
             "research_only": True,
@@ -295,6 +369,8 @@ def replay(
     write_rows(output_dir / "comparison.csv", sorted(comparison, key=lambda row: safe_float(row.get("rank_score")), reverse=True))
     write_rows(output_dir / "monthly.csv", best_monthly)
     write_rows(output_dir / "actions.csv", action_rows)
+    write_rows(output_dir / "defensive_holdings.csv", defensive_rows)
+    write_rows(output_dir / "defensive_latest.csv", latest_defensive_rows)
     write_rows(output_dir / "equity_curve.csv", curve)
     write_rows(output_dir / "stress_windows.csv", worst_month_rows(curve))
     write_text(output_dir / "replay_report.md", render_report(best_metrics))
@@ -317,6 +393,8 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
             f"- Target pass: {str(metrics.get('target_pass')).lower()}",
+            f"- List defense mode: `{metrics.get('list_defense_mode')}`",
+            f"- Defensive latest: `{metrics.get('latest_defensive_holdings_path')}`",
             "",
             "Promotion requires weekly/intramonth confirmation and explicit execution assumptions.",
             "",

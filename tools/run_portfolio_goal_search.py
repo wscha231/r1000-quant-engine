@@ -179,6 +179,18 @@ def candidate_from_json(
     metrics = read_json(path)
     if not metrics:
         return []
+    params = dict(extra_params or {})
+    for key in [
+        "metric_mode",
+        "list_defense_mode",
+        "defensive_holdings_path",
+        "latest_defensive_holdings_path",
+        "hard_stop",
+        "trailing_stop",
+        "proxy_warning",
+    ]:
+        if key in metrics:
+            params[key] = metrics.get(key)
     return [
         normalize_candidate(
             portfolio=portfolio,
@@ -187,7 +199,7 @@ def candidate_from_json(
             metrics=metrics,
             valid_for_production=valid_for_production,
             notes=notes,
-            params=extra_params,
+            params=params,
         )
     ]
 

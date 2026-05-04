@@ -59,10 +59,12 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
     state: dict[str, dict[str, float]] = {}
     monthly_rows: list[dict[str, Any]] = []
     action_rows: list[dict[str, Any]] = []
+    defensive_rows: list[dict[str, Any]] = []
     for dt, group in frame.groupby("rebalance_date", sort=True):
         original_return = 0.0
         adjusted_return = 0.0
         exit_count = 0
+        cash_after_defense = 0.0
         for _, row_obj in group.iterrows():
             row = row_obj.to_dict()
             ticker = str(row.get("ticker") or "").upper()
@@ -73,6 +75,9 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
             prior = state.get(ticker, {"cum": 0.0, "peak": 0.0})
             should_exit, reason = exit_signal(row, prior["cum"], prior["peak"], hard_stop, trailing_stop)
             risk_return = max(period_return, hard_stop) if should_exit else period_return
+            defended_weight = 0.0 if should_exit else weight
+            if should_exit:
+                cash_after_defense += weight
             original_return += weight * period_return
             adjusted_return += weight * risk_return
             new_cum = (1.0 + prior["cum"]) * (1.0 + period_return) - 1.0
@@ -92,6 +97,53 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
                     "peak_return_before": prior["peak"],
                 }
             )
+            defensive_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": ticker,
+                    "original_weight": weight,
+                    "defended_weight": defended_weight,
+                    "cash_after_defense": "",
+                    "list_action": "move_to_cash_proxy" if should_exit else "hold",
+                    "reason": reason,
+                    "period_forward_return": period_return,
+                    "risk_adjusted_return": risk_return,
+                    "risk_return_cap": hard_stop,
+                    "risk_exit_proxy": should_exit,
+                    "sector": row.get("sector", ""),
+                    "regime_state": row.get("regime_state", ""),
+                    "score": row.get("score", ""),
+                    "main_v2_score": row.get("main_v2_score", ""),
+                    "risk_penalty": row.get("risk_penalty", ""),
+                    "stage2_overext_penalty": row.get("stage2_overext_penalty", ""),
+                    "explosion_exit_score": row.get("explosion_exit_score", ""),
+                    "rs_acceleration_score": row.get("rs_acceleration_score", ""),
+                }
+            )
+        if cash_after_defense > 0:
+            defensive_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": "CASH",
+                    "original_weight": 0.0,
+                    "defended_weight": cash_after_defense,
+                    "cash_after_defense": cash_after_defense,
+                    "list_action": "cash_from_risk_exits",
+                    "reason": "risk_exit_proxy_cash",
+                    "period_forward_return": 0.0,
+                    "risk_adjusted_return": 0.0,
+                    "risk_return_cap": hard_stop,
+                    "risk_exit_proxy": False,
+                    "sector": "Cash",
+                    "regime_state": "",
+                    "score": "",
+                    "main_v2_score": "",
+                    "risk_penalty": "",
+                    "stage2_overext_penalty": "",
+                    "explosion_exit_score": "",
+                    "rs_acceleration_score": "",
+                }
+            )
         monthly_rows.append(
             {
                 "rebalance_date": dt,
@@ -106,6 +158,8 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
     adjusted_metrics = calc_metrics([safe_float(row.get("net_return")) for row in monthly_rows])
     total_positions = len(action_rows)
     risk_exit_count = sum(1 for row in action_rows if row.get("action") == "risk_exit_proxy")
+    latest_date = max((str(row.get("rebalance_date")) for row in defensive_rows), default="")
+    latest_defensive_rows = [row for row in defensive_rows if str(row.get("rebalance_date")) == latest_date]
     payload = {
         "experiment_id": "position_aware_risk_replay",
         "status": "completed",
@@ -120,6 +174,9 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
         "vol_ann": adjusted_metrics.get("vol_ann"),
         "ending_equity": adjusted_metrics.get("ending_equity"),
         "metric_mode": "position_aware_risk_proxy",
+        "list_defense_mode": "risk_exit_to_cash_proxy",
+        "defensive_holdings_path": str(output_dir / "defensive_holdings.csv"),
+        "latest_defensive_holdings_path": str(output_dir / "defensive_latest.csv"),
         "risk_exit_count": risk_exit_count,
         "risk_exit_rate": risk_exit_count / max(total_positions, 1),
         "original": original_metrics,
@@ -137,6 +194,8 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
     write_json(output_dir / "metrics.json", payload)
     write_rows(output_dir / "monthly.csv", monthly_rows)
     write_rows(output_dir / "actions.csv", action_rows)
+    write_rows(output_dir / "defensive_holdings.csv", defensive_rows)
+    write_rows(output_dir / "defensive_latest.csv", latest_defensive_rows)
     write_rows(output_dir / "equity_curve.csv", curve)
     write_rows(output_dir / "stress_windows.csv", worst_month_rows(curve))
     write_text(output_dir / "replay_report.md", render_report(payload))
@@ -159,6 +218,8 @@ def render_report(payload: dict[str, Any]) -> str:
             f"- Original MaxDD: {safe_float(original.get('max_dd')):.2%}",
             f"- Risk MaxDD: {safe_float(adjusted.get('max_dd')):.2%}",
             f"- MaxDD delta: {safe_float(delta.get('max_dd')):.2%}",
+            f"- List defense mode: `{payload.get('list_defense_mode')}`",
+            f"- Defensive latest: `{payload.get('latest_defensive_holdings_path')}`",
             "",
             "Promotion requires intramonth or weekly confirmation; this is not a broker execution rule.",
             "",
