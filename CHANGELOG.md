@@ -53,6 +53,63 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-04
 
+### 13:10 KST - winner-lifecycle-daily-scan
+
+- scope:
+  - Add report-only daily diagnostics for missed winners, stale holdings, and
+    leadership rotations so AutoLearning can propose system-level rules before
+    production behavior changes.
+- files:
+  - `.github/workflows/daily_autolearning_scan.yml` ->adds a scheduled/manual
+    artifact-only scan after the US market close.
+  - `.gitignore` ->keeps generated winner lifecycle outputs out of source
+    commits.
+  - `tools/run_winner_lifecycle_reports.py` ->generates missed winner, stale
+    winner, leadership rotation, markdown, JSON, and proposal-only YAML
+    artifacts from an existing latest run.
+  - `tests/winner_lifecycle_smoke.py` ->covers the SNDK/NVDA-style missed
+    winner, stale holder, and same-sector rotation diagnostics.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `build_missed_winners(scored_rows, held_tickers, top_n)` ->ranks strong
+    non-held leaders and diagnoses chase-penalty/ranking mismatches.
+  - `build_stale_winners(portfolio_rows, scored_by_ticker, top_n)` ->ranks held
+    names with weak recent momentum or poor relative strength.
+  - `build_leadership_rotations(portfolio_rows, scored_rows, held_tickers, top_n)` ->finds
+    same-sector challengers that may deserve replacement replay.
+  - `render_policy_yaml(summary)` ->writes proposal-only system policy
+    candidates for later historical replay.
+  - `run(latest_run, output_dir, top_n)` ->orchestrates artifact loading and
+    report writing.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is artifact-only and does not alter production selection,
+    DEFAULT_FEATURES, weights, or execution.
+- outputs:
+  - `outputs/winner_lifecycle/missed_winner_report.csv` ->non-held leaders that
+    deserve replay candidates.
+  - `outputs/winner_lifecycle/stale_winner_report.csv` ->current holdings that
+    may be dragging opportunity cost.
+  - `outputs/winner_lifecycle/leadership_rotation_report.csv` ->same-sector
+    held/challenger swap candidates.
+  - `outputs/winner_lifecycle/winner_lifecycle_report.md` ->human-readable
+    daily diagnostics.
+  - `outputs/winner_lifecycle/system_policy_candidates.yaml` ->proposal-only
+    candidate rules for later replay.
+- validation:
+  - PASS: `py -3 -m py_compile tools\run_winner_lifecycle_reports.py tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20`
+- risks_or_notes:
+  - The daily scan creates hypotheses only. It must feed historical replay,
+    shadow, and canary gates before any production rule can change.
+  - Current existing artifacts flag SNDK as a missed explosive leader and NVDA
+    as a stale/high-opportunity-cost holding candidate, which is the intended
+    diagnostic behavior.
+
 ### 10:43 KST - pr3-historical-replay-foundation
 
 - scope:

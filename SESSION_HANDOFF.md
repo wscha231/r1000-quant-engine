@@ -39,6 +39,12 @@ purpose: narrow hardening follow-up before judging PR #3 as a production candida
    `entry_quality_score` is missing, using existing pass flags and conservative
    technical/confirmation fallbacks. Audit rows expose both proxy value and
    source.
+5. `tools/run_winner_lifecycle_reports.py` adds report-only missed winner,
+   stale winner, and leadership rotation diagnostics. Existing artifacts flag
+   SNDK/LITE/WDC as missed explosive leaders and NVDA as a stale/opportunity-cost
+   holding candidate.
+6. `.github/workflows/daily_autolearning_scan.yml` schedules the winner
+   lifecycle diagnostics after the US close as an artifact-only daily scan.
 
 **Validation**
 
@@ -51,6 +57,8 @@ py -3 tests\portfolio_system_guard_smoke.py
 py -3 tests\aggressive_lab_smoke.py
 py -3 tests\smoke_test.py                         # 81/81 pass
 PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\winner_lifecycle_smoke.py
+py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20
 ```
 
 **Next work**
@@ -58,10 +66,12 @@ PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
 1. Run full rebuild on this branch with `global_alpha_universe`, 8 years,
    fast mode, cached collector if cache exists.
 2. Confirm GDrive and artifact contain the monthly books above.
-3. Implement true `tools/run_main_v2_backtest.py` using monthly books.
-4. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+3. Use winner lifecycle diagnostics to seed SNDK/NVDA-style counterfactual
+   rules: acceleration override, stale trim, and leadership rotation.
+4. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+5. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
    and `concentrated_strategy_holdings.csv`.
-5. Only after true replays exist, test orchestrator merge policies
+6. Only after true replays exist, test orchestrator merge policies
    (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
 
 ---

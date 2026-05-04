@@ -1,0 +1,52 @@
+name: Daily AutoLearning Scan
+
+# Report-only daily scan after the US market close. This workflow detects
+# missed winners, stale holdings, and leadership rotations; it never changes
+# production portfolio behavior.
+
+on:
+  workflow_dispatch:
+    inputs:
+      latest_run:
+        description: 'artifact source path to inspect'
+        type: string
+        default: cloud_results/full_rebuild/latest_global_alpha_universe
+  schedule:
+    # 21:30 UTC is after the regular US close in both DST and standard time.
+    # In Korea this is 06:30 KST on the following day.
+    - cron: '30 21 * * 1-5'
+
+permissions:
+  contents: read
+
+jobs:
+  daily_scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run winner lifecycle diagnostics
+        run: |
+          LATEST_RUN="${{ inputs.latest_run }}"
+          if [ -z "$LATEST_RUN" ]; then
+            LATEST_RUN="cloud_results/full_rebuild/latest_global_alpha_universe"
+          fi
+          python tools/run_winner_lifecycle_reports.py \
+            --latest-run "$LATEST_RUN" \
+            --output-dir outputs/winner_lifecycle
+
+      - name: Upload daily diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-autolearning-scan-${{ github.run_id }}
+          path: outputs/winner_lifecycle/
+          retention-days: 90
