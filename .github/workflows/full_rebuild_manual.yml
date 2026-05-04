@@ -274,6 +274,7 @@ jobs:
             outputs/scored_*.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
+            outputs/equity_curve.csv
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
             outputs/run_summary.json
@@ -282,6 +283,12 @@ jobs:
             outputs/reports/config_audit.*
             outputs/reports/backtest_window_comparison.csv
             outputs/reports/global_alpha_sleeve_audit_*.csv
+            outputs/reports/concentrated_strategy_*.csv
+            outputs/reports/main_monthly_weights.csv
+            outputs/reports/tactical_monthly_weights.csv
+            outputs/reports/alpha_sprint_monthly_weights.csv
+            outputs/reports/regime_by_month.csv
+            outputs/reports/sleeve_returns_by_month.csv
             outputs/trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/
@@ -357,6 +364,7 @@ jobs:
           copy_if_exists outputs/concentrated_portfolio_latest.csv "$DEST"
           copy_if_exists outputs/backtest_metrics.json "$DEST"
           copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
+          copy_if_exists outputs/equity_curve.csv "$DEST"
           if [ -d outputs/orchestrator ]; then
             rclone copy outputs/orchestrator "$DEST/orchestrator/" 2>&1 || true
           else
@@ -374,6 +382,14 @@ jobs:
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
           copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"
+          copy_if_exists outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports"
+          copy_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
+          copy_if_exists outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports"
+          copy_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          copy_if_exists outputs/reports/tactical_monthly_weights.csv "$DEST/reports"
+          copy_if_exists outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports"
+          copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
+          copy_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           if [ -d outputs/trade_journal ]; then
             rclone copy outputs/trade_journal "$DEST/trade_journal/" 2>&1 || true
           else
@@ -448,13 +464,23 @@ jobs:
           # Telegram document limit = 50MB.
           BUNDLE="/tmp/full_rebuild_${{ inputs.universe_mode }}_$(date +%Y%m%d_%H%M).zip"
           mkdir -p /tmp/bundle
+          copy_dir_clean() {
+            local src="$1"
+            local dst="$2"
+            if [ -d "$src" ]; then
+              rm -rf "$dst"
+              mkdir -p "$dst"
+              cp -R "$src"/. "$dst"/ 2>/dev/null || true
+            fi
+          }
           cp outputs/scored_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/scored_unified.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
-          cp -r outputs/orchestrator/ /tmp/bundle/orchestrator/ 2>/dev/null || true
+          cp outputs/equity_curve.csv /tmp/bundle/ 2>/dev/null || true
+          copy_dir_clean outputs/orchestrator /tmp/bundle/orchestrator
           mkdir -p /tmp/bundle/reports
           cp outputs/reports/baseline_registry.* /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/config_audit.* /tmp/bundle/reports/ 2>/dev/null || true
@@ -464,11 +490,16 @@ jobs:
           cp outputs/reports/concentrated_strategy_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
-          cp -r outputs/trade_journal/ /tmp/bundle/trade_journal/ 2>/dev/null || true
-          cp -r outputs/auto_learning/ /tmp/bundle/auto_learning/ 2>/dev/null || true
-          cp -r outputs/orchestrator_replay/ /tmp/bundle/orchestrator_replay/ 2>/dev/null || true
-          cp -r outputs/portfolio_goal_search/ /tmp/bundle/portfolio_goal_search/ 2>/dev/null || true
+          cp outputs/reports/main_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/tactical_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/alpha_sprint_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/sleeve_returns_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
+          copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
+          copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
+          copy_dir_clean outputs/auto_learning /tmp/bundle/auto_learning
+          copy_dir_clean outputs/orchestrator_replay /tmp/bundle/orchestrator_replay
+          copy_dir_clean outputs/portfolio_goal_search /tmp/bundle/portfolio_goal_search
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -514,6 +545,15 @@ jobs:
           mkdir -p cloud_results/full_rebuild
           DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           mkdir -p "$DEST"
+          copy_dir_clean() {
+            local src="$1"
+            local dst="$2"
+            if [ -d "$src" ]; then
+              rm -rf "$dst"
+              mkdir -p "$dst"
+              cp -R "$src"/. "$dst"/ 2>/dev/null || true
+            fi
+          }
           # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
           if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
             LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
@@ -531,7 +571,8 @@ jobs:
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
-          cp -r outputs/orchestrator "$DEST/orchestrator" 2>/dev/null || true
+          cp outputs/equity_curve.csv "$DEST/" 2>/dev/null || true
+          copy_dir_clean outputs/orchestrator "$DEST/orchestrator"
           # Diagnostic reports for post-run analysis
           mkdir -p "$DEST/reports"
           cp outputs/reports/baseline_registry.* "$DEST/reports/" 2>/dev/null || true
@@ -542,10 +583,15 @@ jobs:
           cp outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
-          cp -r outputs/trade_journal "$DEST/trade_journal" 2>/dev/null || true
-          cp -r outputs/auto_learning "$DEST/auto_learning" 2>/dev/null || true
-          cp -r outputs/orchestrator_replay "$DEST/orchestrator_replay" 2>/dev/null || true
-          cp -r outputs/portfolio_goal_search "$DEST/portfolio_goal_search" 2>/dev/null || true
+          cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/tactical_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
+          copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
+          copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
+          copy_dir_clean outputs/orchestrator_replay "$DEST/orchestrator_replay"
+          copy_dir_clean outputs/portfolio_goal_search "$DEST/portfolio_goal_search"
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience

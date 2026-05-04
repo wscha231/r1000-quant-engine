@@ -51,6 +51,75 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-04
+
+### 10:43 KST - pr3-historical-replay-foundation
+
+- scope:
+  - Convert PR #3 research infrastructure from snapshot-only toward replayable
+    historical evidence by preserving monthly mandate books and fixing a
+    concentrated entry-gate fallback bug.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds equity curve and monthly
+    mandate books to artifacts, Google Drive sync, Telegram bundles, and
+    cloud_results while avoiding nested copied directories.
+  - `r1000_concentrated_policy.py` ->adds entry-quality proxy fallback so
+    missing `entry_quality_score` does not block otherwise valid concentrated
+    sleeve candidates.
+  - `r1000_pipeline.py` ->exports main monthly weights, regime-by-month, sleeve
+    returns by month, and placeholder tactical/alpha-sprint monthly book
+    schemas from the existing backtest result.
+  - `tests/concentrated_policy_smoke.py` ->covers concentrated entry-quality
+    fallback and audit surfacing.
+  - `tests/workflow_artifact_smoke.py` ->covers full rebuild artifact/GDrive
+    export tokens and non-nested cloud_results directory copies.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `numeric_or_none(value)` ->returns a parsed float or `None` so missing
+    values can be distinguished from real zeros.
+  - `clip01(value, default)` ->bounds numeric scores to the 0..1 range.
+  - `entry_quality_proxy(row)` ->derives concentrated entry quality from direct
+    score, existing gate pass, or conservative technical fallback signals.
+  - `_write_monthly_mandate_books()` ->local export helper that writes raw
+    monthly mandate/replay CSVs from the main backtest result.
+- symbols_changed:
+  - `concentrated_conviction_score(row)` ->uses the entry-quality proxy instead
+    of treating missing `entry_quality_score` as zero.
+  - `entry_gate_flags(row, gate)` ->uses the entry-quality proxy for gate
+    evaluation.
+  - `audit_concentrated_portfolio(holdings, scored_rows, regime_state, policy)` ->surfaces
+    `entry_quality_proxy` and `entry_quality_source` in audit rows.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Production selection behavior, DEFAULT_FEATURES, and sleeve defaults
+    remain unchanged.
+- outputs:
+  - `outputs/reports/main_monthly_weights.csv` ->raw monthly main holdings for
+    historical orchestrator replay.
+  - `outputs/reports/tactical_monthly_weights.csv` ->schema placeholder until a
+    true tactical monthly book is wired.
+  - `outputs/reports/alpha_sprint_monthly_weights.csv` ->schema placeholder
+    until a true alpha-sprint monthly book is wired.
+  - `outputs/reports/regime_by_month.csv` ->monthly regime/allocation state
+    exported from the main backtest.
+  - `outputs/reports/sleeve_returns_by_month.csv` ->sleeve-level return proxy
+    aggregated from monthly holdings.
+- validation:
+  - PASS: `py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\concentrated_policy_smoke.py`
+  - PASS: `py -3 tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\orchestrator_replay_smoke.py`
+  - PASS: `py -3 tests\portfolio_system_guard_smoke.py`
+  - PASS: `py -3 tests\aggressive_lab_smoke.py`
+  - PASS: `py -3 tests\smoke_test.py` (81/81)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - Tactical and alpha-sprint monthly files are explicit empty schemas for now;
+    they prevent silent missing artifacts but are not promotion evidence.
+  - This does not enable orchestrator/risk/alpha-sprint production behavior.
+    It only preserves the data needed for the next true replay layer.
+
 ## 2026-05-01
 
 ### 00:43 KST - regime-learned-support-guard

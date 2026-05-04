@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 19:08 KST (ADR mktcap + concentrated CAGR regression fixes, rebuild needed)
+# Session Handoff - 2026-05-04 10:43 KST (PR #3 historical replay foundation)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,67 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
+## ACTIVE INBOX (2026-05-04 10:43 KST) - PR #3 historical replay foundation
+
+**TL;DR** PR #3 is directionally good but still too report-only/proxy-heavy for
+production. This follow-up branch preserves the raw monthly artifacts needed for
+true historical replay and fixes the concentrated entry-gate fallback issue
+flagged by review. Production defaults, DEFAULT_FEATURES, orchestrator
+activation, broker execution, and auto-promotion remain unchanged.
+
+**Branch**
+
+```
+codex/pr3-historical-replay-foundation
+base: codex/integrate-phase17-19
+purpose: narrow hardening follow-up before judging PR #3 as a production candidate
+```
+
+**What changed**
+
+1. `r1000_pipeline.py` now writes monthly replay inputs:
+   - `outputs/reports/main_monthly_weights.csv`
+   - `outputs/reports/tactical_monthly_weights.csv` (empty schema until true tactical book is wired)
+   - `outputs/reports/alpha_sprint_monthly_weights.csv` (empty schema until true alpha-sprint book is wired)
+   - `outputs/reports/regime_by_month.csv`
+   - `outputs/reports/sleeve_returns_by_month.csv`
+2. `.github/workflows/full_rebuild_manual.yml` now preserves those files plus
+   `outputs/equity_curve.csv` and `outputs/reports/concentrated_strategy_*.csv`
+   in GitHub artifacts, Google Drive sync, Telegram zip, and cloud_results.
+3. cloud_results directory copies now use `copy_dir_clean` to avoid nested
+   `orchestrator/orchestrator`, `trade_journal/trade_journal`, etc.
+4. `r1000_concentrated_policy.py` now derives an `entry_quality_proxy` when
+   `entry_quality_score` is missing, using existing pass flags and conservative
+   technical/confirmation fallbacks. Audit rows expose both proxy value and
+   source.
+
+**Validation**
+
+```
+py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py
+py -3 tests\concentrated_policy_smoke.py
+py -3 tests\workflow_artifact_smoke.py
+py -3 tests\orchestrator_replay_smoke.py
+py -3 tests\portfolio_system_guard_smoke.py
+py -3 tests\aggressive_lab_smoke.py
+py -3 tests\smoke_test.py                         # 81/81 pass
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+```
+
+**Next work**
+
+1. Run full rebuild on this branch with `global_alpha_universe`, 8 years,
+   fast mode, cached collector if cache exists.
+2. Confirm GDrive and artifact contain the monthly books above.
+3. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+4. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+   and `concentrated_strategy_holdings.csv`.
+5. Only after true replays exist, test orchestrator merge policies
+   (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
+
+---
+
+## PRIOR INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
 
 **TL;DR** — Run `25091384080` completed successfully and synced to GDrive, but
 verdict was PARTIAL, not SHIP. User spotted a real ADR market-cap bug: TSM was
