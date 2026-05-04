@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 19:08 KST (ADR mktcap + concentrated CAGR regression fixes, rebuild needed)
+# Session Handoff - 2026-05-04 10:43 KST (PR #3 historical replay foundation)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,109 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
+## ACTIVE INBOX (2026-05-04 10:43 KST) - PR #3 historical replay foundation
+
+**TL;DR** PR #3 is directionally good but still too report-only/proxy-heavy for
+production. This follow-up branch preserves the raw monthly artifacts needed for
+true historical replay and fixes the concentrated entry-gate fallback issue
+flagged by review. Production defaults, DEFAULT_FEATURES, orchestrator
+activation, broker execution, and auto-promotion remain unchanged.
+
+**Branch**
+
+```
+codex/pr3-historical-replay-foundation
+base: codex/integrate-phase17-19
+purpose: narrow hardening follow-up before judging PR #3 as a production candidate
+```
+
+**What changed**
+
+1. `r1000_pipeline.py` now writes monthly replay inputs:
+   - `outputs/reports/main_monthly_weights.csv`
+   - `outputs/reports/tactical_monthly_weights.csv` (empty schema until true tactical book is wired)
+   - `outputs/reports/alpha_sprint_monthly_weights.csv` (empty schema until true alpha-sprint book is wired)
+   - `outputs/reports/regime_by_month.csv`
+   - `outputs/reports/sleeve_returns_by_month.csv`
+2. `.github/workflows/full_rebuild_manual.yml` now preserves those files plus
+   `outputs/equity_curve.csv` and `outputs/reports/concentrated_strategy_*.csv`
+   in GitHub artifacts, Google Drive sync, Telegram zip, and cloud_results.
+3. cloud_results directory copies now use `copy_dir_clean` to avoid nested
+   `orchestrator/orchestrator`, `trade_journal/trade_journal`, etc.
+4. `r1000_concentrated_policy.py` now derives an `entry_quality_proxy` when
+   `entry_quality_score` is missing, using existing pass flags and conservative
+   technical/confirmation fallbacks. Audit rows expose both proxy value and
+   source.
+5. `tools/run_winner_lifecycle_reports.py` adds report-only missed winner,
+   stale winner, and leadership rotation diagnostics. Existing artifacts flag
+   SNDK/LITE/WDC as missed explosive leaders and NVDA as a stale/opportunity-cost
+   holding candidate.
+6. `.github/workflows/daily_autolearning_scan.yml` schedules the winner
+   lifecycle diagnostics after the US close as an artifact-only daily scan.
+7. `tools/run_winner_onset_study.py` adds a report-only historical onset miner
+   for multi-month/multi-bagger advances. It studies the months before/after
+   detected onset events, evaluates hold/exit diagnostics, and emits only
+   proposal-only policy candidates. When sourced from `scored_latest.csv`, it
+   defaults to a $5B current market-cap floor and $20M 20-day dollar-volume
+   floor to avoid micro-cap multi-bagger noise.
+8. `tools/run_autolearning_winner_challenger.py` connects AutoLearning v2,
+   winner lifecycle, and winner onset outputs into a separate research-only
+   challenger package. Current local event-level run found 16 onset cases and
+   reports verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS` until the cloud
+   run provides monthly books.
+9. `tools/run_shakeout_breakdown_study.py` adds report-only drawdown event
+   labeling for SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, and
+   AMBIGUOUS events. It replays hold/trim/add/exit actions at event level and
+   feeds the separate AutoLearning winner challenger. Daily scan now uploads
+   lifecycle, onset, shakeout/breakdown, and combined challenger artifacts.
+   Local top-40 scored-universe probe found 682 events: 261 SHAKEOUT, 124
+   TRUE_BREAKDOWN, and 297 AMBIGUOUS. Six-month SHAKEOUT hold median was
+   +37.11%; TRUE_BREAKDOWN hold median was -17.58%.
+
+**Validation**
+
+```
+py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py
+py -3 tests\concentrated_policy_smoke.py
+py -3 tests\workflow_artifact_smoke.py
+py -3 tests\orchestrator_replay_smoke.py
+py -3 tests\portfolio_system_guard_smoke.py
+py -3 tests\aggressive_lab_smoke.py
+py -3 tests\smoke_test.py                         # 81/81 pass
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\winner_lifecycle_smoke.py
+py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20
+py -3 tests\winner_onset_study_smoke.py
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\autolearning_winner_challenger_smoke.py
+py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study
+py -3 tools\run_autolearning_winner_challenger.py
+py -3 tests\shakeout_breakdown_study_smoke.py
+py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study
+```
+
+**Next work**
+
+1. Run full rebuild on this branch with `global_alpha_universe`, 8 years,
+   fast mode, cached collector if cache exists.
+2. Confirm GDrive and artifact contain the monthly books above.
+3. Use winner lifecycle diagnostics to seed SNDK/NVDA-style counterfactual
+   rules: acceleration override, stale trim, and leadership rotation.
+4. Run `tools/run_winner_onset_study.py` on a targeted universe to mine
+   historical early-onset patterns before promoting any "hold winners longer"
+   rule.
+5. Use `tools/run_shakeout_breakdown_study.py` to mine whether sharp drawdowns
+   were recoverable shakeouts or true breakdowns before testing hold/add/exit
+   policies and high single-name cap grids.
+6. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+7. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+   and `concentrated_strategy_holdings.csv`.
+8. Only after true replays exist, test orchestrator merge policies
+   (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
+
+---
+
+## PRIOR INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
 
 **TL;DR** — Run `25091384080` completed successfully and synced to GDrive, but
 verdict was PARTIAL, not SHIP. User spotted a real ADR market-cap bug: TSM was

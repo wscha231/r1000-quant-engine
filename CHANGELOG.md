@@ -51,6 +51,307 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-04
+
+### 13:48 KST - shakeout-breakdown-study
+
+- scope:
+  - Add report-only shakeout-vs-breakdown event labeling and connect those
+    labels into the separate AutoLearning winner challenger and daily scan.
+- files:
+  - `tools/run_shakeout_breakdown_study.py` ->adds drawdown event labeling, action replay, summary/report/policy outputs for shakeout, buyable reset, true breakdown, and dead theme events.
+  - `tests/shakeout_breakdown_study_smoke.py` ->adds synthetic shakeout and breakdown fixtures with action replay assertions.
+  - `tools/run_autolearning_winner_challenger.py` ->loads shakeout/breakdown action summaries and includes them in the combined challenger decision/report.
+  - `tests/autolearning_winner_challenger_smoke.py` ->extends the challenger smoke fixture with shakeout/breakdown artifacts.
+  - `.github/workflows/daily_autolearning_scan.yml` ->installs scan dependencies and runs lifecycle, onset, shakeout/breakdown, and combined challenger diagnostics as artifact-only daily scans.
+  - `.gitignore` ->ignores generated `outputs/shakeout_breakdown_study/` artifacts.
+- symbols_added:
+  - `DrawdownEvent` ->dataclass for one labeled drawdown event.
+  - `compute_event_features(hist, idx, spy_hist)` ->computes drawdown-date momentum, relative strength, trend, and volume features.
+  - `score_shakeout_quality(features, drawdown, recovery_6m, fwd6)` ->scores whether a drawdown resembles a recoverable shakeout.
+  - `score_breakdown_risk(features, drawdown, recovery_6m, fwd6, max_dd_6m)` ->scores whether a drawdown resembles a true breakdown.
+  - `classify_event(recovery_3m, recovery_6m, fwd6, max_forward_6m, max_dd_6m, features)` ->labels events as SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, or AMBIGUOUS.
+  - `detect_drawdown_events(ticker, hist, spy_hist, min_drop, lookback_days, min_gap_days)` ->detects first-threshold drawdown events per ticker.
+  - `action_return(row, action, horizon)` ->computes event-level counterfactual action returns.
+  - `build_action_replay(events_df)` ->builds hold/trim/add/exit/oracle action rows.
+  - `summarize_action_replay(action_df)` ->summarizes action returns by label/horizon/action.
+  - `summarize(events_df, action_df, args)` ->builds machine-readable study summary.
+  - `render_report(summary, events_df)` ->renders `shakeout_breakdown_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only shakeout/breakdown candidate rules.
+  - `load_tickers(args)` ->loads a filtered ticker universe for the study.
+  - `run(args)` ->runs the shakeout/breakdown study.
+  - `parse_args()` ->parses CLI arguments.
+  - `load_shakeout(shakeout_dir)` ->loads shakeout/breakdown artifacts into the combined AutoLearning challenger.
+- symbols_changed:
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, shakeout, shakeout_rows, replay_status)` ->includes shakeout/breakdown evidence.
+  - `decide_verdict(onset, lifecycle, shakeout, replay_status)` ->allows event-level readiness from either onset or shakeout evidence.
+  - `render_candidate_yaml(decision)` ->adds shakeout hold/add or breakdown exit components and sizing grids.
+  - `render_report(decision, event_rows)` ->adds shakeout/breakdown action backtest rows.
+  - `run(args)` ->accepts and loads a shakeout/breakdown artifact directory.
+  - `parse_args()` ->adds `--shakeout-dir`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/shakeout_breakdown_study/events.csv` ->labeled drawdown events.
+  - `outputs/shakeout_breakdown_study/action_replay.csv` ->event-level hold/trim/add/exit counterfactual returns.
+  - `outputs/shakeout_breakdown_study/action_summary.csv` ->action stats by label and horizon.
+  - `outputs/shakeout_breakdown_study/pattern_summary.json` ->machine-readable label and action summary.
+  - `outputs/shakeout_breakdown_study/shakeout_breakdown_report.md` ->human-readable event study report.
+  - `outputs/shakeout_breakdown_study/system_policy_candidates.yaml` ->proposal-only candidate rules and sizing grids.
+- validation:
+  - `py -3 -m py_compile tools\run_shakeout_breakdown_study.py tests\shakeout_breakdown_study_smoke.py tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\shakeout_breakdown_study_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study` ->passed, generated 682 drawdown events.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level action replay is useful for policy discovery but not sufficient for production sizing.
+  - High single-name caps remain proposal-only until portfolio-level replay clears CAGR, MaxDD, turnover, and stress gates.
+
+### 13:35 KST - autolearning-winner-challenger
+
+- scope:
+  - Add a separate research-only challenger harness that connects AutoLearning
+    v2 hypotheses with winner lifecycle and winner onset outputs, producing
+    event-level backtest evidence and portfolio-replay readiness without
+    touching production behavior.
+- files:
+  - `tools/run_autolearning_winner_challenger.py` ->adds a standalone harness that reads AutoLearning, lifecycle, onset, and baseline artifacts and writes a proposal-only challenger package.
+  - `tests/autolearning_winner_challenger_smoke.py` ->adds a synthetic artifact smoke test for the separate challenger harness.
+  - `.gitignore` ->ignores generated `outputs/autolearning_winner_challenger/` artifacts.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves repo-relative paths.
+  - `read_json(path, default)` ->loads JSON with a default fallback.
+  - `read_csv_rows(path)` ->loads CSV rows as dictionaries.
+  - `write_json(path, payload)` ->writes JSON artifacts.
+  - `write_csv(path, rows, fieldnames)` ->writes CSV artifacts.
+  - `write_text(path, text)` ->writes text artifacts.
+  - `safe_float(value, default)` ->normalizes numeric values.
+  - `pct(value)` ->formats percentages for reports.
+  - `load_baseline(latest_run)` ->loads main/concentrated baseline metrics.
+  - `load_autolearning(autolearning_dir)` ->loads AutoLearning v2 hypotheses and counterfactual metadata.
+  - `top_values(rows, col, n)` ->extracts top string values from report rows.
+  - `load_lifecycle(lifecycle_dir)` ->loads missed winner, stale winner, and rotation diagnostics.
+  - `return_stats(values)` ->computes event-level return distribution statistics.
+  - `load_onset(onset_dir)` ->loads onset study artifacts and event-level hold/exit stats.
+  - `replay_input_status(latest_run)` ->checks whether monthly books required for portfolio replay exist.
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, replay_status)` ->combines all evidence into one decision object.
+  - `decide_verdict(onset, lifecycle, replay_status)` ->classifies blocked/event-only/replay-ready state.
+  - `render_candidate_yaml(decision)` ->renders proposal-only experiment YAML.
+  - `render_report(decision, event_rows)` ->renders a Markdown challenger report.
+  - `run(args)` ->runs the separate challenger harness.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - `load_lifecycle(lifecycle_dir)` ->uses `held_ticker` from leadership rotation reports when rendering rotation pairs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/autolearning_winner_challenger/summary.json` ->combined decision and evidence object.
+  - `outputs/autolearning_winner_challenger/event_backtest.csv` ->event-level hold/exit stats from onset study outputs.
+  - `outputs/autolearning_winner_challenger/candidate_experiment.yaml` ->proposal-only experiment config for future portfolio replay.
+  - `outputs/autolearning_winner_challenger/challenger_report.md` ->human-readable separate challenger report.
+- validation:
+  - `py -3 -m py_compile tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study` ->passed, generated 16 event-level onset cases.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level evidence prioritizes rules but is not a substitute for portfolio-level CAGR/MaxDD replay.
+  - Portfolio replay remains blocked until the current full rebuild produces monthly books on this branch.
+
+### 13:22 KST - winner-onset-study
+
+- scope:
+  - Add a report-only historical major-winner onset miner that labels early
+    multi-month advance starts, studies phase snapshots around the onset, and
+    proposes non-production candidate hold/exit rules.
+- files:
+  - `tools/run_winner_onset_study.py` ->adds ticker-agnostic historical onset detection, phase snapshots, hold diagnostics, summary report, and proposal-only policy output.
+  - `tests/winner_onset_study_smoke.py` ->adds a synthetic multi-bagger onset fixture that verifies detection, snapshots, hold diagnostics, and proposal-only policy rendering.
+  - `.gitignore` ->ignores generated `outputs/winner_onset_study/` artifacts.
+- symbols_added:
+  - `OnsetEvent` ->dataclass for one detected historical major-winner onset event.
+  - `finite_float(value, default)` ->normalizes numeric values for robust report generation.
+  - `safe_return(close, idx, days)` ->computes trailing returns.
+  - `forward_return(close, idx, days)` ->computes forward returns.
+  - `max_forward_return(close, idx, days)` ->computes future peak return and peak index.
+  - `max_drawdown_between(close, start_idx, end_idx)` ->computes window drawdown.
+  - `normalize_history(raw)` ->standardizes price history into close/volume columns.
+  - `fetch_history(ticker, start, end)` ->fetches yfinance history for CLI studies.
+  - `compute_features(hist, idx, spy_hist)` ->computes onset timing features.
+  - `entry_readiness_score(features)` ->scores whether a date has early advance confirmation.
+  - `detect_onset_events(ticker, hist, spy_hist, min_peak_return_12m, min_forward_6m, readiness_min, min_gap_days, max_events_per_ticker)` ->detects actionable onset events before large future moves.
+  - `nearest_index(index, target)` ->finds the nearest trading-date index.
+  - `build_phase_snapshots(events, histories, spy_hist)` ->writes pre/onset/post feature snapshots.
+  - `first_exit_return(close, onset_idx, kind)` ->evaluates simple trend exit candidates.
+  - `build_hold_diagnostics(events, histories)` ->compares fixed hold and trend-exit outcomes.
+  - `summarize_patterns(events_df, snapshots_df, hold_df)` ->summarizes median onset and hold patterns.
+  - `pct(value)` ->formats percentages for Markdown output.
+  - `render_report(summary, events_df, output_dir)` ->renders `winner_onset_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only candidate rules.
+  - `load_tickers_from_scored(path, top_n, min_current_mcap_usd, min_dollar_vol_20d)` ->loads and filters a ticker universe from `scored_latest.csv`.
+  - `load_tickers(args)` ->loads tickers from CLI inputs.
+  - `run(args)` ->runs the onset study CLI.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/winner_onset_study/events.csv` ->detected major-winner onset events.
+  - `outputs/winner_onset_study/phase_snapshots.csv` ->feature snapshots from six months before to six months after onset.
+  - `outputs/winner_onset_study/hold_diagnostics.csv` ->fixed-hold and trend-exit diagnostics.
+  - `outputs/winner_onset_study/pattern_summary.json` ->machine-readable pattern summary.
+  - `outputs/winner_onset_study/winner_onset_report.md` ->human-readable report.
+  - `outputs/winner_onset_study/system_policy_candidates.yaml` ->proposal-only candidate rules, never production-active.
+- validation:
+  - `py -3 -m py_compile tools\run_winner_onset_study.py tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - yfinance CLI fetching can be rate-limited on large universes; start with targeted or top-ranked scored universes before broad mining.
+  - Scored-universe market-cap filtering defaults to current `market_cap_live`/`mktcap`, not point-in-time onset-date market cap; production use still requires challenger replay against monthly feature stores and costs.
+
+### 13:10 KST - winner-lifecycle-daily-scan
+
+- scope:
+  - Add report-only daily diagnostics for missed winners, stale holdings, and
+    leadership rotations so AutoLearning can propose system-level rules before
+    production behavior changes.
+- files:
+  - `.github/workflows/daily_autolearning_scan.yml` ->adds a scheduled/manual
+    artifact-only scan after the US market close.
+  - `.gitignore` ->keeps generated winner lifecycle outputs out of source
+    commits.
+  - `tools/run_winner_lifecycle_reports.py` ->generates missed winner, stale
+    winner, leadership rotation, markdown, JSON, and proposal-only YAML
+    artifacts from an existing latest run.
+  - `tests/winner_lifecycle_smoke.py` ->covers the SNDK/NVDA-style missed
+    winner, stale holder, and same-sector rotation diagnostics.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `build_missed_winners(scored_rows, held_tickers, top_n)` ->ranks strong
+    non-held leaders and diagnoses chase-penalty/ranking mismatches.
+  - `build_stale_winners(portfolio_rows, scored_by_ticker, top_n)` ->ranks held
+    names with weak recent momentum or poor relative strength.
+  - `build_leadership_rotations(portfolio_rows, scored_rows, held_tickers, top_n)` ->finds
+    same-sector challengers that may deserve replacement replay.
+  - `render_policy_yaml(summary)` ->writes proposal-only system policy
+    candidates for later historical replay.
+  - `run(latest_run, output_dir, top_n)` ->orchestrates artifact loading and
+    report writing.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is artifact-only and does not alter production selection,
+    DEFAULT_FEATURES, weights, or execution.
+- outputs:
+  - `outputs/winner_lifecycle/missed_winner_report.csv` ->non-held leaders that
+    deserve replay candidates.
+  - `outputs/winner_lifecycle/stale_winner_report.csv` ->current holdings that
+    may be dragging opportunity cost.
+  - `outputs/winner_lifecycle/leadership_rotation_report.csv` ->same-sector
+    held/challenger swap candidates.
+  - `outputs/winner_lifecycle/winner_lifecycle_report.md` ->human-readable
+    daily diagnostics.
+  - `outputs/winner_lifecycle/system_policy_candidates.yaml` ->proposal-only
+    candidate rules for later replay.
+- validation:
+  - PASS: `py -3 -m py_compile tools\run_winner_lifecycle_reports.py tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20`
+- risks_or_notes:
+  - The daily scan creates hypotheses only. It must feed historical replay,
+    shadow, and canary gates before any production rule can change.
+  - Current existing artifacts flag SNDK as a missed explosive leader and NVDA
+    as a stale/high-opportunity-cost holding candidate, which is the intended
+    diagnostic behavior.
+
+### 10:43 KST - pr3-historical-replay-foundation
+
+- scope:
+  - Convert PR #3 research infrastructure from snapshot-only toward replayable
+    historical evidence by preserving monthly mandate books and fixing a
+    concentrated entry-gate fallback bug.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds equity curve and monthly
+    mandate books to artifacts, Google Drive sync, Telegram bundles, and
+    cloud_results while avoiding nested copied directories.
+  - `r1000_concentrated_policy.py` ->adds entry-quality proxy fallback so
+    missing `entry_quality_score` does not block otherwise valid concentrated
+    sleeve candidates.
+  - `r1000_pipeline.py` ->exports main monthly weights, regime-by-month, sleeve
+    returns by month, and placeholder tactical/alpha-sprint monthly book
+    schemas from the existing backtest result.
+  - `tests/concentrated_policy_smoke.py` ->covers concentrated entry-quality
+    fallback and audit surfacing.
+  - `tests/workflow_artifact_smoke.py` ->covers full rebuild artifact/GDrive
+    export tokens and non-nested cloud_results directory copies.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `numeric_or_none(value)` ->returns a parsed float or `None` so missing
+    values can be distinguished from real zeros.
+  - `clip01(value, default)` ->bounds numeric scores to the 0..1 range.
+  - `entry_quality_proxy(row)` ->derives concentrated entry quality from direct
+    score, existing gate pass, or conservative technical fallback signals.
+  - `_write_monthly_mandate_books()` ->local export helper that writes raw
+    monthly mandate/replay CSVs from the main backtest result.
+- symbols_changed:
+  - `concentrated_conviction_score(row)` ->uses the entry-quality proxy instead
+    of treating missing `entry_quality_score` as zero.
+  - `entry_gate_flags(row, gate)` ->uses the entry-quality proxy for gate
+    evaluation.
+  - `audit_concentrated_portfolio(holdings, scored_rows, regime_state, policy)` ->surfaces
+    `entry_quality_proxy` and `entry_quality_source` in audit rows.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Production selection behavior, DEFAULT_FEATURES, and sleeve defaults
+    remain unchanged.
+- outputs:
+  - `outputs/reports/main_monthly_weights.csv` ->raw monthly main holdings for
+    historical orchestrator replay.
+  - `outputs/reports/tactical_monthly_weights.csv` ->schema placeholder until a
+    true tactical monthly book is wired.
+  - `outputs/reports/alpha_sprint_monthly_weights.csv` ->schema placeholder
+    until a true alpha-sprint monthly book is wired.
+  - `outputs/reports/regime_by_month.csv` ->monthly regime/allocation state
+    exported from the main backtest.
+  - `outputs/reports/sleeve_returns_by_month.csv` ->sleeve-level return proxy
+    aggregated from monthly holdings.
+- validation:
+  - PASS: `py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\concentrated_policy_smoke.py`
+  - PASS: `py -3 tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\orchestrator_replay_smoke.py`
+  - PASS: `py -3 tests\portfolio_system_guard_smoke.py`
+  - PASS: `py -3 tests\aggressive_lab_smoke.py`
+  - PASS: `py -3 tests\smoke_test.py` (81/81)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - Tactical and alpha-sprint monthly files are explicit empty schemas for now;
+    they prevent silent missing artifacts but are not promotion evidence.
+  - This does not enable orchestrator/risk/alpha-sprint production behavior.
+    It only preserves the data needed for the next true replay layer.
+
 ## 2026-05-01
 
 ### 00:43 KST - regime-learned-support-guard

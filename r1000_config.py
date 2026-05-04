@@ -1503,10 +1503,10 @@ SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IG
 # ---------------------------------------------------------------------
 def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
     return {
-        "ALL": {"core": 0.22, "future": 0.46, "early": 0.24, "cash": 0.08, "policy_label": "manual_all_22_46_24_cash8"},
-        "balanced": {"core": 0.24, "future": 0.44, "early": 0.24, "cash": 0.08, "policy_label": "manual_balanced_24_44_24_cash8"},
-        "growth_reentry": {"core": 0.16, "future": 0.46, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_16_46_30_cash8"},
-        "growth_reentry_alert": {"core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_alert_14_48_30_cash8"},
+        "ALL": {"core": 0.23, "future": 0.48, "early": 0.24, "cash": 0.05, "policy_label": "manual_all_23_48_24_cash5"},
+        "balanced": {"core": 0.25, "future": 0.46, "early": 0.24, "cash": 0.05, "policy_label": "manual_balanced_25_46_24_cash5"},
+        "growth_reentry": {"core": 0.17, "future": 0.48, "early": 0.30, "cash": 0.05, "policy_label": "manual_growth_17_48_30_cash5"},
+        "growth_reentry_alert": {"core": 0.15, "future": 0.50, "early": 0.30, "cash": 0.05, "policy_label": "manual_growth_alert_15_50_30_cash5"},
         "systemic_crisis": {"core": 0.18, "future": 0.24, "early": 0.08, "cash": 0.50, "policy_label": "manual_systemic_18_24_08_cash50"},
         "carry_unwind": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_carry_22_34_14_cash30"},
         "war_oil_rate_shock": {"core": 0.24, "future": 0.32, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_24_32_14_cash30"},
@@ -1947,11 +1947,11 @@ class EngineConfig:
     early_scout_fundamental_presence_min: float = 0.18
     early_scout_fundamental_reliability_min: float = 0.24
     stock_weight_max_sector_adjusted: float = 0.08
-    stock_weight_max_partial_scout: float = 0.04
-    partial_scout_total_weight_cap: float = 0.10
+    stock_weight_max_partial_scout: float = 0.06
+    partial_scout_total_weight_cap: float = 0.18
     speculative_stop_loss_pct: float = 0.25
-    speculative_weight_max: float = 0.04
-    speculative_total_weight_max: float = 0.15
+    speculative_weight_max: float = 0.08
+    speculative_total_weight_max: float = 0.24
     speculative_min_rs_composite: float = 0.0
     # Phase 15-A (2026-04-28): concentrated-sleeve specific stop-loss + regime
     # cash gates. Concentrated has only 5 names so a single -25% drawdown

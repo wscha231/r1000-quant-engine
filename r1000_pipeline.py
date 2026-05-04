@@ -13764,18 +13764,18 @@ _SLEEVE_POLICY_CANDIDATES: list[dict] = [
 def generate_ai_four_sleeve_policy_candidates(cfg: dict | EngineConfig) -> list[dict[str, Any]]:
     cfg_obj = to_cfg(cfg)
     candidates = [
-        {"label": "ai_bal_24_42_22_cash12", "core": 0.24, "future": 0.42, "early": 0.22, "cash": 0.12},
-        {"label": "ai_bal_20_46_22_cash12", "core": 0.20, "future": 0.46, "early": 0.22, "cash": 0.12},
-        {"label": "ai_growth_16_48_26_cash10", "core": 0.16, "future": 0.48, "early": 0.26, "cash": 0.10},
-        {"label": "ai_growth_14_48_30_cash08", "core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08},
-        {"label": "ai_growth_10_52_28_cash10", "core": 0.10, "future": 0.52, "early": 0.28, "cash": 0.10},
-        {"label": "ai_barbell_12_42_32_cash14", "core": 0.12, "future": 0.42, "early": 0.32, "cash": 0.14},
-        {"label": "ai_barbell_08_46_32_cash14", "core": 0.08, "future": 0.46, "early": 0.32, "cash": 0.14},
-        {"label": "ai_early_08_42_38_cash12", "core": 0.08, "future": 0.42, "early": 0.38, "cash": 0.12},
-        {"label": "ai_hot_06_52_34_cash08", "core": 0.06, "future": 0.52, "early": 0.34, "cash": 0.08},
-        {"label": "ai_reentry_12_44_34_cash10", "core": 0.12, "future": 0.44, "early": 0.34, "cash": 0.10},
-        {"label": "ai_risk_12_36_22_cash30", "core": 0.12, "future": 0.36, "early": 0.22, "cash": 0.30},
-        {"label": "ai_risk_10_40_18_cash32", "core": 0.10, "future": 0.40, "early": 0.18, "cash": 0.32},
+        {"label": "ai_bal_25_45_25_cash05", "core": 0.25, "future": 0.45, "early": 0.25, "cash": 0.05},
+        {"label": "ai_bal_20_48_27_cash05", "core": 0.20, "future": 0.48, "early": 0.27, "cash": 0.05},
+        {"label": "ai_growth_16_50_29_cash05", "core": 0.16, "future": 0.50, "early": 0.29, "cash": 0.05},
+        {"label": "ai_growth_14_50_32_cash04", "core": 0.14, "future": 0.50, "early": 0.32, "cash": 0.04},
+        {"label": "ai_growth_10_54_31_cash05", "core": 0.10, "future": 0.54, "early": 0.31, "cash": 0.05},
+        {"label": "ai_barbell_12_44_39_cash05", "core": 0.12, "future": 0.44, "early": 0.39, "cash": 0.05},
+        {"label": "ai_barbell_08_49_38_cash05", "core": 0.08, "future": 0.49, "early": 0.38, "cash": 0.05},
+        {"label": "ai_early_08_44_45_cash03", "core": 0.08, "future": 0.44, "early": 0.45, "cash": 0.03},
+        {"label": "ai_hot_06_54_37_cash03", "core": 0.06, "future": 0.54, "early": 0.37, "cash": 0.03},
+        {"label": "ai_reentry_12_46_37_cash05", "core": 0.12, "future": 0.46, "early": 0.37, "cash": 0.05},
+        {"label": "ai_risk_14_42_26_cash18", "core": 0.14, "future": 0.42, "early": 0.26, "cash": 0.18},
+        {"label": "ai_risk_12_44_24_cash20", "core": 0.12, "future": 0.44, "early": 0.24, "cash": 0.20},
     ]
     max_candidates = max(int(getattr(cfg_obj, "ai_four_sleeve_max_candidates", len(candidates))), 1)
     return candidates[:max_candidates]
@@ -13887,7 +13887,7 @@ def compare_ai_four_sleeve_adaptive_model(
     candidates = generate_ai_four_sleeve_policy_candidates(cfg_obj)
     if not candidates:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, None
-    regime_cash_max = max(float(getattr(cfg_obj, "sleeve_regime_comparison_cash_max", 0.02)), 0.08)
+    regime_cash_max = float(np.clip(getattr(cfg_obj, "sleeve_regime_comparison_cash_max", 0.02), 0.0, 0.20))
     grid_df, best_df = compare_sleeve_policy_per_regime(
         cfg_obj,
         signals,
@@ -14544,7 +14544,7 @@ def build_latest_portfolio(cfg: dict | EngineConfig, latest_recommendations: pd.
         elif live_growth_on:
             cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.12), 0.14)
         else:
-            cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.10), 0.12)
+            cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.14), 0.16)
         latest["portfolio_seed_overheat_penalty"] = 0.0
         latest["portfolio_seed_score"] = (
             pd.to_numeric(latest["score"], errors="coerce").fillna(0.0)
@@ -15671,6 +15671,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     ai_four_sleeve_regime_grid_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_grid.csv"
     ai_four_sleeve_regime_best_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_best.csv"
     ai_four_sleeve_selected_map_path = paths["reports"] / "ai_four_sleeve_adaptive_selected_map.json"
+    main_monthly_weights_path = paths["reports"] / "main_monthly_weights.csv"
+    tactical_monthly_weights_path = paths["reports"] / "tactical_monthly_weights.csv"
+    alpha_sprint_monthly_weights_path = paths["reports"] / "alpha_sprint_monthly_weights.csv"
+    regime_by_month_path = paths["reports"] / "regime_by_month.csv"
+    sleeve_returns_by_month_path = paths["reports"] / "sleeve_returns_by_month.csv"
+    candidate_replay_book_path = paths["reports"] / "candidate_replay_book.csv"
     run_identity = build_run_identity(cfg)
 
     def _safe_unlink(path: Path) -> None:
@@ -15679,6 +15685,215 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 path.unlink()
         except Exception:
             pass
+
+    def _write_monthly_mandate_books() -> None:
+        """Persist raw monthly books needed by historical orchestrator replays."""
+        main_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "weight",
+            "raw_score",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_role",
+            "portfolio_selection_path",
+            "period_forward_return",
+            "weighted_forward_return",
+            "target_n",
+            "cash_target",
+            "regime_state",
+            "regime_state_score",
+        ]
+        holdings = bt.holdings.copy() if bt.holdings is not None else pd.DataFrame()
+        if holdings.empty:
+            main_weights = pd.DataFrame(columns=main_cols)
+        else:
+            main_weights = holdings.copy()
+            for col in main_cols:
+                if col not in main_weights.columns:
+                    main_weights[col] = np.nan
+            main_weights = main_weights[main_cols].copy()
+        main_weights.to_csv(main_monthly_weights_path, index=False)
+
+        regime_cols = [
+            "rebalance_date",
+            "next_rebalance_date",
+            "regime_label",
+            "core_target",
+            "future_target",
+            "early_target",
+            "cash_target_used",
+            "cash_weight",
+            "rebalance_action",
+            "due_sleeves",
+            "active_rebalance_interval_months",
+            "target_n",
+            "drawdown_before_month",
+            "drawdown_after_month",
+            "equity_after_month",
+        ]
+        monthly_returns = bt.monthly_returns.copy() if bt.monthly_returns is not None else pd.DataFrame()
+        if monthly_returns.empty:
+            regime_by_month = pd.DataFrame(columns=regime_cols)
+        else:
+            regime_by_month = monthly_returns.copy()
+            for col in regime_cols:
+                if col not in regime_by_month.columns:
+                    regime_by_month[col] = np.nan
+            regime_by_month = regime_by_month[regime_cols].copy()
+        regime_by_month.to_csv(regime_by_month_path, index=False)
+
+        sleeve_cols = [
+            "rebalance_date",
+            "portfolio_sleeve_label",
+            "sleeve_weight",
+            "sleeve_weighted_forward_return",
+            "sleeve_return_proxy",
+            "ticker_count",
+        ]
+        if holdings.empty or "rebalance_date" not in holdings.columns:
+            sleeve_returns = pd.DataFrame(columns=sleeve_cols)
+        else:
+            sleeve_frame = holdings.copy()
+            if "ticker" not in sleeve_frame.columns:
+                sleeve_frame["ticker"] = ""
+            sleeve_label = (
+                sleeve_frame.get("portfolio_sleeve_label", pd.Series("unknown", index=sleeve_frame.index))
+                .fillna("unknown")
+                .astype(str)
+            )
+            sleeve_frame["_sleeve_label"] = sleeve_label.replace("", "unknown")
+            sleeve_frame["_weight"] = pd.to_numeric(
+                sleeve_frame.get("weight", pd.Series(0.0, index=sleeve_frame.index)),
+                errors="coerce",
+            ).fillna(0.0)
+            weighted_forward = (
+                pd.to_numeric(sleeve_frame["weighted_forward_return"], errors="coerce")
+                if "weighted_forward_return" in sleeve_frame.columns
+                else pd.Series(np.nan, index=sleeve_frame.index)
+            )
+            if weighted_forward.isna().all() and "period_forward_return" in sleeve_frame.columns:
+                weighted_forward = (
+                    pd.to_numeric(sleeve_frame["period_forward_return"], errors="coerce")
+                    * sleeve_frame["_weight"]
+                )
+            sleeve_frame["_weighted_forward_return"] = weighted_forward.fillna(0.0)
+            grouped = (
+                sleeve_frame.groupby(["rebalance_date", "_sleeve_label"], dropna=False)
+                .agg(
+                    sleeve_weight=("_weight", "sum"),
+                    sleeve_weighted_forward_return=("_weighted_forward_return", "sum"),
+                    ticker_count=("ticker", "nunique"),
+                )
+                .reset_index()
+                .rename(columns={"_sleeve_label": "portfolio_sleeve_label"})
+            )
+            grouped["sleeve_return_proxy"] = np.where(
+                grouped["sleeve_weight"].abs() > 1e-12,
+                grouped["sleeve_weighted_forward_return"] / grouped["sleeve_weight"],
+                0.0,
+            )
+            sleeve_returns = grouped[sleeve_cols].copy()
+        sleeve_returns.to_csv(sleeve_returns_by_month_path, index=False)
+
+        empty_sleeve_cols = ["rebalance_date", "ticker", "weight", "source", "data_available"]
+        pd.DataFrame(columns=empty_sleeve_cols).to_csv(tactical_monthly_weights_path, index=False)
+        pd.DataFrame(columns=empty_sleeve_cols).to_csv(alpha_sprint_monthly_weights_path, index=False)
+
+        replay_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "industry_group",
+            "source_universe",
+            "score",
+            "r_1m",
+            "y_blend",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_role",
+            "portfolio_core_compounder_engine_score",
+            "portfolio_future_winner_engine_score",
+            "portfolio_early_scout_engine_score",
+            "long_hold_compounder_score",
+            "capital_efficiency_score",
+            "sector_adjusted_quality_score",
+            "multi_year_winner_score",
+            "fundamental_reliability_score",
+            "risk_penalty",
+            "stage2_overext_penalty",
+            "overheat_penalty",
+            "price_above_ma200",
+            "price_above_ma50",
+            "near_52w_high_pct",
+            "rs_acceleration_score",
+            "h1_oversold_value_score",
+            "theme_phase_multiplier_primary",
+            "theme_phase_multiplier_max",
+            "theme_phase_primary",
+            "oneil_leadership_score",
+            "industry_group_strength_score",
+            "future_winner_scout_score",
+            "profitability_inflection_score",
+            "cashflow_inflection_under_loss_score",
+            "profit_turn_positive_4q",
+            "cashflow_turn_positive_4q",
+            "ni_loss_narrowing_4q",
+            "any_profit_sign_flip_pos",
+            "breakout_fresh_20d",
+            "post_breakout_hold_score",
+            "entry_quality_score",
+            "concentrated_entry_quality_gate_pass",
+            "concentrated_score",
+            "selection_confirmation_score",
+            "ml_technical_agreement_score",
+            "trend_template_full",
+            "breakout_setup_quality_score",
+            "volatility_contraction_score",
+            "explosion_entry_score",
+            "explosion_exit_score",
+            "explosion_net_score",
+            "h6_dynamic_leader_score",
+            "eps_revision_score",
+            "revision_score",
+            "eps_revision_proxy",
+            "actual_results_score",
+            "event_reaction_score",
+            "revenue_growth_final",
+            "rev_growth_accel_4q",
+            "live_event_risk_score",
+            "atr14_pct",
+            "rsi14",
+            "dollar_vol_20d",
+            "market_cap_live",
+            "mktcap",
+            "current_price_live",
+            "px",
+            "regime_state",
+            "regime_state_score",
+        ]
+        replay_source = scored.copy() if scored is not None else pd.DataFrame()
+        if replay_source.empty:
+            pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
+        else:
+            for col in replay_cols:
+                if col not in replay_source.columns:
+                    replay_source[col] = np.nan
+            replay_book = replay_source[replay_cols].copy()
+            return_source = None
+            for col in ("r_1m", "y_blend"):
+                values = pd.to_numeric(replay_book[col] if col in replay_book.columns else np.nan, errors="coerce")
+                if values.notna().any():
+                    return_source = values
+                    break
+            replay_book["period_forward_return"] = pd.to_numeric(
+                return_source if return_source is not None else np.nan,
+                errors="coerce",
+            )
+            replay_book.to_csv(candidate_replay_book_path, index=False)
+
+    _write_monthly_mandate_books()
 
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
@@ -16596,6 +16811,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest.json": str(weights_path),
         "backtest_metrics.json": str(bt_metrics_path),
         "equity_curve.csv": str(equity_path),
+        "main_monthly_weights.csv": str(main_monthly_weights_path),
+        "tactical_monthly_weights.csv": str(tactical_monthly_weights_path),
+        "alpha_sprint_monthly_weights.csv": str(alpha_sprint_monthly_weights_path),
+        "regime_by_month.csv": str(regime_by_month_path),
+        "sleeve_returns_by_month.csv": str(sleeve_returns_by_month_path),
+        "candidate_replay_book.csv": str(candidate_replay_book_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -16849,6 +17070,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest": str(weights_path),
         "backtest_metrics": str(bt_metrics_path),
         "equity_curve": str(equity_path),
+        "main_monthly_weights": str(main_monthly_weights_path),
+        "tactical_monthly_weights": str(tactical_monthly_weights_path),
+        "alpha_sprint_monthly_weights": str(alpha_sprint_monthly_weights_path),
+        "regime_by_month": str(regime_by_month_path),
+        "sleeve_returns_by_month": str(sleeve_returns_by_month_path),
+        "candidate_replay_book": str(candidate_replay_book_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),

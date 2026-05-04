@@ -89,6 +89,22 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def numeric_or_none(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        out = float(value)
+        if out != out:
+            return None
+        return out
+    except (TypeError, ValueError):
+        return None
+
+
+def clip01(value: Any, default: float = 0.0) -> float:
+    return min(1.0, max(0.0, safe_float(value, default)))
+
+
 def truthy(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
@@ -102,6 +118,30 @@ def infer_regime(rows: list[dict[str, Any]], default: str = "neutral") -> str:
     if not counts:
         return default
     return max(counts.items(), key=lambda item: item[1])[0]
+
+
+def entry_quality_proxy(row: dict[str, Any]) -> tuple[float, str]:
+    direct = numeric_or_none(row.get("entry_quality_score"))
+    if direct is not None:
+        return clip01(direct), "entry_quality_score"
+
+    if truthy(row.get("concentrated_entry_quality_gate_pass")):
+        return 0.80, "concentrated_entry_quality_gate_pass"
+
+    trend_fresh = max(
+        1.0 if truthy(row.get("breakout_fresh_20d")) else 0.0,
+        clip01(row.get("post_breakout_hold_score")),
+        1.0 if truthy(row.get("trend_template_full")) else 0.0,
+    )
+    proxy = (
+        0.25 * (1.0 if safe_float(row.get("price_above_ma50")) > 0 else 0.0)
+        + 0.25 * (1.0 if safe_float(row.get("price_above_ma200")) > 0 else 0.0)
+        + 0.20 * clip01(row.get("selection_confirmation_score"))
+        + 0.15 * clip01(row.get("ml_technical_agreement_score"))
+        + 0.15 * trend_fresh
+        + 0.10 * clip01(row.get("concentrated_score"))
+    )
+    return clip01(proxy), "fallback_proxy"
 
 
 def concentrated_conviction_score(row: dict[str, Any]) -> float:
@@ -120,7 +160,7 @@ def concentrated_conviction_score(row: dict[str, Any]) -> float:
         0.25 * safe_float(row.get("portfolio_future_winner_engine_score"))
         + 0.20 * safe_float(row.get("multi_year_winner_score"))
         + 0.15 * safe_float(row.get("rs_acceleration_score"))
-        + 0.15 * safe_float(row.get("entry_quality_score"))
+        + 0.15 * entry_quality_proxy(row)[0]
         + 0.10 * safe_float(row.get("industry_group_strength_score"))
         + 0.10 * theme_leadership
         + 0.05 * revision_or_cycle
@@ -131,7 +171,7 @@ def concentrated_conviction_score(row: dict[str, Any]) -> float:
 
 def entry_gate_flags(row: dict[str, Any], gate: dict[str, Any] | None = None) -> dict[str, bool]:
     gate = gate or CONCENTRATED_ENTRY_GATE
-    entry_quality = safe_float(row.get("entry_quality_score"))
+    entry_quality, _ = entry_quality_proxy(row)
     theme_primary = str(row.get("theme_phase_primary") or row.get("theme_phase") or "").lower()
     theme_block = bool(gate.get("block_if_theme_ending")) and theme_primary in {"ending", "dead"}
     return {
@@ -186,6 +226,7 @@ def audit_concentrated_portfolio(
         sector = str(h.get("sector") or scored.get("sector") or "Unknown")
         sector_weights[sector] += weight
         conviction = concentrated_conviction_score(merged)
+        entry_quality, entry_quality_source = entry_quality_proxy(merged)
         entry_flags = entry_gate_flags(merged, dict(policy.get("entry") or {}))
         risk_flags = risk_gate_flags(merged)
         if weight > single_cap:
@@ -210,6 +251,8 @@ def audit_concentrated_portfolio(
                 "weight": weight,
                 "concentrated_score": safe_float(merged.get("concentrated_score")),
                 "concentrated_conviction_score": conviction,
+                "entry_quality_proxy": entry_quality,
+                "entry_quality_source": entry_quality_source,
                 "entry_gate_pass": all(entry_flags.values()),
                 "risk_gate_pass": all(risk_flags.values()),
                 "entry_failed": ",".join(k for k, v in entry_flags.items() if not v),

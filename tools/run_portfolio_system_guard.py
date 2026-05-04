@@ -139,13 +139,14 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
     }
 
 
-def error_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any]]:
+def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifacts: bool = False) -> list[dict[str, Any]]:
     def rel(path: Path) -> str:
         try:
             return path.relative_to(REPO_ROOT).as_posix()
         except ValueError:
             return str(path)
 
+    latest_artifact_severity = "error" if require_latest_artifacts else "warn"
     checks = [
         ("main_metrics_available", bool(inputs["main_metrics"]), rel(latest_run / "backtest_metrics.json")),
         ("concentrated_metrics_available", bool(inputs["concentrated_metrics"]), rel(latest_run / "concentrated_backtest_metrics.json")),
@@ -158,7 +159,10 @@ def error_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any
     ]
     out = []
     for check_id, passed, detail in checks:
-        out.append({"check": check_id, "passed": passed, "severity": "error" if not passed else "ok", "detail": detail})
+        severity = "ok"
+        if not passed:
+            severity = latest_artifact_severity if check_id in {"main_metrics_available", "concentrated_metrics_available"} else "error"
+        out.append({"check": check_id, "passed": passed, "severity": severity, "detail": detail})
 
     challenger = inputs.get("auto_learning_v2") or {}
     missing_counterfactual = int(safe_float(challenger.get("missing_counterfactual_count"), 0))
@@ -415,7 +419,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     statuses = [main_status, concentrated_status]
     targets_pass = all(row["target_pass"] for row in statuses)
-    checks = error_checks(inputs, latest_run)
+    checks = error_checks(
+        inputs,
+        latest_run,
+        require_latest_artifacts=bool(getattr(args, "require_latest_artifacts", False) or args.strict_targets),
+    )
     candidates = top_research_candidates(inputs["experiment_summary"], inputs.get("orchestrator_replay"))
     goal_candidates = goal_search_candidates(inputs.get("goal_search"))
     plan = automation_plan(inputs, targets_pass)
@@ -470,6 +478,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-cagr-target", type=float, default=0.40)
     parser.add_argument("--concentrated-max-dd-target", type=float, default=-0.22)
     parser.add_argument("--strict-targets", action="store_true")
+    parser.add_argument(
+        "--require-latest-artifacts",
+        action="store_true",
+        help="Fail when committed/latest rebuild metrics are absent. Default PR mode treats them as warnings.",
+    )
     return parser.parse_args()
 
 

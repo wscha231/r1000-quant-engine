@@ -14,5 +14,16 @@ aggressive/state/
 aggressive/cache/
 # ---- Runtime caches (regenerated, do not commit) ----
 outputs/regime_snapshot_cache.json
+outputs/winner_lifecycle/
+outputs/winner_onset_study/
+outputs/autolearning_winner_challenger/
+outputs/shakeout_breakdown_study/
+outputs/main_cash_drag_replay/
+outputs/main_v2_backtest/
+outputs/concentrated_policy_replay/
+outputs/alpha_sprint_backtest/
+outputs/position_aware_risk_replay/
+outputs/monster_lifecycle_replay/
+cloud_results/
 research/github_runs/
 research/phase20_artifact/

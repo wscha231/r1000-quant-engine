@@ -36,6 +36,8 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert concentrated["portfolio"] == "concentrated"
         assert main["cagr_gap_pp"] > 0
         assert concentrated["cagr_gap_pp"] > 0
+        main_metric_check = next(row for row in result["error_checks"] if row["check"] == "main_metrics_available")
+        assert main_metric_check["severity"] in {"ok", "warn"}
         assert (out_dir / "system_guard_report.md").exists()
         assert (out_dir / "target_gap.json").exists()
 
