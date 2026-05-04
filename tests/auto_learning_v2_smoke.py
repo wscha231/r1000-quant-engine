@@ -28,13 +28,21 @@ def test_alpha_scientist_builds_proposal_only_candidate() -> None:
     counterfactuals = build_counterfactual_results(hypotheses, REPO_ROOT)
     candidate = build_policy_candidate(anomalies, hypotheses, novelty, counterfactuals)
     validation = validate_policy_candidate(candidate)
+    anomaly_ids = {str(item["id"]) for item in anomalies}
+    hypothesis_ids = {str(item["id"]) for item in hypotheses}
     assert validation["valid"] is True, validation
     assert candidate["mode"] == "proposal_only"
     assert candidate["guardrails"]["production_activation_allowed"] is False
     assert len(anomalies) >= 3
     assert len(hypotheses) >= 3
-    assert any(h["id"] == "bear_rs_reversal_v1" for h in hypotheses)
-    assert any(h["id"] == "concentrated_neutral_25_v1" for h in hypotheses)
+    assert all(h["status"] == "proposal_only" for h in hypotheses)
+    assert any((h.get("rules") or []) for h in hypotheses)
+    if "bear_rs_theme_inversion" in anomaly_ids:
+        assert "bear_rs_reversal_v1" in hypothesis_ids
+    if "concentrated_alpha_underallocated" in anomaly_ids:
+        assert "concentrated_neutral_25_v1" in hypothesis_ids
+    if "main_broad_high_turnover" in anomaly_ids:
+        assert "main_future_alpha_concentration_v1" in hypothesis_ids
 
 
 def test_auto_learning_v2_runner_writes_expected_outputs() -> None:

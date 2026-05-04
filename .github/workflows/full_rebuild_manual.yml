@@ -353,9 +353,18 @@ jobs:
             local src="$1"
             local dst="$2"
             if [ -e "$src" ]; then
-              rclone copy "$src" "$dst/" 2>&1 || true
+              rclone copy "$src" "$dst/"
             else
               echo "[gdrive-sync] skip missing: $src"
+            fi
+          }
+          verify_if_exists() {
+            local src="$1"
+            local dst="$2"
+            local name="${3:-$(basename "$src")}"
+            if [ -e "$src" ]; then
+              echo "[gdrive-sync] verifying $dst/$name"
+              rclone lsf "$dst" --files-only | grep -Fx "$name" >/dev/null
             fi
           }
           copy_if_exists outputs/scored_latest.csv "$DEST"
@@ -366,7 +375,7 @@ jobs:
           copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
           copy_if_exists outputs/equity_curve.csv "$DEST"
           if [ -d outputs/orchestrator ]; then
-            rclone copy outputs/orchestrator "$DEST/orchestrator/" 2>&1 || true
+            rclone copy outputs/orchestrator "$DEST/orchestrator/"
           else
             echo "[gdrive-sync] skip missing: outputs/orchestrator"
           fi
@@ -391,28 +400,51 @@ jobs:
           copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           if [ -d outputs/trade_journal ]; then
-            rclone copy outputs/trade_journal "$DEST/trade_journal/" 2>&1 || true
+            rclone copy outputs/trade_journal "$DEST/trade_journal/"
           else
             echo "[gdrive-sync] skip missing: outputs/trade_journal"
           fi
           if [ -d outputs/auto_learning ]; then
-            rclone copy outputs/auto_learning "$DEST/auto_learning/" 2>&1 || true
+            rclone copy outputs/auto_learning "$DEST/auto_learning/"
           else
             echo "[gdrive-sync] skip missing: outputs/auto_learning"
           fi
           if [ -d outputs/orchestrator_replay ]; then
-            rclone copy outputs/orchestrator_replay "$DEST/orchestrator_replay/" 2>&1 || true
+            rclone copy outputs/orchestrator_replay "$DEST/orchestrator_replay/"
           else
             echo "[gdrive-sync] skip missing: outputs/orchestrator_replay"
           fi
           if [ -d outputs/portfolio_goal_search ]; then
-            rclone copy outputs/portfolio_goal_search "$DEST/portfolio_goal_search/" 2>&1 || true
+            rclone copy outputs/portfolio_goal_search "$DEST/portfolio_goal_search/"
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
 
           # Also sync log + verdict for diagnostic visibility
-          rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/" 2>&1 || true
+          rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/"
+
+          cat > outputs/gdrive_sync_manifest.json <<EOF
+          {
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "head_sha": "${GITHUB_SHA}",
+            "auth": "${AUTH}",
+            "dest": "${DEST}",
+            "log_dest": "${LOG_DEST}",
+            "synced_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          rclone copy outputs/gdrive_sync_manifest.json "$DEST/"
+
+          verify_if_exists outputs/gdrive_sync_manifest.json "$DEST"
+          verify_if_exists outputs/scored_latest.csv "$DEST"
+          verify_if_exists outputs/portfolio_latest.csv "$DEST"
+          verify_if_exists outputs/backtest_metrics.json "$DEST"
+          verify_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
+          verify_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
+          verify_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
+          verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
 
           # Cleanup secret file
           rm -f /tmp/sa.json
