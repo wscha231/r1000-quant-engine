@@ -30,12 +30,14 @@ def main() -> int:
         lifecycle = root / "lifecycle"
         onset = root / "onset"
         shakeout = root / "shakeout"
+        cash_drag = root / "cash_drag"
         out = root / "out"
         latest.mkdir(parents=True)
         auto.mkdir(parents=True)
         lifecycle.mkdir(parents=True)
         onset.mkdir(parents=True)
         shakeout.mkdir(parents=True)
+        cash_drag.mkdir(parents=True)
 
         write_json(latest / "backtest_metrics.json", {
             "strategy_cagr": 0.24,
@@ -101,6 +103,11 @@ def main() -> int:
                 "best_return": 0.5,
             }
         ]).to_csv(shakeout / "action_summary.csv", index=False)
+        write_json(cash_drag / "summary.json", {
+            "production_activation_allowed": False,
+            "best_by_cagr": {"model": "cash0.00_cap0.22", "cash_cap": 0.0, "single_name_cap": 0.22},
+            "base_metrics": {"avg_cash_weight": 0.14},
+        })
 
         decision = run(Namespace(
             latest_run=str(latest),
@@ -108,6 +115,7 @@ def main() -> int:
             lifecycle_dir=str(lifecycle),
             onset_dir=str(onset),
             shakeout_dir=str(shakeout),
+            cash_drag_dir=str(cash_drag),
             output_dir=str(out),
         ))
         assert decision["production_activation_allowed"] is False
@@ -119,12 +127,14 @@ def main() -> int:
         assert decision["shakeout_action_backtest"]["status"] == "available"
         assert decision["baseline"]["main"]["latest_cash_weight"] == 0.14
         assert decision["policy_value_replay"]["status"] == "CAGR_FIRST_REPLAY_REQUIRED"
+        assert decision["main_cash_drag_replay"]["status"] == "available"
         assert decision["winner_lifecycle"]["top_rotations"] == ["OLD->AAA"]
         assert decision["verdict"] == "EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS"
         assert (out / "summary.json").exists()
         assert (out / "candidate_experiment.yaml").exists()
         assert "production_activation_allowed: false" in (out / "candidate_experiment.yaml").read_text(encoding="utf-8")
         assert "cash_drag_reduction_grid" in (out / "candidate_experiment.yaml").read_text(encoding="utf-8")
+        assert "current_best_cash_cap: 0.0" in (out / "candidate_experiment.yaml").read_text(encoding="utf-8")
 
     print("autolearning_winner_challenger_smoke: PASS")
     return 0

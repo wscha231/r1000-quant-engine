@@ -18,5 +18,7 @@ outputs/winner_lifecycle/
 outputs/winner_onset_study/
 outputs/autolearning_winner_challenger/
 outputs/shakeout_breakdown_study/
+outputs/main_cash_drag_replay/
+cloud_results/
 research/github_runs/
 research/phase20_artifact/

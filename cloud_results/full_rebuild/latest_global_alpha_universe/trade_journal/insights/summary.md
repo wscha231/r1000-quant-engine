@@ -1,31 +1,31 @@
 # Trade Insights Summary
 
-- trades analyzed: **624**
-- generated: 2026-05-04 04:50 UTC
+- trades analyzed: **523**
+- generated: 2026-05-04 03:05 UTC
 
 ## 1. Signal IC by regime (rank correlation)
 Top actionable findings:
 
 **Worst signal x regime cells (potential gate candidates)**:
-- `theme_phase_multiplier_primary` in **neutral**: IC = -0.133
-- `theme_phase_multiplier_max` in **neutral**: IC = -0.120
-- `h6_dynamic_leader_score` in **neutral**: IC = -0.046
+- `h6_dynamic_leader_score` in **bear**: IC = -0.119
+- `rs_acceleration_score` in **bull**: IC = -0.112
+- `theme_phase_multiplier_primary` in **bull**: IC = -0.041
 
 **Best signal x regime cells (amplify candidates)**:
-- `rs_acceleration_score` in **bear**: IC = +0.062
-- `theme_phase_multiplier_max` in **bull**: IC = +0.034
-- `rs_acceleration_score` in **bull**: IC = +0.031
+- `rs_acceleration_score` in **bear**: IC = +0.111
+- `theme_phase_multiplier_primary` in **neutral**: IC = +0.076
+- `h6_dynamic_leader_score` in **bull**: IC = +0.076
 
 Full matrix in `ic_matrix.csv`.
 
 ## 2. Trade pattern clusters
 **Worst pattern clusters (block candidates)**:
-- cluster 4: win_rate=0.00, n=10, signature: theme_phase_multiplier_max=-5.76, theme_phase_multiplier_primary=-5.65, h6_dynamic_leader_score=-0.59
-- cluster 1: win_rate=0.52, n=227, signature: h6_dynamic_leader_score=-0.50, theme_phase_multiplier_primary=+0.24, theme_phase_multiplier_max=+0.23
+- cluster 2: win_rate=0.00, n=11, signature: theme_phase_multiplier_max=-5.52, theme_phase_multiplier_primary=-5.33, h6_dynamic_leader_score=-0.58
+- cluster 4: win_rate=0.33, n=18, signature: theme_phase_multiplier_primary=-2.54, theme_phase_multiplier_max=-2.27, h6_dynamic_leader_score=-0.40
 
 **Best pattern clusters (amplify candidates)**:
-- cluster 6: win_rate=0.63, n=101, signature: rs_acceleration_score=+1.20, h6_dynamic_leader_score=-0.52, theme_phase_multiplier_primary=+0.34
-- cluster 5: win_rate=0.63, n=120, signature: rs_acceleration_score=-1.42, h6_dynamic_leader_score=-0.55, theme_phase_multiplier_primary=+0.09
+- cluster 0: win_rate=0.66, n=59, signature: h6_dynamic_leader_score=+1.91, rs_acceleration_score=+1.07, theme_phase_multiplier_max=+0.27
+- cluster 7: win_rate=0.59, n=51, signature: h6_dynamic_leader_score=+1.74, rs_acceleration_score=-0.45, theme_phase_multiplier_max=+0.19
 
 Full table in `cluster_winrate.csv`.
 

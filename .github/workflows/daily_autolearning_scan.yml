@@ -68,6 +68,14 @@ jobs:
             echo "WARN: $LATEST_RUN/scored_latest.csv missing; skipping onset and shakeout studies."
           fi
 
+          if [ -f "$LATEST_RUN/reports/main_monthly_weights.csv" ]; then
+            python tools/run_main_cash_drag_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/main_cash_drag_replay
+          else
+            echo "WARN: $LATEST_RUN/reports/main_monthly_weights.csv missing; skipping cash drag replay."
+          fi
+
           python tools/run_autolearning_winner_challenger.py \
             --latest-run "$LATEST_RUN" \
             --lifecycle-dir outputs/winner_lifecycle \
@@ -84,5 +92,6 @@ jobs:
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
             outputs/shakeout_breakdown_study/
+            outputs/main_cash_drag_replay/
             outputs/autolearning_winner_challenger/
           retention-days: 90

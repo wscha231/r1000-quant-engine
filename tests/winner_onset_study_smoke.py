@@ -59,6 +59,8 @@ def main() -> int:
     event = events[0]
     assert event.ticker == "TEST"
     assert event.peak_return_12m >= 1.25
+    assert event.peak_multiple_12m >= 2.25
+    assert event.winner_tier in {"major_winner", "major_2_5x", "super_5x", "monster_10x", "extreme_30x"}
     assert event.forward_6m_return >= 0.45
     assert 0.0 <= event.entry_readiness_score <= 1.0
 
@@ -73,10 +75,12 @@ def main() -> int:
     events_df = pd.DataFrame([event.__dict__ for event in events])
     summary = summarize_patterns(events_df, snapshots, holds)
     assert summary["event_count"] >= 1
+    assert summary["winner_tier_counts"]
     assert summary["production_activation_allowed"] is False
     policy = render_policy_yaml(summary)
     assert "production_activation_allowed: false" in policy
     assert "winner_onset_hold_candidate" in policy
+    assert "monster_winner_archive_candidate" in policy
 
     with tempfile.TemporaryDirectory() as td:
         out = Path(td)

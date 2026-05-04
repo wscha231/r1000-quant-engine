@@ -50,6 +50,8 @@ class OnsetEvent:
     onset_price: float
     peak_price: float
     peak_return_12m: float
+    peak_multiple_12m: float
+    winner_tier: str
     forward_3m_return: float
     forward_6m_return: float
     forward_12m_return: float
@@ -234,6 +236,19 @@ def entry_readiness_score(features: dict) -> float:
     return score / weights if weights else 0.0
 
 
+def winner_tier_from_peak_return(peak_return: float) -> str:
+    peak_return = finite_float(peak_return, 0.0)
+    if peak_return >= 29.0:
+        return "extreme_30x"
+    if peak_return >= 9.0:
+        return "monster_10x"
+    if peak_return >= 4.0:
+        return "super_5x"
+    if peak_return >= 1.5:
+        return "major_2_5x"
+    return "major_winner"
+
+
 def detect_onset_events(
     ticker: str,
     hist: pd.DataFrame,
@@ -309,6 +324,8 @@ def detect_onset_events(
             onset_price=finite_float(close.iloc[onset_idx]),
             peak_price=finite_float(close.iloc[peak_idx]),
             peak_return_12m=finite_float(max12_for[onset_idx]),
+            peak_multiple_12m=finite_float(max12_for[onset_idx]) + 1.0,
+            winner_tier=winner_tier_from_peak_return(max12_for[onset_idx]),
             forward_3m_return=forward_return(close, onset_idx, 63),
             forward_6m_return=finite_float(fwd6_for[onset_idx]),
             forward_12m_return=finite_float(fwd12_for[onset_idx]),
@@ -462,6 +479,7 @@ def summarize_patterns(events_df: pd.DataFrame, snapshots_df: pd.DataFrame, hold
             "onset_price_vs_sma50",
             "onset_price_vs_sma200",
             "onset_dist_52w_high",
+            "peak_multiple_12m",
             "forward_6m_return",
             "forward_12m_return",
             "max_drawdown_first_3m",
@@ -472,9 +490,21 @@ def summarize_patterns(events_df: pd.DataFrame, snapshots_df: pd.DataFrame, hold
         }
         summary["top_events"] = (
             events_df.sort_values("peak_return_12m", ascending=False)
-            .head(20)[["ticker", "onset_date", "peak_date", "peak_return_12m", "forward_6m_return"]]
+            .head(20)[["ticker", "onset_date", "peak_date", "winner_tier", "peak_return_12m", "peak_multiple_12m", "forward_6m_return"]]
             .to_dict("records")
         )
+        if "winner_tier" in events_df.columns:
+            summary["winner_tier_counts"] = {
+                str(k): int(v) for k, v in events_df["winner_tier"].fillna("unknown").astype(str).value_counts().to_dict().items()
+            }
+            summary["top_monster_events"] = (
+                events_df[
+                    events_df["winner_tier"].fillna("").astype(str).isin(["super_5x", "monster_10x", "extreme_30x"])
+                ]
+                .sort_values("peak_return_12m", ascending=False)
+                .head(30)[["ticker", "onset_date", "peak_date", "winner_tier", "peak_return_12m", "peak_multiple_12m", "entry_readiness_score"]]
+                .to_dict("records")
+            )
     if not hold_df.empty:
         hold_cols = [
             "hold_6m_return",
@@ -519,6 +549,12 @@ def render_report(summary: dict, events_df: pd.DataFrame, output_dir: Path) -> s
         f"- production_activation_allowed: {summary.get('production_activation_allowed', False)}",
         "",
     ]
+    tier_counts = summary.get("winner_tier_counts") or {}
+    if tier_counts:
+        lines.extend(["## Winner Tiers", ""])
+        for tier, count in tier_counts.items():
+            lines.append(f"- `{tier}`: {count}")
+        lines.append("")
     med = summary.get("onset_medians", {})
     if med:
         lines.extend([
@@ -537,13 +573,26 @@ def render_report(summary: dict, events_df: pd.DataFrame, output_dir: Path) -> s
     if not events_df.empty:
         lines.extend(["## Top Events", ""])
         top = events_df.sort_values("peak_return_12m", ascending=False).head(15)
-        lines.append("| ticker | onset | peak | 12m peak return | fwd 6m | readiness |")
-        lines.append("|---|---:|---:|---:|---:|---:|")
+        lines.append("| ticker | onset | peak | tier | 12m peak return | multiple | fwd 6m | readiness |")
+        lines.append("|---|---:|---:|---|---:|---:|---:|---:|")
         for _, row in top.iterrows():
             lines.append(
-                f"| {row['ticker']} | {row['onset_date']} | {row['peak_date']} | "
-                f"{pct(row['peak_return_12m'])} | {pct(row['forward_6m_return'])} | "
+                f"| {row['ticker']} | {row['onset_date']} | {row['peak_date']} | {row.get('winner_tier', '')} | "
+                f"{pct(row['peak_return_12m'])} | {finite_float(row.get('peak_multiple_12m')):.2f}x | "
+                f"{pct(row['forward_6m_return'])} | "
                 f"{finite_float(row['entry_readiness_score']):.3f} |"
+            )
+        lines.append("")
+    monster = summary.get("top_monster_events") or []
+    if monster:
+        lines.extend(["## Monster Winner Archive", ""])
+        lines.append("| ticker | onset | peak | tier | 12m peak return | multiple | readiness |")
+        lines.append("|---|---:|---:|---|---:|---:|---:|")
+        for row in monster[:15]:
+            lines.append(
+                f"| {row.get('ticker')} | {row.get('onset_date')} | {row.get('peak_date')} | {row.get('winner_tier')} | "
+                f"{pct(row.get('peak_return_12m'))} | {finite_float(row.get('peak_multiple_12m')):.2f}x | "
+                f"{finite_float(row.get('entry_readiness_score')):.3f} |"
             )
         lines.append("")
     lines.extend([
@@ -590,6 +639,18 @@ def render_policy_yaml(summary: dict) -> str:
         "      - trail20_after_50pct_gain",
         "      - ma50_5d_after_50pct_gain",
         "      - ma200_after_50pct_gain",
+        "  - id: monster_winner_archive_candidate",
+        "    status: proposal_only",
+        "    intent: continuously mine 5x/10x/30x winners and learn their pre-onset setup",
+        "    tiers:",
+        "      super_5x_min_return: 4.0",
+        "      monster_10x_min_return: 9.0",
+        "      extreme_30x_min_return: 29.0",
+        "    constraints:",
+        "      min_current_mcap_usd: 5000000000",
+        "      min_dollar_vol_20d: 20000000",
+        "      no_ticker_hardcoding: true",
+        "      require_portfolio_level_replay: true",
     ]
     return "\n".join(lines) + "\n"
 
