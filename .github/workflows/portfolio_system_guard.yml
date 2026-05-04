@@ -43,6 +43,7 @@ jobs:
             tools/run_auto_learning_v2.py \
             tools/run_orchestrator_replay.py \
             tools/run_portfolio_goal_search.py \
+            tools/run_concentrated_position_risk_replay.py \
             tests/portfolio_system_guard_smoke.py \
             tests/auto_learning_v2_smoke.py \
             tests/orchestrator_replay_smoke.py \

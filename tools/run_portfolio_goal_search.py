@@ -192,6 +192,77 @@ def candidate_from_json(
     ]
 
 
+def candidate_from_nested_metrics(
+    path: Path,
+    *,
+    portfolio: str,
+    candidate_id: str,
+    metric_key: str,
+    source_label: str,
+    valid_for_production: bool,
+    notes: str = "",
+    extra_params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    payload = read_json(path)
+    metrics = payload.get(metric_key) if isinstance(payload, dict) else None
+    if not isinstance(metrics, dict) or not metrics:
+        return []
+    params = dict(extra_params or {})
+    for key in ["experiment_id", "data_mode", "hard_stop", "trailing_stop", "risk_exit_count", "risk_exit_rate"]:
+        if key in payload:
+            params[key] = payload.get(key)
+    return [
+        normalize_candidate(
+            portfolio=portfolio,
+            candidate_id=candidate_id,
+            source=f"{source_label}:{rel(path)}#{metric_key}",
+            metrics=metrics,
+            valid_for_production=valid_for_production,
+            notes=notes,
+            params=params,
+        )
+    ]
+
+
+def candidates_from_orchestrator_replay(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    payload = read_json(path)
+    metrics = payload.get("metrics") if isinstance(payload, dict) else None
+    if not isinstance(metrics, dict):
+        return [], []
+    main: list[dict[str, Any]] = []
+    concentrated: list[dict[str, Any]] = []
+    common = {
+        "experiment_id": payload.get("experiment_id"),
+        "data_mode": payload.get("data_mode"),
+        "valid_for_promotion": payload.get("valid_for_promotion"),
+    }
+    if isinstance(metrics.get("main_proxy"), dict):
+        main.append(
+            normalize_candidate(
+                portfolio="main",
+                candidate_id="orchestrator_replay_main_proxy",
+                source=f"sidecar:{rel(path)}#metrics.main_proxy",
+                metrics=metrics["main_proxy"],
+                valid_for_production=False,
+                notes="Orchestrator replay proxy for main returns; discovery-only until wired as a true portfolio path.",
+                params=common,
+            )
+        )
+    if isinstance(metrics.get("concentrated"), dict):
+        concentrated.append(
+            normalize_candidate(
+                portfolio="concentrated",
+                candidate_id="orchestrator_replay_concentrated_leg",
+                source=f"sidecar:{rel(path)}#metrics.concentrated",
+                metrics=metrics["concentrated"],
+                valid_for_production=False,
+                notes="Concentrated leg inside orchestrator replay; requires cap/timing validation before promotion.",
+                params=common,
+            )
+        )
+    return main, concentrated
+
+
 def candidate_from_comparison_csv(
     path: Path,
     *,
@@ -264,6 +335,53 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         valid_for_production=True,
         notes="Current concentrated champion artifact.",
     )
+
+    main += candidate_from_json(
+        latest_run / "main_v2_backtest" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v2_historical_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only Main v2 replay from candidate_replay_book.",
+    )
+    main += candidate_from_nested_metrics(
+        latest_run / "position_aware_risk_replay" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v2_position_aware_risk_proxy",
+        metric_key="with_position_risk",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Monthly proxy for position-level stops/decay. Target pass here is not production evidence until weekly/intramonth replay confirms it.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "concentrated_policy_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_policy_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only concentrated policy replay from candidate_replay_book.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "concentrated_position_risk_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_position_risk_proxy",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Monthly proxy for concentrated position-level hard stops. Target pass here requires weekly/intramonth confirmation before promotion.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "monster_lifecycle_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="monster_lifecycle_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only monster lifecycle replay; useful for drawdown control discovery.",
+    )
+    orch_main, orch_concentrated = candidates_from_orchestrator_replay(
+        latest_run / "orchestrator_replay" / "concentrated_balanced" / "metrics.json"
+    )
+    main += orch_main
+    concentrated += orch_concentrated
 
     reports = latest_run / "reports"
     main_comparisons = [

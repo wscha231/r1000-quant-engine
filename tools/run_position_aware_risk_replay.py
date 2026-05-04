@@ -104,6 +104,8 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
 
     original_metrics = calc_metrics([safe_float(row.get("original_return")) for row in monthly_rows])
     adjusted_metrics = calc_metrics([safe_float(row.get("net_return")) for row in monthly_rows])
+    total_positions = len(action_rows)
+    risk_exit_count = sum(1 for row in action_rows if row.get("action") == "risk_exit_proxy")
     payload = {
         "experiment_id": "position_aware_risk_replay",
         "status": "completed",
@@ -111,6 +113,15 @@ def replay(holdings_path: Path, output_dir: Path, hard_stop: float, trailing_sto
         "input": str(holdings_path),
         "hard_stop": hard_stop,
         "trailing_stop": trailing_stop,
+        "cagr": adjusted_metrics.get("cagr"),
+        "sharpe": adjusted_metrics.get("sharpe"),
+        "max_dd": adjusted_metrics.get("max_dd"),
+        "calmar": adjusted_metrics.get("calmar"),
+        "vol_ann": adjusted_metrics.get("vol_ann"),
+        "ending_equity": adjusted_metrics.get("ending_equity"),
+        "metric_mode": "position_aware_risk_proxy",
+        "risk_exit_count": risk_exit_count,
+        "risk_exit_rate": risk_exit_count / max(total_positions, 1),
         "original": original_metrics,
         "with_position_risk": adjusted_metrics,
         "delta": {
