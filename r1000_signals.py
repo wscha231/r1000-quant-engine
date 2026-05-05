@@ -2248,9 +2248,10 @@ def apply_portfolio_candidate_gate_filter(
     ).fillna("core_compounder").astype(str)
     gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
     if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and "portfolio_monster_early_score" in d.columns:
+        portfolio_monster_min = float(getattr(cfg, "portfolio_monster_early_min_score", 0.58))
         monster_keep = (
             numeric_series_or_default(d, "portfolio_monster_early_score", 0.0)
-            >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+            >= portfolio_monster_min
         ) & (
             numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
             < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
@@ -2827,7 +2828,7 @@ def compute_defensive_monster_rotation_overlay(
     ).fillna(0.0).clip(lower=0.0, upper=1.0)
     d["portfolio_stale_mega_leader_score"] = np.where(stale_mask, stale_severity, 0.0)
 
-    monster_cut = max(0.60, float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62)))
+    monster_cut = max(0.55, float(getattr(cfg, "portfolio_monster_early_min_score", 0.58)))
     risk_cut = float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
     d["portfolio_defensive_rotation_action"] = np.select(
         [
@@ -3212,10 +3213,11 @@ def build_target_portfolio(
     )
     monster_sel = pd.DataFrame()
     if monster_target_n > 0 and "portfolio_monster_early_score" in pool.columns:
+        portfolio_monster_min = float(getattr(cfg, "portfolio_monster_early_min_score", 0.58))
         monster_pool = pool[
             (
                 numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
-                >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+                >= portfolio_monster_min
             )
             & (
                 numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
@@ -3712,6 +3714,11 @@ def build_target_portfolio(
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+            "portfolio_monster_slot",
             "portfolio_prev_weight",
             "portfolio_existing_holding",
             "portfolio_name_cap",

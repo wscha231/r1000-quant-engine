@@ -1742,6 +1742,7 @@ class EngineConfig:
     portfolio_stale_mega_near_high_max: float = -0.05
     portfolio_monster_promote_unassigned_to_future: bool = True
     portfolio_monster_early_min_slots: int = 3
+    portfolio_monster_early_min_score: float = 0.58
     concentrated_monster_early_min_slots: int = 3
     concentrated_score_monster_early_weight: float = 1.45
     concentrated_score_risk_entry_penalty_weight: float = 1.10
@@ -1986,6 +1987,20 @@ class EngineConfig:
     concentrated_regime_cash_vix_threshold: float = 25.0  # VIX > 25 (vs core 30)
     concentrated_regime_cash_breadth_threshold: float = 0.30  # breadth_above_ma200 < 30%
     concentrated_regime_cash_pct: float = 0.30          # force 30% cash when regime risk-off
+    # 2026-05-06: connect the previously sidecar-only monthly position-risk
+    # replay to actual backtest metrics. This is still monthly return capping,
+    # not intraday broker execution, but it makes the exported main and
+    # concentrated metrics include the defensive list mechanics.
+    portfolio_position_risk_enabled: bool = True
+    portfolio_position_risk_hard_stop: float = -0.08
+    portfolio_position_risk_trailing_stop: float = -0.15
+    portfolio_position_risk_trailing_min_profit: float = 0.15
+    portfolio_position_risk_distribution_threshold: float = 0.85
+    concentrated_position_risk_enabled: bool = True
+    concentrated_position_risk_hard_stop: float = -0.08
+    concentrated_position_risk_trailing_stop: float = 0.0
+    concentrated_position_risk_trailing_min_profit: float = 0.15
+    concentrated_position_risk_distribution_threshold: float = 2.0
     # Phase 15-R1 (2026-04-21): trailing stop from peak.
     # Complements the entry-point -25% hard stop with a peak-relative exit so
     # the engine preserves realized gains when a held position rolls over.

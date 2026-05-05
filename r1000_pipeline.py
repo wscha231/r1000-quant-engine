@@ -10286,6 +10286,51 @@ def merge_partial_sleeve_rebalance_state(
     return combined_portfolio, combined_weights, combined_sleeve_map
 
 
+def _negative_stop_value(value: Any, default_abs: float) -> float:
+    raw = safe_float(value, np.nan)
+    if not np.isfinite(raw):
+        raw = float(default_abs)
+    if abs(raw) <= 1e-12:
+        return 0.0
+    return -abs(float(raw))
+
+
+def _managed_position_risk_exit_signal(
+    row: Mapping[str, Any],
+    period_return: float,
+    cumulative_return: float,
+    peak_return: float,
+    *,
+    hard_stop: float,
+    trailing_stop: float,
+    trailing_min_profit: float,
+    distribution_threshold: float,
+) -> tuple[bool, str]:
+    """Monthly position-risk action used by actual portfolio metrics."""
+    if str(row.get("ticker", "")).upper() == CASH_PROXY_TICKER:
+        return False, "cash"
+    if hard_stop < 0 and period_return <= hard_stop:
+        return True, "hard_stop"
+    if trailing_stop < 0:
+        drawdown_from_peak = (1.0 + cumulative_return) / max(1.0 + peak_return, 1e-8) - 1.0
+        if drawdown_from_peak <= trailing_stop and cumulative_return > max(trailing_min_profit, 0.0):
+            return True, "trailing_stop_after_profit"
+    exit_risk = max(
+        safe_float(row.get("explosion_exit_score"), 0.0),
+        safe_float(row.get("stage2_overext_penalty"), 0.0),
+        safe_float(row.get("risk_penalty"), 0.0),
+        safe_float(row.get("portfolio_hold_policy_exit_risk"), 0.0),
+        safe_float(row.get("portfolio_risk_entry_block_score"), 0.0),
+    )
+    if (
+        distribution_threshold < 1.5
+        and exit_risk >= distribution_threshold
+        and safe_float(row.get("rs_acceleration_score"), 0.0) < 0.0
+    ):
+        return True, "distribution_risk_decay"
+    return False, "hold"
+
+
 def backtest_portfolio(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -10389,6 +10434,18 @@ def backtest_portfolio(
     _p15r1_cc_pct = float(getattr(cfg, "trailing_stop_core_compounder_pct", 0.0))
     trailing_position_cum_ret: dict[str, float] = {}
     trailing_position_peak_ret: dict[str, float] = {}
+    position_risk_enabled = bool(getattr(cfg, "portfolio_position_risk_enabled", False))
+    position_risk_hard_stop = _negative_stop_value(getattr(cfg, "portfolio_position_risk_hard_stop", -0.08), 0.08)
+    position_risk_trailing_stop = _negative_stop_value(getattr(cfg, "portfolio_position_risk_trailing_stop", -0.15), 0.15)
+    position_risk_trailing_min_profit = float(
+        max(safe_float(getattr(cfg, "portfolio_position_risk_trailing_min_profit", 0.15), 0.15), 0.0)
+    )
+    position_risk_distribution_threshold = float(
+        max(safe_float(getattr(cfg, "portfolio_position_risk_distribution_threshold", 0.85), 0.85), 0.0)
+    )
+    position_risk_state: dict[str, dict[str, float]] = {}
+    position_risk_exit_count_total = 0
+    position_risk_position_count_total = 0
     # -----------------------------------------------------------------
     # Phase 15-R2 (2026-04-22): exit a position when analyst revision is
     # negative for N consecutive months. Default OFF.
@@ -10726,9 +10783,12 @@ def backtest_portfolio(
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
+        position_risk_source_by_ticker: dict[str, dict[str, Any]] = {}
         due_sleeves_value = ",".join(sorted({str(x) for x in due_sleeves})) if rebalance_due and due_sleeves else ""
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"] == tkr]
+            row_payload = row.iloc[0].to_dict() if not row.empty else {"ticker": tkr}
+            position_risk_source_by_ticker[str(tkr)] = row_payload
             if str(tkr).upper() == CASH_PROXY_TICKER:
                 sec = "Cash"
                 nm = "Cash"
@@ -10767,7 +10827,14 @@ def backtest_portfolio(
                         else ""
                     ),
                     "period_forward_return": np.nan,
+                    "raw_period_forward_return": np.nan,
+                    "risk_adjusted_forward_return": np.nan,
                     "weighted_forward_return": np.nan,
+                    "raw_weighted_forward_return": np.nan,
+                    "position_risk_action": "",
+                    "position_risk_reason": "",
+                    "position_risk_hard_stop": float(position_risk_hard_stop),
+                    "position_risk_enabled": bool(position_risk_enabled),
                     "target_n": int(current_meta.get("target_n", 0)),
                     "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                     "cash_target": float(current_meta.get("cash_target", 0.0)),
@@ -10786,25 +10853,70 @@ def backtest_portfolio(
                     ),
                     "regime_state": str(row["regime_state"].iloc[0]) if not row.empty and "regime_state" in row.columns else "neutral",
                     "regime_state_score": int(row["regime_state_score"].iloc[0]) if not row.empty and "regime_state_score" in row.columns and pd.notna(row["regime_state_score"].iloc[0]) else 0,
+                    "portfolio_monster_early_score": float(row["portfolio_monster_early_score"].iloc[0]) if not row.empty and "portfolio_monster_early_score" in row.columns and pd.notna(row["portfolio_monster_early_score"].iloc[0]) else np.nan,
+                    "portfolio_stale_mega_leader_score": float(row["portfolio_stale_mega_leader_score"].iloc[0]) if not row.empty and "portfolio_stale_mega_leader_score" in row.columns and pd.notna(row["portfolio_stale_mega_leader_score"].iloc[0]) else np.nan,
+                    "portfolio_risk_entry_block_score": float(row["portfolio_risk_entry_block_score"].iloc[0]) if not row.empty and "portfolio_risk_entry_block_score" in row.columns and pd.notna(row["portfolio_risk_entry_block_score"].iloc[0]) else np.nan,
+                    "portfolio_defensive_rotation_action": str(row["portfolio_defensive_rotation_action"].iloc[0]) if not row.empty and "portfolio_defensive_rotation_action" in row.columns else "",
                 }
             )
 
         month_ret = 0.0
+        raw_month_ret = 0.0
         missing = 0
         ticker_month_returns: dict[str, float] = {}
+        ticker_effective_month_returns: dict[str, float] = {}
+        position_risk_exited_tickers: set[str] = set()
+        position_risk_exit_count_month = 0
         for tkr, ww in current_w.items():
             ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
             if ri is None:
                 missing += 1
                 continue
-            month_ret += ww * ri
-            ticker_month_returns[tkr] = float(ri)
+            raw_ri = float(ri)
+            effective_ri = raw_ri
+            risk_action = "hold"
+            risk_reason = "hold"
+            if position_risk_enabled and str(tkr).upper() != CASH_PROXY_TICKER:
+                prior = position_risk_state.get(str(tkr), {"cum": 0.0, "peak": 0.0})
+                should_exit, risk_reason = _managed_position_risk_exit_signal(
+                    position_risk_source_by_ticker.get(str(tkr), {"ticker": tkr}),
+                    raw_ri,
+                    prior.get("cum", 0.0),
+                    prior.get("peak", 0.0),
+                    hard_stop=position_risk_hard_stop,
+                    trailing_stop=position_risk_trailing_stop,
+                    trailing_min_profit=position_risk_trailing_min_profit,
+                    distribution_threshold=position_risk_distribution_threshold,
+                )
+                new_cum = (1.0 + prior.get("cum", 0.0)) * (1.0 + raw_ri) - 1.0
+                position_risk_state[str(tkr)] = {"cum": new_cum, "peak": max(prior.get("peak", 0.0), new_cum)}
+                position_risk_position_count_total += 1
+                if should_exit:
+                    effective_ri = max(raw_ri, position_risk_hard_stop) if position_risk_hard_stop < 0 else raw_ri
+                    position_risk_exited_tickers.add(str(tkr))
+                    position_risk_exit_count_month += 1
+                    position_risk_exit_count_total += 1
+                    risk_action = "risk_exit"
+            raw_month_ret += ww * raw_ri
+            month_ret += ww * effective_ri
+            ticker_month_returns[tkr] = raw_ri
+            ticker_effective_month_returns[tkr] = float(effective_ri)
+            if position_risk_enabled:
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_action"] = risk_action
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_reason"] = risk_reason
         for row_idx in month_holding_row_indices:
             held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
             held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            effective_return = ticker_effective_month_returns.get(held_ticker, held_return)
+            holdings_rows[row_idx]["raw_period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["period_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
+            holdings_rows[row_idx]["risk_adjusted_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
             held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["raw_weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(effective_return) if pd.notna(effective_return) else np.nan
+            risk_payload = position_risk_source_by_ticker.get(held_ticker, {})
+            holdings_rows[row_idx]["position_risk_action"] = str(risk_payload.get("_position_risk_action", "hold" if position_risk_enabled else "disabled"))
+            holdings_rows[row_idx]["position_risk_reason"] = str(risk_payload.get("_position_risk_reason", "hold" if position_risk_enabled else "disabled"))
         net_ret = month_ret - cost
         running_equity = running_equity * (1.0 + net_ret)
         portfolio_peak = max(portfolio_peak, running_equity)
@@ -10816,7 +10928,13 @@ def backtest_portfolio(
         if len(recent_returns) > max(int(_p6c_lookback), 12):
             # cap memory to at most 12 months to avoid unbounded growth.
             recent_returns = recent_returns[-12:]
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        current_w = drift_weights_by_period_returns(current_w, ticker_effective_month_returns or ticker_month_returns)
+        if position_risk_enabled and position_risk_exited_tickers:
+            for tkr in sorted(position_risk_exited_tickers):
+                if tkr in current_w:
+                    released = float(current_w.pop(tkr, 0.0))
+                    current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + released
+                position_risk_state.pop(tkr, None)
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
         if stop_loss_pct > 0:
@@ -10961,6 +11079,10 @@ def backtest_portfolio(
             current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if current_total > 0 and abs(current_total - 1.0) > 1e-8:
                 current_w = {str(k): float(v / current_total) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
+        if position_risk_enabled:
+            for tkr in list(position_risk_state.keys()):
+                if tkr not in current_w:
+                    position_risk_state.pop(tkr, None)
         if not current_portfolio.empty and "ticker" in current_portfolio.columns:
             keep_tickers = {
                 str(k)
@@ -10976,6 +11098,12 @@ def backtest_portfolio(
                 "rebalance_date": dt,
                 "next_rebalance_date": next_dt,
                 "gross_return": month_ret,
+                "raw_gross_return": raw_month_ret,
+                "position_risk_return_delta": month_ret - raw_month_ret,
+                "position_risk_exit_count": int(position_risk_exit_count_month),
+                "position_risk_enabled": bool(position_risk_enabled),
+                "position_risk_hard_stop": float(position_risk_hard_stop),
+                "position_risk_trailing_stop": float(position_risk_trailing_stop),
                 "cost": cost,
                 "net_return": net_ret,
                 "turnover": turn,
@@ -11046,6 +11174,12 @@ def backtest_portfolio(
     metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
     metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
     metrics["months"] = int(len(ret_df))
+    metrics["position_risk_enabled"] = bool(position_risk_enabled)
+    metrics["position_risk_hard_stop"] = float(position_risk_hard_stop)
+    metrics["position_risk_trailing_stop"] = float(position_risk_trailing_stop)
+    metrics["position_risk_exit_count"] = int(position_risk_exit_count_total)
+    metrics["position_risk_exit_rate"] = float(position_risk_exit_count_total / max(position_risk_position_count_total, 1))
+    metrics["position_risk_metric_mode"] = "monthly_managed_position_risk" if position_risk_enabled else "raw_monthly_returns"
     metrics["target_n_override"] = int(target_n_override) if target_n_override is not None else None
     rebalance_intervals = (
         [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
@@ -11124,6 +11258,12 @@ def backtest_portfolio(
         "vol_target_active",
         "vol_cash_floor_p6c",
         "recent_returns_len",
+        "raw_gross_return",
+        "position_risk_return_delta",
+        "position_risk_exit_count",
+        "position_risk_enabled",
+        "position_risk_hard_stop",
+        "position_risk_trailing_stop",
     ):
         if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
             _equity_cols.append(_diag_col)
@@ -13466,6 +13606,18 @@ def backtest_concentrated_portfolio(
     rebalance_dates_taken: list[pd.Timestamp] = []
     holdings_rows: list[dict[str, Any]] = []
     ret_rows: list[dict[str, Any]] = []
+    position_risk_enabled = bool(getattr(cfg_obj, "concentrated_position_risk_enabled", False))
+    position_risk_hard_stop = _negative_stop_value(getattr(cfg_obj, "concentrated_position_risk_hard_stop", -0.08), 0.08)
+    position_risk_trailing_stop = _negative_stop_value(getattr(cfg_obj, "concentrated_position_risk_trailing_stop", 0.0), 0.0)
+    position_risk_trailing_min_profit = float(
+        max(safe_float(getattr(cfg_obj, "concentrated_position_risk_trailing_min_profit", 0.15), 0.15), 0.0)
+    )
+    position_risk_distribution_threshold = float(
+        max(safe_float(getattr(cfg_obj, "concentrated_position_risk_distribution_threshold", 2.0), 2.0), 0.0)
+    )
+    position_risk_state: dict[str, dict[str, float]] = {}
+    position_risk_exit_count_total = 0
+    position_risk_position_count_total = 0
 
     def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
         return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
@@ -13499,8 +13651,11 @@ def backtest_concentrated_portfolio(
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
+        position_risk_source_by_ticker: dict[str, dict[str, Any]] = {}
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"].astype(str).eq(str(tkr))] if "ticker" in holdings_source.columns else pd.DataFrame()
+            row_payload = row.iloc[0].to_dict() if not row.empty else {"ticker": tkr}
+            position_risk_source_by_ticker[str(tkr)] = row_payload
             month_holding_row_indices.append(len(holdings_rows))
             holdings_rows.append(
                 {
@@ -13514,33 +13669,94 @@ def backtest_concentrated_portfolio(
                     "portfolio_sleeve_label": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else str(row["portfolio_sleeve_label"].iloc[0]) if not row.empty and "portfolio_sleeve_label" in row.columns else "unknown",
                     "concentrated_selection_source": str(row["concentrated_selection_source"].iloc[0]) if not row.empty and "concentrated_selection_source" in row.columns else "",
                     "period_forward_return": np.nan,
+                    "raw_period_forward_return": np.nan,
+                    "risk_adjusted_forward_return": np.nan,
                     "weighted_forward_return": np.nan,
+                    "raw_weighted_forward_return": np.nan,
+                    "position_risk_action": "",
+                    "position_risk_reason": "",
+                    "position_risk_hard_stop": float(position_risk_hard_stop),
+                    "position_risk_enabled": bool(position_risk_enabled),
                     "target_n": int(top_n),
                     "weighting_mode": str(weighting_mode),
                     "rebalance_action": rebalance_action,
                     "active_rebalance_interval_months": int(interval_months),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                    "portfolio_monster_early_score": float(row["portfolio_monster_early_score"].iloc[0]) if not row.empty and "portfolio_monster_early_score" in row.columns and pd.notna(row["portfolio_monster_early_score"].iloc[0]) else np.nan,
+                    "portfolio_risk_entry_block_score": float(row["portfolio_risk_entry_block_score"].iloc[0]) if not row.empty and "portfolio_risk_entry_block_score" in row.columns and pd.notna(row["portfolio_risk_entry_block_score"].iloc[0]) else np.nan,
+                    "portfolio_defensive_rotation_action": str(row["portfolio_defensive_rotation_action"].iloc[0]) if not row.empty and "portfolio_defensive_rotation_action" in row.columns else "",
                 }
             )
 
         month_ret = 0.0
+        raw_month_ret = 0.0
         missing = 0
         ticker_month_returns: dict[str, float] = {}
+        ticker_effective_month_returns: dict[str, float] = {}
+        position_risk_exited_tickers: set[str] = set()
+        position_risk_exit_count_month = 0
         for tkr, ww in current_w.items():
             ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
             if ri is None:
                 missing += 1
                 continue
-            month_ret += float(ww) * float(ri)
-            ticker_month_returns[str(tkr)] = float(ri)
+            raw_ri = float(ri)
+            effective_ri = raw_ri
+            risk_action = "hold"
+            risk_reason = "hold"
+            if position_risk_enabled and str(tkr).upper() != CASH_PROXY_TICKER:
+                prior = position_risk_state.get(str(tkr), {"cum": 0.0, "peak": 0.0})
+                should_exit, risk_reason = _managed_position_risk_exit_signal(
+                    position_risk_source_by_ticker.get(str(tkr), {"ticker": tkr}),
+                    raw_ri,
+                    prior.get("cum", 0.0),
+                    prior.get("peak", 0.0),
+                    hard_stop=position_risk_hard_stop,
+                    trailing_stop=position_risk_trailing_stop,
+                    trailing_min_profit=position_risk_trailing_min_profit,
+                    distribution_threshold=position_risk_distribution_threshold,
+                )
+                new_cum = (1.0 + prior.get("cum", 0.0)) * (1.0 + raw_ri) - 1.0
+                position_risk_state[str(tkr)] = {"cum": new_cum, "peak": max(prior.get("peak", 0.0), new_cum)}
+                position_risk_position_count_total += 1
+                if should_exit:
+                    effective_ri = max(raw_ri, position_risk_hard_stop) if position_risk_hard_stop < 0 else raw_ri
+                    position_risk_exited_tickers.add(str(tkr))
+                    position_risk_exit_count_month += 1
+                    position_risk_exit_count_total += 1
+                    risk_action = "risk_exit"
+            raw_month_ret += float(ww) * raw_ri
+            month_ret += float(ww) * effective_ri
+            ticker_month_returns[str(tkr)] = raw_ri
+            ticker_effective_month_returns[str(tkr)] = float(effective_ri)
+            if position_risk_enabled:
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_action"] = risk_action
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_reason"] = risk_reason
         for row_idx in month_holding_row_indices:
             held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
             held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            effective_return = ticker_effective_month_returns.get(held_ticker, held_return)
+            holdings_rows[row_idx]["raw_period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["period_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
+            holdings_rows[row_idx]["risk_adjusted_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
             held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["raw_weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(effective_return) if pd.notna(effective_return) else np.nan
+            risk_payload = position_risk_source_by_ticker.get(held_ticker, {})
+            holdings_rows[row_idx]["position_risk_action"] = str(risk_payload.get("_position_risk_action", "hold" if position_risk_enabled else "disabled"))
+            holdings_rows[row_idx]["position_risk_reason"] = str(risk_payload.get("_position_risk_reason", "hold" if position_risk_enabled else "disabled"))
         net_ret = month_ret - cost
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        current_w = drift_weights_by_period_returns(current_w, ticker_effective_month_returns or ticker_month_returns)
+        if position_risk_enabled and position_risk_exited_tickers:
+            for tkr in sorted(position_risk_exited_tickers):
+                if tkr in current_w:
+                    released = float(current_w.pop(tkr, 0.0))
+                    current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + released
+                position_risk_state.pop(tkr, None)
+        if position_risk_enabled:
+            for tkr in list(position_risk_state.keys()):
+                if tkr not in current_w:
+                    position_risk_state.pop(tkr, None)
         if current_w:
             total_w = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if total_w > 0 and abs(total_w - 1.0) > 1e-8:
@@ -13561,6 +13777,11 @@ def backtest_concentrated_portfolio(
                 "target_n": int(top_n),
                 "weighting_mode": str(weighting_mode),
                 "portfolio_mode": "concentrated_alpha",
+                "raw_gross_return": float(raw_month_ret),
+                "position_risk_return_delta": float(month_ret - raw_month_ret),
+                "position_risk_exit_count": int(position_risk_exit_count_month),
+                "position_risk_enabled": bool(position_risk_enabled),
+                "position_risk_hard_stop": float(position_risk_hard_stop),
             }
         )
 
@@ -13594,6 +13815,12 @@ def backtest_concentrated_portfolio(
     metrics["target_n_override"] = int(top_n)
     metrics["weighting_mode"] = str(weighting_mode)
     metrics["rebalance_interval_months"] = int(interval_months)
+    metrics["position_risk_enabled"] = bool(position_risk_enabled)
+    metrics["position_risk_hard_stop"] = float(position_risk_hard_stop)
+    metrics["position_risk_trailing_stop"] = float(position_risk_trailing_stop)
+    metrics["position_risk_exit_count"] = int(position_risk_exit_count_total)
+    metrics["position_risk_exit_rate"] = float(position_risk_exit_count_total / max(position_risk_position_count_total, 1))
+    metrics["position_risk_metric_mode"] = "monthly_managed_position_risk" if position_risk_enabled else "raw_monthly_returns"
     rebalance_intervals = (
         [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
         if len(rebalance_dates_taken) >= 2
@@ -15302,6 +15529,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+            "portfolio_monster_slot",
             "sage_sector",
             "sage_composite_score",
             "sage_g_score",

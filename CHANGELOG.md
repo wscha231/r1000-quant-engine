@@ -51,6 +51,51 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-06
+
+### 03:01 KST - managed-position-risk-activation
+
+- scope:
+  - Connect the defensive monster and position-risk systems to actual main and concentrated portfolio metrics instead of leaving target-pass results only in proxy sidecars.
+- files:
+  - `r1000_config.py` ->adds managed monthly position-risk defaults and a separate main monster early threshold.
+  - `r1000_pipeline.py` ->applies monthly position-risk return capping inside main and concentrated backtests and exports raw versus risk-adjusted holding returns.
+  - `r1000_signals.py` ->uses the main monster threshold in portfolio candidate gates and carries monster/defense columns into `portfolio_latest.csv`.
+  - `CHANGELOG.md` ->records the managed-risk activation.
+- symbols_added:
+  - `_negative_stop_value(value, default_abs)` ->normalizes stop config values to negative stop percentages.
+  - `_managed_position_risk_exit_signal(row, period_return, cumulative_return, peak_return, hard_stop, trailing_stop, trailing_min_profit, distribution_threshold)` ->decides monthly hard-stop, trailing-stop, and distribution-risk exits for managed backtest metrics.
+- symbols_changed:
+  - `backtest_portfolio()` ->uses risk-adjusted monthly position returns for exported main metrics and holdings while preserving raw return columns.
+  - `backtest_concentrated_portfolio()` ->uses concentrated monthly hard-stop risk management for strategy grid metrics and latest concentrated summary selection.
+  - `apply_portfolio_candidate_gate_filter()` ->allows data-driven monster candidates through the main candidate gate using the main monster threshold.
+  - `compute_defensive_monster_rotation_overlay()` ->uses the main monster threshold for portfolio defensive rotation actions.
+  - `build_target_portfolio()` ->uses the main monster threshold for monster slots and preserves monster/defense diagnostics in materialized portfolio rows.
+- config_fields_added:
+  - `portfolio_monster_early_min_score: float = 0.58` ->main-specific monster candidate activation floor.
+  - `portfolio_position_risk_enabled: bool = True` ->turns managed monthly position-risk returns on for main metrics.
+  - `portfolio_position_risk_hard_stop: float = -0.08` ->caps main monthly position loss contribution at -8% when a hard-stop signal fires.
+  - `portfolio_position_risk_trailing_stop: float = -0.15` ->enables main peak-relative monthly trailing exit after sufficient profit.
+  - `portfolio_position_risk_trailing_min_profit: float = 0.15` ->requires at least 15% cumulative position profit before main trailing exits.
+  - `portfolio_position_risk_distribution_threshold: float = 0.85` ->distribution-risk threshold for main monthly exits.
+  - `concentrated_position_risk_enabled: bool = True` ->turns managed monthly position-risk returns on for concentrated metrics.
+  - `concentrated_position_risk_hard_stop: float = -0.08` ->caps concentrated monthly position loss contribution at -8%.
+  - `concentrated_position_risk_trailing_stop: float = 0.0` ->keeps concentrated replay aligned to the hard-stop proxy that passed the goal search.
+  - `concentrated_position_risk_trailing_min_profit: float = 0.15` ->reserved for future concentrated trailing-stop activation.
+  - `concentrated_position_risk_distribution_threshold: float = 2.0` ->disables concentrated distribution exits by default.
+- breaking_changes:
+  - Main and concentrated exported metrics now use managed monthly position-risk returns by default on this branch, so they are no longer directly comparable to prior raw monthly-return champion metrics without checking `position_risk_metric_mode`.
+- outputs:
+  - `outputs/backtest_metrics.json` ->will include `position_risk_*` fields and managed main metrics after the next full rebuild.
+  - `outputs/concentrated_backtest_metrics.json` ->will include managed concentrated strategy metrics after the next full rebuild.
+  - `outputs/portfolio_latest.csv` ->will include monster/defense diagnostics for selected main holdings after the next full rebuild.
+- validation:
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+  - `python --version` ->not run; local Python is not installed in this desktop sandbox.
+  - `py -3 --version` ->not run; local Python launcher is not installed in this desktop sandbox.
+- risks_or_notes:
+  - Managed position-risk is monthly return capping, not intraday broker execution evidence; weekly/intramonth validation remains required before real capital automation.
+
 ## 2026-05-05
 
 ### 06:49 KST - defensive-list-risk-proxy
