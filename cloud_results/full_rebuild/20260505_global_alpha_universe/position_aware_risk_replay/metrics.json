@@ -1,0 +1,45 @@
+{
+  "cagr": 0.38059234734197256,
+  "calmar": 4.761068092912228,
+  "data_mode": "monthly_position_proxy",
+  "defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/defensive_holdings.csv",
+  "delta": {
+    "cagr": 0.14995294392811354,
+    "max_dd": 0.1478378807350087,
+    "sharpe": 0.7918860741858489
+  },
+  "ending_equity": 9.56000748432836,
+  "experiment_id": "position_aware_risk_replay",
+  "hard_stop": -0.08,
+  "input": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2_backtest/monthly_holdings.csv",
+  "latest_defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/defensive_latest.csv",
+  "list_defense_mode": "risk_exit_to_cash_proxy",
+  "max_dd": -0.07993843816444424,
+  "metric_mode": "position_aware_risk_proxy",
+  "original": {
+    "cagr": 0.23063940341385902,
+    "calmar": 1.0125697198384787,
+    "ending_equity": 4.274799161062439,
+    "max_dd": -0.22777631889945293,
+    "months": 84,
+    "sharpe": 1.0648715402670794,
+    "vol_ann": 0.21854582168032477
+  },
+  "production_activation_allowed": false,
+  "research_only": true,
+  "risk_exit_count": 232,
+  "risk_exit_rate": 0.26126126126126126,
+  "sharpe": 1.8567576144529283,
+  "status": "completed",
+  "trailing_stop": -0.15,
+  "vol_ann": 0.18475460286250528,
+  "with_position_risk": {
+    "cagr": 0.38059234734197256,
+    "calmar": 4.761068092912228,
+    "ending_equity": 9.56000748432836,
+    "max_dd": -0.07993843816444424,
+    "months": 84,
+    "sharpe": 1.8567576144529283,
+    "vol_ann": 0.18475460286250528
+  }
+}

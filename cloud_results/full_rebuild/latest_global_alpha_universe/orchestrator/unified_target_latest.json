@@ -1,0 +1,82 @@
+{
+  "unified_weights": {
+    "GOOG": 0.10228220158013952,
+    "AMZN": 0.08609880684495275,
+    "GEV": 0.0537900815227356,
+    "PLTR": 0.03962733330989142,
+    "VRT": 0.03962733330989142,
+    "LRCX": 0.03786695409768219,
+    "PR": 0.03518383186813237,
+    "WDC": 0.02865366711734467,
+    "FTI": 0.02761371300360478,
+    "DTM": 0.0268950407613678,
+    "KIM": 0.0268950407613678,
+    "MLI": 0.0268950407613678,
+    "ON": 0.0268950407613678,
+    "STM": 0.0268950407613678,
+    "TER": 0.0268950407613678,
+    "TSM": 0.0255140360193076,
+    "FIX": 0.025426303130254402,
+    "WELL": 0.02388795185196572,
+    "CIEN": 0.023173407822538485,
+    "SNDK": 0.012989093191984486
+  },
+  "cash_target": 0.27689504076136773,
+  "by_mandate_capacity": {
+    "main": 0.65,
+    "concentrated": 0.1,
+    "tactical": 0.0
+  },
+  "conflicts": [
+    {
+      "ticker": "PR",
+      "mandates": [
+        "concentrated",
+        "main"
+      ],
+      "weights_per_mandate": {
+        "concentrated": 0.03518383186813237,
+        "main": 0.0268950407613678
+      },
+      "max_weight_used": 0.03518383186813237,
+      "winning_mandate": "concentrated"
+    }
+  ],
+  "regime_state": "neutral",
+  "audit": {
+    "input_weights_sum": {
+      "main": 0.9667209739777215,
+      "concentrated": 1.0,
+      "tactical": 0
+    },
+    "scaled_weights_sum": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0
+    },
+    "policy_capacity": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0.0,
+      "expected_total_invested": 0.75,
+      "actual_total_invested_after_merge": 0.7231049592386323,
+      "merged_below_expected_due_to_conflicts": 0.026895040761367728
+    },
+    "merge_mode": "max",
+    "unified_single_name_cap": 1.0,
+    "n_unique_tickers": 20,
+    "n_conflicts": 1,
+    "generated_at": "2026-05-05T17:20:19Z"
+  },
+  "audit_checks": {
+    "weights_nonnegative": true,
+    "weights_at_most_one": true,
+    "cash_in_unit_range": true,
+    "invested_plus_cash_close_to_one": true,
+    "invested_amount": 0.7231049592386323,
+    "cash_amount": 0.27689504076136773,
+    "n_positions": 20,
+    "n_conflicts": 1,
+    "all_passed": true
+  }
+}
