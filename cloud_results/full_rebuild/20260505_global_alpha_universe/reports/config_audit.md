@@ -1,7 +1,7 @@
 # AlphaOps Config Audit
 
 - Status: warn
-- Generated UTC: 2026-05-05T17:20:19Z
+- Generated UTC: 2026-05-05T21:57:07Z
 
 ## Findings
 

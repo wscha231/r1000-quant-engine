@@ -1,6 +1,6 @@
 # Auto Feature Gate Proposal Diff
 
-Generated: 2026-05-05T17:20:24Z
+Generated: 2026-05-05T21:57:12Z
 
 Total proposals: **6**
 
@@ -13,7 +13,7 @@ Total proposals: **6**
 +# instead edit the proposal tool's thresholds and re-run.
 +# Empty `gates: []` is the safe default (no behavior change).
 +
-+generated_at: '2026-05-05T17:20:24Z'
++generated_at: '2026-05-05T21:57:12Z'
 +expires_at: '2026-08-03'
 +n_proposals: 6
 +
@@ -22,47 +22,47 @@ Total proposals: **6**
 +    signal: rs_acceleration_score
 +    regime: bear
 +    factor: 1.3
-+    ic: 0.1684
-+    n: 138
-+    rationale: "IC +0.168 in bear (n=138) >= amplify threshold +0.1"
++    ic: 0.1409
++    n: 101
++    rationale: "IC +0.141 in bear (n=101) >= amplify threshold +0.1"
 +
 +  - kind: signal_regime_amplify
 +    signal: rs_acceleration_score
 +    regime: bull
 +    factor: 1.3
-+    ic: 0.1312
-+    n: 180
-+    rationale: "IC +0.131 in bull (n=180) >= amplify threshold +0.1"
++    ic: 0.139
++    n: 147
++    rationale: "IC +0.139 in bull (n=147) >= amplify threshold +0.1"
 +
 +  - kind: signal_regime_disable
 +    signal: theme_phase_multiplier_primary
 +    regime: bear
 +    factor: 0.0
-+    ic: -0.1119
-+    n: 138
-+    rationale: "IC -0.112 in bear (n=138) <= disable threshold -0.05"
++    ic: -0.1219
++    n: 101
++    rationale: "IC -0.122 in bear (n=101) <= disable threshold -0.05"
 +
 +  - kind: signal_regime_disable
 +    signal: theme_phase_multiplier_primary
 +    regime: neutral
 +    factor: 0.0
-+    ic: -0.0779
-+    n: 348
-+    rationale: "IC -0.078 in neutral (n=348) <= disable threshold -0.05"
++    ic: -0.1147
++    n: 259
++    rationale: "IC -0.115 in neutral (n=259) <= disable threshold -0.05"
 +
 +  - kind: signal_regime_disable
 +    signal: theme_phase_multiplier_max
 +    regime: bear
 +    factor: 0.0
-+    ic: -0.0926
-+    n: 138
-+    rationale: "IC -0.093 in bear (n=138) <= disable threshold -0.05"
++    ic: -0.1129
++    n: 101
++    rationale: "IC -0.113 in bear (n=101) <= disable threshold -0.05"
 +
 +  - kind: signal_regime_disable
 +    signal: theme_phase_multiplier_max
 +    regime: neutral
 +    factor: 0.0
-+    ic: -0.0857
-+    n: 348
-+    rationale: "IC -0.086 in neutral (n=348) <= disable threshold -0.05"
++    ic: -0.0887
++    n: 259
++    rationale: "IC -0.089 in neutral (n=259) <= disable threshold -0.05"
 ```

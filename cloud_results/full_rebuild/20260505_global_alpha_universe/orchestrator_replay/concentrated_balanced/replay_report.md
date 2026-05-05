@@ -8,9 +8,9 @@
 
 | Portfolio | CAGR | Target | MaxDD | Target | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| main_proxy | 24.73% | 25.00% | -24.12% | -20.00% | false |
-| concentrated | 31.87% | 40.00% | -25.61% | -22.00% | false |
-| unified_balanced | 20.21% | 28.00% | -18.23% | -22.00% | false |
+| main_proxy | 34.42% | 25.00% | -16.61% | -20.00% | true |
+| concentrated | 39.11% | 40.00% | -18.38% | -22.00% | false |
+| unified_balanced | 26.60% | 28.00% | -12.90% | -22.00% | false |
 
 ## Interpretation
 

@@ -13,28 +13,28 @@ Artifact-only ranking against explicit portfolio targets. Production defaults ar
 
 | Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_v2_position_aware_risk_proxy` | 38.06% | 0.00pp | -7.99% | 0.00pp | true | `target_pass_review` |
-| concentrated | `concentrated_position_risk_proxy` | 43.42% | 0.00pp | -15.58% | 0.00pp | true | `target_pass_review` |
+| main | `main_v2_position_aware_risk_proxy` | 35.95% | 0.00pp | -7.95% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_proxy` | 45.16% | 0.00pp | -19.87% | 0.00pp | true | `target_pass_review` |
 
 ## Main Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `main_v2_position_aware_risk_proxy` | 38.06% | 0.00pp | -7.99% | 0.00pp | 1.857 | true | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
-| `orchestrator_replay_main_proxy` | 24.73% | 0.27pp | -24.12% | 4.12pp | 1.306 | false | sidecar:outputs/orchestrator_replay/concentrated_balanced/metrics.json#metrics.main_proxy |
-| `experiment_E6_risk_sensing_on` | 18.47% | 6.53pp | -21.63% | 1.63pp | 1.119 | false | experiment:outputs/experiments/E6_risk_sensing_on/metrics.json |
-| `main_v2_historical_replay` | 19.65% | 5.35pp | -24.25% | 4.25pp | 0.933 | false | sidecar:outputs/main_v2_backtest/metrics.json |
-| `main_latest_champion` | 21.10% | 3.90pp | -25.90% | 5.90pp | 1.143 | false | latest_run:outputs/backtest_metrics.json |
+| `main_v2_position_aware_risk_proxy` | 35.95% | 0.00pp | -7.95% | 0.00pp | 1.771 | true | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
+| `orchestrator_replay_main_proxy` | 34.42% | 0.00pp | -16.61% | 0.00pp | 1.847 | true | sidecar:outputs/orchestrator_replay/concentrated_balanced/metrics.json#metrics.main_proxy |
+| `main_rebalance_interval_fixed_interval_I1` | 30.44% | 0.00pp | -19.05% | 0.00pp | 1.676 | true | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
+| `main_latest_champion` | 30.29% | 0.00pp | -18.90% | 0.00pp | 1.659 | true | latest_run:outputs/backtest_metrics.json |
+| `main_rebalance_interval_adaptive_I1` | 30.29% | 0.00pp | -18.90% | 0.00pp | 1.659 | true | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
 
 ## Concentrated Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `concentrated_position_risk_proxy` | 43.42% | 0.00pp | -15.58% | 0.00pp | 1.752 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
-| `experiment_E4_concentrated_balanced` | 34.85% | 5.15pp | -22.94% | 0.94pp | 1.429 | false | experiment:outputs/experiments/E4_concentrated_balanced/metrics.json |
-| `concentrated_latest_champion` | 34.99% | 5.01pp | -24.39% | 2.39pp | 1.350 | false | latest_run:outputs/concentrated_backtest_metrics.json |
-| `concentrated_grid_N4_score_power_I1` | 34.99% | 5.01pp | -24.39% | 2.39pp | 1.350 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
-| `concentrated_grid_N7_score_power_I1` | 32.44% | 7.56pp | -24.81% | 2.81pp | 1.368 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_position_risk_proxy` | 45.16% | 0.00pp | -19.87% | 0.00pp | 1.653 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
+| `concentrated_latest_champion` | 45.16% | 0.00pp | -19.87% | 0.00pp | 1.653 | true | latest_run:outputs/concentrated_backtest_metrics.json |
+| `concentrated_grid_N3_score_power_I1` | 45.16% | 0.00pp | -19.87% | 0.00pp | 1.653 | true | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N4_score_power_I1` | 43.02% | 0.00pp | -17.91% | 0.00pp | 1.749 | true | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N3_conviction_curve_I1` | 43.32% | 0.00pp | -20.36% | 0.00pp | 1.606 | true | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
 
 ## Next Actions
 
