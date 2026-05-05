@@ -665,7 +665,7 @@ jobs:
           # Symlink/copy to "latest" pointer for sync helper convenience
           rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
           cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
-          git add cloud_results/ 2>/dev/null || true
+          git add -f cloud_results/ 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
 

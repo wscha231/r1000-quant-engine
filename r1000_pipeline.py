@@ -15955,6 +15955,19 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if replay_source.empty:
             pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
         else:
+            try:
+                if "rebalance_date" in replay_source.columns:
+                    replay_source = pd.concat(
+                        [
+                            compute_portfolio_sleeve_columns(month.copy(), cfg)
+                            for _, month in replay_source.groupby("rebalance_date", sort=False)
+                        ],
+                        ignore_index=True,
+                    )
+                else:
+                    replay_source = compute_portfolio_sleeve_columns(replay_source.copy(), cfg)
+            except Exception as exc:
+                print(f"[candidate_replay_book] WARN sleeve column recompute skipped: {exc}")
             if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
                 try:
                     if "rebalance_date" in replay_source.columns:

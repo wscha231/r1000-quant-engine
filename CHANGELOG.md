@@ -185,6 +185,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local sidecar smoke used a prior run artifact whose candidate replay book did not yet contain the new overlay columns, so the new full run is required to measure the connected historical effect.
   - Monster early selection remains ticker-agnostic; example names enter only when replay/book data satisfies the shared score and risk gates.
 
+### 21:39 KST - replay-sleeve-cloud-results-fix
+
+- scope:
+  - Fix two full-run integration gaps found after run 25347845703: historical replay rows lacked recomputed sleeve engines, and ignored `cloud_results/` directories prevented reports/sidecars from being committed.
+- files:
+  - `r1000_pipeline.py` ->recomputes portfolio sleeve columns month-by-month before writing `candidate_replay_book.csv`, then applies the defensive monster overlay to those recomputed historical rows.
+  - `.github/workflows/full_rebuild_manual.yml` ->force-adds `cloud_results/` so new reports and sidecar output directories are committed despite the repository ignore rule.
+  - `CHANGELOG.md` ->records the full-run integration fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `export_outputs()` ->now builds candidate replay rows from connected sleeve engines before monster/defense overlay scoring, enabling historical Main v2/concentrated/monster replays to see nonzero future/early engine scores.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv` ->future runs should include nonzero sleeve engine scores and monster/defense columns.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/main_v2_backtest/` ->future runs should be committed with the latest cloud results.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_policy_replay/` ->future runs should be committed with the latest cloud results.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_goal_search/` ->future runs should be committed with the latest cloud results.
+- validation:
+  - `git diff --check` passed.
+  - Local Python validation was not run in the current sandbox because no Python interpreter is available; GitHub Actions full rebuild will run the repository smoke tests before the pipeline.
+- risks_or_notes:
+  - Run 25347845703 completed successfully but historical `candidate_replay_book.csv` had zero rows above the monster threshold because future/early sleeve engines were all zero in the replay book.
+  - Run 25347845703 artifacts contained the sidecars, but the cloud-results commit did not include new sidecar/report directories because `cloud_results/` is ignored unless force-added.
+
 ## 2026-05-04
 
 ### 13:48 KST - shakeout-breakdown-study
