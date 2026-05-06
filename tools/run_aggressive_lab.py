@@ -1346,6 +1346,112 @@ def run_alpha_sprint_experiment(
     return 0
 
 
+def run_lifecycle_review_experiment(
+    matrix: dict[str, Any],
+    exp: dict[str, Any],
+    baseline_run: Path,
+    outputs_root: Path,
+    gates_path: Path,
+) -> int:
+    from tools.run_monster_lifecycle_replay import replay as monster_lifecycle_replay
+    from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_replay
+
+    common = matrix.get("common", {}) or {}
+    exp_id = str(exp.get("id"))
+    out_dir = outputs_root / exp_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    artifact_status: list[dict[str, Any]] = []
+    overrides = exp.get("overrides", {}) or {}
+    policy_name = str(overrides.get("monster_lifecycle_policy") or "lifecycle_review_main")
+    candidate_book = baseline_run / "reports" / "candidate_replay_book.csv"
+    cost_bps = safe_float(common.get("trade_cost_bps_per_side"), 25.0) or 25.0
+    if bool(overrides.get("overlay_on_main_monthly_weights", False)):
+        metrics = lifecycle_overlay_replay(
+            baseline_run / "reports" / "main_monthly_weights.csv",
+            candidate_book,
+            out_dir,
+            policy_name=policy_name,
+            cost_bps=cost_bps * 2.0,
+        )
+    else:
+        metrics = monster_lifecycle_replay(candidate_book, out_dir, policy_name=policy_name, cost_bps=cost_bps * 2.0)
+    metrics.update(
+        {
+            "experiment_id": exp_id,
+            "status": metrics.get("status"),
+            "control": False,
+            "category": exp.get("category"),
+            "artifact_mode": "historical_lifecycle_review_replay",
+            "metric_mode": metrics.get("data_mode") or "historical_candidate_replay_book",
+            "backtest_executed": metrics.get("status") == "completed",
+            "production_defaults_mutable": False,
+            "production_activation_allowed": False,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "matrix_version": matrix.get("version"),
+            "policy": policy_name,
+        }
+    )
+    write_json(out_dir / "metrics.json", metrics)
+    artifact_status.append({"artifact": "metrics.json", "source": "", "status": "derived"})
+    for name in ["holdings.csv", "events.csv", "equity_curve.csv", "stress_windows.csv", "replay_report.md"]:
+        artifact_status.append(
+            {
+                "artifact": name,
+                "source": _rel(out_dir / name),
+                "status": "generated" if (out_dir / name).exists() else "missing",
+            }
+        )
+    monthly_rows = read_csv_rows(out_dir / "monthly.csv")
+    if monthly_rows:
+        write_csv_rows(out_dir / "monthly_allocations.csv", monthly_rows)
+        write_csv_rows(
+            out_dir / "turnover.csv",
+            [
+                {
+                    "rebalance_date": row.get("rebalance_date"),
+                    "turnover": row.get("turnover"),
+                    "net_return": row.get("net_return"),
+                    "cash_weight": row.get("cash_weight"),
+                    "n_positions": row.get("n_positions"),
+                }
+                for row in monthly_rows
+            ],
+        )
+        write_csv_rows(
+            out_dir / "sleeve_returns.csv",
+            [{"sleeve": policy_name, "months": len(monthly_rows), "status": metrics.get("status"), "cagr": metrics.get("cagr")}],
+        )
+        artifact_status.extend(
+            [
+                {"artifact": "monthly_allocations.csv", "source": "monthly.csv", "status": "derived"},
+                {"artifact": "turnover.csv", "source": "monthly.csv", "status": "derived"},
+                {"artifact": "sleeve_returns.csv", "source": "metrics.json", "status": "derived"},
+            ]
+        )
+    else:
+        _write_contract_placeholders(
+            out_dir,
+            common,
+            artifact_status,
+            "lifecycle review replay did not produce monthly rows",
+            skip={"equity_curve.csv", "stress_windows.csv"},
+        )
+    _trade_journal_summary(baseline_run, out_dir, artifact_status)
+    interpretation = [
+        "This challenger converts monthly rebalance into monthly lifecycle review.",
+        "It stages entry, scales confirmed winners, holds shakeouts, and exits only persistent stale/distribution behavior.",
+        "It remains research-only until it beats baseline across CAGR, MaxDD, turnover, and stress windows.",
+    ]
+    (out_dir / "experiment_report.md").write_text(
+        _render_report_only_report(metrics, artifact_status, exp, interpretation),
+        encoding="utf-8",
+    )
+    write_json(out_dir / "artifact_status.json", artifact_status)
+    _write_discovery_gate(out_dir, matrix, baseline_run, outputs_root, gates_path)
+    print(f"[lab] wrote {exp_id} lifecycle review outputs to {out_dir}")
+    return 0
+
+
 def run_kitchen_sink_experiment(
     matrix: dict[str, Any],
     exp: dict[str, Any],
@@ -1522,6 +1628,8 @@ def main() -> int:
             rc = max(rc, run_alpha_sprint_experiment(matrix, exp, baseline_run, outputs_root, gates_path))
         elif exp_id == "E9_kitchen_sink_all_on":
             rc = max(rc, run_kitchen_sink_experiment(matrix, exp, baseline_run, outputs_root, gates_path))
+        elif exp_id in {"E10_lifecycle_review_main", "E11_lifecycle_review_concentrated"}:
+            rc = max(rc, run_lifecycle_review_experiment(matrix, exp, baseline_run, outputs_root, gates_path))
         else:
             rc = max(rc, run_not_implemented(exp, outputs_root))
     return rc

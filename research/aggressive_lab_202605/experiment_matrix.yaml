@@ -233,3 +233,28 @@ experiments:
       tactical_enabled: true
       alpha_sprint_enabled: true
       merge_mode: sum_then_cap
+
+  - id: E10_lifecycle_review_main
+    description: "Main-style monthly lifecycle review: stage early leaders, hold confirmed winners, exit only persistent stale/distribution behavior."
+    category: lifecycle_review
+    production_candidate: false
+    overrides:
+      monster_lifecycle_policy: lifecycle_review_main
+      overlay_on_main_monthly_weights: true
+      monthly_review_not_monthly_churn: true
+      staged_entry: true
+      shakeout_hold: true
+      stale_patience_months: 2
+      max_single_name_weight: 0.33
+
+  - id: E11_lifecycle_review_concentrated
+    description: "Concentrated monthly lifecycle review with 5/14/32/50% staged sizing for confirmed monster leaders."
+    category: lifecycle_review
+    production_candidate: false
+    overrides:
+      monster_lifecycle_policy: lifecycle_review_concentrated
+      monthly_review_not_monthly_churn: true
+      staged_entry: true
+      shakeout_hold: true
+      stale_patience_months: 2
+      max_single_name_weight: 0.50

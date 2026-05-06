@@ -93,6 +93,18 @@ jobs:
               --latest-run "$LATEST_RUN" \
               --policy concentrated \
               --output-dir outputs/monster_lifecycle_replay
+            python tools/run_lifecycle_review_overlay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_main \
+              --output-dir outputs/lifecycle_review_overlay_main
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_main \
+              --output-dir outputs/monster_lifecycle_review_main
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST_RUN" \
+              --policy lifecycle_review_concentrated \
+              --output-dir outputs/monster_lifecycle_review_concentrated
           else
             echo "WARN: $LATEST_RUN/reports/candidate_replay_book.csv missing; skipping historical challenger replays."
           fi
@@ -119,5 +131,8 @@ jobs:
             outputs/alpha_sprint_backtest/
             outputs/position_aware_risk_replay/
             outputs/monster_lifecycle_replay/
+            outputs/lifecycle_review_overlay_main/
+            outputs/monster_lifecycle_review_main/
+            outputs/monster_lifecycle_review_concentrated/
             outputs/autolearning_winner_challenger/
           retention-days: 90

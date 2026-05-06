@@ -389,6 +389,30 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         valid_for_production=False,
         notes="Research-only monster lifecycle replay; useful for drawdown control discovery.",
     )
+    main += candidate_from_json(
+        latest_run / "lifecycle_review_overlay_main" / "metrics.json",
+        portfolio="main",
+        candidate_id="lifecycle_review_overlay_main",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only overlay on production monthly picks: monthly lifecycle review instead of monthly churn.",
+    )
+    main += candidate_from_json(
+        latest_run / "monster_lifecycle_review_main" / "metrics.json",
+        portfolio="main",
+        candidate_id="monster_lifecycle_review_main",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only monthly lifecycle review: staged entry, long-hold winners, shakeout hold, stale-leader exits.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "monster_lifecycle_review_concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="monster_lifecycle_review_concentrated",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only concentrated lifecycle review with staged 5/14/32/50% sizing and stale-leader patience.",
+    )
     orch_main, orch_concentrated = candidates_from_orchestrator_replay(
         latest_run / "orchestrator_replay" / "concentrated_balanced" / "metrics.json"
     )

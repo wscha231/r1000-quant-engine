@@ -50,6 +50,40 @@ POLICIES = {
         "min_entry_score": 0.58,
         "capacity": 1.0,
     },
+    "lifecycle_review_main": {
+        "max_single_name_weight": 0.33,
+        "max_total_positions": 12,
+        "max_new_scouts_per_month": 3,
+        "scout_weight": 0.030,
+        "confirm_weight": 0.080,
+        "winner_weight": 0.180,
+        "monster_weight": 0.330,
+        "min_entry_score": 0.60,
+        "capacity": 1.0,
+        "entry_requires_leadership": True,
+        "min_entry_leadership": 0.34,
+        "min_entry_growth": 0.10,
+        "max_entry_distribution_risk": 0.78,
+        "min_mcap": 10_000_000_000,
+        "scout_timeout_months": 4,
+        "scout_timeout_min_return": 0.04,
+        "scout_timeout_min_score": 0.62,
+        "stale_patience_months": 2,
+        "stale_score_threshold": 0.36,
+        "hard_peak_drawdown": -0.34,
+        "shakeout_hold_score": 0.54,
+        "distribution_exit_risk": 0.78,
+        "distribution_trim_risk": 0.68,
+        "trim_scale": 0.50,
+        "confirm_score": 0.72,
+        "confirm_return": 0.10,
+        "confirm_after_months": 3,
+        "confirm_after_months_score": 0.64,
+        "winner_score": 0.82,
+        "winner_return": 0.32,
+        "monster_score": 0.94,
+        "monster_return": 1.00,
+    },
     "concentrated": {
         "max_single_name_weight": 0.50,
         "max_total_positions": 8,
@@ -60,6 +94,40 @@ POLICIES = {
         "monster_weight": 0.500,
         "min_entry_score": 0.62,
         "capacity": 1.0,
+    },
+    "lifecycle_review_concentrated": {
+        "max_single_name_weight": 0.50,
+        "max_total_positions": 7,
+        "max_new_scouts_per_month": 3,
+        "scout_weight": 0.050,
+        "confirm_weight": 0.140,
+        "winner_weight": 0.320,
+        "monster_weight": 0.500,
+        "min_entry_score": 0.64,
+        "capacity": 1.0,
+        "entry_requires_leadership": True,
+        "min_entry_leadership": 0.38,
+        "min_entry_growth": 0.12,
+        "max_entry_distribution_risk": 0.74,
+        "min_mcap": 10_000_000_000,
+        "scout_timeout_months": 4,
+        "scout_timeout_min_return": 0.06,
+        "scout_timeout_min_score": 0.66,
+        "stale_patience_months": 2,
+        "stale_score_threshold": 0.38,
+        "hard_peak_drawdown": -0.32,
+        "shakeout_hold_score": 0.56,
+        "distribution_exit_risk": 0.76,
+        "distribution_trim_risk": 0.66,
+        "trim_scale": 0.45,
+        "confirm_score": 0.75,
+        "confirm_return": 0.12,
+        "confirm_after_months": 2,
+        "confirm_after_months_score": 0.68,
+        "winner_score": 0.84,
+        "winner_return": 0.35,
+        "monster_score": 0.94,
+        "monster_return": 0.95,
     },
 }
 
@@ -85,6 +153,67 @@ def liquidity_pass(row: dict[str, Any]) -> bool:
 
 def trend_ok(row: dict[str, Any]) -> bool:
     return safe_float(row.get("price_above_ma50")) > 0 and safe_float(row.get("price_above_ma200")) > 0
+
+
+def distribution_risk_score(row: dict[str, Any]) -> float:
+    return max(
+        max(safe_float(row.get("explosion_exit_score")), 0.0),
+        max(safe_float(row.get("stage2_overext_penalty")), 0.0),
+        max(safe_float(row.get("risk_penalty")), 0.0),
+        max(safe_float(row.get("live_event_risk_score")), 0.0),
+        max(safe_float(row.get("overheat_penalty")), 0.0),
+    )
+
+
+def technical_leadership_signal(row: dict[str, Any]) -> float:
+    rs = safe_float(row.get("rs_acceleration_score"), 0.0)
+    return max(
+        safe_float(row.get("portfolio_monster_early_score"), 0.0),
+        safe_float(row.get("breakout_setup_quality_score"), 0.0),
+        safe_float(row.get("post_breakout_hold_score"), 0.0),
+        safe_float(row.get("h6_dynamic_leader_score"), 0.0),
+        safe_float(row.get("oneil_leadership_score"), 0.0),
+        min(max(rs / 2.0, 0.0), 1.0),
+    )
+
+
+def leadership_signal(row: dict[str, Any]) -> float:
+    return max(
+        technical_leadership_signal(row),
+        safe_float(row.get("industry_group_strength_score"), 0.0),
+    )
+
+
+def growth_signal(row: dict[str, Any]) -> float:
+    return max(
+        safe_float(row.get("revenue_growth_final"), 0.0),
+        safe_float(row.get("rev_growth_accel_4q"), 0.0),
+        safe_float(row.get("profitability_inflection_score"), 0.0),
+        safe_float(row.get("cashflow_inflection_under_loss_score"), 0.0),
+        max_col(row, ("eps_revision_score", "revision_score", "eps_revision_proxy")),
+    )
+
+
+def entry_qualified(row: dict[str, Any], score: float, policy: dict[str, Any]) -> bool:
+    if score < safe_float(policy.get("min_entry_score")):
+        return False
+    if not liquidity_pass(row) or not trend_ok(row):
+        return False
+    if max_col(row, ("market_cap_live", "mktcap")) < safe_float(policy.get("min_mcap"), 5_000_000_000):
+        return False
+    if distribution_risk_score(row) >= safe_float(policy.get("max_entry_distribution_risk"), 0.85):
+        return False
+    if not bool(policy.get("entry_requires_leadership", False)):
+        return True
+    technical_leadership = technical_leadership_signal(row)
+    broad_leadership = leadership_signal(row)
+    growth = growth_signal(row)
+    monster_override = safe_float(row.get("portfolio_monster_early_score"), 0.0) >= safe_float(policy.get("min_entry_leadership"), 0.0) + 0.08
+    return (
+        technical_leadership >= safe_float(policy.get("min_entry_leadership"), 0.0)
+        or (broad_leadership >= safe_float(policy.get("min_entry_leadership"), 0.0) and growth >= safe_float(policy.get("min_entry_growth"), 0.0))
+        or monster_override
+    )
 
 
 def monster_onset_score(row: dict[str, Any]) -> float:
@@ -120,11 +249,11 @@ def monster_onset_score(row: dict[str, Any]) -> float:
         + 0.06 * safe_float(row.get("multi_year_winner_score"))
     )
     risk = (
-        0.22 * safe_float(row.get("risk_penalty"))
-        + 0.24 * safe_float(row.get("stage2_overext_penalty"))
-        + 0.24 * safe_float(row.get("explosion_exit_score"))
-        + 0.18 * safe_float(row.get("live_event_risk_score"))
-        + 0.08 * safe_float(row.get("overheat_penalty"))
+        0.22 * max(safe_float(row.get("risk_penalty")), 0.0)
+        + 0.24 * max(safe_float(row.get("stage2_overext_penalty")), 0.0)
+        + 0.24 * max(safe_float(row.get("explosion_exit_score")), 0.0)
+        + 0.18 * max(safe_float(row.get("live_event_risk_score")), 0.0)
+        + 0.08 * max(safe_float(row.get("overheat_penalty")), 0.0)
     )
     score = technical + fundamental + leadership + 0.35 * portfolio_monster - risk - 0.15 * portfolio_block
     if turn_positive:
@@ -136,34 +265,61 @@ def monster_onset_score(row: dict[str, Any]) -> float:
     return float(score)
 
 
-def classify_exit(row: dict[str, Any], last_return: float, cum_return: float, peak_return: float) -> tuple[str, str]:
+def classify_exit(
+    row: dict[str, Any],
+    last_return: float,
+    cum_return: float,
+    peak_return: float,
+    pos: dict[str, Any],
+    policy: dict[str, Any],
+) -> tuple[str, str, int]:
     """Distinguish shakeout from distribution using available monthly signals."""
     score = monster_onset_score(row)
     drawdown_from_peak = (1.0 + cum_return) / max(1.0 + peak_return, 1e-8) - 1.0
-    distribution_risk = max(
-        safe_float(row.get("explosion_exit_score")),
-        safe_float(row.get("stage2_overext_penalty")),
-        safe_float(row.get("risk_penalty")),
-        safe_float(row.get("live_event_risk_score")),
-    )
+    distribution_risk = distribution_risk_score(row)
     rs = safe_float(row.get("rs_acceleration_score"))
-    if last_return <= -0.18 and distribution_risk >= 0.70 and rs < 0:
-        return "exit", "distribution_breakdown"
-    if drawdown_from_peak <= -0.22 and score < 0.45:
-        return "exit", "failed_recovery_after_peak"
-    if last_return <= -0.12 and score >= 0.62 and trend_ok(row):
-        return "hold", "shakeout_hold"
-    if distribution_risk >= 0.90:
-        return "trim", "distribution_trim"
-    return "hold", "hold"
+    stage = str(pos.get("stage", "scout"))
+    months_held = int(pos.get("months_held", 0))
+    bad_months = int(pos.get("bad_months", 0))
+    weak_trend = not trend_ok(row)
+    stale_signal = (
+        score < safe_float(policy.get("stale_score_threshold"), 0.42)
+        or (weak_trend and rs < 0.0)
+        or (drawdown_from_peak <= -0.18 and score < safe_float(policy.get("shakeout_hold_score"), 0.58))
+    )
+    next_bad_months = bad_months + 1 if stale_signal else 0
+
+    if last_return <= -0.18 and distribution_risk >= safe_float(policy.get("distribution_exit_risk"), 0.78) and rs < 0 and weak_trend:
+        return "exit", "distribution_breakdown", next_bad_months
+    if drawdown_from_peak <= safe_float(policy.get("hard_peak_drawdown"), -0.34) and score < safe_float(policy.get("shakeout_hold_score"), 0.58):
+        return "exit", "failed_recovery_after_peak", next_bad_months
+    if last_return <= -0.12 and score >= safe_float(policy.get("shakeout_hold_score"), 0.58) and trend_ok(row):
+        return "hold", "shakeout_hold", 0
+    if (
+        stage == "scout"
+        and months_held >= int(safe_float(policy.get("scout_timeout_months"), 5))
+        and cum_return < safe_float(policy.get("scout_timeout_min_return"), 0.04)
+        and score < safe_float(policy.get("scout_timeout_min_score"), 0.62)
+    ):
+        return "exit", "failed_scout_timeout", next_bad_months
+    if next_bad_months >= int(safe_float(policy.get("stale_patience_months"), 2)):
+        return "exit", "stale_leader_review_exit", next_bad_months
+    if distribution_risk >= safe_float(policy.get("distribution_trim_risk"), 0.68):
+        return "trim", "distribution_trim", next_bad_months
+    return "hold", "hold" if next_bad_months == 0 else "watch_stale", next_bad_months
 
 
-def next_stage(stage: str, score: float, cum_return: float, months_held: int) -> str:
-    if stage == "scout" and (score >= 0.72 or cum_return >= 0.12 or months_held >= 2 and score >= 0.65):
+def next_stage(stage: str, score: float, cum_return: float, months_held: int, policy: dict[str, Any]) -> str:
+    if stage == "scout" and (
+        score >= safe_float(policy.get("confirm_score"), 0.72)
+        or cum_return >= safe_float(policy.get("confirm_return"), 0.12)
+        or months_held >= int(safe_float(policy.get("confirm_after_months"), 2))
+        and score >= safe_float(policy.get("confirm_after_months_score"), 0.65)
+    ):
         return "confirm"
-    if stage == "confirm" and (score >= 0.82 or cum_return >= 0.35):
+    if stage == "confirm" and (score >= safe_float(policy.get("winner_score"), 0.82) or cum_return >= safe_float(policy.get("winner_return"), 0.35)):
         return "winner"
-    if stage == "winner" and (score >= 0.92 or cum_return >= 1.00):
+    if stage == "winner" and (score >= safe_float(policy.get("monster_score"), 0.92) or cum_return >= safe_float(policy.get("monster_return"), 1.00)):
         return "monster"
     return stage
 
@@ -221,15 +377,22 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                 continue
             cum_before = safe_float(pos.get("cum_return"))
             peak_before = safe_float(pos.get("peak_return"))
-            action, reason = classify_exit(row, safe_float(pos.get("last_return"), 0.0), cum_before, peak_before)
+            action, reason, next_bad_months = classify_exit(
+                row,
+                safe_float(pos.get("last_return"), 0.0),
+                cum_before,
+                peak_before,
+                pos,
+                policy,
+            )
             if action == "exit":
                 event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": action, "reason": reason, "stage": pos.get("stage")})
                 continue
             score = monster_onset_score(row)
-            stage = next_stage(str(pos.get("stage", "scout")), score, cum_before, int(pos.get("months_held", 0)))
+            stage = next_stage(str(pos.get("stage", "scout")), score, cum_before, int(pos.get("months_held", 0)), policy)
             weight = stage_weight(stage, policy)
             if action == "trim":
-                weight *= 0.5
+                weight *= safe_float(policy.get("trim_scale"), 0.5)
             raw_weights[ticker] = weight
             active_state[ticker] = {
                 "stage": stage,
@@ -238,8 +401,20 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                 "months_held": int(pos.get("months_held", 0)),
                 "last_score": score,
                 "last_return": safe_float(pos.get("last_return"), 0.0),
+                "bad_months": next_bad_months,
             }
-            event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": action, "reason": reason, "stage": stage})
+            event_rows.append(
+                {
+                    "rebalance_date": dt,
+                    "ticker": ticker,
+                    "action": action,
+                    "reason": reason,
+                    "stage": stage,
+                    "score": score,
+                    "bad_months": next_bad_months,
+                    "distribution_risk": distribution_risk_score(row),
+                }
+            )
 
         # Add new scouts from broad candidate book.
         slots = max(0, int(policy["max_total_positions"]) - len(active_state))
@@ -251,7 +426,7 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                 if ticker in active_state:
                     continue
                 score = monster_onset_score(row)
-                if score >= safe_float(policy.get("min_entry_score")) and liquidity_pass(row) and trend_ok(row):
+                if entry_qualified(row, score, policy):
                     item = dict(row)
                     item["monster_onset_score"] = score
                     candidates.append(item)
@@ -266,8 +441,20 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "months_held": 0,
                     "last_score": safe_float(row.get("monster_onset_score")),
                     "last_return": 0.0,
+                    "bad_months": 0,
                 }
-                event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": "enter", "reason": "monster_scout", "stage": "scout"})
+                event_rows.append(
+                    {
+                        "rebalance_date": dt,
+                        "ticker": ticker,
+                        "action": "enter",
+                        "reason": "monster_scout",
+                        "stage": "scout",
+                        "score": safe_float(row.get("monster_onset_score")),
+                        "bad_months": 0,
+                        "distribution_risk": distribution_risk_score(row),
+                    }
+                )
 
         weights = normalize_weights(raw_weights, safe_float(policy.get("capacity"), 1.0), safe_float(policy.get("max_single_name_weight"), 0.33))
         month_turnover = turnover(prev_weights, weights)
@@ -287,6 +474,7 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                 "months_held": int(pos.get("months_held", 0)) + 1,
                 "last_score": safe_float(pos.get("last_score")),
                 "last_return": ret,
+                "bad_months": int(pos.get("bad_months", 0)),
             }
             gross_return += weight * ret
         cost = month_turnover * (cost_bps / 10000.0)
@@ -321,16 +509,21 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "cum_return": pos.get("cum_return"),
                     "peak_return": pos.get("peak_return"),
                     "months_held": pos.get("months_held"),
+                    "bad_months": pos.get("bad_months"),
                     "period_forward_return": ret,
                     "weighted_forward_return": weight * ret,
                     "sector": row.get("sector", ""),
                     "industry_group": row.get("industry_group", ""),
+                    "technical_leadership_signal": technical_leadership_signal(row),
+                    "leadership_signal": leadership_signal(row),
+                    "growth_signal": growth_signal(row),
                     "rs_acceleration_score": row.get("rs_acceleration_score", ""),
                     "revenue_growth_final": row.get("revenue_growth_final", ""),
                     "revision_score": max_col(row, ("eps_revision_score", "revision_score", "eps_revision_proxy")),
                     "portfolio_monster_early_score": row.get("portfolio_monster_early_score", ""),
                     "portfolio_risk_entry_block_score": row.get("portfolio_risk_entry_block_score", ""),
                     "portfolio_defensive_rotation_action": row.get("portfolio_defensive_rotation_action", ""),
+                    "distribution_risk_score": distribution_risk_score(row),
                     "explosion_exit_score": row.get("explosion_exit_score", ""),
                     "stage2_overext_penalty": row.get("stage2_overext_penalty", ""),
                 }
@@ -351,6 +544,11 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
             "avg_cash_weight": sum(safe_float(row.get("cash_weight")) for row in monthly_rows) / max(len(monthly_rows), 1),
             "avg_turnover_monthly": sum(safe_float(row.get("turnover")) for row in monthly_rows) / max(len(monthly_rows), 1),
             "max_single_name_weight": policy["max_single_name_weight"],
+            "max_new_scouts_per_month": policy["max_new_scouts_per_month"],
+            "max_total_positions": policy["max_total_positions"],
+            "entry_requires_leadership": bool(policy.get("entry_requires_leadership", False)),
+            "stale_patience_months": policy.get("stale_patience_months"),
+            "scout_timeout_months": policy.get("scout_timeout_months"),
             "research_only": True,
             "production_activation_allowed": False,
         }
@@ -376,6 +574,10 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Policy: `{metrics.get('policy')}`",
             f"- Status: `{metrics.get('status')}`",
             f"- Max single-name weight: {safe_float(metrics.get('max_single_name_weight')):.2%}",
+            f"- Max positions: {int(safe_float(metrics.get('max_total_positions'), 0))}",
+            f"- Max new scouts/month: {int(safe_float(metrics.get('max_new_scouts_per_month'), 0))}",
+            f"- Entry requires leadership/growth: `{bool(metrics.get('entry_requires_leadership'))}`",
+            f"- Stale patience months: {metrics.get('stale_patience_months')}",
             f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",

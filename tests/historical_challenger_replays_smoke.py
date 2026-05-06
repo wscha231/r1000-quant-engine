@@ -15,6 +15,7 @@ from tools.run_alpha_sprint_backtest import replay as alpha_replay  # noqa: E402
 from tools.run_concentrated_policy_replay import replay as concentrated_replay  # noqa: E402
 from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
 from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
+from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_replay  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
 
@@ -171,25 +172,51 @@ def write_candidate_book(path: Path) -> None:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
+def write_monthly_weights(path: Path) -> None:
+    fieldnames = ["rebalance_date", "ticker", "weight", "period_forward_return", "cash_target"]
+    rows = [
+        {"rebalance_date": "2024-01-31", "ticker": "AAA", "weight": 0.30, "period_forward_return": 0.08, "cash_target": 0.0},
+        {"rebalance_date": "2024-01-31", "ticker": "BBB", "weight": 0.20, "period_forward_return": 0.02, "cash_target": 0.0},
+        {"rebalance_date": "2024-02-29", "ticker": "AAA", "weight": 0.28, "period_forward_return": -0.04, "cash_target": 0.0},
+        {"rebalance_date": "2024-02-29", "ticker": "BBB", "weight": 0.20, "period_forward_return": 0.02, "cash_target": 0.0},
+        {"rebalance_date": "2024-03-31", "ticker": "AAA", "weight": 0.28, "period_forward_return": 0.12, "cash_target": 0.0},
+        {"rebalance_date": "2024-03-31", "ticker": "BBB", "weight": 0.20, "period_forward_return": 0.02, "cash_target": 0.0},
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def test_historical_challenger_replays() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         book = root / "candidate_replay_book.csv"
+        monthly_weights = root / "main_monthly_weights.csv"
         write_candidate_book(book)
+        write_monthly_weights(monthly_weights)
         main_metrics = main_v2_replay(book, root / "main_v2", cost_bps=0.0)
         concentrated_metrics = concentrated_replay(book, root / "conc", [3, 5], [0.25, 0.50], cost_bps=0.0)
         alpha_metrics = alpha_replay(book, root / "alpha", cost_bps=0.0, allow_neutral=False)
         risk_metrics = risk_replay(root / "main_v2" / "monthly_holdings.csv", root / "risk", hard_stop=-0.08, trailing_stop=-0.15)
         monster_metrics = monster_replay(book, root / "monster", policy_name="concentrated", cost_bps=0.0)
+        lifecycle_review_metrics = monster_replay(book, root / "monster_review", policy_name="lifecycle_review_concentrated", cost_bps=0.0)
+        overlay_metrics = lifecycle_overlay_replay(monthly_weights, book, root / "overlay", policy_name="lifecycle_review_main", cost_bps=0.0)
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
         assert alpha_metrics["status"] in {"completed", "inactive_no_bull_months_or_candidates"}
         assert risk_metrics["status"] == "completed"
         assert monster_metrics["status"] == "completed"
+        assert lifecycle_review_metrics["status"] == "completed"
+        assert overlay_metrics["status"] == "completed"
+        assert lifecycle_review_metrics["entry_requires_leadership"]
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
         assert (root / "risk" / "actions.csv").exists()
         assert (root / "monster" / "events.csv").exists()
+        assert (root / "monster_review" / "events.csv").exists()
+        assert (root / "overlay" / "holdings.csv").exists()
         with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
             assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:
