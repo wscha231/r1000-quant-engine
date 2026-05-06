@@ -123,6 +123,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - This does not hardcode example tickers into selection; examples enter only if their source, price, liquidity, market-cap, leadership, and risk data pass.
   - Broader universe candidates can change production selection and must be measured by full rebuild before merging to production.
 
+### 11:15 KST - stale-trim-confirmation-fix
+
+- scope:
+  - Tighten the broad stale-leader trim pre-run review so `portfolio_stale_leader_require_broken_ma=True` actually requires a moving-average or trend-template break.
+- files:
+  - `r1000_signals.py` ->changes broad stale-leader confirmation from weak group/leadership OR logic to explicit broken-price confirmation when required.
+  - `tests/smoke_test.py` ->extends the stale-leader regression fixture with a weak but unbroken core leader that must not be trimmed.
+  - `CHANGELOG.md` ->records the pre-run confirmation fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `compute_defensive_monster_rotation_overlay()` ->honors `portfolio_stale_leader_require_broken_ma` as a true confirmation gate.
+  - `test_defensive_rotation_trims_stale_broad_leaders()` ->adds a no-break negative control.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - synthetic `build_candidate_universe()` source-merge smoke ->passed with IWB+S&P/Nasdaq rescue source preservation.
+  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed: 82/82.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - Without this fix, broad stale trim could reduce old leaders on weak relative/industry data even before a price-trend break, which was more aggressive than the config name promised.
+
 ### 03:01 KST - managed-position-risk-activation
 
 - scope:

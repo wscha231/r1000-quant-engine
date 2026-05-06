@@ -2827,16 +2827,17 @@ def compute_defensive_monster_rotation_overlay(
         numeric_series_or_default(d, "industry_group_strength_score", 0.0)
         <= float(getattr(cfg, "portfolio_stale_leader_group_strength_max", 0.0))
     )
-    stale_broad_confirm = price_broken if bool(getattr(cfg, "portfolio_stale_leader_require_broken_ma", True)) else (
-        price_broken | group_weak
-    )
+    if bool(getattr(cfg, "portfolio_stale_leader_require_broken_ma", True)):
+        stale_broad_confirm = price_broken
+    else:
+        stale_broad_confirm = price_broken | group_weak | (oneil <= 0.0)
     stale_broad_mask = (
         labels.eq("core_compounder")
         & (mcap >= float(getattr(cfg, "portfolio_stale_leader_mcap_min", 100_000_000_000.0)))
         & (rs_accel <= float(getattr(cfg, "portfolio_stale_leader_rs_accel_max", -0.50)))
         & (rs_level <= float(getattr(cfg, "portfolio_stale_leader_rs_level_max", 1.25)))
         & (numeric_series_or_default(d, "near_52w_high_pct", 0.0) <= float(getattr(cfg, "portfolio_stale_leader_near_high_max", -0.08)))
-        & (stale_broad_confirm | group_weak | (oneil <= 0.0))
+        & stale_broad_confirm
         & (d["portfolio_monster_early_score"] < float(getattr(cfg, "portfolio_monster_early_min_score", 0.58)))
     )
     stale_mask = stale_mega_mask | stale_broad_mask
