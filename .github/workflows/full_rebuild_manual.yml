@@ -39,6 +39,14 @@ on:
         description: 'fast_mode=True (5 backtests, 2-3h total) vs False (FULL, 5-6h, may timeout)'
         type: boolean
         default: true
+      leader_rescue_mode:
+        description: 'leader rescue validation: latest_only=PIT-safe default, full_proxy=research/survivorship proxy, off=control'
+        type: choice
+        options:
+          - latest_only
+          - full_proxy
+          - off
+        default: latest_only
       cache_key_suffix:
         description: 'optional cache key suffix (e.g. "phase14-baseline" to keep separate caches)'
         type: string
@@ -176,6 +184,7 @@ jobs:
           # Per Phase 14 wiring + Phase 1 backtest validation
           UNIVERSE_MODE: ${{ inputs.universe_mode }}
           BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
         run: |
           set -e
@@ -236,12 +245,13 @@ jobs:
           echo "  cache_present:    $CACHE_PRESENT"
           echo "  fast_mode:        $FAST_MODE_FLAG"
           echo "  backtest_years:   $BACKTEST_YEARS"
+          echo "  leader_rescue:    $LEADER_RESCUE_MODE"
           echo "  ENGINE_REUSE_VERSION: $(python -c 'from r1000_config import ENGINE_REUSE_VERSION; print(ENGINE_REUSE_VERSION)')"
           echo "=========================================="
 
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
-          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
       - name: Verdict (Cell E equivalent)
         if: always()
@@ -296,6 +306,9 @@ jobs:
             outputs/reports/regime_by_month.csv
             outputs/reports/sleeve_returns_by_month.csv
             outputs/reports/candidate_replay_book.csv
+            outputs/reports/leader_drop_diagnostics_*.csv
+            outputs/reports/leader_drop_diagnostics_summary.json
+            outputs/reports/leader_rescue_backtest_filter_summary.json
             outputs/trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/

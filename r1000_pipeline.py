@@ -1483,6 +1483,8 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("target_36m_days must be greater than target_24m_days.")
     if cfg.default_backtest_years < 1:
         raise ValueError("default_backtest_years must be >= 1.")
+    if str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")).strip() not in {"latest_only", "full_proxy", "off"}:
+        raise ValueError("leader_rescue_backtest_mode must be one of: latest_only, full_proxy, off.")
     if not cfg.backtest_window_comparison_years:
         raise ValueError("backtest_window_comparison_years must not be empty.")
     if any(int(x) < 1 for x in cfg.backtest_window_comparison_years):
@@ -3729,6 +3731,99 @@ def write_leader_drop_diagnostics(
         f"top_reasons={dict(list(summary['reason_counts'].items())[:4])}"
     )
     return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+
+def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows added only by broad current leader-rescue lists.
+
+    If a ticker is also in the base IWB/current proxy, historical membership,
+    ADR whitelist, cycle whitelist, or the legacy explicit Wikipedia source,
+    keep that base justification. This filter only removes incremental rescue
+    rows that would otherwise use today's S&P/Nasdaq constituents throughout
+    historical backtests.
+    """
+    source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
+    has_rescue = source.str.contains("leader_rescue_", regex=False)
+    has_base = (
+        source.str.contains("historical_membership_file", regex=False)
+        | source.str.contains("current_constituents_proxy", regex=False)
+        | source.str.contains("adr_whitelist", regex=False)
+        | source.str.contains("cycle_play_whitelist", regex=False)
+        | source.str.contains("sp500_proxy", regex=False)
+        | source.str.contains("nasdaq100_proxy", regex=False)
+    )
+    return has_rescue & (~has_base)
+
+
+def apply_leader_rescue_backtest_mode_filter(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    monthly: pd.DataFrame,
+) -> pd.DataFrame:
+    """Apply PIT-safe validation mode for leader-rescue-only candidates.
+
+    Modes:
+      - latest_only: use rescue-only rows for latest recommendations and
+        diagnostics, but drop them from historical OOS months.
+      - full_proxy: keep rescue-only rows historically; research/proxy only.
+      - off: drop rescue-only rows from all months.
+    """
+    summary_path = paths["reports"] / "leader_rescue_backtest_filter_summary.json"
+    if monthly is None or monthly.empty or "rebalance_date" not in monthly.columns:
+        summary_path.write_text(json.dumps({"mode": "empty", "rows_before": 0, "rows_after": 0}, indent=2), encoding="utf-8")
+        return monthly
+
+    mode = str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")).strip() or "latest_only"
+    if not bool(getattr(cfg, "leader_rescue_universe_enabled", True)):
+        mode = "off"
+    if mode not in {"latest_only", "full_proxy", "off"}:
+        mode = "latest_only"
+
+    d = monthly.copy()
+    dates = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    latest_dt = dates.max()
+    rescue_only = _leader_rescue_only_source_mask(d)
+    rows_before = int(len(d))
+    rescue_rows_before = int(rescue_only.sum())
+    dropped = pd.Series(False, index=d.index)
+    if mode == "off":
+        dropped = rescue_only
+    elif mode == "latest_only" and pd.notna(latest_dt):
+        dropped = rescue_only & dates.lt(latest_dt)
+    elif mode == "full_proxy":
+        dropped = pd.Series(False, index=d.index)
+
+    out = d.loc[~dropped].copy()
+    rescue_latest_kept = 0
+    if pd.notna(latest_dt):
+        out_dates = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        rescue_latest_kept = int((_leader_rescue_only_source_mask(out) & out_dates.eq(latest_dt)).sum())
+
+    summary = {
+        "mode": mode,
+        "rows_before": rows_before,
+        "rows_after": int(len(out)),
+        "rescue_only_rows_before": rescue_rows_before,
+        "rescue_only_rows_dropped": int(dropped.sum()),
+        "rescue_only_latest_rows_kept": rescue_latest_kept,
+        "latest_rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+        "source_counts_after": (
+            out.get("universe_source", pd.Series(dtype=str)).fillna("").astype(str).value_counts().head(20).astype(int).to_dict()
+            if not out.empty
+            else {}
+        ),
+        "pit_safety_note": (
+            "latest_only keeps broad current rescue names out of historical OOS months; "
+            "full_proxy intentionally allows a survivorship-biased research challenger."
+        ),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    log(
+        "Leader rescue backtest mode: "
+        f"mode={mode}, rescue_only_before={rescue_rows_before}, dropped={int(dropped.sum())}, "
+        f"latest_kept={rescue_latest_kept}"
+    )
+    return out
 
 
 def save_px(paths: dict[str, Path], ticker: str, df: pd.DataFrame) -> None:
@@ -6970,6 +7065,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         monthly["universe_source"] = "historical_membership_file" if not hist_membership.empty else "current_constituents_proxy"
     if not hist_membership.empty:
         monthly = apply_historical_membership_filter(monthly, hist_membership)
+    monthly = apply_leader_rescue_backtest_mode_filter(cfg, paths, monthly)
     monthly = asof_join_fundamentals(monthly, panel, cfg.fund_ttm_fallback_max_age_days)
     monthly = merge_trend_features_into_monthly(monthly, trend_panel)
     monthly = attach_fund_panel_join_diagnostics(monthly, panel)
@@ -7995,6 +8091,9 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "label_notna": int((fs["r_1m"].notna() | fs["r_3m"].notna() | fs["r_6m"].notna()).sum()),
                 "mktcap_notna": int(fs["mktcap"].notna().sum()),
                 "universe_mode": summarize_universe_source(fs),
+                "leader_rescue_backtest_mode": str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")),
+                "leader_rescue_universe_enabled": bool(getattr(cfg, "leader_rescue_universe_enabled", True)),
+                "leader_rescue_only_rows": int(_leader_rescue_only_source_mask(fs).sum()) if "universe_source" in fs.columns else 0,
             },
             indent=2,
         )
@@ -17602,6 +17701,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "ending_capital_usd": float(bt.metrics.get("ending_capital_usd", np.nan)),
         "benchmark_ending_capital_usd": float(bt.metrics.get("benchmark_ending_capital_usd", np.nan)),
         "universe_mode": summarize_universe_source(scored_latest),
+        "leader_rescue_universe_enabled": bool(getattr(cfg, "leader_rescue_universe_enabled", True)),
+        "leader_rescue_backtest_mode": str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")),
         "portfolio_export_blocked": portfolio_export_blocked,
         "metrics": bt.metrics,
         "benchmark_comparison": benchmark_compare,

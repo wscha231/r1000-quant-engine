@@ -1946,6 +1946,7 @@ class EngineConfig:
     leader_rescue_universe_enabled: bool = True
     leader_rescue_include_sp500: bool = True
     leader_rescue_include_nasdaq100: bool = True
+    leader_rescue_backtest_mode: str = "latest_only"  # latest_only | full_proxy | off
     leader_rescue_diagnostics_enabled: bool = True
     leader_rescue_price_stale_days: int = 14
     w_quality_trend: float = 0.20

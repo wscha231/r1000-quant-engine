@@ -151,6 +151,44 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Without this fix, broad stale trim could reduce old leaders on weak relative/industry data even before a price-trend break, which was more aggressive than the config name promised.
 
+### 11:50 KST - leader-rescue-validation-modes
+
+- scope:
+  - Make leader-rescue verification possible by separating PIT-safer latest-only use from intentionally biased full-proxy research A/B runs.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds `leader_rescue_mode` workflow input, passes it to `run_local.py`, and uploads leader-rescue diagnostics.
+  - `run_local.py` ->adds `--leader-rescue-mode` / `LEADER_RESCUE_MODE` runtime override wiring.
+  - `r1000_config.py` ->adds `leader_rescue_backtest_mode`.
+  - `r1000_pipeline.py` ->adds rescue-only historical filtering, filter summary output, config validation, and run-summary metadata.
+  - `CHANGELOG.md` ->records the validation-mode change.
+- symbols_added:
+  - `resolve_leader_rescue_mode(raw)` ->resolves CLI/env leader-rescue validation mode.
+  - `_leader_rescue_only_source_mask(df)` ->detects candidates added only by broad leader-rescue sources.
+  - `apply_leader_rescue_backtest_mode_filter(cfg, paths, monthly)` ->drops rescue-only historical rows in `latest_only`, keeps them in `full_proxy`, or drops them entirely in `off`.
+- symbols_changed:
+  - `parse_args()` ->adds `--leader-rescue-mode`.
+  - `main()` ->passes leader-rescue runtime overrides into collector and pipeline configs.
+  - `validate_config()` ->rejects invalid `leader_rescue_backtest_mode` values.
+  - `build_universe_monthly()` ->applies the leader-rescue backtest-mode filter before fundamentals and feature computation.
+  - `build_feature_store()` ->records leader-rescue mode and rescue-only row count in `feature_store_quality.json`.
+  - `export_outputs()` ->records leader-rescue mode in `run_summary.json`.
+- config_fields_added:
+  - `leader_rescue_backtest_mode: str = "latest_only"` ->PIT-safer default that keeps rescue-only rows out of historical OOS months.
+- breaking_changes:
+  - Default leader-rescue behavior changes from full historical proxy to `latest_only`, so rescue-only candidates affect latest recommendations/diagnostics but not historical backtest metrics unless `full_proxy` is selected.
+- outputs:
+  - `outputs/reports/leader_rescue_backtest_filter_summary.json` ->documents mode, rescue-only rows dropped, and latest rescue-only rows kept.
+- validation:
+  - `py -3 -m py_compile run_local.py r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - synthetic `apply_leader_rescue_backtest_mode_filter()` mode smoke ->passed for `latest_only`, `full_proxy`, and `off`.
+  - `py -3 run_local.py --help | Select-String -Pattern "leader-rescue-mode"` ->passed.
+  - workflow YAML parse smoke ->passed with `leader_rescue_mode` default `latest_only`.
+  - `py -3 tests\smoke_test.py` ->passed: 83/83.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - `full_proxy` is deliberately research-only because it uses today's broad index constituents historically.
+  - `latest_only` still does not solve all baseline current-constituent survivorship limits; it isolates only the incremental leader-rescue universe risk.
+
 ### 03:01 KST - managed-position-risk-activation
 
 - scope:

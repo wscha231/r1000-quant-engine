@@ -745,6 +745,47 @@ def test_defensive_rotation_trims_stale_broad_leaders() -> None:
     assert str(weak_no_break["portfolio_defensive_rotation_action"]) != "rotate_out_stale_core"
 
 
+@_test("logic.leader_rescue_latest_only_filters_historical_proxy")
+def test_leader_rescue_latest_only_filter() -> None:
+    """Leader rescue latest_only must not leak today's broad constituents
+    into historical OOS months, while full_proxy keeps them for research.
+    """
+    if _args.quick:
+        return
+    import tempfile
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_helpers import get_paths
+    from r1000_pipeline import apply_leader_rescue_backtest_mode_filter
+
+    monthly = pd.DataFrame(
+        {
+            "rebalance_date": pd.to_datetime(["2026-03-31", "2026-04-30", "2026-03-31"]),
+            "ticker": ["RSQ", "RSQ", "BASE"],
+            "universe_source": [
+                "leader_rescue_sp500",
+                "leader_rescue_sp500",
+                "current_constituents_proxy+leader_rescue_sp500",
+            ],
+        }
+    )
+    with tempfile.TemporaryDirectory() as td:
+        cfg = EngineConfig(base_dir=td)
+        cfg.leader_rescue_backtest_mode = "latest_only"
+        out = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out["ticker"]) == {"RSQ", "BASE"}
+        assert len(out[out["ticker"].eq("RSQ")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("RSQ")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+
+        cfg.leader_rescue_backtest_mode = "full_proxy"
+        out_full = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert len(out_full) == 3
+
+        cfg.leader_rescue_backtest_mode = "off"
+        out_off = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out_off["ticker"]) == {"BASE"}
+
+
 @_test("logic.phase_is_enabled_env_precedence")
 def test_phase_is_enabled_env() -> None:
     """phase_is_enabled honours PHASE_{KEY}_ENABLED env var overrides.
@@ -1898,13 +1939,16 @@ def test_full_rebuild_workflow() -> None:
         "universe_mode",
         "backtest_years",
         "skip_collector",
+        "leader_rescue_mode",
         "UNIVERSE_MODE",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         "PHASE_PHASE14_HYBRID_ALPHA_ENABLED",
         "secrets.ALPACA_API_KEY",
         "secrets.FINNHUB_API_KEY",
         "tests/smoke_test.py",
         "ENGINE_REUSE_VERSION",
+        "leader_rescue_backtest_filter_summary.json",
         "run_local.py --full",
     ):
         assert token in wf, f"full_rebuild_manual.yml missing required token: {token}"
@@ -2236,14 +2280,18 @@ def test_global_alpha_universe_window_audit_wired() -> None:
     for token in (
         "global_alpha_universe",
         "--backtest-years",
+        "--leader-rescue-mode",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         'runtime_overrides["default_backtest_years"]',
         'runtime_overrides["backtest_window_comparison_years"]',
+        'runtime_overrides["leader_rescue_backtest_mode"]',
     ):
         assert token in run_src, f"run_local.py missing global-alpha/window wiring: {token}"
 
     for token in (
         "default_backtest_years: int = 8",
+        'leader_rescue_backtest_mode: str = "latest_only"',
         "[5, 8, 10]",
     ):
         assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
@@ -2253,15 +2301,21 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "build_global_alpha_sleeve_audit_frames",
         "global_alpha_sleeve_audit_by_month.csv",
         "global_alpha_sleeve_audit_summary.csv",
+        "apply_leader_rescue_backtest_mode_filter",
+        "leader_rescue_backtest_filter_summary.json",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
 
     for token in (
         "global_alpha_universe",
         "backtest_years",
+        "leader_rescue_mode",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         "--backtest-years",
+        "--leader-rescue-mode",
         "outputs/reports/global_alpha_sleeve_audit_*.csv",
+        "outputs/reports/leader_rescue_backtest_filter_summary.json",
     ):
         assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/window token: {token}"
 

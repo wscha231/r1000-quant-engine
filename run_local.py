@@ -236,6 +236,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--backtest-years", type=int, default=None,
                    help="Default out-of-sample backtest window in years. Defaults to "
                         "BACKTEST_YEARS env when set, otherwise EngineConfig default.")
+    p.add_argument("--leader-rescue-mode", choices=["auto", "latest_only", "full_proxy", "off"], default="auto",
+                   help="Leader-rescue validation mode. latest_only keeps rescue-only names out of "
+                        "historical OOS months; full_proxy is research-only; off disables rescue.")
     p.add_argument("--ab-quick", action="store_true",
                    help="A/B fast-iter mode: disable 7 expensive grid comparisons "
                         "(portfolio_size, rebalance_interval, backtest_window, sleeve_regime, "
@@ -360,6 +363,17 @@ def resolve_backtest_years(raw: Optional[int]) -> Optional[int]:
     if int(value) < 1:
         raise ValueError(f"backtest years must be >= 1, got {value!r}")
     return int(value)
+
+
+def resolve_leader_rescue_mode(raw: Optional[str]) -> str:
+    """Resolve CLI/env leader-rescue validation mode."""
+    value = (raw or os.environ.get("LEADER_RESCUE_MODE") or "").strip()
+    if not value or value.lower() == "auto":
+        return ""
+    value = value.lower()
+    if value not in {"latest_only", "full_proxy", "off"}:
+        raise ValueError(f"LEADER_RESCUE_MODE must be latest_only, full_proxy, or off; got {value!r}")
+    return value
 
 
 def resolve_commit_sha() -> tuple[str, bool]:
@@ -574,6 +588,7 @@ def main() -> int:
     try:
         universe_mode = resolve_universe_mode(args.universe_mode)
         backtest_years = resolve_backtest_years(args.backtest_years)
+        leader_rescue_mode = resolve_leader_rescue_mode(args.leader_rescue_mode)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -593,6 +608,9 @@ def main() -> int:
     if backtest_years is not None:
         runtime_overrides["default_backtest_years"] = int(backtest_years)
         runtime_overrides["backtest_window_comparison_years"] = sorted({5, 8, 10, int(backtest_years)})
+    if leader_rescue_mode:
+        runtime_overrides["leader_rescue_backtest_mode"] = leader_rescue_mode
+        runtime_overrides["leader_rescue_universe_enabled"] = leader_rescue_mode != "off"
 
     # Banner
     sha, dirty = resolve_commit_sha()
@@ -608,6 +626,7 @@ def main() -> int:
     print(f"  fast_mode:     {fast_mode}")
     print(f"  universe_mode: {universe_mode or '(cfg default)'}")
     print(f"  backtest_years: {backtest_years or '(cfg default)'}")
+    print(f"  leader_rescue: {leader_rescue_mode or '(cfg default)'}")
     print(f"  collector:     {'skipped' if args.no_collector else 'run'}")
     print(f"  verdict_only:  {args.verdict_only}")
     print(f"  Phase 9 C1:    {args.phase9_c1}")
