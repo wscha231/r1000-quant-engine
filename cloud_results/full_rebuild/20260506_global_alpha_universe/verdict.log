@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        91958dd (DIRTY)
-  started:       2026-05-06 13:21:35 KST
+  commit:        b5d1ee1 (DIRTY)
+  started:       2026-05-06 16:50:03 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-05-06
   mode:          QUICK_RESCORE
@@ -17,10 +17,77 @@ r1000 Quant Engine -- local run
   Phase 9 C3:    auto
   Phase 14:      auto
 ======================================================================
-OK: companyfacts.zip 0.0d old, 1310 MB
+OK: companyfacts.zip 0.1d old, 1310 MB
 
-VERDICT: outputs missing -- cannot run Cell E verdict:
-  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv
-  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/backtest_metrics.json
-  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/weights_latest.json
-  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv
+======================================================================
+CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
+======================================================================
+
+Scored rows: 699
+
+Sleeve distribution (raw):
+portfolio_sleeve_label
+unassigned         427
+early_scout        112
+future_winner      100
+core_compounder     60
+
+Phase 9 diagnostic columns (expect populated if C2 active):
+  phase9_thesis_gate_active                 mean=1.000  sum=699
+  phase9_core_eligible                      mean=0.089  sum=62
+  phase9_future_eligible                    mean=0.132  sum=92
+  phase9_early_eligible                     mean=0.160  sum=112
+  phase9_unassigned                         mean=0.619  sum=433
+  phase9_mktcap_percentile                  mean=0.501  sum=350
+
+Final portfolio: 14 positions
+  Sleeve dist: {'core_compounder': 8, 'early_scout': 2, 'future_winner': 3}
+  Top 10 by weight:
+ticker portfolio_sleeve_label   weight
+   TSM          future_winner 0.120000
+   GEV        core_compounder 0.120000
+   VRT        core_compounder 0.120000
+   FTI          future_winner 0.120000
+  NVDA        core_compounder 0.102205
+   FIX        core_compounder 0.060000
+    PR            early_scout 0.060000
+   MLI          future_winner 0.060000
+  PLTR        core_compounder 0.050003
+  LRCX        core_compounder 0.045694
+
+======================================================================
+METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
+======================================================================
+  metric                          new   baseline          delta
+  cagr                         0.3019     0.2451        +5.68pp
+  sharpe                       1.6615     1.2453        +0.4162
+  max_dd                      -0.1835    -0.2579        +7.44pp
+  ir                           1.2516     1.0244        +0.2272
+  avg_turnover_monthly         0.5305     0.4854        +4.51pp
+  avg_stock_names             18.3855    24.3300        -5.9445
+  beat_month_ratio             0.6265     0.5663        +0.0602
+  excess_cagr                  0.1776     0.1102        +6.74pp
+
+=== SLEEVE ALLOCATION ===
+  target:  {'core_compounder': 0.1, 'future_winner': 0.4, 'early_scout': 0.5}
+  actual:  {'core_compounder': 0.5704960109445639, 'future_winner': 0.3, 'early_scout': 0.08950398905543608}
+  counts:  {'core_compounder': 8, 'future_winner': 3, 'early_scout': 2}
+
+=== VERDICT ===
+  dCAGR    +5.68pp   (gate >= +0.5pp)
+  dSharpe  +0.4162    (gate >= -0.05)
+  dMaxDD   +7.44pp   (gate >= -3pp; positive better)
+  early_scout selected: 2    (gate >= 4)
+
+  --> PARTIAL vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). See SESSION_HANDOFF.md §3b (A/B isolation).
+
+======================================================================
+LIFETIME PERFORMANCE (backtest + live, Phase 12D)
+======================================================================
+  Backtest anchor: 2026-02-27 at equity 6.2014
+  Lifetime CAGR:   30.52% over 6.83 years
+  Lifetime total:  516.94%
+  vs baseline CAGR (24.51%): +6.01pp
+  Live extension:  method=no_live_data (no live data yet)
+  HINT: edit base_dir/manual_positions.yaml with real broker holdings
+        (avg_cost, shares, entry_date) to activate lifetime CAGR.

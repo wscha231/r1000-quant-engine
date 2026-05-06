@@ -1,0 +1,17 @@
+current_book,ticker,current_weight,history_status,name,sector,first_seen,last_seen,total_months_held,run_count,current_run_months,current_run_return,current_run_recent_3m_return,current_run_tag,historical_weighted_contribution
+current_concentrated,WDC,0.4015125987775911,returning_after_gap,WESTERN DIGITAL CORP,Information Technology,2025-08-29,2026-02-27,13.0,4.0,7.0,2.241600863658826,0.5931059743518401,long_winner,0.2712000918694596
+current_concentrated,CIEN,0.3900840129441143,returning_after_gap,CIENA CORP,Information Technology,2021-01-29,2026-02-27,6.0,4.0,1.0,0.056563711826285834,0.056563711826285834,normal,0.042368681133936506
+current_concentrated,SNDK,0.2084033882782946,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,TSM,0.12,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,GEV,0.12,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,VRT,0.12,open_history,VERTIV HOLDINGS CLASS A,Industrials,2023-11-30,2026-02-27,15.0,5.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.0274580309388345
+current_main,FTI,0.12,open_history,TECHNIPFMC PLC,Energy,2025-03-31,2026-03-31,4.0,4.0,1.0,0.07995382944620322,0.07995382944620322,normal,-0.0012534227192032002
+current_main,NVDA,0.1022050959436715,returning_after_gap,NVIDIA CORP,Information Technology,2019-11-29,2026-01-30,128.0,19.0,8.0,0.23114403575122378,0.025803118291384708,normal,2.0486560701473007
+current_main,FIX,0.06,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,PR,0.06,open_history,PERMIAN RESOURCES CORP CLASS A,Energy,2024-02-29,2026-02-27,11.0,6.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.025645392401683502
+current_main,MLI,0.06,returning_after_gap,MUELLER INDUSTRIES INC,Industrials,2023-09-29,2025-12-31,7.0,5.0,1.0,0.17715040777189883,0.17715040777189883,normal,0.018382378033864
+current_main,PLTR,0.0500034317616126,returning_after_gap,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,2024-06-28,2025-11-28,32.0,5.0,6.0,0.5308828501815328,0.14208317515897906,long_winner,0.4112671249672373
+current_main,LRCX,0.04569375326121,open_history,LAM RESEARCH CORP,Information Technology,2019-08-30,2026-02-27,135.0,31.0,6.0,0.631774277343258,0.21286542156086252,open_winner_hold,1.6469755195546496
+current_main,AMAT,0.0401267256433925,open_history,APPLIED MATERIAL INC,Information Technology,2020-11-30,2026-02-27,59.0,13.0,3.0,0.2944460449229276,0.2944460449229276,short_big_win_review,0.28284319629320387
+current_main,TER,0.0324670043346771,returning_after_gap,TERADYNE INC,Information Technology,2019-07-31,2025-12-31,29.0,9.0,3.0,0.4992996265416605,0.4992996265416605,short_big_win_review,-0.0176103336153141
+current_main,ON,0.029503989055436,returning_after_gap,ON SEMICONDUCTOR CORP,Information Technology,2021-12-31,2023-07-31,10.0,5.0,1.0,-0.09774441734493533,-0.09774441734493533,normal,-0.018640591878244

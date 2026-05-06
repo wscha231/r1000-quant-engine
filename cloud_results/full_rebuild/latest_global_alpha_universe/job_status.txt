@@ -1,1 +1,1 @@
-job_status: cancelled
+job_status: success

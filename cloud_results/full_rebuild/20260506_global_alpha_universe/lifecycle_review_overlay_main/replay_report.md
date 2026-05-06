@@ -1,7 +1,13 @@
-# lifecycle_review_overlay
+# Lifecycle Review Overlay
 
-Status: `blocked`
+Research-only overlay on existing monthly portfolio picks.
 
-Reason: monthly weights are empty
+- Policy: `lifecycle_review_main`
+- Status: `completed`
+- CAGR: 26.52%
+- Sharpe: 1.258
+- MaxDD: -24.41%
+- Avg cash: 3.91%
+- Avg turnover: 35.02%
 
-Required path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv`
+This is not production-active; it tests monthly lifecycle review versus monthly churn.

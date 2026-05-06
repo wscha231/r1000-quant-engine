@@ -1,9 +1,27 @@
 {
+  "active_rebalance_interval_months": "1",
+  "cagr": 0.457472647716491,
+  "calmar": 2.2184214851990407,
   "data_mode": "concentrated_monthly_position_proxy",
+  "defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_holdings.csv",
+  "ending_equity": 13.538468043516431,
   "experiment_id": "concentrated_position_risk_replay",
+  "hard_stop": -0.08,
   "holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
+  "latest_defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_latest.csv",
+  "list_defense_mode": "hard_stop_to_cash_proxy",
+  "max_dd": -0.20621538817969287,
+  "metric_mode": "hard_stop_proxy",
   "monthly_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_monthly.csv",
+  "months": 83,
   "production_activation_allowed": false,
+  "proxy_warning": "Monthly position-loss capping is not execution evidence; validate with weekly/intramonth prices before promotion.",
+  "rank_score": 1006.0103297474514,
   "research_only": true,
-  "status": "blocked_missing_inputs"
+  "sharpe": 1.6418186584661423,
+  "status": "completed",
+  "target_n": "3",
+  "target_pass": true,
+  "vol_ann": 0.25088218769140247,
+  "weighting_mode": "score_power"
 }
