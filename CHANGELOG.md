@@ -232,6 +232,30 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Managed position-risk is monthly return capping, not intraday broker execution evidence; weekly/intramonth validation remains required before real capital automation.
 
+### 17:01 KST - active-run-handoff-refresh
+
+- scope:
+  - Refresh the agent handoff after stopping the stale full run, restarting on the latest leader-rescue plus historical journey commit, and pulling the completed result artifacts.
+- files:
+  - `SESSION_HANDOFF.md` ->updates the active inbox with branch `codex/leader-rescue-stale-trim`, code commit `b5d1ee1`, bot result commit `0903e14`, completed run `25416283891`, old canceled run `25415594156`, quick metrics, and next analysis checklist.
+  - `CHANGELOG.md` ->records the documentation-only handoff refresh for future agents.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `gh run view 25416283891 --json status,conclusion,headSha,jobs,url` ->passed; run completed successfully at head SHA `b5d1ee1`.
+  - no code validation rerun for this documentation-only update; prior `b5d1ee1` validations are listed in `SESSION_HANDOFF.md`.
+- risks_or_notes:
+  - Full rebuild `25416283891` completed on `b5d1ee1`; future agents should analyze `cloud_results/full_rebuild/latest_global_alpha_universe`.
+  - Historical trade journey outputs are available in this completed run and should be used to review past holdings, churn, and current-versus-history context.
+
 ## 2026-05-05
 
 ### 06:49 KST - defensive-list-risk-proxy

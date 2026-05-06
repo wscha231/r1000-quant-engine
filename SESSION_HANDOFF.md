@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-06 09:12 KST (market-aware monster handoff)
+# Session Handoff - 2026-05-06 17:01 KST (leader-rescue + historical journey result)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,11 +6,17 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-06 09:12 KST) - market-aware monster handoff
+## ACTIVE INBOX (2026-05-06 17:01 KST) - leader-rescue + historical journey result
 
-**TL;DR** Latest GitHub full rebuild run `25394753964` on
-`codex/goal-risk-replay-fullrun` completed successfully at commit `a54872e`.
-The latest cloud production artifacts now pass the requested targets:
+**TL;DR** The target-pass rebuild `25394753964` remains the latest completed
+evidence set, but the active work has moved to branch
+`codex/leader-rescue-stale-trim`. This branch generalizes the PLTR/SNDK/LITE
+diagnostic into data-driven leader rescue, stale-leader trim, lifecycle review,
+and historical holding/trade journey reporting. Full rebuild `25416283891`
+completed successfully on commit `b5d1ee1`; the bot pushed results in
+`cloud_results/full_rebuild/latest_global_alpha_universe`.
+
+Latest completed target-pass reference:
 
 ```
 main production:          CAGR 30.29%, MaxDD -18.90%, Sharpe 1.659
@@ -18,19 +24,54 @@ concentrated production:  CAGR 45.16%, MaxDD -19.87%, Sharpe 1.653
 latest concentrated:      WDC / CIEN / SNDK, all monster_extreme_early
 ```
 
-Do **not** launch another full rebuild just to continue this handoff. The user
-explicitly asked for documentation / changelog updates only so another agent can
-continue the work.
-
 **Current branch**
 
 ```
-codex/goal-risk-replay-fullrun
-latest pulled local HEAD observed after artifact pull: 0c2952a
-target run commit: a54872e3f75c9cb0b2c900cb3a614549986f92b6
+codex/leader-rescue-stale-trim
+latest bot result commit: 0903e14 chore(bot): full rebuild [global_alpha_universe] 2026-05-06 [skip ci]
+code commit under test: b5d1ee1 feat(alphaops): add historical trade journey report
+base evidence run: 25394753964 on codex/goal-risk-replay-fullrun @ a54872e
 ```
 
-**What the user is asking next**
+**Active GitHub Actions**
+
+1. Old run `25415594156` was started on commit `91958dd` before the historical
+   journey reporter was added. The user asked to stop it. A cancel request was
+   submitted; GitHub may still show it as `in_progress` for a short time.
+2. New run `25416283891` completed successfully on branch
+   `codex/leader-rescue-stale-trim` at commit `b5d1ee1`.
+   Settings:
+
+```
+workflow: Full Rebuild (Manual / Long-Run)
+universe_mode: global_alpha_universe
+backtest_years: 8
+fast_mode: true
+skip_collector: true
+leader_rescue_mode: latest_only
+cache_key_suffix: ""
+```
+
+The next agent should analyze run `25416283891`, not the canceled run. GDrive
+sync, artifact upload, Telegram bundle, and bot `cloud_results` commit all
+completed successfully.
+
+**Run `25416283891` quick result snapshot**
+
+```
+main latest champion:          CAGR 30.19%, MaxDD -18.35%, Sharpe 1.662
+concentrated latest champion:  CAGR 45.75%, MaxDD -20.62%, Sharpe 1.642
+main position-risk proxy:      CAGR 36.25%, MaxDD -8.20%,  Sharpe 1.790
+orchestrator main proxy:       CAGR 34.30%, MaxDD -16.02%, Sharpe 1.848
+```
+
+Important interpretation:
+- Production main/concentrated still pass the user's target gates.
+- `main_v2_position_aware_risk_proxy` and `orchestrator_replay_main_proxy`
+  are strong but still sidecar/proxy candidates. Do not promote blindly.
+- The historical journey reporter worked and produced the new output directory.
+
+**Current direction**
 
 1. The system should read the market environment earlier and better before
    portfolio construction.
@@ -38,9 +79,52 @@ target run commit: a54872e3f75c9cb0b2c900cb3a614549986f92b6
    winner / core scores are high.
 3. Main should admit data-driven monster/extreme early candidates earlier,
    without hardcoding tickers.
-4. The next agent should update the design/code carefully before running again.
+4. The system should not analyze only the latest portfolio. It must also review
+   historical holdings, round-trip trades, re-entry churn, short big wins, and
+   current holdings versus history.
 
-**Concrete PLTR / SNDK / LITE / INTC findings**
+**What changed on `codex/leader-rescue-stale-trim`**
+
+1. Generic leader rescue, no ticker hardcoding.
+   - S&P 500 / Nasdaq-100 rescue candidates are added as broad source evidence.
+   - `leader_rescue_mode=latest_only` keeps this PIT-safer by excluding
+     rescue-only historical rows from OOS backtest months.
+   - `full_proxy` remains research-only because it uses today's index members
+     historically.
+
+2. Stale former-leader trim, no ticker hardcoding.
+   - Broad stale-leader logic now covers prior large winners below MA50/MA200
+     with weak RS acceleration and requires a price/trend break when configured.
+   - Intended to reduce stale PLTR/NVDA-style old leaders only when the data
+     confirms current weakness.
+
+3. Lifecycle review experiments.
+   - `tools/run_lifecycle_review_overlay.py` tests monthly review without
+     forced monthly churn.
+   - `tools/run_monster_lifecycle_replay.py` has lifecycle review policies for
+     main and concentrated research.
+   - Local check on prior artifacts showed E10 reduced turnover/cash but did
+     not beat the 30% main run, so it is research-only, not a production
+     candidate yet.
+
+4. Historical trade journey reporting.
+   - New report-only sidecar:
+     `tools/run_historical_trade_journey.py`
+   - Outputs:
+     - `outputs/historical_trade_journey/summary.json`
+     - `outputs/historical_trade_journey/holding_runs.csv`
+     - `outputs/historical_trade_journey/trade_summary_by_ticker.csv`
+     - `outputs/historical_trade_journey/leader_rotation_timeline.csv`
+     - `outputs/historical_trade_journey/current_vs_history.csv`
+     - `outputs/historical_trade_journey/ticker_journey.csv`
+     - `outputs/historical_trade_journey/report.md`
+   - Full rebuild artifact, GDrive sync, Telegram zip, and `cloud_results`
+     copy all include this directory.
+   - The tool explicitly collapses duplicated concentrated grid rows, so
+     `concentrated_strategy_holdings.csv` does not produce impossible holding
+     durations.
+
+**Concrete PLTR / SNDK / LITE / INTC diagnostics**
 
 - Latest `portfolio_latest.csv` has `PLTR` at 8.15% weight, rank 4,
   `core_compounder`, `core_strict`, score 6.72.
@@ -149,11 +233,66 @@ Use `PLTR`, `SNDK`, `LITE`, and `INTC` only as diagnostic examples. The actual
 logic should be data-driven and should generalize to any future stale leader or
 early monster candidate.
 
-**Do not run now**
+**What to analyze next from run `25416283891`**
 
-The user asked not to run. After code changes, the next agent should run only
-small local/smoke checks first, update this handoff and `CHANGELOG.md`, then ask
-or wait for an explicit instruction before triggering a full rebuild.
+1. Production metrics:
+   - `outputs/backtest_metrics.json`
+   - `outputs/concentrated_backtest_metrics.json`
+   - compare against reference run `25394753964`:
+     main 30.29% CAGR / -18.90% MaxDD / 1.659 Sharpe,
+     concentrated 45.16% CAGR / -19.87% MaxDD / 1.653 Sharpe.
+
+2. Latest holdings:
+   - `outputs/portfolio_latest.csv`
+   - `outputs/concentrated_portfolio_latest.csv`
+   - verify stale leaders are trimmed only with confirmed break evidence.
+   - verify sparse-history monsters are not blocked solely because
+     `multi_year_winner_score=0`.
+
+3. Leader rescue diagnostics:
+   - `outputs/reports/leader_drop_diagnostics_latest.csv`
+   - `outputs/reports/leader_drop_diagnostics_summary.json`
+   - `outputs/reports/leader_rescue_backtest_filter_summary.json`
+   - confirm `leader_rescue_mode=latest_only` kept rescue-only names latest-only.
+
+4. Historical journey:
+   - `outputs/historical_trade_journey/report.md`
+   - `holding_runs.csv` for longest winners, short big wins, and stale current
+     holdings.
+   - `trade_summary_by_ticker.csv` for repeated re-entry churn.
+   - `current_vs_history.csv` for whether current holdings are new leaders,
+     stale old winners, or returning names.
+   - Quick read from the completed run:
+     - holding runs: 1,971
+     - unique held tickers: 440
+     - average / median run length: 3.06m / 2.00m
+     - runs >= 6m / 12m: 266 / 25
+     - short big wins to review: 116
+     - open stale watch: 1 (`GOOGL` in lifecycle overlay)
+
+5. Lifecycle/replay sidecars:
+   - `outputs/lifecycle_review_overlay_main/`
+   - `outputs/monster_lifecycle_review_main/`
+   - `outputs/monster_lifecycle_review_concentrated/`
+   - Treat these as challenger evidence only. Do not promote if they do not beat
+     production targets.
+
+**Validation already run on `b5d1ee1` before dispatch**
+
+```
+py -3 tests\historical_trade_journey_smoke.py        -> passed
+py -3 tests\workflow_artifact_smoke.py               -> passed
+py -3 tests\smoke_test.py                            -> 83/83 passed
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime -> passed
+py -3 tests\historical_challenger_replays_smoke.py   -> passed
+```
+
+**Result paths now available locally after pulling bot commit**
+
+```
+cloud_results/full_rebuild/20260506_global_alpha_universe/
+cloud_results/full_rebuild/latest_global_alpha_universe/
+```
 
 ---
 
