@@ -15,6 +15,10 @@ from r1000_concentrated_policy import (
     entry_quality_proxy,
     risk_gate_flags,
 )
+from r1000_config import EngineConfig
+from r1000_pipeline import build_latest_concentrated_holdings, select_concentrated_champion_comparison
+
+import pandas as pd
 
 
 def test_entry_quality_fallback_from_gate_pass() -> None:
@@ -89,11 +93,96 @@ def test_monster_early_override_allows_low_entry_quality() -> None:
     assert all(risk_flags.values()), risk_flags
 
 
+def test_concentrated_champion_rejects_nan_n1_fallback() -> None:
+    cfg = EngineConfig()
+    compare = pd.DataFrame(
+        [
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "target_stock_names": 1,
+                "weighting_mode": "conviction_curve",
+                "strategy_cagr": float("nan"),
+                "sharpe": float("nan"),
+                "max_dd": float("nan"),
+                "comparison_objective": float("nan"),
+            },
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "rebalance_interval_months": 1,
+                "strategy_cagr": 0.457,
+                "sharpe": 1.64,
+                "max_dd": -0.206,
+                "comparison_objective": 0.56,
+            },
+        ]
+    )
+    champion = select_concentrated_champion_comparison(cfg, compare)
+    assert int(champion.iloc[0]["target_stock_names"]) == 3
+    assert champion.iloc[0]["weighting_mode"] == "score_power"
+    assert bool(champion.iloc[0]["concentrated_goal_pass"])
+
+
+def test_latest_concentrated_uses_grid_champion() -> None:
+    cfg = EngineConfig(concentrated_min_entry_quality=0.0)
+    latest = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-05-06",
+                "ticker": ticker,
+                "Name": ticker,
+                "sector": "Technology",
+                "score": score,
+                "portfolio_sleeve_label": "future_winner",
+                "selection_confirmation_score": 1.0,
+                "price_above_ma50": 1,
+                "price_above_ma200": 1,
+                "trend_template_full": 1,
+                "entry_quality_score": 0.8,
+                "portfolio_hold_policy_exit_risk": 0.1,
+                "broken_momentum_penalty": 0.0,
+                "portfolio_risk_entry_block_score": 0.1,
+                "portfolio_monster_early_score": 0.7,
+                "breakout_setup_quality_score": 0.8,
+                "rs_acceleration_score": 0.2,
+                "future_winner_engine_score": 0.8,
+                "early_scout_engine_score": 0.6,
+                "relative_strength_composite": 0.7,
+            }
+            for ticker, score in [("AAA", 3.0), ("BBB", 2.8), ("CCC", 2.6)]
+        ]
+    )
+    compare = pd.DataFrame(
+        [
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "rebalance_interval_months": 1,
+                "strategy_cagr": 0.45,
+                "sharpe": 1.6,
+                "max_dd": -0.20,
+                "comparison_objective": 0.55,
+            }
+        ]
+    )
+    selected, summary = build_latest_concentrated_holdings(cfg, latest, concentrated_compare=compare)
+    assert summary["target_stock_names"] == 3
+    assert summary["weighting_mode"] == "score_power"
+    assert summary["metrics_valid"] is True
+    assert summary["target_pass"] is True
+    assert len(selected) >= 1
+    assert int(selected["target_stock_names"].iloc[0]) == 3
+
+
 def main() -> int:
     test_entry_quality_fallback_from_gate_pass()
     test_entry_quality_fallback_blocks_weak_rows()
     test_audit_surfaces_entry_quality_source()
     test_monster_early_override_allows_low_entry_quality()
+    test_concentrated_champion_rejects_nan_n1_fallback()
+    test_latest_concentrated_uses_grid_champion()
     print("concentrated policy smoke passed")
     return 0
 

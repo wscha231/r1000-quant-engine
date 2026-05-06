@@ -51,6 +51,37 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-07
+
+### 00:50 KST - concentrated-champion-guard
+
+- scope:
+  - Prevent latest concentrated production outputs from falling back to invalid N=1/NaN metrics when a valid historical comparison-grid champion exists.
+- files:
+  - `r1000_config.py` ->adds concentrated production minimum-name and goal-threshold fields.
+  - `r1000_pipeline.py` ->filters concentrated comparison rows for finite 6y+ metrics, prefers goal-passing candidates, and reloads the comparison CSV when export artifacts are empty.
+  - `tests/concentrated_policy_smoke.py` ->adds regression coverage for rejecting NaN N=1 concentrated fallbacks and applying the grid champion to latest holdings.
+  - `CHANGELOG.md` ->records the concentrated champion guard.
+- symbols_added:
+  - `select_concentrated_champion_comparison(cfg, concentrated_compare)` ->returns valid concentrated comparison rows sorted with the production champion first.
+- symbols_changed:
+  - `build_latest_concentrated_holdings()` ->uses the validated historical comparison champion, enforces minimum production N, emits target/pass validity fields, and avoids silent N=1/NaN fallback behavior.
+- config_fields_added:
+  - `concentrated_min_production_names: int = 3` ->minimum latest concentrated production N before a fallback is considered valid.
+  - `concentrated_latest_prefer_goal_passing: bool = True` ->prefers rows meeting explicit concentrated CAGR/MaxDD goals before objective sorting.
+  - `concentrated_target_cagr: float = 0.40` ->concentrated production target CAGR used for target-pass tagging.
+  - `concentrated_target_max_dd: float = -0.22` ->concentrated production target MaxDD floor used for target-pass tagging.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_backtest_metrics.json` ->now includes `metrics_valid`, `target_cagr`, `target_max_dd`, `target_pass`, `production_valid`, and `comparison_source`.
+- validation:
+  - `python tests\concentrated_policy_smoke.py` ->passed.
+  - inline latest artifact check ->passed; selected N=3 score_power champion with CAGR 45.75%, MaxDD -20.62%, tickers CIEN/WDC/SNDK.
+- risks_or_notes:
+  - This validates the champion plumbing without launching a new full rebuild.
+  - Latest concentrated metrics remain unverified in GitHub artifacts until the next cloud rebuild writes the corrected summary.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

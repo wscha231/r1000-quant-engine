@@ -14303,6 +14303,66 @@ def concentrated_strategy_objective(row: Mapping[str, Any]) -> float:
     return float(1.10 * cagr + 0.08 * sharpe + 0.04 * beat_ratio - 0.45 * abs(max_dd))
 
 
+def select_concentrated_champion_comparison(
+    cfg: dict | EngineConfig,
+    concentrated_compare: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Return valid concentrated comparison rows, sorted with the champion first.
+
+    The latest concentrated portfolio must be driven by a full historical
+    comparison row, not by a fallback N=1/NaN artifact. If one or more rows meet
+    the explicit CAGR/MaxDD goal, prefer that production-goal pool before the
+    objective sort.
+    """
+    cfg_obj = to_cfg(cfg)
+    compare = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
+    if compare.empty:
+        return pd.DataFrame()
+    if "portfolio_mode" in compare.columns:
+        compare = compare[compare["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+    if compare.empty:
+        return pd.DataFrame()
+
+    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
+    for col in ("target_stock_names", "strategy_cagr", "sharpe", "max_dd", "comparison_objective"):
+        if col not in compare.columns:
+            compare[col] = np.nan
+        compare[col] = pd.to_numeric(compare[col], errors="coerce")
+    if "weighting_mode" not in compare.columns:
+        compare["weighting_mode"] = str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
+    if "rebalance_interval_months" not in compare.columns:
+        compare["rebalance_interval_months"] = 1
+    compare["rebalance_interval_months"] = pd.to_numeric(compare["rebalance_interval_months"], errors="coerce").fillna(1).astype(int)
+
+    valid = compare[
+        compare["target_stock_names"].ge(min_names)
+        & np.isfinite(compare["strategy_cagr"])
+        & np.isfinite(compare["sharpe"])
+        & np.isfinite(compare["max_dd"])
+    ].copy()
+    if valid.empty:
+        return pd.DataFrame()
+    missing_objective = ~np.isfinite(valid["comparison_objective"])
+    if bool(missing_objective.any()):
+        valid.loc[missing_objective, "comparison_objective"] = valid.loc[missing_objective].apply(
+            lambda row: concentrated_strategy_objective(row.to_dict()),
+            axis=1,
+        )
+
+    target_cagr = float(getattr(cfg_obj, "concentrated_target_cagr", 0.40))
+    target_max_dd = float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22))
+    valid["concentrated_goal_pass"] = (
+        valid["strategy_cagr"].ge(target_cagr)
+        & valid["max_dd"].ge(target_max_dd)
+    )
+    if bool(getattr(cfg_obj, "concentrated_latest_prefer_goal_passing", True)) and bool(valid["concentrated_goal_pass"].any()):
+        valid = valid[valid["concentrated_goal_pass"]].copy()
+    return valid.sort_values(
+        ["comparison_objective", "strategy_cagr", "sharpe", "max_dd"],
+        ascending=[False, False, False, False],
+    ).reset_index(drop=True)
+
+
 def compare_concentrated_portfolio_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -14384,12 +14444,26 @@ def build_latest_concentrated_holdings(
         return pd.DataFrame(), {}
 
     compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
-    if not compare_df.empty and "portfolio_mode" in compare_df.columns:
-        compare_df = compare_df[compare_df["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+    compare_source = "artifact"
+    compare_df = select_concentrated_champion_comparison(cfg_obj, compare_df)
+    if compare_df.empty:
+        compare_path = get_paths(cfg_obj)["reports"] / "concentrated_strategy_comparison.csv"
+        if compare_path.exists():
+            try:
+                compare_df = select_concentrated_champion_comparison(cfg_obj, pd.read_csv(compare_path))
+                compare_source = str(compare_path)
+            except Exception:
+                compare_df = pd.DataFrame()
     # Phase 9 CE: latest-holdings picker clamp bumped 3 -> 30 so the
     # winning N from the concentrated grid can drive the live recommendation
     # regardless of size (was silently clipping N=5 winners back to 3).
-    top_n = int(max(1, min(30, safe_float(compare_df["target_stock_names"].iloc[0], 3.0)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(1, min(30, getattr(cfg_obj, "concentrated_top_n_candidates", [3])[0])))
+    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
+    fallback_candidates = [
+        int(x) for x in getattr(cfg_obj, "concentrated_top_n_candidates", [min_names])
+        if int(max(1, min(int(x), 30))) >= min_names
+    ]
+    fallback_n = int(fallback_candidates[0]) if fallback_candidates else int(min_names)
+    top_n = int(max(min_names, min(30, safe_float(compare_df["target_stock_names"].iloc[0], fallback_n)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(min_names, min(30, fallback_n)))
     weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
     interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
     best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
@@ -14403,6 +14477,9 @@ def build_latest_concentrated_holdings(
             "weighting_mode": str(weighting_mode),
             "recommended_rebalance_interval_months": int(interval),
             "monitoring_review_days": int(getattr(cfg_obj, "concentrated_monitoring_review_days", 7)),
+            "comparison_source": str(compare_source),
+            "metrics_valid": False,
+            "production_valid": False,
         }
     selected = selected.sort_values(["concentrated_score", "score"], ascending=[False, False]).reset_index(drop=True).copy()
     weight_map = concentrated_weight_map(cfg_obj, selected, weighting_mode=weighting_mode)
@@ -14419,6 +14496,12 @@ def build_latest_concentrated_holdings(
     selected["concentrated_strategy_sharpe"] = float(safe_float(best_metrics.get("sharpe"), np.nan))
     selected["concentrated_strategy_max_dd"] = float(safe_float(best_metrics.get("max_dd"), np.nan))
     selected["concentrated_strategy_objective"] = float(safe_float(best_metrics.get("comparison_objective"), np.nan))
+    metrics_valid = bool(
+        np.isfinite(safe_float(best_metrics.get("strategy_cagr"), np.nan))
+        and np.isfinite(safe_float(best_metrics.get("sharpe"), np.nan))
+        and np.isfinite(safe_float(best_metrics.get("max_dd"), np.nan))
+    )
+    goal_pass = bool(best_metrics.get("concentrated_goal_pass", False))
     summary = {
         "portfolio_mode": "concentrated_alpha",
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
@@ -14431,6 +14514,12 @@ def build_latest_concentrated_holdings(
         "sharpe": float(safe_float(best_metrics.get("sharpe"), np.nan)),
         "max_dd": float(safe_float(best_metrics.get("max_dd"), np.nan)),
         "comparison_objective": float(safe_float(best_metrics.get("comparison_objective"), np.nan)),
+        "comparison_source": str(compare_source),
+        "metrics_valid": bool(metrics_valid),
+        "target_cagr": float(getattr(cfg_obj, "concentrated_target_cagr", 0.40)),
+        "target_max_dd": float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22)),
+        "target_pass": bool(goal_pass),
+        "production_valid": bool(metrics_valid and len(selected) >= min_names),
         "operating_notes": [
             "Run a full rebalance monthly.",
             f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",

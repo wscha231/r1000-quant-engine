@@ -1689,6 +1689,10 @@ class EngineConfig:
     concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [3, 4, 5, 1, 2, 7, 10])
     concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
     concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
+    concentrated_min_production_names: int = 3
+    concentrated_latest_prefer_goal_passing: bool = True
+    concentrated_target_cagr: float = 0.40
+    concentrated_target_max_dd: float = -0.22
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
     # Phase 15-A (2026-04-28): relaxed 0.45 -> 0.30. Default rejected cyclical
     # leaders (SNDK/MU/WDC class) where score is high but multi_year_winner_score
