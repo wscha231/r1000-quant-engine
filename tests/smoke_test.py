@@ -698,6 +698,50 @@ def test_hard_sanitize_overlap() -> None:
     assert result["a"].abs().max() <= 1e12
 
 
+@_test("logic.defensive_rotation_trims_stale_broad_leaders")
+def test_defensive_rotation_trims_stale_broad_leaders() -> None:
+    """Former leaders should be reduced when relative leadership breaks,
+    while confirmed new monster leaders remain eligible.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_signals import compute_defensive_monster_rotation_overlay
+
+    cfg = EngineConfig()
+    df = pd.DataFrame(
+        {
+            "ticker": ["OLD", "NEW"],
+            "portfolio_sleeve_label": ["core_compounder", "core_compounder"],
+            "market_cap_live": [300_000_000_000.0, 200_000_000_000.0],
+            "mktcap": [300_000_000_000.0, 200_000_000_000.0],
+            "rs_acceleration_score": [-0.80, 1.25],
+            "relative_strength_composite": [0.70, 5.0],
+            "near_52w_high_pct": [-0.20, 0.01],
+            "oneil_leadership_score": [-0.20, 1.5],
+            "industry_group_strength_score": [-0.25, 3.0],
+            "price_above_ma50": [0.0, 1.0],
+            "price_above_ma200": [0.0, 1.0],
+            "trend_template_relaxed": [0.0, 1.0],
+            "portfolio_future_winner_engine_score": [0.0, 1.0],
+            "portfolio_early_scout_engine_score": [0.0, 0.8],
+            "selection_confirmation_score": [0.0, 1.0],
+            "risk_penalty": [0.0, 0.0],
+            "broken_momentum_penalty": [0.8, 0.0],
+            "breakout_setup_quality_score": [0.0, 1.0],
+        }
+    )
+    out = compute_defensive_monster_rotation_overlay(df, cfg)
+    old = out.loc[out["ticker"].eq("OLD")].iloc[0]
+    new = out.loc[out["ticker"].eq("NEW")].iloc[0]
+    assert float(old["portfolio_stale_mega_leader_score"]) > 0.0
+    assert str(old["portfolio_defensive_rotation_action"]) == "rotate_out_stale_core"
+    assert str(old["portfolio_stale_leader_reason"]) == "broad_relative_breakdown"
+    assert float(new["portfolio_stale_mega_leader_score"]) == 0.0
+    assert str(new["portfolio_defensive_rotation_action"]) == "promote_monster_early"
+
+
 @_test("logic.phase_is_enabled_env_precedence")
 def test_phase_is_enabled_env() -> None:
     """phase_is_enabled honours PHASE_{KEY}_ENABLED env var overrides.

@@ -3284,6 +3284,76 @@ def write_market_adaptation_report(paths: dict[str, Path], df: pd.DataFrame, cfg
     return path
 
 
+def _candidate_source_frame(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Normalize one constituent source while preserving its origin label."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d = df.copy()
+    if "ticker" not in d.columns and "Ticker" in d.columns:
+        d = d.rename(columns={"Ticker": "ticker"})
+    if "ticker" not in d.columns:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    if "Name" not in d.columns:
+        d["Name"] = ""
+    if "sector" not in d.columns:
+        d["sector"] = d["Sector"].astype(str) if "Sector" in d.columns else "Unknown"
+    if "cik10" not in d.columns:
+        d["cik10"] = np.nan
+    d["universe_source"] = source
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    return d[["ticker", "Name", "sector", "cik10", "universe_source"]]
+
+
+def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate tickers without losing evidence that a name came from
+    IWB, S&P 500, Nasdaq-100, ADR, or cycle-play overlays.
+    """
+    if uni is None or uni.empty:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d = uni.copy()
+    for col, default in (("Name", ""), ("sector", "Unknown"), ("cik10", np.nan), ("universe_source", "unknown")):
+        if col not in d.columns:
+            d[col] = default
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    d["Name"] = d["Name"].fillna("").astype(str)
+    d["sector"] = d["sector"].fillna("Unknown").astype(str)
+    d["universe_source"] = d["universe_source"].fillna("unknown").astype(str)
+
+    def _first_nonempty(s: pd.Series, default: str = "") -> str:
+        vals = [str(x).strip() for x in s.tolist() if str(x).strip() and str(x).strip().lower() != "nan"]
+        return vals[0] if vals else default
+
+    def _first_sector(s: pd.Series) -> str:
+        vals = [str(x).strip() for x in s.tolist() if str(x).strip() and str(x).strip().lower() not in {"nan", "unknown"}]
+        return vals[0] if vals else "Unknown"
+
+    def _source_join(s: pd.Series) -> str:
+        seen: list[str] = []
+        for raw in s.astype(str).tolist():
+            for part in str(raw).split("+"):
+                val = part.strip()
+                if val and val not in seen:
+                    seen.append(val)
+        return "+".join(seen) if seen else "unknown"
+
+    def _first_cik(s: pd.Series) -> Any:
+        vals = s.dropna().tolist()
+        return vals[0] if vals else np.nan
+
+    return (
+        d.groupby("ticker", as_index=False)
+        .agg(
+            Name=("Name", _first_nonempty),
+            sector=("sector", _first_sector),
+            cik10=("cik10", _first_cik),
+            universe_source=("universe_source", _source_join),
+        )
+        .copy()
+    )
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3325,7 +3395,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             iwb["sector"] = iwb["Sector"].astype(str) if "Sector" in iwb.columns else "Unknown"
             iwb = iwb[iwb["ticker"].map(is_valid_ticker)]
             iwb = iwb[~iwb.apply(lambda r: looks_like_noncommon(r["ticker"], r.get("Name")), axis=1)]
-            frames.append(iwb[["ticker", "Name", "sector"]])
+            frames.append(_candidate_source_frame(iwb, "current_constituents_proxy"))
         except Exception as e:
             log(f"[WARN] IWB holdings fetch failed: {e}")
 
@@ -3337,7 +3407,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     ticker_col="Symbol",
                 )
                 sp500["sector"] = "Unknown"
-                frames.append(sp500[["ticker", "Name", "sector"]])
+                frames.append(_candidate_source_frame(sp500, "sp500_proxy"))
             except Exception as e:
                 log(f"[WARN] S&P500 fetch failed: {e}")
 
@@ -3348,15 +3418,51 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     ticker_col="Ticker",
                 )
                 ndx["sector"] = "Unknown"
-                frames.append(ndx[["ticker", "Name", "sector"]])
+                frames.append(_candidate_source_frame(ndx, "nasdaq100_proxy"))
             except Exception as e:
                 log(f"[WARN] Nasdaq-100 fetch failed: {e}")
+
+        if bool(getattr(cfg, "leader_rescue_universe_enabled", True)):
+            rescue_frames: list[pd.DataFrame] = []
+            if bool(getattr(cfg, "leader_rescue_include_sp500", True)):
+                try:
+                    sp500_rescue = fetch_wikipedia_tickers(
+                        "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                        table_idx=0,
+                        ticker_col="Symbol",
+                    )
+                    sp500_rescue["sector"] = "Unknown"
+                    rescue_frames.append(_candidate_source_frame(sp500_rescue, "leader_rescue_sp500"))
+                except Exception as e:
+                    log(f"[WARN] leader-rescue S&P500 fetch failed: {e}")
+            if bool(getattr(cfg, "leader_rescue_include_nasdaq100", True)):
+                try:
+                    ndx_rescue = fetch_wikipedia_tickers(
+                        "https://en.wikipedia.org/wiki/Nasdaq-100",
+                        table_idx=4,
+                        ticker_col="Ticker",
+                    )
+                    ndx_rescue["sector"] = "Unknown"
+                    rescue_frames.append(_candidate_source_frame(ndx_rescue, "leader_rescue_nasdaq100"))
+                except Exception as e:
+                    log(f"[WARN] leader-rescue Nasdaq-100 fetch failed: {e}")
+            if rescue_frames:
+                rescue = pd.concat(rescue_frames, ignore_index=True)
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(rescue["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(rescue)
+                log(
+                    "Leader rescue universe injection: "
+                    f"sources={len(rescue_frames)}, candidates={len(rescue)}, added_pre_dedup={len(added)}"
+                )
 
         if not frames:
             raise RuntimeError("Unable to build candidate universe from sources.")
 
         uni = pd.concat(frames, ignore_index=True)
-        uni["universe_source"] = "current_constituents_proxy"
+        uni = _combine_candidate_universe_sources(uni)
 
     if include_adr and not adr_only:
         adr_frame = load_adr_universe_frame(
@@ -3396,7 +3502,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
-    uni = uni[~uni["ticker"].duplicated(keep="first")].copy()
+    uni = _combine_candidate_universe_sources(uni)
 
     sec_map = load_sec_company_tickers(cfg, paths)
     uni = uni.merge(sec_map, on="ticker", how="left")
@@ -3445,6 +3551,184 @@ def load_px(paths: dict[str, Path], ticker: str) -> Optional[pd.DataFrame]:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df
+
+
+def _price_cache_latest_date(paths: dict[str, Path], ticker: str) -> Optional[pd.Timestamp]:
+    p = paths["cache_prices"] / px_cache_name(str(ticker))
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_parquet(p)
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    for col in ("Date", "date", "datetime", "timestamp"):
+        if col in df.columns:
+            dt = pd.to_datetime(df[col], errors="coerce").max()
+            if pd.isna(dt):
+                return None
+            ts = pd.Timestamp(dt)
+            return ts.tz_convert(None) if ts.tzinfo else ts
+    try:
+        dt = pd.to_datetime(df.index, errors="coerce").max()
+        if pd.isna(dt):
+            return None
+        ts = pd.Timestamp(dt)
+        return ts.tz_convert(None) if ts.tzinfo else ts
+    except Exception:
+        return None
+
+
+def write_leader_drop_diagnostics(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    candidates: pd.DataFrame,
+    pre_filter_monthly: pd.DataFrame,
+    ranked_monthly: pd.DataFrame,
+    final_monthly: pd.DataFrame,
+    *,
+    use_mktcap_filter: bool,
+) -> dict[str, Path]:
+    """Explain why current broad leader candidates are not scoreable today.
+
+    This is ticker-agnostic by design: it diagnoses missing/stale price cache,
+    yfinance blacklist, base liquidity/volatility/market-cap filters, and
+    rank-size drops for every current candidate source.
+    """
+    detail_path = paths["reports"] / "leader_drop_diagnostics_latest.csv"
+    summary_path = paths["reports"] / "leader_drop_diagnostics_summary.json"
+    if not bool(getattr(cfg, "leader_rescue_diagnostics_enabled", True)):
+        return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+    cand = candidates.copy() if candidates is not None else pd.DataFrame()
+    if cand.empty or "ticker" not in cand.columns:
+        pd.DataFrame().to_csv(detail_path, index=False)
+        summary_path.write_text(json.dumps({"rows": 0}, indent=2), encoding="utf-8")
+        return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+    def _latest(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty or "rebalance_date" not in df.columns:
+            return pd.DataFrame()
+        dates = pd.to_datetime(df["rebalance_date"], errors="coerce")
+        dt = dates.max()
+        return df[dates.eq(dt)].copy() if pd.notna(dt) else pd.DataFrame()
+
+    pre = _latest(pre_filter_monthly)
+    ranked = _latest(ranked_monthly)
+    final = _latest(final_monthly)
+    pre_by_ticker = pre.drop_duplicates("ticker").set_index("ticker") if "ticker" in pre.columns and not pre.empty else pd.DataFrame()
+    ranked_by_ticker = ranked.drop_duplicates("ticker").set_index("ticker") if "ticker" in ranked.columns and not ranked.empty else pd.DataFrame()
+    final_tickers = set(final.get("ticker", pd.Series(dtype=str)).dropna().astype(str).map(normalize_ticker).tolist())
+    fail_tickers = {normalize_ticker(str(t)) for t in load_fail_tickers(paths)}
+    stale_days_cut = int(getattr(cfg, "leader_rescue_price_stale_days", 14))
+    run_end = pd.to_datetime(getattr(cfg, "end_date", None), errors="coerce")
+    if pd.isna(run_end):
+        run_end = pd.Timestamp.utcnow().tz_localize(None)
+    run_end = pd.Timestamp(run_end)
+    run_end = run_end.tz_convert(None) if run_end.tzinfo else run_end
+
+    def _num(row: Optional[pd.Series], col: str) -> float:
+        if row is None or col not in row.index:
+            return float("nan")
+        return float(pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0])
+
+    rows: list[dict[str, Any]] = []
+    for _, rec in cand.iterrows():
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        pre_row = pre_by_ticker.loc[ticker] if ticker in pre_by_ticker.index else None
+        ranked_row = ranked_by_ticker.loc[ticker] if ticker in ranked_by_ticker.index else None
+        cache_path = paths["cache_prices"] / px_cache_name(ticker)
+        cache_last = _price_cache_latest_date(paths, ticker)
+        stale_days = int((run_end.normalize() - cache_last.normalize()).days) if cache_last is not None else None
+        in_pre = pre_row is not None
+        in_ranked = ranked_row is not None
+        in_final = ticker in final_tickers
+
+        failed_min_price = bool(in_pre and _num(pre_row, "px") < float(getattr(cfg, "min_price", 5.0)))
+        failed_dollar_vol = bool(in_pre and _num(pre_row, "dollar_vol_20d") < float(getattr(cfg, "min_dollar_vol_20d", 20_000_000.0)))
+        failed_vol_252 = bool(in_pre and _num(pre_row, "vol_252d") > float(getattr(cfg, "max_vol_252", 0.60)))
+        failed_dd_1y = bool(in_pre and _num(pre_row, "dd_1y") > float(getattr(cfg, "max_dd_1y", 0.65)))
+        failed_mktcap = bool(use_mktcap_filter and in_pre and pd.isna(pre_row.get("mktcap")))
+        failed_rank_size = bool(in_ranked and not in_final and _num(ranked_row, "rank_size") > float(getattr(cfg, "universe_size", 1000)))
+
+        if in_final:
+            reason = "available_for_scoring"
+        elif failed_rank_size:
+            reason = "failed_rank_size"
+        elif in_pre:
+            failed = [
+                name
+                for name, flag in (
+                    ("failed_min_price", failed_min_price),
+                    ("failed_dollar_vol", failed_dollar_vol),
+                    ("failed_mktcap", failed_mktcap),
+                    ("failed_vol_252", failed_vol_252),
+                    ("failed_dd_1y", failed_dd_1y),
+                )
+                if flag
+            ]
+            reason = "+".join(failed) if failed else "filtered_before_final_unknown"
+        elif ticker in fail_tickers:
+            reason = "price_blacklisted"
+        elif not cache_path.exists():
+            reason = "missing_price_cache"
+        elif stale_days is not None and stale_days > stale_days_cut:
+            reason = "stale_price_cache"
+        else:
+            reason = "missing_latest_price_row"
+
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("Name", "")),
+                "sector": str(rec.get("sector", "Unknown")),
+                "universe_source": str(rec.get("universe_source", "")),
+                "in_latest_pre_filter": bool(in_pre),
+                "in_latest_ranked_pool": bool(in_ranked),
+                "in_latest_scoring_universe": bool(in_final),
+                "price_cache_exists": bool(cache_path.exists()),
+                "price_cache_last_date": str(cache_last.date()) if cache_last is not None else "",
+                "price_cache_stale_days": stale_days,
+                "blacklisted": bool(ticker in fail_tickers),
+                "px": _num(pre_row, "px"),
+                "dollar_vol_20d": _num(pre_row, "dollar_vol_20d"),
+                "mktcap": _num(pre_row, "mktcap"),
+                "vol_252d": _num(pre_row, "vol_252d"),
+                "dd_1y": _num(pre_row, "dd_1y"),
+                "rank_size": _num(ranked_row, "rank_size"),
+                "failed_min_price": failed_min_price,
+                "failed_dollar_vol": failed_dollar_vol,
+                "failed_mktcap": failed_mktcap,
+                "failed_vol_252": failed_vol_252,
+                "failed_dd_1y": failed_dd_1y,
+                "failed_rank_size": failed_rank_size,
+                "drop_reason": reason,
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values(["in_latest_scoring_universe", "drop_reason", "ticker"], ascending=[True, True, True])
+    out.to_csv(detail_path, index=False)
+    reason_counts = out["drop_reason"].value_counts().to_dict() if "drop_reason" in out.columns else {}
+    source_counts = out["universe_source"].value_counts().head(20).to_dict() if "universe_source" in out.columns else {}
+    summary = {
+        "rows": int(len(out)),
+        "available_for_scoring": int((out.get("drop_reason", pd.Series(dtype=str)) == "available_for_scoring").sum()) if not out.empty else 0,
+        "reason_counts": {str(k): int(v) for k, v in reason_counts.items()},
+        "source_counts": {str(k): int(v) for k, v in source_counts.items()},
+        "stale_days_cutoff": stale_days_cut,
+    }
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    log(
+        "Leader drop diagnostics: "
+        f"rows={summary['rows']}, available={summary['available_for_scoring']}, "
+        f"top_reasons={dict(list(summary['reason_counts'].items())[:4])}"
+    )
+    return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
 
 
 def save_px(paths: dict[str, Path], ticker: str, df: pd.DataFrame) -> None:
@@ -6713,6 +6997,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         log(f"[WARN] mktcap coverage too low ({mktcap_cov:.2%}); falling back to dollar-vol size metric.")
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
 
+    leader_diag_pre_filter = monthly.copy()
     base_mask = (
         (monthly["px"].fillna(0) >= cfg.min_price)
         & (monthly["dollar_vol_20d"].fillna(0) >= cfg.min_dollar_vol_20d)
@@ -6724,7 +7009,17 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     monthly = monthly[base_mask].copy()
     monthly = monthly.sort_values(["rebalance_date", "size_metric"], ascending=[True, False])
     monthly["rank_size"] = monthly.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
+    leader_diag_ranked = monthly.copy()
     monthly = monthly[monthly["rank_size"] <= cfg.universe_size].copy()
+    write_leader_drop_diagnostics(
+        cfg,
+        paths,
+        candidates,
+        leader_diag_pre_filter,
+        leader_diag_ranked,
+        monthly,
+        use_mktcap_filter=use_mktcap_filter,
+    )
 
     for _rs_period, _rs_col in [("mom_1m", "rs_sector_1m"), ("mom_3m", "rs_sector_3m"), ("mom_6m", "rs_sector_6m"), ("mom_12m", "rs_sector_12m")]:
         if _rs_period in monthly.columns:
@@ -15531,6 +15826,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_early_scout_engine_score",
             "portfolio_monster_early_score",
             "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
             "portfolio_risk_entry_block_score",
             "portfolio_defensive_rotation_action",
             "portfolio_monster_slot",
@@ -16120,6 +16416,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_early_scout_engine_score",
             "portfolio_monster_early_score",
             "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
             "portfolio_risk_entry_block_score",
             "portfolio_defensive_rotation_action",
             "portfolio_sleeve_promoted",

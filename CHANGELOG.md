@@ -76,6 +76,53 @@ All entries must be written in English. Entries must be predictable and machine-
   - Main and concentrated target metrics passed in the latest cloud production artifacts, but concentrated managed-risk metadata is still not explicit in `concentrated_backtest_metrics.json`.
   - Next coding agent should improve market-context preflight, stale-leader exits, and sparse-history monster admission before launching another run.
 
+### 11:02 KST - leader-rescue-stale-trim
+
+- scope:
+  - Add a generic leader-rescue universe and broaden stale former-leader trimming so new leaders can enter earlier and old leaders can be reduced without ticker hardcoding.
+- files:
+  - `r1000_config.py` ->bumps engine reuse version and adds leader-rescue universe, diagnostics, and broad stale-leader thresholds.
+  - `r1000_pipeline.py` ->preserves constituent source labels, injects S&P 500/Nasdaq-100 rescue candidates, and writes latest leader drop diagnostics.
+  - `r1000_signals.py` ->broadens stale core-leader detection beyond $1T mega caps and surfaces a stale-leader reason.
+  - `tests/smoke_test.py` ->adds a synthetic stale-leader versus new-monster regression test.
+  - `CHANGELOG.md` ->records the leader rescue and stale-trim change.
+- symbols_added:
+  - `_candidate_source_frame(df, source)` ->normalizes one candidate universe source while preserving source labels.
+  - `_combine_candidate_universe_sources(uni)` ->deduplicates candidates while joining source evidence.
+  - `_price_cache_latest_date(paths, ticker)` ->reads the latest cached price date for drop diagnostics.
+  - `write_leader_drop_diagnostics(cfg, paths, candidates, pre_filter_monthly, ranked_monthly, final_monthly, use_mktcap_filter)` ->writes current candidate inclusion/drop reasons.
+  - `test_defensive_rotation_trims_stale_broad_leaders()` ->guards broad stale-leader trim and monster promotion behavior.
+- symbols_changed:
+  - `build_candidate_universe()` ->adds generic leader rescue S&P 500/Nasdaq-100 sources independent of legacy Wikipedia-list mode.
+  - `build_universe_monthly()` ->emits leader drop diagnostics after base filters and rank-size selection.
+  - `compute_defensive_monster_rotation_overlay()` ->adds broad stale core-leader detection and `portfolio_stale_leader_reason`.
+- config_fields_added:
+  - `leader_rescue_universe_enabled: bool = True` ->turns on generic S&P/Nasdaq rescue candidates.
+  - `leader_rescue_include_sp500: bool = True` ->includes S&P 500 rescue candidates.
+  - `leader_rescue_include_nasdaq100: bool = True` ->includes Nasdaq-100 rescue candidates.
+  - `leader_rescue_diagnostics_enabled: bool = True` ->writes leader drop reason artifacts.
+  - `leader_rescue_price_stale_days: int = 14` ->marks price caches stale in diagnostics.
+  - `portfolio_stale_leader_mcap_min: float = 100000000000.0` ->broad stale-leader minimum size below the prior mega-cap threshold.
+  - `portfolio_stale_leader_rs_accel_max: float = -0.50` ->relative-strength acceleration threshold for stale-leader trim.
+  - `portfolio_stale_leader_rs_level_max: float = 1.25` ->relative-strength level threshold for stale-leader trim.
+  - `portfolio_stale_leader_near_high_max: float = -0.08` ->distance-from-high threshold for stale-leader trim.
+  - `portfolio_stale_leader_group_strength_max: float = 0.0` ->weak industry-group threshold for stale-leader trim.
+  - `portfolio_stale_leader_require_broken_ma: bool = True` ->requires moving-average/trend break confirmation for broad stale trim.
+- breaking_changes:
+  - Feature-store cache invalidates because `ENGINE_REUSE_VERSION` changes and current candidate universe membership can broaden on the next full rebuild.
+- outputs:
+  - `outputs/reports/leader_drop_diagnostics_latest.csv` ->per-candidate reason for current inclusion, rank/drop, missing price cache, stale cache, or blacklist.
+  - `outputs/reports/leader_drop_diagnostics_summary.json` ->drop reason and source-count summary.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed: 82/82.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed; first CP949 console run failed before audit due Unicode output encoding only.
+  - inline synthetic `write_leader_drop_diagnostics()` smoke ->passed with `available_for_scoring` and `missing_price_cache` rows.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not hardcode example tickers into selection; examples enter only if their source, price, liquidity, market-cap, leadership, and risk data pass.
+  - Broader universe candidates can change production selection and must be measured by full rebuild before merging to production.
+
 ### 03:01 KST - managed-position-risk-activation
 
 - scope:

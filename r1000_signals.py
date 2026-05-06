@@ -2708,10 +2708,11 @@ def compute_defensive_monster_rotation_overlay(
         for col in [
             "portfolio_monster_early_score",
             "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
             "portfolio_risk_entry_block_score",
             "portfolio_defensive_rotation_action",
         ]:
-            d[col] = np.nan
+            d[col] = np.nan if col.endswith("_score") else ""
         return d
 
     idx = d.index
@@ -2809,7 +2810,7 @@ def compute_defensive_monster_rotation_overlay(
     )
     rs_accel = numeric_series_or_default(d, "rs_acceleration_score", 0.0)
     oneil = numeric_series_or_default(d, "oneil_leadership_score", 0.0)
-    stale_mask = (
+    stale_mega_mask = (
         labels.eq("core_compounder")
         & (mcap >= float(getattr(cfg, "portfolio_stale_mega_mcap_min", 1_000_000_000_000.0)))
         & (rs_accel <= float(getattr(cfg, "portfolio_stale_mega_rs_accel_max", -0.75)))
@@ -2817,6 +2818,28 @@ def compute_defensive_monster_rotation_overlay(
         & (numeric_series_or_default(d, "near_52w_high_pct", 0.0) <= float(getattr(cfg, "portfolio_stale_mega_near_high_max", -0.05)))
         & (oneil <= 0.0)
     )
+    price_broken = (
+        (numeric_series_or_default(d, "price_above_ma50", 1.0) <= 0.0)
+        | (numeric_series_or_default(d, "price_above_ma200", 1.0) <= 0.0)
+        | (numeric_series_or_default(d, "trend_template_relaxed", 1.0) <= 0.0)
+    )
+    group_weak = (
+        numeric_series_or_default(d, "industry_group_strength_score", 0.0)
+        <= float(getattr(cfg, "portfolio_stale_leader_group_strength_max", 0.0))
+    )
+    stale_broad_confirm = price_broken if bool(getattr(cfg, "portfolio_stale_leader_require_broken_ma", True)) else (
+        price_broken | group_weak
+    )
+    stale_broad_mask = (
+        labels.eq("core_compounder")
+        & (mcap >= float(getattr(cfg, "portfolio_stale_leader_mcap_min", 100_000_000_000.0)))
+        & (rs_accel <= float(getattr(cfg, "portfolio_stale_leader_rs_accel_max", -0.50)))
+        & (rs_level <= float(getattr(cfg, "portfolio_stale_leader_rs_level_max", 1.25)))
+        & (numeric_series_or_default(d, "near_52w_high_pct", 0.0) <= float(getattr(cfg, "portfolio_stale_leader_near_high_max", -0.08)))
+        & (stale_broad_confirm | group_weak | (oneil <= 0.0))
+        & (d["portfolio_monster_early_score"] < float(getattr(cfg, "portfolio_monster_early_min_score", 0.58)))
+    )
+    stale_mask = stale_mega_mask | stale_broad_mask
     stale_severity = row_mean(
         [
             (-rs_accel / 3.0).clip(lower=0.0, upper=1.0),
@@ -2827,6 +2850,11 @@ def compute_defensive_monster_rotation_overlay(
         idx,
     ).fillna(0.0).clip(lower=0.0, upper=1.0)
     d["portfolio_stale_mega_leader_score"] = np.where(stale_mask, stale_severity, 0.0)
+    d["portfolio_stale_leader_reason"] = np.select(
+        [stale_mega_mask, stale_broad_mask],
+        ["mega_rs_decay", "broad_relative_breakdown"],
+        default="",
+    )
 
     monster_cut = max(0.55, float(getattr(cfg, "portfolio_monster_early_min_score", 0.58)))
     risk_cut = float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
@@ -2837,7 +2865,7 @@ def compute_defensive_monster_rotation_overlay(
             d["portfolio_monster_early_score"] >= monster_cut,
         ],
         [
-            "rotate_out_stale_mega_core",
+            "rotate_out_stale_core",
             "block_fragile_entry",
             "promote_monster_early",
         ],
@@ -3716,6 +3744,7 @@ def build_target_portfolio(
             "portfolio_early_scout_engine_score",
             "portfolio_monster_early_score",
             "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
             "portfolio_risk_entry_block_score",
             "portfolio_defensive_rotation_action",
             "portfolio_monster_slot",

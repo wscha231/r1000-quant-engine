@@ -1486,7 +1486,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-30-phase17-19-sidecar"
+ENGINE_REUSE_VERSION = "2026-05-06-leader-rescue-stale-trim"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1740,6 +1740,12 @@ class EngineConfig:
     portfolio_stale_mega_rs_accel_max: float = -0.75
     portfolio_stale_mega_rs_level_max: float = 1.00
     portfolio_stale_mega_near_high_max: float = -0.05
+    portfolio_stale_leader_mcap_min: float = 100_000_000_000.0
+    portfolio_stale_leader_rs_accel_max: float = -0.50
+    portfolio_stale_leader_rs_level_max: float = 1.25
+    portfolio_stale_leader_near_high_max: float = -0.08
+    portfolio_stale_leader_group_strength_max: float = 0.0
+    portfolio_stale_leader_require_broken_ma: bool = True
     portfolio_monster_promote_unassigned_to_future: bool = True
     portfolio_monster_early_min_slots: int = 3
     portfolio_monster_early_min_score: float = 0.58
@@ -1932,6 +1938,16 @@ class EngineConfig:
     baseline_v42_code: str = ""
     features: list[str] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
     use_wikipedia_lists: bool = False
+    # Leader rescue universe (2026-05-06): current IWB can miss strong
+    # emerging leaders that sit outside Russell 1000 proxy coverage or
+    # disappear because a price-cache refresh failed. Keep this generic:
+    # add broad S&P/Nasdaq constituent candidates and write drop diagnostics
+    # instead of hardcoding example tickers.
+    leader_rescue_universe_enabled: bool = True
+    leader_rescue_include_sp500: bool = True
+    leader_rescue_include_nasdaq100: bool = True
+    leader_rescue_diagnostics_enabled: bool = True
+    leader_rescue_price_stale_days: int = 14
     w_quality_trend: float = 0.20
     w_forward_revision: float = 0.25
     w_event_reaction: float = 0.10
