@@ -1,4 +1,0 @@
-rebalance_date,ticker,Name,sector,original_weight,defended_weight,cash_after_defense,list_action,reason,period_forward_return,risk_adjusted_return,hard_stop,risk_exit_proxy,target_n,weighting_mode,active_rebalance_interval_months,raw_score,concentrated_score,portfolio_sleeve_label
-2026-02-27,ETR,ENTERGY CORP,Utilities,0.45981684835232417,0.45981684835232417,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,3,score_power,1,4.3348330781736,0.7239321794297374,early_scout
-2026-02-27,PEG,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,0.3021090225509224,0.3021090225509224,,hold,hold,-0.05657827013290484,-0.05657827013290484,-0.08,False,3,score_power,1,3.2989179059611984,0.658116420832445,early_scout
-2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.23807412909675352,0.23807412909675352,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,3,score_power,1,2.1955295942767314,0.6264949551611446,early_scout

@@ -1,0 +1,8 @@
+{
+  "experiment_id": "lifecycle_review_overlay",
+  "production_activation_allowed": false,
+  "reason": "monthly weights are empty",
+  "required_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
+  "research_only": true,
+  "status": "blocked"
+}
