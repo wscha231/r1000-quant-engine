@@ -6,104 +6,101 @@ This report is sidecar-only. It reconstructs historical holdings and round-trip 
 
 ## Summary
 
-- Holding books: ['concentrated_grid_presence', 'lifecycle_review_overlay_main', 'main_v2_research', 'monster_lifecycle_concentrated', 'monster_lifecycle_main', 'production_main']
-- Holding runs: 1971
-- Unique held tickers: 440
-- Average run length: 3.06 months
+- Holding books: ['lifecycle_review_overlay_main', 'main_v2_research', 'monster_lifecycle_concentrated', 'monster_lifecycle_main', 'production_main']
+- Holding runs: 1498
+- Unique held tickers: 391
+- Average run length: 3.24 months
 - Median run length: 2.00 months
-- Runs >= 6m / 12m: 266 / 25
-- Trade journal rows: 524
+- Runs >= 6m / 12m: 228 / 28
+- Trade journal rows: 519
 
 ## Longest Holding Runs
 
 | book | ticker | entry_date | exit_date | status | months_held | total_return | max_weight | journey_tag |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | monster_lifecycle_main | ANET | 2022-11-30 | 2024-11-29 | closed | 25 | 172.70% | 27.27% | long_winner |
+| production_main | NVDA | 2019-11-29 | 2021-11-30 | closed | 25 | 466.18% | 15.72% | long_winner |
 | lifecycle_review_overlay_main | ANET | 2023-04-28 | 2024-11-29 | closed | 20 | 170.07% | 33.00% | long_winner |
-| concentrated_grid_presence | ORLY | 2021-08-31 | 2022-12-30 | closed | 17 | 38.92% | 100.00% | normal |
-| monster_lifecycle_main | MLM | 2020-10-30 | 2022-01-31 | closed | 16 | 39.88% | 18.33% | normal |
 | monster_lifecycle_concentrated | MLM | 2020-10-30 | 2022-01-31 | closed | 16 | 39.88% | 37.31% | normal |
-| production_main | BKNG | 2024-08-30 | 2025-10-31 | closed | 15 | 28.86% | 21.20% | normal |
-| lifecycle_review_overlay_main | NOW | 2023-01-31 | 2024-02-29 | closed | 14 | 53.30% | 33.00% | long_winner |
-| lifecycle_review_overlay_main | GOOG | 2020-10-30 | 2021-11-30 | closed | 14 | 75.55% | 33.00% | long_winner |
-| monster_lifecycle_main | GOOG | 2020-10-30 | 2021-11-30 | closed | 14 | 99.93% | 15.87% | long_winner |
+| monster_lifecycle_main | MLM | 2020-10-30 | 2022-01-31 | closed | 16 | 39.88% | 18.33% | normal |
+| production_main | BKNG | 2024-08-30 | 2025-10-31 | closed | 15 | 28.86% | 21.77% | normal |
+| lifecycle_review_overlay_main | ON | 2022-07-29 | 2023-09-29 | closed | 15 | 1.50% | 33.00% | normal |
+| monster_lifecycle_main | CB | 2023-11-30 | 2024-12-31 | closed | 14 | 22.31% | 6.11% | normal |
 | monster_lifecycle_concentrated | HIG | 2023-11-30 | 2024-12-31 | closed | 14 | 42.70% | 32.00% | normal |
+| lifecycle_review_overlay_main | GOOG | 2020-10-30 | 2021-11-30 | closed | 14 | 80.19% | 28.94% | long_winner |
 
 ## Largest Weighted Contributors
 
 | book | ticker | entry_date | exit_date | months_held | total_return | weighted_contribution | journey_tag |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| concentrated_grid_presence | NVDA | 2020-02-28 | 2020-09-30 | 8 | 82.99% | 74.40% | long_winner |
-| concentrated_grid_presence | MU | 2025-10-31 | 2026-02-27 | 5 | 57.99% | 65.89% | normal |
-| concentrated_grid_presence | NVDA | 2021-01-29 | 2021-11-30 | 11 | 134.33% | 57.39% | long_winner |
-| concentrated_grid_presence | LRCX | 2025-09-30 | 2026-02-27 | 6 | 63.18% | 55.43% | open_winner_hold |
-| concentrated_grid_presence | AVGO | 2022-12-30 | 2023-06-30 | 7 | 61.11% | 50.64% | long_winner |
-| concentrated_grid_presence | SE | 2020-04-30 | 2020-06-30 | 3 | 131.81% | 47.18% | short_big_win_review |
-| concentrated_grid_presence | LRCX | 2020-10-30 | 2021-03-31 | 6 | 81.67% | 42.27% | long_winner |
-| concentrated_grid_presence | DUOL | 2024-08-30 | 2024-12-31 | 5 | 69.18% | 37.17% | normal |
-| concentrated_grid_presence | SMCI | 2024-01-31 | 2024-03-28 | 3 | 72.07% | 32.87% | short_big_win_review |
-| concentrated_grid_presence | AMZN | 2020-04-30 | 2020-06-30 | 3 | 36.11% | 32.74% | short_big_win_review |
+| main_v2_research | PLTR | 2024-06-28 | 2025-01-31 | 8 | 339.84% | 22.87% | long_winner |
+| monster_lifecycle_main | ANET | 2022-11-30 | 2024-11-29 | 25 | 172.70% | 22.67% | long_winner |
+| lifecycle_review_overlay_main | ANET | 2023-04-28 | 2024-11-29 | 20 | 170.07% | 19.09% | long_winner |
+| production_main | NVDA | 2019-11-29 | 2021-11-30 | 25 | 466.18% | 17.98% | long_winner |
+| monster_lifecycle_concentrated | ROKU | 2020-08-31 | 2021-01-29 | 6 | 142.14% | 14.82% | long_winner |
+| main_v2_research | SMCI | 2024-01-31 | 2024-04-30 | 4 | 98.64% | 13.69% | normal |
+| lifecycle_review_overlay_main | SHOP | 2020-01-31 | 2020-09-30 | 9 | 120.88% | 11.87% | long_winner |
+| lifecycle_review_overlay_main | JD | 2020-03-31 | 2020-11-30 | 9 | 119.39% | 11.36% | long_winner |
+| monster_lifecycle_main | XYZ | 2020-02-28 | 2020-10-30 | 9 | 179.72% | 11.33% | long_winner |
+| lifecycle_review_overlay_main | NOW | 2020-02-28 | 2020-11-30 | 10 | 86.74% | 10.83% | long_winner |
 
 ## Short Big Wins To Review
 
 | book | ticker | entry_date | exit_date | months_held | total_return | journey_tag |
 | --- | --- | --- | --- | --- | --- | --- |
-| concentrated_grid_presence | SE | 2020-04-30 | 2020-06-30 | 3 | 131.81% | short_big_win_review |
 | production_main | MRNA | 2020-03-31 | 2020-04-30 | 2 | 108.85% | short_big_win_review |
 | production_main | SMCI | 2024-01-31 | 2024-03-28 | 3 | 72.07% | short_big_win_review |
-| concentrated_grid_presence | SMCI | 2024-01-31 | 2024-03-28 | 3 | 72.07% | short_big_win_review |
-| concentrated_grid_presence | WDC | 2025-11-28 | 2026-01-30 | 3 | 68.99% | short_big_win_review |
-| main_v2_research | ELF | 2022-11-30 | 2023-01-31 | 3 | 65.92% | short_big_win_review |
-| production_main | TSLA | 2019-12-31 | 2019-12-31 | 1 | 58.70% | short_big_win_review |
+| production_main | WDC | 2025-10-31 | 2025-12-31 | 3 | 60.42% | short_big_win_review |
 | main_v2_research | MU | 2020-10-30 | 2020-12-31 | 3 | 58.05% | short_big_win_review |
 | production_main | TSLA | 2020-02-28 | 2020-04-30 | 3 | 56.62% | short_big_win_review |
 | main_v2_research | XYZ | 2020-06-30 | 2020-07-31 | 2 | 55.42% | short_big_win_review |
 | main_v2_research | VEEV | 2020-03-31 | 2020-05-29 | 3 | 55.07% | short_big_win_review |
-| concentrated_grid_presence | XYZ | 2020-06-30 | 2020-07-31 | 2 | 54.14% | short_big_win_review |
+| production_main | DKS | 2023-12-29 | 2024-02-29 | 3 | 53.68% | short_big_win_review |
+| main_v2_research | TER | 2025-10-31 | 2025-12-31 | 3 | 49.93% | short_big_win_review |
+| production_main | BILL | 2021-06-30 | 2021-08-31 | 3 | 48.63% | short_big_win_review |
+| production_main | SE | 2020-04-30 | 2020-04-30 | 1 | 48.60% | short_big_win_review |
+| production_main | NRG | 2025-04-30 | 2025-06-30 | 3 | 46.10% | short_big_win_review |
 
 ## Open Stale Watch
 
-| book | ticker | entry_date | exit_date | months_held | total_return | recent_3m_return | journey_tag |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| lifecycle_review_overlay_main | GOOGL | 2025-08-29 | 2026-02-27 | 7 | 40.93% | -10.44% | open_stale_watch |
+_None._
 
 ## Current Holdings Versus History
 
 | current_book | ticker | current_weight | history_status | total_months_held | run_count | current_run_months | current_run_return | current_run_tag |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| current_concentrated | WDC | 40.15% | returning_after_gap | 13.0000 | 4.0000 | 7.0000 | 224.16% | long_winner |
-| current_concentrated | CIEN | 39.01% | returning_after_gap | 6.0000 | 4.0000 | 1.0000 | 5.66% | normal |
-| current_concentrated | SNDK | 20.84% | new_unseen |  |  |  |  |  |
-| current_main | TSM | 12.00% | new_unseen |  |  |  |  |  |
-| current_main | GEV | 12.00% | new_unseen |  |  |  |  |  |
-| current_main | VRT | 12.00% | open_history | 15.0000 | 5.0000 | 1.0000 | 3.06% | normal |
-| current_main | FTI | 12.00% | open_history | 4.0000 | 4.0000 | 1.0000 | 8.00% | normal |
-| current_main | NVDA | 10.22% | returning_after_gap | 128.0000 | 19.0000 | 8.0000 | 23.11% | normal |
+| current_concentrated | WDC | 50.00% | open_history | 14.0000 | 3.0000 | 4.0000 | 53.80% | normal |
+| current_main | GOOGL | 13.80% | open_history | 67.0000 | 17.0000 | 3.0000 | -10.44% | normal |
+| current_main | VRT | 10.93% | open_history | 14.0000 | 5.0000 | 1.0000 | 3.06% | normal |
+| current_main | GEV | 10.80% | new_unseen |  |  |  |  |  |
+| current_main | FTI | 9.52% | open_history | 5.0000 | 5.0000 | 1.0000 | 8.00% | normal |
+| current_main | TSM | 6.95% | new_unseen |  |  |  |  |  |
+| current_main | WDC | 6.87% | open_history | 14.0000 | 3.0000 | 4.0000 | 53.80% | normal |
 | current_main | FIX | 6.00% | new_unseen |  |  |  |  |  |
-| current_main | PR | 6.00% | open_history | 11.0000 | 6.0000 | 1.0000 | 10.91% | normal |
-| current_main | MLI | 6.00% | returning_after_gap | 7.0000 | 5.0000 | 1.0000 | 17.72% | normal |
-| current_main | PLTR | 5.00% | returning_after_gap | 32.0000 | 5.0000 | 6.0000 | 53.09% | long_winner |
-| current_main | LRCX | 4.57% | open_history | 135.0000 | 31.0000 | 6.0000 | 63.18% | open_winner_hold |
-| current_main | AMAT | 4.01% | open_history | 59.0000 | 13.0000 | 3.0000 | 29.44% | short_big_win_review |
-| current_main | TER | 3.25% | returning_after_gap | 29.0000 | 9.0000 | 3.0000 | 49.93% | short_big_win_review |
-| current_main | ON | 2.95% | returning_after_gap | 10.0000 | 5.0000 | 1.0000 | -9.77% | normal |
+| current_main | PR | 6.00% | returning_after_gap | 4.0000 | 2.0000 | 3.0000 | -3.94% | normal |
+| current_main | MLI | 6.00% | returning_after_gap | 6.0000 | 4.0000 | 2.0000 | 11.10% | normal |
+| current_main | LRCX | 5.89% | open_history | 92.0000 | 23.0000 | 6.0000 | 63.18% | open_winner_hold |
+| current_main | GLW | 5.40% | returning_after_gap | 1.0000 | 1.0000 | 1.0000 | -6.98% | normal |
+| current_main | TER | 4.54% | returning_after_gap | 14.0000 | 7.0000 | 3.0000 | 49.93% | short_big_win_review |
+| current_main | AMKR | 3.81% | returning_after_gap | 1.0000 | 1.0000 | 1.0000 | -10.75% | quick_loss |
+| current_main | ON | 3.49% | returning_after_gap | 22.0000 | 5.0000 | 15.0000 | 1.50% | normal |
 
 ## Reentry Churn Watch
 
 | ticker | trade_count | win_rate | avg_realized_return | avg_holding_days | compound_realized_return | churn_tag |
 | --- | --- | --- | --- | --- | --- | --- |
-| NVDA | 6 | 0.8333 | 61.09% | 184.0000 | 1137.59% | patient_winner |
-| SHOP | 6 | 0.8333 | 17.76% | 62.0000 | 148.63% | profitable_reentry_churn |
-| MSFT | 6 | 0.6667 | 5.30% | 36.0000 | 31.04% | profitable_reentry_churn |
-| FTNT | 6 | 0.5000 | 5.38% | 15.1667 | 31.47% | profitable_reentry_churn |
-| UNH | 6 | 0.6667 | 5.54% | 61.0000 | 35.99% | profitable_reentry_churn |
-| AAPL | 5 | 0.8000 | 6.32% | 68.2000 | 34.56% | profitable_reentry_churn |
-| STLD | 5 | 0.4000 | -0.96% | 36.6000 | -10.48% | unproductive_reentry_churn |
-| VRTX | 5 | 0.4000 | 2.72% | 67.8000 | 11.41% | profitable_reentry_churn |
-| GOOG | 5 | 0.6000 | 5.24% | 72.8000 | 26.01% | profitable_reentry_churn |
-| TSCO | 4 | 0.5000 | -3.11% | 7.5000 | -12.89% | unproductive_reentry_churn |
-| XYZ | 4 | 0.5000 | 12.64% | 30.2500 | 49.02% | profitable_reentry_churn |
-| ANET | 4 | 1.0000 | 16.55% | 61.2500 | 80.89% | profitable_reentry_churn |
-| AMAT | 4 | 1.0000 | 16.90% | 29.7500 | 80.83% | profitable_reentry_churn |
-| TSLA | 4 | 0.7500 | 27.14% | 30.5000 | 129.16% | profitable_reentry_churn |
-| VST | 4 | 0.7500 | 25.68% | 31.5000 | 134.96% | profitable_reentry_churn |
+| MSFT | 6 | 0.6667 | 3.90% | 51.0000 | 21.27% | profitable_reentry_churn |
+| ASML | 6 | 0.5000 | 11.49% | 55.1667 | 80.01% | profitable_reentry_churn |
+| STLD | 6 | 0.3333 | -0.04% | 36.5000 | -4.92% | unproductive_reentry_churn |
+| FTNT | 6 | 0.5000 | 4.67% | 5.1667 | 24.84% | profitable_reentry_churn |
+| NVDA | 5 | 0.8000 | 113.95% | 238.4000 | 1210.38% | patient_winner |
+| AVGO | 5 | 0.6000 | 28.47% | 190.2000 | 173.93% | patient_winner |
+| ORCL | 5 | 0.0000 | -5.53% | 43.2000 | -25.00% | unproductive_reentry_churn |
+| AAPL | 5 | 0.6000 | 2.16% | 73.6000 | 10.29% | profitable_reentry_churn |
+| MCK | 5 | 0.4000 | 2.55% | 60.2000 | 10.31% | profitable_reentry_churn |
+| SE | 5 | 1.0000 | 18.65% | 23.4000 | 123.16% | profitable_reentry_churn |
+| VRTX | 5 | 0.6000 | 2.73% | 67.6000 | 12.41% | profitable_reentry_churn |
+| BLDR | 5 | 0.6000 | 13.00% | 60.6000 | 71.85% | profitable_reentry_churn |
+| AMAT | 4 | 1.0000 | 17.59% | 36.7500 | 85.63% | profitable_reentry_churn |
+| CPRT | 4 | 0.7500 | 6.49% | 69.7500 | 27.82% | profitable_reentry_churn |
+| PEG | 4 | 0.5000 | 2.11% | 46.2500 | 7.75% | profitable_reentry_churn |

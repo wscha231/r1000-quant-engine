@@ -9,10 +9,10 @@ Research-only staged sizing replay: scout -> confirm -> winner -> monster.
 - Max new scouts/month: 3
 - Entry requires leadership/growth: `False`
 - Stale patience months: None
-- CAGR: 1.67%
-- Sharpe: 0.185
+- CAGR: 3.13%
+- Sharpe: 0.256
 - MaxDD: -40.80%
-- Avg cash: 9.11%
-- Avg turnover: 26.93%
+- Avg cash: 8.76%
+- Avg turnover: 26.27%
 
 This is the priority challenger for detecting early monster winners without hardcoded tickers.

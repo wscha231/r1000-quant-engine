@@ -1,12 +1,12 @@
 {
   "report_version": "2026-05-02-alphaops-stage0-2a",
-  "generated_at_utc": "2026-05-06T07:50:02Z",
+  "generated_at_utc": "2026-05-06T11:33:11Z",
   "run_identity": {
-    "run_ts": "20260506_073701",
-    "git_commit": "b5d1ee18c63cbd5244916d20f5a809eb9828d746",
+    "run_ts": "20260506_112124",
+    "git_commit": "ed07e95875ee401bdd00d790b40d66127ed8bc13",
     "engine_version": "2026-05-06-leader-rescue-stale-trim",
-    "config_fingerprint": "dcbc45fbd158b25ce0a900d1afadddadab3a1063",
-    "run_id": "20260506_073701__b5d1ee1__2026-05-06-leader-rescue-stale-trim"
+    "config_fingerprint": "847bdcc3304cdc8035b9459168db986fde5d8393",
+    "run_id": "20260506_112124__ed07e95__2026-05-06-leader-rescue-stale-trim"
   },
   "observed": {
     "cfg_default_backtest_years": 8,
@@ -42,7 +42,7 @@
       7,
       10
     ],
-    "cfg_concentrated_max_single_name_weight": 1.0,
+    "cfg_concentrated_max_single_name_weight": 0.5,
     "mandate_registry": {
       "main": {
         "cadence": "monthly",
@@ -97,12 +97,7 @@
       "severity": "info",
       "code": "main_target_n_broad",
       "message": "Main mandate target_n is broad; target-N compression should be A/B tested, not changed blindly."
-    },
-    {
-      "severity": "warn",
-      "code": "concentrated_single_name_uncapped",
-      "message": "Concentrated max single-name weight is 100%; declare sleeve-level cap before production orchestration."
     }
   ],
-  "status": "warn"
+  "status": "pass"
 }

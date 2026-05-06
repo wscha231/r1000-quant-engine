@@ -1,28 +1,28 @@
 # AlphaOps Baseline Registry
 
-- Generated UTC: 2026-05-06T07:50:02Z
+- Generated UTC: 2026-05-06T11:33:11Z
 - Engine version: 2026-05-06-leader-rescue-stale-trim
-- Commit: b5d1ee18c63cbd5244916d20f5a809eb9828d746
+- Commit: ed07e95875ee401bdd00d790b40d66127ed8bc13
 - Universe: global_alpha_universe
 - Backtest years: 8
 
 ## Current Main
 
-- CAGR: 0.3019
-- Sharpe: 1.6615
-- MaxDD: -0.1835
-- Avg turnover monthly: 0.5305
+- CAGR: 0.3046
+- Sharpe: 1.6779
+- MaxDD: -0.1685
+- Avg turnover monthly: 0.5349
 
 ## Current Concentrated
 
-- CAGR: 0.4575
-- Sharpe: 1.6418
-- MaxDD: -0.2062
+- CAGR: nan
+- Sharpe: nan
+- MaxDD: nan
 
 ## Diagnostics
 
-- Scored latest rows: 699
-- Regime distribution: {'neutral': 699}
+- Scored latest rows: 696
+- Regime distribution: {'neutral': 696}
 - Explosion nonzero: False
-- ADR rows: 30
+- ADR rows: 27
 - ADR selected count: 1
