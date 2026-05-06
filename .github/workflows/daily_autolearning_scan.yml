@@ -72,8 +72,11 @@ jobs:
             python tools/run_main_cash_drag_replay.py \
               --latest-run "$LATEST_RUN" \
               --output-dir outputs/main_cash_drag_replay
+            python tools/run_historical_trade_journey.py \
+              --latest-run "$LATEST_RUN" \
+              --output-dir outputs/historical_trade_journey
           else
-            echo "WARN: $LATEST_RUN/reports/main_monthly_weights.csv missing; skipping cash drag replay."
+            echo "WARN: $LATEST_RUN/reports/main_monthly_weights.csv missing; skipping cash drag replay and historical trade journey."
           fi
 
           if [ -f "$LATEST_RUN/reports/candidate_replay_book.csv" ]; then
@@ -134,5 +137,6 @@ jobs:
             outputs/lifecycle_review_overlay_main/
             outputs/monster_lifecycle_review_main/
             outputs/monster_lifecycle_review_concentrated/
+            outputs/historical_trade_journey/
             outputs/autolearning_winner_challenger/
           retention-days: 90

@@ -35,6 +35,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/lifecycle_review_overlay_main/",
         "outputs/monster_lifecycle_review_main/",
         "outputs/monster_lifecycle_review_concentrated/",
+        "outputs/historical_trade_journey/",
     ):
         assert token in text, token
 
