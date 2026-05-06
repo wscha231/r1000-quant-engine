@@ -1756,7 +1756,7 @@ class EngineConfig:
     concentrated_risk_candidate_block_threshold: float = 0.45
     concentrated_entry_quality_monster_early_override: bool = True
     concentrated_entry_quality_monster_early_min: float = 0.62
-    concentrated_max_single_name_weight: float = 1.00
+    concentrated_max_single_name_weight: float = 0.50
     concentrated_monitoring_review_days: int = 7
     run_historical_data_quality_reports: bool = True
     growth_history_confidence_penalty_weight: float = 0.18

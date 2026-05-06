@@ -16,8 +16,12 @@ from tools.run_concentrated_policy_replay import replay as concentrated_replay  
 from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
 from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
 from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_replay  # noqa: E402
+from tools.run_governance_catalyst_report import run as governance_report_run  # noqa: E402
+from tools.run_leader_drop_diagnostics_sidecar import run as leader_drop_run  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
+from r1000_config import EngineConfig  # noqa: E402
+from r1000_pipeline import concentrated_weight_map  # noqa: E402
 
 
 def write_candidate_book(path: Path) -> None:
@@ -224,12 +228,105 @@ def test_historical_challenger_replays() -> None:
             assert float(first_month["gross_return"]) > 0.0
 
 
+def test_latest_diagnostics_sidecars() -> None:
+    import argparse
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        reports = latest / "reports"
+        reports.mkdir(parents=True, exist_ok=True)
+        scored_fields = [
+            "ticker",
+            "Name",
+            "sector",
+            "score",
+            "portfolio_sleeve_label",
+            "portfolio_candidate_gate_label",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_risk_entry_block_score",
+            "rs_acceleration_score",
+            "ownership_flow_pillar_score",
+            "insider_cluster_boost_score",
+            "event_revision_pillar_score",
+            "event_reaction_score",
+            "live_event_growth_reentry_score",
+            "live_event_risk_score",
+        ]
+        rows = [
+            {
+                "ticker": "AAA",
+                "Name": "AAA",
+                "sector": "Tech",
+                "score": 5,
+                "portfolio_sleeve_label": "future_winner",
+                "portfolio_candidate_gate_label": "keep",
+                "portfolio_monster_early_score": 0.72,
+                "portfolio_stale_mega_leader_score": 0.0,
+                "portfolio_risk_entry_block_score": 0.1,
+                "rs_acceleration_score": 0.8,
+                "ownership_flow_pillar_score": 0.8,
+                "insider_cluster_boost_score": 0.4,
+                "event_revision_pillar_score": 0.7,
+                "event_reaction_score": 0.5,
+                "live_event_growth_reentry_score": 0.4,
+                "live_event_risk_score": 0.0,
+            },
+            {
+                "ticker": "BBB",
+                "Name": "BBB",
+                "sector": "Tech",
+                "score": 4,
+                "portfolio_sleeve_label": "unassigned",
+                "portfolio_candidate_gate_label": "rejected",
+                "portfolio_monster_early_score": 0.2,
+                "portfolio_stale_mega_leader_score": 0.8,
+                "portfolio_risk_entry_block_score": 0.8,
+                "rs_acceleration_score": -1.0,
+            },
+        ]
+        latest.mkdir(parents=True, exist_ok=True)
+        with (latest / "scored_latest.csv").open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=scored_fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        with (latest / "portfolio_latest.csv").open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["ticker", "weight"])
+            writer.writeheader()
+            writer.writerow({"ticker": "AAA", "weight": 0.1})
+        with (latest / "concentrated_portfolio_latest.csv").open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["ticker", "weight"])
+            writer.writeheader()
+            writer.writerow({"ticker": "CCC", "weight": 0.3})
+        leader_payload = leader_drop_run(
+            argparse.Namespace(latest_run=str(latest), output_dir=str(reports), watchlist="INTC", force=True)
+        )
+        governance_payload = governance_report_run(
+            argparse.Namespace(latest_run=str(latest), output_dir=str(root / "governance"), top_n=10, watchlist="INTC")
+        )
+        assert leader_payload["rows"] == 3
+        assert (reports / "leader_drop_diagnostics_latest.csv").exists()
+        assert governance_payload["status"] == "completed"
+        assert (root / "governance" / "governance_catalyst_latest.csv").exists()
+
+
 def test_weight_caps_and_return_column_fallback() -> None:
     rows = [{"ticker": "AAA", "score": 100.0}, {"ticker": "BBB", "score": 1.0}]
     weights = score_power_weights(rows, "score", single_name_cap=0.5)
     assert max(weights.values()) <= 0.5000001
 
+    cfg = EngineConfig(concentrated_max_single_name_weight=0.50)
     import pandas as pd
+
+    selected = pd.DataFrame(
+        [
+            {"ticker": "AAA", "concentrated_score": 10.0, "score": 10.0},
+            {"ticker": "BBB", "concentrated_score": 1.0, "score": 1.0},
+        ]
+    )
+    prod_weights = concentrated_weight_map(cfg, selected, "winner_take_all")
+    assert max(prod_weights.values()) <= 0.5000001
 
     frame = pd.DataFrame({"period_forward_return": [float("nan")], "y_blend": [0.12]})
     assert infer_return_col(frame) == "y_blend"
@@ -237,5 +334,6 @@ def test_weight_caps_and_return_column_fallback() -> None:
 
 if __name__ == "__main__":
     test_historical_challenger_replays()
+    test_latest_diagnostics_sidecars()
     test_weight_caps_and_return_column_fallback()
     print("historical_challenger_replays_smoke: ok")

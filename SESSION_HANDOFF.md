@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-06 17:01 KST (leader-rescue + historical journey result)
+# Session Handoff - 2026-05-06 18:10 KST (relative weakness + catalyst diagnostics)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-06 17:01 KST) - leader-rescue + historical journey result
+## ACTIVE INBOX (2026-05-06 18:10 KST) - relative weakness + catalyst diagnostics
 
 **TL;DR** The target-pass rebuild `25394753964` remains the latest completed
 evidence set, but the active work has moved to branch
@@ -14,7 +14,10 @@ evidence set, but the active work has moved to branch
 diagnostic into data-driven leader rescue, stale-leader trim, lifecycle review,
 and historical holding/trade journey reporting. Full rebuild `25416283891`
 completed successfully on commit `b5d1ee1`; the bot pushed results in
-`cloud_results/full_rebuild/latest_global_alpha_universe`.
+`cloud_results/full_rebuild/latest_global_alpha_universe`. The latest local
+patch adds research-only relative-weakness trim/exit replay, guaranteed leader
+drop fallback diagnostics, governance catalyst surfacing, and an explicit 50%
+concentrated single-name cap.
 
 Latest completed target-pass reference:
 
@@ -32,6 +35,47 @@ latest bot result commit: 0903e14 chore(bot): full rebuild [global_alpha_univers
 code commit under test: b5d1ee1 feat(alphaops): add historical trade journey report
 base evidence run: 25394753964 on codex/goal-risk-replay-fullrun @ a54872e
 ```
+
+**Latest local patch after run `25416283891`**
+
+Purpose:
+- Cut stale leaders in two stages: trim 50% after prior monthly benchmark-relative weakness, then exit if weakness persists.
+- Keep true long-hold winners from being shaken out by one bad relative window.
+- Make concentrated risk policy explicit: single-name cap is now 50%; infeasible excess stays cash instead of being renormalized away.
+- Guarantee `leader_drop_diagnostics_latest.csv` / summary exists even if the in-pipeline writer does not produce it.
+- Surface ownership/insider/event/revision catalyst columns every full run so governance-change signals can be inspected.
+
+Changed files:
+- `.github/workflows/full_rebuild_manual.yml`
+- `r1000_config.py`
+- `r1000_pipeline.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tools/run_leader_drop_diagnostics_sidecar.py`
+- `tools/run_governance_catalyst_report.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/workflow_artifact_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Local real-artifact check on `cloud_results/full_rebuild/latest_global_alpha_universe`:
+
+```
+enhanced position-aware risk proxy @25bps:
+  CAGR 34.97%, MaxDD -8.63%, Sharpe 1.729
+  relative trims 20, relative exits 2, risk exits 232
+  50bps CAGR 34.07%, 75bps CAGR 33.19%
+
+leader diagnostics fallback:
+  701 rows generated with watchlist examples
+
+governance catalyst report:
+  82 rows generated
+```
+
+Do not treat the enhanced risk replay as production execution evidence yet:
+it still uses monthly proxy stop assumptions. It is now better suited for the
+next full rebuild / A-B check because it also exports cost sensitivity and
+rolling 3-year metrics.
 
 **Active GitHub Actions**
 
@@ -82,6 +126,10 @@ Important interpretation:
 4. The system should not analyze only the latest portfolio. It must also review
    historical holdings, round-trip trades, re-entry churn, short big wins, and
    current holdings versus history.
+5. Relative underperformance should be staged: first trim, then exit if the
+   stock keeps lagging SPY/QQQ and no long-hold winner protection remains.
+6. Governance/ownership catalysts should be visible in reports now, then later
+   upgraded with a true SEC 8-K/Form 4/Form 13F/news event parser.
 
 **What changed on `codex/leader-rescue-stale-trim`**
 
@@ -126,13 +174,14 @@ Important interpretation:
 
 **Concrete PLTR / SNDK / LITE / INTC diagnostics**
 
-- Latest `portfolio_latest.csv` has `PLTR` at 8.15% weight, rank 4,
-  `core_compounder`, `core_strict`, score 6.72.
+- Latest `portfolio_latest.csv` from run `25416283891` has `PLTR` at about
+  5.00% weight. It is no longer a dominant main name, but it still survives
+  because long-horizon/core scores offset weak current relative strength.
 - Latest `PLTR` diagnostics are contradictory: strong long-horizon winner/core
   scores but weak current technical state:
   - `price_above_ma50 = 0`
   - `price_above_ma200 = 0`
-  - `rs_acceleration_score = -0.834`
+  - `rs_acceleration_score = about -0.84`
   - `breakout_fresh_20d = 0`
 - `PLTR` first appeared in main monthly weights on `2024-11-29` at about 8.90%,
   then reached about 20.25% on `2024-12-31`.
@@ -152,6 +201,9 @@ Important interpretation:
 - Latest `INTC` is not present in `scored_latest.csv`; it cannot enter any
   portfolio until universe coverage admits it. Treat INTC as an example of a
   large-cap comeback / recovery candidate, not as a hardcoded ticker target.
+- The new fallback sidecar can emit watchlist-missing rows for examples like
+  `INTC` and `STX`, but a true fix still requires upstream universe/source
+  admission and event coverage rather than ticker-specific selection code.
 
 **Market-context gap to fix before another run**
 

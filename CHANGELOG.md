@@ -256,6 +256,58 @@ All entries must be written in English. Entries must be predictable and machine-
   - Full rebuild `25416283891` completed on `b5d1ee1`; future agents should analyze `cloud_results/full_rebuild/latest_global_alpha_universe`.
   - Historical trade journey outputs are available in this completed run and should be used to review past holdings, churn, and current-versus-history context.
 
+### 18:10 KST - relative-weakness-catalyst-diagnostics
+
+- scope:
+  - Add research-only relative-underperformance trim/exit diagnostics, governance catalyst surfacing, guaranteed leader diagnostics fallback, and explicit concentrated single-name cap enforcement.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs leader-drop fallback and governance catalyst sidecars and exports their artifacts to GitHub/GDrive/cloud-results bundles.
+  - `r1000_config.py` ->sets the concentrated single-name max to 50%.
+  - `r1000_pipeline.py` ->applies the concentrated cap consistently across winner-take-all, score-power, and conviction-curve weight modes without renormalizing away capped cash.
+  - `tools/run_position_aware_risk_replay.py` ->adds prior-window benchmark-relative trim/exit logic, 25/50/75bps cost sensitivity, and rolling 3-year validation outputs.
+  - `tools/run_leader_drop_diagnostics_sidecar.py` ->new fallback latest-scored diagnostic writer when the in-pipeline leader-drop report is absent.
+  - `tools/run_governance_catalyst_report.py` ->new report-only surface for ownership, insider, event, and revision catalyst columns already present in `scored_latest.csv`.
+  - `tests/historical_challenger_replays_smoke.py` ->covers new sidecars and concentrated cap enforcement.
+  - `tests/workflow_artifact_smoke.py` ->requires the new sidecars and artifact paths.
+- symbols_added:
+  - `load_benchmark_returns(path)` ->loads monthly benchmark returns from the exported equity curve.
+  - `is_long_hold_protected(row, cumulative_return, relative_return)` ->keeps true long-hold winners from being cut on one weak relative window.
+  - `relative_underperformance_action(row, cumulative_return, benchmark_cumulative_return, trim_threshold, exit_threshold)` ->chooses hold, 50% trim, or exit-to-cash from prior relative performance.
+  - `rolling_metric_rows(monthly_rows, window_months)` ->writes rolling 3-year replay validation rows.
+  - `cost_sensitivity_rows(monthly_rows, bps_values)` ->computes 25/50/75bps replay metrics from the same action stream.
+  - `tools.run_leader_drop_diagnostics_sidecar.run(args)` ->writes fallback leader diagnostics from latest scored/portfolio artifacts.
+  - `tools.run_governance_catalyst_report.run(args)` ->writes latest governance catalyst diagnostics.
+  - `test_latest_diagnostics_sidecars()` ->smoke-tests fallback leader and governance diagnostics.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->guards workflow sidecar wiring.
+- symbols_changed:
+  - `exit_signal()` ->returns action, reason, position multiplier, and proxy return cap so exits and trim-50 actions are distinguishable.
+  - `replay()` in `tools/run_position_aware_risk_replay.py` ->uses benchmark-relative prior state, cost bps, cost sensitivity, and rolling validation outputs.
+  - `concentrated_weight_map()` ->enforces `concentrated_max_single_name_weight` for every weighting mode and leaves infeasible excess as cash.
+  - `test_weight_caps_and_return_column_fallback()` ->checks production concentrated cap enforcement in addition to helper cap math.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Concentrated branch behavior changes on the next full rebuild because the default single-name cap is now 50%; existing target-pass evidence should be preserved as the pre-cap baseline.
+- outputs:
+  - `outputs/position_aware_risk_replay/cost_sensitivity.csv` ->25/50/75bps replay metrics.
+  - `outputs/position_aware_risk_replay/rolling_3y.csv` ->rolling 36-month replay metrics.
+  - `outputs/reports/leader_drop_diagnostics_latest.csv` ->guaranteed latest-scored fallback diagnostics if the primary pipeline diagnostic is absent.
+  - `outputs/reports/leader_drop_diagnostics_report.md` ->human-readable fallback diagnostic summary.
+  - `outputs/governance_catalyst/governance_catalyst_latest.csv` ->top ownership/insider/event/revision catalyst rows.
+  - `outputs/governance_catalyst/summary.json` ->governance catalyst counts and coverage.
+  - `outputs/governance_catalyst/report.md` ->human-readable catalyst report.
+- validation:
+  - `py -3 -m py_compile tools\run_position_aware_risk_replay.py tools\run_leader_drop_diagnostics_sidecar.py tools\run_governance_catalyst_report.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - Real latest-run sidecar check for enhanced `position_aware_risk_replay` ->passed; 25bps CAGR 34.97%, Sharpe 1.729, MaxDD -8.63%, relative trims 20, relative exits 2.
+  - Real latest-run sidecar check for fallback leader diagnostics ->passed; 701 rows including watchlist missing rows.
+  - Real latest-run sidecar check for governance catalyst diagnostics ->passed; 82 output rows.
+- risks_or_notes:
+  - Relative-underperformance actions use prior monthly relative state, but hard-stop and trailing-stop pieces remain monthly proxy assumptions, not intraday execution.
+  - Governance catalyst reporting only surfaces existing engine columns; strategic government stake/news/8-K parsing remains a future data-layer task.
+  - The 50% concentrated cap can reduce CAGR if the prior winner-take-all concentration was the alpha source, so the next full rebuild must compare against the saved pre-cap 45.75% concentrated baseline.
+
 ## 2026-05-05
 
 ### 06:49 KST - defensive-list-risk-proxy

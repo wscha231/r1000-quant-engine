@@ -18,6 +18,9 @@ MONTHLY_BOOK_TOKENS = [
     "outputs/reports/candidate_replay_book.csv",
     "outputs/reports/concentrated_strategy_monthly.csv",
     "outputs/reports/concentrated_strategy_holdings.csv",
+    "outputs/reports/leader_drop_diagnostics_*.csv",
+    "outputs/reports/leader_drop_diagnostics_summary.json",
+    "outputs/reports/leader_drop_diagnostics_report.md",
 ]
 
 
@@ -31,6 +34,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/concentrated_policy_replay/",
         "outputs/alpha_sprint_backtest/",
         "outputs/position_aware_risk_replay/",
+        "outputs/governance_catalyst/",
         "outputs/monster_lifecycle_replay/",
         "outputs/lifecycle_review_overlay_main/",
         "outputs/monster_lifecycle_review_main/",
@@ -68,10 +72,22 @@ def test_pipeline_exports_monthly_books() -> None:
         assert token in text, token
 
 
+def test_workflow_runs_latest_diagnostics_sidecars() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "tools/run_leader_drop_diagnostics_sidecar.py",
+        "tools/run_governance_catalyst_report.py",
+        "outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log",
+        "outputs/full_rebuild_logs/governance_catalyst_report.log",
+    ]:
+        assert token in text, token
+
+
 def main() -> int:
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
+    test_workflow_runs_latest_diagnostics_sidecars()
     print("workflow artifact smoke passed")
     return 0
 

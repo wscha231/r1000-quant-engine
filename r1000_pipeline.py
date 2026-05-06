@@ -13936,11 +13936,7 @@ def concentrated_weight_map(
     elif mode == "score_power":
         raw = pd.to_numeric(ranked.get("concentrated_score"), errors="coerce").fillna(0.0)
         shifted = (raw - float(raw.min()) + 0.25).clip(lower=1e-6)
-        weights = normalize_with_limits(
-            pd.Series(np.power(shifted.to_numpy(dtype=float), 2.0), index=ranked.index, dtype=float),
-            wmin=0.0,
-            wmax=float(getattr(cfg, "concentrated_max_single_name_weight", 1.0)),
-        ).to_numpy(dtype=float)
+        weights = pd.Series(np.power(shifted.to_numpy(dtype=float), 2.0), index=ranked.index, dtype=float).to_numpy(dtype=float)
     else:
         curve = {
             1: np.array([1.0], dtype=float),
@@ -13949,13 +13945,18 @@ def concentrated_weight_map(
         }
         weights = curve.get(n, curve[3][:n]).astype(float)
         weights = weights / max(float(weights.sum()), 1e-8)
+    weights = normalize_with_limits(
+        pd.Series(weights, index=ranked.index, dtype=float),
+        wmin=0.0,
+        wmax=float(getattr(cfg, "concentrated_max_single_name_weight", 1.0)),
+    ).to_numpy(dtype=float)
     out = {
         str(t): float(w)
         for t, w in zip(tickers, weights.tolist())
         if pd.notna(w) and float(w) > 1e-10
     }
     total = float(sum(out.values()))
-    if total > 0:
+    if total > 1.0 + 1e-8:
         out = {k: float(v / total) for k, v in out.items()}
     return out
 
