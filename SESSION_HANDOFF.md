@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-04 10:43 KST (PR #3 historical replay foundation)
+# Session Handoff - 2026-05-06 09:12 KST (market-aware monster handoff)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,158 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-04 10:43 KST) - PR #3 historical replay foundation
+## ACTIVE INBOX (2026-05-06 09:12 KST) - market-aware monster handoff
+
+**TL;DR** Latest GitHub full rebuild run `25394753964` on
+`codex/goal-risk-replay-fullrun` completed successfully at commit `a54872e`.
+The latest cloud production artifacts now pass the requested targets:
+
+```
+main production:          CAGR 30.29%, MaxDD -18.90%, Sharpe 1.659
+concentrated production:  CAGR 45.16%, MaxDD -19.87%, Sharpe 1.653
+latest concentrated:      WDC / CIEN / SNDK, all monster_extreme_early
+```
+
+Do **not** launch another full rebuild just to continue this handoff. The user
+explicitly asked for documentation / changelog updates only so another agent can
+continue the work.
+
+**Current branch**
+
+```
+codex/goal-risk-replay-fullrun
+latest pulled local HEAD observed after artifact pull: 0c2952a
+target run commit: a54872e3f75c9cb0b2c900cb3a614549986f92b6
+```
+
+**What the user is asking next**
+
+1. The system should read the market environment earlier and better before
+   portfolio construction.
+2. Main should not keep high-weight stale leaders only because long-horizon
+   winner / core scores are high.
+3. Main should admit data-driven monster/extreme early candidates earlier,
+   without hardcoding tickers.
+4. The next agent should update the design/code carefully before running again.
+
+**Concrete PLTR / SNDK / LITE / INTC findings**
+
+- Latest `portfolio_latest.csv` has `PLTR` at 8.15% weight, rank 4,
+  `core_compounder`, `core_strict`, score 6.72.
+- Latest `PLTR` diagnostics are contradictory: strong long-horizon winner/core
+  scores but weak current technical state:
+  - `price_above_ma50 = 0`
+  - `price_above_ma200 = 0`
+  - `rs_acceleration_score = -0.834`
+  - `breakout_fresh_20d = 0`
+- `PLTR` first appeared in main monthly weights on `2024-11-29` at about 8.90%,
+  then reached about 20.25% on `2024-12-31`.
+- Latest `SNDK` is in concentrated but not main. It has strong current monster
+  characteristics but is rejected by the main gate:
+  - `portfolio_future_winner_engine_score = 0.947`
+  - `portfolio_early_scout_engine_score = 0.920`
+  - `price_above_ma50 = 1`
+  - `price_above_ma200 = 1`
+  - `breakout_fresh_20d = 1`
+  - `multi_year_winner_score = 0`
+  - `ranking_eligible = False`
+  - `portfolio_candidate_gate_label = rejected`
+- Latest `LITE` is eligible as `future_winner` and passes `future_relaxed`, but
+  it does not make the final main portfolio because selected future/monster
+  slots and sleeve scoring still prefer other names.
+- Latest `INTC` is not present in `scored_latest.csv`; it cannot enter any
+  portfolio until universe coverage admits it. Treat INTC as an example of a
+  large-cap comeback / recovery candidate, not as a hardcoded ticker target.
+
+**Market-context gap to fix before another run**
+
+Add a market-context preflight before final main/concentrated selection. It
+should summarize the current environment from existing repo artifacts rather
+than from hardcoded opinions:
+
+- `macro_daily` / macro columns: liquidity, rates, VIX, inflation, risk-off,
+  growth re-entry, war/oil/rate shock.
+- `etf_leadership` / industry leadership columns: semis, AI infrastructure,
+  power infrastructure, energy, financials, defensive leaders.
+- `explosive_movers` / breakout columns: fresh breakout, volume confirmation,
+  volatility contraction, near 52-week high, RS acceleration.
+- candidate diagnostics: `portfolio_monster_early_score`,
+  `portfolio_risk_entry_block_score`, `portfolio_stale_mega_leader_score`,
+  `portfolio_defensive_rotation_action`.
+
+The goal is to classify environments like:
+
+```
+leadership_narrow_bull
+growth_reentry
+rate_shock
+liquidity_shock
+inflation_energy_bear
+AI_power_infra_cycle
+semis_storage_recovery
+defensive_rotation
+```
+
+This label should affect gates and slots, not directly buy/sell by itself.
+
+**Specific code changes recommended next**
+
+1. Expand stale leader defense in `r1000_signals.py`.
+   - Current stale logic is too mega-cap-specific.
+   - Add a stale-leader branch for large prior winners:
+     `market_cap > 50B or 100B`, high long-horizon winner score, below MA50 or
+     MA200, negative RS acceleration, no fresh breakout.
+   - Action should be `rotate_out_stale_leader`, not only
+     `rotate_out_stale_mega_core`.
+
+2. Add new-buy block or severe cap for broken core leaders.
+   - A `core_strict` candidate with `price_above_ma50 = 0`,
+     `price_above_ma200 = 0`, and `rs_acceleration_score < -0.5` should not get
+     a high fresh allocation.
+   - If it is an incumbent, allow a small review/hold cap only when thesis and
+     market-context support it.
+
+3. Add sparse-history monster override for main.
+   - Do not require `multi_year_winner_score > 0` when all current monster
+     evidence is strong.
+   - Candidate rule shape:
+     `future_engine >= 0.85`, `early_engine >= 0.80`, above MA50/MA200,
+     fresh breakout, acceptable risk block, and positive catalyst/inflection.
+   - This is how SNDK-style names can enter main earlier without hardcoding.
+
+4. Reserve main monster slots by market context.
+   - In neutral/bull leadership environments, reserve at least 2-4 future/monster
+     slots for sparse-history monster candidates.
+   - In risk-off environments, keep the reserve smaller and require stronger
+     price confirmation.
+
+5. Improve Layer 4 swap integration.
+   - Use daily/monthly Layer 4 only as proposal/manual review for now.
+   - Swap stale leaders into monster candidates only when cap, sector, theme,
+     and risk-entry-block checks pass.
+
+6. Add concentrated metadata parity.
+   - Latest concentrated metrics pass the target, but
+     `concentrated_backtest_metrics.json` does not explicitly expose
+     `position_risk_enabled` and `position_risk_metric_mode`.
+   - Add those fields so future agents/users do not confuse production metrics
+     with sidecar proxy metrics.
+
+**Do not hardcode these tickers**
+
+Use `PLTR`, `SNDK`, `LITE`, and `INTC` only as diagnostic examples. The actual
+logic should be data-driven and should generalize to any future stale leader or
+early monster candidate.
+
+**Do not run now**
+
+The user asked not to run. After code changes, the next agent should run only
+small local/smoke checks first, update this handoff and `CHANGELOG.md`, then ask
+or wait for an explicit instruction before triggering a full rebuild.
+
+---
+
+## PRIOR INBOX (2026-05-04 10:43 KST) - PR #3 historical replay foundation
 
 **TL;DR** PR #3 is directionally good but still too report-only/proxy-heavy for
 production. This follow-up branch preserves the raw monthly artifacts needed for
