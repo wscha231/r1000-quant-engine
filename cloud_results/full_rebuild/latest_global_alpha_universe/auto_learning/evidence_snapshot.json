@@ -5,6 +5,41 @@
     "capacity": 0.0,
     "regime_state": "neutral"
   },
+  "combined_trade_journal": {
+    "avg_alpha_vs_benchmark": 0.04517735919053797,
+    "avg_holding_days": 54.097744360902254,
+    "avg_realized_return": 0.07203744634216061,
+    "avg_return_by_regime": {
+      "bear": 0.06157972205300902,
+      "bull": 0.07579712379592365,
+      "deep_bear": 0.5266171633563883,
+      "nan": 0.0,
+      "neutral": 0.07102720424204882,
+      "strong_bull": -0.018139325529699324
+    },
+    "avg_return_by_sleeve": {
+      "cash": 0.0,
+      "core_compounder": 0.074127507648026
+    },
+    "exit_reason_counts": {
+      "scheduled_rebalance": 327,
+      "single_period_hold": 205
+    },
+    "regime_counts": {
+      "bear": 100,
+      "bull": 150,
+      "deep_bear": 5,
+      "nan": 15,
+      "neutral": 257,
+      "strong_bull": 5
+    },
+    "sleeve_counts": {
+      "cash": 15,
+      "core_compounder": 517
+    },
+    "trade_count": 532,
+    "win_rate": 0.5526315789473685
+  },
   "concentrated_policy": {
     "audit": {
       "entry_gate_all_pass": false,
@@ -179,48 +214,105 @@
       "Information Technology": 0.7375579759304909
     }
   },
+  "concentrated_trade_journal": {
+    "trade_count": 0
+  },
   "feature_gate_candidate": {
     "available": true,
-    "gate_count": 4,
+    "gate_count": 10,
     "gates": [
       {
         "factor": 1.3,
-        "ic": 0.1406,
+        "ic": 0.1747,
         "kind": "signal_regime_amplify",
-        "n": 138,
-        "rationale": "IC +0.141 in bear (n=138) >= amplify threshold +0.1",
-        "regime": "bear",
+        "n": 150,
+        "rationale": "IC +0.175 in bull (n=150) >= amplify threshold +0.1",
+        "regime": "bull",
         "signal": "rs_acceleration_score"
       },
       {
-        "factor": 1.3,
-        "ic": 0.119,
-        "kind": "signal_regime_amplify",
-        "n": 138,
-        "rationale": "IC +0.119 in bear (n=138) >= amplify threshold +0.1",
+        "factor": 0.0,
+        "ic": -0.0571,
+        "kind": "signal_regime_disable",
+        "n": 100,
+        "rationale": "IC -0.057 in bear (n=100) <= disable threshold -0.05",
         "regime": "bear",
-        "signal": "h1_oversold_value_score"
+        "signal": "h6_dynamic_leader_score"
       },
       {
         "factor": 0.0,
-        "ic": -0.1191,
+        "ic": -0.0502,
         "kind": "signal_regime_disable",
-        "n": 138,
-        "rationale": "IC -0.119 in bear (n=138) <= disable threshold -0.05",
+        "n": 150,
+        "rationale": "IC -0.050 in bull (n=150) <= disable threshold -0.05",
+        "regime": "bull",
+        "signal": "h6_dynamic_leader_score"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0811,
+        "kind": "signal_regime_disable",
+        "n": 100,
+        "rationale": "IC -0.081 in bear (n=100) <= disable threshold -0.05",
         "regime": "bear",
         "signal": "theme_phase_multiplier_primary"
       },
       {
         "factor": 0.0,
-        "ic": -0.0874,
+        "ic": -0.0995,
         "kind": "signal_regime_disable",
-        "n": 138,
-        "rationale": "IC -0.087 in bear (n=138) <= disable threshold -0.05",
+        "n": 257,
+        "rationale": "IC -0.100 in neutral (n=257) <= disable threshold -0.05",
+        "regime": "neutral",
+        "signal": "theme_phase_multiplier_primary"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0811,
+        "kind": "signal_regime_disable",
+        "n": 100,
+        "rationale": "IC -0.081 in bear (n=100) <= disable threshold -0.05",
         "regime": "bear",
         "signal": "theme_phase_multiplier_max"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.11,
+        "kind": "signal_regime_disable",
+        "n": 257,
+        "rationale": "IC -0.110 in neutral (n=257) <= disable threshold -0.05",
+        "regime": "neutral",
+        "signal": "theme_phase_multiplier_max"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0706,
+        "kind": "signal_regime_disable",
+        "n": 257,
+        "rationale": "IC -0.071 in neutral (n=257) <= disable threshold -0.05",
+        "regime": "neutral",
+        "signal": "entry_quality_score"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.1764,
+        "kind": "signal_regime_disable",
+        "n": 100,
+        "rationale": "IC -0.176 in bear (n=100) <= disable threshold -0.05",
+        "regime": "bear",
+        "signal": "selection_confirmation_score"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0508,
+        "kind": "signal_regime_disable",
+        "n": 150,
+        "rationale": "IC -0.051 in bull (n=150) <= disable threshold -0.05",
+        "regime": "bull",
+        "signal": "selection_confirmation_score"
       }
     ],
-    "path": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\auto_learning\\auto_feature_gates_candidate.yaml"
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_feature_gates_candidate.yaml"
   },
   "main_v2": {
     "actual_invested_after_cap": 0.9217969369608625,
@@ -254,67 +346,68 @@
   },
   "metrics": {
     "concentrated": {
-      "cagr": 0.3484912610130364,
-      "max_dd": -0.22940113109440408,
+      "cagr": 0.0,
+      "max_dd": 0.0,
       "monitoring_review_days": 7,
-      "selected_names": 5,
-      "sharpe": 1.4286886669635341
+      "selected_names": 3,
+      "sharpe": 0.0
     },
     "main": {
-      "avg_stock_names": 25.50602409638554,
-      "avg_turnover_monthly": 0.4858881015027757,
-      "cagr": 0.21403316158616126,
-      "max_dd": -0.2727261662085777,
+      "avg_stock_names": 17.55421686746988,
+      "avg_turnover_monthly": 0.5410346516797254,
+      "cagr": 0.2816150238263957,
+      "max_dd": -0.1819244389993675,
       "months": 83,
-      "sharpe": 1.1831414285357171
+      "sharpe": 1.5769453434470706
     }
   },
   "paths": {
-    "alpha_sprint_latest": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\outputs\\alpha_sprint\\alpha_sprint_latest.json",
-    "concentrated_metrics": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\concentrated_backtest_metrics.json",
-    "concentrated_policy_audit": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\outputs\\concentrated_policy\\policy_audit_latest.json",
-    "feature_gate_candidate": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\auto_learning\\auto_feature_gates_candidate.yaml",
-    "main_metrics": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\backtest_metrics.json",
-    "main_v2_audit": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\outputs\\main_v2\\main_v2_audit_latest.json",
-    "sleeve_audit": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\reports\\global_alpha_sleeve_audit_summary.csv",
-    "trade_journal": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe\\trade_journal\\trades.csv"
+    "alpha_sprint_latest": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_sprint/alpha_sprint_latest.json",
+    "concentrated_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_backtest_metrics.json",
+    "concentrated_policy_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_policy/policy_audit_latest.json",
+    "concentrated_trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_trade_journal/trades.csv",
+    "feature_gate_candidate": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_feature_gates_candidate.yaml",
+    "main_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/backtest_metrics.json",
+    "main_v2_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2/main_v2_audit_latest.json",
+    "sleeve_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/global_alpha_sleeve_audit_summary.csv",
+    "trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/trades.csv"
   },
-  "run_path": "C:\\Users\\Andrew Cha\\Documents\\codex\\.tmp_integrate_phase17_19\\cloud_results\\full_rebuild\\latest_global_alpha_universe",
+  "run_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "sleeve_audit": {
     "core_compounder": {
-      "hist_gate_avg_multi_year_winner_score": 0.768966337035073,
-      "hist_gate_avg_score": 3.3965518934076764,
+      "hist_gate_avg_multi_year_winner_score": 0.7498557351886748,
+      "hist_gate_avg_score": 3.399680286439351,
       "latest_candidate_count": 46,
-      "latest_gate_avg_multi_year_winner_score": 1.534708683933234,
-      "latest_gate_avg_score": 3.377294267817022,
+      "latest_gate_avg_multi_year_winner_score": 1.543826196025749,
+      "latest_gate_avg_score": 3.191767911075588,
       "latest_gate_pass_count": 42,
-      "latest_top10_gate_tickers": "NVDA,LRCX,GOOGL,GOOG,COST,AMAT,VZ,AVGO,AAPL,MU",
+      "latest_top10_gate_tickers": "NVDA,LRCX,GOOGL,GOOG,COST,AMAT,VZ,AVGO,AAPL,UNH",
       "months": 84
     },
     "early_scout": {
-      "hist_gate_avg_multi_year_winner_score": 0.7420417548345867,
-      "hist_gate_avg_score": 0.317681024108678,
+      "hist_gate_avg_multi_year_winner_score": 0.7368949973839536,
+      "hist_gate_avg_score": 0.30849723044064126,
       "latest_candidate_count": 53,
-      "latest_gate_avg_multi_year_winner_score": 0.3457309197385852,
-      "latest_gate_avg_score": 0.5807926556449435,
+      "latest_gate_avg_multi_year_winner_score": 0.3438100039121849,
+      "latest_gate_avg_score": 0.6045518196521465,
       "latest_gate_pass_count": 48,
-      "latest_top10_gate_tickers": "ETR,PR,AKAM,MTDR,DINO,RPRX,SEB,SFD,EXE,PVH",
+      "latest_top10_gate_tickers": "ETR,PR,AKAM,MTDR,DINO,SEB,EXE,PVH,SFD,PEG",
       "months": 84
     },
     "future_winner": {
-      "hist_gate_avg_multi_year_winner_score": 2.8824212984928903,
-      "hist_gate_avg_score": 1.7733971874850258,
+      "hist_gate_avg_multi_year_winner_score": 2.8984389919384217,
+      "hist_gate_avg_score": 1.7482495581492874,
       "latest_candidate_count": 69,
-      "latest_gate_avg_multi_year_winner_score": 3.3926623721338043,
-      "latest_gate_avg_score": 1.5678444606076865,
+      "latest_gate_avg_multi_year_winner_score": 3.309245329313901,
+      "latest_gate_avg_score": 1.3582431092030822,
       "latest_gate_pass_count": 65,
-      "latest_top10_gate_tickers": "FTI,UI,TRGP,SU,LNG,CIEN,CNQ,TPL,UTHR,WDC",
+      "latest_top10_gate_tickers": "SU,FTI,TRGP,UI,LNG,CNQ,CIEN,TPL,UTHR,SNX",
       "months": 84
     },
     "unassigned": {
       "hist_gate_avg_multi_year_winner_score": 0.0,
       "hist_gate_avg_score": 0.0,
-      "latest_candidate_count": 435,
+      "latest_candidate_count": 436,
       "latest_gate_avg_multi_year_winner_score": 0.0,
       "latest_gate_avg_score": 0.0,
       "latest_gate_pass_count": 0,
@@ -323,38 +416,38 @@
     }
   },
   "trade_journal": {
-    "avg_alpha_vs_benchmark": 0.030244868292085402,
-    "avg_holding_days": 60.25323741007194,
-    "avg_realized_return": 0.06569080116167637,
+    "avg_alpha_vs_benchmark": 0.04517735919053797,
+    "avg_holding_days": 54.097744360902254,
+    "avg_realized_return": 0.07203744634216061,
     "avg_return_by_regime": {
-      "bear": 0.04601218337626249,
-      "bull": 0.07325486318290289,
-      "deep_bear": 0.39479222814152903,
+      "bear": 0.06157972205300902,
+      "bull": 0.07579712379592365,
+      "deep_bear": 0.5266171633563883,
       "nan": 0.0,
-      "neutral": 0.06915472284832298,
-      "strong_bull": -0.05081846987361423
+      "neutral": 0.07102720424204882,
+      "strong_bull": -0.018139325529699324
     },
     "avg_return_by_sleeve": {
       "cash": 0.0,
-      "core_compounder": 0.06753714024758148
+      "core_compounder": 0.074127507648026
     },
     "exit_reason_counts": {
-      "scheduled_rebalance": 484,
-      "single_period_hold": 211
+      "scheduled_rebalance": 327,
+      "single_period_hold": 205
     },
     "regime_counts": {
-      "bear": 138,
-      "bull": 182,
-      "deep_bear": 6,
-      "nan": 19,
-      "neutral": 345,
+      "bear": 100,
+      "bull": 150,
+      "deep_bear": 5,
+      "nan": 15,
+      "neutral": 257,
       "strong_bull": 5
     },
     "sleeve_counts": {
-      "cash": 19,
-      "core_compounder": 676
+      "cash": 15,
+      "core_compounder": 517
     },
-    "trade_count": 695,
-    "win_rate": 0.5741007194244604
+    "trade_count": 532,
+    "win_rate": 0.5526315789473685
   }
 }

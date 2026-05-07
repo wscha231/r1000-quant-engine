@@ -5,8 +5,8 @@ This decision only concerns the research active-policy artifact. It does not cha
 - Status: `blocked`
 - Promoted: `False`
 - Dry run: `True`
-- Candidate: `C:\Users\Andrew Cha\Documents\codex\.tmp_integrate_phase17_19\research\auto_learning_policy_candidate.yaml`
-- Active policy target: `C:\Users\Andrew Cha\Documents\codex\.tmp_integrate_phase17_19\research\auto_learning_policy_active.yaml`
+- Candidate: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_learning_policy_candidate.yaml`
+- Active policy target: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/research/auto_learning_policy_active.yaml`
 
 ## Checks
 

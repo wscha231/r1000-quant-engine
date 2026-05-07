@@ -1,0 +1,17 @@
+current_book,ticker,name,sector,current_weight,history_status,first_seen,last_seen,total_months_held,run_count,current_run_months,current_run_return,current_run_recent_3m_return,current_run_tag,historical_weighted_contribution
+current_concentrated,GLW,nan,nan,0.5,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.3,open_history,2025-08-29,2026-03-31,17.0,3.0,8.0,3.6944847908747738,0.46264674646838877,open_winner_hold,0.1393360578674706
+current_concentrated,SNDK,nan,nan,0.2,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,GOOGL,ALPHABET INC CLASS A,Communication,0.2628006469446341,open_history,2019-08-30,2026-03-31,98.0,24.0,8.0,0.8361808263837633,0.08465230445601346,open_winner_hold,0.3086145455174723
+current_main,NVDA,NVIDIA CORP,Information Technology,0.1175916561618381,open_history,2020-02-28,2026-02-27,106.0,17.0,10.0,0.3830205876552417,-0.09778232561878275,open_stale_watch,0.4860104209925775
+current_main,GEV,nan,nan,0.0829126027323176,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.0829126027323176,open_history,2024-03-28,2026-02-27,13.0,5.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.0184851661890203
+current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.06,open_history,2024-02-29,2026-02-27,3.0,3.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.012479533333554
+current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.06,returning_after_gap,2023-07-31,2025-09-30,5.0,3.0,3.0,0.254650044690381,0.254650044690381,short_big_win_review,0.0089664197769043
+current_main,TKR,nan,nan,0.06,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,AMAT,APPLIED MATERIAL INC,Information Technology,0.0594211636110471,open_history,2020-12-31,2026-02-27,61.0,14.0,2.0,0.07835506648341783,0.07835506648341783,normal,0.14670909458904668
+current_main,FTI,nan,nan,0.0513970022777179,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,LRCX,LAM RESEARCH CORP,Information Technology,0.0469443357209834,open_history,2019-08-30,2026-02-27,110.0,24.0,6.0,0.631774277343258,0.21286542156086252,open_winner_hold,0.4493844231996931
+current_main,TER,TERADYNE INC,Information Technology,0.0425642013506682,returning_after_gap,2019-09-30,2025-12-31,25.0,9.0,1.0,0.2953987782437737,0.2953987782437737,short_big_win_review,-0.029586497797518298
+current_main,NXPI,nan,nan,0.0399771453130124,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.0334786431554631,returning_after_gap,2021-12-31,2023-09-29,23.0,5.0,15.0,0.12640917854079436,-0.4163629072822854,normal,-0.017977808723251797

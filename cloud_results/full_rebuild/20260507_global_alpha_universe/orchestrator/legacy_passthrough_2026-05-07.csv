@@ -1,0 +1,15 @@
+rank,ticker,target_weight,regime_state,row_type
+1,GOOGL,0.2628006469446341,neutral,equity
+2,NVDA,0.11759165616183817,neutral,equity
+3,GEV,0.08291260273231768,neutral,equity
+4,VRT,0.08291260273231768,neutral,equity
+5,PR,0.06000000000000002,neutral,equity
+6,MLI,0.06000000000000002,neutral,equity
+7,TKR,0.06000000000000002,neutral,equity
+8,AMAT,0.05942116361104714,neutral,equity
+9,FTI,0.05139700227771798,neutral,equity
+10,LRCX,0.0469443357209834,neutral,equity
+11,TER,0.04256420135066822,neutral,equity
+12,NXPI,0.039977145313012497,neutral,equity
+13,ON,0.033478643155463186,neutral,equity
+14,CASH,0.0,neutral,cash

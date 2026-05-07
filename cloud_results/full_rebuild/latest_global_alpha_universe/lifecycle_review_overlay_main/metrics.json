@@ -1,20 +1,20 @@
 {
-  "avg_cash_weight": 0.039864986359819124,
-  "avg_turnover_monthly": 0.3510832450010449,
-  "cagr": 0.18089227863327828,
-  "calmar": 0.6908355596768349,
+  "avg_cash_weight": 0.03967460702536495,
+  "avg_turnover_monthly": 0.3545188147258414,
+  "cagr": 0.2187426102075336,
+  "calmar": 0.8852824986743635,
   "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
   "data_mode": "main_monthly_weights_plus_candidate_replay_book",
-  "ending_equity": 3.1583078299853113,
+  "ending_equity": 3.928480798664304,
   "experiment_id": "lifecycle_review_overlay",
-  "max_dd": -0.2618456390952105,
+  "max_dd": -0.24708791886779913,
   "monthly_weights": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
   "months": 83,
   "policy": "lifecycle_review_main",
   "production_activation_allowed": false,
   "research_only": true,
   "return_column": "period_forward_return",
-  "sharpe": 0.9633154971950623,
+  "sharpe": 1.0491248539466809,
   "status": "completed",
-  "vol_ann": 0.19262586279036922
+  "vol_ann": 0.2107645427500389
 }

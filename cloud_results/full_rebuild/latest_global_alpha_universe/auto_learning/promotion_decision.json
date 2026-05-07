@@ -1,5 +1,5 @@
 {
-  "active_gates": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/research/auto_feature_gates.yaml",
+  "active_gates": "research/auto_feature_gates.yaml",
   "approved": false,
   "candidate_gates": "outputs/auto_learning/auto_feature_gates_candidate.yaml",
   "checks": {
@@ -11,13 +11,13 @@
     "trade_count_floor": true
   },
   "dry_run": true,
-  "generated_at": "2026-05-06T19:35:19Z",
+  "generated_at": "2026-05-07T09:51:49Z",
   "metrics": {
     "concentrated_cagr": NaN,
-    "main_cagr": 0.29899958241658076,
-    "main_max_dd": -0.1641701672108119,
-    "main_sharpe": 1.6934287978537363,
-    "trade_count": 726
+    "main_cagr": 0.2816150238263957,
+    "main_max_dd": -0.1819244389993675,
+    "main_sharpe": 1.5769453434470706,
+    "trade_count": 532
   },
   "promoted": false,
   "reasons": [

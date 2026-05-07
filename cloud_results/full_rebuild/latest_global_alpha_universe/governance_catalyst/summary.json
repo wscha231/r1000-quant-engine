@@ -11,14 +11,14 @@
     "focus_event_stress_penalty"
   ],
   "label_counts": {
-    "growth_reentry": 556,
-    "revision_event+growth_reentry": 148
+    "growth_reentry": 561,
+    "revision_event+growth_reentry": 151
   },
-  "nonzero_catalyst_rows": 474,
+  "nonzero_catalyst_rows": 484,
   "production_activation_allowed": false,
   "research_only": true,
   "rows": 80,
-  "scored_rows": 704,
+  "scored_rows": 712,
   "status": "completed",
   "watchlist_count": 0
 }

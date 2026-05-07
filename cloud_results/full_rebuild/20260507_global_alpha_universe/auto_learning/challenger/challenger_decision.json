@@ -1,0 +1,357 @@
+{
+  "approved_for_promotion": false,
+  "baseline": {
+    "concentrated": {
+      "cagr": 0.0,
+      "max_dd": 0.0,
+      "selected_names": 3,
+      "sharpe": 0.0
+    },
+    "main": {
+      "avg_cash_weight": 0.1892223181853767,
+      "avg_stock_names": 17.55421686746988,
+      "avg_turnover_monthly": 0.5410346516797254,
+      "cagr": 0.2816150238263957,
+      "max_dd": -0.1819244389993675,
+      "months": 83,
+      "sharpe": 1.5769453434470706
+    }
+  },
+  "gate_rows": [
+    {
+      "check": "policy_valid",
+      "evidence": "",
+      "gate": "schema",
+      "observed": [],
+      "passed": true,
+      "reason": "Policy must be proposal-only and keep production activation disabled.",
+      "severity": "hard",
+      "threshold": "valid proposal-only schema"
+    },
+    {
+      "check": "production_activation_disabled",
+      "evidence": "",
+      "gate": "schema",
+      "observed": false,
+      "passed": true,
+      "reason": "AutoLearning policy cannot directly change production.",
+      "severity": "hard",
+      "threshold": false
+    },
+    {
+      "check": "human_approval_required",
+      "evidence": "",
+      "gate": "schema",
+      "observed": true,
+      "passed": true,
+      "reason": "Capital allocation and execution policies require human approval.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "feature_gate_candidate_backtest_executed",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": "candidate_only",
+      "passed": false,
+      "reason": "Feature-gate candidate currently has dry-run/proxy metrics only.",
+      "severity": "hard",
+      "threshold": "full candidate rebuild/backtest"
+    },
+    {
+      "check": "main_cagr_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 0.20165834588806963,
+      "passed": false,
+      "reason": "Candidate main CAGR must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 0.2716150238263957
+    },
+    {
+      "check": "main_sharpe_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 1.0971959712745438,
+      "passed": false,
+      "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 1.4969453434470705
+    },
+    {
+      "check": "main_max_dd_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": -0.27307967491398366,
+      "passed": false,
+      "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
+      "severity": "hard",
+      "threshold": -0.1919244389993675
+    },
+    {
+      "check": "main_v2_historical_backtest_exists",
+      "evidence": "outputs/main_v2/main_v2_audit_latest.json",
+      "gate": "main_v2",
+      "observed": "latest_snapshot_only",
+      "passed": false,
+      "reason": "Main v2 currently has latest shadow output, not historical performance.",
+      "severity": "hard",
+      "threshold": "83-month main_v2 backtest"
+    },
+    {
+      "check": "main_v2_cap_audit",
+      "evidence": "outputs/main_v2/main_v2_audit_latest.json",
+      "gate": "main_v2",
+      "observed": {
+        "cash": 0.07820306303913749,
+        "positions": 11
+      },
+      "passed": true,
+      "reason": "Latest shadow construction is internally useful but not enough for promotion.",
+      "severity": "soft",
+      "threshold": "cap<=15%, positions>0"
+    },
+    {
+      "check": "concentrated_cagr_floor",
+      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
+      "gate": "concentrated",
+      "observed": 0.0,
+      "passed": false,
+      "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
+      "severity": "hard",
+      "threshold": 0.3
+    },
+    {
+      "check": "concentrated_max_dd_floor",
+      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
+      "gate": "concentrated",
+      "observed": 0.0,
+      "passed": true,
+      "reason": "Standalone concentrated MaxDD must clear the policy floor.",
+      "severity": "hard",
+      "threshold": -0.25
+    },
+    {
+      "check": "single_name_and_sector_cap_audit",
+      "evidence": "outputs/concentrated_policy/policy_audit_latest.json",
+      "gate": "concentrated",
+      "observed": 2,
+      "passed": false,
+      "reason": "Latest concentrated policy audit found cap violations that must be resolved before more capital.",
+      "severity": "hard",
+      "threshold": 0
+    },
+    {
+      "check": "orchestrator_historical_backtest_exists",
+      "evidence": "outputs/experiments/E5_orchestrator_balanced/metrics.json",
+      "gate": "orchestrator",
+      "observed": "snapshot_report_only",
+      "passed": false,
+      "reason": "Orchestrator balanced currently reports latest snapshot only.",
+      "severity": "hard",
+      "threshold": "83-month orchestrator backtest"
+    },
+    {
+      "check": "snapshot_cash_floor",
+      "evidence": "outputs/experiments/E5_orchestrator_balanced/metrics.json",
+      "gate": "orchestrator",
+      "observed": 0.19999999999999996,
+      "passed": true,
+      "reason": "Latest snapshot cash is within the proposed max average cash threshold, but historical cash drag is unknown.",
+      "severity": "soft",
+      "threshold": 0.25
+    },
+    {
+      "check": "alpha_sprint_historical_backtest_exists",
+      "evidence": "outputs/alpha_sprint/backtest_metrics.json",
+      "gate": "alpha_sprint",
+      "observed": "not_backtested_missing_historical_scored_snapshot",
+      "passed": false,
+      "reason": "Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.",
+      "severity": "hard",
+      "threshold": "weekly/historical alpha sprint backtest"
+    },
+    {
+      "check": "stress_windows_backtested",
+      "evidence": "",
+      "gate": "stress",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Policy challenger needs monthly equity and allocation series before stress gates can pass.",
+      "severity": "hard",
+      "threshold": "2020/2022/momentum/rate/vix stress windows"
+    },
+    {
+      "check": "cost_sensitivity_backtested",
+      "evidence": "",
+      "gate": "cost",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Cost sensitivity has not been run for the full candidate policy.",
+      "severity": "hard",
+      "threshold": [
+        25,
+        50,
+        75
+      ]
+    },
+    {
+      "check": "rolling_3y_5y_backtested",
+      "evidence": "",
+      "gate": "stability",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Rolling stability cannot pass until full challenger return series exists.",
+      "severity": "hard",
+      "threshold": "rolling 3y and 5y pass"
+    }
+  ],
+  "generated_at_utc": "2026-05-07T09:51:50Z",
+  "hard_failures": [
+    {
+      "check": "feature_gate_candidate_backtest_executed",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": "candidate_only",
+      "passed": false,
+      "reason": "Feature-gate candidate currently has dry-run/proxy metrics only.",
+      "severity": "hard",
+      "threshold": "full candidate rebuild/backtest"
+    },
+    {
+      "check": "main_cagr_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 0.20165834588806963,
+      "passed": false,
+      "reason": "Candidate main CAGR must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 0.2716150238263957
+    },
+    {
+      "check": "main_sharpe_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 1.0971959712745438,
+      "passed": false,
+      "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 1.4969453434470705
+    },
+    {
+      "check": "main_max_dd_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": -0.27307967491398366,
+      "passed": false,
+      "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
+      "severity": "hard",
+      "threshold": -0.1919244389993675
+    },
+    {
+      "check": "main_v2_historical_backtest_exists",
+      "evidence": "outputs/main_v2/main_v2_audit_latest.json",
+      "gate": "main_v2",
+      "observed": "latest_snapshot_only",
+      "passed": false,
+      "reason": "Main v2 currently has latest shadow output, not historical performance.",
+      "severity": "hard",
+      "threshold": "83-month main_v2 backtest"
+    },
+    {
+      "check": "concentrated_cagr_floor",
+      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
+      "gate": "concentrated",
+      "observed": 0.0,
+      "passed": false,
+      "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
+      "severity": "hard",
+      "threshold": 0.3
+    },
+    {
+      "check": "single_name_and_sector_cap_audit",
+      "evidence": "outputs/concentrated_policy/policy_audit_latest.json",
+      "gate": "concentrated",
+      "observed": 2,
+      "passed": false,
+      "reason": "Latest concentrated policy audit found cap violations that must be resolved before more capital.",
+      "severity": "hard",
+      "threshold": 0
+    },
+    {
+      "check": "orchestrator_historical_backtest_exists",
+      "evidence": "outputs/experiments/E5_orchestrator_balanced/metrics.json",
+      "gate": "orchestrator",
+      "observed": "snapshot_report_only",
+      "passed": false,
+      "reason": "Orchestrator balanced currently reports latest snapshot only.",
+      "severity": "hard",
+      "threshold": "83-month orchestrator backtest"
+    },
+    {
+      "check": "alpha_sprint_historical_backtest_exists",
+      "evidence": "outputs/alpha_sprint/backtest_metrics.json",
+      "gate": "alpha_sprint",
+      "observed": "not_backtested_missing_historical_scored_snapshot",
+      "passed": false,
+      "reason": "Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.",
+      "severity": "hard",
+      "threshold": "weekly/historical alpha sprint backtest"
+    },
+    {
+      "check": "stress_windows_backtested",
+      "evidence": "",
+      "gate": "stress",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Policy challenger needs monthly equity and allocation series before stress gates can pass.",
+      "severity": "hard",
+      "threshold": "2020/2022/momentum/rate/vix stress windows"
+    },
+    {
+      "check": "cost_sensitivity_backtested",
+      "evidence": "",
+      "gate": "cost",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Cost sensitivity has not been run for the full candidate policy.",
+      "severity": "hard",
+      "threshold": [
+        25,
+        50,
+        75
+      ]
+    },
+    {
+      "check": "rolling_3y_5y_backtested",
+      "evidence": "",
+      "gate": "stability",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Rolling stability cannot pass until full challenger return series exists.",
+      "severity": "hard",
+      "threshold": "rolling 3y and 5y pass"
+    }
+  ],
+  "mode": "challenger_gate_evaluation",
+  "next_required_backtests": [
+    "main_v2_83_month_backtest",
+    "orchestrator_83_month_backtest",
+    "alpha_sprint_weekly_historical_backtest",
+    "stress_window_equity_curve_test",
+    "cost_sensitivity_25_50_75_bps",
+    "rolling_3y_5y_stability"
+  ],
+  "policy_version": "2026-05-alphaops-20260507-v1",
+  "production_activation_allowed": false,
+  "proxy_artifacts": {
+    "alpha_sprint_metrics": "outputs/alpha_sprint/backtest_metrics.json",
+    "concentrated_policy_audit": "outputs/concentrated_policy/policy_audit_latest.json",
+    "feature_gate_metrics": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+    "main_v2_audit": "outputs/main_v2/main_v2_audit_latest.json",
+    "orchestrator_metrics": "outputs/experiments/E5_orchestrator_balanced/metrics.json"
+  },
+  "research_only": true,
+  "soft_failures": [],
+  "status": "blocked"
+}

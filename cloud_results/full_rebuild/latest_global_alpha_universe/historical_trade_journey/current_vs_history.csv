@@ -1,22 +1,17 @@
 current_book,ticker,name,sector,current_weight,history_status,first_seen,last_seen,total_months_held,run_count,current_run_months,current_run_return,current_run_recent_3m_return,current_run_tag,historical_weighted_contribution
-current_concentrated,GLW,CORNING INC,Information Technology,0.5,returning_after_gap,2025-10-31,2025-10-31,1.0,1.0,1.0,-0.06977971003013594,-0.06977971003013594,normal,-0.0021842648289278
-current_concentrated,CIEN,CIENA CORP,Information Technology,0.3,open_history,2025-09-30,2026-02-27,4.0,4.0,1.0,0.13554381604981636,0.13554381604981636,normal,0.0503999821049778
-current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.2,open_history,2025-08-29,2026-02-27,13.0,3.0,4.0,0.7635790211397147,0.5931059743518401,normal,0.1454545648846372
-current_main,GOOGL,ALPHABET INC CLASS A,Communication,0.1760466250166553,open_history,2020-08-31,2026-02-27,87.0,24.0,8.0,0.5535485737334187,-0.07474572107910116,open_stale_watch,0.1307118317769067
-current_main,NVDA,NVIDIA CORP,Information Technology,0.0945336066903011,returning_after_gap,2019-11-29,2026-01-30,105.0,15.0,8.0,0.23114403575122378,0.025803118291384708,normal,0.5592323279805905
-current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.0620520308669319,open_history,2023-11-30,2026-02-27,15.0,5.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.0312644748910814
-current_main,FTI,TECHNIPFMC PLC,Energy,0.0608096227021131,open_history,2025-03-31,2026-03-31,5.0,5.0,1.0,0.07995382944620322,0.07995382944620322,normal,0.00011415929066469887
-current_main,GEV,nan,nan,0.05994528019199,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,FIX,nan,nan,0.0522329304412436,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,LRCX,LAM RESEARCH CORP,Information Technology,0.04762189487283,open_history,2019-08-30,2026-02-27,95.0,23.0,6.0,0.6317744522138637,0.21286542156086252,open_winner_hold,0.29684240131035267
-current_main,AMAT,APPLIED MATERIAL INC,Information Technology,0.04762189487283,open_history,2020-11-30,2026-02-27,61.0,10.0,3.0,0.2944460449229276,0.2944460449229276,short_big_win_review,0.07783367023521556
-current_main,ASML,ASML Holding,Semiconductors,0.0432580889590628,open_history,2021-01-29,2026-02-27,76.0,14.0,5.0,0.2675348634116077,0.1884480870770291,normal,0.1973405908174396
-current_main,TSM,nan,nan,0.043145454001047,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,FANG,DIAMONDBACK ENERGY INC,Energy,0.0425099678209559,returning_after_gap,2022-02-28,2024-08-30,50.0,15.0,6.0,-0.02174927362055845,-0.0629816758577949,normal,-0.012102416473237334
-current_main,GLW,CORNING INC,Information Technology,0.0421957798988254,returning_after_gap,2025-10-31,2025-10-31,1.0,1.0,1.0,-0.06977971003013594,-0.06977971003013594,normal,-0.0021842648289278
-current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.04,open_history,2024-02-29,2026-02-27,5.0,4.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.012449696913301486
-current_main,UMC,nan,nan,0.04,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,DTM,DT MIDSTREAM INC,Energy,0.04,returning_after_gap,2022-10-31,2022-11-30,2.0,1.0,2.0,-0.07735816173669918,-0.07735816173669918,normal,-9.295149991026122e-05
-current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.04,returning_after_gap,2023-09-29,2025-11-28,17.0,6.0,1.0,0.05559263976457207,0.05559263976457207,normal,0.026334577897919497
-current_main,TER,TERADYNE INC,Information Technology,0.0370168817928215,returning_after_gap,2019-09-30,2025-12-31,21.0,7.0,3.0,0.4992995014291004,0.4992995014291004,short_big_win_review,-0.019013000002211497
-current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.0310099418723918,returning_after_gap,2021-12-31,2023-07-31,10.0,6.0,1.0,-0.07815841024753767,-0.07815841024753767,normal,-0.009480691219909
+current_concentrated,GLW,nan,nan,0.5,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.3,open_history,2025-08-29,2026-03-31,17.0,3.0,8.0,3.6944847908747738,0.46264674646838877,open_winner_hold,0.1393360578674706
+current_concentrated,SNDK,nan,nan,0.2,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,GOOGL,ALPHABET INC CLASS A,Communication,0.2628006469446341,open_history,2019-08-30,2026-03-31,98.0,24.0,8.0,0.8361808263837633,0.08465230445601346,open_winner_hold,0.3086145455174723
+current_main,NVDA,NVIDIA CORP,Information Technology,0.1175916561618381,open_history,2020-02-28,2026-02-27,106.0,17.0,10.0,0.3830205876552417,-0.09778232561878275,open_stale_watch,0.4860104209925775
+current_main,GEV,nan,nan,0.0829126027323176,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.0829126027323176,open_history,2024-03-28,2026-02-27,13.0,5.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.0184851661890203
+current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.06,open_history,2024-02-29,2026-02-27,3.0,3.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.012479533333554
+current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.06,returning_after_gap,2023-07-31,2025-09-30,5.0,3.0,3.0,0.254650044690381,0.254650044690381,short_big_win_review,0.0089664197769043
+current_main,TKR,nan,nan,0.06,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,AMAT,APPLIED MATERIAL INC,Information Technology,0.0594211636110471,open_history,2020-12-31,2026-02-27,61.0,14.0,2.0,0.07835506648341783,0.07835506648341783,normal,0.14670909458904668
+current_main,FTI,nan,nan,0.0513970022777179,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,LRCX,LAM RESEARCH CORP,Information Technology,0.0469443357209834,open_history,2019-08-30,2026-02-27,110.0,24.0,6.0,0.631774277343258,0.21286542156086252,open_winner_hold,0.4493844231996931
+current_main,TER,TERADYNE INC,Information Technology,0.0425642013506682,returning_after_gap,2019-09-30,2025-12-31,25.0,9.0,1.0,0.2953987782437737,0.2953987782437737,short_big_win_review,-0.029586497797518298
+current_main,NXPI,nan,nan,0.0399771453130124,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.0334786431554631,returning_after_gap,2021-12-31,2023-09-29,23.0,5.0,15.0,0.12640917854079436,-0.4163629072822854,normal,-0.017977808723251797
