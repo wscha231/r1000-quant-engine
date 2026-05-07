@@ -35,161 +35,161 @@
     },
     {
       "column": "op_income_growth_yoy",
-      "nonnull_ratio": 0.05213869363963655,
-      "nonzero_ratio": 0.05213869363963655,
-      "numeric_ratio": 0.05213869363963655,
+      "nonnull_ratio": 0.05214539843113721,
+      "nonzero_ratio": 0.05214539843113721,
+      "numeric_ratio": 0.05214539843113721,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "ocf_growth_yoy",
-      "nonnull_ratio": 0.05899622835590605,
-      "nonzero_ratio": 0.05899622835590605,
-      "numeric_ratio": 0.05899622835590605,
+      "nonnull_ratio": 0.05900381499421321,
+      "nonzero_ratio": 0.05900381499421321,
+      "numeric_ratio": 0.05900381499421321,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "roe_proxy",
-      "nonnull_ratio": 0.44820418309617693,
-      "nonzero_ratio": 0.44820418309617693,
-      "numeric_ratio": 0.44820418309617693,
+      "nonnull_ratio": 0.4481332247417378,
+      "nonzero_ratio": 0.4481332247417378,
+      "numeric_ratio": 0.4481332247417378,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "gross_profit_ttm",
-      "nonnull_ratio": 0.4483541916680953,
-      "nonzero_ratio": 0.44828990228013027,
-      "numeric_ratio": 0.4483541916680953,
+      "nonnull_ratio": 0.44828325260405505,
+      "nonzero_ratio": 0.4482189549487762,
+      "numeric_ratio": 0.44828325260405505,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "capex_ttm",
-      "nonnull_ratio": 0.4693553917366707,
-      "nonzero_ratio": 0.4680053145894051,
-      "numeric_ratio": 0.4693553917366707,
+      "nonnull_ratio": 0.4692871533284753,
+      "nonzero_ratio": 0.4679369025676197,
+      "numeric_ratio": 0.4692871533284753,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "ocf_ttm",
-      "nonnull_ratio": 0.5648251328647351,
-      "nonzero_ratio": 0.5648251328647351,
-      "numeric_ratio": 0.5648251328647351,
+      "nonnull_ratio": 0.564769171417549,
+      "nonzero_ratio": 0.564769171417549,
+      "numeric_ratio": 0.564769171417549,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "op_income_ttm",
-      "nonnull_ratio": 0.5679110234870564,
-      "nonzero_ratio": 0.5679110234870564,
-      "numeric_ratio": 0.5679110234870564,
+      "nonnull_ratio": 0.5678554588709331,
+      "nonzero_ratio": 0.5678554588709331,
+      "numeric_ratio": 0.5678554588709331,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "revenues_ttm",
-      "nonnull_ratio": 0.5768472484141951,
-      "nonzero_ratio": 0.5767400994342534,
-      "numeric_ratio": 0.5768472484141951,
+      "nonnull_ratio": 0.5767928329546916,
+      "nonzero_ratio": 0.5766856701958936,
+      "numeric_ratio": 0.5767928329546916,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "net_income_ttm",
-      "nonnull_ratio": 0.599327104405966,
-      "nonzero_ratio": 0.599198525630036,
-      "numeric_ratio": 0.599327104405966,
+      "nonnull_ratio": 0.5992755797505251,
+      "nonzero_ratio": 0.5991469844399674,
+      "numeric_ratio": 0.5992755797505251,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "eps_growth_yoy",
-      "nonnull_ratio": 0.6257286130636036,
-      "nonzero_ratio": 0.14529401680096005,
-      "numeric_ratio": 0.6257286130636036,
+      "nonnull_ratio": 0.6258090788289253,
+      "nonzero_ratio": 0.1453984311372112,
+      "numeric_ratio": 0.6258090788289253,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "sales_growth_yoy",
-      "nonnull_ratio": 0.7434424824275673,
-      "nonzero_ratio": 0.3365978055888908,
-      "numeric_ratio": 0.7434424824275673,
+      "nonnull_ratio": 0.7435380856444769,
+      "nonzero_ratio": 0.3367911183505508,
+      "numeric_ratio": 0.7435380856444769,
       "present": true,
       "scope": "historical_candidate_book"
     },
     {
       "column": "gross_margins",
-      "nonnull_ratio": 0.5646067415730337,
-      "nonzero_ratio": 0.5646067415730337,
-      "numeric_ratio": 0.5646067415730337,
+      "nonnull_ratio": 0.5644257703081232,
+      "nonzero_ratio": 0.5644257703081232,
+      "numeric_ratio": 0.5644257703081232,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "gross_profit_ttm",
-      "nonnull_ratio": 0.5716292134831461,
-      "nonzero_ratio": 0.5716292134831461,
-      "numeric_ratio": 0.5716292134831461,
+      "nonnull_ratio": 0.5714285714285714,
+      "nonzero_ratio": 0.5714285714285714,
+      "numeric_ratio": 0.5714285714285714,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "roe_proxy",
-      "nonnull_ratio": 0.5969101123595506,
-      "nonzero_ratio": 0.5969101123595506,
-      "numeric_ratio": 0.5969101123595506,
+      "nonnull_ratio": 0.5966386554621849,
+      "nonzero_ratio": 0.5966386554621849,
+      "numeric_ratio": 0.5966386554621849,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "capex_ttm",
-      "nonnull_ratio": 0.6095505617977528,
-      "nonzero_ratio": 0.6095505617977528,
-      "numeric_ratio": 0.6095505617977528,
+      "nonnull_ratio": 0.6092436974789915,
+      "nonzero_ratio": 0.6092436974789915,
+      "numeric_ratio": 0.6092436974789915,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "operating_margins",
-      "nonnull_ratio": 0.7387640449438202,
-      "nonzero_ratio": 0.7387640449438202,
-      "numeric_ratio": 0.7387640449438202,
+      "nonnull_ratio": 0.7380952380952381,
+      "nonzero_ratio": 0.7380952380952381,
+      "numeric_ratio": 0.7380952380952381,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "op_income_ttm",
-      "nonnull_ratio": 0.7457865168539326,
-      "nonzero_ratio": 0.7457865168539326,
-      "numeric_ratio": 0.7457865168539326,
+      "nonnull_ratio": 0.7450980392156863,
+      "nonzero_ratio": 0.7450980392156863,
+      "numeric_ratio": 0.7450980392156863,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "revenues_ttm",
-      "nonnull_ratio": 0.7710674157303371,
-      "nonzero_ratio": 0.7710674157303371,
-      "numeric_ratio": 0.7710674157303371,
+      "nonnull_ratio": 0.7703081232492998,
+      "nonzero_ratio": 0.7703081232492998,
+      "numeric_ratio": 0.7703081232492998,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "ocf_ttm",
-      "nonnull_ratio": 0.773876404494382,
-      "nonzero_ratio": 0.773876404494382,
-      "numeric_ratio": 0.773876404494382,
+      "nonnull_ratio": 0.773109243697479,
+      "nonzero_ratio": 0.773109243697479,
+      "numeric_ratio": 0.773109243697479,
       "present": true,
       "scope": "latest_scored"
     },
     {
       "column": "net_income_ttm",
-      "nonnull_ratio": 0.7851123595505618,
-      "nonzero_ratio": 0.7851123595505618,
-      "numeric_ratio": 0.7851123595505618,
+      "nonnull_ratio": 0.7843137254901961,
+      "nonzero_ratio": 0.7843137254901961,
+      "numeric_ratio": 0.7843137254901961,
       "present": true,
       "scope": "latest_scored"
     }
@@ -215,11 +215,11 @@
     }
   ],
   "historical_candidate_last_date": "2026-03-31",
-  "historical_candidate_rows": 46664,
+  "historical_candidate_rows": 46658,
   "historical_months": 84,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "latest_scored_date": "2026-05-07",
-  "latest_scored_rows": 712,
+  "latest_scored_rows": 714,
   "missing_columns": [
     {
       "column": "r_12m",
@@ -275,7 +275,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 6.336065387746859,
+      "latest_score": 5.969267287980819,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "AMAT"
@@ -293,7 +293,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.226629599381847,
+      "latest_score": 4.582744794744339,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "AMD"
@@ -311,7 +311,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 3.442175778571857,
+      "latest_score": 3.757321465811227,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "ANET"
@@ -329,7 +329,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.412618255694978,
+      "latest_score": 5.518030737779704,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "ARM"
@@ -347,7 +347,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.011665032983486,
+      "latest_score": 4.157193156680457,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "ASML"
@@ -358,14 +358,14 @@
       "historical_months": 84,
       "in_historical_book": true,
       "in_latest_scored": true,
-      "latest_entry_quality_score": 0.2108658236835683,
+      "latest_entry_quality_score": 0.2108658214516807,
       "latest_eps_revision_nonzero": true,
       "latest_gate": "core_strict",
       "latest_market_cap_live": 1993611851440.4297,
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.59373876898593,
+      "latest_score": 4.279378810351513,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "AVGO"
@@ -383,7 +383,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.48869690656504,
+      "latest_score": 4.358697267121587,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "CIEN"
@@ -401,7 +401,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": false,
       "latest_revenues_ttm_present": false,
-      "latest_score": 4.971525868639896,
+      "latest_score": 5.0444841752681695,
       "latest_sleeve": "unassigned",
       "likely_gap": "selection_gate_or_rank_rejected",
       "ticker": "COHR"
@@ -437,7 +437,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 6.585972607993435,
+      "latest_score": 6.477690602028811,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "GEV"
@@ -455,7 +455,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 6.018573193603062,
+      "latest_score": 6.322004011265392,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "GLW"
@@ -473,7 +473,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.939345602255921,
+      "latest_score": 5.922779748037136,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "GOOGL"
@@ -491,7 +491,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 1.6543069125615504,
+      "latest_score": 2.619949170037013,
       "latest_sleeve": "early_scout",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "HPE"
@@ -527,7 +527,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": false,
       "latest_revenues_ttm_present": false,
-      "latest_score": 4.594957701537891,
+      "latest_score": 4.695778016571429,
       "latest_sleeve": "unassigned",
       "likely_gap": "selection_gate_or_rank_rejected",
       "ticker": "KLAC"
@@ -545,7 +545,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.550573345324391,
+      "latest_score": 5.6433585767762295,
       "latest_sleeve": "unassigned",
       "likely_gap": "selection_gate_or_rank_rejected",
       "ticker": "LITE"
@@ -563,7 +563,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 6.653061142666032,
+      "latest_score": 6.711274777014702,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "LRCX"
@@ -581,7 +581,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.500808934970708,
+      "latest_score": 5.498113456473762,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "MRVL"
@@ -599,7 +599,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.763611607041029,
+      "latest_score": 4.237888816627833,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "MU"
@@ -610,14 +610,14 @@
       "historical_months": 65,
       "in_historical_book": true,
       "in_latest_scored": true,
-      "latest_entry_quality_score": 0.6886221467322471,
+      "latest_entry_quality_score": 0.6886221411287197,
       "latest_eps_revision_nonzero": false,
       "latest_gate": "core_strict",
       "latest_market_cap_live": 5087054954818.726,
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.050760570338059,
+      "latest_score": 5.054955248822722,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "NVDA"
@@ -653,7 +653,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.337449094715063,
+      "latest_score": 6.759325789757984,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "PLTR"
@@ -671,7 +671,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.136723208776725,
+      "latest_score": 4.121517217655195,
       "latest_sleeve": "unassigned",
       "likely_gap": "selection_gate_or_rank_rejected",
       "ticker": "QCOM"
@@ -725,7 +725,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 2.808874244825416,
+      "latest_score": 2.7491928466919178,
       "latest_sleeve": "unassigned",
       "likely_gap": "selection_gate_or_rank_rejected",
       "ticker": "SNDK"
@@ -743,7 +743,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.905089992680916,
+      "latest_score": 4.709179149325199,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "STX"
@@ -761,7 +761,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": false,
-      "latest_score": 4.892816993366916,
+      "latest_score": 5.8801916218281445,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "TSM"
@@ -779,7 +779,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.641452422401696,
+      "latest_score": 6.07593554128502,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "VRT"
@@ -797,7 +797,7 @@
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 5.285453991600842,
+      "latest_score": 5.271943832965327,
       "latest_sleeve": "future_winner",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "WDC"
@@ -808,14 +808,14 @@
       "historical_months": 23,
       "in_historical_book": true,
       "in_latest_scored": true,
-      "latest_entry_quality_score": 0.5784910616153638,
+      "latest_entry_quality_score": 0.5784910569177375,
       "latest_eps_revision_nonzero": false,
       "latest_gate": "core_strict",
       "latest_market_cap_live": 1047664334747.3145,
       "latest_monster_early_score": null,
       "latest_op_income_ttm_present": true,
       "latest_revenues_ttm_present": true,
-      "latest_score": 4.376535806362338,
+      "latest_score": 4.358676944820976,
       "latest_sleeve": "core_compounder",
       "likely_gap": "selected_candidate_not_portfolio_ranked_high_enough",
       "ticker": "WMT"

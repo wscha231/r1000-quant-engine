@@ -13,7 +13,7 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-05-07T09:51:50Z",
+  "generated_at_utc": "2026-05-07T14:05:12Z",
   "hard_failures": [
     {
       "check": "feature_gate_candidate_backtest_executed",
@@ -33,7 +33,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2716150238263957
+      "threshold": 0.28417256880004693
     },
     {
       "check": "main_sharpe_floor",
@@ -43,7 +43,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.4969453434470705
+      "threshold": 1.6335178432451776
     },
     {
       "check": "main_max_dd_floor",
@@ -53,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.1919244389993675
+      "threshold": -0.17251050332898243
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -64,16 +64,6 @@
       "reason": "Main v2 currently has latest shadow output, not historical performance.",
       "severity": "hard",
       "threshold": "83-month main_v2 backtest"
-    },
-    {
-      "check": "concentrated_cagr_floor",
-      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
-      "gate": "concentrated",
-      "observed": 0.0,
-      "passed": false,
-      "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
-      "severity": "hard",
-      "threshold": 0.3
     },
     {
       "check": "single_name_and_sector_cap_audit",

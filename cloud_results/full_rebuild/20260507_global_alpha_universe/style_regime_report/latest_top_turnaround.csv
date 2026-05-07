@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_turnaround_fit,market_style_regime_label
-PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,2.2916578263941605,0.3344014236827494,quality_compounder
-APP,APPLOVIN CORP CLASS A,Information Technology,core_compounder,1.7752106120287168,0.1862245992721999,quality_compounder
-AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.101482268070704,0.1785086983344233,quality_compounder
-NTES,NetEase,Internet,core_compounder,2.373165114910971,0.1706331523395165,quality_compounder
-MELI,MercadoLibre,Internet,unassigned,0.7104012102780736,0.1681661441815334,quality_compounder
-PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,5.337449094715063,0.1647222232702548,quality_compounder
-UDR,UDR REIT INC,Real Estate,early_scout,1.4997715176827993,0.159717457565989,quality_compounder
-GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,5.939345602255921,0.1586401906601291,quality_compounder
+PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,3.2149739702697078,0.336221456820259,quality_compounder
+APP,APPLOVIN CORP CLASS A,Information Technology,core_compounder,3.3394154636018114,0.1882143156896555,quality_compounder
+AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.01903733215326,0.1801006338494519,quality_compounder
+NTES,NetEase,Internet,core_compounder,2.3741558094442503,0.1740796128347502,quality_compounder
+MELI,MercadoLibre,Internet,unassigned,1.0063921252995198,0.1685448498447259,quality_compounder
+PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,6.759325789757984,0.167212781225858,quality_compounder
+UDR,UDR REIT INC,Real Estate,early_scout,1.499758726553272,0.1603272452187693,quality_compounder
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,5.922779748037136,0.1597499571165645,quality_compounder

@@ -1,2 +1,2 @@
-[auto-policy-challenger] status=blocked hard_failures=12
+[auto-policy-challenger] status=blocked hard_failures=11
 [auto-policy-challenger] wrote /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/challenger/challenger_decision.json

@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        eb99c97 (DIRTY)
-  started:       2026-05-07 18:51:44 KST
+  commit:        ee8f0d1 (DIRTY)
+  started:       2026-05-07 23:05:05 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-05-07
   mode:          QUICK_RESCORE
@@ -17,77 +17,77 @@ r1000 Quant Engine -- local run
   Phase 9 C3:    auto
   Phase 14:      auto
 ======================================================================
-OK: companyfacts.zip 0.1d old, 1312 MB
+OK: companyfacts.zip 0.2d old, 1312 MB
 
 ======================================================================
 CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
 ======================================================================
 
-Scored rows: 712
+Scored rows: 714
 
 Sleeve distribution (raw):
 portfolio_sleeve_label
-unassigned         425
+unassigned         426
 early_scout        121
-future_winner      103
+future_winner      104
 core_compounder     63
 
 Phase 9 diagnostic columns (expect populated if C2 active):
-  phase9_thesis_gate_active                 mean=1.000  sum=712
+  phase9_thesis_gate_active                 mean=1.000  sum=714
   phase9_core_eligible                      mean=0.088  sum=63
-  phase9_future_eligible                    mean=0.138  sum=98
-  phase9_early_eligible                     mean=0.170  sum=121
-  phase9_unassigned                         mean=0.604  sum=430
-  phase9_mktcap_percentile                  mean=0.501  sum=356
+  phase9_future_eligible                    mean=0.139  sum=99
+  phase9_early_eligible                     mean=0.169  sum=121
+  phase9_unassigned                         mean=0.604  sum=431
+  phase9_mktcap_percentile                  mean=0.501  sum=358
 
-Final portfolio: 13 positions
-  Sleeve dist: {'core_compounder': 7, 'early_scout': 3, 'future_winner': 3}
+Final portfolio: 19 positions
+  Sleeve dist: {'core_compounder': 6, 'early_scout': 7, 'future_winner': 5}
   Top 10 by weight:
 ticker portfolio_sleeve_label   weight
- GOOGL        core_compounder 0.262801
-  NVDA        core_compounder 0.117592
-   GEV        core_compounder 0.082913
-   VRT        core_compounder 0.082913
-    PR            early_scout 0.060000
-   MLI          future_winner 0.060000
-   TKR            early_scout 0.060000
-  AMAT        core_compounder 0.059421
-   FTI          future_winner 0.051397
-  LRCX        core_compounder 0.046944
+  CASH                    NaN 0.120000
+  NVDA        core_compounder 0.096247
+   GEV        core_compounder 0.070000
+   VRT        core_compounder 0.070000
+   FIX        core_compounder 0.070000
+  WELL          future_winner 0.070000
+   FTI          future_winner 0.070000
+   ENB          future_winner 0.070000
+    PR            early_scout 0.040000
+   MLI          future_winner 0.040000
 
 ======================================================================
 METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
 ======================================================================
   metric                          new   baseline          delta
-  cagr                         0.2816     0.2451        +3.65pp
-  sharpe                       1.5769     1.2453        +0.3316
-  max_dd                      -0.1819    -0.2579        +7.60pp
-  ir                           1.2124     1.0244        +0.1880
-  avg_turnover_monthly         0.5410     0.4854        +5.56pp
-  avg_stock_names             17.5542    24.3300        -6.7758
-  beat_month_ratio             0.6627     0.5663        +0.0964
-  excess_cagr                  0.1573     0.1102        +4.71pp
+  cagr                         0.2942     0.2451        +4.91pp
+  sharpe                       1.7135     1.2453        +0.4682
+  max_dd                      -0.1625    -0.2579        +9.54pp
+  ir                           1.2362     1.0244        +0.2118
+  avg_turnover_monthly         0.5357     0.4854        +5.03pp
+  avg_stock_names             25.7229    24.3300        +1.3929
+  beat_month_ratio             0.5904     0.5663        +0.0241
+  excess_cagr                  0.1699     0.1102        +5.97pp
 
 === SLEEVE ALLOCATION ===
-  target:  {'core_compounder': 0.35000000000000003, 'future_winner': 0.30000000000000004, 'early_scout': 0.35000000000000003}
-  actual:  {'core_compounder': 0.6951472092538065, 'future_winner': 0.15137414759073048, 'early_scout': 0.15347864315546322}
-  counts:  {'core_compounder': 7, 'future_winner': 3, 'early_scout': 3}
+  target:  {'core_compounder': 0.1, 'future_winner': 0.4, 'early_scout': 0.5}
+  actual:  {'core_compounder': 0.36883969469567607, 'future_winner': 0.2863568326028146, 'early_scout': 0.22480347270150916}
+  counts:  {'core_compounder': 6, 'future_winner': 5, 'early_scout': 7}
 
 === VERDICT ===
-  dCAGR    +3.65pp   (gate >= +0.5pp)
-  dSharpe  +0.3316    (gate >= -0.05)
-  dMaxDD   +7.60pp   (gate >= -3pp; positive better)
-  early_scout selected: 3    (gate >= 4)
+  dCAGR    +4.91pp   (gate >= +0.5pp)
+  dSharpe  +0.4682    (gate >= -0.05)
+  dMaxDD   +9.54pp   (gate >= -3pp; positive better)
+  early_scout selected: 7    (gate >= 4)
 
-  --> PARTIAL vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). See SESSION_HANDOFF.md §3b (A/B isolation).
+  --> SHIP vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). Rotate baseline + next phase.
 
 ======================================================================
 LIFETIME PERFORMANCE (backtest + live, Phase 12D)
 ======================================================================
-  Backtest anchor: 2026-02-27 at equity 5.5632
-  Lifetime CAGR:   28.89% over 6.83 years
-  Lifetime total:  466.07%
-  vs baseline CAGR (24.51%): +4.38pp
+  Backtest anchor: 2026-02-27 at equity 5.9513
+  Lifetime CAGR:   29.99% over 6.83 years
+  Lifetime total:  499.93%
+  vs baseline CAGR (24.51%): +5.48pp
   Live extension:  method=no_live_data (no live data yet)
   HINT: edit base_dir/manual_positions.yaml with real broker holdings
         (avg_cost, shares, entry_date) to activate lifetime CAGR.

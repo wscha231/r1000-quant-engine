@@ -4,18 +4,18 @@ This candidate is proposal-only. It does not change production defaults.
 
 ## Evidence
 
-- Main CAGR: 28.16%
-- Main Sharpe: 1.5769453434470706
-- Main MaxDD: -18.19%
-- Main average stock names: 17.55
-- Concentrated CAGR: 0.00%
-- Concentrated Sharpe: 0.0
-- Concentrated MaxDD: 0.00%
-- Main trade count: 532
-- Concentrated trade count: 0
-- Combined trade count: 532
-- Combined win rate: 55.26%
-- Feature-gate candidates carried forward: 10
+- Main CAGR: 29.42%
+- Main Sharpe: 1.7135178432451776
+- Main MaxDD: -16.25%
+- Main average stock names: 25.72
+- Concentrated CAGR: 47.20%
+- Concentrated Sharpe: 1.6761379600533215
+- Concentrated MaxDD: -20.10%
+- Main trade count: 772
+- Concentrated trade count: 154
+- Combined trade count: 926
+- Combined win rate: 57.02%
+- Feature-gate candidates carried forward: 1
 
 ## Candidate Scope
 

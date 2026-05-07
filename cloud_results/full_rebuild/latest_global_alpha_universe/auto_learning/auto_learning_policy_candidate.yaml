@@ -3,7 +3,7 @@
 # challenger backtest, promotion gate, and human approval.
 
 policy_version: "2026-05-alphaops-20260507-v1"
-generated_at: "2026-05-07T09:51:49Z"
+generated_at: "2026-05-07T14:05:12Z"
 expires_at: "2026-08-05"
 mode: "proposal_only"
 guardrails:
@@ -20,20 +20,20 @@ guardrails:
   broker_execution_auto_apply: false
   candidate_policy_only: true
 evidence_summary:
-  main_cagr: 0.2816150238263957
-  main_sharpe: 1.5769453434470706
-  main_max_dd: -0.1819244389993675
-  main_avg_turnover_monthly: 0.5410346516797254
-  main_avg_stock_names: 17.55421686746988
-  concentrated_cagr: 0.0
-  concentrated_sharpe: 0.0
-  concentrated_max_dd: 0.0
-  trade_count: 532
-  concentrated_trade_count: 0
-  combined_trade_count: 532
-  combined_win_rate: 0.5526315789473685
-  combined_avg_alpha_vs_benchmark: 0.04517735919053797
-  feature_gate_candidate_count: 10
+  main_cagr: 0.29417256880004694
+  main_sharpe: 1.7135178432451776
+  main_max_dd: -0.16251050332898243
+  main_avg_turnover_monthly: 0.5356673225774367
+  main_avg_stock_names: 25.72289156626506
+  concentrated_cagr: 0.4720314484961432
+  concentrated_sharpe: 1.6761379600533215
+  concentrated_max_dd: -0.2009632070463695
+  trade_count: 772
+  concentrated_trade_count: 154
+  combined_trade_count: 926
+  combined_win_rate: 0.5701943844492441
+  combined_avg_alpha_vs_benchmark: 0.04399704946974372
+  feature_gate_candidate_count: 1
   main_v2_positions: 11
   main_v2_cash_target: 0.07820306303913749
   concentrated_policy_cap_violations: 2
@@ -41,85 +41,13 @@ evidence_summary:
   alpha_sprint_active: false
 feature_gates:
   -
-    kind: "signal_regime_amplify"
-    signal: "rs_acceleration_score"
-    regime: "bull"
-    factor: 1.3
-    ic: 0.1747
-    n: 150
-    rationale: "IC +0.175 in bull (n=150) >= amplify threshold +0.1"
-  -
-    kind: "signal_regime_disable"
-    signal: "h6_dynamic_leader_score"
-    regime: "bear"
-    factor: 0.0
-    ic: -0.0571
-    n: 100
-    rationale: "IC -0.057 in bear (n=100) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "h6_dynamic_leader_score"
-    regime: "bull"
-    factor: 0.0
-    ic: -0.0502
-    n: 150
-    rationale: "IC -0.050 in bull (n=150) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "theme_phase_multiplier_primary"
-    regime: "bear"
-    factor: 0.0
-    ic: -0.0811
-    n: 100
-    rationale: "IC -0.081 in bear (n=100) <= disable threshold -0.05"
-  -
     kind: "signal_regime_disable"
     signal: "theme_phase_multiplier_primary"
     regime: "neutral"
     factor: 0.0
-    ic: -0.0995
-    n: 257
-    rationale: "IC -0.100 in neutral (n=257) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "theme_phase_multiplier_max"
-    regime: "bear"
-    factor: 0.0
-    ic: -0.0811
-    n: 100
-    rationale: "IC -0.081 in bear (n=100) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "theme_phase_multiplier_max"
-    regime: "neutral"
-    factor: 0.0
-    ic: -0.11
-    n: 257
-    rationale: "IC -0.110 in neutral (n=257) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "entry_quality_score"
-    regime: "neutral"
-    factor: 0.0
-    ic: -0.0706
-    n: 257
-    rationale: "IC -0.071 in neutral (n=257) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "selection_confirmation_score"
-    regime: "bear"
-    factor: 0.0
-    ic: -0.1764
-    n: 100
-    rationale: "IC -0.176 in bear (n=100) <= disable threshold -0.05"
-  -
-    kind: "signal_regime_disable"
-    signal: "selection_confirmation_score"
-    regime: "bull"
-    factor: 0.0
-    ic: -0.0508
-    n: 150
-    rationale: "IC -0.051 in bull (n=150) <= disable threshold -0.05"
+    ic: -0.0781
+    n: 386
+    rationale: "IC -0.078 in neutral (n=386) <= disable threshold -0.05"
 sleeve_policy:
   main_v2_balanced:
     deep_bear:
@@ -303,12 +231,12 @@ proposals:
   -
     kind: "feature_gate_learning"
     status: "carry_forward_candidate"
-    proposal_count: 10
+    proposal_count: 1
     rationale: "Existing feature-gate learner found regime-specific bear gates; keep as policy input, still proposal-only."
   -
     kind: "target_n_learning"
     mandate: "main"
-    current_avg_stock_names: 17.55421686746988
+    current_avg_stock_names: 25.72289156626506
     proposed_neutral_n: 15
     rationale: "Main is broad while Main v2 latest concentrates to 11 shadow positions with explicit sleeve books."
   -
@@ -320,9 +248,9 @@ proposals:
       early_scout: 0.15
       cash: 0.05
     evidence:
-      future_latest_multi_year_winner: 3.309245329313901
-      early_latest_multi_year_winner: 0.3438100039121849
-      core_latest_multi_year_winner: 1.543826196025749
+      future_latest_multi_year_winner: 3.309245922833491
+      early_latest_multi_year_winner: 0.3773165099740902
+      core_latest_multi_year_winner: 1.5438266143852835
     rationale: "Future winner sleeve has the strongest latest multi-year winner evidence; early scout stays capped."
   -
     kind: "concentrated_policy_learning"
