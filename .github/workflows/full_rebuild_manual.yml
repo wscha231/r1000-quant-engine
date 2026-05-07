@@ -301,6 +301,7 @@ jobs:
           python tools/run_governance_catalyst_report.py --latest-run outputs --output-dir outputs/governance_catalyst 2>&1 | tee outputs/full_rebuild_logs/governance_catalyst_report.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
+          python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -332,6 +333,7 @@ jobs:
             outputs/reports/leader_drop_diagnostics_summary.json
             outputs/reports/leader_drop_diagnostics_report.md
             outputs/reports/leader_rescue_backtest_filter_summary.json
+            outputs/reports/dataset_coverage_audit.*
             outputs/trade_journal/
             outputs/concentrated_trade_journal/
             outputs/auto_learning/
@@ -455,6 +457,11 @@ jobs:
           copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
+          copy_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
+          copy_if_exists outputs/reports/dataset_coverage_audit.md "$DEST/reports"
+          copy_if_exists outputs/reports/dataset_coverage_audit_coverage.csv "$DEST/reports"
+          copy_if_exists outputs/reports/dataset_coverage_audit_watchlist.csv "$DEST/reports"
+          copy_if_exists outputs/reports/dataset_coverage_audit_distributions.csv "$DEST/reports"
           if [ -d outputs/trade_journal ]; then
             rclone copy outputs/trade_journal "$DEST/trade_journal/"
           else
@@ -514,6 +521,7 @@ jobs:
           verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
           verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           verify_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
 
           # Cleanup secret file
           rm -f /tmp/sa.json
@@ -597,6 +605,7 @@ jobs:
           cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/sleeve_returns_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/dataset_coverage_audit.* /tmp/bundle/reports/ 2>/dev/null || true
           copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
           copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
           copy_dir_clean outputs/concentrated_trade_journal /tmp/bundle/concentrated_trade_journal
@@ -703,6 +712,7 @@ jobs:
           cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"

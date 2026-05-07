@@ -177,6 +177,57 @@ All entries must be written in English. Entries must be predictable and machine-
   - Live promotion is opt-in and guarded by `auto_learning_promote.py`; default full rebuild behavior remains dry-run/report-only.
   - This does not enable broker execution or unguarded capital allocation changes.
 
+### 12:21 KST - dataset-coverage-audit-route
+
+- scope:
+  - Add full-run dataset coverage diagnostics and preserve historical candidate replay fields needed to explain missing or rejected leader candidates.
+- files:
+  - `r1000_pipeline.py` ->extends `candidate_replay_book.csv` with raw fundamental/growth columns, preserves `universe_source` as `source_universe`, and recomputes candidate gate labels for historical replay diagnostics.
+  - `tools/run_dataset_coverage_audit.py` ->adds a read-only sidecar that audits latest/historical coverage, effective market-cap availability, distribution counts, and watchlist missing-candidate causes.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the dataset audit sidecar and includes its outputs in artifacts, Google Drive sync, Telegram bundle, and cloud result commits.
+  - `tests/dataset_coverage_audit_smoke.py` ->adds fixture coverage for effective market cap and watchlist missing-candidate classification.
+  - `tests/workflow_artifact_smoke.py` ->checks dataset audit workflow wiring and candidate replay diagnostic export hooks.
+  - `CHANGELOG.md` ->records the dataset coverage audit route.
+- symbols_added:
+  - `tools.run_dataset_coverage_audit.repo_path(path_like)` ->normalizes repo-relative CLI paths.
+  - `tools.run_dataset_coverage_audit.read_csv(path)` ->defensive CSV loader.
+  - `tools.run_dataset_coverage_audit.read_json(path)` ->defensive JSON loader.
+  - `tools.run_dataset_coverage_audit.write_json(path, payload)` ->writes JSON audit outputs.
+  - `tools.run_dataset_coverage_audit.numeric_coverage(df, columns, scope)` ->computes per-column numeric/nonzero coverage.
+  - `tools.run_dataset_coverage_audit.effective_numeric_coverage(df, columns, scope, output_column)` ->computes coalesced coverage such as effective market cap from `market_cap_live`/`mktcap`.
+  - `tools.run_dataset_coverage_audit.value_counts_rows(df, col, scope, limit=20)` ->exports source/gate/sleeve distribution counts.
+  - `tools.run_dataset_coverage_audit.watchlist_rows(scored, book, tickers)` ->classifies selected watchlist names as absent, historical-only, rejected, or selected candidates.
+  - `tools.run_dataset_coverage_audit.render_report(payload, output_dir)` ->renders the markdown audit summary.
+  - `tools.run_dataset_coverage_audit.run(latest_run, output_dir, watchlist)` ->emits audit JSON/CSV/Markdown files.
+  - `test_dataset_coverage_audit_outputs_effective_cap_and_watchlist()` ->smoke test for audit outputs.
+- symbols_changed:
+  - `export_outputs._write_monthly_mandate_books()` ->preserves source/gate/fundamental diagnostic fields in the historical candidate replay book.
+  - `test_pipeline_exports_monthly_books()` ->also checks candidate replay diagnostic field preservation.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->also checks dataset audit sidecar wiring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/dataset_coverage_audit.json` ->machine-readable dataset coverage, missing-column, watchlist, and effective market-cap audit.
+  - `outputs/reports/dataset_coverage_audit.md` ->human-readable dataset audit summary.
+  - `outputs/reports/dataset_coverage_audit_coverage.csv` ->per-column latest and historical coverage ratios.
+  - `outputs/reports/dataset_coverage_audit_watchlist.csv` ->watchlist inclusion/rejection diagnostics for names such as SNDK, INTC, STX, LITE, WDC, and CIEN.
+  - `outputs/reports/dataset_coverage_audit_distributions.csv` ->universe source, gate, sleeve, and sector distribution counts.
+- validation:
+  - `py -3 -m py_compile r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\dataset_coverage_audit_smoke.py tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\dataset_coverage_audit_smoke.py` ->passed.
+  - `py -3 tools\run_dataset_coverage_audit.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_dataset_audit_check3` ->passed; latest artifact shows 704 latest rows, 84 historical months, effective market cap 100% in latest and historical books, and missing source/gate/fundamental diagnostics in the pre-fix artifact.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not change production selection weights or model features.
+  - Existing cloud artifacts still show pre-fix historical replay gaps; the next full rebuild is needed to populate the expanded `candidate_replay_book.csv`.
+  - The current latest artifact confirms effective market cap is present via `mktcap`, but historical source/gate labels and raw fundamentals need the next export to become auditable.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

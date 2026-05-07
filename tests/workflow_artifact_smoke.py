@@ -21,6 +21,7 @@ MONTHLY_BOOK_TOKENS = [
     "outputs/reports/leader_drop_diagnostics_*.csv",
     "outputs/reports/leader_drop_diagnostics_summary.json",
     "outputs/reports/leader_drop_diagnostics_report.md",
+    "outputs/reports/dataset_coverage_audit.*",
 ]
 
 
@@ -72,6 +73,15 @@ def test_pipeline_exports_monthly_books() -> None:
         "_write_monthly_mandate_books()",
     ]:
         assert token in text, token
+    for token in [
+        'replay_source["source_universe"] = source_values',
+        "annotate_portfolio_candidate_gate(replay_source.copy(), cfg)",
+        '"revenues_ttm"',
+        '"gross_profit_ttm"',
+        '"sales_growth_yoy"',
+        '"eps_growth_yoy"',
+    ]:
+        assert token in text, token
 
 
 def test_workflow_runs_latest_diagnostics_sidecars() -> None:
@@ -79,8 +89,10 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
     for token in [
         "tools/run_leader_drop_diagnostics_sidecar.py",
         "tools/run_governance_catalyst_report.py",
+        "tools/run_dataset_coverage_audit.py",
         "outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log",
         "outputs/full_rebuild_logs/governance_catalyst_report.log",
+        "outputs/full_rebuild_logs/dataset_coverage_audit.log",
         "tools/build_concentrated_trade_journal.py",
         "--extra-trades outputs/concentrated_trade_journal/trades.csv",
         "auto_learning_promote_live",

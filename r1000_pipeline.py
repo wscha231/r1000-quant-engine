@@ -16670,6 +16670,19 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "eps_revision_proxy",
             "actual_results_score",
             "event_reaction_score",
+            "revenues_ttm",
+            "gross_profit_ttm",
+            "op_income_ttm",
+            "net_income_ttm",
+            "ocf_ttm",
+            "capex_ttm",
+            "gross_margins",
+            "operating_margins",
+            "roe_proxy",
+            "sales_growth_yoy",
+            "eps_growth_yoy",
+            "op_income_growth_yoy",
+            "ocf_growth_yoy",
             "revenue_growth_final",
             "rev_growth_accel_4q",
             "live_event_risk_score",
@@ -16714,6 +16727,24 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                         replay_source = compute_defensive_monster_rotation_overlay(replay_source.copy(), cfg)
                 except Exception as exc:
                     print(f"[candidate_replay_book] WARN defensive monster overlay skipped: {exc}")
+            if "universe_source" in replay_source.columns:
+                source_values = replay_source["universe_source"].fillna("").astype(str)
+                existing_source = (
+                    replay_source.get("source_universe", pd.Series("", index=replay_source.index))
+                    .fillna("")
+                    .astype(str)
+                )
+                if "source_universe" not in replay_source.columns or existing_source.str.strip().eq("").all():
+                    replay_source["source_universe"] = source_values
+            try:
+                replay_source = add_core_fundamental_minimum_flags(replay_source.copy(), cfg)
+                replay_source = annotate_portfolio_candidate_gate(replay_source.copy(), cfg)
+            except Exception as exc:
+                print(f"[candidate_replay_book] WARN candidate gate annotation skipped: {exc}")
+                if "portfolio_candidate_minimum_pass" not in replay_source.columns:
+                    replay_source["portfolio_candidate_minimum_pass"] = True
+                if "portfolio_candidate_gate_label" not in replay_source.columns:
+                    replay_source["portfolio_candidate_gate_label"] = "audit_fallback"
             for col in replay_cols:
                 if col not in replay_source.columns:
                     replay_source[col] = np.nan
