@@ -45,6 +45,7 @@ Research/challenger path:
 - `tools/run_historical_trade_journey.py`
 - `tools/run_winner_lifecycle_reports.py`
 - `tools/run_leader_drop_diagnostics_sidecar.py`
+- `tools/run_macro_policy_engine.py`
 - `tools/auto_policy_challenger.py`
 - `tools/auto_policy_proposal.py`
 - `tools/auto_policy_promote.py`
@@ -76,6 +77,7 @@ Research/challenger:
 - `outputs/alpha_sprint_backtest/metrics.json`
 - `outputs/historical_trade_journey/*`
 - `outputs/leader_drop_diagnostics/*`
+- `outputs/macro_policy_engine/*`
 - `outputs/portfolio_goal_search/*`
 - `outputs/auto_learning_v2/*`
 
@@ -111,6 +113,11 @@ Research/challenger:
    - It may propose rules.
    - It must not silently promote production defaults.
    - It should reference replay evidence and blocked reasons.
+
+7. Did the macro policy layer identify regime-speed problems?
+   - Inspect `outputs/macro_policy_engine/regime_speed_audit.csv`.
+   - Look for late risk alerts, balanced-under-drawdown months, premature growth re-entry, and possible cash drag.
+   - A good candidate should have fast defense, slow re-entry, and lower cash drag after confirmation.
 
 ## Promotion Gates
 
@@ -164,4 +171,4 @@ should produce the next A/B hypothesis, not blind weight tuning.
 - Add stale-leader half-trim then full-exit A/B as research-only policy.
 - Add production-compatible concentrated metrics guard if NaN recurs.
 - Feed winner/loss/stale diagnostics into auto-policy challenger evidence.
-
+- Use `macro_policy_engine/macro_policy_by_month.csv` as the research-only control table for the next Main v2 macro-policy challenger.

@@ -300,6 +300,7 @@ jobs:
           python tools/run_leader_drop_diagnostics_sidecar.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log || true
           python tools/run_governance_catalyst_report.py --latest-run outputs --output-dir outputs/governance_catalyst 2>&1 | tee outputs/full_rebuild_logs/governance_catalyst_report.log || true
           python tools/run_style_regime_report.py --latest-run outputs --output-dir outputs/style_regime_report 2>&1 | tee outputs/full_rebuild_logs/style_regime_report.log || true
+          python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
           python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
@@ -347,6 +348,7 @@ jobs:
             outputs/position_aware_risk_replay/
             outputs/governance_catalyst/
             outputs/style_regime_report/
+            outputs/macro_policy_engine/
             outputs/monster_lifecycle_replay/
             outputs/lifecycle_review_overlay_main/
             outputs/monster_lifecycle_review_main/
@@ -489,7 +491,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey; do
+          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report macro_policy_engine monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -620,6 +622,7 @@ jobs:
           copy_dir_clean outputs/alpha_sprint_backtest /tmp/bundle/alpha_sprint_backtest
           copy_dir_clean outputs/position_aware_risk_replay /tmp/bundle/position_aware_risk_replay
           copy_dir_clean outputs/governance_catalyst /tmp/bundle/governance_catalyst
+          copy_dir_clean outputs/macro_policy_engine /tmp/bundle/macro_policy_engine
           copy_dir_clean outputs/monster_lifecycle_replay /tmp/bundle/monster_lifecycle_replay
           copy_dir_clean outputs/lifecycle_review_overlay_main /tmp/bundle/lifecycle_review_overlay_main
           copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
@@ -727,6 +730,7 @@ jobs:
           copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
+          copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"
           copy_dir_clean outputs/monster_lifecycle_replay "$DEST/monster_lifecycle_replay"
           copy_dir_clean outputs/lifecycle_review_overlay_main "$DEST/lifecycle_review_overlay_main"
           copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"
