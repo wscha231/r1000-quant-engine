@@ -88,6 +88,7 @@ from r1000_config import (
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
     PHASE20_THEME_POLICY_COLUMNS,
+    PHASE21_STYLE_REGIME_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -264,6 +265,7 @@ from r1000_features import (
     compute_event_regime_features,
     sector_indicator,
     compute_macro_interaction_features,
+    compute_market_style_regime_features,
     compute_market_adaptation_features,
     compute_dynamic_leadership_features,
     load_manual_moat_overrides,
@@ -8049,6 +8051,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p15_col in PHASE15_ALPHA_COLUMNS:
             universe[_p15_col] = 0.0
 
+    universe = compute_market_style_regime_features(universe)
+
     # Phase 17 v3 sidecar features. These columns are surfaced in
     # feature_store/scored outputs for scanners, journal analysis, and future
     # A/B tests. They are not appended to DEFAULT_FEATURES in this integration
@@ -8128,6 +8132,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
             + PHASE20_THEME_POLICY_COLUMNS
+            + PHASE21_STYLE_REGIME_COLUMNS
             + ["applied_gates_count", "pattern_blocked"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
@@ -8164,6 +8169,10 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + [
             c for c in PHASE20_THEME_POLICY_COLUMNS
             if c not in ("theme_horizon_primary", "theme_holding_profile_primary")
+        ]
+        + [
+            c for c in PHASE21_STYLE_REGIME_COLUMNS
+            if c != "market_style_regime_label"
         ]
         + ["regime_state_score", "applied_gates_count", "pattern_blocked"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
@@ -16741,6 +16750,25 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "theme_max_hold_months_primary",
             "theme_short_cycle_flag_primary",
             "theme_short_cycle_flag_max",
+            "market_style_regime_label",
+            "style_breakout_preference",
+            "style_turnaround_preference",
+            "style_quality_compounder_preference",
+            "style_cash_defense_preference",
+            "style_liquidity_tailwind_score",
+            "style_rate_pressure_score",
+            "style_inflation_pressure_score",
+            "style_overheat_risk_score",
+            "style_calendar_month",
+            "style_calendar_quarter",
+            "style_calendar_years_since_start",
+            "style_calendar_month_sin",
+            "style_calendar_month_cos",
+            "style_calendar_quarter_sin",
+            "style_calendar_quarter_cos",
+            "style_row_breakout_fit",
+            "style_row_turnaround_fit",
+            "style_row_compounder_fit",
             "oneil_leadership_score",
             "industry_group_strength_score",
             "future_winner_scout_score",

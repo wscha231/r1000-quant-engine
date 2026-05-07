@@ -324,6 +324,61 @@ All entries must be written in English. Entries must be predictable and machine-
   - Theme horizon labels are human-curated metadata and should be reviewed when new themes emerge.
   - Next full rebuild is required to populate the new `candidate_replay_book.csv` columns and measure CAGR/MDD impact.
 
+### 13:23 KST - market-style-regime-router
+
+- scope:
+  - Add research-only market style routing so full rebuilds can compare breakout-growth, turnaround-accumulation, quality-compounder, and cash-defense environments before changing production weights.
+- files:
+  - `r1000_config.py` ->adds style regime metadata columns and bumps `ENGINE_REUSE_VERSION`.
+  - `r1000_features.py` ->computes style regime preferences from market, liquidity, rate, inflation, overheat, benchmark, and calendar context.
+  - `r1000_pipeline.py` ->runs the style router after Phase 14/15 signals and preserves the columns in feature store plus candidate replay books.
+  - `tools/run_style_regime_report.py` ->new sidecar that summarizes monthly and latest style preferences and top breakout/turnaround/compounder candidates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, syncs, and commits `outputs/style_regime_report/`.
+  - `tools/run_main_v2_backtest.py` ->carries style metadata into monthly holdings for risk replay.
+  - `tools/run_position_aware_risk_replay.py` ->preserves style context in defensive action outputs.
+  - `tests/historical_challenger_replays_smoke.py` ->adds style fields and sidecar report coverage.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow wiring for the style regime sidecar.
+  - `tests/smoke_test.py` ->adds synthetic breakout-vs-turnaround style router coverage.
+  - `CHANGELOG.md` ->records the style regime router.
+- symbols_added:
+  - `compute_market_style_regime_features(df)` ->computes style preference, calendar, and row-level style fit columns.
+  - `tools.run_style_regime_report._mean(rows, col)` ->computes defensive averages for style report rows.
+  - `tools.run_style_regime_report._mode(rows, col, default="unknown")` ->computes dominant style label.
+  - `tools.run_style_regime_report._top(rows, col, limit=8)` ->extracts top candidates by style fit.
+  - `tools.run_style_regime_report.run(latest_run, output_dir)` ->writes style regime report artifacts.
+  - `tools.run_style_regime_report.render_report(payload)` ->renders markdown style summary.
+  - `test_market_style_regime_router()` ->guards breakout and turnaround style-fit behavior.
+- symbols_changed:
+  - `build_feature_store()` ->runs style-regime feature computation and whitelists research-only style metadata.
+  - `export_outputs._write_monthly_mandate_books()` ->preserves style-regime fields in `candidate_replay_book.csv`.
+  - `tools.run_main_v2_backtest.replay()` ->passes style metadata into `monthly_holdings.csv`.
+  - `tools.run_position_aware_risk_replay.replay()` ->writes style context in risk action/holding outputs.
+  - `test_historical_challenger_replays()` ->also validates the style regime sidecar.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->also checks style report workflow wiring.
+- config_fields_added:
+  - `PHASE21_STYLE_REGIME_COLUMNS: list[str] = [...]` ->research-only column list for style regime metadata.
+  - `ENGINE_REUSE_VERSION: str = "2026-05-07-style-regime-router"` ->forces feature-store rebuild for the new metadata.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/style_regime_report/summary.json` ->latest style regime and preference snapshot.
+  - `outputs/style_regime_report/monthly.csv` ->monthly style regime history for A/B analysis.
+  - `outputs/style_regime_report/latest_top_breakout.csv` ->latest candidates best aligned with breakout-growth.
+  - `outputs/style_regime_report/latest_top_turnaround.csv` ->latest candidates best aligned with turnaround accumulation.
+  - `outputs/style_regime_report/latest_top_compounder.csv` ->latest candidates best aligned with quality compounder mode.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_features.py r1000_pipeline.py tools\run_style_regime_report.py tools\run_main_v2_backtest.py tools\run_position_aware_risk_replay.py tests\historical_challenger_replays_smoke.py tests\workflow_artifact_smoke.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 86/86.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed; 245 features, no leakage.
+  - inline style-router fixture ->passed; breakout-growth and turnaround-accumulation rows were separated correctly.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This is not a production style allocation switch yet; it is an evidence route for the next full rebuild.
+  - Calendar fields are not in `DEFAULT_FEATURES`; they are preserved for research/AutoLearning to test seasonality without introducing unvalidated production overfit.
+  - Macro and benchmark series can be studied over longer history than equity fundamentals once a dedicated macro-only regime learner is added.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

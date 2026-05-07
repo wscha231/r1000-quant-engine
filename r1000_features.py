@@ -83,6 +83,7 @@ from r1000_config import (
     SAGE_SECTOR_MAP,
     YF_INDUSTRY_TO_GICS_GROUP,
     YF_QUARTERLY_COL_MAP,
+    PHASE21_STYLE_REGIME_COLUMNS,
 )
 
 
@@ -2051,6 +2052,7 @@ __all__ = [
     "compute_event_regime_features",
     "sector_indicator",
     "compute_macro_interaction_features",
+    "compute_market_style_regime_features",
     "compute_market_adaptation_features",
     "compute_dynamic_leadership_features",
     "load_manual_moat_overrides",
@@ -2881,6 +2883,165 @@ def compute_macro_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     d["macro_defensive_riskoff_interaction"] = defensive_flag * defensive_quality_proxy * risk_off
     d["macro_momentum_regime_interaction"] = momentum_proxy * regime
 
+    return d
+
+
+def compute_market_style_regime_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Research-only style regime router for breakout vs turnaround modes."""
+    d = df.copy()
+    if d.empty:
+        for col in PHASE21_STYLE_REGIME_COLUMNS:
+            d[col] = np.nan
+        return d
+
+    def num(col: str, default: float = 0.0) -> pd.Series:
+        return numeric_series_or_default(d, col, default).astype(float)
+
+    def clip01(series: pd.Series) -> pd.Series:
+        return pd.to_numeric(series, errors="coerce").fillna(0.0).clip(lower=0.0, upper=1.0)
+
+    def pos_scaled(col: str, scale: float = 0.10) -> pd.Series:
+        return (num(col, 0.0) / scale).clip(lower=0.0, upper=1.0)
+
+    market = clip01(num("market_regime_score", 0.50))
+    liquidity = clip01(num("liquidity_regime_score", 0.50))
+    liquidity_impulse = clip01(num("liquidity_impulse_score", 0.0))
+    liquidity_drain = clip01(num("liquidity_drain_score", 0.0))
+    growth_reentry = clip01(num("growth_liquidity_reentry_score", 0.0))
+    risk_off = clip01(num("macro_risk_off_score", 0.0))
+    inflation = clip01(num("inflation_pressure_score", 0.0))
+    inflation_reaccel = clip01(num("inflation_reacceleration_score", 0.0))
+    stagflation = clip01(num("stagflation_score", 0.0))
+    breadth = clip01(num("market_breadth_regime_score", 0.50))
+    participation = clip01(num("market_sector_participation", 0.35))
+    narrowing = clip01(num("market_leadership_narrowing", 0.50))
+    overheat = clip01(num("market_overheat_ratio", 0.0))
+    bench_above = clip01(num("bench_above_ma200", np.nan).fillna(num("spy_above_ma200", 1.0)))
+    qqq_rel = pos_scaled("qqq_rel_spy_1m", scale=0.06)
+    vix_stress = clip01(num("vix_z_63d", 0.0) / 2.0)
+    credit_stress = clip01(num("hy_oas_change_1m", 0.0) / 1.5)
+    rate_pressure = clip01(
+        0.45 * pos_scaled("dgs10_change_1m", scale=0.35)
+        + 0.30 * inflation
+        + 0.25 * inflation_reaccel
+    )
+    liquidity_tailwind = clip01(
+        0.40 * liquidity
+        + 0.25 * liquidity_impulse
+        + 0.20 * growth_reentry
+        + 0.15 * (1.0 - liquidity_drain)
+    )
+    overheat_risk = clip01(
+        0.35 * overheat
+        + 0.25 * narrowing
+        + 0.20 * vix_stress
+        + 0.20 * rate_pressure
+    )
+    cash_defense = clip01(
+        0.28 * risk_off
+        + 0.20 * vix_stress
+        + 0.18 * credit_stress
+        + 0.16 * (1.0 - bench_above)
+        + 0.10 * liquidity_drain
+        + 0.08 * stagflation
+    )
+    breakout_pref = clip01(
+        0.24 * growth_reentry
+        + 0.20 * market
+        + 0.18 * liquidity_tailwind
+        + 0.14 * qqq_rel
+        + 0.12 * bench_above
+        + 0.12 * breadth
+        - 0.16 * overheat_risk
+        - 0.10 * cash_defense
+    )
+    turnaround_pref = clip01(
+        0.24 * liquidity_tailwind
+        + 0.18 * growth_reentry
+        + 0.16 * (1.0 - breadth)
+        + 0.14 * (1.0 - participation)
+        + 0.12 * clip01(rate_pressure * 0.6 + inflation * 0.4)
+        + 0.10 * (1.0 - overheat)
+        + 0.06 * (1.0 - qqq_rel)
+        - 0.18 * cash_defense
+    )
+    quality_pref = clip01(
+        0.24 * risk_off
+        + 0.20 * rate_pressure
+        + 0.16 * inflation
+        + 0.14 * (1.0 - liquidity_tailwind)
+        + 0.14 * bench_above
+        + 0.12 * (1.0 - overheat)
+    )
+
+    labels = np.full(len(d), "balanced", dtype=object)
+    labels = np.where(cash_defense >= 0.58, "cash_defense", labels)
+    labels = np.where((breakout_pref >= turnaround_pref) & (breakout_pref >= quality_pref) & (breakout_pref >= 0.48) & (cash_defense < 0.58), "breakout_growth", labels)
+    labels = np.where((turnaround_pref > breakout_pref) & (turnaround_pref >= quality_pref) & (turnaround_pref >= 0.45) & (cash_defense < 0.58), "turnaround_accumulation", labels)
+    labels = np.where((quality_pref > breakout_pref) & (quality_pref > turnaround_pref) & (quality_pref >= 0.45) & (cash_defense < 0.58), "quality_compounder", labels)
+
+    date_source = None
+    for col in ("rebalance_date", "feature_date", "accepted"):
+        if col in d.columns:
+            date_source = pd.to_datetime(d[col], errors="coerce")
+            break
+    if date_source is None:
+        date_source = pd.Series(pd.NaT, index=d.index)
+    month = date_source.dt.month.fillna(0).astype(int)
+    quarter = date_source.dt.quarter.fillna(0).astype(int)
+    min_date = date_source.dropna().min() if date_source.notna().any() else pd.NaT
+    years_since_start = pd.Series(0.0, index=d.index) if pd.isna(min_date) else (date_source - min_date).dt.days.fillna(0.0) / 365.25
+
+    breakout_setup = row_mean(
+        [
+            numeric_series_or_default(d, "breakout_fresh_20d", 0.0),
+            numeric_series_or_default(d, "post_breakout_hold_score", 0.0),
+            numeric_series_or_default(d, "h6_dynamic_leader_score", 0.0),
+            (numeric_series_or_default(d, "near_52w_high_pct", -1.0) >= -0.12).astype(float),
+        ],
+        d.index,
+    ).fillna(0.0)
+    turnaround_setup = row_mean(
+        [
+            numeric_series_or_default(d, "value_inflection_score", 0.0),
+            numeric_series_or_default(d, "fundamental_turnaround_acceleration_score", 0.0),
+            numeric_series_or_default(d, "h1_oversold_value_score", 0.0),
+            numeric_series_or_default(d, "industry_rotation_signal", 0.0),
+            numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
+            numeric_series_or_default(d, "profitability_inflection_score", 0.0),
+        ],
+        d.index,
+    ).fillna(0.0)
+    compounder_setup = row_mean(
+        [
+            numeric_series_or_default(d, "long_hold_compounder_score", 0.0),
+            numeric_series_or_default(d, "capital_efficiency_score", 0.0),
+            numeric_series_or_default(d, "sector_adjusted_quality_score", 0.0),
+            numeric_series_or_default(d, "moat_proxy_score", 0.0),
+            numeric_series_or_default(d, "fundamental_reliability_score", 0.5),
+        ],
+        d.index,
+    ).fillna(0.0)
+
+    d["market_style_regime_label"] = pd.Series(labels, index=d.index, dtype=object)
+    d["style_breakout_preference"] = breakout_pref
+    d["style_turnaround_preference"] = turnaround_pref
+    d["style_quality_compounder_preference"] = quality_pref
+    d["style_cash_defense_preference"] = cash_defense
+    d["style_liquidity_tailwind_score"] = liquidity_tailwind
+    d["style_rate_pressure_score"] = rate_pressure
+    d["style_inflation_pressure_score"] = clip01(0.6 * inflation + 0.4 * inflation_reaccel)
+    d["style_overheat_risk_score"] = overheat_risk
+    d["style_calendar_month"] = month
+    d["style_calendar_quarter"] = quarter
+    d["style_calendar_years_since_start"] = years_since_start
+    d["style_calendar_month_sin"] = np.sin(2.0 * np.pi * month.clip(lower=1) / 12.0)
+    d["style_calendar_month_cos"] = np.cos(2.0 * np.pi * month.clip(lower=1) / 12.0)
+    d["style_calendar_quarter_sin"] = np.sin(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
+    d["style_calendar_quarter_cos"] = np.cos(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
+    d["style_row_breakout_fit"] = (breakout_pref * breakout_setup).clip(lower=-6.0, upper=6.0)
+    d["style_row_turnaround_fit"] = (turnaround_pref * turnaround_setup).clip(lower=-6.0, upper=6.0)
+    d["style_row_compounder_fit"] = (quality_pref * compounder_setup).clip(lower=-6.0, upper=6.0)
     return d
 
 

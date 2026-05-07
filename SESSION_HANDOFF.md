@@ -110,6 +110,53 @@ Validation:
 - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
   passed, 245 features and no leakage.
 
+**Latest local patch after 2026-05-07 13:23 KST**
+
+Purpose:
+- Add a research-only market style regime router for the user's concern that
+  the engine leans heavily toward near-high breakout leaders.
+- The new route outputs whether the current tape favors:
+  - `breakout_growth`
+  - `turnaround_accumulation`
+  - `quality_compounder`
+  - `cash_defense`
+  - `balanced`
+- It uses existing macro/market columns such as liquidity, M2/TGA/reverse repo
+  derivatives, CPI/inflation pressure, rates, VIX/credit, benchmark trend,
+  breadth/participation, QQQ-vs-SPY, and overheat/narrowing.
+- It also surfaces calendar/seasonality metadata: month, quarter, years since
+  first sample, and month/quarter sin/cos encodings.
+- These fields are preserved in `candidate_replay_book.csv` and summarized by
+  a new `outputs/style_regime_report/` sidecar.
+
+Changed files:
+- `.github/workflows/full_rebuild_manual.yml`
+- `r1000_config.py`
+- `r1000_features.py`
+- `r1000_pipeline.py`
+- `tools/run_style_regime_report.py`
+- `tools/run_main_v2_backtest.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/workflow_artifact_smoke.py`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 86/86.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Interpretation:
+- This is not a production style allocation switch yet.
+- Next full rebuild should populate `outputs/style_regime_report/monthly.csv`
+  and latest top breakout/turnaround/compounder candidate lists.
+- The next A/B should test whether style-aware slot/cap changes improve CAGR
+  without worsening MDD.
+
 Do not treat the enhanced risk replay as production execution evidence yet:
 it still uses monthly proxy stop assumptions. It is now better suited for the
 next full rebuild / A-B check because it also exports cost sensitivity and

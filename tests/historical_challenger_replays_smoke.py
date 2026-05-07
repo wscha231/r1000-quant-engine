@@ -19,6 +19,7 @@ from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_repla
 from tools.run_governance_catalyst_report import run as governance_report_run  # noqa: E402
 from tools.run_leader_drop_diagnostics_sidecar import run as leader_drop_run  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
+from tools.run_style_regime_report import run as style_regime_run  # noqa: E402
 from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
 from r1000_config import EngineConfig  # noqa: E402
 from r1000_pipeline import concentrated_weight_map  # noqa: E402
@@ -61,6 +62,25 @@ def write_candidate_book(path: Path) -> None:
         "theme_max_hold_months_primary",
         "theme_short_cycle_flag_primary",
         "theme_short_cycle_flag_max",
+        "market_style_regime_label",
+        "style_breakout_preference",
+        "style_turnaround_preference",
+        "style_quality_compounder_preference",
+        "style_cash_defense_preference",
+        "style_liquidity_tailwind_score",
+        "style_rate_pressure_score",
+        "style_inflation_pressure_score",
+        "style_overheat_risk_score",
+        "style_calendar_month",
+        "style_calendar_quarter",
+        "style_calendar_years_since_start",
+        "style_calendar_month_sin",
+        "style_calendar_month_cos",
+        "style_calendar_quarter_sin",
+        "style_calendar_quarter_cos",
+        "style_row_breakout_fit",
+        "style_row_turnaround_fit",
+        "style_row_compounder_fit",
         "oneil_leadership_score",
         "industry_group_strength_score",
         "future_winner_scout_score",
@@ -135,6 +155,25 @@ def write_candidate_book(path: Path) -> None:
                     "theme_max_hold_months_primary": 84,
                     "theme_short_cycle_flag_primary": 0,
                     "theme_short_cycle_flag_max": 0,
+                    "market_style_regime_label": "breakout_growth",
+                    "style_breakout_preference": 0.8,
+                    "style_turnaround_preference": 0.2,
+                    "style_quality_compounder_preference": 0.3,
+                    "style_cash_defense_preference": 0.1,
+                    "style_liquidity_tailwind_score": 0.7,
+                    "style_rate_pressure_score": 0.1,
+                    "style_inflation_pressure_score": 0.1,
+                    "style_overheat_risk_score": 0.2,
+                    "style_calendar_month": 1,
+                    "style_calendar_quarter": 1,
+                    "style_calendar_years_since_start": 0.0,
+                    "style_calendar_month_sin": 0.5,
+                    "style_calendar_month_cos": 0.866,
+                    "style_calendar_quarter_sin": 1.0,
+                    "style_calendar_quarter_cos": 0.0,
+                    "style_row_breakout_fit": 0.8,
+                    "style_row_turnaround_fit": 0.1,
+                    "style_row_compounder_fit": 0.3,
                     "oneil_leadership_score": 0.7,
                     "industry_group_strength_score": 0.8,
                     "future_winner_scout_score": 0.7,
@@ -194,6 +233,25 @@ def write_candidate_book(path: Path) -> None:
                     "theme_max_hold_months_primary": 12,
                     "theme_short_cycle_flag_primary": 1,
                     "theme_short_cycle_flag_max": 1,
+                    "market_style_regime_label": "turnaround_accumulation",
+                    "style_breakout_preference": 0.2,
+                    "style_turnaround_preference": 0.7,
+                    "style_quality_compounder_preference": 0.4,
+                    "style_cash_defense_preference": 0.2,
+                    "style_liquidity_tailwind_score": 0.6,
+                    "style_rate_pressure_score": 0.3,
+                    "style_inflation_pressure_score": 0.4,
+                    "style_overheat_risk_score": 0.2,
+                    "style_calendar_month": 1,
+                    "style_calendar_quarter": 1,
+                    "style_calendar_years_since_start": 0.0,
+                    "style_calendar_month_sin": 0.5,
+                    "style_calendar_month_cos": 0.866,
+                    "style_calendar_quarter_sin": 1.0,
+                    "style_calendar_quarter_cos": 0.0,
+                    "style_row_breakout_fit": 0.1,
+                    "style_row_turnaround_fit": 0.7,
+                    "style_row_compounder_fit": 0.2,
                     "entry_quality_score": 0.7,
                     "concentrated_entry_quality_gate_pass": 1,
                     "concentrated_score": 0.5,
@@ -240,6 +298,11 @@ def test_historical_challenger_replays() -> None:
         monster_metrics = monster_replay(book, root / "monster", policy_name="concentrated", cost_bps=0.0)
         lifecycle_review_metrics = monster_replay(book, root / "monster_review", policy_name="lifecycle_review_concentrated", cost_bps=0.0)
         overlay_metrics = lifecycle_overlay_replay(monthly_weights, book, root / "overlay", policy_name="lifecycle_review_main", cost_bps=0.0)
+        latest = root / "latest"
+        latest_reports = latest / "reports"
+        latest_reports.mkdir(parents=True, exist_ok=True)
+        (latest_reports / "candidate_replay_book.csv").write_text(book.read_text(encoding="utf-8"), encoding="utf-8")
+        style_metrics = style_regime_run(latest, root / "style")
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
         assert alpha_metrics["status"] in {"completed", "inactive_no_bull_months_or_candidates"}
@@ -247,6 +310,7 @@ def test_historical_challenger_replays() -> None:
         assert monster_metrics["status"] == "completed"
         assert lifecycle_review_metrics["status"] == "completed"
         assert overlay_metrics["status"] == "completed"
+        assert style_metrics["status"] == "completed"
         assert lifecycle_review_metrics["entry_requires_leadership"]
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
@@ -254,6 +318,7 @@ def test_historical_challenger_replays() -> None:
         assert (root / "monster" / "events.csv").exists()
         assert (root / "monster_review" / "events.csv").exists()
         assert (root / "overlay" / "holdings.csv").exists()
+        assert (root / "style" / "monthly.csv").exists()
         with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
             assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:

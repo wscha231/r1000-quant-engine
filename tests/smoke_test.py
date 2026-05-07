@@ -2114,6 +2114,54 @@ def test_theme_policy_metadata_surface() -> None:
     assert by_ticker["NVDA"]["theme_structural_growth_max"] >= 0.85
 
 
+@_test("regression.market_style_regime_router")
+def test_market_style_regime_router() -> None:
+    """Market style router must expose breakout/turnaround/cash preferences."""
+    from r1000_features import compute_market_style_regime_features
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.8,
+                "liquidity_regime_score": 0.8,
+                "growth_liquidity_reentry_score": 0.7,
+                "macro_risk_off_score": 0.1,
+                "market_breadth_regime_score": 0.7,
+                "market_sector_participation": 0.6,
+                "bench_above_ma200": 1.0,
+                "qqq_rel_spy_1m": 0.05,
+                "breakout_fresh_20d": 1.0,
+                "post_breakout_hold_score": 0.8,
+                "h6_dynamic_leader_score": 0.8,
+                "near_52w_high_pct": -0.03,
+            },
+            {
+                "ticker": "BBB",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.2,
+                "liquidity_regime_score": 0.7,
+                "growth_liquidity_reentry_score": 0.6,
+                "macro_risk_off_score": 0.2,
+                "market_breadth_regime_score": 0.2,
+                "market_sector_participation": 0.2,
+                "bench_above_ma200": 1.0,
+                "value_inflection_score": 1.0,
+                "fundamental_turnaround_acceleration_score": 0.8,
+                "h1_oversold_value_score": 0.7,
+                "industry_rotation_signal": 0.6,
+            },
+        ]
+    )
+    out = compute_market_style_regime_features(df)
+    assert "market_style_regime_label" in out.columns
+    assert out.loc[0, "style_row_breakout_fit"] > out.loc[0, "style_row_turnaround_fit"]
+    assert out.loc[1, "style_row_turnaround_fit"] > out.loc[1, "style_row_breakout_fit"]
+    assert out.loc[0, "style_calendar_month"] == 1
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the

@@ -242,6 +242,31 @@ PHASE20_THEME_POLICY_COLUMNS = [
     "theme_short_cycle_flag_max",
 ]
 
+PHASE21_STYLE_REGIME_COLUMNS = [
+    # Research-only style regime metadata. These columns summarize whether
+    # the macro/market tape favors breakout leaders, turnaround accumulation,
+    # quality compounders, or cash defense. They are not in DEFAULT_FEATURES.
+    "market_style_regime_label",
+    "style_breakout_preference",
+    "style_turnaround_preference",
+    "style_quality_compounder_preference",
+    "style_cash_defense_preference",
+    "style_liquidity_tailwind_score",
+    "style_rate_pressure_score",
+    "style_inflation_pressure_score",
+    "style_overheat_risk_score",
+    "style_calendar_month",
+    "style_calendar_quarter",
+    "style_calendar_years_since_start",
+    "style_calendar_month_sin",
+    "style_calendar_month_cos",
+    "style_calendar_quarter_sin",
+    "style_calendar_quarter_cos",
+    "style_row_breakout_fit",
+    "style_row_turnaround_fit",
+    "style_row_compounder_fit",
+]
+
 
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
@@ -1501,7 +1526,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-07-theme-chameleon-policy"
+ENGINE_REUSE_VERSION = "2026-05-07-style-regime-router"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
