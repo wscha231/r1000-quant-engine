@@ -426,6 +426,50 @@ All entries must be written in English. Entries must be predictable and machine-
   - This still does not change production `DEFAULT_FEATURES` or production portfolio construction.
   - Full rebuild evidence is required before promoting any style-aware Main v2 behavior beyond research-only A/B.
 
+### 16:00 KST - main-v2-opportunity-cost-swap
+
+- scope:
+  - Add a research-only opportunity-cost replacement score so Main v2 can prefer superior new leaders over stale/event-cycle incumbents when catalyst, macro, style, theme, and risk evidence align.
+- files:
+  - `r1000_main_v2.py` ->adds replacement component scoring, replacement tilt, event-cycle decay penalties, and selected-sleeve audit fields.
+  - `tools/run_main_v2_backtest.py` ->carries replacement score, catalyst score, and decay score into monthly holdings.
+  - `tests/smoke_test.py` ->adds regression coverage that a strong new leader beats a stale event-cycle incumbent through the future sleeve.
+  - `tests/historical_challenger_replays_smoke.py` ->checks replacement-score fields in Main v2 replay outputs.
+  - `CHANGELOG.md` ->records the opportunity-cost swap wiring.
+- symbols_added:
+  - `_opportunity_component_scores(row)` ->combines catalyst, style, alpha, macro/theme, stale/risk, relative weakness, and event-cycle decay signals into replacement components.
+  - `_replacement_score(row)` ->returns the combined opportunity-cost replacement score.
+  - `_replacement_tilt(row, policy)` ->turns strong/weak replacement scores into research-only sleeve score adjustments.
+  - `test_main_v2_opportunity_cost_replacement()` ->guards new-leader replacement behavior.
+- symbols_changed:
+  - `score_core(row, regime_state="neutral", style_regime=None, policy=None)` ->adds replacement tilt to core scoring.
+  - `score_future(row, regime_state="neutral", style_regime=None, policy=None)` ->adds amplified replacement tilt to future-winner scoring.
+  - `score_early(row, regime_state="neutral", style_regime=None, policy=None)` ->adds stronger replacement tilt to early-scout scoring.
+  - `candidate_passes(row, sleeve, regime_state, style_regime=None, policy=None)` ->lets strong replacement candidates pass future/early gates while still respecting risk and event-risk limits.
+  - `select_sleeve_candidates(rows, sleeve, regime_state, target_n, style_regime=None, policy=None)` ->attaches replacement component fields to selected candidates.
+  - `compose_main_sleeve_portfolio(candidate_rows, regime_state=None, policy=None)` ->surfaces replacement component fields in selected sleeve audits.
+  - `tools.run_main_v2_backtest.replay()` ->exports replacement component fields into `monthly_holdings.csv`.
+  - `test_historical_challenger_replays()` ->validates replacement-score fields in Main v2 replay artifacts.
+- config_fields_added:
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_enabled"]: bool = True` ->enables research-only opportunity-cost replacement tilt.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_bonus_scale"]: float = 0.22` ->score bonus scale for strong replacement candidates.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_penalty_scale"]: float = 0.18` ->score penalty scale for weak replacement candidates.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_strong_threshold"]: float = 0.60` ->minimum replacement score for strong-candidate treatment.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_weak_threshold"]: float = -0.25` ->replacement score below which decay penalties apply.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_v2_backtest/monthly_holdings.csv` ->now includes `main_v2_replacement_score`, `main_v2_replacement_catalyst_score`, and `main_v2_replacement_decay_score`.
+- validation:
+  - `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py tests\smoke_test.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 88/88.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed, 245 features and no leakage.
+- risks_or_notes:
+  - This is still research-only Main v2 behavior; production defaults remain unchanged.
+  - The active full rebuild `25477647771` was already running on commit `7ff739c`; this patch requires a new run after commit/push to measure the replacement-score effect.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

@@ -31,6 +31,11 @@ MAIN_V2_BALANCED_TARGET_N_BY_REGIME = {
 MAIN_V2_STYLE_AWARE_POLICY = {
     "enabled": True,
     "cash_defense_event_risk_block": 0.65,
+    "replacement_enabled": True,
+    "replacement_bonus_scale": 0.22,
+    "replacement_penalty_scale": 0.18,
+    "replacement_strong_threshold": 0.60,
+    "replacement_weak_threshold": -0.25,
     "min_breakout_fit": 0.32,
     "min_turnaround_fit": 0.28,
     "min_compounder_fit": 0.30,
@@ -226,6 +231,94 @@ def _style_score_bonus(
     return 0.0
 
 
+def _opportunity_component_scores(row: dict[str, Any]) -> dict[str, float]:
+    """Blend event, macro, style, theme, and thesis-decay signals for swaps."""
+    breakout = _bounded_signal(row.get("style_row_breakout_fit"))
+    turnaround = _bounded_signal(row.get("style_row_turnaround_fit"))
+    compounder = _bounded_signal(row.get("style_row_compounder_fit"))
+    event_revision = _bounded_signal(row.get("event_revision_pillar_score"), upper=2.0)
+    event_reaction = _bounded_signal(row.get("event_reaction_score"), upper=3.0) / 3.0
+    earnings_revision = max(
+        _bounded_signal(row.get("eps_revision_score")),
+        _bounded_signal(row.get("revision_score")),
+        _bounded_signal(row.get("eps_revision_proxy")),
+    )
+    live_growth = _bounded_signal(row.get("live_event_growth_reentry_score"))
+    macro = max(
+        _bounded_signal(row.get("macro_pillar_score")),
+        _bounded_signal(row.get("macro_momentum_regime_interaction")),
+        _bounded_signal(row.get("macro_tech_leadership_interaction")),
+        _bounded_signal(row.get("macro_semis_cycle_interaction")),
+        _bounded_signal(row.get("growth_liquidity_reentry_score")),
+    )
+    theme = max(
+        _bounded_signal(row.get("theme_phase_multiplier_primary"), upper=2.0) - 1.0,
+        _bounded_signal(row.get("theme_phase_multiplier_max"), upper=2.0) - 1.0,
+        0.0,
+    )
+    monster = _bounded_signal(row.get("portfolio_monster_early_score"))
+    future = _bounded_signal(row.get("portfolio_future_winner_engine_score"))
+    early = _bounded_signal(row.get("portfolio_early_scout_engine_score"))
+    leadership = max(
+        _bounded_signal(row.get("industry_group_strength_score"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("oneil_leadership_score")),
+        _bounded_signal(row.get("future_winner_scout_score"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("sub_industry_rs_score")),
+    )
+    turn = max(
+        _bounded_signal(row.get("profitability_inflection_score"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("cashflow_inflection_under_loss_score")),
+        1.0 if truthy(row.get("profit_turn_positive_4q")) else 0.0,
+        1.0 if truthy(row.get("cashflow_turn_positive_4q")) else 0.0,
+        1.0 if truthy(row.get("ni_loss_narrowing_4q")) else 0.0,
+        1.0 if truthy(row.get("any_profit_sign_flip_pos")) else 0.0,
+    )
+    structural = _theme_structural_growth(row)
+    event_risk = _theme_event_risk(row)
+    stale = _bounded_signal(row.get("portfolio_stale_mega_leader_score"))
+    risk = max(
+        _bounded_signal(row.get("portfolio_risk_entry_block_score")),
+        _bounded_signal(row.get("risk_penalty"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("stage2_overext_penalty"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("overheat_penalty"), upper=2.0) / 2.0,
+        _bounded_signal(row.get("explosion_exit_score")),
+        _bounded_signal(row.get("live_event_risk_score")),
+    )
+    relative = safe_float(row.get("rs_acceleration_score"))
+    relative_weakness = max(0.0, min(1.0, -relative / 3.0))
+    event_cycle_decay = max(0.0, event_risk - structural) * max(stale, relative_weakness, risk)
+    catalyst = 0.45 * event_revision + 0.35 * event_reaction + 0.25 * earnings_revision + 0.20 * live_growth
+    style = 0.35 * breakout + 0.30 * turnaround + 0.22 * compounder
+    alpha = 0.28 * future + 0.24 * early + 0.26 * monster + 0.20 * leadership + 0.18 * turn
+    macro_theme = 0.22 * macro + 0.14 * theme + 0.10 * structural
+    decay = 0.38 * stale + 0.30 * risk + 0.20 * relative_weakness + 0.22 * event_cycle_decay
+    replacement_score = catalyst + style + alpha + macro_theme - decay
+    return {
+        "replacement_score": replacement_score,
+        "replacement_catalyst_score": catalyst,
+        "replacement_style_score": style,
+        "replacement_alpha_score": alpha,
+        "replacement_macro_theme_score": macro_theme,
+        "replacement_decay_score": decay,
+    }
+
+
+def _replacement_score(row: dict[str, Any]) -> float:
+    return _opportunity_component_scores(row)["replacement_score"]
+
+
+def _replacement_tilt(row: dict[str, Any], policy: dict[str, Any] | None) -> float:
+    style_cfg = _style_policy(policy)
+    if not style_cfg or not bool(style_cfg.get("replacement_enabled", False)):
+        return 0.0
+    replacement = _replacement_score(row)
+    if replacement >= safe_float(style_cfg.get("replacement_strong_threshold"), 0.60):
+        return safe_float(style_cfg.get("replacement_bonus_scale"), 0.22) * min(replacement, 2.0)
+    if replacement <= safe_float(style_cfg.get("replacement_weak_threshold"), -0.25):
+        return safe_float(style_cfg.get("replacement_penalty_scale"), 0.18) * max(replacement, -2.0)
+    return 0.0
+
+
 def _apply_style_capacity_map(
     capacity_map: dict[str, Any],
     style_regime: str,
@@ -286,6 +379,7 @@ def score_core(
     if safe_float(row.get("price_above_ma200")) <= 0:
         score -= 0.35
     score += _style_score_bonus(row, "core", style_regime, policy)
+    score += _replacement_tilt(row, policy)
     return score
 
 
@@ -320,6 +414,7 @@ def score_future(
     if safe_float(row.get("price_above_ma200")) <= 0:
         score -= 0.50
     score += _style_score_bonus(row, "future", style_regime, policy)
+    score += 1.20 * _replacement_tilt(row, policy)
     return score
 
 
@@ -367,6 +462,7 @@ def score_early(
     if price_confirm <= 0:
         score -= 0.35
     score += _style_score_bonus(row, "early", style_regime, policy)
+    score += 1.35 * _replacement_tilt(row, policy)
     return score
 
 
@@ -384,6 +480,8 @@ def candidate_passes(
     event_risk = _theme_event_risk(row)
     structural = _theme_structural_growth(row)
     risk_block = safe_float(row.get("portfolio_risk_entry_block_score"))
+    replacement = _replacement_score(row) if style_cfg else 0.0
+    strong_replacement = replacement >= safe_float(style_cfg.get("replacement_strong_threshold"), 0.60)
     if (
         style_cfg
         and label == "cash_defense"
@@ -398,7 +496,7 @@ def candidate_passes(
         and safe_float(row.get("price_above_ma200")) > 0
         and risk_block < 0.55
     )
-    if risk_block >= 0.55 and not monster_ok:
+    if risk_block >= 0.55 and not monster_ok and not strong_replacement:
         return False
     if sleeve == "core":
         if safe_float(row.get("portfolio_stale_mega_leader_score")) > 0:
@@ -423,7 +521,14 @@ def candidate_passes(
             and safe_float(row.get("score")) > 0
             and risk_block < 0.55
         )
-        return monster_ok or breakout_ok or (safe_float(row.get("price_above_ma200")) > 0 and safe_float(row.get("score")) > 0)
+        replacement_ok = (
+            bool(style_cfg)
+            and strong_replacement
+            and safe_float(row.get("price_above_ma50")) > 0
+            and safe_float(row.get("score")) > 0
+            and _theme_event_risk(row) < 0.80
+        )
+        return monster_ok or breakout_ok or replacement_ok or (safe_float(row.get("price_above_ma200")) > 0 and safe_float(row.get("score")) > 0)
     if sleeve == "early":
         if regime_state == "deep_bear":
             return False
@@ -454,7 +559,14 @@ def candidate_passes(
             and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35
             and event_risk < 0.75
         )
-        return monster_ok or turnaround_ok or (has_turn and has_price and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35)
+        replacement_ok = (
+            bool(style_cfg)
+            and strong_replacement
+            and (has_turn or has_price)
+            and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35
+            and _theme_event_risk(row) < 0.80
+        )
+        return monster_ok or turnaround_ok or replacement_ok or (has_turn and has_price and safe_float(row.get("fundamental_reliability_score"), 0.0) >= 0.35)
     return False
 
 
@@ -496,6 +608,7 @@ def select_sleeve_candidates(
         item["main_v2_sleeve"] = sleeve
         item["main_v2_style_regime"] = style_regime or _row_style_label(row)
         item["main_v2_style_bonus"] = _style_score_bonus(row, sleeve, style_regime, policy)
+        item.update({f"main_v2_{key}": value for key, value in _opportunity_component_scores(row).items()})
         item["main_v2_score"] = _score_row(row, sleeve, regime_state, style_regime, policy)
         if item["main_v2_score"] <= 0:
             continue
@@ -615,6 +728,9 @@ def compose_main_sleeve_portfolio(
                 "portfolio_defensive_rotation_action": row.get("portfolio_defensive_rotation_action"),
                 "main_v2_style_regime": row.get("main_v2_style_regime"),
                 "main_v2_style_bonus": safe_float(row.get("main_v2_style_bonus")),
+                "main_v2_replacement_score": safe_float(row.get("main_v2_replacement_score")),
+                "main_v2_replacement_catalyst_score": safe_float(row.get("main_v2_replacement_catalyst_score")),
+                "main_v2_replacement_decay_score": safe_float(row.get("main_v2_replacement_decay_score")),
                 "style_row_breakout_fit": safe_float(row.get("style_row_breakout_fit")),
                 "style_row_turnaround_fit": safe_float(row.get("style_row_turnaround_fit")),
                 "style_row_compounder_fit": safe_float(row.get("style_row_compounder_fit")),

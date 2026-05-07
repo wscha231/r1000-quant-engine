@@ -203,6 +203,49 @@ Next run focus:
 - Compare style-aware Main v2 CAGR/MaxDD/Sharpe/turnover against the latest
   production main and prior Main v2 replay before any promotion.
 
+**Latest local patch after 2026-05-07 16:00 KST**
+
+Purpose:
+- Add a research-only opportunity-cost replacement layer to Main v2.
+- The goal is to stop high-value signals from "each playing separately" by
+  combining them into one replacement score:
+  - earnings / revision / event reaction
+  - macro and semis-cycle tailwind
+  - market style fit
+  - theme phase and structural-growth metadata
+  - monster/future/early alpha strength
+  - profitability/cash-flow turnaround evidence
+  - stale leader, risk block, overheat, relative weakness, and event-cycle
+    decay penalties
+- Strong replacement candidates can pass future/early gates and receive score
+  tilt; stale/event-cycle candidates receive decay pressure.
+- This is designed to test whether names like AMD/INTC/ARM/STX-style new
+  leaders can displace weaker incumbents without hardcoding tickers.
+- Production `DEFAULT_FEATURES` and production portfolio construction remain
+  unchanged.
+
+Changed files:
+- `r1000_main_v2.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/smoke_test.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py
+  tests\smoke_test.py tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 88/88.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Run note:
+- Full rebuild `25477647771` is still running on prior commit `7ff739c`.
+- After this replacement patch is committed/pushed, trigger a new rebuild only
+  if the user wants the replacement effect measured immediately.
+
 Do not treat the enhanced risk replay as production execution evidence yet:
 it still uses monthly proxy stop assumptions. It is now better suited for the
 next full rebuild / A-B check because it also exports cost sensitivity and

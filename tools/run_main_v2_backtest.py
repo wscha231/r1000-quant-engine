@@ -65,11 +65,18 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
                 ticker = str(item.get("ticker") or "").upper()
                 if ticker:
                     score_lookup[ticker] = max(safe_float(score_lookup.get(ticker)), safe_float(item.get("score")))
+        selected_meta: dict[str, dict[str, Any]] = {}
+        for sleeve_items in (result.get("selected_by_sleeve") or {}).values():
+            for item in sleeve_items:
+                ticker = str(item.get("ticker") or "").upper()
+                if ticker:
+                    selected_meta[ticker] = item
         month_turnover = turnover(prev_weights, weights)
         gross_return = 0.0
         selected_names: list[str] = []
         for ticker, weight in weights.items():
             source = lookup.get(ticker, {})
+            meta = selected_meta.get(ticker, {})
             period_return = safe_float(source.get(return_col), 0.0)
             gross_return += weight * period_return
             selected_names.append(ticker)
@@ -81,6 +88,9 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
                     "period_forward_return": period_return,
                     "weighted_forward_return": weight * period_return,
                     "main_v2_score": score_lookup.get(ticker, ""),
+                    "main_v2_replacement_score": meta.get("main_v2_replacement_score", ""),
+                    "main_v2_replacement_catalyst_score": meta.get("main_v2_replacement_catalyst_score", ""),
+                    "main_v2_replacement_decay_score": meta.get("main_v2_replacement_decay_score", ""),
                     "score": source.get("score", ""),
                     "sector": source.get("sector", ""),
                     "regime_state": result.get("regime_state"),

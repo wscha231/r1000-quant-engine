@@ -2231,6 +2231,70 @@ def test_main_v2_style_aware_selector() -> None:
     assert any(row["ticker"] == "TURN" for row in turnaround["selected_by_sleeve"]["early"])
 
 
+@_test("regression.main_v2_opportunity_cost_replacement")
+def test_main_v2_opportunity_cost_replacement() -> None:
+    """Main v2 must reward superior new leaders and penalize stale event-cycle names."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    rows = [
+        {
+            "ticker": "NEW",
+            "score": 1.2,
+            "portfolio_future_winner_engine_score": 0.95,
+            "portfolio_early_scout_engine_score": 0.85,
+            "future_winner_scout_score": 1.2,
+            "portfolio_monster_early_score": 0.58,
+            "portfolio_risk_entry_block_score": 0.12,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 1.2,
+            "event_reaction_score": 3.0,
+            "eps_revision_score": 1.0,
+            "live_event_growth_reentry_score": 0.8,
+            "macro_semis_cycle_interaction": 0.9,
+            "style_row_breakout_fit": 0.8,
+            "style_row_turnaround_fit": 0.2,
+            "style_row_compounder_fit": 0.3,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_structural_growth_max": 0.9,
+            "theme_event_risk_sensitivity_max": 0.15,
+            "industry_group_strength_score": 1.2,
+            "oneil_leadership_score": 0.7,
+            "sub_industry_rs_score": 0.9,
+        },
+        {
+            "ticker": "OLD",
+            "score": 2.4,
+            "portfolio_future_winner_engine_score": 0.65,
+            "future_winner_scout_score": 0.2,
+            "portfolio_monster_early_score": 0.2,
+            "portfolio_risk_entry_block_score": 0.55,
+            "portfolio_stale_mega_leader_score": 0.9,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 0.0,
+            "event_reaction_score": 0.0,
+            "eps_revision_score": 0.0,
+            "rs_acceleration_score": -2.0,
+            "risk_penalty": 1.0,
+            "stage2_overext_penalty": 0.5,
+            "style_row_breakout_fit": 0.1,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_event_risk_sensitivity_max": 0.85,
+            "theme_structural_growth_max": 0.2,
+        },
+    ]
+    out = compose_main_sleeve_portfolio(rows, regime_state="bull")
+    future = out["selected_by_sleeve"]["future"]
+    assert any(row["ticker"] == "NEW" for row in future)
+    assert not any(row["ticker"] == "OLD" for row in future)
+    new_row = next(row for row in future if row["ticker"] == "NEW")
+    assert new_row["main_v2_replacement_score"] > 0.60
+    assert new_row["main_v2_replacement_catalyst_score"] > new_row["main_v2_replacement_decay_score"]
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the

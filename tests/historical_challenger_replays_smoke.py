@@ -334,6 +334,7 @@ def test_historical_challenger_replays() -> None:
         with (root / "main_v2" / "monthly_holdings.csv").open(encoding="utf-8", newline="") as f:
             first_main_holding = next(csv.DictReader(f))
             assert "main_v2_style_regime" in first_main_holding
+            assert "main_v2_replacement_score" in first_main_holding
         with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
             assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:
