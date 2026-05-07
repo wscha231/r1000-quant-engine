@@ -328,6 +328,12 @@ def test_historical_challenger_replays() -> None:
         assert (root / "monster_review" / "events.csv").exists()
         assert (root / "overlay" / "holdings.csv").exists()
         assert (root / "style" / "monthly.csv").exists()
+        with (root / "main_v2" / "monthly_returns.csv").open(encoding="utf-8", newline="") as f:
+            first_main_month = next(csv.DictReader(f))
+            assert "style_regime" in first_main_month
+        with (root / "main_v2" / "monthly_holdings.csv").open(encoding="utf-8", newline="") as f:
+            first_main_holding = next(csv.DictReader(f))
+            assert "main_v2_style_regime" in first_main_holding
         with (root / "conc" / "holdings.csv").open(encoding="utf-8", newline="") as f:
             assert max(float(row["weight"]) for row in csv.DictReader(f)) <= 0.5000001
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:

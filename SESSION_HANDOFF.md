@@ -157,6 +157,52 @@ Interpretation:
 - The next A/B should test whether style-aware slot/cap changes improve CAGR
   without worsening MDD.
 
+**Latest local patch after 2026-05-07 14:05 KST**
+
+Purpose:
+- Connect the style regime router to actual Main v2 research-only selection.
+- `Main v2` now infers the dominant monthly style regime from
+  `candidate_replay_book.csv` rows and adjusts sleeve capacity plus target N:
+  - `breakout_growth`: more future/early leader slots.
+  - `turnaround_accumulation`: more early-scout turnaround slots.
+  - `quality_compounder`: more core compounder slots.
+  - `cash_defense`: less future/early event risk and more core/cash defense.
+- Sleeve scores now receive style-fit bonuses:
+  - future sleeve uses `style_row_breakout_fit`.
+  - early sleeve uses `style_row_turnaround_fit`.
+  - core sleeve uses `style_row_compounder_fit`.
+- Early-scout can now admit bottom/turnaround growth candidates when style,
+  improving fundamentals, h1 oversold value, RS stabilization, and risk gates
+  align, even before the stock is fully back above MA200.
+- Cash-defense regimes block high event-risk future/early candidates unless
+  they also have strong structural-growth metadata.
+- Production `DEFAULT_FEATURES` and production portfolio construction remain
+  unchanged.
+
+Changed files:
+- `r1000_main_v2.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/smoke_test.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py
+  tests\smoke_test.py tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 87/87.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Next run focus:
+- Run full rebuild on `codex/leader-rescue-stale-trim`.
+- Inspect `outputs/main_v2_backtest/monthly_returns.csv`,
+  `outputs/main_v2_backtest/monthly_holdings.csv`, and
+  `outputs/style_regime_report/monthly.csv`.
+- Compare style-aware Main v2 CAGR/MaxDD/Sharpe/turnover against the latest
+  production main and prior Main v2 replay before any promotion.
+
 Do not treat the enhanced risk replay as production execution evidence yet:
 it still uses monthly proxy stop assumptions. It is now better suited for the
 next full rebuild / A-B check because it also exports cost sensitivity and

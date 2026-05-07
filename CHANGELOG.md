@@ -379,6 +379,53 @@ All entries must be written in English. Entries must be predictable and machine-
   - Calendar fields are not in `DEFAULT_FEATURES`; they are preserved for research/AutoLearning to test seasonality without introducing unvalidated production overfit.
   - Macro and benchmark series can be studied over longer history than equity fundamentals once a dedicated macro-only regime learner is added.
 
+### 14:05 KST - main-v2-style-aware-selector
+
+- scope:
+  - Connect the research-only style regime router to Main v2 candidate selection so breakout, turnaround, compounder, and cash-defense environments alter sleeve scoring and slots in historical A/B replays.
+- files:
+  - `r1000_main_v2.py` ->adds style-aware sleeve capacity/target adjustments, style score bonuses, turnaround candidate admission, cash-defense event-risk blocking, and audit fields.
+  - `tools/run_main_v2_backtest.py` ->writes `monthly_returns.csv` and carries the Main v2 style regime into monthly holdings/returns.
+  - `tests/smoke_test.py` ->adds regression coverage that style-aware Main v2 selects breakout and turnaround candidates through the intended sleeves.
+  - `tests/historical_challenger_replays_smoke.py` ->checks style regime fields in Main v2 historical replay outputs.
+  - `CHANGELOG.md` ->records the style-aware selector wiring.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with the new Main v2 A/B route.
+- symbols_added:
+  - `infer_style_regime(rows, default="balanced")` ->infers the dominant style label from candidate rows.
+  - `_style_policy(policy)` ->returns enabled style-aware Main v2 policy settings.
+  - `_bounded_signal(value, upper=1.25)` ->clips style-fit signals before using them in scores.
+  - `_row_style_label(row, fallback="balanced")` ->reads a row-level style label safely.
+  - `_theme_event_risk(row)` ->reads max event-risk sensitivity for style-aware blocking.
+  - `_theme_structural_growth(row)` ->reads max structural-growth sensitivity for style-aware blocking.
+  - `_style_score_bonus(row, sleeve, style_regime, policy)` ->returns sleeve-specific style-fit score adjustments.
+  - `_apply_style_capacity_map(capacity_map, style_regime, policy)` ->applies research-only style capacity shifts.
+  - `_apply_style_target_map(target_map, style_regime, policy)` ->applies research-only style target-N shifts.
+  - `test_main_v2_style_aware_selector()` ->guards style-aware Main v2 selection behavior.
+- symbols_changed:
+  - `score_core(row, regime_state="neutral", style_regime=None, policy=None)` ->adds quality/cash-defense compounder style bonuses.
+  - `score_future(row, regime_state="neutral", style_regime=None, policy=None)` ->adds breakout-growth style bonuses and cash-defense penalties.
+  - `score_early(row, regime_state="neutral", style_regime=None, policy=None)` ->adds turnaround and breakout style bonuses.
+  - `candidate_passes(row, sleeve, regime_state, style_regime=None, policy=None)` ->admits qualified turnaround accumulation candidates and blocks event-risk future/early candidates in cash-defense regimes.
+  - `select_sleeve_candidates(rows, sleeve, regime_state, target_n, style_regime=None, policy=None)` ->scores candidates with style-aware policy context.
+  - `compose_main_sleeve_portfolio(candidate_rows, regime_state=None, policy=None)` ->infers style regime and applies style capacity/target adjustments before selecting sleeves.
+  - `result_to_rows(result)` ->includes `style_regime` in Main v2 output rows.
+  - `tools.run_main_v2_backtest.replay()` ->exports `monthly_returns.csv` and style regime context.
+  - `test_historical_challenger_replays()` ->validates style-aware Main v2 output columns.
+- config_fields_added:
+  - `MAIN_V2_STYLE_AWARE_POLICY: dict = {...}` ->research-only policy for style-aware sleeve capacity, target-N, score, and candidate-pass behavior.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_v2_backtest/monthly_returns.csv` ->monthly Main v2 return rows including `style_regime`.
+- validation:
+  - `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py tests\smoke_test.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 87/87.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed, 245 features and no leakage.
+- risks_or_notes:
+  - This still does not change production `DEFAULT_FEATURES` or production portfolio construction.
+  - Full rebuild evidence is required before promoting any style-aware Main v2 behavior beyond research-only A/B.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

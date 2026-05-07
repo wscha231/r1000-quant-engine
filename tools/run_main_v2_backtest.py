@@ -84,6 +84,7 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
                     "score": source.get("score", ""),
                     "sector": source.get("sector", ""),
                     "regime_state": result.get("regime_state"),
+                    "main_v2_style_regime": result.get("style_regime"),
                     "theme_horizon_primary": source.get("theme_horizon_primary", ""),
                     "theme_holding_profile_primary": source.get("theme_holding_profile_primary", ""),
                     "theme_event_risk_sensitivity_primary": source.get("theme_event_risk_sensitivity_primary", ""),
@@ -114,6 +115,7 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
             {
                 "rebalance_date": dt,
                 "regime_state": result.get("regime_state"),
+                "style_regime": result.get("style_regime"),
                 "gross_return": gross_return,
                 "cost": cost,
                 "turnover": month_turnover,
@@ -143,6 +145,7 @@ def replay(candidate_book: Path, output_dir: Path, cost_bps: float) -> dict[str,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "metrics.json", metrics)
+    write_rows(output_dir / "monthly_returns.csv", monthly_rows)
     write_rows(output_dir / "monthly_holdings.csv", holding_rows)
     write_rows(output_dir / "equity_curve.csv", curve)
     write_rows(output_dir / "turnover.csv", turnover_rows)

@@ -2163,6 +2163,74 @@ def test_market_style_regime_router() -> None:
     assert out.loc[0, "style_calendar_weekday"] == 2
 
 
+@_test("regression.main_v2_style_aware_selector")
+def test_main_v2_style_aware_selector() -> None:
+    """Main v2 must use style regime metadata in research-only selection."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    breakout_rows = [
+        {
+            "ticker": "BREAK",
+            "score": 1.5,
+            "portfolio_future_winner_engine_score": 0.8,
+            "future_winner_scout_score": 0.8,
+            "multi_year_winner_score": 0.5,
+            "oneil_leadership_score": 0.8,
+            "industry_group_strength_score": 0.8,
+            "portfolio_monster_early_score": 0.4,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 1,
+            "price_above_ma50": 1,
+            "market_style_regime_label": "breakout_growth",
+            "style_row_breakout_fit": 0.85,
+            "style_row_turnaround_fit": 0.05,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.85,
+            "style_turnaround_preference": 0.1,
+            "style_quality_compounder_preference": 0.2,
+            "style_cash_defense_preference": 0.05,
+        }
+    ]
+    breakout = compose_main_sleeve_portfolio(breakout_rows, regime_state="bull")
+    assert breakout["audit"]["style_aware_selection_enabled"] is True
+    assert breakout["style_regime"] == "breakout_growth"
+    assert breakout["audit"]["style_adjusted_capacity_by_sleeve"]["future"] > breakout["audit"]["base_capacity_by_sleeve"]["future"]
+    assert any(row["ticker"] == "BREAK" for row in breakout["selected_by_sleeve"]["future"])
+
+    turnaround_rows = [
+        {
+            "ticker": "TURN",
+            "score": 0.5,
+            "portfolio_early_scout_engine_score": 0.7,
+            "profitability_inflection_score": 0.8,
+            "cashflow_inflection_under_loss_score": 0.8,
+            "profit_turn_positive_4q": 1,
+            "cashflow_turn_positive_4q": 1,
+            "ni_loss_narrowing_4q": 1,
+            "any_profit_sign_flip_pos": 1,
+            "rs_acceleration_score": -0.05,
+            "h1_oversold_value_score": 0.8,
+            "fundamental_reliability_score": 0.8,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 0,
+            "price_above_ma50": 0,
+            "market_style_regime_label": "turnaround_accumulation",
+            "style_row_breakout_fit": 0.05,
+            "style_row_turnaround_fit": 0.9,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.1,
+            "style_turnaround_preference": 0.9,
+            "style_quality_compounder_preference": 0.3,
+            "style_cash_defense_preference": 0.1,
+            "theme_event_risk_sensitivity_max": 0.2,
+        }
+    ]
+    turnaround = compose_main_sleeve_portfolio(turnaround_rows, regime_state="neutral")
+    assert turnaround["style_regime"] == "turnaround_accumulation"
+    assert turnaround["audit"]["style_adjusted_capacity_by_sleeve"]["early"] > turnaround["audit"]["base_capacity_by_sleeve"]["early"]
+    assert any(row["ticker"] == "TURN" for row in turnaround["selected_by_sleeve"]["early"])
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the
