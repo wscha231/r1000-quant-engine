@@ -233,6 +233,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add a non-buy-list strategic semiconductor, AI hardware, memory/storage, optical, and datacenter infrastructure universe overlay so missing leaders remain visible to latest diagnostics and explicit research backtests.
 - files:
+  - `aggressive/universe.py` ->loads the same strategic hardware YAML in the shared aggressive/tactical universe loader so `global_alpha_universe` stays aligned across engines.
   - `strategic_global_hardware_universe.yaml` ->adds the curated research universe records for INTC, AMD, ARM, ASML, TSM, AVGO, QCOM, MU, WDC, SNDK, STX, LITE, CIEN, GLW, and adjacent hardware leaders.
   - `r1000_config.py` ->adds enable/path fields for the strategic global hardware universe overlay.
   - `r1000_pipeline.py` ->loads the YAML overlay, injects it into `global_alpha_universe`, and treats overlay-only historical rows like leader-rescue rows under `leader_rescue_backtest_mode`.
@@ -240,9 +241,11 @@ All entries must be written in English. Entries must be predictable and machine-
   - `tests/smoke_test.py` ->adds loader coverage and verifies strategic overlay-only rows obey latest-only/full-proxy/off backtest filtering.
   - `CHANGELOG.md` ->records the strategic global hardware universe overlay.
 - symbols_added:
+  - `aggressive.universe.load_strategic_global_hardware_universe(include_skip=False)` ->loads the shared hardware overlay for aggressive/tactical research loaders.
   - `load_strategic_global_hardware_universe_frame(cfg)` ->loads the strategic hardware YAML as a candidate-universe source without bypassing normal scoring or risk gates.
   - `test_strategic_global_hardware_universe_loader()` ->guards the overlay loader and required diagnostic tickers.
 - symbols_changed:
+  - `aggressive.universe.load_universe(source, ...)` ->unions strategic hardware candidates into `global_alpha_universe` and records hardware metadata.
   - `normalize_engine_universe_mode(mode)` ->adds hardware aliases into the shared `global_alpha_universe` path.
   - `build_candidate_universe()` ->injects strategic hardware candidates into global-alpha candidate discovery and logs pre-dedup additions.
   - `_leader_rescue_only_source_mask(df)` ->treats strategic hardware overlay-only rows as current-overlay rows for PIT-safer historical filtering.
@@ -256,7 +259,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `outputs/reports/dataset_coverage_audit_watchlist.csv` ->next full rebuild will classify the expanded hardware watchlist as selected, rejected, historical-only, or not in latest universe.
   - `outputs/reports/leader_rescue_backtest_filter_summary.json` ->now counts strategic hardware overlay-only rows in the same latest-only/full-proxy/off safety filter.
 - validation:
-  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\smoke_test.py` ->passed.
+  - `py -3 -m py_compile aggressive\universe.py r1000_config.py r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\smoke_test.py` ->passed.
   - inline `load_strategic_global_hardware_universe_frame()` check ->passed; loaded 25 rows including INTC, AMD, ARM, ASML, STX, SNDK, WDC, LITE, and CIEN.
   - `py -3 tests\dataset_coverage_audit_smoke.py` ->passed.
   - `py -3 tests\workflow_artifact_smoke.py` ->passed.

@@ -799,12 +799,18 @@ def test_strategic_global_hardware_universe_loader() -> None:
         return
     from r1000_config import EngineConfig
     from r1000_pipeline import load_strategic_global_hardware_universe_frame
+    from aggressive.universe import load_strategic_global_hardware_universe
 
     out = load_strategic_global_hardware_universe_frame(EngineConfig())
     tickers = set(out["ticker"].astype(str).str.upper().tolist())
     for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
         assert ticker in tickers, ticker
     assert set(out["universe_source"].astype(str)) == {"strategic_global_hardware"}
+    aggressive_tickers, aggressive_meta = load_strategic_global_hardware_universe()
+    aggressive_set = set(aggressive_tickers)
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in aggressive_set, ticker
+    assert aggressive_meta
 
 
 @_test("logic.phase_is_enabled_env_precedence")

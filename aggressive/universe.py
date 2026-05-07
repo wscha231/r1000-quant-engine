@@ -18,7 +18,7 @@ Usage:
     tickers = load_universe("r1000")          # ~1000 tickers, live
     tickers = load_universe("r1000", max_age_hours=24)  # use cache if fresh
     tickers = load_universe("r1000+adr")      # R1000 + ADRs from adr_universe.yaml
-    tickers = load_universe("global_alpha_universe")  # same shared global-alpha universe
+    tickers = load_universe("global_alpha_universe")  # R1000 + ADR/cycle/strategic hardware overlays
     tickers = load_universe("adr")            # ADRs only (whitelist)
     tickers = load_universe("themes")         # legacy: themes.yaml members only
     tickers = load_universe("custom", tickers=["AAPL", "MSFT"])  # explicit
@@ -203,6 +203,7 @@ def fetch_from_themes() -> list[str]:
 
 _ADR_UNIVERSE_PATH = Path(__file__).parent.parent / "adr_universe.yaml"
 _CYCLE_PLAY_UNIVERSE_PATH = Path(__file__).parent.parent / "cycle_play_universe.yaml"
+_STRATEGIC_GLOBAL_HARDWARE_UNIVERSE_PATH = Path(__file__).parent.parent / "strategic_global_hardware_universe.yaml"
 
 
 def load_adr_universe(
@@ -295,6 +296,43 @@ def load_cycle_play_universe(
     return sorted(set(tickers)), meta_list
 
 
+def load_strategic_global_hardware_universe(
+    include_skip: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Load strategic semiconductor / AI hardware universe from YAML.
+
+    This mirrors the main pipeline overlay and is a candidate universe only,
+    not a buy list. It keeps aggressive/tactical research loaders aligned with
+    `global_alpha_universe`.
+    """
+    if not _STRATEGIC_GLOBAL_HARDWARE_UNIVERSE_PATH.exists():
+        return [], []
+    try:
+        import yaml
+    except ImportError:
+        return [], []
+    try:
+        payload = yaml.safe_load(_STRATEGIC_GLOBAL_HARDWARE_UNIVERSE_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return [], []
+    raw = payload.get("strategic_global_hardware_universe", [])
+    if not isinstance(raw, list):
+        return [], []
+    tickers: list[str] = []
+    meta_list: list[dict] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("skip") and not include_skip:
+            continue
+        t = str(rec.get("ticker", "")).upper().strip()
+        if not _is_valid_ticker(t):
+            continue
+        tickers.append(t)
+        meta_list.append(rec)
+    return sorted(set(tickers)), meta_list
+
+
 def load_universe(
     source: str = "r1000",
     tickers: Optional[list[str]] = None,
@@ -323,6 +361,8 @@ def load_universe(
         "global-alpha": "global_alpha_universe",
         "global_alpha": "global_alpha_universe",
         "global+adr": "global_alpha_universe",
+        "global+hardware": "global_alpha_universe",
+        "global_hardware": "global_alpha_universe",
         "r1000+adr+cycle": "global_alpha_universe",   # Phase 15-D alias
         "r1000+cycle": "r1000+cycle",
     }.get(str(source), str(source))
@@ -353,13 +393,15 @@ def load_universe(
         # 3. Phase 15-D: also include cycle play whitelist for global_alpha
         # (R1000 + ADR + cycle plays). r1000+adr legacy mode keeps cycle off.
         cycle_tickers: list[str] = []
+        hardware_tickers: list[str] = []
         if source == "global_alpha_universe":
             cycle_tickers, _ = load_cycle_play_universe(
                 min_mcap_usd_b=cycle_play_min_mcap_usd_b,
                 max_mcap_usd_b=cycle_play_max_mcap_usd_b,
             )
+            hardware_tickers, _ = load_strategic_global_hardware_universe()
         # 4. Union, dedup, sort
-        combined = sorted(set(r1000_tickers) | set(adr_tickers) | set(cycle_tickers))
+        combined = sorted(set(r1000_tickers) | set(adr_tickers) | set(cycle_tickers) | set(hardware_tickers))
         meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+global_alpha"
         meta["count"] = len(combined)
         meta["r1000_count"] = len(r1000_tickers)
@@ -369,6 +411,11 @@ def load_universe(
             meta["cycle_play_count"] = len(cycle_tickers)
             meta["cycle_play_added"] = sorted(
                 set(cycle_tickers) - set(r1000_tickers) - set(adr_tickers)
+            )
+        if hardware_tickers:
+            meta["strategic_global_hardware_count"] = len(hardware_tickers)
+            meta["strategic_global_hardware_added"] = sorted(
+                set(hardware_tickers) - set(r1000_tickers) - set(adr_tickers) - set(cycle_tickers)
             )
         return combined, meta
 
