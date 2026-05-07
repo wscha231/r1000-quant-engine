@@ -5317,6 +5317,667 @@ def compute_eps_revision_score(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+# =====================================================================
+# Phase 17 v3 Layer 1 (2026-04-30): 5-state market regime classifier.
+# Discrete label on top of existing market_regime_score / vix_z_63d /
+# spy_above_ma200 / spy_ret_3m so downstream sleeve weight + tactical
+# allocation logic can branch on a clean state instead of a continuous
+# blend. Used by L2/L7/L8 to swap policy candidates by regime.
+#
+# States (ordered):
+#   deep_bear    SPY < MA200 AND spy_ret_3m < -10% AND vix_z_63d > 2.0
+#   bear         SPY < MA200 OR (vix_z_63d > 1.0 AND spy_ret_3m < -3%)
+#   neutral      everything else
+#   bull         SPY > MA200 AND vix_z_63d < 0 AND spy_ret_3m > 5%
+#   strong_bull  SPY > MA200 AND vix_z_63d < -0.5 AND spy_ret_3m > 10%
+#                AND market_breadth_above_ma200 > 0.6
+#
+# Emits two columns per row:
+#   regime_state            string (one of 5 above)
+#   regime_state_score      int  -2/-1/0/+1/+2  (numeric for ML)
+# =====================================================================
+
+PHASE17_REGIME_STATE_COLUMNS = [
+    "regime_state",
+    "regime_state_score",
+]
+
+_REGIME_STATE_NUMERIC = {
+    "deep_bear": -2,
+    "bear": -1,
+    "neutral": 0,
+    "bull": 1,
+    "strong_bull": 2,
+}
+
+
+def compute_regime_state_classifier(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 17 v3 L1 — discrete 5-state regime label per row.
+
+    Pure transform. Reads existing macro columns; if any are missing,
+    uses neutral defaults (vix_z=0, spy_above_ma200=1, spy_ret_3m=0,
+    breadth=0.5) so the function always emits both columns.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["regime_state"] = pd.Series(dtype=object)
+        d["regime_state_score"] = pd.Series(dtype=int)
+        return d
+
+    spy_above = numeric_series_or_default(d, "spy_above_ma200", 1.0).astype(float)
+    vix_z = numeric_series_or_default(d, "vix_z_63d", 0.0).astype(float)
+    spy_3m = numeric_series_or_default(d, "spy_ret_3m", 0.0).astype(float)
+    breadth = numeric_series_or_default(d, "market_breadth_above_ma200", 0.5).astype(float)
+
+    # Order matters: evaluate strongest conditions first, fall through
+    # to milder ones, default neutral.
+    deep_bear = (spy_above < 0.5) & (spy_3m < -0.10) & (vix_z > 2.0)
+    bear = (spy_above < 0.5) | ((vix_z > 1.0) & (spy_3m < -0.03))
+    bull = (spy_above >= 0.5) & (vix_z < 0.0) & (spy_3m > 0.05)
+    strong_bull = (
+        (spy_above >= 0.5)
+        & (vix_z < -0.5)
+        & (spy_3m > 0.10)
+        & (breadth > 0.6)
+    )
+
+    label = pd.Series("neutral", index=d.index, dtype=object)
+    # Apply in increasing severity so later assignments override
+    label = label.mask(bear, "bear")
+    label = label.mask(deep_bear, "deep_bear")
+    label = label.mask(bull & ~bear, "bull")
+    label = label.mask(strong_bull & ~bear, "strong_bull")
+
+    d["regime_state"] = label
+    d["regime_state_score"] = label.map(_REGIME_STATE_NUMERIC).fillna(0).astype(int)
+    return d
+
+
+# =====================================================================
+# Phase 17 v3 Layer 8 (2026-04-30): ETF leadership-aware adaptive cap.
+# Reads cloud_results/etf_leadership/latest.json (written by
+# tools/etf_leadership_snapshot.py daily). Returns a sector-cap multiplier
+# in [0.5, 2.0] -- relax when leading sector ETF is hot, tighten when
+# lagging. Falls through to 1.0 (neutral) if file missing.
+# =====================================================================
+
+# Map GICS sector label -> sector ETF ticker (must match SECTOR_ETFS in
+# tools/etf_leadership_snapshot.py).
+_SECTOR_TO_ETF = {
+    "technology": "XLK",
+    "information technology": "XLK",
+    "financials": "XLF",
+    "energy": "XLE",
+    "health care": "XLV",
+    "healthcare": "XLV",
+    "consumer discretionary": "XLY",
+    "industrials": "XLI",
+    "materials": "XLB",
+    "consumer staples": "XLP",
+    "utilities": "XLU",
+    "real estate": "XLRE",
+    "communication services": "XLC",
+    "communications": "XLC",
+}
+
+_ETF_LEADER_CACHE: dict = {}
+_ETF_LEADER_CACHE_PATH: Optional[str] = None
+
+
+def _load_etf_leader_state() -> dict:
+    """Read cloud_results/etf_leadership/latest.json once (cached)."""
+    global _ETF_LEADER_CACHE, _ETF_LEADER_CACHE_PATH
+    if _ETF_LEADER_CACHE:
+        return _ETF_LEADER_CACHE
+    path = Path("cloud_results/etf_leadership/latest.json")
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        _ETF_LEADER_CACHE = data.get("sector_states", {}) or {}
+        _ETF_LEADER_CACHE_PATH = str(path)
+    except Exception:
+        _ETF_LEADER_CACHE = {}
+    return _ETF_LEADER_CACHE
+
+
+def etf_leader_state_for_sector(sector: str) -> str:
+    """Return the latest ETF state for a GICS sector ('hot', 'warm',
+    'neutral', 'lagging', 'capitulating', 'unknown'). Defaults to 'unknown'
+    when ETF leadership snapshot hasn't been generated yet."""
+    if not sector:
+        return "unknown"
+    states = _load_etf_leader_state()
+    if not states:
+        return "unknown"
+    label = _SECTOR_TO_ETF.get(str(sector).strip().lower())
+    if label is None:
+        return "unknown"
+    # states map is keyed by friendly label (eg 'tech' for XLK), built in
+    # etf_leadership_snapshot.py via SECTOR_ETFS dict. Reverse-map ticker -> friendly.
+    from tools.etf_leadership_snapshot import SECTOR_ETFS  # type: ignore
+    friendly = SECTOR_ETFS.get(label, label.lower())
+    return str(states.get(friendly, "unknown"))
+
+
+def adaptive_sector_cap_multiplier(sector: str, default: float = 1.0) -> float:
+    """Phase 17 v3 L8 -- adjust per-sector position cap based on ETF
+    leadership state. Hot leader -> 1.5x cap (let winners run). Lagging
+    -> 0.7x. Capitulating -> 0.5x.
+
+    Returns multiplier as a float; caller multiplies by base sector_cap.
+    """
+    state = etf_leader_state_for_sector(sector)
+    return {
+        "hot": 1.50,
+        "warm": 1.20,
+        "neutral": 1.00,
+        "lagging": 0.70,
+        "capitulating": 0.50,
+        "unknown": float(default),
+    }.get(state, float(default))
+
+
+# =====================================================================
+# Phase 18c (2026-04-30): auto feature-gate application.
+# Reads research/auto_feature_gates.yaml (drafted by
+# tools/feature_gate_proposal.py from Phase 18b insights, gated by
+# human PR review). Provides:
+#   * load_auto_feature_gates() -> dict of normalized gate rules
+#   * apply_signal_regime_gate(value, signal, regime) -> float
+# Engine code that wants to honor gates calls apply_* on each signal
+# value. The gates auto-expire after `expires_at` -- post-expiry the
+# loader returns no rules so engine reverts to ungated behavior.
+# =====================================================================
+
+_AUTO_GATES_CACHE: Optional[dict] = None
+_AUTO_GATES_PATH = Path("research/auto_feature_gates.yaml")
+
+
+def _parse_simple_yaml(text: str) -> dict:
+    """Minimal YAML parser sufficient for auto_feature_gates.yaml.
+
+    Avoids a hard dependency on pyyaml so the engine can import even in
+    environments where yaml isn't installed (eg minimal smoke harness).
+    Falls back to pyyaml if available for robustness.
+    """
+    try:
+        import yaml  # type: ignore
+        return yaml.safe_load(text) or {}
+    except ImportError:
+        pass
+
+    out: dict = {"gates": []}
+    current_gate: Optional[dict] = None
+    in_signature = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        # top-level scalar (generated_at / expires_at / n_proposals)
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if indent == 0 and ":" in stripped and not stripped.startswith("-"):
+            key, _, val = stripped.partition(":")
+            val = val.strip().strip("'\"")
+            if key == "gates":
+                continue
+            out[key] = val
+            continue
+        # gate list item start
+        if stripped.startswith("- kind:"):
+            current_gate = {"kind": stripped.split(":", 1)[1].strip()}
+            out["gates"].append(current_gate)
+            in_signature = False
+            continue
+        if current_gate is None:
+            continue
+        if "feature_signature_z:" in stripped:
+            current_gate["feature_signature_z"] = {}
+            in_signature = True
+            continue
+        if in_signature and indent >= 6 and ":" in stripped:
+            k, _, v = stripped.partition(":")
+            try:
+                current_gate["feature_signature_z"][k.strip()] = float(v.strip())
+            except ValueError:
+                in_signature = False
+        if not in_signature and ":" in stripped and not stripped.startswith("-"):
+            k, _, v = stripped.partition(":")
+            v = v.strip().strip("'\"")
+            try:
+                current_gate[k.strip()] = float(v)
+            except ValueError:
+                current_gate[k.strip()] = v
+            in_signature = False
+    return out
+
+
+def load_auto_feature_gates(force_reload: bool = False) -> dict:
+    """Load + cache the auto_feature_gates.yaml. Returns a dict with
+    keys:
+        gates_by_signal_regime: {(signal, regime): factor}
+        pattern_blocks:         list of dicts (cluster_id, signature, ...)
+        expired:                bool (true if past expires_at)
+    """
+    global _AUTO_GATES_CACHE
+    if _AUTO_GATES_CACHE is not None and not force_reload:
+        return _AUTO_GATES_CACHE
+    out = {
+        "gates_by_signal_regime": {},
+        "pattern_blocks": [],
+        "expired": False,
+        "generated_at": None,
+    }
+    if not _AUTO_GATES_PATH.exists():
+        _AUTO_GATES_CACHE = out
+        return out
+    try:
+        text = _AUTO_GATES_PATH.read_text()
+        parsed = _parse_simple_yaml(text)
+    except Exception:
+        _AUTO_GATES_CACHE = out
+        return out
+
+    out["generated_at"] = parsed.get("generated_at")
+    expires_at = str(parsed.get("expires_at", ""))
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(expires_at)
+            now = datetime.now(timezone.utc).replace(tzinfo=None) if exp_dt.tzinfo is None else datetime.now(timezone.utc)
+            out["expired"] = now > exp_dt
+        except Exception:
+            out["expired"] = False
+
+    if out["expired"]:
+        _AUTO_GATES_CACHE = out
+        return out
+
+    for g in parsed.get("gates", []) or []:
+        kind = str(g.get("kind", ""))
+        if kind in ("signal_regime_disable", "signal_regime_amplify"):
+            sig = str(g.get("signal", ""))
+            reg = str(g.get("regime", ""))
+            try:
+                factor = float(g.get("factor", 1.0))
+            except (TypeError, ValueError):
+                factor = 1.0
+            if sig and reg:
+                out["gates_by_signal_regime"][(sig, reg)] = factor
+        elif kind == "pattern_block":
+            out["pattern_blocks"].append({
+                "cluster_id": g.get("cluster_id"),
+                "signature": g.get("feature_signature_z", {}),
+                "win_rate": g.get("win_rate"),
+                "n": g.get("n"),
+            })
+    _AUTO_GATES_CACHE = out
+    return out
+
+
+def apply_signal_regime_gate(
+    value: float,
+    signal: str,
+    regime: str,
+) -> float:
+    """Multiply a raw signal value by its gate factor (1.0 if no gate
+    matches). Pure lookup; no side effects.
+
+    Engine call sites:
+        gated = apply_signal_regime_gate(value, "rs_acceleration_score", regime)
+    """
+    if value is None or not signal or not regime:
+        return value
+    gates = load_auto_feature_gates()
+    factor = gates.get("gates_by_signal_regime", {}).get((str(signal), str(regime)), 1.0)
+    if factor == 1.0:
+        return value
+    try:
+        return float(value) * float(factor)
+    except (TypeError, ValueError):
+        return value
+
+
+def apply_signal_regime_gate_series(
+    series: pd.Series,
+    signal: str,
+    regimes: pd.Series,
+) -> pd.Series:
+    """Vectorized variant -- multiply each row's value by the gate factor
+    for that row's regime. NaN-safe."""
+    if series is None or len(series) == 0:
+        return series
+    gates = load_auto_feature_gates()
+    by_sr = gates.get("gates_by_signal_regime", {})
+    if not by_sr:
+        return series
+    factors = pd.Series(1.0, index=series.index)
+    if regimes is None or len(regimes) == 0:
+        return series
+    aligned_regimes = regimes.reindex(series.index).astype(str).fillna("")
+    for (sig, reg), factor in by_sr.items():
+        if sig != signal:
+            continue
+        mask = aligned_regimes == reg
+        factors = factors.where(~mask, factor)
+    return pd.to_numeric(series, errors="coerce") * factors
+
+
+# Pattern block tolerance — distance threshold between row's z-scored
+# signal vector and the cluster centroid, normalized by signature size.
+# 0.6 is roughly "row is within 0.6 std of centroid on each top-3
+# signal" -- conservative so we don't over-block. Tunable.
+PATTERN_BLOCK_DISTANCE_TOL = 0.6
+# Score-multiplier penalty applied to flagged rows. 0.0 = full block;
+# 0.5 = halve the score (let it survive but unlikely to be picked).
+PATTERN_BLOCK_SCORE_PENALTY = 0.0
+
+
+def _row_matches_pattern_signature(
+    row: pd.Series,
+    signature: dict,
+    z_lookup: dict,
+    tol: float = PATTERN_BLOCK_DISTANCE_TOL,
+) -> bool:
+    """Test if a row's signal values (after cross-sectional z-scoring
+    via z_lookup) lie within `tol` of every signature dimension."""
+    if not signature or not z_lookup:
+        return False
+    n = 0
+    for sig_name, target_z in signature.items():
+        if sig_name not in z_lookup:
+            return False
+        try:
+            actual = float(z_lookup[sig_name].get(row.name, 0.0))
+        except (TypeError, ValueError):
+            return False
+        try:
+            target = float(target_z)
+        except (TypeError, ValueError):
+            return False
+        if abs(actual - target) > tol:
+            return False
+        n += 1
+    return n > 0
+
+
+def apply_phase18c_gates_to_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Walk all Phase 14 + Phase 17 signal columns and apply auto gates
+    based on each row's regime_state. Pure transform; idempotent.
+
+    Called once at the end of the feature pipeline (after all
+    compute_* functions and after compute_regime_state_classifier).
+    Returns the same DataFrame with gated values in place. Adds two
+    audit columns:
+        applied_gates_count   how many signal x regime gates fired
+        pattern_blocked       1 if row matched a pattern_block centroid
+    """
+    if df is None or df.empty:
+        return df
+    gates = load_auto_feature_gates()
+    by_sr = gates.get("gates_by_signal_regime", {})
+    pattern_blocks = gates.get("pattern_blocks", []) or []
+    if (not by_sr and not pattern_blocks) or "regime_state" not in df.columns:
+        if "applied_gates_count" not in df.columns:
+            df["applied_gates_count"] = 0
+        if "pattern_blocked" not in df.columns:
+            df["pattern_blocked"] = 0
+        return df
+    out = df.copy()
+    regimes = out["regime_state"].astype(str).fillna("")
+    fire_count = pd.Series(0, index=out.index)
+
+    # 1. Signal x regime gates (existing behavior)
+    signals_to_check = [s for s in {sig for (sig, _) in by_sr.keys()} if s in out.columns]
+    for sig in signals_to_check:
+        out[sig] = apply_signal_regime_gate_series(out[sig], sig, regimes)
+        for (gate_sig, gate_reg), factor in by_sr.items():
+            if gate_sig != sig or factor == 1.0:
+                continue
+            mask = regimes == gate_reg
+            fire_count = fire_count + mask.astype(int)
+    out["applied_gates_count"] = fire_count.astype(int)
+
+    # 2. Pattern block matching (Phase 18c-followup, 2026-04-30).
+    # For each pattern_block, compute cross-sectional z of every signature
+    # signal (within this rebalance batch -- approximated globally if
+    # rebalance_date column missing). Match rows whose every signature
+    # signal is within tol of the centroid. Flag + apply score penalty.
+    pattern_blocked = pd.Series(0, index=out.index)
+    if pattern_blocks:
+        # Collect all unique signature signals
+        all_sig_names: set[str] = set()
+        for pb in pattern_blocks:
+            all_sig_names.update((pb.get("signature") or {}).keys())
+        # Per-rebalance z-score lookup for these signals (or global if no
+        # rebalance_date). Stored as {signal_name: {index: z_value}}.
+        z_lookup: dict[str, dict] = {}
+        date_grouper = "rebalance_date" if "rebalance_date" in out.columns else None
+        for sig_name in all_sig_names:
+            if sig_name not in out.columns:
+                z_lookup[sig_name] = {}
+                continue
+            col = pd.to_numeric(out[sig_name], errors="coerce")
+            if date_grouper:
+                z = col.groupby(out[date_grouper], group_keys=False).transform(
+                    lambda s: (s - s.mean()) / s.std(ddof=0) if s.std(ddof=0) > 0 else s * 0.0
+                )
+            else:
+                std = col.std(ddof=0)
+                z = (col - col.mean()) / std if std > 0 else col * 0.0
+            z_lookup[sig_name] = z.to_dict()
+
+        for pb in pattern_blocks:
+            sig = pb.get("signature") or {}
+            if not sig:
+                continue
+            mask = out.apply(
+                lambda row, sig=sig: _row_matches_pattern_signature(row, sig, z_lookup),
+                axis=1,
+            )
+            pattern_blocked = pattern_blocked + mask.astype(int)
+        # Apply score penalty if score column exists. Multiplier 0 = block
+        # outright; tunable via PATTERN_BLOCK_SCORE_PENALTY.
+        if "score" in out.columns:
+            blocked_mask = pattern_blocked > 0
+            if blocked_mask.any():
+                out.loc[blocked_mask, "score"] = (
+                    pd.to_numeric(out.loc[blocked_mask, "score"], errors="coerce")
+                    * PATTERN_BLOCK_SCORE_PENALTY
+                )
+    out["pattern_blocked"] = pattern_blocked.clip(upper=1).astype(int)
+    return out
+
+
+def tactical_allocation_for_regime(
+    regime_state: str,
+    cfg: Optional[EngineConfig] = None,
+) -> float:
+    """Phase 17 v3 L7 — return tactical sleeve allocation pct for a given
+    regime_state. Reads `cfg.tactical_sleeve_allocation_by_regime` map;
+    falls back to `cfg.tactical_sleeve_allocation_default` (0.0) for
+    unknown states. Pure lookup — no side effects.
+
+    Used by:
+      * r1000_tactical_backtest.py to scale weekly position sizes.
+      * Future main pipeline integration when tactical sleeve becomes
+        a first-class portfolio component.
+    """
+    if cfg is None:
+        # Default mapping if no cfg supplied (off-regime safe).
+        defaults = {
+            "deep_bear": 0.0,
+            "bear": 0.0,
+            "neutral": 0.0,
+            "bull": 0.05,
+            "strong_bull": 0.10,
+        }
+        return float(defaults.get(str(regime_state), 0.0))
+    mapping = getattr(cfg, "tactical_sleeve_allocation_by_regime", None) or {}
+    if not isinstance(mapping, dict):
+        return float(getattr(cfg, "tactical_sleeve_allocation_default", 0.0))
+    val = mapping.get(str(regime_state), getattr(cfg, "tactical_sleeve_allocation_default", 0.0))
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# =====================================================================
+# Phase 17 v3 Layer 11 (2026-04-29): Explosive likelihood scoring.
+# Inference for the dual entry/exit XGBoost models trained by
+# tools/train_explosion_classifier.py on the historical event database
+# produced by tools/build_explosive_pattern_db.py.
+#
+# Emits 3 columns per ticker:
+#   explosion_entry_score    max of P(entry) at -12/-6/-3 mo horizons
+#   explosion_exit_score     max of P(exit) at peak/+3/+6 mo horizons
+#   explosion_net_score      entry - exit (net signal; >0 = buy, <0 = exit)
+#
+# If models are missing OR xgboost not installed OR feature inputs are
+# absent, all three columns fall back to 0.0 — keep_cols whitelist
+# survives, walk-forward training silently picks up zero contribution.
+# =====================================================================
+
+PHASE17_EXPLOSION_COLUMNS = [
+    "explosion_entry_score",
+    "explosion_exit_score",
+    "explosion_net_score",
+]
+
+_EXPLOSION_MODEL_CACHE: dict = {}
+
+# Mapping: trainer feature name -> (column candidates in feature_store, default)
+_EXPLOSION_FEATURE_MAP = [
+    ("mom_1m",                  ["mom_1m"],                                  0.0),
+    ("mom_3m",                  ["mom_3m"],                                  0.0),
+    ("mom_6m",                  ["mom_6m"],                                  0.0),
+    ("mom_12m",                 ["mom_12m"],                                 0.0),
+    ("vol_30d",                 ["volatility_30d", "atr14_pct"],             0.20),
+    ("vol_90d",                 ["volatility_90d", "atr14_pct"],             0.25),
+    ("max_dd_90d",              ["max_drawdown_90d", "max_dd_90d"],          0.0),
+    ("rs_vs_spy_3m",            ["rs_benchmark_3m"],                         0.0),
+    ("rs_vs_spy_6m",            ["rs_benchmark_6m"],                         0.0),
+    ("rsi_14",                  ["rsi14"],                                   50.0),
+    ("price_vs_sma_50",         ["price_vs_sma_50", "near_52w_high_pct"],    0.0),
+    ("price_vs_sma_200",        ["price_vs_sma_200", "ma200_slope_1m"],      0.0),
+    ("volume_surge",            ["volume_surge_30_180", "breakout_volume_z"], 1.0),
+    ("dollar_vol_avg_20d_log",  ["dollar_vol_avg_20d_log"],                  0.0),
+    ("mcap_proxy_log",          ["log_mktcap", "mcap_proxy_log"],            0.0),
+]
+
+
+def _load_explosion_models() -> dict:
+    """Lazy-load XGBoost JSON boosters from outputs/explosive_pattern_db/models/.
+
+    Returns dict {target_name: booster} or {} if anything fails.
+    Cached after first successful load.
+    """
+    if _EXPLOSION_MODEL_CACHE:
+        return _EXPLOSION_MODEL_CACHE
+    try:
+        import xgboost as xgb
+    except ImportError:
+        return {}
+    model_dir = Path("outputs/explosive_pattern_db/models")
+    if not model_dir.exists():
+        return {}
+    targets = [
+        "entry_12mo", "entry_6mo", "entry_3mo",
+        "exit_at_peak", "exit_post_peak_3mo", "exit_post_peak_6mo",
+    ]
+    out: dict = {}
+    for tgt in targets:
+        p = model_dir / f"{tgt}.json"
+        if not p.exists():
+            continue
+        try:
+            booster = xgb.XGBClassifier()
+            booster.load_model(str(p))
+            out[tgt] = booster
+        except Exception:
+            continue
+    if out:
+        _EXPLOSION_MODEL_CACHE.update(out)
+    return out
+
+
+def _build_explosion_feature_matrix(df: pd.DataFrame) -> Optional[np.ndarray]:
+    """Assemble the 15-column feature matrix in trainer order.
+
+    For each (trainer_name, candidates, default), pick the first candidate
+    present in df; fill NaN with the default. Special-case mcap_proxy_log:
+    if log_mktcap missing but mktcap present, compute log1p(mktcap).
+    """
+    if df is None or df.empty:
+        return None
+    cols: list[np.ndarray] = []
+    for trainer_name, candidates, default in _EXPLOSION_FEATURE_MAP:
+        s: Optional[pd.Series] = None
+        for c in candidates:
+            if c in df.columns:
+                s = pd.to_numeric(df[c], errors="coerce")
+                break
+        if s is None and trainer_name == "mcap_proxy_log" and "mktcap" in df.columns:
+            mc = pd.to_numeric(df["mktcap"], errors="coerce").clip(lower=0)
+            s = np.log1p(mc)
+        if s is None:
+            s = pd.Series(default, index=df.index, dtype=float)
+        cols.append(s.fillna(default).to_numpy(dtype=float))
+    return np.column_stack(cols)
+
+
+def compute_explosion_likelihood_score(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
+    """Phase 17 v3 L11 — score explosion entry / exit probabilities.
+
+    Loads the 6 XGBoost classifiers trained on historical sustained
+    explosions (+150% to +800% in 6mo, mcap >= $300M, sustained at
+    T+24mo). Emits 3 ML-friendly columns. Falls through to zeros if
+    models or features are absent — engine continues without error.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    for col in PHASE17_EXPLOSION_COLUMNS:
+        d[col] = 0.0
+
+    if d.empty or not phase_is_enabled("phase17_explosion", default=True):
+        return d
+
+    models = _load_explosion_models()
+    if not models:
+        return d
+
+    X = _build_explosion_feature_matrix(d)
+    if X is None or len(X) == 0:
+        return d
+
+    entry_targets = ["entry_12mo", "entry_6mo", "entry_3mo"]
+    exit_targets = ["exit_at_peak", "exit_post_peak_3mo", "exit_post_peak_6mo"]
+
+    entry_probs: list[np.ndarray] = []
+    exit_probs: list[np.ndarray] = []
+    for tgt in entry_targets:
+        if tgt in models:
+            try:
+                entry_probs.append(models[tgt].predict_proba(X)[:, 1])
+            except Exception:
+                continue
+    for tgt in exit_targets:
+        if tgt in models:
+            try:
+                exit_probs.append(models[tgt].predict_proba(X)[:, 1])
+            except Exception:
+                continue
+
+    if entry_probs:
+        d["explosion_entry_score"] = np.maximum.reduce(entry_probs)
+    if exit_probs:
+        d["explosion_exit_score"] = np.maximum.reduce(exit_probs)
+    d["explosion_net_score"] = (
+        d["explosion_entry_score"] - d["explosion_exit_score"]
+    ).clip(lower=-1.0, upper=1.0)
+    return d
+
+
 def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     """Wrap r1000_themes.attach_per_ticker_theme_features for production engine.
 

@@ -1,0 +1,57 @@
+[
+  {
+    "artifact": "tactical_run_summary.json",
+    "source": "cloud_results/tactical_alpha/latest/tactical_run_summary.json",
+    "status": "copied"
+  },
+  {
+    "artifact": "tactical_portfolio_latest.csv",
+    "source": "cloud_results/tactical_alpha/latest/tactical_portfolio_latest.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "tactical_trade_plan.csv",
+    "source": "cloud_results/tactical_alpha/latest/tactical_trade_plan.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "tactical_daily_review.md",
+    "source": "cloud_results/tactical_alpha/latest/reports/tactical_daily_review.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "equity_curve.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "sleeve_returns.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "turnover.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "stress_windows.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "monthly_allocations.csv",
+    "source": "",
+    "status": "derived_policy"
+  },
+  {
+    "artifact": "trade_journal_summary.md",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/summary.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "metrics.json",
+    "source": "",
+    "status": "derived"
+  }
+]

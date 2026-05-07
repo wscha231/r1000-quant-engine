@@ -1,0 +1,6 @@
+ticker,name,sector,weight,concentrated_score,concentrated_conviction_score,entry_gate_pass,risk_gate_pass,entry_failed,risk_failed
+PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.262442024069509,0.7665712701917649,1.0151759381000887,False,True,entry_quality_ok,
+MRVL,MARVELL TECHNOLOGY INC,Information Technology,0.20278865914364483,0.7260987083442483,1.9062519468332437,False,True,entry_quality_ok,
+AMKR,AMKOR TECHNOLOGY INC,Information Technology,0.20175580340159313,0.7253487818064981,0.7878307705780154,False,False,entry_quality_ok,rs_not_decaying
+CIEN,CIENA CORP,Information Technology,0.1864835772004387,0.7140274260269261,1.8094733216101555,False,False,entry_quality_ok,rs_not_decaying
+GLW,CORNING INC,Information Technology,0.14652993618481427,0.6819962462412272,1.904284817239381,False,False,entry_quality_ok,rs_not_decaying

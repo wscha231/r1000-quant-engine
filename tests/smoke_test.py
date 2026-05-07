@@ -56,6 +56,7 @@ SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 TACTICAL_PATH = ROOT / "r1000_tactical_alpha.py"
+ALPHAOPS_REPORTING_PATH = ROOT / "r1000_alphaops_reporting.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
 # --- tiny test framework ---
@@ -117,6 +118,12 @@ def test_run_local_syntax() -> None:
 @_test("syntax.tactical_alpha_py_parses")
 def test_tactical_alpha_syntax() -> None:
     src = TACTICAL_PATH.read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.alphaops_reporting_py_parses")
+def test_alphaops_reporting_syntax() -> None:
+    src = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
     ast.parse(src)
 
 
@@ -782,6 +789,55 @@ def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
     assert str(tsm["mktcap_source"]) == "adr_yf_usd_proxy_ratio"
 
 
+@_test("logic.adr_mktcap_proxy_cache_dates_are_normalized")
+def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
+    """Legacy ISO-string cache rows must coexist with new Timestamp rows.
+
+    Regression: GitHub full rebuild 25182904974 crashed while sorting
+    `yf_mktcap_proxy.parquet` because `updated_at` contained both strings and
+    pandas Timestamps after a cache refresh.
+    """
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+    from pandas.api.types import is_datetime64_any_dtype
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        seed = pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": [pd.Timestamp.utcnow().tz_localize(None)],
+            }
+        )
+        seed.to_parquet(cache_dir / "yf_mktcap_proxy.parquet", index=False)
+
+        original = pipe.fetch_mktcap_proxy
+        try:
+            pipe.fetch_mktcap_proxy = lambda ticker: {
+                "ticker": ticker,
+                "mktcap_proxy": 1.5e12,
+                "price_currency": "USD",
+                "financial_currency": "USD",
+                "shares_outstanding_proxy": 1.0e9,
+                "implied_shares_outstanding_proxy": 1.0e9,
+                "updated_at": "2026-04-30T00:00:00",
+            }
+            out = pipe.ensure_mktcap_proxy(EngineConfig(), paths, ["TSM", "ASML"], max_new=5)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+
+    assert set(out["ticker"].astype(str)) == {"TSM", "ASML"}
+    assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
+
+
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
 def test_adr_valuation_uses_adr_equivalent_shares() -> None:
     """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""
@@ -1230,58 +1286,59 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
-@_test("regression.paper_executor_workflow_yaml_valid")
+@_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
-    """The cloud workflow that runs r1000_paper_executor.py must exist with
-    workflow_dispatch + schedule, properly wire ALPACA secrets, and call
-    smoke_test as a pre-flight check.
-
-    History:
-      45d80f5 spam fix in data_alpaca
-      this    paper_executor_dryrun.yml — cloud-side dry-run / execute
-
-    Without this guard, a refactor that drops the workflow file silently
-    disables cloud paper trading.
+    """The consolidated daily cloud workflow must run paper execution
+    dry-runs plus scanner, tactical, macro, ETF, explosive, and Layer 4
+    review surfaces.
     """
-    wf_path = ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml"
-    assert wf_path.exists(), "paper_executor_dryrun.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
     assert "workflow_dispatch" in wf, "manual trigger missing in paper_executor workflow"
     assert "secrets.ALPACA_API_KEY" in wf, "ALPACA_API_KEY secret not wired"
     assert "secrets.ALPACA_API_SECRET" in wf, "ALPACA_API_SECRET secret not wired"
-    assert "tests/smoke_test.py" in wf, (
+    assert "tests/smoke_test.py --quick" in wf, (
         "smoke_test pre-flight missing — workflow could ship code that fails guards"
     )
     assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    for token in (
+        "tests/audit_features.py --no-runtime",
+        "aggressive/scanner.py",
+        "tools/macro_daily_snapshot.py",
+        "tools/etf_leadership_snapshot.py",
+        "tools/explosive_mover_scan_daily.py",
+        "r1000_tactical_alpha.py",
+        "r1000_layer4_swap.py",
+    ):
+        assert token in wf, f"after_close_daily.yml missing: {token}"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
 
 
-@_test("regression.paper_executor_weekday_schedule")
+@_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """paper_executor_dryrun.yml must have weekday schedule (Mon-Fri 23:30 KST)
-    in addition to Saturday 15:00 KST. Phase 5 J — daily review enables user
-    to see regime + plan via Telegram each weekday before --execute decision.
+    """after_close_daily.yml must have weekday after-close schedule plus a
+    Saturday review pass. Live execution remains manual only.
     """
-    wf = (ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml").read_text(encoding="utf-8")
-    assert "30 14 * * 1-5" in wf, (
-        "weekday Mon-Fri 14:30 UTC schedule missing in paper_executor_dryrun.yml"
-    )
+    wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
+    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
     assert "0 6 * * 6" in wf, (
         "Saturday 06:00 UTC schedule must remain"
     )
+    assert "execute=true" in wf, "manual live execution guard not documented"
 
 
 @_test("regression.tactical_after_close_workflow")
 def test_tactical_after_close_workflow() -> None:
-    """Daily tactical alpha review must run after the US close and call the
-    separate tactical engine, not the core monthly rebuild.
+    """Daily tactical alpha review must remain in the after-close workflow and
+    call the separate tactical engine, not the core monthly rebuild.
     """
-    wf_path = ROOT / ".github" / "workflows" / "tactical_after_close.yml"
-    assert wf_path.exists(), "tactical_after_close.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
-    assert "30 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
     assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
     assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
     req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
@@ -1317,8 +1374,8 @@ def test_advisor_v3_layer4_info() -> None:
 
 @_test("regression.monthly_ic_monitor_exists")
 def test_monthly_ic_monitor() -> None:
-    """Phase 6 L: tools/monthly_ic_monitor.py + workflow must exist with
-    monthly cadence (cron 0 2 1 * *) and Telegram alerting on threshold trips.
+    """Phase 6 L: tools/monthly_ic_monitor.py must remain wired through the
+    consolidated monthly research workflow.
 
     User mandate (2026-04-25): "1-2개월 cadence가 훨씬 합리적".
     Threshold trips: ADR avg IC < 0.01, China-IC > US-IC by 0.05+.
@@ -1331,12 +1388,60 @@ def test_monthly_ic_monitor() -> None:
                 "load_adr_universe"):
         assert tok in src, f"monthly_ic_monitor.py missing: {tok}"
 
-    wf = ROOT / ".github" / "workflows" / "monthly_ic_monitor.yml"
-    assert wf.exists(), "monthly_ic_monitor.yml workflow missing"
+    wf = ROOT / ".github" / "workflows" / "monthly_research.yml"
+    assert wf.exists(), "monthly_research.yml workflow missing"
     wf_src = wf.read_text(encoding="utf-8")
-    for tok in ("0 2 1 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
-                "FRED_API_KEY", "tests/smoke_test.py"):
-        assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
+    for tok in ("45 22 15 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
+                "FRED_API_KEY", "tests/smoke_test.py --quick",
+                "refresh_cycle_play_universe.py", "r1000_tactical_backtest.py",
+                "build_explosive_pattern_db.py", "train_explosion_classifier.py"):
+        assert tok in wf_src, f"monthly_research.yml missing: {tok}"
+
+
+@_test("regression.workflow_topology_consolidated")
+def test_workflow_topology_consolidated() -> None:
+    """Scheduled automation is compressed by cadence so future system changes
+    update one owner workflow instead of several stale duplicates.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    expected = {
+        "after_close_daily.yml",
+        "weekly_data_refresh.yml",
+        "monthly_research.yml",
+        "quarterly_auto_learning.yml",
+        "full_rebuild_manual.yml",
+        "unified_monthly.yml",
+        "layer4_monthly_swap.yml",
+        "gdrive_smoke_test.yml",
+    }
+    missing = sorted(name for name in expected if not (wf_dir / name).exists())
+    assert not missing, f"missing consolidated workflows: {missing}"
+
+    retired = {
+        "daily_review.yml",
+        "paper_executor_dryrun.yml",
+        "tactical_after_close.yml",
+        "macro_daily_snapshot.yml",
+        "etf_leadership_daily.yml",
+        "explosive_mover_daily.yml",
+        "finnhub_weekly.yml",
+        "theme_discovery.yml",
+        "cycle_play_refresh.yml",
+        "monthly_ic_monitor.yml",
+        "tactical_backtest_monthly.yml",
+        "explosive_pattern_train_monthly.yml",
+        "quarterly_trade_insights.yml",
+        "auto_feature_gate_proposal_quarterly.yml",
+    }
+    still_present = sorted(name for name in retired if (wf_dir / name).exists())
+    assert not still_present, f"retired duplicate workflows still present: {still_present}"
+
+    strategy = ROOT / "AUTOMATION_STRATEGY.md"
+    assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
+    text = strategy.read_text(encoding="utf-8")
+    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
+                  "update `tests/smoke_test.py`"):
+        assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
 
 
 @_test("regression.helpers_imports_requests")
@@ -1426,6 +1531,236 @@ def test_full_rebuild_commits_portfolios() -> None:
         assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
 
 
+@_test("regression.full_rebuild_preserves_auto_learning_artifacts")
+def test_full_rebuild_preserves_auto_learning_artifacts() -> None:
+    """Phase 20: full rebuild must preserve the training substrate for
+    automatic learning. If trade_journal/insights or the candidate gate YAML
+    disappear after a cloud run, challenger promotion has no data to learn from.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for needed in (
+        "outputs/trade_journal/",
+        "outputs/auto_learning/",
+        "auto_feature_gates_candidate.yaml",
+        "tools/trade_insights.py",
+        'tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES"',
+        'tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES"',
+        "copy_if_exists",
+    ):
+        assert needed in wf, f"full_rebuild_manual.yml missing auto-learning artifact token: {needed}"
+
+
+@_test("regression.full_rebuild_pushes_results_to_dispatch_branch")
+def test_full_rebuild_pushes_results_to_dispatch_branch() -> None:
+    """Full rebuild result commits must target the dispatched branch.
+
+    The Phase 20 branch rebuild succeeded but its cloud_results commit failed
+    because the workflow retried by rebasing a branch run onto master. That is
+    wrong for branch validation and can also mask the failure because the step
+    is intentionally best-effort.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert 'RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"' in wf
+    assert "refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" in wf
+    assert 'git push origin "HEAD:$RESULT_BRANCH"' in wf
+    commit_section = wf.split("Commit verdict + portfolio CSVs", 1)[-1]
+    assert "git fetch origin master" not in commit_section
+    assert "git pull --rebase origin master" not in commit_section
+
+
+@_test("regression.phase18c_auto_learning_gate_wired")
+def test_phase18c_auto_learning_gate_wired() -> None:
+    """Phase 20: learned gates should apply automatically only when the
+    auto-promoted YAML exists; no YAML remains a no-op. scored_latest must keep
+    explosion/regime audit columns even when they are all zero.
+    """
+    pipe_src = _pipeline_src()
+    for token in (
+        "apply_phase18c_gates_to_frame",
+        "explosion_entry_score",
+        "explosion_exit_score",
+        "explosion_net_score",
+        "applied_gates_count",
+        "pattern_blocked",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing auto-learning wiring: {token}"
+    promote = ROOT / "tools" / "auto_learning_promote.py"
+    assert promote.exists(), "tools/auto_learning_promote.py missing"
+    promote_src = promote.read_text(encoding="utf-8")
+    for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
+        assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+
+
+@_test("regression.alphaops_report_only_outputs_wired")
+def test_alphaops_report_only_outputs_wired() -> None:
+    """AlphaOps Stage 0-2 must remain report-only.
+
+    The reports provide baseline registry, config audit, and orchestrator shadow
+    targets for A/B governance. They must be exported and preserved by the full
+    rebuild workflow, but they must not replace portfolio_latest.csv.
+    """
+    reporting = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
+    for token in (
+        "write_baseline_registry",
+        "write_config_audit",
+        "write_orchestrator_shadow_outputs",
+        "write_alphaops_report_pack",
+        "active_auto_feature_gates_exists",
+    ):
+        assert token in reporting, f"r1000_alphaops_reporting.py missing: {token}"
+
+    orchestrator = (ROOT / "r1000_orchestrator.py").read_text(encoding="utf-8")
+    for token in ("write_orchestrator_output_bundle", "orchestrator_result_to_frame", "row_type"):
+        assert token in orchestrator, f"r1000_orchestrator.py missing CSV bundle token: {token}"
+
+    pipe_src = _pipeline_src()
+    assert "write_alphaops_report_pack" in pipe_src, "pipeline does not write AlphaOps reports"
+    assert "portfolio_latest.to_csv" not in reporting, "AlphaOps reporting must not write production portfolio_latest.csv"
+
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for token in (
+        "outputs/orchestrator/",
+        "outputs/reports/baseline_registry.*",
+        "outputs/reports/config_audit.*",
+        "outputs/orchestrator",
+    ):
+        assert token in wf, f"full_rebuild_manual.yml missing AlphaOps artifact token: {token}"
+
+
+@_test("logic.alphaops_adr_diagnostics_detect_universe_source")
+def test_alphaops_adr_diagnostics() -> None:
+    """AlphaOps baseline registry must count ADR rows from universe_source.
+
+    Cloud scored_latest currently exposes ADR membership through
+    universe_source=adr_whitelist and adr_global_alpha_fallback_pass, not a
+    generic is_adr column.
+    """
+    import pandas as pd
+    from r1000_alphaops_reporting import _scored_diagnostics
+
+    scored = pd.DataFrame({
+        "ticker": ["TSM", "NVDA", "ZTO"],
+        "universe_source": ["adr_whitelist", "current_constituents_proxy", "adr_whitelist"],
+        "adr_global_alpha_fallback_pass": [True, False, True],
+        "regime_state": ["neutral", "neutral", "neutral"],
+    })
+    portfolio = pd.DataFrame({"ticker": ["TSM", "NVDA"], "weight": [0.08, 0.12]})
+    diag = _scored_diagnostics(scored, portfolio)
+    assert diag["adr_rows"] == 2, diag
+    assert diag["adr_selected_count"] == 1, diag
+    assert "adr_global_alpha_fallback_pass" in diag["adr_indicator_columns"], diag
+
+
+@_test("regression.regime_low_support_growth_prefers_learned_fallback")
+def test_regime_low_support_growth_prefers_learned_fallback() -> None:
+    """Low-sample learned growth winners fall back to high-support learned maps.
+
+    Regression: a 7-month growth_reentry_alert sample learned core_only and
+    overrode the manual growth map, cutting future/early exposure in live runs.
+    The exact learned map is too small to trust, but the untested manual growth
+    map should not beat a high-support learned balanced fallback.
+    """
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    assert int(cfg.regime_conditioned_min_learned_months) >= 12
+    learned = {
+        "growth_reentry_alert": {
+            "core": 1.0,
+            "future": 0.0,
+            "early": 0.0,
+            "cash": 0.0,
+            "policy_label": "core_only",
+            "months": 7,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+        "ALL": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 83,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "growth_reentry_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]) == "aggr_35_30_35", selected
+    assert meta["lookup_source"] == "learned", meta
+    assert meta["lookup_label"] == "balanced", meta
+    assert meta["manual_fallback_deferred"], meta
+
+
+@_test("regression.regime_low_support_risk_uses_manual_safety")
+def test_regime_low_support_risk_uses_manual_safety() -> None:
+    """Risk-off labels keep manual safety maps when learned samples are thin."""
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    learned = {
+        "risk_off_alert": {
+            "core": 0.40,
+            "future": 0.40,
+            "early": 0.20,
+            "cash": 0.0,
+            "policy_label": "growth_40_40_20",
+            "months": 9,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "risk_off_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]).startswith("manual_riskoff"), selected
+    assert meta["lookup_source"] == "manual", meta
+    assert meta["lookup_label"] == "risk_off_alert", meta
+
+
+@_test("regression.regime_guardrail_treats_cash_as_separate_sleeve")
+def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
+    """Guardrails operate on equity sleeve fractions, not equity * (1-cash)."""
+    import r1000_pipeline as pipe
+    from r1000_config import default_manual_regime_conditioned_sleeve_map
+
+    manual = pipe.normalize_regime_conditioned_sleeve_map(
+        default_manual_regime_conditioned_sleeve_map(),
+        fallback_source="manual",
+    )
+    selected = manual["growth_reentry_alert"]
+    guarded, meta = pipe.apply_regime_policy_guardrails("growth_reentry_alert", selected)
+    assert guarded is not None
+    assert not meta["guardrail_applied"], (guarded, meta)
+    assert abs(float(guarded["core"]) - float(selected["core"])) < 1e-12
+    assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
+    assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
+    assert abs(float(guarded["cash"]) - 0.08) < 1e-12
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the
@@ -1480,17 +1815,17 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml workflow runs Layer 4 swap on 5th of each month.
-    Schedule + workflow_dispatch + ALPACA secrets + Telegram secrets must all
-    be wired or the auto-apply doesn't actually happen.
+    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
+    preserving manual execution wiring.
     """
     wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
     assert wf_path.exists(), "layer4_monthly_swap.yml missing"
     wf = wf_path.read_text(encoding="utf-8")
     for token in (
         "schedule:",
-        "0 14 5 * *",                  # 5th of month, 23:00 KST
+        "45 22 5 * *",
         "workflow_dispatch:",
+        "default: false",
         "secrets.ALPACA_API_KEY",
         "secrets.TELEGRAM_BOT_TOKEN",
         "r1000_layer4_swap.py",

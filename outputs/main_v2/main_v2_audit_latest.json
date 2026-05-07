@@ -1,0 +1,30 @@
+{
+  "actual_invested_after_cap": 0.9217969369608625,
+  "cap_excess_to_cash": 0.02820306303913747,
+  "cash_target": 0.07820306303913749,
+  "expected_cash": 0.05,
+  "expected_invested_before_cap": 0.9500000000000001,
+  "generated_at_utc": "2026-05-03T18:52:11Z",
+  "merge_mode": "sum_then_cap",
+  "n_conflicts": 1,
+  "n_positions": 11,
+  "policy_name": "main_v2_balanced",
+  "production_activation_allowed": false,
+  "raw_scaled_sleeve_sums": {
+    "core": 0.25,
+    "early": 0.15,
+    "future": 0.55
+  },
+  "research_only": true,
+  "selected_n_by_sleeve": {
+    "core": 4,
+    "early": 1,
+    "future": 7
+  },
+  "single_name_cap": 0.15,
+  "target_n_by_sleeve": {
+    "core": 4,
+    "early": 2,
+    "future": 7
+  }
+}

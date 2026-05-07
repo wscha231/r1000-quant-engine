@@ -1,0 +1,2 @@
+artifact,status,reason
+sleeve_returns.csv,not_available,baseline artifacts do not include sleeve return series; future runner must generate it

@@ -1,0 +1,11 @@
+experiment_id,status,category,backtest_executed,passed_discovery,cagr,cagr_delta_pp,max_dd,maxdd_delta_pp,sharpe,sharpe_delta,turnover,turnover_delta_pp,discovery_score,requires_full_challenger_backtest
+E4_concentrated_balanced,standalone_sleeve_policy_audit,,False,True,0.3484912610130364,13.445809942687514,-0.22940113109440408,4.332503511417363,1.4286886669635341,0.245547238427817,,,20.233785838383046,True
+E6_risk_sensing_on,simplified_layer2_backtest,,True,True,0.1846609658361189,-2.937219575004235,-0.2162517256738774,5.64744405347003,1.1194872875548136,-0.0636541409809035,,,2.07368306865676,
+E1_auto_feature_gates_on,candidate_only,,False,False,0.20165834588806963,-1.2374815698091624,-0.27307967491398366,-0.035350870540595825,1.0971959712745438,-0.08594545726117331,,,-2.1322870129614913,True
+E0_baseline_latest,completed,,,False,0.21403316158616126,0.0,-0.2727261662085777,0.0,1.1831414285357171,0.0,0.4858881015027757,0.0,0.0,
+E2_main_v2_balanced,snapshot_report_only,main_v2,False,False,0.21403316158616126,0.0,-0.2727261662085777,0.0,1.1831414285357171,0.0,0.4858881015027757,0.0,0.0,True
+E3_main_v2_aggressive,snapshot_report_only,main_v2,False,False,0.21403316158616126,0.0,-0.2727261662085777,0.0,1.1831414285357171,0.0,0.4858881015027757,0.0,0.0,True
+E5_orchestrator_balanced,snapshot_report_only,,False,False,0.21403316158616126,0.0,-0.2727261662085777,0.0,1.1831414285357171,0.0,0.4858881015027757,0.0,0.0,True
+E7_tactical_bull_only,sidecar_latest_only,,False,False,,,,,,,,,0.0,True
+E8_alpha_sprint_sidecar,sidecar_latest_only,,False,False,,,,,,,,,0.0,True
+E9_kitchen_sink_all_on,snapshot_discovery_only,,False,False,0.21403316158616126,0.0,-0.2727261662085777,0.0,1.1831414285357171,0.0,0.4858881015027757,0.0,0.0,True

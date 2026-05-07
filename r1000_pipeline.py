@@ -85,6 +85,8 @@ from r1000_config import (
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
+    PHASE17_EXPLOSION_COLUMNS,
+    PHASE17_REGIME_STATE_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -276,6 +278,8 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    compute_explosion_likelihood_score,
+    compute_regime_state_classifier,
     compute_cycle_recovery_score,
     compute_eps_revision_score,
     compute_early_cycle_inflection_score,
@@ -283,6 +287,18 @@ from r1000_features import (
     compute_ml_technical_agreement_score,
     compute_sub_industry_rs_score,
     compute_insider_cluster_boost_score,
+    apply_phase18c_gates_to_frame,
+)
+
+# Phase 18a (2026-04-30): sidecar trade journal. The hook writes
+# outputs/trade_journal/ from already-computed backtest holdings; failures
+# are treated as non-fatal so production metrics are not blocked.
+from r1000_trade_journal import (
+    attach_signal_breakdown,
+    grade_trades,
+    pair_entries_with_exits,
+    persist_holdings_history,
+    summary_digest,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -1397,6 +1413,7 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
     "run_concentrated_backtest_comparison",
     "run_ai_four_sleeve_comparison",
     "run_regime_map_method_comparison",
+    "regime_conditioned_min_learned_months",
     # Phase 15 post-ML composite gates (downstream of cached model predictions)
     "phase15_a1_drop_negative_features_enabled",
     "phase15_s1a_future_prune_enabled",
@@ -1772,6 +1789,8 @@ def validate_config(cfg: EngineConfig) -> None:
         )
     if cfg.sector_adjusted_financial_min_fields < 1 or cfg.sector_adjusted_realasset_min_fields < 1 or cfg.sector_adjusted_resource_min_fields < 1:
         raise ValueError("sector-adjusted minimum field counts must be >= 1.")
+    if int(getattr(cfg, "regime_conditioned_min_learned_months", 0)) < 0:
+        raise ValueError("regime_conditioned_min_learned_months must be >= 0.")
     if cfg.partial_scout_min_fields < 1:
         raise ValueError("partial_scout_min_fields must be >= 1.")
     if not (0.0 <= cfg.partial_scout_confirmation_min <= 1.0):
@@ -4920,7 +4939,7 @@ def fetch_mktcap_proxy(ticker: str) -> dict[str, Any]:
         "financial_currency": financial_currency,
         "shares_outstanding_proxy": shares_outstanding,
         "implied_shares_outstanding_proxy": implied_shares_outstanding,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "updated_at": pd.Timestamp.utcnow().tz_localize(None),
     }
 
 
@@ -4938,9 +4957,20 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
             if i % 40 == 0:
                 time.sleep(1.0)
         add = pd.DataFrame(rows)
+        if "updated_at" in add.columns:
+            add["updated_at"] = pd.to_datetime(add["updated_at"], errors="coerce")
+        if not cache.empty and "updated_at" in cache.columns:
+            cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
         cache = pd.concat([cache, add], ignore_index=True) if not cache.empty else add
-        cache = cache.sort_values("updated_at").drop_duplicates("ticker", keep="last")
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
+        cache = (
+            cache.sort_values("updated_at", na_position="first")
+            .drop_duplicates("ticker", keep="last")
+            .reset_index(drop=True)
+        )
         save_mktcap_proxy_cache(paths, cache)
+    if "updated_at" in cache.columns and not cache.empty:
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
     return cache
 
 
@@ -7543,6 +7573,18 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p15_col in PHASE15_ALPHA_COLUMNS:
             universe[_p15_col] = 0.0
 
+    # Phase 17 v3 sidecar features. These columns are surfaced in
+    # feature_store/scored outputs for scanners, journal analysis, and future
+    # A/B tests. They are not appended to DEFAULT_FEATURES in this integration
+    # pass, so the current production model/selection behavior is preserved.
+    universe = compute_explosion_likelihood_score(universe, cfg)
+    universe = compute_regime_state_classifier(universe)
+    # Phase 18c automatic learning hook. No-op unless
+    # research/auto_feature_gates.yaml exists and has not expired. When a
+    # challenger is auto-promoted, learned signal/regime gates apply before
+    # scoring across both historical walk-forward rows and latest scoring rows.
+    universe = apply_phase18c_gates_to_frame(universe)
+
     keep_cols = list(
         dict.fromkeys(
             [
@@ -7607,6 +7649,9 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE15_ALPHA_COLUMNS
+            + PHASE17_EXPLOSION_COLUMNS
+            + PHASE17_REGIME_STATE_COLUMNS
+            + ["applied_gates_count", "pattern_blocked"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7638,6 +7683,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
+        + PHASE17_EXPLOSION_COLUMNS
+        + ["regime_state_score", "applied_gates_count", "pattern_blocked"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
     )
@@ -8016,6 +8063,11 @@ _PRUNE_EXPORT_KEEP_COLUMNS: set[str] = {
     "rs_acceleration_score", "h1_oversold_value_score",
     "h6_dynamic_leader_score", "stage2_overext_penalty",
     "theme_phase_multiplier_primary", "theme_phase_multiplier_max",
+    # Phase 17/18 auto-learning diagnostics. Keep even when all-zero so
+    # scanner and trade-journal jobs can rely on a stable scored_latest schema.
+    "explosion_entry_score", "explosion_exit_score", "explosion_net_score",
+    "regime_state", "regime_state_score", "applied_gates_count",
+    "pattern_blocked",
     # Phase 15 alpha (always keep — even if currently sparse)
     "cycle_recovery_score", "eps_revision_score",
     "early_cycle_inflection_score", "entry_quality_score",
@@ -10727,6 +10779,12 @@ def backtest_portfolio(
                         sleeve_interval_map.get(sleeve_label_value, active_interval_months)
                     ),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                    "entry_signal_breakdown": json.dumps(
+                        attach_signal_breakdown(mm, str(tkr)),
+                        default=str,
+                    ),
+                    "regime_state": str(row["regime_state"].iloc[0]) if not row.empty and "regime_state" in row.columns else "neutral",
+                    "regime_state_score": int(row["regime_state_score"].iloc[0]) if not row.empty and "regime_state_score" in row.columns and pd.notna(row["regime_state_score"].iloc[0]) else 0,
                 }
             )
 
@@ -11069,6 +11127,30 @@ def backtest_portfolio(
         if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
             _equity_cols.append(_diag_col)
     equity_df = ret_df[_equity_cols].copy()
+
+    try:
+        if not holdings_df.empty:
+            persist_holdings_history(holdings_df, paths, ENGINE_REUSE_VERSION)
+            benchmark_returns = ret_df[["rebalance_date", "bench_return"]].copy() if "bench_return" in ret_df.columns else None
+            trades_df = pair_entries_with_exits(
+                holdings_df,
+                paths,
+                ENGINE_REUSE_VERSION,
+                benchmark_returns=benchmark_returns,
+            )
+            if trades_df is not None and not trades_df.empty:
+                grades_df = grade_trades(trades_df, paths)
+                digest = summary_digest(grades_df)
+                log(
+                    "[trade-journal] "
+                    f"{digest.get('n_trades')} trades graded; "
+                    f"win_rate={digest.get('win_rate')} "
+                    f"loss_rate={digest.get('loss_rate')} "
+                    f"label_counts={digest.get('label_counts')}"
+                )
+    except Exception as journal_exc:
+        log(f"[trade-journal] persist failed (non-fatal): {journal_exc}")
+
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
@@ -11991,6 +12073,7 @@ def compare_sleeve_cap_policy_backtests(
                 live_label,
                 learned_regime_map=regime_map,
                 manual_regime_map=manual_regime_map,
+                min_learned_months=int(getattr(champion_cfg, "regime_conditioned_min_learned_months", 0)),
             )
             out.attrs["sleeve_regime_grid"] = regime_grid
             out.attrs["sleeve_regime_best"] = regime_best
@@ -12109,6 +12192,15 @@ REGIME_EXPLORATORY_GUARDRAILS: dict[str, dict[str, float]] = {
 }
 
 
+DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...] = (
+    "risk_off",
+    "systemic",
+    "war_oil_rate",
+    "stagflation",
+    "carry_unwind",
+)
+
+
 def apply_regime_policy_guardrails(
     live_label: Optional[str],
     selected_policy: Optional[dict[str, Any]],
@@ -12128,18 +12220,21 @@ def apply_regime_policy_guardrails(
     cash = float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0))
     original = {"core": core, "future": future, "early": early, "cash": cash}
 
+    # core/future/early are equity-sleeve fractions. Cash is stored as a
+    # separate portfolio-level sleeve, and build_target_portfolio applies it
+    # later. Guardrails therefore operate in equity space instead of shrinking
+    # equity weights by (1 - cash).
     future = max(future, float(guard.get("future_min", 0.0)))
     early = max(early, float(guard.get("early_min", 0.0)))
     cash = min(cash, float(guard.get("cash_max", 1.0)))
-    invested_share = max(1.0 - cash, 0.0)
     exploratory_total = future + early
-    if exploratory_total > invested_share and exploratory_total > 1e-8:
-        scale = invested_share / exploratory_total
+    if exploratory_total > 1.0 and exploratory_total > 1e-8:
+        scale = 1.0 / exploratory_total
         future *= scale
         early *= scale
         core = 0.0
     else:
-        core = max(invested_share - future - early, 0.0)
+        core = max(1.0 - future - early, 0.0)
 
     updated = {
         "core": float(core),
@@ -12187,9 +12282,17 @@ def resolve_regime_policy_selection(
     *,
     learned_regime_map: Optional[dict[str, Any]] = None,
     manual_regime_map: Optional[dict[str, Any]] = None,
+    min_learned_months: int = 0,
 ) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
     learned = normalize_regime_conditioned_sleeve_map(learned_regime_map, fallback_source="learned")
     manual = normalize_regime_conditioned_sleeve_map(manual_regime_map, fallback_source="manual")
+    min_months = max(int(min_learned_months), 0)
+    if min_months > 0 and learned:
+        learned = {
+            label: payload
+            for label, payload in learned.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_months
+        }
     lookup_chain = build_regime_label_lookup_chain(live_label)
     normalized_live_label = str(live_label or "").strip() or "balanced"
     meta = {
@@ -12198,24 +12301,52 @@ def resolve_regime_policy_selection(
         "lookup_source": "",
         "lookup_label": "",
         "fallback_used": False,
+        "min_learned_months": int(min_months),
+        "manual_fallback_deferred": False,
     }
+    deferred_manual: list[tuple[str, dict[str, Any]]] = []
+    defensive_manual_ok = any(token in normalized_live_label for token in DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS)
     for lookup_label in lookup_chain:
-        for lookup_source, regime_map in (("learned", learned), ("manual", manual)):
-            if not regime_map:
-                continue
-            selected = regime_map.get(lookup_label)
-            if not isinstance(selected, dict):
-                continue
-            payload = dict(selected)
+        learned_selected = learned.get(lookup_label) if learned else None
+        if isinstance(learned_selected, dict):
+            payload = dict(learned_selected)
             payload.setdefault("source_regime", lookup_label)
             meta.update(
                 {
-                    "lookup_source": lookup_source,
+                    "lookup_source": "learned",
                     "lookup_label": lookup_label,
-                    "fallback_used": lookup_source != "learned" or lookup_label != normalized_live_label,
+                    "fallback_used": lookup_label != normalized_live_label,
+                    "manual_fallback_deferred": bool(deferred_manual),
                 }
             )
             return payload, meta
+
+        manual_selected = manual.get(lookup_label) if manual else None
+        if isinstance(manual_selected, dict):
+            payload = dict(manual_selected)
+            payload.setdefault("source_regime", lookup_label)
+            if defensive_manual_ok:
+                meta.update(
+                    {
+                        "lookup_source": "manual",
+                        "lookup_label": lookup_label,
+                        "fallback_used": lookup_label != normalized_live_label,
+                    }
+                )
+                return payload, meta
+            deferred_manual.append((lookup_label, payload))
+            continue
+    if deferred_manual:
+        lookup_label, payload = deferred_manual[0]
+        meta.update(
+            {
+                "lookup_source": "manual",
+                "lookup_label": lookup_label,
+                "fallback_used": lookup_label != normalized_live_label,
+                "manual_fallback_deferred": True,
+            }
+        )
+        return payload, meta
     return None, meta
 
 
@@ -12255,6 +12386,7 @@ def compare_regime_conditioned_sleeve_map_methods(
             live_label,
             learned_regime_map=regime_map if method_label == "learned_regime_map" else None,
             manual_regime_map=regime_map if method_label != "learned_regime_map" else None,
+            min_learned_months=int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)),
         )
         selected = dict(selected or {})
         policy_cfg = clone_cfg_with_updates(
@@ -12388,9 +12520,10 @@ def sleeve_regime_policy_objective(row: dict[str, Any]) -> float:
     )
 
 
-def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
+def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame], cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
         return {}
+    cfg_obj = to_cfg(cfg) if cfg is not None else EngineConfig()
     ok = policy_compare[policy_compare["policy_status"].astype(str).eq("ok")].copy()
     if ok.empty:
         return {}
@@ -12401,6 +12534,13 @@ def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str
         dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="learned",
     )
+    min_learned_months = max(int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)), 0)
+    if min_learned_months > 0 and learned_regime_map:
+        learned_regime_map = {
+            label: payload
+            for label, payload in learned_regime_map.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_learned_months
+        }
     manual_regime_map = normalize_regime_conditioned_sleeve_map(
         dict((policy_compare.attrs or {}).get("manual_regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="manual",
@@ -16797,6 +16937,27 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["historical_data_quality_by_sleeve"] = str(historical_quality_sleeve_path)
         result_outputs["historical_data_quality_latest"] = str(historical_quality_latest_path)
     result_outputs.update(output_files)
+    try:
+        from r1000_alphaops_reporting import write_alphaops_report_pack
+
+        alphaops_outputs = write_alphaops_report_pack(
+            cfg,
+            paths,
+            run_identity=run_identity,
+            backtest_metrics=bt.metrics,
+            concentrated_metrics=concentrated_metrics_payload,
+            scored_latest=scored_latest,
+            portfolio_latest=portfolio_latest,
+            concentrated_latest=concentrated_latest_holdings,
+            backtest_window_compare=backtest_window_compare,
+            output_files=result_outputs,
+        )
+        result_outputs.update(alphaops_outputs)
+        output_files.update(alphaops_outputs)
+        summary["alphaops_reports"] = alphaops_outputs
+    except Exception as exc:
+        summary["alphaops_reports"] = {"error": str(exc)}
+        log(f"[WARN] AlphaOps report pack failed: {exc}")
     result_outputs["run_summary.json"] = str(summary_path)
     manifest = {
         "run_id": run_identity["run_id"],
@@ -17039,7 +17200,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         log("Phase 5c: running sleeve/cap policy comparison ...")
         try:
             sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
-            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare)
+            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare, cfg)
             if bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)) and selected_sleeve_cap_policy:
                 cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
                 log(f"[INFO] Applied champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', '?')}")

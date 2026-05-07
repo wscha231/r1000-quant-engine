@@ -1,0 +1,148 @@
+name: Weekly Data Refresh
+
+# Refreshes the external alpha substrate before the trading week.
+
+on:
+  schedule:
+    - cron: '30 13 * * 1'  # Monday before US open
+  workflow_dispatch:
+    inputs:
+      theme_lookback_days:
+        description: 'theme discovery lookback days'
+        type: string
+        default: '90'
+      min_unknown_ratio:
+        description: 'minimum unknown ratio for theme candidates'
+        type: string
+        default: '0.50'
+
+permissions:
+  contents: write
+
+jobs:
+  weekly_refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore Finnhub and bars caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            aggressive/cache/finnhub
+            aggressive/state/finnhub
+            aggressive/cache/bars
+          key: weekly-data-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            finnhub-cache-${{ runner.os }}-
+            alpaca-bars-${{ runner.os }}-
+            weekly-data-cache-${{ runner.os }}-
+
+      - name: Full Finnhub collection
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          set +e
+          python aggressive/finnhub_collector.py --mode full
+          STATUS=$?
+          set -e
+          echo "FINNHUB_STATUS=$STATUS" >> "$GITHUB_ENV"
+          if [ "$STATUS" != "0" ]; then
+            echo "::warning::Finnhub collection failed with status $STATUS"
+          fi
+
+      - name: Theme discovery
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+        run: |
+          LOOKBACK="${{ github.event.inputs.theme_lookback_days || '90' }}"
+          MIN_UNKNOWN="${{ github.event.inputs.min_unknown_ratio || '0.50' }}"
+          set +e
+          python aggressive/theme_discovery.py \
+            --universe r1000 \
+            --lookback-days "$LOOKBACK" \
+            --min-unknown-ratio "$MIN_UNKNOWN"
+          STATUS=$?
+          set -e
+          echo "THEME_STATUS=$STATUS" >> "$GITHUB_ENV"
+          if [ "$STATUS" != "0" ]; then
+            echo "::warning::theme discovery failed with status $STATUS"
+          fi
+
+      - name: Upload weekly artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-data-refresh-${{ github.run_id }}
+          path: |
+            aggressive/state/finnhub/r1000_features.parquet
+            aggressive/state/theme_discovery/latest.json
+          retention-days: 90
+
+      - name: Commit weekly refresh outputs
+        if: always()
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          mkdir -p cloud_results/theme_discovery
+          if [ -f aggressive/state/theme_discovery/latest.json ]; then
+            cp aggressive/state/theme_discovery/latest.json \
+              "cloud_results/theme_discovery/$(date +%Y%m%d).json"
+          fi
+          git pull --rebase --autostash || true
+          git add -f aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
+          git add cloud_results/theme_discovery/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): weekly data refresh $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done
+
+      - name: Telegram weekly digest
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "[telegram] secrets not set, skipping"
+            exit 0
+          fi
+          MSG="r1000 weekly data refresh status=${{ job.status }}%0A"
+          MSG+="finnhub=${FINNHUB_STATUS:-na}, theme=${THEME_STATUS:-na}%0A"
+          MSG+="run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MSG}" \
+            -d "disable_web_page_preview=true" \
+            > /dev/null || echo "[telegram] notification failed"
+
+      - name: Fail on critical weekly refresh errors
+        if: always()
+        run: |
+          if [ "${FINNHUB_STATUS:-0}" != "0" ] || [ "${THEME_STATUS:-0}" != "0" ]; then
+            exit 1
+          fi

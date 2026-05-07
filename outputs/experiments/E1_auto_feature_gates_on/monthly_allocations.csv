@@ -1,0 +1,2 @@
+artifact,status,reason
+monthly_allocations.csv,not_available,E1 normalizes auto-learning dry-run outputs; no isolated historical challenger backtest was executed

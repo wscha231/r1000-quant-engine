@@ -1,0 +1,2 @@
+artifact,status,reason
+turnover.csv,not_available,E9 combines latest sidecar books only; full all-on historical replay is not implemented

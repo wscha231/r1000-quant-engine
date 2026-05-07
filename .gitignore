@@ -15,3 +15,4 @@ aggressive/cache/
 # ---- Runtime caches (regenerated, do not commit) ----
 outputs/regime_snapshot_cache.json
 research/github_runs/
+research/phase20_artifact/

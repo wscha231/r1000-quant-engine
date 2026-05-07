@@ -70,7 +70,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
           # Heavy ML deps for full rebuild (not in requirements_github.txt by default)
-          pip install catboost>=1.2 lightgbm>=4.0 xgboost>=2.0 scikit-learn>=1.4
+          pip install "catboost>=1.2" "lightgbm>=4.0" "xgboost>=2.0" "scikit-learn>=1.4"
 
       # Cache collector outputs (price bars, SEC EDGAR XBRL, macro CSVs)
       # These are slow to fetch (rate limits) and rarely change.
@@ -248,6 +248,22 @@ jobs:
         run: |
           python run_local.py --verdict-only --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/verdict.log || true
 
+      - name: Auto-learning diagnostics (sidecar)
+        if: always()
+        run: |
+          mkdir -p outputs/auto_learning
+          CANDIDATE_GATES="outputs/auto_learning/auto_feature_gates_candidate.yaml"
+          rm -f "$CANDIDATE_GATES"
+          python tools/trade_insights.py --no-shap 2>&1 | tee outputs/auto_learning/trade_insights.log || true
+          python tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
+          python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+
+      - name: Portfolio target replay + goal search (sidecar)
+        if: always()
+        run: |
+          python tools/run_orchestrator_replay.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/orchestrator_replay.log || true
+          python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+
       - name: Upload artifact (logs + scored CSVs)
         if: always()
         uses: actions/upload-artifact@v4
@@ -261,8 +277,15 @@ jobs:
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
             outputs/run_summary.json
+            outputs/orchestrator/
+            outputs/reports/baseline_registry.*
+            outputs/reports/config_audit.*
             outputs/reports/backtest_window_comparison.csv
             outputs/reports/global_alpha_sleeve_audit_*.csv
+            outputs/trade_journal/
+            outputs/auto_learning/
+            outputs/orchestrator_replay/
+            outputs/portfolio_goal_search/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -319,20 +342,58 @@ jobs:
             LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
           fi
           echo "[gdrive-sync] copying outputs/ to $DEST/"
-          rclone copy outputs/scored_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/scored_unified.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/portfolio_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/concentrated_portfolio_latest.csv "$DEST/" 2>&1 || true
-          rclone copy outputs/backtest_metrics.json "$DEST/" 2>&1 || true
-          rclone copy outputs/concentrated_backtest_metrics.json "$DEST/" 2>&1 || true
+          copy_if_exists() {
+            local src="$1"
+            local dst="$2"
+            if [ -e "$src" ]; then
+              rclone copy "$src" "$dst/" 2>&1 || true
+            else
+              echo "[gdrive-sync] skip missing: $src"
+            fi
+          }
+          copy_if_exists outputs/scored_latest.csv "$DEST"
+          copy_if_exists outputs/scored_unified.csv "$DEST"
+          copy_if_exists outputs/portfolio_latest.csv "$DEST"
+          copy_if_exists outputs/concentrated_portfolio_latest.csv "$DEST"
+          copy_if_exists outputs/backtest_metrics.json "$DEST"
+          copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
+          if [ -d outputs/orchestrator ]; then
+            rclone copy outputs/orchestrator "$DEST/orchestrator/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/orchestrator"
+          fi
+          copy_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
+          copy_if_exists outputs/reports/baseline_registry.md "$DEST/reports"
+          copy_if_exists outputs/reports/config_audit.json "$DEST/reports"
+          copy_if_exists outputs/reports/config_audit.md "$DEST/reports"
           # Phase 15-A fix (2026-04-28): include the SEC bulk archive so user
           # gdrive reflects the freshly downloaded companyfacts.zip. Previously
           # the file refreshed inside the GHA runner cache but never reached
           # gdrive — user could only see "stale" file from a manual upload.
-          rclone copy outputs/companyfacts.zip "$DEST/" 2>&1 || true
-          rclone copy outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>&1 || true
-          rclone copy outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>&1 || true
-          rclone copy outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>&1 || true
+          copy_if_exists outputs/companyfacts.zip "$DEST"
+          copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
+          copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
+          copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"
+          if [ -d outputs/trade_journal ]; then
+            rclone copy outputs/trade_journal "$DEST/trade_journal/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/trade_journal"
+          fi
+          if [ -d outputs/auto_learning ]; then
+            rclone copy outputs/auto_learning "$DEST/auto_learning/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/auto_learning"
+          fi
+          if [ -d outputs/orchestrator_replay ]; then
+            rclone copy outputs/orchestrator_replay "$DEST/orchestrator_replay/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/orchestrator_replay"
+          fi
+          if [ -d outputs/portfolio_goal_search ]; then
+            rclone copy outputs/portfolio_goal_search "$DEST/portfolio_goal_search/" 2>&1 || true
+          else
+            echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
+          fi
 
           # Also sync log + verdict for diagnostic visibility
           rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/" 2>&1 || true
@@ -393,11 +454,21 @@ jobs:
           cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
           cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
+          cp -r outputs/orchestrator/ /tmp/bundle/orchestrator/ 2>/dev/null || true
           mkdir -p /tmp/bundle/reports
+          cp outputs/reports/baseline_registry.* /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/config_audit.* /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp -r outputs/full_rebuild_logs/ /tmp/bundle/logs/ 2>/dev/null || true
+          cp -r outputs/trade_journal/ /tmp/bundle/trade_journal/ 2>/dev/null || true
+          cp -r outputs/auto_learning/ /tmp/bundle/auto_learning/ 2>/dev/null || true
+          cp -r outputs/orchestrator_replay/ /tmp/bundle/orchestrator_replay/ 2>/dev/null || true
+          cp -r outputs/portfolio_goal_search/ /tmp/bundle/portfolio_goal_search/ 2>/dev/null || true
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -423,6 +494,23 @@ jobs:
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
+          RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+          if [ -z "$RESULT_BRANCH" ] || [ "$RESULT_BRANCH" = "HEAD" ]; then
+            RESULT_BRANCH="${{ github.ref_name }}"
+          fi
+          echo "[push] result branch: $RESULT_BRANCH"
+          fetch_result_branch() {
+            git fetch --prune --depth=100 origin "+refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" 2>&1
+          }
+          if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+            if ! git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1; then
+              git rebase --abort 2>&1 || true
+              echo "[push] pre-stage rebase failed; artifacts and GDrive sync are already preserved, skipping cloud_results commit."
+              exit 0
+            fi
+          else
+            echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
+          fi
           mkdir -p cloud_results/full_rebuild
           DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           mkdir -p "$DEST"
@@ -443,11 +531,21 @@ jobs:
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+          cp -r outputs/orchestrator "$DEST/orchestrator" 2>/dev/null || true
           # Diagnostic reports for post-run analysis
           mkdir -p "$DEST/reports"
+          cp outputs/reports/baseline_registry.* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/config_audit.* "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/backtest_window_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
+          cp -r outputs/trade_journal "$DEST/trade_journal" 2>/dev/null || true
+          cp -r outputs/auto_learning "$DEST/auto_learning" 2>/dev/null || true
+          cp -r outputs/orchestrator_replay "$DEST/orchestrator_replay" 2>/dev/null || true
+          cp -r outputs/portfolio_goal_search "$DEST/portfolio_goal_search" 2>/dev/null || true
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience
@@ -457,17 +555,22 @@ jobs:
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
 
-          # Push with rebase-on-conflict (race condition guard).
-          # Previous run 24961673988 SUCCEEDED with all results committed locally,
-          # but git push was rejected because user pushed fixes during the 7h run.
-          # Now retry up to 3 times with fetch+rebase between each attempt.
+          # Push with rebase-on-conflict (race condition guard). Use the
+          # dispatch branch, not master, so branch test runs do not replay
+          # master-only commits and conflict after a long rebuild.
+          PUSHED="no"
           for attempt in 1 2 3; do
-            if git push 2>&1; then
+            if git push origin "HEAD:$RESULT_BRANCH" 2>&1; then
               echo "[push] attempt $attempt: success"
+              PUSHED="yes"
               break
             fi
             echo "[push] attempt $attempt: failed — fetch+rebase and retry"
-            git fetch origin master
-            git pull --rebase origin master 2>&1 || git rebase --abort 2>&1 || true
+            if fetch_result_branch && git rev-parse --verify "origin/${RESULT_BRANCH}" >/dev/null 2>&1; then
+              git rebase --autostash "origin/${RESULT_BRANCH}" 2>&1 || git rebase --abort 2>&1 || true
+            fi
             sleep $((attempt * 2))
           done
+          if [ "$PUSHED" != "yes" ]; then
+            echo "[push] WARN: result commit was not pushed after retries."
+          fi

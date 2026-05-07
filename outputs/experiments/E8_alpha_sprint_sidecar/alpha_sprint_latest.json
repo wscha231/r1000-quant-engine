@@ -1,0 +1,327 @@
+{
+  "audit": {
+    "active": false,
+    "candidate_count": 5,
+    "capacity": 0.0,
+    "generated_at_utc": "2026-05-03T18:52:11Z",
+    "n_positions": 0,
+    "production_activation_allowed": false,
+    "rejected_counts": {
+      "catalyst": 80,
+      "overextension": 1,
+      "technical": 290,
+      "universe": 2
+    },
+    "research_only": true
+  },
+  "candidates": [
+    {
+      "alpha_sprint_score": 0.9757599258929502,
+      "atr14_pct": 0.027284931078366874,
+      "breakout_setup_quality_score": 0.44720263487171197,
+      "earnings_revision_or_surprise": 1.0,
+      "explosion_entry_score": 0.0,
+      "explosion_exit_score": 0.0,
+      "gate_detail": {
+        "catalyst": {
+          "earnings_revision_or_surprise": true,
+          "explosion_entry": false,
+          "profitability_turn": false,
+          "revenue_growth_acceleration": true,
+          "theme_or_industry_acceleration": true
+        },
+        "overextension": {
+          "atr_ok": true,
+          "explosion_exit_ok": true,
+          "live_event_risk_ok": true,
+          "rsi_not_climax": true,
+          "stage2_overextension_ok": true
+        },
+        "pass_flags": {
+          "catalyst_pass": true,
+          "overextension_pass": true,
+          "technical_pass": true,
+          "universe_pass": true
+        },
+        "technical": {
+          "price_above_ma200": true,
+          "price_above_ma50": true,
+          "setup_confirmation": true
+        },
+        "universe": {
+          "dollar_volume_ok": true,
+          "market_cap_ok": true,
+          "not_pattern_blocked": true,
+          "price_ok": true
+        }
+      },
+      "h6_dynamic_leader_score": 1.0,
+      "industry_group": "Oil Gas & Consumable Fuels",
+      "industry_group_strength_score": 1.5684906622809973,
+      "live_event_risk_score": 0.05261246325044727,
+      "name": "CHENIERE ENERGY INC",
+      "rs_acceleration_score": 1.7436721867894867,
+      "rsi14": 55.13208226090929,
+      "sector": "Energy",
+      "stage2_overext_penalty": 0.0,
+      "theme_phase_term": 2.90510718215076,
+      "ticker": "LNG",
+      "volatility_contraction_score": 0.10323754944390551
+    },
+    {
+      "alpha_sprint_score": 0.9552514219288538,
+      "atr14_pct": 0.04166101848987156,
+      "breakout_setup_quality_score": 0.1557914774302737,
+      "earnings_revision_or_surprise": 4.949216264128605,
+      "explosion_entry_score": 0.0,
+      "explosion_exit_score": 0.0,
+      "gate_detail": {
+        "catalyst": {
+          "earnings_revision_or_surprise": true,
+          "explosion_entry": false,
+          "profitability_turn": false,
+          "revenue_growth_acceleration": false,
+          "theme_or_industry_acceleration": true
+        },
+        "overextension": {
+          "atr_ok": true,
+          "explosion_exit_ok": true,
+          "live_event_risk_ok": true,
+          "rsi_not_climax": true,
+          "stage2_overextension_ok": true
+        },
+        "pass_flags": {
+          "catalyst_pass": true,
+          "overextension_pass": true,
+          "technical_pass": true,
+          "universe_pass": true
+        },
+        "technical": {
+          "price_above_ma200": true,
+          "price_above_ma50": true,
+          "setup_confirmation": true
+        },
+        "universe": {
+          "dollar_volume_ok": true,
+          "market_cap_ok": true,
+          "not_pattern_blocked": true,
+          "price_ok": true
+        }
+      },
+      "h6_dynamic_leader_score": 0.9834949873665335,
+      "industry_group": "Semiconductors",
+      "industry_group_strength_score": 2.362871714479456,
+      "live_event_risk_score": 0.05261246325044727,
+      "name": "NXP Semiconductors",
+      "rs_acceleration_score": 0.6921840159558992,
+      "rsi14": 82.93645015103286,
+      "sector": "Semiconductors",
+      "stage2_overext_penalty": 0.0,
+      "theme_phase_term": 3.018445132867001,
+      "ticker": "NXPI",
+      "volatility_contraction_score": -0.454124759656912
+    },
+    {
+      "alpha_sprint_score": 0.8457335337147373,
+      "atr14_pct": 0.037856225274422776,
+      "breakout_setup_quality_score": 0.40918171517701785,
+      "earnings_revision_or_surprise": 1.113193762197051,
+      "explosion_entry_score": 0.0,
+      "explosion_exit_score": 0.0,
+      "gate_detail": {
+        "catalyst": {
+          "earnings_revision_or_surprise": true,
+          "explosion_entry": false,
+          "profitability_turn": false,
+          "revenue_growth_acceleration": false,
+          "theme_or_industry_acceleration": true
+        },
+        "overextension": {
+          "atr_ok": true,
+          "explosion_exit_ok": true,
+          "live_event_risk_ok": true,
+          "rsi_not_climax": true,
+          "stage2_overextension_ok": true
+        },
+        "pass_flags": {
+          "catalyst_pass": true,
+          "overextension_pass": true,
+          "technical_pass": true,
+          "universe_pass": true
+        },
+        "technical": {
+          "price_above_ma200": true,
+          "price_above_ma50": true,
+          "setup_confirmation": true
+        },
+        "universe": {
+          "dollar_volume_ok": true,
+          "market_cap_ok": true,
+          "not_pattern_blocked": true,
+          "price_ok": true
+        }
+      },
+      "h6_dynamic_leader_score": 1.0,
+      "industry_group": "Oil Gas & Consumable Fuels",
+      "industry_group_strength_score": 1.5684906622809973,
+      "live_event_risk_score": 0.05261246325044727,
+      "name": "MATADOR RESOURCES",
+      "rs_acceleration_score": 1.2112524800346374,
+      "rsi14": 57.666174803802974,
+      "sector": "Energy",
+      "stage2_overext_penalty": 0.0,
+      "theme_phase_term": 2.90510718215076,
+      "ticker": "MTDR",
+      "volatility_contraction_score": -0.06091077479603868
+    },
+    {
+      "alpha_sprint_score": 0.8117009780343237,
+      "atr14_pct": 0.04398056349385802,
+      "breakout_setup_quality_score": 0.009407819732233702,
+      "earnings_revision_or_surprise": 4.250830066996922,
+      "explosion_entry_score": 0.0,
+      "explosion_exit_score": 0.0,
+      "gate_detail": {
+        "catalyst": {
+          "earnings_revision_or_surprise": true,
+          "explosion_entry": false,
+          "profitability_turn": false,
+          "revenue_growth_acceleration": false,
+          "theme_or_industry_acceleration": true
+        },
+        "overextension": {
+          "atr_ok": true,
+          "explosion_exit_ok": true,
+          "live_event_risk_ok": true,
+          "rsi_not_climax": true,
+          "stage2_overextension_ok": true
+        },
+        "pass_flags": {
+          "catalyst_pass": true,
+          "overextension_pass": true,
+          "technical_pass": true,
+          "universe_pass": true
+        },
+        "technical": {
+          "price_above_ma200": true,
+          "price_above_ma50": true,
+          "setup_confirmation": true
+        },
+        "universe": {
+          "dollar_volume_ok": true,
+          "market_cap_ok": true,
+          "not_pattern_blocked": true,
+          "price_ok": true
+        }
+      },
+      "h6_dynamic_leader_score": 1.0,
+      "industry_group": "Semiconductors",
+      "industry_group_strength_score": 2.362871714479456,
+      "live_event_risk_score": 0.05261246325044727,
+      "name": "QUALCOMM INC",
+      "rs_acceleration_score": 0.9401646479128075,
+      "rsi14": 83.35926532280541,
+      "sector": "Information Technology",
+      "stage2_overext_penalty": 0.0,
+      "theme_phase_term": 1.7149361048164478,
+      "ticker": "QCOM",
+      "volatility_contraction_score": -0.3821919367191666
+    },
+    {
+      "alpha_sprint_score": 0.7979623942002035,
+      "atr14_pct": 0.02432334476745388,
+      "breakout_setup_quality_score": 0.5671213085869818,
+      "earnings_revision_or_surprise": 1.6038226548020513,
+      "explosion_entry_score": 0.0,
+      "explosion_exit_score": 0.0,
+      "gate_detail": {
+        "catalyst": {
+          "earnings_revision_or_surprise": true,
+          "explosion_entry": false,
+          "profitability_turn": false,
+          "revenue_growth_acceleration": true,
+          "theme_or_industry_acceleration": true
+        },
+        "overextension": {
+          "atr_ok": true,
+          "explosion_exit_ok": true,
+          "live_event_risk_ok": true,
+          "rsi_not_climax": true,
+          "stage2_overextension_ok": true
+        },
+        "pass_flags": {
+          "catalyst_pass": true,
+          "overextension_pass": true,
+          "technical_pass": true,
+          "universe_pass": true
+        },
+        "technical": {
+          "price_above_ma200": true,
+          "price_above_ma50": true,
+          "setup_confirmation": true
+        },
+        "universe": {
+          "dollar_volume_ok": true,
+          "market_cap_ok": true,
+          "not_pattern_blocked": true,
+          "price_ok": true
+        }
+      },
+      "h6_dynamic_leader_score": 0.20715751286092376,
+      "industry_group": "Oil Gas & Consumable Fuels",
+      "industry_group_strength_score": 1.5684906622809973,
+      "live_event_risk_score": 0.05261246325044727,
+      "name": "ONEOK INC",
+      "rs_acceleration_score": 0.9834736558822693,
+      "rsi14": 58.4748906177321,
+      "sector": "Energy",
+      "stage2_overext_penalty": 0.0,
+      "theme_phase_term": 2.90510718215076,
+      "ticker": "OKE",
+      "volatility_contraction_score": 0.03439405676198748
+    }
+  ],
+  "policy": {
+    "capacity_by_regime": {
+      "bear": 0.0,
+      "bull": 0.05,
+      "deep_bear": 0.0,
+      "exceptional_bull": 0.15,
+      "neutral": 0.0,
+      "strong_bull": 0.1
+    },
+    "enabled_default": false,
+    "hard_stop": -0.07,
+    "max_n": 5,
+    "max_single_name_weight": 0.06,
+    "min_dollar_vol": 20000000,
+    "min_market_cap": 1000000000,
+    "min_price": 10,
+    "name": "alpha_sprint_research_only",
+    "risk_per_trade": 0.0075,
+    "target_n": 3,
+    "time_stop_days": 30,
+    "trailing_stop": -0.12
+  },
+  "portfolio": {
+    "activation": {
+      "active": false,
+      "candidate_count": 5,
+      "capacity": 0.0,
+      "min_candidates_required": 2,
+      "reason": "capacity_zero_or_insufficient_candidates",
+      "regime_state": "neutral"
+    },
+    "cash_target": 1.0,
+    "risk_policy": {
+      "base_single_name_weight_from_risk": 0.06,
+      "hard_stop": -0.07,
+      "max_single_name_weight": 0.06,
+      "risk_per_trade": 0.0075,
+      "time_stop_days": 30,
+      "trailing_stop": -0.12
+    },
+    "weights": {}
+  },
+  "regime_state": "neutral"
+}

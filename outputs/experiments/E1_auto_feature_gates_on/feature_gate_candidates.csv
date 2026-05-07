@@ -1,0 +1,5 @@
+rank,kind,signal,regime,factor,ic,n,rationale
+1,signal_regime_amplify,rs_acceleration_score,bear,1.3,0.1406,138,IC +0.141 in bear (n=138) >= amplify threshold +0.1
+2,signal_regime_amplify,h1_oversold_value_score,bear,1.3,0.119,138,IC +0.119 in bear (n=138) >= amplify threshold +0.1
+3,signal_regime_disable,theme_phase_multiplier_primary,bear,0.0,-0.1191,138,IC -0.119 in bear (n=138) <= disable threshold -0.05
+4,signal_regime_disable,theme_phase_multiplier_max,bear,0.0,-0.0874,138,IC -0.087 in bear (n=138) <= disable threshold -0.05

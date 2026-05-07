@@ -1,0 +1,144 @@
+version: 2026-05-02-alphaops-gates
+baseline_controls:
+  phase15d:
+    cagr: 0.2451
+    sharpe: 1.2453
+    max_dd: -0.2579
+  latest_phase17_19:
+    commit: "242f02f"
+    cagr: 0.23345
+    sharpe: 1.2949
+    max_dd: -0.2374
+    concentrated_cagr: 0.37328
+    concentrated_sharpe: 1.4471
+    concentrated_max_dd: -0.2306
+
+global_blockers:
+  leakage_audit_fail: block
+  missing_backtest_metrics: block
+  missing_scored_latest: block
+  missing_trade_cost_assumption: block
+  active_auto_feature_gate_without_challenger: block
+  unreported_actual_backtest_months: block
+  gdrive_sync_failure_for_cloud_release: warn
+
+research_gate:
+  description: "High-alpha research candidate, not automatically production."
+  minimums:
+    cagr: 0.30
+    sharpe: 1.10
+    max_dd_floor: -0.25
+    beat_month_ratio: 0.55
+  constraints:
+    avg_turnover_monthly_max: 0.65
+    trade_cost_bps_per_side_must_include: 25
+    stress_windows_required: [2020, 2022]
+    compare_windows_required: [5, 8, 10]
+    failed_experiments_must_be_logged: true
+
+production_gate:
+  description: "Candidate can replace or alter production behavior."
+  minimums:
+    cagr: 0.25
+    sharpe: 1.15
+    max_dd_floor: -0.22
+  relative_to_phase15d:
+    cagr_delta_min: -0.0025
+    sharpe_delta_min: -0.03
+    max_dd_delta_min: 0.00
+  relative_to_latest_phase17_19:
+    cagr_delta_min: 0.005
+    sharpe_delta_min: -0.03
+    max_dd_delta_min: -0.01
+  constraints:
+    avg_turnover_monthly_max: 0.55
+    no_default_features_change_without_explicit_gate: true
+    concentrated_must_not_regress: true
+    trade_journal_must_exist: true
+    scored_latest_must_include:
+      - regime_state
+      - explosion_entry_score
+      - explosion_exit_score
+      - explosion_net_score
+
+concentrated_gate:
+  description: "Concentrated sleeve can be used as a distinct capital sleeve."
+  minimums:
+    cagr: 0.35
+    sharpe: 1.20
+    max_dd_floor: -0.25
+  constraints:
+    target_n_allowed: [3, 4, 5, 7, 10]
+    continuation_winner_override_preserved: true
+    single_name_cap_must_be_declared: true
+    no_new_chase_penalty_without_ab: true
+
+tactical_gate:
+  description: "Tactical sleeve can receive non-zero capital."
+  minimums:
+    standalone_excess_cagr: 0.03
+    standalone_sharpe: 0.80
+  constraints:
+    neutral_capacity: 0.0
+    bear_capacity: 0.0
+    deep_bear_capacity: 0.0
+    max_capacity_bull: 0.05
+    max_capacity_strong_bull: 0.10
+    trade_cost_bps_per_side_must_include: 25
+    explosion_model_health_required_if_weighted: true
+
+auto_learning_gate:
+  description: "Feature gate proposal can become active only after challenger A/B."
+  constraints:
+    proposal_only_default: true
+    candidate_file_required: true
+    active_file_direct_write: block
+    min_signal_observations: 25
+    expiry_days_max: 90
+    full_rebuild_required: true
+  promotion_minimums:
+    main_cagr_floor: 0.2451
+    max_dd_floor: -0.25
+    sharpe_floor: 1.20
+    concentrated_cagr_floor: 0.35
+
+risk_gate:
+  description: "Risk sensing may affect operator recommendations first."
+  report_only_required_until:
+    operator_plan_includes_risk_reasons: true
+    synthetic_tests_pass: true
+    human_review_completed: true
+  constraints:
+    forced_sell_rules_must_preserve_winner_exception: true
+    portfolio_dd_cash_raise_must_be_reported: true
+    no_live_orders: true
+
+leverage_gate:
+  description: "Leverage is deferred until unlevered edge is proven."
+  preconditions:
+    unlevered_cagr_min: 0.30
+    unlevered_sharpe_min: 1.20
+    unlevered_max_dd_floor: -0.18
+    stress_windows_pass: true
+  initial_limits:
+    max_leverage: 1.15
+    allowed_regime: strong_bull
+    live_default: false
+
+live_trading_gate:
+  description: "Broker execution safety gate."
+  stages:
+    signal_only_months_min: 3
+    paper_trading_months_min: 3
+    semi_auto_months_min: 6
+  requirements:
+    order_preview_required: true
+    reconciliation_accuracy_min: 0.99
+    kill_switch_required: true
+    broker_api_error_policy_required: true
+    human_approval_required_for:
+      - new_buy
+      - leverage
+      - single_name_weight_over_0.10
+      - strategy_after_model_update
+

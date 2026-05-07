@@ -216,6 +216,17 @@ PHASE15_ALPHA_COLUMNS = [
     "insider_cluster_boost_score",          # Phase 15-C P20: 3+ insider buyers = high conviction
 ]
 
+PHASE17_EXPLOSION_COLUMNS = [
+    "explosion_entry_score",
+    "explosion_exit_score",
+    "explosion_net_score",
+]
+
+PHASE17_REGIME_STATE_COLUMNS = [
+    "regime_state",
+    "regime_state_score",
+]
+
 
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
@@ -320,6 +331,88 @@ CNN_FEAR_GREED_HEADERS = {
 
 ROBUST_Z_WINSOR_P = 0.01
 ROBUST_Z_CLIP = 6.0
+
+
+# =====================================================================
+# Phase 19a (2026-04-30): mandate registry for sidecar orchestrator.
+# =====================================================================
+# Additive metadata only. The production backtest does not consume this
+# registry yet; tools/run_orchestrator.py uses it to compose inspection
+# reports from already-produced main/concentrated/tactical outputs.
+# Do not bump ENGINE_REUSE_VERSION for this block because it does not
+# change feature_store schema or scoring behavior.
+MANDATE_REGISTRY = {
+    "main": {
+        "cadence": "monthly",
+        "default_target_n": 20,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.35,
+            "bear": 0.50,
+            "neutral": 0.65,
+            "bull": 0.75,
+            "strong_bull": 0.80,
+        },
+        "weighting_mode": "score_weighted_with_caps",
+        "stop_loss_pct": -0.15,
+        "trailing_stop_pct": -0.18,
+    },
+    "concentrated": {
+        "cadence": "monthly",
+        "default_target_n": 5,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.05,
+            "bear": 0.05,
+            "neutral": 0.10,
+            "bull": 0.10,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "score_power",
+        "stop_loss_pct": -0.10,
+        "trailing_stop_pct": -0.15,
+    },
+    "tactical": {
+        "cadence": "weekly",
+        "default_target_n": 5,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.00,
+            "bear": 0.00,
+            "neutral": 0.00,
+            "bull": 0.05,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "equal",
+        "stop_loss_pct": -0.08,
+        "trailing_stop_pct": -0.12,
+    },
+}
+
+
+def mandate_capacity_for_regime(mandate: str, regime_state: str) -> float:
+    """Return the NAV share for a mandate under a regime label."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    if not spec:
+        return 0.0
+    cap_map = spec.get("capacity_pct_by_regime", {})
+    if not isinstance(cap_map, dict):
+        return 0.0
+    try:
+        return float(cap_map.get(str(regime_state), 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def mandate_cadence(mandate: str) -> str:
+    """Return the rebalance cadence for a mandate."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return str(spec.get("cadence", "monthly")) if spec else "monthly"
+
+
+def mandate_target_n(mandate: str, override: Optional[int] = None) -> int:
+    """Return target_n for a mandate, with optional caller override."""
+    if override is not None:
+        return int(override)
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return int(spec.get("default_target_n", 0)) if spec else 0
 
 MACRO_REGIME_COLUMNS = [
     "spy_ret_1m",
@@ -1393,7 +1486,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-29-concentrated-continuation"
+ENGINE_REUSE_VERSION = "2026-04-30-phase17-19-sidecar"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1558,6 +1651,7 @@ class EngineConfig:
     run_sleeve_regime_comparison: bool = True
     sleeve_regime_comparison_cash_max: float = 0.02
     sleeve_regime_apply_champion: bool = True
+    regime_conditioned_min_learned_months: int = 12
     regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
     manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
     run_regime_map_method_comparison: bool = True
@@ -2273,6 +2367,8 @@ __all__ = [
     "PHASE1_ALPHA_COLUMNS",
     "PHASE8B_LONG_LOOKBACK_COLUMNS",
     "PHASE9_C3_TURNAROUND_COLUMNS",
+    "PHASE17_EXPLOSION_COLUMNS",
+    "PHASE17_REGIME_STATE_COLUMNS",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",
@@ -2281,6 +2377,10 @@ __all__ = [
     "CNN_FEAR_GREED_HEADERS",
     "ROBUST_Z_WINSOR_P",
     "ROBUST_Z_CLIP",
+    "MANDATE_REGISTRY",
+    "mandate_capacity_for_regime",
+    "mandate_cadence",
+    "mandate_target_n",
     "MACRO_REGIME_COLUMNS",
     "MACRO_INTERACTION_COLUMNS",
     "DYNAMIC_LEADER_COLUMNS",

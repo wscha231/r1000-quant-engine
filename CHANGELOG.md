@@ -51,6 +51,237 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-01
+
+### 00:43 KST - regime-learned-support-guard
+
+- scope:
+  - Prevent low-sample learned regime sleeve policies from overriding exact
+    manual regime maps after the Phase 20 rebuild learned `core_only` from
+    only seven `growth_reentry_alert` months.
+- files:
+  - `r1000_config.py` ->adds the minimum learned-regime sample support config
+    field.
+  - `r1000_pipeline.py` ->filters learned regime maps below the support floor,
+    passes the floor through sleeve policy selection/comparison, validates the
+    new field, and fixes cash-aware guardrail math so cash is treated as a
+    separate sleeve.
+  - `r1000_signals.py` ->passes the learned-regime support floor into live
+    regime-conditioned sleeve override resolution.
+  - `tests/smoke_test.py` ->adds regression coverage for low-sample learned
+    fallback and cash-separate guardrail math.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_regime_policy_guardrails(live_label, selected_policy)` ->operates
+    on equity sleeve fractions instead of shrinking them by `(1 - cash)`.
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->filters learned exact/nearest labels with insufficient sample months before falling back to manual maps.
+  - `choose_sleeve_cap_policy(policy_compare, cfg)` ->uses
+    `regime_conditioned_min_learned_months` when attaching the learned
+    regime-conditioned map to the selected champion policy.
+  - `resolve_regime_conditioned_sleeve_override(cfg, month_df)` ->passes the
+    configured support floor into regime policy lookup.
+- config_fields_added:
+  - `regime_conditioned_min_learned_months: int = 12` ->minimum per-regime
+    months required before learned sleeve policy labels can override exact
+    manual regime maps.
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged; this affects
+    post-model portfolio sleeve policy resolution only.
+- outputs:
+  - none directly. The next full rebuild should avoid
+    `core_only_guardrailed` for seven-month `growth_reentry_alert` samples and
+    should surface the fallback through portfolio policy labels.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (76/76)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This is a conservative anti-overfit guard, not a blind weight tune. A later
+    A/B can raise or lower the 12-month floor, but unsupported learned maps
+    should not ship automatically.
+
+### 03:37 KST - learned-fallback-before-growth-manual
+
+- scope:
+  - Make regime fallback more data-driven after the rerun showed the
+    unsupported manual growth map worsened main CAGR and drawdown.
+- files:
+  - `r1000_pipeline.py` ->defers non-defensive manual regime maps until
+    high-support learned fallback labels have been checked; risk-off/systemic
+    manual safety maps still apply immediately.
+  - `tests/smoke_test.py` ->updates low-support growth fallback coverage and
+    adds a risk-off manual safety regression test.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...]` ->labels whose
+    exact manual safety maps can override learned fallback when learned support
+    is below the sample floor.
+- symbols_changed:
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->prefers high-support learned fallback for non-defensive growth/neutral labels before using deferred manual maps.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged.
+- outputs:
+  - none directly. The next full rebuild should prefer the high-support learned
+    balanced/ALL map over unvalidated manual `growth_reentry_alert` when the
+    exact learned growth label has fewer than 12 months.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (77/77)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This may improve the current growth-alert regression, but it still requires
+    a full rebuild verdict because regime fallback order is a portfolio
+    behavior change.
+
+### 05:25 KST - adr-mktcap-cache-date-normalization
+
+- scope:
+  - Fix the failed Phase 20 rebuild where `yf_mktcap_proxy.parquet` mixed
+    legacy ISO-string timestamps with pandas Timestamp rows and crashed while
+    sorting `updated_at`.
+- files:
+  - `r1000_pipeline.py` ->normalizes ADR market-cap proxy cache timestamps
+    before and after cache refresh concat, and stores new fetch rows as
+    Timestamp values.
+  - `tests/smoke_test.py` ->adds regression coverage for mixed cache
+    timestamp types.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `fetch_mktcap_proxy(ticker)` ->returns a pandas Timestamp for
+    `updated_at` instead of an ISO string.
+  - `ensure_mktcap_proxy(cfg, paths, tickers, max_new)` ->coerces
+    `updated_at` to datetime before concat, after concat, before sort, and
+    before returning.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is cache dtype normalization only; feature definitions and
+    portfolio behavior are unchanged.
+- outputs:
+  - none directly. The next full rebuild should pass the ADR market-cap proxy
+    cache refresh step instead of failing before feature-store construction.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (78/78)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - The failed run did not produce valid backtest metrics, so it cannot be used
+    as a strategy verdict.
+
+## 2026-04-30
+
+### 19:40 KST - workflow-cadence-consolidation
+
+- scope:
+  - Consolidate scheduled GitHub Actions around the current core /
+    concentrated / tactical system and require future system changes to update
+    the automation owner workflow and smoke topology guard in the same commit.
+- files:
+  - `.github/workflows/after_close_daily.yml` ->new consolidated daily
+    after-close workflow for scanner, macro pulse, ETF leadership,
+    explosive mover scan, tactical review, paper dry-run, and Layer 4
+    suggestions.
+  - `.github/workflows/weekly_data_refresh.yml` ->new weekly data refresh
+    workflow combining Finnhub substrate collection and theme discovery.
+  - `.github/workflows/monthly_research.yml` ->new monthly research workflow
+    combining cycle-play universe refresh, ADR/macro IC monitoring, tactical
+    sleeve backtest, and explosive pattern model retraining.
+  - `.github/workflows/quarterly_auto_learning.yml` ->new quarterly
+    auto-learning workflow combining trade insights, feature-gate proposal,
+    and promotion-gate dry-run/manual promotion.
+  - `.github/workflows/layer4_monthly_swap.yml` ->renamed behavior to
+    proposal-first, moved schedule to after-close UTC, and preserved manual
+    execute=true live-paper guard.
+  - `.github/workflows/unified_monthly.yml` ->moved schedule to after-close
+    UTC so legacy unified bridge no longer runs during the US session.
+  - `.github/workflows/* retired scheduled files` ->old duplicate daily,
+    weekly, monthly, and quarterly one-purpose workflows removed after
+    consolidation.
+  - `AUTOMATION_STRATEGY.md` ->new cadence matrix and rules for updating
+    automation whenever sleeves/features/data sources change.
+  - `tests/smoke_test.py` ->updated workflow guards from legacy filenames to
+    consolidated cadence topology and after-close scheduling.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_paper_executor_workflow()` ->now validates `after_close_daily.yml`
+    as the paper/tactical/scanner owner workflow.
+  - `test_paper_executor_weekday()` ->now validates after-close weekday and
+    weekend review schedules in `after_close_daily.yml`.
+  - `test_tactical_after_close_workflow()` ->now validates tactical review
+    inside the consolidated daily workflow.
+  - `test_monthly_ic_monitor()` ->now validates monthly IC monitoring inside
+    `monthly_research.yml`.
+  - `test_layer4_monthly_workflow()` ->now validates dry-run/proposal default
+    and after-close schedule.
+  - `test_workflow_topology_consolidated()` ->new smoke guard for the
+    consolidated workflow set and retired duplicate files.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Scheduled automation file names changed. Use `after_close_daily.yml`,
+    `weekly_data_refresh.yml`, `monthly_research.yml`, and
+    `quarterly_auto_learning.yml` instead of the retired one-purpose workflow
+    files.
+- outputs:
+  - `AUTOMATION_STRATEGY.md` ->owner matrix for workflow cadence and future
+    automation updates.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 73/73.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The currently running GitHub full_rebuild on the previous branch SHA is
+    unaffected. This change only updates future scheduled/manual workflow
+    behavior after the branch is pushed or merged.
+
+### 20:56 KST - full-rebuild-result-branch-and-learning-candidate
+
+- scope:
+  - Fix post-run full rebuild automation discovered from run 25154642964:
+    result commits must push to the dispatched branch, and auto-learning must
+    preserve an actual candidate gate artifact instead of only a dry-run log.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->generates
+    `outputs/auto_learning/auto_feature_gates_candidate.yaml`, evaluates the
+    promotion gate against that candidate in dry-run mode, and pushes
+    `cloud_results/` commits to the current dispatch branch with branch-aware
+    fetch/rebase retry.
+  - `.gitignore` ->ignores local `research/phase20_artifact/` GitHub artifact
+    downloads.
+  - `tests/smoke_test.py` ->updates auto-learning artifact assertions and adds
+    a guard that full rebuild result pushes do not rebase branch runs onto
+    master.
+- symbols_added:
+  - `test_full_rebuild_pushes_results_to_dispatch_branch()` ->guards the
+    branch-aware full rebuild result push path.
+- symbols_changed:
+  - `test_full_rebuild_preserves_auto_learning_artifacts()` ->now requires a
+    candidate feature-gate YAML artifact and candidate-aware promotion dry-run.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/auto_learning/auto_feature_gates_candidate.yaml` ->candidate
+    learned feature-gate proposal emitted by full rebuild diagnostics.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 74/74.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The candidate gate file is generated and evaluated in dry-run mode only;
+    live promotion still requires a separate tested challenger/promotion path.
+
 ## 2026-04-29
 
 ### 12:22 KST - phase15d-cycle-play-universe-and-chase-prevention

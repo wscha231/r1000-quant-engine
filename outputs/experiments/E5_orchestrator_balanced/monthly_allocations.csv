@@ -1,0 +1,3 @@
+snapshot,regime_state,merge_mode,main_capacity,concentrated_capacity,alpha_sprint_capacity,invested,cash,n_positions,n_conflicts
+current_max_merge,neutral,max,0.65,0.1,0.0,0.724392116773901,0.27560788322609897,22,1
+proposed_sum_then_cap,neutral,sum_then_cap,0.55,0.25,0.0,0.8,0.19999999999999996,21,2

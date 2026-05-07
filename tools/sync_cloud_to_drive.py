@@ -20,6 +20,9 @@ What gets synced (from cloud_results/full_rebuild/latest_<mode>/):
     concentrated_portfolio_latest.csv  → outputs/concentrated_portfolio_latest.csv (Drive)
     backtest_metrics.json              → outputs/backtest_metrics.json (Drive)
     concentrated_backtest_metrics.json → outputs/concentrated_backtest_metrics.json (Drive)
+    reports/                           → outputs/reports/ (Drive)
+    trade_journal/                     → outputs/trade_journal/ (Drive)
+    auto_learning/                     → outputs/auto_learning/ (Drive)
 
 After sync:
     py -3 r1000_rebalance_advisor_v3.py  (uses new scored_unified)
@@ -59,12 +62,18 @@ SYNC_FILES = [
     "concentrated_backtest_metrics.json",
 ]
 
+SYNC_DIRS = [
+    "reports",
+    "trade_journal",
+    "auto_learning",
+]
+
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mode", default="r1000+adr",
-                   choices=["r1000", "r1000+adr", "r1000+adr_phase14_off"],
+    p.add_argument("--mode", default="global_alpha_universe",
+                   choices=["global_alpha_universe", "r1000", "r1000+adr", "r1000+cycle", "r1000+adr_phase14_off"],
                    help="universe_mode of the cloud rebuild to sync")
     p.add_argument("--drive-base", default=DEFAULT_DRIVE_BASE,
                    help="Drive base path (override on non-Windows or custom mount)")
@@ -86,7 +95,7 @@ def main() -> int:
         print("Did you:", file=sys.stderr)
         print("  1. Trigger full_rebuild_manual.yml in GitHub UI?", file=sys.stderr)
         print("  2. `git pull` after the workflow committed cloud_results/?", file=sys.stderr)
-        print("  3. Pass correct --mode? (default 'r1000+adr')", file=sys.stderr)
+        print("  3. Pass correct --mode? (default 'global_alpha_universe')", file=sys.stderr)
         return 1
 
     # Resolve destination
@@ -129,9 +138,31 @@ def main() -> int:
                 print(f"  FAIL  {fname:42s} {type(e).__name__}: {e}")
                 n_skipped += 1
 
+    for dname in SYNC_DIRS:
+        src = src_dir / dname
+        dst = dst_dir / dname
+        label = f"{dname}/"
+        if not src.exists() or not src.is_dir():
+            print(f"  SKIP  {label:42s} (not in source)")
+            n_skipped += 1
+            continue
+        if args.dry_run:
+            print(f"  WOULD {label:42s} (directory)")
+        else:
+            try:
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+                print(f"  OK    {label:42s} (directory)")
+                n_copied += 1
+            except Exception as e:
+                print(f"  FAIL  {label:42s} {type(e).__name__}: {e}")
+                n_skipped += 1
+
     print()
     if args.dry_run:
-        print(f"DRY-RUN: would have copied {len(SYNC_FILES) - n_skipped} files")
+        total_items = len(SYNC_FILES) + len(SYNC_DIRS)
+        print(f"DRY-RUN: would have copied {total_items - n_skipped} items")
     else:
         print(f"Synced {n_copied} files. Skipped {n_skipped}.")
         print()
