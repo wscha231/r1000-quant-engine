@@ -50,6 +50,17 @@ def write_candidate_book(path: Path) -> None:
         "h1_oversold_value_score",
         "theme_phase_multiplier_primary",
         "theme_phase_multiplier_max",
+        "theme_phase_primary",
+        "theme_horizon_primary",
+        "theme_holding_profile_primary",
+        "theme_event_risk_sensitivity_primary",
+        "theme_event_risk_sensitivity_max",
+        "theme_structural_growth_primary",
+        "theme_structural_growth_max",
+        "theme_target_hold_months_primary",
+        "theme_max_hold_months_primary",
+        "theme_short_cycle_flag_primary",
+        "theme_short_cycle_flag_max",
         "oneil_leadership_score",
         "industry_group_strength_score",
         "future_winner_scout_score",
@@ -113,6 +124,17 @@ def write_candidate_book(path: Path) -> None:
                     "h1_oversold_value_score": 0.1,
                     "theme_phase_multiplier_primary": 1.2,
                     "theme_phase_multiplier_max": 1.3,
+                    "theme_phase_primary": "early",
+                    "theme_horizon_primary": "structural_growth",
+                    "theme_holding_profile_primary": "long_duration",
+                    "theme_event_risk_sensitivity_primary": 0.15,
+                    "theme_event_risk_sensitivity_max": 0.15,
+                    "theme_structural_growth_primary": 1.0,
+                    "theme_structural_growth_max": 1.0,
+                    "theme_target_hold_months_primary": 36,
+                    "theme_max_hold_months_primary": 84,
+                    "theme_short_cycle_flag_primary": 0,
+                    "theme_short_cycle_flag_max": 0,
                     "oneil_leadership_score": 0.7,
                     "industry_group_strength_score": 0.8,
                     "future_winner_scout_score": 0.7,
@@ -161,6 +183,17 @@ def write_candidate_book(path: Path) -> None:
                     "fundamental_reliability_score": 0.8,
                     "price_above_ma200": 1,
                     "price_above_ma50": 1,
+                    "theme_phase_primary": "maturing",
+                    "theme_horizon_primary": "commodity_cycle",
+                    "theme_holding_profile_primary": "tactical_cycle",
+                    "theme_event_risk_sensitivity_primary": 0.85,
+                    "theme_event_risk_sensitivity_max": 0.85,
+                    "theme_structural_growth_primary": 0.25,
+                    "theme_structural_growth_max": 0.25,
+                    "theme_target_hold_months_primary": 4,
+                    "theme_max_hold_months_primary": 12,
+                    "theme_short_cycle_flag_primary": 1,
+                    "theme_short_cycle_flag_max": 1,
                     "entry_quality_score": 0.7,
                     "concentrated_entry_quality_gate_pass": 1,
                     "concentrated_score": 0.5,
@@ -226,6 +259,10 @@ def test_historical_challenger_replays() -> None:
         with (root / "monster" / "monthly.csv").open(encoding="utf-8", newline="") as f:
             first_month = next(csv.DictReader(f))
             assert float(first_month["gross_return"]) > 0.0
+        with (root / "monster" / "holdings.csv").open(encoding="utf-8", newline="") as f:
+            first_holding = next(csv.DictReader(f))
+            assert "theme_event_risk_sensitivity_max" in first_holding
+            assert "theme_structural_growth_max" in first_holding
 
 
 def test_latest_diagnostics_sidecars() -> None:

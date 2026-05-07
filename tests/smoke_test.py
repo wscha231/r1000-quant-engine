@@ -2087,6 +2087,33 @@ def test_theme_phase_multiplier_constant() -> None:
         assert f'"{phase}"' in src, f"THEME_PHASE_MULTIPLIER missing phase: {phase}"
 
 
+@_test("regression.theme_policy_metadata_surface")
+def test_theme_policy_metadata_surface() -> None:
+    """Theme metadata must distinguish structural growth from short-cycle events.
+
+    This guards the chameleon/lifecycle replay route: commodity/event themes
+    should be reviewed faster, while structural growth themes can tolerate
+    valid shakeouts in research-only replays.
+    """
+    from r1000_themes import attach_per_ticker_theme_features, load_themes
+    import pandas as pd
+
+    themes = load_themes(ROOT / "themes.yaml")
+    assert themes["oil_gas_services"]["theme_horizon"] == "commodity_cycle"
+    assert themes["ai_compute"]["theme_horizon"] == "structural_growth"
+    df = pd.DataFrame(
+        [
+            {"ticker": "FTI", "mom_6m": 0.20},
+            {"ticker": "NVDA", "mom_6m": 0.10},
+        ]
+    )
+    out = attach_per_ticker_theme_features(df, themes)
+    by_ticker = {row["ticker"]: row for row in out.to_dict("records")}
+    assert by_ticker["FTI"]["theme_event_risk_sensitivity_max"] >= 0.75
+    assert by_ticker["FTI"]["theme_short_cycle_flag_max"] >= 0.5
+    assert by_ticker["NVDA"]["theme_structural_growth_max"] >= 0.85
+
+
 @_test("regression.scanner_has_stage2_breakout_guard")
 def test_stage2_breakout_guard() -> None:
     """aggressive/scanner.py compute_opus_h1_h6_multiplier must include the

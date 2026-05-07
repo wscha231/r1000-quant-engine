@@ -270,6 +270,60 @@ All entries must be written in English. Entries must be predictable and machine-
   - Default historical production metrics remain PIT-safer because overlay-only rows are latest-only unless `leader_rescue_mode=full_proxy` is explicitly selected for biased research.
   - Price history can be fetched for these tickers on the next collector run, but fundamentals, ADR data, and event/ownership coverage will vary by ticker, listing date, and source availability.
 
+### 13:15 KST - theme-chameleon-lifecycle-policy
+
+- scope:
+  - Add research-only theme half-life policy metadata so event/commodity beneficiaries can be reviewed faster while structural growth winners can tolerate valid shakeouts longer.
+- files:
+  - `themes.yaml` ->tags major structural, commodity, event, and product-cycle themes with holding profiles, event risk, target hold months, and max hold months; adds SNDK/ARM/INTC to relevant semiconductor theme memberships.
+  - `r1000_themes.py` ->loads theme policy metadata and attaches per-ticker horizon, event-risk, structural-growth, and short-cycle columns.
+  - `r1000_features.py` ->fills safe defaults for theme policy columns when theme data is missing.
+  - `r1000_config.py` ->adds research-only theme policy columns and bumps `ENGINE_REUSE_VERSION`.
+  - `r1000_pipeline.py` ->preserves theme policy metadata in feature store and `reports/candidate_replay_book.csv` without adding it to `DEFAULT_FEATURES`.
+  - `tools/run_monster_lifecycle_replay.py` ->adjusts research-only lifecycle thresholds by theme half-life; short-cycle themes trim/exit faster, structural themes get more shakeout patience.
+  - `tools/run_position_aware_risk_replay.py` ->uses theme half-life metadata to avoid protecting event-cycle winners while preserving stronger protection for structural long-hold winners.
+  - `tools/run_main_v2_backtest.py` ->passes theme policy metadata through monthly holdings for risk replay.
+  - `tests/historical_challenger_replays_smoke.py` ->adds fixture fields and output assertions for theme policy metadata through replay artifacts.
+  - `tests/smoke_test.py` ->adds regression coverage that FTI/oilfield services are short-cycle and NVDA/AI compute are structural growth.
+  - `CHANGELOG.md` ->records the theme chameleon lifecycle policy change.
+- symbols_added:
+  - `r1000_themes._theme_policy_defaults(theme_horizon)` ->returns default policy metadata for a theme horizon.
+  - `r1000_themes._coerce_policy_float(value, default)` ->NaN-safe numeric parser for theme policy fields.
+  - `tools.run_monster_lifecycle_replay.theme_event_risk(row)` ->reads max event-risk sensitivity from candidate rows.
+  - `tools.run_monster_lifecycle_replay.theme_structural_growth(row)` ->reads max structural-growth score from candidate rows.
+  - `tools.run_monster_lifecycle_replay.theme_short_cycle(row)` ->detects event/commodity short-cycle theme rows.
+  - `tools.run_monster_lifecycle_replay.theme_adjusted_policy(row, policy)` ->returns per-row lifecycle thresholds adjusted by theme half-life.
+  - `test_theme_policy_metadata_surface()` ->guards theme policy metadata surface and ticker examples.
+- symbols_changed:
+  - `r1000_themes.load_themes()` ->preserves optional theme policy metadata with safe defaults.
+  - `r1000_themes.attach_per_ticker_theme_features()` ->adds per-ticker theme horizon, event risk, structural growth, target-hold, max-hold, and short-cycle columns.
+  - `r1000_features.compute_theme_phase_features()` ->fills theme policy defaults alongside phase multipliers.
+  - `tools.run_monster_lifecycle_replay.entry_qualified()` ->blocks late-cycle event themes in peaking/ending/dead phase from new scout entry.
+  - `tools.run_monster_lifecycle_replay.classify_exit()` ->applies event half-life trims/time stops and structural shakeout patience.
+  - `tools.run_monster_lifecycle_replay.replay()` ->uses theme-adjusted policy for held winners and new scouts, and writes theme policy diagnostics.
+  - `tools.run_position_aware_risk_replay.is_long_hold_protected()` ->uses event/structural theme metadata in relative underperformance protection.
+  - `tools.run_main_v2_backtest.replay()` ->carries theme policy metadata into monthly holdings.
+- config_fields_added:
+  - `PHASE20_THEME_POLICY_COLUMNS: list[str] = [...]` ->research-only feature-store/candidate-book column list for theme half-life metadata.
+  - `ENGINE_REUSE_VERSION: str = "2026-05-07-theme-chameleon-policy"` ->forces feature-store rebuild for the new metadata columns.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/candidate_replay_book.csv` ->next rebuild includes theme horizon/event-risk/structural-growth fields for lifecycle backtests.
+  - `outputs/monster_lifecycle_replay/holdings.csv` ->includes theme policy diagnostics for each held ticker.
+  - `outputs/position_aware_risk_replay/defensive_holdings.csv` ->includes theme policy diagnostics for risk actions.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_features.py r1000_themes.py r1000_pipeline.py tools\run_monster_lifecycle_replay.py tools\run_lifecycle_review_overlay.py tools\run_position_aware_risk_replay.py tools\run_main_v2_backtest.py tests\historical_challenger_replays_smoke.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 85/85.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed; 245 features, no leakage.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not make event/oil/defense names automatic sells in production; it makes the replay layer test that policy explicitly.
+  - Theme horizon labels are human-curated metadata and should be reviewed when new themes emerge.
+  - Next full rebuild is required to populate the new `candidate_replay_book.csv` columns and measure CAGR/MDD impact.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

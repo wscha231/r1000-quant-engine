@@ -87,6 +87,7 @@ from r1000_config import (
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
+    PHASE20_THEME_POLICY_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -8126,6 +8127,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
+            + PHASE20_THEME_POLICY_COLUMNS
             + ["applied_gates_count", "pattern_blocked"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
@@ -8159,6 +8161,10 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
+        + [
+            c for c in PHASE20_THEME_POLICY_COLUMNS
+            if c not in ("theme_horizon_primary", "theme_holding_profile_primary")
+        ]
         + ["regime_state_score", "applied_gates_count", "pattern_blocked"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
@@ -16725,6 +16731,16 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "theme_phase_multiplier_primary",
             "theme_phase_multiplier_max",
             "theme_phase_primary",
+            "theme_horizon_primary",
+            "theme_holding_profile_primary",
+            "theme_event_risk_sensitivity_primary",
+            "theme_event_risk_sensitivity_max",
+            "theme_structural_growth_primary",
+            "theme_structural_growth_max",
+            "theme_target_hold_months_primary",
+            "theme_max_hold_months_primary",
+            "theme_short_cycle_flag_primary",
+            "theme_short_cycle_flag_max",
             "oneil_leadership_score",
             "industry_group_strength_score",
             "future_winner_scout_score",

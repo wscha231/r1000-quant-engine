@@ -48,9 +48,21 @@ def is_long_hold_protected(row: dict[str, Any], cumulative_return: float, relati
     stale_score = safe_float(row.get("portfolio_stale_mega_leader_score"), 0.0)
     risk_block = safe_float(row.get("portfolio_risk_entry_block_score"), 0.0)
     rs_accel = safe_float(row.get("rs_acceleration_score"), 0.0)
+    event_risk = max(
+        safe_float(row.get("theme_event_risk_sensitivity_max"), 0.35),
+        safe_float(row.get("theme_event_risk_sensitivity_primary"), 0.35),
+    )
+    structural_growth = max(
+        safe_float(row.get("theme_structural_growth_max"), 0.35),
+        safe_float(row.get("theme_structural_growth_primary"), 0.35),
+    )
     if risk_block >= 0.70 or stale_score >= 0.75:
         return False
+    if event_risk >= 0.70 and structural_growth < 0.70:
+        return False
     if monster_score >= 0.70 and rs_accel >= -0.60:
+        return True
+    if structural_growth >= 0.75 and cumulative_return >= 0.25 and relative_return >= -0.12 and rs_accel >= -0.85:
         return True
     if cumulative_return >= 0.50 and relative_return >= -0.08 and rs_accel >= -0.75:
         return True
@@ -255,6 +267,10 @@ def replay(
                     "relative_trim_or_exit": action in {"relative_trim_50", "relative_exit_to_cash"},
                     "sector": row.get("sector", ""),
                     "regime_state": row.get("regime_state", ""),
+                    "theme_horizon_primary": row.get("theme_horizon_primary", ""),
+                    "theme_holding_profile_primary": row.get("theme_holding_profile_primary", ""),
+                    "theme_event_risk_sensitivity_max": row.get("theme_event_risk_sensitivity_max", ""),
+                    "theme_structural_growth_max": row.get("theme_structural_growth_max", ""),
                     "score": row.get("score", ""),
                     "main_v2_score": row.get("main_v2_score", ""),
                     "risk_penalty": row.get("risk_penalty", ""),
@@ -281,6 +297,10 @@ def replay(
                     "relative_trim_or_exit": False,
                     "sector": "Cash",
                     "regime_state": "",
+                    "theme_horizon_primary": "",
+                    "theme_holding_profile_primary": "",
+                    "theme_event_risk_sensitivity_max": "",
+                    "theme_structural_growth_max": "",
                     "score": "",
                     "main_v2_score": "",
                     "risk_penalty": "",

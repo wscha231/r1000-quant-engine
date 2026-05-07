@@ -194,6 +194,62 @@ def growth_signal(row: dict[str, Any]) -> float:
     )
 
 
+def theme_event_risk(row: dict[str, Any]) -> float:
+    return min(
+        1.0,
+        max(
+            safe_float(row.get("theme_event_risk_sensitivity_max"), 0.35),
+            safe_float(row.get("theme_event_risk_sensitivity_primary"), 0.35),
+        ),
+    )
+
+
+def theme_structural_growth(row: dict[str, Any]) -> float:
+    return min(
+        1.0,
+        max(
+            safe_float(row.get("theme_structural_growth_max"), 0.35),
+            safe_float(row.get("theme_structural_growth_primary"), 0.35),
+        ),
+    )
+
+
+def theme_short_cycle(row: dict[str, Any]) -> bool:
+    return (
+        safe_float(row.get("theme_short_cycle_flag_max"), 0.0) >= 0.5
+        or safe_float(row.get("theme_short_cycle_flag_primary"), 0.0) >= 0.5
+    )
+
+
+def theme_adjusted_policy(row: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    """Adjust lifecycle thresholds by theme half-life.
+
+    Event/commodity beneficiaries get a shorter leash. Structural growth and
+    compounder themes get more patience when leadership/fundamentals remain
+    intact. This is research-only and affects replay sidecars, not production
+    scoring or DEFAULT_FEATURES.
+    """
+    event_risk = theme_event_risk(row)
+    structural = theme_structural_growth(row)
+    out = dict(policy)
+    if event_risk >= 0.60 or theme_short_cycle(row):
+        out["stale_patience_months"] = max(1, int(safe_float(out.get("stale_patience_months"), 2) - 1))
+        out["scout_timeout_months"] = max(2, int(safe_float(out.get("scout_timeout_months"), 4) - 1))
+        out["distribution_exit_risk"] = max(0.55, safe_float(out.get("distribution_exit_risk"), 0.78) - 0.08 * event_risk)
+        out["distribution_trim_risk"] = max(0.48, safe_float(out.get("distribution_trim_risk"), 0.68) - 0.08 * event_risk)
+        out["shakeout_hold_score"] = min(0.85, safe_float(out.get("shakeout_hold_score"), 0.58) + 0.08 * event_risk)
+        out["hard_peak_drawdown"] = min(-0.18, safe_float(out.get("hard_peak_drawdown"), -0.34) + 0.10 * event_risk)
+        out["trim_scale"] = max(0.25, safe_float(out.get("trim_scale"), 0.50) - 0.12 * event_risk)
+    if structural >= 0.70 and event_risk < 0.65:
+        out["stale_patience_months"] = int(safe_float(out.get("stale_patience_months"), 2)) + 1
+        out["scout_timeout_months"] = int(safe_float(out.get("scout_timeout_months"), 4)) + 1
+        out["distribution_exit_risk"] = min(0.90, safe_float(out.get("distribution_exit_risk"), 0.78) + 0.04 * structural)
+        out["distribution_trim_risk"] = min(0.82, safe_float(out.get("distribution_trim_risk"), 0.68) + 0.03 * structural)
+        out["shakeout_hold_score"] = max(0.45, safe_float(out.get("shakeout_hold_score"), 0.58) - 0.05 * structural)
+        out["hard_peak_drawdown"] = max(-0.42, safe_float(out.get("hard_peak_drawdown"), -0.34) - 0.04 * structural)
+    return out
+
+
 def entry_qualified(row: dict[str, Any], score: float, policy: dict[str, Any]) -> bool:
     if score < safe_float(policy.get("min_entry_score")):
         return False
@@ -202,6 +258,8 @@ def entry_qualified(row: dict[str, Any], score: float, policy: dict[str, Any]) -
     if max_col(row, ("market_cap_live", "mktcap")) < safe_float(policy.get("min_mcap"), 5_000_000_000):
         return False
     if distribution_risk_score(row) >= safe_float(policy.get("max_entry_distribution_risk"), 0.85):
+        return False
+    if theme_event_risk(row) >= 0.75 and str(row.get("theme_phase_primary", "")).lower() in {"peaking", "ending", "dead"}:
         return False
     if not bool(policy.get("entry_requires_leadership", False)):
         return True
@@ -274,6 +332,7 @@ def classify_exit(
     policy: dict[str, Any],
 ) -> tuple[str, str, int]:
     """Distinguish shakeout from distribution using available monthly signals."""
+    policy = theme_adjusted_policy(row, policy)
     score = monster_onset_score(row)
     drawdown_from_peak = (1.0 + cum_return) / max(1.0 + peak_return, 1e-8) - 1.0
     distribution_risk = distribution_risk_score(row)
@@ -281,6 +340,9 @@ def classify_exit(
     stage = str(pos.get("stage", "scout"))
     months_held = int(pos.get("months_held", 0))
     bad_months = int(pos.get("bad_months", 0))
+    event_risk = theme_event_risk(row)
+    max_hold_months = safe_float(row.get("theme_max_hold_months_primary"), 0.0)
+    target_hold_months = safe_float(row.get("theme_target_hold_months_primary"), 0.0)
     weak_trend = not trend_ok(row)
     stale_signal = (
         score < safe_float(policy.get("stale_score_threshold"), 0.42)
@@ -291,6 +353,21 @@ def classify_exit(
 
     if last_return <= -0.18 and distribution_risk >= safe_float(policy.get("distribution_exit_risk"), 0.78) and rs < 0 and weak_trend:
         return "exit", "distribution_breakdown", next_bad_months
+    if (
+        event_risk >= 0.65
+        and max_hold_months > 0
+        and months_held >= int(max_hold_months)
+        and stage not in {"monster"}
+        and score < safe_float(policy.get("winner_score"), 0.82)
+    ):
+        return "exit", "event_theme_time_stop", next_bad_months
+    if (
+        event_risk >= 0.65
+        and target_hold_months > 0
+        and months_held >= int(target_hold_months)
+        and (distribution_risk >= safe_float(policy.get("distribution_trim_risk"), 0.68) or rs < -0.25)
+    ):
+        return "trim", "event_theme_half_life_trim", next_bad_months
     if drawdown_from_peak <= safe_float(policy.get("hard_peak_drawdown"), -0.34) and score < safe_float(policy.get("shakeout_hold_score"), 0.58):
         return "exit", "failed_recovery_after_peak", next_bad_months
     if last_return <= -0.12 and score >= safe_float(policy.get("shakeout_hold_score"), 0.58) and trend_ok(row):
@@ -388,11 +465,12 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
             if action == "exit":
                 event_rows.append({"rebalance_date": dt, "ticker": ticker, "action": action, "reason": reason, "stage": pos.get("stage")})
                 continue
+            row_policy = theme_adjusted_policy(row, policy)
             score = monster_onset_score(row)
-            stage = next_stage(str(pos.get("stage", "scout")), score, cum_before, int(pos.get("months_held", 0)), policy)
-            weight = stage_weight(stage, policy)
+            stage = next_stage(str(pos.get("stage", "scout")), score, cum_before, int(pos.get("months_held", 0)), row_policy)
+            weight = stage_weight(stage, row_policy)
             if action == "trim":
-                weight *= safe_float(policy.get("trim_scale"), 0.5)
+                weight *= safe_float(row_policy.get("trim_scale"), 0.5)
             raw_weights[ticker] = weight
             active_state[ticker] = {
                 "stage": stage,
@@ -413,6 +491,8 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "score": score,
                     "bad_months": next_bad_months,
                     "distribution_risk": distribution_risk_score(row),
+                    "theme_event_risk": theme_event_risk(row),
+                    "theme_structural_growth": theme_structural_growth(row),
                 }
             )
 
@@ -426,7 +506,8 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                 if ticker in active_state:
                     continue
                 score = monster_onset_score(row)
-                if entry_qualified(row, score, policy):
+                row_policy = theme_adjusted_policy(row, policy)
+                if entry_qualified(row, score, row_policy):
                     item = dict(row)
                     item["monster_onset_score"] = score
                     candidates.append(item)
@@ -453,6 +534,8 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                         "score": safe_float(row.get("monster_onset_score")),
                         "bad_months": 0,
                         "distribution_risk": distribution_risk_score(row),
+                        "theme_event_risk": theme_event_risk(row),
+                        "theme_structural_growth": theme_structural_growth(row),
                     }
                 )
 
@@ -514,6 +597,10 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "weighted_forward_return": weight * ret,
                     "sector": row.get("sector", ""),
                     "industry_group": row.get("industry_group", ""),
+                    "theme_horizon_primary": row.get("theme_horizon_primary", ""),
+                    "theme_holding_profile_primary": row.get("theme_holding_profile_primary", ""),
+                    "theme_event_risk_sensitivity_max": row.get("theme_event_risk_sensitivity_max", ""),
+                    "theme_structural_growth_max": row.get("theme_structural_growth_max", ""),
                     "technical_leadership_signal": technical_leadership_signal(row),
                     "leadership_signal": leadership_signal(row),
                     "growth_signal": growth_signal(row),

@@ -227,6 +227,21 @@ PHASE17_REGIME_STATE_COLUMNS = [
     "regime_state_score",
 ]
 
+PHASE20_THEME_POLICY_COLUMNS = [
+    # Research-only theme policy metadata. These columns are surfaced for
+    # lifecycle/chameleon replay sidecars, not appended to DEFAULT_FEATURES.
+    "theme_horizon_primary",
+    "theme_holding_profile_primary",
+    "theme_event_risk_sensitivity_primary",
+    "theme_event_risk_sensitivity_max",
+    "theme_structural_growth_primary",
+    "theme_structural_growth_max",
+    "theme_target_hold_months_primary",
+    "theme_max_hold_months_primary",
+    "theme_short_cycle_flag_primary",
+    "theme_short_cycle_flag_max",
+]
+
 
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
@@ -1486,7 +1501,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-06-leader-rescue-stale-trim"
+ENGINE_REUSE_VERSION = "2026-05-07-theme-chameleon-policy"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")

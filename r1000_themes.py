@@ -48,6 +48,78 @@ THEME_PHASE_MULTIPLIER = {
     "unknown":  1.00,   # neutral when classification not possible
 }
 
+THEME_POLICY_DEFAULTS: dict[str, dict[str, float | str]] = {
+    # Long-duration secular growth: tolerate healthy shakeouts when
+    # fundamentals/leadership remain intact.
+    "structural_growth": {
+        "holding_profile": "long_duration",
+        "event_risk_sensitivity": 0.15,
+        "structural_growth": 1.00,
+        "target_hold_months": 36.0,
+        "max_hold_months": 84.0,
+        "short_cycle_flag": 0.0,
+    },
+    # Quality compounders are not always explosive, but should be evaluated
+    # on multi-year durability rather than short event half-life.
+    "compounder": {
+        "holding_profile": "long_duration",
+        "event_risk_sensitivity": 0.10,
+        "structural_growth": 0.85,
+        "target_hold_months": 48.0,
+        "max_hold_months": 96.0,
+        "short_cycle_flag": 0.0,
+    },
+    # Commodity and war/geopolitical beneficiaries mean-revert more often;
+    # they need shorter review cadence and faster distribution exits.
+    "commodity_cycle": {
+        "holding_profile": "tactical_cycle",
+        "event_risk_sensitivity": 0.75,
+        "structural_growth": 0.25,
+        "target_hold_months": 4.0,
+        "max_hold_months": 12.0,
+        "short_cycle_flag": 1.0,
+    },
+    "event_shock": {
+        "holding_profile": "tactical_event",
+        "event_risk_sensitivity": 0.90,
+        "structural_growth": 0.10,
+        "target_hold_months": 2.0,
+        "max_hold_months": 8.0,
+        "short_cycle_flag": 1.0,
+    },
+    "product_cycle": {
+        "holding_profile": "medium_cycle",
+        "event_risk_sensitivity": 0.55,
+        "structural_growth": 0.45,
+        "target_hold_months": 9.0,
+        "max_hold_months": 24.0,
+        "short_cycle_flag": 0.5,
+    },
+    "unknown": {
+        "holding_profile": "neutral",
+        "event_risk_sensitivity": 0.35,
+        "structural_growth": 0.35,
+        "target_hold_months": 12.0,
+        "max_hold_months": 36.0,
+        "short_cycle_flag": 0.0,
+    },
+}
+
+
+def _theme_policy_defaults(theme_horizon: Any) -> dict[str, float | str]:
+    key = str(theme_horizon or "unknown").strip().lower() or "unknown"
+    return dict(THEME_POLICY_DEFAULTS.get(key, THEME_POLICY_DEFAULTS["unknown"]))
+
+
+def _coerce_policy_float(value: Any, default: float) -> float:
+    try:
+        out = float(value)
+        if out != out:
+            return default
+        return out
+    except (TypeError, ValueError):
+        return default
+
 
 # ---------------------------------------------------------------------------
 # Loaders
@@ -93,9 +165,39 @@ def load_themes(path: str | Path | None = None) -> dict[str, dict[str, Any]]:
         }
         if not clean_tickers:
             continue
+        theme_horizon = str(rec.get("theme_horizon") or rec.get("theme_type") or "unknown").strip() or "unknown"
+        policy_defaults = _theme_policy_defaults(theme_horizon)
+        holding_profile = str(rec.get("holding_profile") or policy_defaults["holding_profile"])
+        event_risk = _coerce_policy_float(
+            rec.get("event_risk_sensitivity"),
+            float(policy_defaults["event_risk_sensitivity"]),
+        )
+        structural_growth = _coerce_policy_float(
+            rec.get("structural_growth"),
+            float(policy_defaults["structural_growth"]),
+        )
+        target_hold_months = _coerce_policy_float(
+            rec.get("target_hold_months"),
+            float(policy_defaults["target_hold_months"]),
+        )
+        max_hold_months = _coerce_policy_float(
+            rec.get("max_hold_months"),
+            float(policy_defaults["max_hold_months"]),
+        )
+        short_cycle_flag = _coerce_policy_float(
+            rec.get("short_cycle_flag"),
+            float(policy_defaults["short_cycle_flag"]),
+        )
         out[str(name)] = {
             "description": str(rec.get("description", "")),
             "tickers": clean_tickers,
+            "theme_horizon": theme_horizon,
+            "holding_profile": holding_profile,
+            "event_risk_sensitivity": event_risk,
+            "structural_growth": structural_growth,
+            "target_hold_months": target_hold_months,
+            "max_hold_months": max_hold_months,
+            "short_cycle_flag": short_cycle_flag,
         }
     # Apply overrides (if any) — these ADD to membership
     overrides = payload.get("overrides", {}) or {}
@@ -304,6 +406,63 @@ def attach_per_ticker_theme_features(
     )
 
     # Phase from aggregates — defensive: theme_aggregates may be empty or
+    horizon_map = {name: str(rec.get("theme_horizon", "unknown")) for name, rec in themes.items()}
+    profile_map = {name: str(rec.get("holding_profile", "neutral")) for name, rec in themes.items()}
+    event_map = {
+        name: _coerce_policy_float(rec.get("event_risk_sensitivity"), float(THEME_POLICY_DEFAULTS["unknown"]["event_risk_sensitivity"]))
+        for name, rec in themes.items()
+    }
+    structural_map = {
+        name: _coerce_policy_float(rec.get("structural_growth"), float(THEME_POLICY_DEFAULTS["unknown"]["structural_growth"]))
+        for name, rec in themes.items()
+    }
+    target_hold_map = {
+        name: _coerce_policy_float(rec.get("target_hold_months"), float(THEME_POLICY_DEFAULTS["unknown"]["target_hold_months"]))
+        for name, rec in themes.items()
+    }
+    max_hold_map = {
+        name: _coerce_policy_float(rec.get("max_hold_months"), float(THEME_POLICY_DEFAULTS["unknown"]["max_hold_months"]))
+        for name, rec in themes.items()
+    }
+    short_cycle_map = {
+        name: _coerce_policy_float(rec.get("short_cycle_flag"), float(THEME_POLICY_DEFAULTS["unknown"]["short_cycle_flag"]))
+        for name, rec in themes.items()
+    }
+
+    def _memberships(memberships_str: str) -> list[str]:
+        return [m for m in str(memberships_str or "").split(",") if m]
+
+    def _max_from_memberships(memberships_str: str, mapping: dict[str, float], default: float) -> float:
+        vals = [mapping.get(m, default) for m in _memberships(memberships_str)]
+        return max(vals) if vals else default
+
+    out["theme_horizon_primary"] = out["theme_primary"].map(horizon_map).fillna("unknown")
+    out["theme_holding_profile_primary"] = out["theme_primary"].map(profile_map).fillna("neutral")
+    out["theme_event_risk_sensitivity_primary"] = pd.to_numeric(
+        out["theme_primary"].map(event_map), errors="coerce"
+    ).fillna(float(THEME_POLICY_DEFAULTS["unknown"]["event_risk_sensitivity"]))
+    out["theme_event_risk_sensitivity_max"] = out["theme_memberships"].map(
+        lambda m: _max_from_memberships(m, event_map, float(THEME_POLICY_DEFAULTS["unknown"]["event_risk_sensitivity"]))
+    )
+    out["theme_structural_growth_primary"] = pd.to_numeric(
+        out["theme_primary"].map(structural_map), errors="coerce"
+    ).fillna(float(THEME_POLICY_DEFAULTS["unknown"]["structural_growth"]))
+    out["theme_structural_growth_max"] = out["theme_memberships"].map(
+        lambda m: _max_from_memberships(m, structural_map, float(THEME_POLICY_DEFAULTS["unknown"]["structural_growth"]))
+    )
+    out["theme_target_hold_months_primary"] = pd.to_numeric(
+        out["theme_primary"].map(target_hold_map), errors="coerce"
+    ).fillna(float(THEME_POLICY_DEFAULTS["unknown"]["target_hold_months"]))
+    out["theme_max_hold_months_primary"] = pd.to_numeric(
+        out["theme_primary"].map(max_hold_map), errors="coerce"
+    ).fillna(float(THEME_POLICY_DEFAULTS["unknown"]["max_hold_months"]))
+    out["theme_short_cycle_flag_primary"] = pd.to_numeric(
+        out["theme_primary"].map(short_cycle_map), errors="coerce"
+    ).fillna(float(THEME_POLICY_DEFAULTS["unknown"]["short_cycle_flag"]))
+    out["theme_short_cycle_flag_max"] = out["theme_memberships"].map(
+        lambda m: _max_from_memberships(m, short_cycle_map, float(THEME_POLICY_DEFAULTS["unknown"]["short_cycle_flag"]))
+    )
+
     # missing the expected columns when the universe slice has no theme members
     # (early historical dates, all-NaN inputs). Without these guards, callers
     # crash with KeyError on theme_name / theme_phase access.

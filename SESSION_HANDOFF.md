@@ -72,6 +72,44 @@ governance catalyst report:
   82 rows generated
 ```
 
+**Latest local patch after 2026-05-07 13:15 KST**
+
+Purpose:
+- Add a theme half-life / chameleon policy route without changing production
+  `DEFAULT_FEATURES`.
+- Event/commodity themes such as oil & gas services, oil E&P, crypto, and
+  defense shock beneficiaries are tagged as shorter-cycle candidates.
+- Structural growth themes such as AI compute, optical/datacenter, memory,
+  semiconductor equipment/design, power grid, and nuclear/SMR are tagged as
+  longer-duration candidates.
+- `candidate_replay_book.csv` will now preserve theme horizon, event-risk,
+  structural-growth, target-hold, max-hold, and short-cycle fields.
+- `monster_lifecycle_replay` and `position_aware_risk_replay` use those fields
+  in research-only replays: short-cycle event themes get faster trim/time-stop
+  logic; structural winners get more shakeout patience when leadership remains
+  intact.
+
+Changed files:
+- `themes.yaml`
+- `r1000_themes.py`
+- `r1000_features.py`
+- `r1000_config.py`
+- `r1000_pipeline.py`
+- `tools/run_monster_lifecycle_replay.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 85/85.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
 Do not treat the enhanced risk replay as production execution evidence yet:
 it still uses monthly proxy stop assumptions. It is now better suited for the
 next full rebuild / A-B check because it also exports cost sensitivity and

@@ -5989,10 +5989,34 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     attach_per_ticker_theme_features}.
     """
     d = df.copy() if df is not None else pd.DataFrame()
+    policy_string_defaults = {
+        "theme_horizon_primary": "unknown",
+        "theme_holding_profile_primary": "neutral",
+    }
+    policy_numeric_defaults = {
+        "theme_event_risk_sensitivity_primary": 0.35,
+        "theme_event_risk_sensitivity_max": 0.35,
+        "theme_structural_growth_primary": 0.35,
+        "theme_structural_growth_max": 0.35,
+        "theme_target_hold_months_primary": 12.0,
+        "theme_max_hold_months_primary": 36.0,
+        "theme_short_cycle_flag_primary": 0.0,
+        "theme_short_cycle_flag_max": 0.0,
+    }
+    def _fill_theme_defaults(frame: pd.DataFrame) -> pd.DataFrame:
+        for col, default in policy_string_defaults.items():
+            if col not in frame.columns:
+                frame[col] = default
+            frame[col] = frame[col].fillna(default).astype(str)
+        for col, default in policy_numeric_defaults.items():
+            if col not in frame.columns:
+                frame[col] = default
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(default)
+        return frame
     if d.empty or "ticker" not in d.columns:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     try:
         from r1000_themes import (
             attach_per_ticker_theme_features,
@@ -6003,12 +6027,12 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
     except Exception:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     themes = load_themes()
     if not themes:
         d["theme_phase_multiplier_primary"] = 1.0
         d["theme_phase_multiplier_max"] = 1.0
-        return d
+        return _fill_theme_defaults(d)
     # Run aggregation per rebalance_date if present (cross-sectional within each date)
     if "rebalance_date" in d.columns:
         out_chunks = []
@@ -6025,4 +6049,4 @@ def compute_theme_phase_features(df: pd.DataFrame) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = 1.0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(1.0)
-    return out
+    return _fill_theme_defaults(out)
