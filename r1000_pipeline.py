@@ -14041,7 +14041,14 @@ def concentrated_weight_map(
             2: np.array([0.70, 0.30], dtype=float),
             3: np.array([0.50, 0.30, 0.20], dtype=float),
         }
-        weights = curve.get(n, curve[3][:n]).astype(float)
+        if n in curve:
+            weights = curve[n].astype(float)
+        else:
+            # Concentrated Expansion tests N>3. Keep the legacy N<=3 curve
+            # intact, but use a smooth conviction decay for wider ladders so
+            # the grid can evaluate 4/5/7/10 names without shape mismatch.
+            ranks = np.arange(n, dtype=float)
+            weights = np.power(0.72, ranks).astype(float)
         weights = weights / max(float(weights.sum()), 1e-8)
     weights = normalize_with_limits(
         pd.Series(weights, index=ranked.index, dtype=float),

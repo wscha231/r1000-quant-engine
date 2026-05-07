@@ -470,6 +470,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is still research-only Main v2 behavior; production defaults remain unchanged.
   - The active full rebuild `25477647771` was already running on commit `7ff739c`; this patch requires a new run after commit/push to measure the replacement-score effect.
 
+### 19:35 KST - concentrated-conviction-curve-wide-n-fix
+
+- scope:
+  - Fix concentrated comparison-grid failure for N>3 conviction-curve tests after run `25481291492` produced NaN concentrated metrics.
+- files:
+  - `r1000_pipeline.py` ->extended `concentrated_weight_map()` so `conviction_curve` preserves legacy N<=3 weights and generates a smooth decay curve for N=4/5/7/10.
+  - `tests/historical_challenger_replays_smoke.py` ->added regression coverage for N=4 conviction-curve weights summing to 100% under the 50% single-name cap.
+  - `CHANGELOG.md` ->records the fix and validation evidence.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with run `25481291492` results and the follow-up rerun focus.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `concentrated_weight_map(cfg, selected, weighting_mode)` ->supports wider concentrated ladders without shape mismatch while keeping the old 1/2/3-name curve unchanged.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 -m py_compile r1000_pipeline.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 88/88.
+- risks_or_notes:
+  - Run `25481291492` used commit `eb99c97`, so it did not include the macro-policy sidecar commit `0c7f91d`.
+  - A follow-up full rebuild is required to verify concentrated metrics are finite and the new macro-policy sidecar is exported.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

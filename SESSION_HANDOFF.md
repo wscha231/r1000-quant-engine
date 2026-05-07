@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-06 18:10 KST (relative weakness + catalyst diagnostics)
+# Session Handoff - 2026-05-07 19:35 KST (concentrated grid fix + macro-policy rerun)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,58 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-06 18:10 KST) - relative weakness + catalyst diagnostics
+## ACTIVE INBOX (2026-05-07 19:35 KST) - concentrated grid fix + macro-policy rerun
+
+**TL;DR** Full rebuild `25481291492` completed successfully on branch
+`codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
+macro-policy sidecar commit `0c7f91d`. Production main improved versus the
+older target-pass run, but concentrated production metrics were invalid because
+the concentrated comparison grid crashed on N=4 conviction-curve weighting.
+That bug is now fixed locally and should be committed/pushed before the next
+full rebuild.
+
+Latest completed run `25481291492`:
+
+```
+main production:                 CAGR 28.16%, MaxDD -18.19%, Sharpe 1.577
+concentrated production metrics: NaN / invalid due N>3 conviction-curve bug
+latest concentrated holdings:    GLW 50%, WDC 30%, SNDK 20%
+position-aware risk proxy:       CAGR 37.34%, MaxDD -12.73%, Sharpe 1.799
+Main v2 historical replay:       CAGR 22.50%, MaxDD -26.98%, Sharpe 1.056
+monster lifecycle replays:       weak; diagnostics only, not promotion-ready
+```
+
+Clear bug fixed after the run:
+- `concentrated_weight_map()` only had explicit `conviction_curve` weights for
+  N=1/2/3. The grid now tests N=4/5/7/10, so N=4 hit a shape mismatch:
+  `Length of values (3) does not match length of index (4)`.
+- The fix keeps legacy N<=3 weights exactly as before and generates a smooth
+  decay curve for wider N values.
+- Added regression coverage in `tests/historical_challenger_replays_smoke.py`.
+
+Validation already passed:
+- `py -3 tests\historical_challenger_replays_smoke.py`
+- `py -3 -m py_compile r1000_pipeline.py tests\historical_challenger_replays_smoke.py`
+- `py -3 tests\workflow_artifact_smoke.py`
+- `py -3 tests\macro_policy_engine_smoke.py`
+- `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- `py -3 tests\smoke_test.py` -> 88/88
+
+Next action:
+1. Commit and push the concentrated grid fix.
+2. Trigger a new `full_rebuild_manual` on `codex/leader-rescue-stale-trim` with
+   `universe_mode=global_alpha_universe`, `backtest_years=8`, `fast_mode=true`,
+   `skip_collector=true`.
+3. Verify:
+   - `concentrated_backtest_metrics.json` has finite CAGR/Sharpe/MaxDD.
+   - `outputs/reports/concentrated_strategy_monthly.csv` exists.
+   - `outputs/macro_policy_engine/` is exported because the next run includes
+     commit `0c7f91d`.
+   - Main stays near the current 28% CAGR / -18% MaxDD level or better.
+
+**Prior context follows.**
+
+## PRIOR INBOX (2026-05-06 18:10 KST) - relative weakness + catalyst diagnostics
 
 **TL;DR** The target-pass rebuild `25394753964` remains the latest completed
 evidence set, but the active work has moved to branch

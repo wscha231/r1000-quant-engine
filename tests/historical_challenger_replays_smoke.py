@@ -446,6 +446,19 @@ def test_weight_caps_and_return_column_fallback() -> None:
     prod_weights = concentrated_weight_map(cfg, selected, "winner_take_all")
     assert max(prod_weights.values()) <= 0.5000001
 
+    selected_wide = pd.DataFrame(
+        [
+            {"ticker": "AAA", "concentrated_score": 10.0, "score": 10.0},
+            {"ticker": "BBB", "concentrated_score": 9.0, "score": 9.0},
+            {"ticker": "CCC", "concentrated_score": 8.0, "score": 8.0},
+            {"ticker": "DDD", "concentrated_score": 7.0, "score": 7.0},
+        ]
+    )
+    wide_weights = concentrated_weight_map(cfg, selected_wide, "conviction_curve")
+    assert set(wide_weights) == {"AAA", "BBB", "CCC", "DDD"}
+    assert abs(sum(wide_weights.values()) - 1.0) < 1e-8
+    assert max(wide_weights.values()) <= 0.5000001
+
     frame = pd.DataFrame({"period_forward_return": [float("nan")], "y_blend": [0.12]})
     assert infer_return_col(frame) == "y_blend"
 
