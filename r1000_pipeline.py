@@ -16464,6 +16464,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     regime_by_month_path = paths["reports"] / "regime_by_month.csv"
     sleeve_returns_by_month_path = paths["reports"] / "sleeve_returns_by_month.csv"
     candidate_replay_book_path = paths["reports"] / "candidate_replay_book.csv"
+    concentrated_compare_path = paths["reports"] / "concentrated_strategy_comparison.csv"
+    concentrated_monthly_path = paths["reports"] / "concentrated_strategy_monthly.csv"
+    concentrated_holdings_path = paths["reports"] / "concentrated_strategy_holdings.csv"
     run_identity = build_run_identity(cfg)
 
     def _safe_unlink(path: Path) -> None:
@@ -16472,6 +16475,17 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                 path.unlink()
         except Exception:
             pass
+
+    def _write_concentrated_grid_artifacts(*, prune_missing: bool = False) -> None:
+        """Persist concentrated grid artifacts before dependent latest exports."""
+        if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
+            concentrated_compare.to_csv(concentrated_compare_path, index=False)
+            concentrated_monthly.to_csv(concentrated_monthly_path, index=False)
+            concentrated_holdings.to_csv(concentrated_holdings_path, index=False)
+        elif prune_missing:
+            _safe_unlink(concentrated_compare_path)
+            _safe_unlink(concentrated_monthly_path)
+            _safe_unlink(concentrated_holdings_path)
 
     def _write_monthly_mandate_books() -> None:
         """Persist raw monthly books needed by historical orchestrator replays."""
@@ -16717,6 +16731,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             replay_book.to_csv(candidate_replay_book_path, index=False)
 
     _write_monthly_mandate_books()
+    _write_concentrated_grid_artifacts(prune_missing=False)
 
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
@@ -16953,9 +16968,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
     standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
     standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
-    concentrated_compare_path = paths["reports"] / "concentrated_strategy_comparison.csv"
-    concentrated_monthly_path = paths["reports"] / "concentrated_strategy_monthly.csv"
-    concentrated_holdings_path = paths["reports"] / "concentrated_strategy_holdings.csv"
     run_standalone_sleeve_compare = bool(getattr(cfg, "run_standalone_sleeve_backtest_comparison", True))
     if run_standalone_sleeve_compare and not standalone_sleeve_compare.empty:
         standalone_sleeve_compare.to_csv(standalone_sleeve_compare_path, index=False)
@@ -16965,14 +16977,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(standalone_sleeve_compare_path)
         _safe_unlink(standalone_sleeve_monthly_path)
         _safe_unlink(standalone_sleeve_holdings_path)
-    if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
-        concentrated_compare.to_csv(concentrated_compare_path, index=False)
-        concentrated_monthly.to_csv(concentrated_monthly_path, index=False)
-        concentrated_holdings.to_csv(concentrated_holdings_path, index=False)
-    else:
-        _safe_unlink(concentrated_compare_path)
-        _safe_unlink(concentrated_monthly_path)
-        _safe_unlink(concentrated_holdings_path)
+    _write_concentrated_grid_artifacts(prune_missing=True)
     if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
         ai_four_sleeve_compare.to_csv(ai_four_sleeve_compare_path, index=False)
         ai_four_sleeve_regime_grid.to_csv(ai_four_sleeve_regime_grid_path, index=False)

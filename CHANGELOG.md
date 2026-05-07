@@ -82,6 +82,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - This validates the champion plumbing without launching a new full rebuild.
   - Latest concentrated metrics remain unverified in GitHub artifacts until the next cloud rebuild writes the corrected summary.
 
+### 09:59 KST - concentrated-export-order-fix
+
+- scope:
+  - Fix concentrated latest output export order so the validated comparison-grid champion is available before `concentrated_backtest_metrics.json` and `concentrated_portfolio_latest.csv` are written.
+- files:
+  - `r1000_pipeline.py` ->writes concentrated comparison/monthly/holdings grid artifacts before dependent latest concentrated exports and reuses the same writer for final cleanup.
+  - `tests/concentrated_policy_smoke.py` ->adds coverage for reloading an already-written concentrated comparison artifact when the in-memory comparison frame is empty.
+  - `CHANGELOG.md` ->records the concentrated export-order fix.
+- symbols_added:
+  - `export_outputs._write_concentrated_grid_artifacts(prune_missing=False)` ->internal helper that persists or prunes concentrated grid artifacts consistently inside export.
+  - `test_latest_concentrated_reloads_written_grid_artifact()` ->smoke test for concentrated champion reload from a written grid artifact.
+- symbols_changed:
+  - `export_outputs()` ->persists concentrated grid artifacts before latest concentrated holdings/metrics are built, preventing stale fallback NaN metrics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/concentrated_strategy_comparison.csv` ->now exists before latest concentrated output construction during export.
+  - `outputs/concentrated_backtest_metrics.json` ->next rebuild should use the N=3 score_power champion metrics instead of NaN fallback when the grid comparison is valid.
+- validation:
+  - `py -3 tests\concentrated_policy_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - local latest artifact check ->passed; direct comparison champion selects GLW/CIEN/WDC at N=3 score_power with CAGR 45.75% and MaxDD -20.62%.
+- risks_or_notes:
+  - No production scoring/defaults changed; this is output plumbing only.
+  - Existing GitHub artifacts remain stale until the next full rebuild writes corrected concentrated summary files.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff
