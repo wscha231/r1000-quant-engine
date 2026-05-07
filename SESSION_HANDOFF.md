@@ -55,6 +55,36 @@ Next action:
      commit `0c7f91d`.
    - Main stays near the current 28% CAGR / -18% MaxDD level or better.
 
+**Latest local patch after full rebuild `25490280861` started**
+
+Purpose:
+- Add finer power/material theme recognition requested by the user:
+  nuclear fuel-cycle (`LEU`), SMR/advanced nuclear, fuel cells, gas turbines,
+  renewable power equipment, and critical minerals / rare earths.
+- Separate long-duration structural themes from product-cycle and
+  commodity-cycle themes so theme RS/phase changes can drive different
+  research-only holding and trim behavior.
+- Add non-R1000 or possibly non-R1000 names to `cycle_play_universe.yaml` so
+  they can appear in `global_alpha_universe` scoring when liquidity/mcap gates
+  pass. This is not a buy list.
+
+Changed files:
+- `themes.yaml`
+- `cycle_play_universe.yaml`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\smoke_test.py` passed, 89/89.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` passed.
+
+Run note:
+- Active run `25490280861` started on commit `ee8f0d1`, before this theme
+  refresh. Commit/push this patch after review; the next full rebuild after
+  `25490280861` should include it.
+
 **Prior context follows.**
 
 ## PRIOR INBOX (2026-05-06 18:10 KST) - relative weakness + catalyst diagnostics

@@ -35,7 +35,7 @@
 #   - global_alpha_universe  Same as r1000+adr+cycle (alias)
 
 cycle_play_universe:
-  # ============== Clean Energy / Hydrogen / Fuel Cell (8) ==============
+  # ============== Clean Energy / Hydrogen / Fuel Cell / Renewables (10) ==============
   - ticker: BE
     name: "Bloom Energy"
     sector: Industrials
@@ -110,6 +110,94 @@ cycle_play_universe:
     mcap_usd_b: 1.0
     listed_since: "2020-10"
     notes: "Single-axis solar tracker. Cap-ex cycle exposure."
+
+  - ticker: NXT
+    name: "Nextracker"
+    sector: Industrials
+    sub_sector: Solar Tracker
+    cycle_focus: clean_energy
+    mcap_usd_b: 8
+    listed_since: "2023-02"
+    notes: "Utility-scale solar tracker; renewable power equipment theme. manual_pin for theme RS monitoring."
+    manual_pin: true
+
+  - ticker: FLNC
+    name: "Fluence Energy"
+    sector: Industrials
+    sub_sector: Grid Storage
+    cycle_focus: clean_energy
+    mcap_usd_b: 2
+    listed_since: "2021-10"
+    notes: "Grid-scale storage and renewable power integration. manual_pin for storage cycle monitoring."
+    manual_pin: true
+
+  # ============== Nuclear / Critical Materials / Power Equipment (7) ==============
+  - ticker: LEU
+    name: "Centrus Energy"
+    sector: Energy
+    sub_sector: Nuclear Fuel Cycle
+    cycle_focus: nuclear_fuel_cycle
+    mcap_usd_b: 3
+    listed_since: "2014-09"
+    notes: "Uranium enrichment / HALEU fuel-cycle bottleneck. User-requested missing nuclear name; not a buy instruction."
+    manual_pin: true
+
+  - ticker: SMR
+    name: "NuScale Power"
+    sector: Industrials
+    sub_sector: Small Modular Reactor
+    cycle_focus: nuclear_smr
+    mcap_usd_b: 2
+    listed_since: "2022-05"
+    notes: "SMR developer; high event/policy risk, monitor as structural nuclear option."
+    manual_pin: true
+
+  - ticker: OKLO
+    name: "Oklo"
+    sector: Utilities
+    sub_sector: Advanced Nuclear
+    cycle_focus: nuclear_smr
+    mcap_usd_b: 5
+    listed_since: "2024-05"
+    notes: "Advanced nuclear developer; sparse history and high policy/financing risk."
+    manual_pin: true
+
+  - ticker: UEC
+    name: "Uranium Energy"
+    sector: Energy
+    sub_sector: Uranium Mining
+    cycle_focus: uranium_materials
+    mcap_usd_b: 3
+    listed_since: "2007-09"
+    notes: "Uranium miner; tactical commodity-cycle name, not long-duration compounder by default."
+
+  - ticker: MP
+    name: "MP Materials"
+    sector: Materials
+    sub_sector: Rare Earths
+    cycle_focus: critical_minerals
+    mcap_usd_b: 4
+    listed_since: "2020-11"
+    notes: "US rare-earth supply chain; strategic materials theme."
+    manual_pin: true
+
+  - ticker: LAC
+    name: "Lithium Americas"
+    sector: Materials
+    sub_sector: Lithium
+    cycle_focus: critical_minerals
+    mcap_usd_b: 1
+    listed_since: "2023-10"
+    notes: "Lithium development; high commodity/policy risk, keep tactical."
+
+  - ticker: GTLS
+    name: "Chart Industries"
+    sector: Industrials
+    sub_sector: Cryogenic / Hydrogen / LNG Equipment
+    cycle_focus: power_equipment
+    mcap_usd_b: 9
+    listed_since: "2006-07"
+    notes: "Cryogenic equipment for LNG, hydrogen, and industrial gas infrastructure."
 
   # ============== EV / Battery / Charging (5) ==============
   - ticker: RIVN
@@ -373,9 +461,9 @@ cycle_play_universe:
 # Auto-refresh metadata
 metadata:
   schema_version: "2026-04-29-v1"
-  last_curated: "2026-04-29"
-  curator: "phase15d-initial"
-  total_entries: 36
+  last_curated: "2026-05-07"
+  curator: "theme-rs-power-materials-refresh"
+  total_entries: 45
   notes: |
     Initial Phase 15-D hand-curation. Auto-refresh script will:
     - Update mcap_usd_b values to current month

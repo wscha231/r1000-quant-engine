@@ -813,6 +813,25 @@ def test_strategic_global_hardware_universe_loader() -> None:
     assert aggressive_meta
 
 
+@_test("logic.cycle_play_power_materials_universe_loader")
+def test_cycle_play_power_materials_universe_loader() -> None:
+    """Cycle overlay must include power/materials names that may be outside R1000.
+
+    These are not buy instructions; they keep nuclear fuel-cycle, fuel-cell,
+    renewable equipment, and critical-mineral candidates visible for scoring
+    and theme-relative-strength diagnostics.
+    """
+    if _args.quick:
+        return
+    from aggressive.universe import load_cycle_play_universe
+
+    tickers, meta = load_cycle_play_universe()
+    ticker_set = set(tickers)
+    for ticker in ("LEU", "SMR", "OKLO", "GTLS", "FLNC", "NXT", "MP", "LAC"):
+        assert ticker in ticker_set, ticker
+    assert meta
+
+
 @_test("logic.phase_is_enabled_env_precedence")
 def test_phase_is_enabled_env() -> None:
     """phase_is_enabled honours PHASE_{KEY}_ENABLED env var overrides.
@@ -2101,10 +2120,17 @@ def test_theme_policy_metadata_surface() -> None:
     themes = load_themes(ROOT / "themes.yaml")
     assert themes["oil_gas_services"]["theme_horizon"] == "commodity_cycle"
     assert themes["ai_compute"]["theme_horizon"] == "structural_growth"
+    assert "LEU" in themes["nuclear_fuel_cycle"]["tickers"]
+    assert themes["nuclear_fuel_cycle"]["theme_horizon"] == "structural_growth"
+    assert themes["fuel_cell_distributed_power"]["theme_horizon"] == "product_cycle"
+    assert themes["critical_minerals_rare_earths"]["theme_horizon"] == "commodity_cycle"
     df = pd.DataFrame(
         [
             {"ticker": "FTI", "mom_6m": 0.20},
             {"ticker": "NVDA", "mom_6m": 0.10},
+            {"ticker": "LEU", "mom_6m": 0.30},
+            {"ticker": "BE", "mom_6m": 0.15},
+            {"ticker": "MP", "mom_6m": 0.05},
         ]
     )
     out = attach_per_ticker_theme_features(df, themes)
@@ -2112,6 +2138,9 @@ def test_theme_policy_metadata_surface() -> None:
     assert by_ticker["FTI"]["theme_event_risk_sensitivity_max"] >= 0.75
     assert by_ticker["FTI"]["theme_short_cycle_flag_max"] >= 0.5
     assert by_ticker["NVDA"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["LEU"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["BE"]["theme_event_risk_sensitivity_max"] >= 0.55
+    assert by_ticker["MP"]["theme_short_cycle_flag_max"] >= 0.5
 
 
 @_test("regression.market_style_regime_router")

@@ -146,13 +146,49 @@ themes:
     description: "Nuclear power + small modular reactors"
     theme_horizon: structural_growth
     holding_profile: long_duration
-    tickers: [CEG, VST, NRG, PEG, DUK, SMR, OKLO, BWXT]
+    tickers: [CEG, VST, NRG, PEG, DUK, SMR, OKLO, BWXT, LEU]
+
+  nuclear_fuel_cycle:
+    description: "Uranium enrichment, fuel cycle, and nuclear supply chain"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.42
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [LEU, CCJ, UEC, URG, BWXT]
 
   power_grid_infra:
     description: "Power grid equipment + construction"
     theme_horizon: structural_growth
     holding_profile: long_duration
     tickers: [GEV, ETN, PWR, EME, MMM, HUBB, MYRG, PRIM, AECOM]
+
+  gas_turbine_power:
+    description: "Gas turbines, backup power, and dispatchable power generation"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.35
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [GEV, CAT, CMI, GTLS]
+
+  fuel_cell_distributed_power:
+    description: "Fuel cells, distributed power, and hydrogen power infrastructure"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
+    event_risk_sensitivity: 0.58
+    target_hold_months: 6
+    max_hold_months: 24
+    tickers: [BE, PLUG, FCEL, BLDP, GTLS]
+
+  renewable_power_equipment:
+    description: "Solar, storage, and renewable power equipment"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
+    event_risk_sensitivity: 0.62
+    target_hold_months: 6
+    max_hold_months: 18
+    tickers: [FSLR, ENPH, NXT, ARRY, FLNC, RUN]
 
   # ============== Healthcare / Biotech ==============
   weight_loss_drugs:
@@ -243,6 +279,15 @@ themes:
     target_hold_months: 6
     max_hold_months: 18
     tickers: [CCJ, UEC, URG, MP, LAC]
+
+  critical_minerals_rare_earths:
+    description: "Rare earths, lithium, copper, and strategic battery/grid materials"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.70
+    target_hold_months: 6
+    max_hold_months: 18
+    tickers: [MP, LAC, ALB, SQM, FCX, SCCO, TECK, BHP, RIO]
 
   # ============== Meta grouping ==============
   # These aren't themes per se but lifecycle metadata — will populate

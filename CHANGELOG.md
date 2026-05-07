@@ -500,6 +500,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - Run `25481291492` used commit `eb99c97`, so it did not include the macro-policy sidecar commit `0c7f91d`.
   - A follow-up full rebuild is required to verify concentrated metrics are finite and the new macro-policy sidecar is exported.
 
+### 19:36 KST - power-materials-theme-refresh
+
+- scope:
+  - Expand theme taxonomy and cycle-play coverage for nuclear fuel, SMR, fuel cells, gas turbines, renewable equipment, and critical minerals so theme/sector relative-strength changes can surface without ticker hardcoding.
+- files:
+  - `themes.yaml` ->adds `nuclear_fuel_cycle`, `fuel_cell_distributed_power`, `gas_turbine_power`, `renewable_power_equipment`, and `critical_minerals_rare_earths`; adds `LEU` to nuclear coverage.
+  - `cycle_play_universe.yaml` ->adds LEU/SMR/OKLO/UEC/MP/LAC/GTLS/NXT/FLNC to the global-alpha cycle overlay with long-duration versus tactical-cycle metadata.
+  - `tests/smoke_test.py` ->adds coverage that the new theme metadata and cycle-play overlay names parse and load.
+  - `CHANGELOG.md` ->records the theme/universe refresh.
+  - `SESSION_HANDOFF.md` ->notes that the active run does not include this theme refresh and the next run should.
+- symbols_added:
+  - `test_cycle_play_power_materials_universe_loader()` ->guards LEU/SMR/OKLO/GTLS/FLNC/NXT/MP/LAC cycle-play visibility.
+- symbols_changed:
+  - `test_theme_policy_metadata_surface()` ->now validates nuclear fuel-cycle, fuel-cell, and critical-mineral horizon/event-risk metadata.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - These are candidate-universe/theme metadata changes, not buy instructions.
+  - Full rebuild `25490280861` was already running on commit `ee8f0d1`; a later run is needed to measure this taxonomy refresh.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff
