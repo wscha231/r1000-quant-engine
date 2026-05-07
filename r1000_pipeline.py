@@ -2829,6 +2829,8 @@ def normalize_engine_universe_mode(mode: Any) -> str:
         "global-alpha": "global_alpha_universe",
         "global_alpha": "global_alpha_universe",
         "global+adr": "global_alpha_universe",
+        "global+hardware": "global_alpha_universe",
+        "global_hardware": "global_alpha_universe",
         # Phase 15-D (2026-04-29): cycle play overlays
         "r1000+adr+cycle": "global_alpha_universe",  # full overlay alias
         "r1000+cycle": "r1000+cycle",
@@ -2918,6 +2920,54 @@ def load_cycle_play_universe_frame(
             }
         )
     return pd.DataFrame(rows, columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+
+def load_strategic_global_hardware_universe_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load strategic semiconductor/AI hardware candidates from YAML.
+
+    This is a universe overlay only. It keeps names like global semis,
+    memory/storage, optical networking, and AI infrastructure visible to
+    diagnostics/latest scoring without bypassing normal score/risk gates.
+    """
+    path_raw = str(getattr(cfg, "strategic_global_hardware_universe_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "strategic_global_hardware_universe.yaml")
+    if not path.exists():
+        log(f"[INFO] strategic global hardware universe missing: {path}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] strategic global hardware universe requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] strategic global hardware universe load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    raw = payload.get("strategic_global_hardware_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Information Technology")),
+                "industry_group": str(rec.get("industry_group", rec.get("segment", "Strategic Hardware"))),
+                "cik10": np.nan,
+                "universe_source": "strategic_global_hardware",
+            }
+        )
+    out = pd.DataFrame(rows, columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
 
 
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
@@ -3367,6 +3417,11 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     # below R1000 size threshold. r1000+adr stays clean (no cycle_play) for
     # legacy comparison; global_alpha_universe gets the full overlay.
     include_cycle_play = universe_mode in {"global_alpha_universe", "r1000+cycle"}
+    include_strategic_global_hardware = (
+        bool(getattr(cfg, "strategic_global_hardware_universe_enabled", True))
+        and universe_mode in {"global_alpha_universe"}
+    )
+    strategic_global_hardware_added_to_frames = False
     hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
         prev = pd.read_parquet(out_path) if out_path.exists() else pd.DataFrame()
@@ -3460,6 +3515,20 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     f"sources={len(rescue_frames)}, candidates={len(rescue)}, added_pre_dedup={len(added)}"
                 )
 
+        if include_strategic_global_hardware:
+            strategic_hw = load_strategic_global_hardware_universe_frame(cfg)
+            if not strategic_hw.empty:
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(strategic_hw["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(strategic_hw)
+                strategic_global_hardware_added_to_frames = True
+                log(
+                    "Strategic global hardware universe injection: "
+                    f"candidates={len(strategic_hw)}, added_pre_dedup={len(added)}"
+                )
+
         if not frames:
             raise RuntimeError("Unable to build candidate universe from sources.")
 
@@ -3501,6 +3570,18 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             )
         else:
             log(f"[INFO] universe_mode={universe_mode} requested cycle_play injection, but cycle_play_universe.yaml was empty.")
+
+    if include_strategic_global_hardware and not adr_only and not strategic_global_hardware_added_to_frames:
+        strategic_hw = load_strategic_global_hardware_universe_frame(cfg)
+        if not strategic_hw.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            hw_add = strategic_hw[~strategic_hw["ticker"].astype(str).isin(before)].copy()
+            if not hw_add.empty:
+                uni = pd.concat([uni, hw_add], ignore_index=True, sort=False)
+            log(
+                "Strategic global hardware overlay: "
+                f"mode={universe_mode}, candidates={len(strategic_hw)}, added={len(hw_add)}"
+            )
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
@@ -3734,16 +3815,18 @@ def write_leader_drop_diagnostics(
 
 
 def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
-    """Rows added only by broad current leader-rescue lists.
+    """Rows added only by broad current overlay lists.
 
     If a ticker is also in the base IWB/current proxy, historical membership,
     ADR whitelist, cycle whitelist, or the legacy explicit Wikipedia source,
-    keep that base justification. This filter only removes incremental rescue
-    rows that would otherwise use today's S&P/Nasdaq constituents throughout
-    historical backtests.
+    keep that base justification. This filter only removes incremental current
+    overlay rows that would otherwise use today's S&P/Nasdaq/strategic hardware
+    candidates throughout historical backtests.
     """
     source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
-    has_rescue = source.str.contains("leader_rescue_", regex=False)
+    has_rescue = source.str.contains("leader_rescue_", regex=False) | source.str.contains(
+        "strategic_global_hardware", regex=False
+    )
     has_base = (
         source.str.contains("historical_membership_file", regex=False)
         | source.str.contains("current_constituents_proxy", regex=False)

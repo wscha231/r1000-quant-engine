@@ -1,0 +1,115 @@
+# Strategic global hardware / semiconductor research universe.
+#
+# Purpose:
+#   Keep important AI hardware, semiconductor, memory/storage, equipment,
+#   networking, and optical candidates visible to diagnostics and latest
+#   scoring. This is a universe overlay only; it is NOT a buy list and does
+#   not bypass liquidity, market-cap, scoring, stale-leader, or risk gates.
+#
+# PIT safety:
+#   Rows that enter only through this current curated overlay are treated like
+#   leader-rescue rows by the backtest-mode filter. The default latest_only
+#   mode keeps them out of historical OOS months; use full_proxy only for
+#   explicitly biased research coverage tests.
+
+strategic_global_hardware_universe:
+  - ticker: AMD
+    name: Advanced Micro Devices
+    segment: ai_accelerator_cpu_gpu
+    domicile: US
+  - ticker: NVDA
+    name: NVIDIA
+    segment: ai_accelerator_gpu_networking
+    domicile: US
+  - ticker: AVGO
+    name: Broadcom
+    segment: ai_networking_custom_silicon
+    domicile: US
+  - ticker: INTC
+    name: Intel
+    segment: cpu_foundry_governance_turnaround
+    domicile: US
+  - ticker: ARM
+    name: Arm Holdings
+    segment: cpu_ip_architecture
+    domicile: UK_ADS
+  - ticker: ASML
+    name: ASML Holding
+    segment: semiconductor_equipment_lithography
+    domicile: Netherlands_ADR
+  - ticker: TSM
+    name: Taiwan Semiconductor Manufacturing
+    segment: semiconductor_foundry
+    domicile: Taiwan_ADR
+  - ticker: AMAT
+    name: Applied Materials
+    segment: semiconductor_equipment
+    domicile: US
+  - ticker: KLAC
+    name: KLA
+    segment: semiconductor_process_control
+    domicile: US
+  - ticker: LRCX
+    name: Lam Research
+    segment: semiconductor_equipment
+    domicile: US
+  - ticker: MRVL
+    name: Marvell Technology
+    segment: ai_networking_custom_silicon
+    domicile: US
+  - ticker: QCOM
+    name: Qualcomm
+    segment: edge_ai_wireless
+    domicile: US
+  - ticker: MU
+    name: Micron Technology
+    segment: memory_hbm_dram_nand
+    domicile: US
+  - ticker: WDC
+    name: Western Digital
+    segment: memory_storage_hdd_nand
+    domicile: US
+  - ticker: SNDK
+    name: SanDisk
+    segment: memory_storage_nand
+    domicile: US
+  - ticker: STX
+    name: Seagate Technology
+    segment: memory_storage_hdd
+    domicile: Ireland_US_listed
+  - ticker: LITE
+    name: Lumentum
+    segment: optical_networking_photonics
+    domicile: US
+  - ticker: CIEN
+    name: Ciena
+    segment: optical_networking
+    domicile: US
+  - ticker: GLW
+    name: Corning
+    segment: optical_glass_datacenter
+    domicile: US
+  - ticker: ANET
+    name: Arista Networks
+    segment: datacenter_networking
+    domicile: US
+  - ticker: VRT
+    name: Vertiv
+    segment: ai_datacenter_power_cooling
+    domicile: US
+  - ticker: SMCI
+    name: Super Micro Computer
+    segment: ai_server_infrastructure
+    domicile: US
+  - ticker: DELL
+    name: Dell Technologies
+    segment: ai_server_storage
+    domicile: US
+  - ticker: HPE
+    name: Hewlett Packard Enterprise
+    segment: server_networking
+    domicile: US
+  - ticker: COHR
+    name: Coherent
+    segment: optical_photonics
+    domicile: US

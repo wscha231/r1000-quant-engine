@@ -228,6 +228,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - Existing cloud artifacts still show pre-fix historical replay gaps; the next full rebuild is needed to populate the expanded `candidate_replay_book.csv`.
   - The current latest artifact confirms effective market cap is present via `mktcap`, but historical source/gate labels and raw fundamentals need the next export to become auditable.
 
+### 12:33 KST - strategic-global-hardware-universe
+
+- scope:
+  - Add a non-buy-list strategic semiconductor, AI hardware, memory/storage, optical, and datacenter infrastructure universe overlay so missing leaders remain visible to latest diagnostics and explicit research backtests.
+- files:
+  - `strategic_global_hardware_universe.yaml` ->adds the curated research universe records for INTC, AMD, ARM, ASML, TSM, AVGO, QCOM, MU, WDC, SNDK, STX, LITE, CIEN, GLW, and adjacent hardware leaders.
+  - `r1000_config.py` ->adds enable/path fields for the strategic global hardware universe overlay.
+  - `r1000_pipeline.py` ->loads the YAML overlay, injects it into `global_alpha_universe`, and treats overlay-only historical rows like leader-rescue rows under `leader_rescue_backtest_mode`.
+  - `tools/run_dataset_coverage_audit.py` ->expands the default watchlist to include semiconductor, AI hardware, memory/storage, optical, and datacenter infrastructure names.
+  - `tests/smoke_test.py` ->adds loader coverage and verifies strategic overlay-only rows obey latest-only/full-proxy/off backtest filtering.
+  - `CHANGELOG.md` ->records the strategic global hardware universe overlay.
+- symbols_added:
+  - `load_strategic_global_hardware_universe_frame(cfg)` ->loads the strategic hardware YAML as a candidate-universe source without bypassing normal scoring or risk gates.
+  - `test_strategic_global_hardware_universe_loader()` ->guards the overlay loader and required diagnostic tickers.
+- symbols_changed:
+  - `normalize_engine_universe_mode(mode)` ->adds hardware aliases into the shared `global_alpha_universe` path.
+  - `build_candidate_universe()` ->injects strategic hardware candidates into global-alpha candidate discovery and logs pre-dedup additions.
+  - `_leader_rescue_only_source_mask(df)` ->treats strategic hardware overlay-only rows as current-overlay rows for PIT-safer historical filtering.
+  - `test_leader_rescue_latest_only_filter()` ->verifies strategic overlay-only rows are latest-only by default, retained in `full_proxy`, and removed in `off`.
+- config_fields_added:
+  - `strategic_global_hardware_universe_enabled: bool = True` ->enables the diagnostic universe overlay in global-alpha runs.
+  - `strategic_global_hardware_universe_path: str = ""` ->optional override path for the strategic hardware YAML.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/dataset_coverage_audit_watchlist.csv` ->next full rebuild will classify the expanded hardware watchlist as selected, rejected, historical-only, or not in latest universe.
+  - `outputs/reports/leader_rescue_backtest_filter_summary.json` ->now counts strategic hardware overlay-only rows in the same latest-only/full-proxy/off safety filter.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\smoke_test.py` ->passed.
+  - inline `load_strategic_global_hardware_universe_frame()` check ->passed; loaded 25 rows including INTC, AMD, ARM, ASML, STX, SNDK, WDC, LITE, and CIEN.
+  - `py -3 tests\dataset_coverage_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 84/84.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is a candidate-universe overlay, not a ticker buy rule.
+  - Default historical production metrics remain PIT-safer because overlay-only rows are latest-only unless `leader_rescue_mode=full_proxy` is explicitly selected for biased research.
+  - Price history can be fetched for these tickers on the next collector run, but fundamentals, ADR data, and event/ownership coverage will vary by ticker, listing date, and source availability.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

@@ -760,11 +760,13 @@ def test_leader_rescue_latest_only_filter() -> None:
 
     monthly = pd.DataFrame(
         {
-            "rebalance_date": pd.to_datetime(["2026-03-31", "2026-04-30", "2026-03-31"]),
-            "ticker": ["RSQ", "RSQ", "BASE"],
+            "rebalance_date": pd.to_datetime(["2026-03-31", "2026-04-30", "2026-03-31", "2026-04-30", "2026-03-31"]),
+            "ticker": ["RSQ", "RSQ", "HW", "HW", "BASE"],
             "universe_source": [
                 "leader_rescue_sp500",
                 "leader_rescue_sp500",
+                "strategic_global_hardware",
+                "strategic_global_hardware",
                 "current_constituents_proxy+leader_rescue_sp500",
             ],
         }
@@ -773,17 +775,36 @@ def test_leader_rescue_latest_only_filter() -> None:
         cfg = EngineConfig(base_dir=td)
         cfg.leader_rescue_backtest_mode = "latest_only"
         out = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
-        assert set(out["ticker"]) == {"RSQ", "BASE"}
+        assert set(out["ticker"]) == {"RSQ", "HW", "BASE"}
         assert len(out[out["ticker"].eq("RSQ")]) == 1
         assert pd.Timestamp(out[out["ticker"].eq("RSQ")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+        assert len(out[out["ticker"].eq("HW")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("HW")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
 
         cfg.leader_rescue_backtest_mode = "full_proxy"
         out_full = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
-        assert len(out_full) == 3
+        assert len(out_full) == 5
 
         cfg.leader_rescue_backtest_mode = "off"
         out_off = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
         assert set(out_off["ticker"]) == {"BASE"}
+
+
+@_test("logic.strategic_global_hardware_universe_loader")
+def test_strategic_global_hardware_universe_loader() -> None:
+    """Strategic hardware overlay is a data-backed universe source, not a
+    portfolio instruction, and must include the missing-name diagnostics set.
+    """
+    if _args.quick:
+        return
+    from r1000_config import EngineConfig
+    from r1000_pipeline import load_strategic_global_hardware_universe_frame
+
+    out = load_strategic_global_hardware_universe_frame(EngineConfig())
+    tickers = set(out["ticker"].astype(str).str.upper().tolist())
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in tickers, ticker
+    assert set(out["universe_source"].astype(str)) == {"strategic_global_hardware"}
 
 
 @_test("logic.phase_is_enabled_env_precedence")
@@ -2292,6 +2313,7 @@ def test_global_alpha_universe_window_audit_wired() -> None:
     for token in (
         "default_backtest_years: int = 8",
         'leader_rescue_backtest_mode: str = "latest_only"',
+        "strategic_global_hardware_universe_enabled: bool = True",
         "[5, 8, 10]",
     ):
         assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
@@ -2302,6 +2324,8 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "global_alpha_sleeve_audit_by_month.csv",
         "global_alpha_sleeve_audit_summary.csv",
         "apply_leader_rescue_backtest_mode_filter",
+        "load_strategic_global_hardware_universe_frame",
+        "strategic_global_hardware",
         "leader_rescue_backtest_filter_summary.json",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"

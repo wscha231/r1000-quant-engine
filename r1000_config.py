@@ -1953,6 +1953,8 @@ class EngineConfig:
     leader_rescue_backtest_mode: str = "latest_only"  # latest_only | full_proxy | off
     leader_rescue_diagnostics_enabled: bool = True
     leader_rescue_price_stale_days: int = 14
+    strategic_global_hardware_universe_enabled: bool = True
+    strategic_global_hardware_universe_path: str = ""
     w_quality_trend: float = 0.20
     w_forward_revision: float = 0.25
     w_event_reaction: float = 0.10
