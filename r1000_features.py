@@ -2989,6 +2989,7 @@ def compute_market_style_regime_features(df: pd.DataFrame) -> pd.DataFrame:
         date_source = pd.Series(pd.NaT, index=d.index)
     month = date_source.dt.month.fillna(0).astype(int)
     quarter = date_source.dt.quarter.fillna(0).astype(int)
+    weekday = date_source.dt.weekday.fillna(0).astype(int)
     min_date = date_source.dropna().min() if date_source.notna().any() else pd.NaT
     years_since_start = pd.Series(0.0, index=d.index) if pd.isna(min_date) else (date_source - min_date).dt.days.fillna(0.0) / 365.25
 
@@ -3034,11 +3035,14 @@ def compute_market_style_regime_features(df: pd.DataFrame) -> pd.DataFrame:
     d["style_overheat_risk_score"] = overheat_risk
     d["style_calendar_month"] = month
     d["style_calendar_quarter"] = quarter
+    d["style_calendar_weekday"] = weekday
     d["style_calendar_years_since_start"] = years_since_start
     d["style_calendar_month_sin"] = np.sin(2.0 * np.pi * month.clip(lower=1) / 12.0)
     d["style_calendar_month_cos"] = np.cos(2.0 * np.pi * month.clip(lower=1) / 12.0)
     d["style_calendar_quarter_sin"] = np.sin(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
     d["style_calendar_quarter_cos"] = np.cos(2.0 * np.pi * quarter.clip(lower=1) / 4.0)
+    d["style_calendar_weekday_sin"] = np.sin(2.0 * np.pi * weekday.clip(lower=0) / 7.0)
+    d["style_calendar_weekday_cos"] = np.cos(2.0 * np.pi * weekday.clip(lower=0) / 7.0)
     d["style_row_breakout_fit"] = (breakout_pref * breakout_setup).clip(lower=-6.0, upper=6.0)
     d["style_row_turnaround_fit"] = (turnaround_pref * turnaround_setup).clip(lower=-6.0, upper=6.0)
     d["style_row_compounder_fit"] = (quality_pref * compounder_setup).clip(lower=-6.0, upper=6.0)

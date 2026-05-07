@@ -2160,6 +2160,7 @@ def test_market_style_regime_router() -> None:
     assert out.loc[0, "style_row_breakout_fit"] > out.loc[0, "style_row_turnaround_fit"]
     assert out.loc[1, "style_row_turnaround_fit"] > out.loc[1, "style_row_breakout_fit"]
     assert out.loc[0, "style_calendar_month"] == 1
+    assert out.loc[0, "style_calendar_weekday"] == 2
 
 
 @_test("regression.scanner_has_stage2_breakout_guard")

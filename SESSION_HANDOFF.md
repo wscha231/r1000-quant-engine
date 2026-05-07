@@ -124,8 +124,8 @@ Purpose:
 - It uses existing macro/market columns such as liquidity, M2/TGA/reverse repo
   derivatives, CPI/inflation pressure, rates, VIX/credit, benchmark trend,
   breadth/participation, QQQ-vs-SPY, and overheat/narrowing.
-- It also surfaces calendar/seasonality metadata: month, quarter, years since
-  first sample, and month/quarter sin/cos encodings.
+- It also surfaces calendar/seasonality metadata: month, quarter, weekday,
+  years since first sample, and month/quarter/weekday sin/cos encodings.
 - These fields are preserved in `candidate_replay_book.csv` and summarized by
   a new `outputs/style_regime_report/` sidecar.
 

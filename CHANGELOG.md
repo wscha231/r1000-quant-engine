@@ -330,7 +330,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - Add research-only market style routing so full rebuilds can compare breakout-growth, turnaround-accumulation, quality-compounder, and cash-defense environments before changing production weights.
 - files:
   - `r1000_config.py` ->adds style regime metadata columns and bumps `ENGINE_REUSE_VERSION`.
-  - `r1000_features.py` ->computes style regime preferences from market, liquidity, rate, inflation, overheat, benchmark, and calendar context.
+  - `r1000_features.py` ->computes style regime preferences from market, liquidity, rate, inflation, overheat, benchmark, and calendar/month/quarter/weekday context.
   - `r1000_pipeline.py` ->runs the style router after Phase 14/15 signals and preserves the columns in feature store plus candidate replay books.
   - `tools/run_style_regime_report.py` ->new sidecar that summarizes monthly and latest style preferences and top breakout/turnaround/compounder candidates.
   - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, syncs, and commits `outputs/style_regime_report/`.
@@ -356,7 +356,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `test_historical_challenger_replays()` ->also validates the style regime sidecar.
   - `test_workflow_runs_latest_diagnostics_sidecars()` ->also checks style report workflow wiring.
 - config_fields_added:
-  - `PHASE21_STYLE_REGIME_COLUMNS: list[str] = [...]` ->research-only column list for style regime metadata.
+  - `PHASE21_STYLE_REGIME_COLUMNS: list[str] = [...]` ->research-only column list for style regime metadata including month, quarter, weekday, and cyclic encodings.
   - `ENGINE_REUSE_VERSION: str = "2026-05-07-style-regime-router"` ->forces feature-store rebuild for the new metadata.
 - breaking_changes:
   - none
