@@ -32,6 +32,7 @@ def test_workflow_keeps_monthly_books() -> None:
     for token in (
         "outputs/main_v2_backtest/",
         "outputs/concentrated_policy_replay/",
+        "outputs/concentrated_trade_journal/",
         "outputs/alpha_sprint_backtest/",
         "outputs/position_aware_risk_replay/",
         "outputs/governance_catalyst/",
@@ -50,6 +51,7 @@ def test_cloud_results_copy_is_not_nested() -> None:
     bad_tokens = [
         'cp -r outputs/orchestrator "$DEST/orchestrator"',
         'cp -r outputs/trade_journal "$DEST/trade_journal"',
+        'cp -r outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"',
         'cp -r outputs/auto_learning "$DEST/auto_learning"',
         'cp -r outputs/orchestrator_replay "$DEST/orchestrator_replay"',
         'cp -r outputs/portfolio_goal_search "$DEST/portfolio_goal_search"',
@@ -79,6 +81,9 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_governance_catalyst_report.py",
         "outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log",
         "outputs/full_rebuild_logs/governance_catalyst_report.log",
+        "tools/build_concentrated_trade_journal.py",
+        "--extra-trades outputs/concentrated_trade_journal/trades.csv",
+        "auto_learning_promote_live",
     ]:
         assert token in text, token
 

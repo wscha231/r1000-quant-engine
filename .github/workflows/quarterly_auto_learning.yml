@@ -98,7 +98,13 @@ jobs:
         if: steps.locate_trades.outputs.path != ''
         run: |
           mkdir -p outputs/trade_journal/insights
+          python tools/build_concentrated_trade_journal.py \
+            --latest-run cloud_results/full_rebuild/latest_global_alpha_universe \
+            --output-dir outputs/concentrated_trade_journal || true
           ARGS="--trades ${{ steps.locate_trades.outputs.path }} --clusters ${{ github.event.inputs.clusters || '8' }}"
+          if [ -f outputs/concentrated_trade_journal/trades.csv ]; then
+            ARGS="$ARGS --extra-trades outputs/concentrated_trade_journal/trades.csv"
+          fi
           python tools/trade_insights.py $ARGS
 
       - name: Run feature-gate proposal
@@ -181,6 +187,7 @@ jobs:
           name: quarterly-auto-learning-${{ github.run_id }}
           path: |
             outputs/trade_journal/insights/
+            outputs/concentrated_trade_journal/
             outputs/auto_learning/
             proposal_output.txt
             auto_learning_promote_output.txt
@@ -192,12 +199,13 @@ jobs:
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
-          mkdir -p cloud_results/trade_journal/insights cloud_results/auto_learning
+          mkdir -p cloud_results/trade_journal/insights cloud_results/auto_learning cloud_results/concentrated_trade_journal
           cp -v outputs/trade_journal/insights/* cloud_results/trade_journal/insights/ 2>/dev/null || true
+          cp -vr outputs/concentrated_trade_journal/* cloud_results/concentrated_trade_journal/ 2>/dev/null || true
           cp -vr outputs/auto_learning/* cloud_results/auto_learning/ 2>/dev/null || true
 
           git pull --rebase --autostash || true
-          git add cloud_results/trade_journal/insights/ cloud_results/auto_learning/ 2>/dev/null || true
+          git add cloud_results/trade_journal/insights/ cloud_results/concentrated_trade_journal/ cloud_results/auto_learning/ 2>/dev/null || true
           git diff --cached --quiet || \
             git commit -m "chore(bot): quarterly auto-learning $(date +%Y-%m-%d) [skip ci]"
           for i in 1 2 3 4; do

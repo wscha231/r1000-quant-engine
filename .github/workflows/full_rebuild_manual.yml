@@ -51,6 +51,10 @@ on:
         description: 'optional cache key suffix (e.g. "phase14-baseline" to keep separate caches)'
         type: string
         default: ''
+      auto_learning_promote_live:
+        description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -264,9 +268,21 @@ jobs:
           mkdir -p outputs/auto_learning
           CANDIDATE_GATES="outputs/auto_learning/auto_feature_gates_candidate.yaml"
           rm -f "$CANDIDATE_GATES"
-          python tools/trade_insights.py --no-shap 2>&1 | tee outputs/auto_learning/trade_insights.log || true
+          python tools/build_concentrated_trade_journal.py --latest-run outputs --output-dir outputs/concentrated_trade_journal 2>&1 | tee outputs/auto_learning/concentrated_trade_journal.log || true
+          EXTRA_TRADES=""
+          if [ -f outputs/concentrated_trade_journal/trades.csv ]; then
+            EXTRA_TRADES="--extra-trades outputs/concentrated_trade_journal/trades.csv"
+          fi
+          python tools/trade_insights.py --no-shap $EXTRA_TRADES 2>&1 | tee outputs/auto_learning/trade_insights.log || true
           python tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/feature_gate_proposal.log || true
-          python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          if [ "${{ inputs.auto_learning_promote_live }}" = "true" ]; then
+            python tools/auto_learning_promote.py --candidate-gates "$CANDIDATE_GATES" --active-gates research/auto_feature_gates.yaml 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          else
+            python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" --active-gates research/auto_feature_gates.yaml 2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+          fi
+          python tools/auto_policy_proposal.py --latest-run outputs --candidate-out outputs/auto_learning/auto_learning_policy_candidate.yaml --diff-out outputs/auto_learning/policy_proposal_diff.md --evidence-out outputs/auto_learning/evidence_snapshot.json --summary-out outputs/auto_learning/policy_candidate_summary.md 2>&1 | tee outputs/auto_learning/auto_policy_proposal.log || true
+          python tools/auto_policy_challenger.py --policy outputs/auto_learning/auto_learning_policy_candidate.yaml --latest-run outputs --out-dir outputs/auto_learning/challenger 2>&1 | tee outputs/auto_learning/auto_policy_challenger.log || true
+          python tools/auto_policy_promote.py --candidate-policy outputs/auto_learning/auto_learning_policy_candidate.yaml --challenger-decision outputs/auto_learning/challenger/challenger_decision.json --out-dir outputs/auto_learning/promotion 2>&1 | tee outputs/auto_learning/auto_policy_promotion.log || true
 
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
@@ -317,6 +333,7 @@ jobs:
             outputs/reports/leader_drop_diagnostics_report.md
             outputs/reports/leader_rescue_backtest_filter_summary.json
             outputs/trade_journal/
+            outputs/concentrated_trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/
             outputs/portfolio_goal_search/
@@ -442,6 +459,11 @@ jobs:
             rclone copy outputs/trade_journal "$DEST/trade_journal/"
           else
             echo "[gdrive-sync] skip missing: outputs/trade_journal"
+          fi
+          if [ -d outputs/concentrated_trade_journal ]; then
+            rclone copy outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal/"
+          else
+            echo "[gdrive-sync] skip missing: outputs/concentrated_trade_journal"
           fi
           if [ -d outputs/auto_learning ]; then
             rclone copy outputs/auto_learning "$DEST/auto_learning/"
@@ -577,6 +599,7 @@ jobs:
           cp outputs/reports/candidate_replay_book.csv /tmp/bundle/reports/ 2>/dev/null || true
           copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
           copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
+          copy_dir_clean outputs/concentrated_trade_journal /tmp/bundle/concentrated_trade_journal
           copy_dir_clean outputs/auto_learning /tmp/bundle/auto_learning
           copy_dir_clean outputs/orchestrator_replay /tmp/bundle/orchestrator_replay
           copy_dir_clean outputs/portfolio_goal_search /tmp/bundle/portfolio_goal_search
@@ -681,6 +704,7 @@ jobs:
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
+          copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
           copy_dir_clean outputs/orchestrator_replay "$DEST/orchestrator_replay"
           copy_dir_clean outputs/portfolio_goal_search "$DEST/portfolio_goal_search"
@@ -701,6 +725,9 @@ jobs:
           rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
           cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
           git add -f cloud_results/ 2>/dev/null || true
+          if [ "${{ inputs.auto_learning_promote_live }}" = "true" ] && [ -f research/auto_feature_gates.yaml ]; then
+            git add research/auto_feature_gates.yaml 2>/dev/null || true
+          fi
           git diff --cached --quiet || \
             git commit -m "chore(bot): full rebuild [${{ inputs.universe_mode }}] $(date +%Y-%m-%d) [skip ci]"
 

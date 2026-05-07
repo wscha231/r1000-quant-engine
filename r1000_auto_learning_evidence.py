@@ -171,12 +171,16 @@ def load_auto_learning_evidence(
     trade_path = run_path / "trade_journal" / "trades.csv"
     if not trade_path.exists():
         trade_path = run_path / "trade_journal" / "trade_journal" / "trades.csv"
+    concentrated_trade_path = run_path / "concentrated_trade_journal" / "trades.csv"
+    if not concentrated_trade_path.exists():
+        concentrated_trade_path = root_path / "outputs" / "concentrated_trade_journal" / "trades.csv"
     sleeve_audit_path = run_path / "reports" / "global_alpha_sleeve_audit_summary.csv"
     feature_gate_path = run_path / "auto_learning" / "auto_feature_gates_candidate.yaml"
 
     main_metrics = read_json(run_path / "backtest_metrics.json")
     concentrated_metrics = read_json(run_path / "concentrated_backtest_metrics.json")
     trade_rows = read_csv_rows(trade_path)
+    concentrated_trade_rows = read_csv_rows(concentrated_trade_path)
     sleeve_audit_rows = read_csv_rows(sleeve_audit_path)
     main_v2_audit = read_json(root_path / "outputs" / "main_v2" / "main_v2_audit_latest.json")
     concentrated_policy_audit = read_json(root_path / "outputs" / "concentrated_policy" / "policy_audit_latest.json")
@@ -186,6 +190,7 @@ def load_auto_learning_evidence(
         "run_path": str(run_path),
         "paths": {
             "trade_journal": str(trade_path),
+            "concentrated_trade_journal": str(concentrated_trade_path),
             "sleeve_audit": str(sleeve_audit_path),
             "feature_gate_candidate": str(feature_gate_path),
             "main_metrics": str(run_path / "backtest_metrics.json"),
@@ -196,6 +201,8 @@ def load_auto_learning_evidence(
         },
         "metrics": summarize_metrics(main_metrics, concentrated_metrics),
         "trade_journal": summarize_trades(trade_rows),
+        "concentrated_trade_journal": summarize_trades(concentrated_trade_rows),
+        "combined_trade_journal": summarize_trades(trade_rows + concentrated_trade_rows),
         "feature_gate_candidate": parse_feature_gate_candidate(feature_gate_path),
         "sleeve_audit": summarize_sleeve_audit(sleeve_audit_rows),
         "main_v2": main_v2_audit,

@@ -113,6 +113,70 @@ All entries must be written in English. Entries must be predictable and machine-
   - No production scoring/defaults changed; this is output plumbing only.
   - Existing GitHub artifacts remain stale until the next full rebuild writes corrected concentrated summary files.
 
+### 11:26 KST - autolearning-concentrated-reflection-route
+
+- scope:
+  - Connect concentrated champion trade outcomes into AutoLearning and add a guarded route for approved learned gates to affect the next scoring run.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->builds concentrated champion trade journal, includes it in trade insights, runs policy proposal/challenger/promotion sidecars, archives/syncs the new artifacts, and adds an explicit guarded live-promotion input.
+  - `.github/workflows/quarterly_auto_learning.yml` ->adds concentrated champion trade journal as optional extra evidence for scheduled/manual learning reviews.
+  - `r1000_trade_journal.py` ->expands captured signal breakdown fields and allows sidecar-specific journal output directories.
+  - `r1000_auto_learning_evidence.py` ->summarizes concentrated and combined trade journals for policy evidence.
+  - `tools/build_concentrated_trade_journal.py` ->new sidecar that filters the concentrated strategy grid to the validated champion and emits trade/grade artifacts.
+  - `tools/trade_insights.py` ->supports extra trade journals and imports the canonical signal breakdown list.
+  - `tools/auto_policy_proposal.py` ->surfaces concentrated and combined trade counts/win-rate in policy evidence summaries.
+  - `tests/concentrated_trade_learning_smoke.py` ->adds coverage for concentrated champion journal creation and combined insight loading.
+  - `tests/workflow_artifact_smoke.py` ->checks the new learning artifacts and guarded promotion input remain wired into the full rebuild workflow.
+  - `CHANGELOG.md` ->records the AutoLearning reflection route.
+- symbols_added:
+  - `r1000_trade_journal._journal_dir(paths)` ->resolves the default or custom trade journal output directory.
+  - `tools.build_concentrated_trade_journal.repo_path(path_like)` ->normalizes repo-relative CLI paths.
+  - `tools.build_concentrated_trade_journal.safe_float(value, default=0.0)` ->NaN-safe numeric coercion.
+  - `tools.build_concentrated_trade_journal.read_csv(path)` ->defensive CSV loader.
+  - `tools.build_concentrated_trade_journal.write_json(path, payload)` ->writes JSON sidecar artifacts.
+  - `tools.build_concentrated_trade_journal.champion_row(compare)` ->selects the validated concentrated grid champion.
+  - `tools.build_concentrated_trade_journal.filter_champion_frame(df, champion)` ->filters monthly/holdings grids to champion N/mode/interval.
+  - `tools.build_concentrated_trade_journal.add_regime_state(holdings, latest_run)` ->joins monthly regime state onto concentrated holdings.
+  - `tools.build_concentrated_trade_journal.signal_breakdown(row)` ->serializes AutoLearning signal values for a concentrated holding row.
+  - `tools.build_concentrated_trade_journal.normalize_holdings(holdings, latest_run)` ->converts champion holdings into trade-journal-compatible rows.
+  - `tools.build_concentrated_trade_journal.build(latest_run, output_dir)` ->emits concentrated champion holdings/trades/grades/summary artifacts.
+  - `tools.trade_insights.merge_grade_labels(trades, trades_path)` ->merges grades for each primary or extra journal source.
+  - `tools.trade_insights.load_journals(primary_path, extra_paths)` ->loads and concatenates primary plus extra trade journals for learning.
+  - `test_concentrated_journal_build_and_insight_load()` ->smoke test for concentrated trade-learning artifacts.
+- symbols_changed:
+  - `r1000_trade_journal.SIGNAL_BREAKDOWN_COLUMNS` ->adds monster/entry-quality/risk/stale-leader fields to the learned signal signature.
+  - `r1000_trade_journal.persist_holdings_history()` ->honors `paths["trade_journal_dir"]` for sidecar outputs.
+  - `r1000_trade_journal.pair_entries_with_exits()` ->honors `paths["trade_journal_dir"]` and carries `source_journal` into trade rows.
+  - `r1000_trade_journal.grade_trades()` ->honors `paths["trade_journal_dir"]` for sidecar grades.
+  - `tools.trade_insights.main()` ->accepts `--extra-trades` and computes insights on combined trade evidence.
+  - `r1000_auto_learning_evidence.load_auto_learning_evidence()` ->adds concentrated and combined trade journal summaries.
+  - `tools.auto_policy_proposal.build_policy_from_evidence()` ->includes concentrated/combined trade evidence in policy summaries.
+- config_fields_added:
+  - `full_rebuild_manual.workflow_dispatch.auto_learning_promote_live: bool = false` ->explicit guarded switch that can commit approved `research/auto_feature_gates.yaml` for the next run.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_trade_journal/holdings_history.csv` ->champion-only concentrated monthly holdings.
+  - `outputs/concentrated_trade_journal/trades.csv` ->champion-only concentrated round-trip trades.
+  - `outputs/concentrated_trade_journal/grades.csv` ->auto-graded concentrated trades.
+  - `outputs/concentrated_trade_journal/summary.json` ->champion metadata and trade digest.
+  - `outputs/auto_learning/auto_learning_policy_candidate.yaml` ->policy candidate generated from combined learning evidence.
+  - `outputs/auto_learning/challenger/challenger_decision.json` ->guarded challenger decision for the generated policy candidate.
+  - `research/auto_feature_gates.yaml` ->only written and committed when `auto_learning_promote_live=true` and promotion checks pass.
+- validation:
+  - `py -3 tests\concentrated_trade_learning_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_policy_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_v2_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - local artifact check ->passed; concentrated champion journal built 152 trades from N=3 score_power champion and combined insights loaded 878 trades.
+- risks_or_notes:
+  - Learned gates still cannot alter the current run because they are generated after scoring; approved gates affect the next run.
+  - Live promotion is opt-in and guarded by `auto_learning_promote.py`; default full rebuild behavior remains dry-run/report-only.
+  - This does not enable broker execution or unguarded capital allocation changes.
+
 ## 2026-05-06
 
 ### 09:12 KST - market-aware-monster-handoff

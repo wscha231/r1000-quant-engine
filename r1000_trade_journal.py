@@ -36,6 +36,14 @@ SIGNAL_BREAKDOWN_COLUMNS: tuple[str, ...] = (
     "explosion_entry_score",
     "explosion_exit_score",
     "explosion_net_score",
+    "portfolio_monster_early_score",
+    "entry_quality_score",
+    "breakout_setup_quality_score",
+    "selection_confirmation_score",
+    "portfolio_risk_entry_block_score",
+    "portfolio_hold_policy_exit_risk",
+    "broken_momentum_penalty",
+    "relative_strength_composite",
 )
 
 # Grade rule thresholds (18a defaults; tuned in 18b)
@@ -45,6 +53,13 @@ GRADE_LOSS_RETURN = -0.10
 GRADE_TRAP_RETURN = -0.20
 GRADE_TRAP_HOLD_DAYS = 60
 GRADE_GOOD_EXIT_ALPHA_QUANTILE = 0.75
+
+
+def _journal_dir(paths: dict) -> Path:
+    """Return the journal output directory, with a custom sidecar override."""
+    if paths is not None and paths.get("trade_journal_dir"):
+        return Path(paths["trade_journal_dir"])
+    return Path(paths.get("outputs", "outputs")) / "trade_journal"
 
 
 # =====================================================================
@@ -119,7 +134,7 @@ def persist_holdings_history(
     """
     if holdings_df is None or holdings_df.empty:
         return None
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df = holdings_df.copy()
@@ -228,7 +243,7 @@ def pair_entries_with_exits(
         - pd.to_numeric(trades_df["benchmark_return_same_period"], errors="coerce")
     )
 
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / "trades.parquet"
     trades_df.to_parquet(parquet_path, index=False)
@@ -268,6 +283,7 @@ def _build_trade_row(ticker: str, block: pd.DataFrame, engine_version: str) -> O
         "n_periods": int(len(block)),
         "realized_return": realized,
         "engine_version": str(engine_version),
+        "source_journal": str(block["source_journal"].iloc[0]) if "source_journal" in block.columns else "main",
     }
 
 
@@ -342,7 +358,7 @@ def grade_trades(
         "entry_sleeve": df.get("entry_sleeve", ""),
     })
 
-    out_dir = Path(paths.get("outputs", "outputs")) / "trade_journal"
+    out_dir = _journal_dir(paths)
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / "grades.parquet"
     grades.to_parquet(parquet_path, index=False)

@@ -50,6 +50,8 @@ def build_policy_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     main_metrics = metrics.get("main") or {}
     conc_metrics = metrics.get("concentrated") or {}
     trades = evidence.get("trade_journal") or {}
+    concentrated_trades = evidence.get("concentrated_trade_journal") or {}
+    combined_trades = evidence.get("combined_trade_journal") or trades
     sleeve_audit = evidence.get("sleeve_audit") or {}
     feature_gate_candidate = evidence.get("feature_gate_candidate") or {}
     main_v2 = evidence.get("main_v2") or {}
@@ -66,6 +68,10 @@ def build_policy_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
         "concentrated_sharpe": conc_metrics.get("sharpe"),
         "concentrated_max_dd": conc_metrics.get("max_dd"),
         "trade_count": trades.get("trade_count"),
+        "concentrated_trade_count": concentrated_trades.get("trade_count"),
+        "combined_trade_count": combined_trades.get("trade_count"),
+        "combined_win_rate": combined_trades.get("win_rate"),
+        "combined_avg_alpha_vs_benchmark": combined_trades.get("avg_alpha_vs_benchmark"),
         "feature_gate_candidate_count": feature_gate_candidate.get("gate_count", 0),
         "main_v2_positions": main_v2.get("n_positions"),
         "main_v2_cash_target": main_v2.get("cash_target"),
@@ -261,7 +267,10 @@ def render_summary(policy: dict[str, Any], validation: dict[str, Any]) -> str:
         f"- Concentrated CAGR: {safe_float(ev.get('concentrated_cagr')):.2%}",
         f"- Concentrated Sharpe: {ev.get('concentrated_sharpe')}",
         f"- Concentrated MaxDD: {safe_float(ev.get('concentrated_max_dd')):.2%}",
-        f"- Trade count: {ev.get('trade_count')}",
+        f"- Main trade count: {ev.get('trade_count')}",
+        f"- Concentrated trade count: {ev.get('concentrated_trade_count')}",
+        f"- Combined trade count: {ev.get('combined_trade_count')}",
+        f"- Combined win rate: {safe_float(ev.get('combined_win_rate')):.2%}",
         f"- Feature-gate candidates carried forward: {ev.get('feature_gate_candidate_count')}",
         "",
         "## Candidate Scope",

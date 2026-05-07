@@ -44,22 +44,24 @@ import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 JOURNAL_DIR = REPO_ROOT / "outputs" / "trade_journal"
 INSIGHTS_DIR = JOURNAL_DIR / "insights"
 
-# Signals we expect in entry_signal_breakdown JSON. Keep in sync with
-# r1000_trade_journal.SIGNAL_BREAKDOWN_COLUMNS.
-EXPECTED_SIGNALS = (
-    "rs_acceleration_score",
-    "h1_oversold_value_score",
-    "h6_dynamic_leader_score",
-    "stage2_overext_penalty",
-    "theme_phase_multiplier_primary",
-    "theme_phase_multiplier_max",
-    "explosion_entry_score",
-    "explosion_exit_score",
-    "explosion_net_score",
-)
+try:
+    from r1000_trade_journal import SIGNAL_BREAKDOWN_COLUMNS as EXPECTED_SIGNALS
+except Exception:
+    EXPECTED_SIGNALS = (
+        "rs_acceleration_score",
+        "h1_oversold_value_score",
+        "h6_dynamic_leader_score",
+        "stage2_overext_penalty",
+        "theme_phase_multiplier_primary",
+        "theme_phase_multiplier_max",
+        "explosion_entry_score",
+        "explosion_exit_score",
+        "explosion_net_score",
+    )
 
 REGIME_ORDER = ["deep_bear", "bear", "neutral", "bull", "strong_bull"]
 
@@ -72,6 +74,45 @@ def load_journal(trades_path: Path) -> Optional[pd.DataFrame]:
     if trades_path.suffix == ".csv":
         return pd.read_csv(trades_path)
     return pd.read_parquet(trades_path)
+
+
+def merge_grade_labels(trades: pd.DataFrame, trades_path: Path) -> pd.DataFrame:
+    if trades is None or trades.empty or "grade_label" in trades.columns:
+        return trades
+    for grades_path in [trades_path.parent / "grades.parquet", trades_path.parent / "grades.csv"]:
+        if not grades_path.exists():
+            continue
+        try:
+            grades = pd.read_parquet(grades_path) if grades_path.suffix == ".parquet" else pd.read_csv(grades_path)
+            if {"trade_id", "grade_label"}.issubset(grades.columns):
+                return trades.merge(grades[["trade_id", "grade_label"]], on="trade_id", how="left")
+        except Exception as exc:
+            print(f"[insights] grade merge failed for {grades_path} (non-fatal): {exc}")
+    return trades
+
+
+def load_journals(primary_path: Path, extra_paths: list[Path]) -> Optional[pd.DataFrame]:
+    """Load primary plus optional sidecar trade journals into one frame."""
+    frames: list[pd.DataFrame] = []
+    primary = load_journal(primary_path)
+    if primary is not None and not primary.empty:
+        primary = primary.copy()
+        primary = merge_grade_labels(primary, primary_path)
+        primary["source_journal"] = primary.get("source_journal", "main")
+        frames.append(primary)
+    for path in extra_paths:
+        extra = load_journal(path)
+        if extra is None or extra.empty:
+            print(f"[insights] extra trades skipped: {path}", file=sys.stderr)
+            continue
+        extra = extra.copy()
+        extra = merge_grade_labels(extra, path)
+        extra["source_journal"] = extra.get("source_journal", path.parent.name)
+        frames.append(extra)
+        print(f"[insights] loaded {len(extra)} extra trades from {path}")
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 def expand_signal_breakdown(trades: pd.DataFrame) -> pd.DataFrame:
@@ -344,6 +385,12 @@ def write_summary(
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--trades", default=str(JOURNAL_DIR / "trades.parquet"))
+    p.add_argument(
+        "--extra-trades",
+        action="append",
+        default=[],
+        help="Additional trade journal CSV/parquet to include in learning evidence.",
+    )
     p.add_argument("--out-dir", default=str(INSIGHTS_DIR))
     p.add_argument("--clusters", type=int, default=8)
     p.add_argument("--no-shap", action="store_true")
@@ -351,17 +398,18 @@ def main() -> int:
     args = p.parse_args()
 
     trades_path = Path(args.trades)
-    trades = load_journal(trades_path)
+    extra_paths = [Path(p) for p in args.extra_trades or []]
+    trades = load_journals(trades_path, extra_paths)
     if trades is None or trades.empty:
         print(f"[insights] ERROR: {trades_path} not found or empty.", file=sys.stderr)
         print(f"[insights] Run a backtest first to populate outputs/trade_journal/", file=sys.stderr)
         return 2
 
-    print(f"[insights] loaded {len(trades)} trades from {trades_path}")
+    print(f"[insights] loaded {len(trades)} combined trades from {trades_path}")
 
     # Optional grades merge
     grades_path = trades_path.parent / "grades.parquet"
-    if grades_path.exists():
+    if grades_path.exists() and "grade_label" not in trades.columns:
         try:
             grades = pd.read_parquet(grades_path)[["trade_id", "grade_label"]]
             trades = trades.merge(grades, on="trade_id", how="left")
