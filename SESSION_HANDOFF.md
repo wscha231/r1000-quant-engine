@@ -8,6 +8,26 @@
 
 ## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
 
+Weekly evaluation freshness update:
+- User identified that monthly `equity_curve.csv` can look stale because the
+  row label is the entry/rebalance date, while realized return needs the next
+  rebalance date.
+- Added `tools/run_weekly_evaluation.py` and wired it into full rebuild.
+- New output directory:
+  - `outputs/weekly_evaluation/`
+- Expected files:
+  - `weekly_equity_curve.csv`
+  - `main_weekly_equity_curve.csv`
+  - `concentrated_weekly_equity_curve.csv`
+  - `weekly_metrics.json`
+  - `weekly_freshness_audit.json`
+  - `weekly_freshness_audit.md`
+- This is weekly mark-to-market evaluation of monthly holding books only. It
+  does not change portfolio selection, rebalance cadence, or production
+  weights.
+- If `weekly_freshness_audit.json` is still `stale`, next development step is
+  true weekly scored snapshots in the feature-store/backtest pipeline.
+
 GDrive branch isolation update:
 - Future full rebuilds now route Google Drive outputs by branch.
 - `master` keeps the canonical production path:

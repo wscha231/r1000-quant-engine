@@ -53,6 +53,55 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-08
 
+### 15:17 KST - weekly-evaluation-freshness-sidecar
+
+- scope:
+  - Add weekly mark-to-market evaluation and freshness audit so monthly backtest reporting lag is explicit.
+- files:
+  - `tools/run_weekly_evaluation.py` ->builds weekly equity curves from monthly holding books and daily price cache without changing production selection.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the weekly evaluation sidecar and archives/syncs `outputs/weekly_evaluation/`.
+  - `tests/weekly_evaluation_smoke.py` ->verifies weekly curves and stale freshness detection on synthetic holdings/prices.
+  - `tests/workflow_artifact_smoke.py` ->checks weekly evaluation workflow, artifact, and log tokens.
+  - `CHANGELOG.md` ->records the weekly evaluation sidecar change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `px_cache_name(ticker)` ->returns the price-cache parquet filename used by the weekly sidecar.
+  - `load_price_series(price_cache, ticker)` ->loads adjusted open/close series from cache.
+  - `normalize_holdings(df, portfolio_kind)` ->normalizes monthly holding books for weekly replay.
+  - `period_end_map(path)` ->reads monthly next-rebalance dates for holding-period boundaries.
+  - `weekly_targets(start, end)` ->creates weekly Friday/end-date evaluation targets.
+  - `build_weekly_curve(holdings, next_dates, price_cache, portfolio_kind, benchmark_tickers)` ->marks monthly holdings to market weekly.
+  - `weekly_metrics(curve, portfolio_kind)` ->computes weekly CAGR, Sharpe, MaxDD, and freshness metadata.
+  - `build_freshness(latest_run, curves, metrics, stale_days_threshold)` ->compares latest scored date to latest weekly evaluation date.
+  - `write_markdown(payload, path)` ->writes the human-readable freshness audit.
+  - `run(latest_run, output_dir, price_cache, stale_days_threshold)` ->executes the weekly sidecar.
+  - `parse_args()` ->parses CLI arguments for the sidecar.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->checks `outputs/weekly_evaluation/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks weekly sidecar command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/weekly_evaluation/weekly_equity_curve.csv` ->combined weekly mark-to-market curve for main and concentrated books when price cache is available.
+  - `outputs/weekly_evaluation/main_weekly_equity_curve.csv` ->main portfolio weekly mark-to-market curve.
+  - `outputs/weekly_evaluation/concentrated_weekly_equity_curve.csv` ->concentrated portfolio weekly mark-to-market curve.
+  - `outputs/weekly_evaluation/weekly_metrics.json` ->weekly CAGR, Sharpe, MaxDD, cash, and missing-price diagnostics.
+  - `outputs/weekly_evaluation/weekly_freshness_audit.json` ->latest scored date versus latest weekly evaluation date.
+  - `outputs/weekly_evaluation/weekly_freshness_audit.md` ->human-readable freshness audit.
+- validation:
+  - `py -3 tests\weekly_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\run_weekly_evaluation.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is mark-to-market evaluation of monthly holding books; it is not yet true weekly scoring/rebalancing.
+  - If freshness remains stale, the next step is weekly scored snapshots in the feature-store pipeline.
+
 ### 14:08 KST - gdrive-branch-output-isolation
 
 - scope:
