@@ -1,0 +1,6 @@
+{
+  "production_activation_allowed": false,
+  "reason": "missing reports/main_monthly_weights.csv or reports/regime_by_month.csv",
+  "research_only": true,
+  "status": "blocked"
+}

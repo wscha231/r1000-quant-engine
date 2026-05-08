@@ -206,7 +206,7 @@
       "threshold": "rolling 3y and 5y pass"
     }
   ],
-  "generated_at_utc": "2026-05-08T01:18:53Z",
+  "generated_at_utc": "2026-05-08T01:35:03Z",
   "hard_failures": [
     {
       "check": "feature_gate_candidate_backtest_executed",

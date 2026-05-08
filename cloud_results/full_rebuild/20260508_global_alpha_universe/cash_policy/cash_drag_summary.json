@@ -1,0 +1,10 @@
+{
+  "production_activation_allowed": false,
+  "reason": "missing reports/main_monthly_weights.csv and reports/regime_by_month.csv",
+  "required_paths": [
+    "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
+    "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/regime_by_month.csv"
+  ],
+  "research_only": true,
+  "status": "blocked"
+}
