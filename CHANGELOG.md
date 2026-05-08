@@ -102,6 +102,56 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is mark-to-market evaluation of monthly holding books; it is not yet true weekly scoring/rebalancing.
   - If freshness remains stale, the next step is weekly scored snapshots in the feature-store pipeline.
 
+### 16:53 KST - position-risk-weekly-validation
+
+- scope:
+  - Add a stricter validation layer that tests monthly position-risk proxy exits against cached daily/weekly price paths before any production promotion.
+- files:
+  - `tools/run_position_risk_weekly_validation.py` ->simulates daily hard/trailing stops and weekly relative-performance trim/exit checks from monthly holding books and price cache.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the validator for main and concentrated books and uploads/syncs `outputs/position_risk_weekly_validation/`.
+  - `tools/run_portfolio_goal_search.py` ->adds weekly-validation candidates so target-pass monthly proxies are no longer the only ranked risk evidence.
+  - `tools/run_alphaops_policy_fusion.py` ->prefers weekly-validation evidence over monthly proxy evidence for position hard-stop/distribution policy arbitration.
+  - `tests/position_risk_weekly_validation_smoke.py` ->verifies daily hard-stop detection on synthetic prices.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution, log, and artifact tokens for the weekly validator.
+  - `CHANGELOG.md` ->records the weekly validation change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `normalize_holdings(frame, portfolio_kind)` ->normalizes monthly holding books for daily/weekly validation.
+  - `period_end_map(path)` ->loads next-rebalance boundaries for each monthly holding period.
+  - `should_check_relative(date, final_date)` ->identifies weekly/final checkpoints for relative-performance trim/exit checks.
+  - `price_path_between(px, start_dt, end_dt)` ->extracts cached daily prices inside one holding period.
+  - `benchmark_return_on(bench_path, entry_price, date)` ->computes benchmark return at a validation checkpoint.
+  - `simulate_position(row, px, bench_px, entry_dt, end_dt, ...)` ->simulates one position's stop/trim/exit path.
+  - `rolling_rows(monthly_rows, window_months)` ->builds rolling-window validation metrics.
+  - `replay(holdings_path, period_map_path, price_cache, output_dir, portfolio_kind, ...)` ->runs the validator and writes metrics/actions/curves.
+  - `render_report(payload)` ->renders the validator report.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->collects main/concentrated weekly-validation candidates.
+  - `candidate_from_json(...)` ->surfaces validation metadata such as `data_mode`, `validation_granularity`, and `price_coverage`.
+  - `build_metric_policies(latest_run)` ->uses weekly-validation evidence for position-risk policy when available, falling back to monthly proxy otherwise.
+  - `test_workflow_keeps_monthly_books()` ->checks `outputs/position_risk_weekly_validation/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks weekly-validation commands and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/position_risk_weekly_validation/main/metrics.json` ->main daily/weekly position-risk validation metrics.
+  - `outputs/position_risk_weekly_validation/main/actions.csv` ->main stop/trim/exit action log with action dates.
+  - `outputs/position_risk_weekly_validation/concentrated/metrics.json` ->concentrated daily/weekly position-risk validation metrics.
+  - `outputs/position_risk_weekly_validation/concentrated/actions.csv` ->concentrated stop/trim/exit action log with action dates.
+- validation:
+  - `py -3 tests\position_risk_weekly_validation_smoke.py` ->passed.
+  - `py -3 tests\weekly_evaluation_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+- risks_or_notes:
+  - This is stricter than monthly loss-capping, but still uses monthly holding books. True production activation still needs order-ticket simulation and true weekly/daily scored snapshots.
+  - Local repo has no populated `cache_prices`, so full historical validation must be verified in the next cloud rebuild.
+
 ### 14:08 KST - gdrive-branch-output-isolation
 
 - scope:

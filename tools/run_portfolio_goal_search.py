@@ -185,6 +185,9 @@ def candidate_from_json(
     params = dict(extra_params or {})
     for key in [
         "metric_mode",
+        "data_mode",
+        "validation_granularity",
+        "price_coverage",
         "list_defense_mode",
         "defensive_holdings_path",
         "latest_defensive_holdings_path",
@@ -368,6 +371,14 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         valid_for_production=False,
         notes="Monthly proxy for position-level stops/decay. Target pass here is not production evidence until weekly/intramonth replay confirms it.",
     )
+    main += candidate_from_json(
+        latest_run / "position_risk_weekly_validation" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_position_risk_weekly_validation",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Daily stop / weekly relative-performance validation on monthly holdings. Stricter than monthly proxy, still research-only until true weekly scored snapshots and order tickets exist.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
         portfolio="concentrated",
@@ -383,6 +394,14 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         valid_for_production=False,
         notes="Monthly proxy for concentrated position-level hard stops. Target pass here requires weekly/intramonth confirmation before promotion.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "position_risk_weekly_validation" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_position_risk_weekly_validation",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Daily stop / weekly relative-performance validation for concentrated holdings. This is the bridge from monthly proxy to production-compatible evidence.",
     )
     concentrated += candidate_from_json(
         latest_run / "monster_lifecycle_replay" / "metrics.json",

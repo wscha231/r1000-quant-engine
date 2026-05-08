@@ -175,6 +175,7 @@ CONFLICT_RULES: list[dict[str, str]] = [
 EVIDENCE_WEIGHTS = {
     "production": 1.00,
     "historical_replay": 0.80,
+    "weekly_validation": 0.76,
     "monthly_proxy": 0.62,
     "diagnostic": 0.40,
     "proposal": 0.32,
@@ -398,6 +399,16 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
     concentrated_production = load_production_metrics(latest_run, "concentrated")
     main_candidates, concentrated_candidates = collect_candidates(latest_run)
     rows: list[dict[str, Any]] = []
+    main_position_risk = find_candidate(main_candidates, "main_position_risk_weekly_validation")
+    main_position_risk_evidence = "weekly_validation"
+    if not main_position_risk:
+        main_position_risk = find_candidate(main_candidates, "main_v2_position_aware_risk_proxy")
+        main_position_risk_evidence = "monthly_proxy"
+    concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_weekly_validation")
+    concentrated_position_risk_evidence = "weekly_validation"
+    if not concentrated_position_risk:
+        concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_proxy")
+        concentrated_position_risk_evidence = "monthly_proxy"
 
     metric_map = [
         (
@@ -423,21 +434,21 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
         (
             "position_hard_stop_distribution",
             "main",
-            "monthly_proxy",
-            find_candidate(main_candidates, "main_v2_position_aware_risk_proxy"),
+            main_position_risk_evidence,
+            main_position_risk,
             main_production,
-            "Main position-aware risk proxy for hard stops, decay, and risk exits.",
-            "Requires weekly/intramonth replay before production activation.",
+            "Main position-aware risk evidence for hard stops, decay, and risk exits.",
+            "Requires order-ticket simulation and true weekly/daily scored snapshots before production activation.",
             "Overrides shakeout and long-hold rules when hard exits trigger.",
         ),
         (
             "position_hard_stop_distribution",
             "concentrated",
-            "monthly_proxy",
-            find_candidate(concentrated_candidates, "concentrated_position_risk_proxy"),
+            concentrated_position_risk_evidence,
+            concentrated_position_risk,
             concentrated_production,
-            "Concentrated hard-stop proxy near the 50% CAGR / -18% MaxDD goal.",
-            "Requires cost sensitivity, rolling windows, and weekly/intramonth confirmation.",
+            "Concentrated hard-stop evidence near the 50% CAGR / -18% MaxDD goal.",
+            "Requires cost sensitivity, rolling windows, order-ticket simulation, and weekly/daily scored confirmation.",
             "Overrides 50% conviction sizing when a position breaks.",
         ),
         (

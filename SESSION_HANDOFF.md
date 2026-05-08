@@ -8,6 +8,31 @@
 
 ## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
 
+Position-risk proxy realism update:
+- User asked whether the strong monthly proxy results can be made realistic.
+- Added `tools/run_position_risk_weekly_validation.py`.
+- Full rebuild now validates both books:
+  - `outputs/position_risk_weekly_validation/main/`
+  - `outputs/position_risk_weekly_validation/concentrated/`
+- The validator uses monthly holding books plus `cache_prices` daily data:
+  - daily hard-stop checks
+  - daily trailing-stop checks after profit cushion
+  - weekly SPY-relative trim/exit checks
+  - trim action sells half first; hard/distribution exits override long-hold
+    patience
+- This is stricter than the previous monthly position-risk proxy because it
+  requires an observable price path before a stop/exit is credited.
+- It is still research-only. It does not yet create true weekly scored
+  snapshots, replacement buys, order tickets, or broker execution evidence.
+- `tools/run_portfolio_goal_search.py` now ranks these validation candidates:
+  - `main_position_risk_weekly_validation`
+  - `concentrated_position_risk_weekly_validation`
+- `tools/run_alphaops_policy_fusion.py` now prefers weekly-validation evidence
+  over monthly proxy evidence for `position_hard_stop_distribution`, falling
+  back to the proxy only when validation artifacts are missing.
+- Local validation passed, but local `cache_prices` is empty, so the next cloud
+  full rebuild is needed to see actual historical validation metrics.
+
 Weekly evaluation freshness update:
 - User identified that monthly `equity_curve.csv` can look stale because the
   row label is the entry/rebalance date, while realized return needs the next
