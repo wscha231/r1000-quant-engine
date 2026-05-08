@@ -142,6 +142,52 @@ All entries must be written in English. Entries must be predictable and machine-
   - The local replay base still differs from production metrics, so this remains directional evidence only.
   - The next implementation should produce a production-compatible cash replay from `equity_curve.csv` / pipeline monthly accounting, not only exported holdings.
 
+### 10:10 KST - crisis-bargain-reentry-replay
+
+- scope:
+  - Add a research-only crisis cash ladder and staged bargain-reentry replay so normal-market cash can stay low while red/crisis regimes retain high defensive cash.
+- files:
+  - `tools/run_crisis_reentry_replay.py` ->new sidecar that consumes macro policy, aligns holdings to reported cash, and compares crisis ladder / bargain reentry / fast reentry cash policies.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the crisis-reentry replay and uploads/syncs `outputs/crisis_reentry_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->requires workflow execution and artifact coverage for `outputs/crisis_reentry_replay/`.
+  - `CHANGELOG.md` ->records the crisis/reentry replay.
+- symbols_added:
+  - `read_json(path)` ->loads production metrics for replay-vs-production diagnostics.
+  - `calc_equity_rows(monthly_rows)` ->builds policy-specific equity and drawdown rows.
+  - `policy_floor(state, policy)` ->maps macro risk state to cash floor.
+  - `target_cash_for_month(state, policy, prev_target_cash, drawdown_before, drawdown_after)` ->implements staged cash raises and reentry release steps.
+  - `adjust_group_to_cash(group, target_cash, single_name_cap)` ->scales/redeploys monthly holdings to a target cash level with single-name cap headroom.
+  - `load_macro_policy(latest_run)` ->loads `macro_policy_engine/macro_policy_by_month.csv`.
+  - `replay(df, macro, policy_id, policy)` ->computes monthly returns and holdings for one cash policy.
+  - `render_report(summary, ranking)` ->renders the human-readable replay report.
+  - `run(latest_run, output_dir)` ->writes crisis-reentry metrics, comparison, policy, monthly, equity curve, holdings, and report outputs.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires crisis reentry artifact upload coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires crisis reentry workflow execution and log capture.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/crisis_reentry_replay/comparison.csv` ->policy-level CAGR, Sharpe, MaxDD, cash, and turnover comparison.
+  - `outputs/crisis_reentry_replay/policy_by_month.csv` ->monthly target cash and action decisions.
+  - `outputs/crisis_reentry_replay/metrics.json` ->summary and ranked policy results.
+  - `outputs/crisis_reentry_replay/replay_report.md` ->human-readable replay report.
+- validation:
+  - `py -3 -m py_compile tools\run_crisis_reentry_replay.py tools\run_main_cash_drag_replay.py tools\run_cash_policy_attribution.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_crisis_reentry_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_crisis_reentry_check` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with CRLF warnings only.
+- risks_or_notes:
+  - Local latest directional replay ranked `fast_reentry` best at CAGR 32.11%, MaxDD -10.98%, avg cash 8.47%, but this is not production evidence because it uses exported monthly holdings and macro policy rows.
+  - The equity curve is reset per policy; policy results are no longer chained into one combined curve.
+  - Next step should move from directional replay toward production-compatible cash/reentry accounting before activation.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

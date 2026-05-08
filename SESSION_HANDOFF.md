@@ -44,6 +44,30 @@ Step 1 implemented after the target update:
   Local replay still does not exactly match production metrics, so treat it as
   directional A/B evidence until a production-compatible replay is added.
 
+Step 2 implemented after the cash attribution:
+- `tools/run_crisis_reentry_replay.py` now writes
+  `outputs/crisis_reentry_replay/comparison.csv`,
+  `outputs/crisis_reentry_replay/policy_by_month.csv`,
+  `outputs/crisis_reentry_replay/monthly.csv`,
+  `outputs/crisis_reentry_replay/equity_curve.csv`,
+  `outputs/crisis_reentry_replay/holdings.csv`,
+  `outputs/crisis_reentry_replay/metrics.json`, and
+  `outputs/crisis_reentry_replay/replay_report.md`.
+- The full rebuild workflow runs this sidecar and uploads/syncs
+  `outputs/crisis_reentry_replay/`.
+- The replay is research-only. It starts from exported monthly main holdings,
+  aligns them to reported backtest cash, applies macro-policy cash floors, and
+  tests crisis cash ladders plus staged bargain reentry. Production selection
+  and production weights are still unchanged.
+- It fixes the first version's equity-curve accounting by resetting equity per
+  policy instead of chaining all policies into one curve.
+- Latest local directional replay against
+  `cloud_results/full_rebuild/latest_global_alpha_universe` ranked
+  `fast_reentry` best: CAGR 32.11%, MaxDD -10.98%, Sharpe 1.984,
+  avg cash 8.47%. This is promising but still not production evidence.
+- Latest local directional replay should be treated as evidence for the next
+  production-compatible replay, not as an activation gate.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the
