@@ -92,6 +92,18 @@ def build_fixture(base: Path) -> None:
         base / "macro_policy_engine" / "summary.json",
         {"latest": {"macro_risk_state": "green", "macro_style_state": "breakout_growth"}},
     )
+    write_json(
+        base / "winner_onset_study" / "pattern_summary.json",
+        {"event_count": 4, "production_activation_allowed": False},
+    )
+    write_json(
+        base / "shakeout_breakdown_study" / "pattern_summary.json",
+        {"event_count": 3, "production_activation_allowed": False},
+    )
+    write_json(
+        base / "autolearning_winner_challenger" / "summary.json",
+        {"status": "proposal_only", "production_activation_allowed": False},
+    )
 
 
 def test_policy_fusion_smoke() -> None:
@@ -106,6 +118,7 @@ def test_policy_fusion_smoke() -> None:
         assert "macro_crisis_cash_ladder" in policy_ids
         assert "position_hard_stop_distribution" in policy_ids
         assert "stale_leader_trim" in policy_ids
+        assert "auto_learning_policy_candidate" in policy_ids
         assert (out / "policy_fusion_summary.json").exists()
         assert (out / "activation_plan.yaml").exists()
         matrix = (out / "conflict_matrix.csv").read_text(encoding="utf-8")

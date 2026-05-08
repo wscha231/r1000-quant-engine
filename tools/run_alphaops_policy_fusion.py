@@ -588,21 +588,45 @@ def build_diagnostic_policies(latest_run: Path) -> list[dict[str, Any]]:
             )
         )
 
-    shakeout_summary = read_json(latest_run / "auto_learning" / "winner_challenger" / "decision.json")
-    # The winner challenger path is optional; if absent, still expose the rule
-    # as a guarded placeholder so conflict arbitration stays explicit.
+    onset_summary = read_json(latest_run / "winner_onset_study" / "pattern_summary.json")
+    if onset_summary:
+        rows.append(
+            score_policy(
+                policy_id="monster_early_staged_sizing",
+                portfolio="main",
+                evidence_type="diagnostic",
+                metrics={"cagr": main_production.get("cagr"), "max_dd": main_production.get("max_dd"), "sharpe": main_production.get("sharpe")},
+                production=main_production,
+                source=rel(latest_run / "winner_onset_study" / "pattern_summary.json"),
+                notes="Winner-onset study is available to refine early monster entry patterns without ticker hardcoding.",
+                dependencies="Requires conversion from event-level onset evidence into portfolio-level challenger replay.",
+                conflict_scope="Can support monster staged sizing only after macro/risk/liquidity gates pass.",
+                extra={
+                    "priority_count": onset_summary.get("event_count", 0),
+                    "diagnostic_action": "refine_monster_entry_pattern",
+                },
+            )
+        )
+
+    shakeout_summary = read_json(latest_run / "shakeout_breakdown_study" / "pattern_summary.json")
+    winner_challenger_summary = read_json(latest_run / "autolearning_winner_challenger" / "summary.json")
+    # The shakeout path is optional; if absent, still expose the rule as a
+    # guarded placeholder so conflict arbitration stays explicit.
     rows.append(
         score_policy(
             policy_id="shakeout_hold_veto",
             portfolio="main",
-            evidence_type="diagnostic" if shakeout_summary else "missing",
-            metrics={"cagr": main_production.get("cagr"), "max_dd": main_production.get("max_dd"), "sharpe": main_production.get("sharpe")} if shakeout_summary else {},
+            evidence_type="diagnostic" if shakeout_summary or winner_challenger_summary else "missing",
+            metrics={"cagr": main_production.get("cagr"), "max_dd": main_production.get("max_dd"), "sharpe": main_production.get("sharpe")} if shakeout_summary or winner_challenger_summary else {},
             production=main_production,
-            source=rel(latest_run / "auto_learning" / "winner_challenger" / "decision.json") if shakeout_summary else "missing_challenger_decision",
+            source=rel(latest_run / "shakeout_breakdown_study" / "pattern_summary.json") if shakeout_summary else (rel(latest_run / "autolearning_winner_challenger" / "summary.json") if winner_challenger_summary else "missing_shakeout_breakdown_study"),
             notes="Protects valid shake-outs from soft stale trims; not yet hard-wired to production exits.",
             dependencies="Needs shakeout/distribution classifier with volume, RS recovery, sector context, and fundamental deterioration flags.",
             conflict_scope="Cannot override hard stops or confirmed distribution.",
-            extra={"priority_count": 0, "diagnostic_action": "shakeout_veto_placeholder"},
+            extra={
+                "priority_count": shakeout_summary.get("event_count", 0) if shakeout_summary else 0,
+                "diagnostic_action": "shakeout_veto_candidate" if shakeout_summary else "shakeout_veto_placeholder",
+            },
         )
     )
 
@@ -642,6 +666,26 @@ def build_diagnostic_policies(latest_run: Path) -> list[dict[str, Any]]:
             extra={"diagnostic_action": "watchlist_elevation_only"},
         )
     )
+
+    autolearning_v2 = read_json(latest_run / "auto_learning_v2" / "promotion_decision.json")
+    if autolearning_v2 or winner_challenger_summary:
+        rows.append(
+            score_policy(
+                policy_id="auto_learning_policy_candidate",
+                portfolio="main",
+                evidence_type="proposal",
+                metrics={"cagr": main_production.get("cagr"), "max_dd": main_production.get("max_dd"), "sharpe": main_production.get("sharpe")},
+                production=main_production,
+                source=rel(latest_run / "autolearning_winner_challenger" / "summary.json") if winner_challenger_summary else rel(latest_run / "auto_learning_v2" / "promotion_decision.json"),
+                notes="AutoLearning proposes policy changes from anomalies, winner-onset, shakeout, cash, and replay evidence.",
+                dependencies="Must generate executable challenger configs and pass replay gates before activation.",
+                conflict_scope="Never overrides production policies directly.",
+                extra={
+                    "diagnostic_action": "proposal_only",
+                    "autolearning_status": winner_challenger_summary.get("status", "") if isinstance(winner_challenger_summary, dict) else autolearning_v2.get("status", ""),
+                },
+            )
+        )
     return rows
 
 
@@ -816,6 +860,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "fusion_score",
         "priority_count",
         "diagnostic_action",
+        "autolearning_status",
         "macro_latest_risk_state",
         "macro_latest_style_state",
         "dependencies",

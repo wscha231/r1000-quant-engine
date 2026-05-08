@@ -307,6 +307,11 @@ jobs:
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
           python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
+          python tools/run_auto_learning_v2.py --latest-run outputs --output-dir outputs/auto_learning_v2 --research-dir outputs/auto_learning_v2/research 2>&1 | tee outputs/full_rebuild_logs/auto_learning_v2.log || true
+          python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir outputs/winner_lifecycle 2>&1 | tee outputs/full_rebuild_logs/winner_lifecycle.log || true
+          python tools/run_winner_onset_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/winner_onset_study 2>&1 | tee outputs/full_rebuild_logs/winner_onset_study.log || true
+          python tools/run_shakeout_breakdown_study.py --scored outputs/scored_latest.csv --top-tickers 80 --limit 80 --years 10 --output-dir outputs/shakeout_breakdown_study 2>&1 | tee outputs/full_rebuild_logs/shakeout_breakdown_study.log || true
+          python tools/run_autolearning_winner_challenger.py --latest-run outputs --autolearning-dir outputs/auto_learning_v2 --lifecycle-dir outputs/winner_lifecycle --onset-dir outputs/winner_onset_study --shakeout-dir outputs/shakeout_breakdown_study --cash-drag-dir outputs/main_cash_drag_replay --main-v2-replay-dir outputs/main_v2_backtest --concentrated-replay-dir outputs/concentrated_policy_replay --alpha-sprint-replay-dir outputs/alpha_sprint_backtest --position-risk-replay-dir outputs/position_aware_risk_replay --monster-lifecycle-replay-dir outputs/monster_lifecycle_replay --output-dir outputs/autolearning_winner_challenger 2>&1 | tee outputs/full_rebuild_logs/autolearning_winner_challenger.log || true
           python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir outputs/policy_fusion 2>&1 | tee outputs/full_rebuild_logs/policy_fusion.log || true
 
       - name: Upload artifact (logs + scored CSVs)
@@ -361,6 +366,11 @@ jobs:
             outputs/monster_lifecycle_review_main/
             outputs/monster_lifecycle_review_concentrated/
             outputs/historical_trade_journey/
+            outputs/auto_learning_v2/
+            outputs/winner_lifecycle/
+            outputs/winner_onset_study/
+            outputs/shakeout_breakdown_study/
+            outputs/autolearning_winner_challenger/
             outputs/policy_fusion/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
@@ -416,6 +426,19 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
             LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
+          fi
+          VALID_PRIMARY_OUTPUTS="no"
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+            VALID_PRIMARY_OUTPUTS="yes"
+          else
+            echo "[gdrive-sync] WARN: core metrics missing; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+              DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+            else
+              DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+            fi
           fi
           echo "[gdrive-sync] copying outputs/ to $DEST/"
           copy_if_exists() {
@@ -499,7 +522,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey policy_fusion; do
+          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -516,6 +539,7 @@ jobs:
             "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "head_sha": "${GITHUB_SHA}",
             "auth": "${AUTH}",
+            "valid_primary_outputs": "${VALID_PRIMARY_OUTPUTS}",
             "dest": "${DEST}",
             "log_dest": "${LOG_DEST}",
             "synced_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -538,7 +562,7 @@ jobs:
           # Cleanup secret file
           rm -f /tmp/sa.json
 
-          echo "[gdrive-sync] done — check Google Drive r1000_top30_institutional/outputs/"
+          echo "[gdrive-sync] done — check Google Drive destination: $DEST"
 
       - name: Telegram alert + zip results (mobile-friendly)
         if: always()
@@ -639,6 +663,11 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
           copy_dir_clean outputs/monster_lifecycle_review_concentrated /tmp/bundle/monster_lifecycle_review_concentrated
           copy_dir_clean outputs/historical_trade_journey /tmp/bundle/historical_trade_journey
+          copy_dir_clean outputs/auto_learning_v2 /tmp/bundle/auto_learning_v2
+          copy_dir_clean outputs/winner_lifecycle /tmp/bundle/winner_lifecycle
+          copy_dir_clean outputs/winner_onset_study /tmp/bundle/winner_onset_study
+          copy_dir_clean outputs/shakeout_breakdown_study /tmp/bundle/shakeout_breakdown_study
+          copy_dir_clean outputs/autolearning_winner_challenger /tmp/bundle/autolearning_winner_challenger
           copy_dir_clean outputs/policy_fusion /tmp/bundle/policy_fusion
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
@@ -683,7 +712,14 @@ jobs:
             echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
           fi
           mkdir -p cloud_results/full_rebuild
-          DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+          RUN_ARTIFACT_VALID="no"
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+            RUN_ARTIFACT_VALID="yes"
+            DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
+          else
+            DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
+            echo "[push] WARN: core metrics missing; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+          fi
           mkdir -p "$DEST"
           copy_dir_clean() {
             local src="$1"
@@ -751,12 +787,23 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"
           copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
           copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
+          copy_dir_clean outputs/auto_learning_v2 "$DEST/auto_learning_v2"
+          copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
+          copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"
+          copy_dir_clean outputs/shakeout_breakdown_study "$DEST/shakeout_breakdown_study"
+          copy_dir_clean outputs/autolearning_winner_challenger "$DEST/autolearning_winner_challenger"
           copy_dir_clean outputs/policy_fusion "$DEST/policy_fusion"
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
-          # Symlink/copy to "latest" pointer for sync helper convenience
-          rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
-          cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+          # Symlink/copy to "latest" pointer only when the run has complete
+          # core metrics. Failed/cancelled partial runs must not overwrite the
+          # last valid analysis baseline.
+          if [ "$RUN_ARTIFACT_VALID" = "yes" ]; then
+            rm -rf "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+            cp -r "$DEST" "cloud_results/full_rebuild/latest_${{ inputs.universe_mode }}"
+          else
+            echo "[push] latest_${{ inputs.universe_mode }} preserved because RUN_ARTIFACT_VALID=$RUN_ARTIFACT_VALID"
+          fi
           git add -f cloud_results/ 2>/dev/null || true
           if [ "${{ inputs.auto_learning_promote_live }}" = "true" ] && [ -f research/auto_feature_gates.yaml ]; then
             git add research/auto_feature_gates.yaml 2>/dev/null || true

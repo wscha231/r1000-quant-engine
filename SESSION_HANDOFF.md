@@ -50,6 +50,43 @@ Policy-fusion update:
   actionable top policy. A rebuild from this new commit is needed for full cloud
   evidence.
 
+Artifact-validity guard:
+- A cancelled 2026-05-08 run had overwritten
+  `cloud_results/full_rebuild/latest_global_alpha_universe` with a partial
+  artifact lacking `backtest_metrics.json` and
+  `concentrated_backtest_metrics.json`.
+- The workflow now treats those core metric files as the validity gate.
+- If either core metric is missing:
+  - GitHub cloud results go to
+    `cloud_results/full_rebuild/failed_runs/<run_id>_<universe_mode>/`.
+  - Google Drive sync goes to `failed_runs/<run_id>/outputs/`.
+  - Existing canonical Drive `outputs/` and local `latest_<universe_mode>` are
+    preserved.
+- If both core metrics exist, behavior is unchanged: the dated folder and
+  `latest_<universe_mode>` are refreshed.
+
+Winner-learning wire-up:
+- The full rebuild now runs these previously standalone research sidecars before
+  policy fusion:
+  - `tools/run_auto_learning_v2.py`
+  - `tools/run_winner_lifecycle_reports.py`
+  - `tools/run_winner_onset_study.py`
+  - `tools/run_shakeout_breakdown_study.py`
+  - `tools/run_autolearning_winner_challenger.py`
+- New synced outputs:
+  - `outputs/auto_learning_v2/`
+  - `outputs/winner_lifecycle/`
+  - `outputs/winner_onset_study/`
+  - `outputs/shakeout_breakdown_study/`
+  - `outputs/autolearning_winner_challenger/`
+- `run_alphaops_policy_fusion.py` now consumes those outputs:
+  - winner onset -> `monster_early_staged_sizing` diagnostic evidence
+  - shakeout/breakdown -> `shakeout_hold_veto` evidence
+  - AutoLearning v2 / winner challenger -> `auto_learning_policy_candidate`
+    proposal evidence
+- These remain proposal/research-only. They are now fused and visible every run,
+  but production scoring/weights are not changed without replay-backed gates.
+
 Cash policy intent from user:
 - Keep cash low in normal/bull regimes.
 - Allow staged cash increases in real deterioration and up to roughly 50% in

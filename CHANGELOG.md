@@ -345,6 +345,74 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is shadow governance only; production selection, weights, active gates, and broker execution are unchanged.
   - The next full rebuild at the new commit is required for `outputs/policy_fusion/` to evaluate the latest sidecar set in cloud artifacts.
 
+### 12:12 KST - valid-artifact-latest-guard
+
+- scope:
+  - Prevent failed or cancelled full rebuilds with missing core metrics from overwriting canonical Google Drive outputs or `latest_*` cloud result pointers.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->routes runs missing `backtest_metrics.json` or `concentrated_backtest_metrics.json` to `failed_runs/<run_id>/` and preserves the previous valid `latest_<universe_mode>` result.
+  - `tests/workflow_artifact_smoke.py` ->checks the workflow contains the valid-artifact guard tokens.
+  - `CHANGELOG.md` ->records the artifact guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks `VALID_PRIMARY_OUTPUTS`, `RUN_ARTIFACT_VALID`, and failed-run routing tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cloud_results/full_rebuild/failed_runs/<run_id>_<universe_mode>/` ->partial diagnostics for failed/cancelled runs that should not become latest.
+  - `Google Drive failed_runs/<run_id>/outputs/` ->partial diagnostics for failed/cancelled runs when Drive sync is configured.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This fixes the observed issue where a cancelled 2026-05-08 run replaced `latest_global_alpha_universe` with a metrics-missing artifact.
+  - Successful runs still write the dated folder and refresh `latest_<universe_mode>` as before.
+
+### 12:15 KST - winner-learning-sidecar-wireup
+
+- scope:
+  - Wire the previously standalone winner-onset, shakeout/breakdown, AutoLearning v2, and AutoLearning winner-challenger tools into the full rebuild and policy fusion flow.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs winner lifecycle, winner onset, shakeout breakdown, AutoLearning v2, and AutoLearning winner challenger before policy fusion; archives/syncs their output directories.
+  - `tools/run_alphaops_policy_fusion.py` ->reads winner-onset, shakeout/breakdown, AutoLearning v2, and winner-challenger artifacts as diagnostic/proposal evidence.
+  - `tests/alphaops_policy_fusion_smoke.py` ->adds fixture coverage for winner-onset, shakeout, and AutoLearning proposal evidence.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution/export tokens for the newly wired sidecars.
+  - `CHANGELOG.md` ->records the wire-up.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `build_diagnostic_policies(latest_run)` ->adds winner-onset evidence for monster early sizing, shakeout evidence for soft-trim vetoes, and AutoLearning proposal evidence.
+  - `test_policy_fusion_smoke()` ->checks AutoLearning proposal evidence is included in fusion candidates.
+  - `test_workflow_keeps_monthly_books()` ->checks new sidecar artifact directories are uploaded.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks new sidecar commands and logs are present.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/auto_learning_v2/` ->research-only anomaly, hypothesis, challenger, and promotion decision outputs.
+  - `outputs/winner_lifecycle/` ->missed/stale/rotation winner diagnostics.
+  - `outputs/winner_onset_study/` ->ticker-agnostic historical monster-onset event study.
+  - `outputs/shakeout_breakdown_study/` ->research-only shakeout vs true breakdown event labels and action summaries.
+  - `outputs/autolearning_winner_challenger/` ->proposal-only learner/challenger summary combining winner, shakeout, cash, and replay evidence.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_policy_fusion.py tests\alphaops_policy_fusion_smoke.py tools\run_auto_learning_v2.py tools\run_winner_lifecycle_reports.py tools\run_winner_onset_study.py tools\run_shakeout_breakdown_study.py tools\run_autolearning_winner_challenger.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - local integrated sample sidecar run with 3 scored tickers against `cloud_results\full_rebuild\20260507_global_alpha_universe` ->passed; winner lifecycle, AutoLearning v2, winner onset, shakeout, winner challenger, and policy fusion all completed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - Winner onset and shakeout studies use yfinance history for the top 80 scored tickers; they are guarded with `|| true` and remain proposal-only.
+  - This makes the discussed learning components visible in every full rebuild, but production weights remain unchanged until a replay-backed policy clears gates.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard
