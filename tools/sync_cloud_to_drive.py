@@ -67,6 +67,7 @@ SYNC_DIRS = [
     "trade_journal",
     "auto_learning",
     "macro_policy_engine",
+    "selection_audit",
 ]
 
 

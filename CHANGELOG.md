@@ -203,6 +203,60 @@ All entries must be written in English. Entries must be predictable and machine-
   - The current implementation uses existing regime/style proxy fields until longer-history macro series are added to the feature store.
   - Monster exceptions are surfaced as policy fields only; they still require separate challenger replay before production activation.
 
+### 18:33 KST - current-selection-audit-sidecar
+
+- scope:
+  - Add a research-only current selection audit so each full rebuild explains selected names, omitted high-potential candidates, and historical holding continuity before strategy changes are judged.
+- files:
+  - `tools/run_selection_audit.py` ->new sidecar that joins the latest candidate book, current main/concentrated portfolios, and historical holding books.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs selection audit after historical trade journey and uploads/syncs/bundles `outputs/selection_audit/`.
+  - `tools/sync_cloud_to_drive.py` ->copies `selection_audit/` from cloud results to the local Drive mirror.
+  - `tests/selection_audit_smoke.py` ->verifies selected-current, omitted-monster, and holding-history outputs on synthetic data.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow command, log, and artifact coverage for the selection audit.
+  - `CHANGELOG.md` ->records the selection audit change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `_normalize_ticker_series(series)` ->normalizes ticker strings for joins.
+  - `_with_ticker(frame)` ->filters non-stock/CASH rows and standardizes ticker columns.
+  - `_latest_candidates(latest_run)` ->loads the latest dated candidate set from `candidate_replay_book` or `scored_latest`.
+  - `_current_weights(path)` ->loads current target weights from main or concentrated portfolio files.
+  - `_history_summary(path, prefix)` ->summarizes first/last held dates and months held per ticker.
+  - `_numeric(frame, col, default)` ->returns numeric candidate columns with safe defaults.
+  - `_boolish(value, default)` ->normalizes gate flags from CSV values.
+  - `_add_pressure_score(frame)` ->builds a non-forward-looking selection-pressure score from existing rank/monster/RS fields.
+  - `_decision_bucket(row)` ->classifies selected and omitted candidates by likely reason.
+  - `run(latest_run, output_dir, top_n)` ->writes current selected, omitted candidate, historical persistence, and summary outputs.
+  - `_preview_rows(frame, n)` ->builds report previews.
+  - `_pct(value)` ->formats weights.
+  - `_render_report(summary)` ->writes the Markdown report.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/selection_audit/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires selection audit command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/selection_audit/current_selected_audit.csv` ->current main/concentrated holdings with selection score, gate/risk/stale fields, and historical hold counts.
+  - `outputs/selection_audit/omitted_high_potential_candidates.csv` ->top omitted candidates by non-forward-looking selection pressure and likely omission reason.
+  - `outputs/selection_audit/historical_hold_persistence.csv` ->per-ticker historical first/last held dates and months held.
+  - `outputs/selection_audit/ticker_decision_audit.csv` ->broader top candidate audit table.
+  - `outputs/selection_audit/selection_audit_summary.json` ->machine-readable counts and previews.
+  - `outputs/selection_audit/selection_audit_report.md` ->human-readable explanation report.
+- validation:
+  - `py -3 tests\selection_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\run_selection_audit.py` ->passed.
+  - `py -3 tools\run_selection_audit.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_selection_audit_check --top-n 30` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is explanatory only and does not change production selection.
+  - The selection-pressure score intentionally excludes forward-return columns; it is a debugging rank, not a model target.
+  - Strong omitted candidates still require historical replay before any promotion or hard rule change.
+
 ### 14:08 KST - gdrive-branch-output-isolation
 
 - scope:

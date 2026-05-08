@@ -43,6 +43,37 @@ Strict macro/cash confirmation update:
   `outputs/cash_policy/` classify prior high-cash months as confirmed macro
   defense, event-shock review, or idle drag.
 
+Selection audit update:
+- User asked whether current portfolio names are inherited holdings or just a
+  separate current display. Code review showed:
+  - `portfolio_latest.csv` is the current target portfolio generated from the
+    latest scored universe, enriched with live-state fields when available;
+  - historical holding continuity lives in `reports/main_monthly_weights.csv`
+    and `reports/concentrated_strategy_holdings.csv`;
+  - true dated BUY/TRIM/SELL validation lives in
+    `outputs/position_risk_weekly_validation/*/trade_log.csv`.
+- Added `tools/run_selection_audit.py`.
+- Full rebuild now writes:
+  - `outputs/selection_audit/current_selected_audit.csv`
+  - `outputs/selection_audit/omitted_high_potential_candidates.csv`
+  - `outputs/selection_audit/historical_hold_persistence.csv`
+  - `outputs/selection_audit/ticker_decision_audit.csv`
+  - `outputs/selection_audit/selection_audit_summary.json`
+  - `outputs/selection_audit/selection_audit_report.md`
+- This lets the next run answer:
+  - why current names were selected;
+  - whether selected names are stale-review names;
+  - which high-pressure/monster candidates were omitted;
+  - whether omissions were due to candidate gate, risk block, stale penalty,
+    sleeve/cap pressure, or lower priority;
+  - whether current names are long-held or newly selected.
+- Validation passed:
+  - `py -3 tests\selection_audit_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- This remains explanatory only and does not change production selection.
+
 Position-risk proxy realism update:
 - User asked whether the strong monthly proxy results can be made realistic.
 - Added `tools/run_position_risk_weekly_validation.py`.
