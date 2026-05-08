@@ -144,6 +144,8 @@ def simulate_position(
                 "exit_reason": "missing_entry_price",
                 "entry_date": "",
                 "exit_date": "",
+                "entry_price": "",
+                "exit_price": "",
                 "final_return": 0.0,
             },
             [],
@@ -159,6 +161,8 @@ def simulate_position(
                 "exit_reason": "missing_path",
                 "entry_date": pd.Timestamp(entry_actual).date().isoformat(),
                 "exit_date": "",
+                "entry_price": entry_price,
+                "exit_price": "",
                 "final_return": 0.0,
             },
             [],
@@ -233,6 +237,7 @@ def simulate_position(
                     "price_return": total_return,
                     "benchmark_return": bench_return,
                     "relative_return": relative_return,
+                    "action_price": close,
                     "sold_multiplier": sold,
                     "active_multiplier_after": active,
                 }
@@ -253,6 +258,7 @@ def simulate_position(
                     "price_return": total_return,
                     "benchmark_return": bench_return,
                     "relative_return": relative_return,
+                    "action_price": close,
                     "sold_multiplier": sold_multiplier,
                     "active_multiplier_after": active,
                 }
@@ -274,6 +280,9 @@ def simulate_position(
             "entry_date": pd.Timestamp(entry_actual).date().isoformat(),
             "exit_date": exit_date,
             "final_date": pd.Timestamp(last_date).date().isoformat(),
+            "entry_price": float(entry_price),
+            "exit_price": float(action_rows[-1]["action_price"]) if action_rows and active <= 1e-12 else "",
+            "final_price": float(last_rel * entry_price),
             "final_return": float(contribution_rel - 1.0),
             "raw_final_return": float(last_rel - 1.0),
         },
@@ -333,6 +342,7 @@ def replay(
     monthly_rows: list[dict[str, Any]] = []
     action_rows: list[dict[str, Any]] = []
     position_rows: list[dict[str, Any]] = []
+    trade_rows: list[dict[str, Any]] = []
     rebal_dates = sorted(pd.to_datetime(holdings["rebalance_date"], errors="coerce").dropna().unique())
     for idx, raw_dt in enumerate(rebal_dates):
         dt = pd.Timestamp(raw_dt).normalize()
@@ -399,6 +409,25 @@ def replay(
                 "explosion_exit_score": row.get("explosion_exit_score", ""),
             }
             position_rows.append(position_payload)
+            if result.get("entry_date"):
+                trade_rows.append(
+                    {
+                        "portfolio_kind": portfolio_kind,
+                        "rebalance_date": dt.date().isoformat(),
+                        "period_end_date": end_dt.date().isoformat(),
+                        "trade_date": result.get("entry_date"),
+                        "ticker": ticker,
+                        "side": "BUY",
+                        "action": "monthly_entry_open",
+                        "reason": "monthly_holding_book_entry",
+                        "target_weight": weight,
+                        "trade_weight": weight,
+                        "active_multiplier_after": 1.0,
+                        "price": result.get("entry_price", ""),
+                        "is_risk_exit": False,
+                        "is_relative_trim": False,
+                    }
+                )
             for action_row in actions:
                 action_rows.append(
                     {
@@ -407,6 +436,29 @@ def replay(
                         "portfolio_kind": portfolio_kind,
                         "weight": weight,
                         **action_row,
+                    }
+                )
+                sold_multiplier = safe_float(action_row.get("sold_multiplier"), 0.0)
+                action_name = str(action_row.get("action") or "")
+                trade_rows.append(
+                    {
+                        "portfolio_kind": portfolio_kind,
+                        "rebalance_date": dt.date().isoformat(),
+                        "period_end_date": end_dt.date().isoformat(),
+                        "trade_date": action_row.get("action_date"),
+                        "ticker": ticker,
+                        "side": "SELL" if "exit" in action_name else "TRIM",
+                        "action": action_name,
+                        "reason": action_row.get("reason", ""),
+                        "target_weight": weight,
+                        "trade_weight": weight * sold_multiplier,
+                        "active_multiplier_after": action_row.get("active_multiplier_after", ""),
+                        "price": action_row.get("action_price", ""),
+                        "price_return": action_row.get("price_return", ""),
+                        "benchmark_return": action_row.get("benchmark_return", ""),
+                        "relative_return": action_row.get("relative_return", ""),
+                        "is_risk_exit": "exit" in action_name,
+                        "is_relative_trim": "trim" in action_name,
                     }
                 )
         cost = exit_turnover * (cost_bps / 10000.0)
@@ -469,6 +521,7 @@ def replay(
         "promotion_note": "Stricter than monthly proxy, but still uses monthly holding books. True production requires order ticket simulation and weekly/daily scored snapshots.",
         "monthly_path": str(output_dir / "monthly.csv"),
         "actions_path": str(output_dir / "actions.csv"),
+        "trade_log_path": str(output_dir / "trade_log.csv"),
         "position_path": str(output_dir / "positions.csv"),
         "equity_curve_path": str(output_dir / "equity_curve.csv"),
         "rolling_3y_path": str(output_dir / "rolling_3y.csv"),
@@ -477,6 +530,7 @@ def replay(
     write_json(output_dir / "metrics.json", payload)
     write_rows(output_dir / "monthly.csv", monthly_rows)
     write_rows(output_dir / "actions.csv", action_rows)
+    write_rows(output_dir / "trade_log.csv", trade_rows)
     write_rows(output_dir / "positions.csv", position_rows)
     write_rows(output_dir / "equity_curve.csv", curve)
     write_rows(output_dir / "rolling_3y.csv", rolling)
@@ -498,6 +552,7 @@ def render_report(payload: dict[str, Any]) -> str:
             f"- Price coverage: {safe_float(payload.get('price_coverage')):.2%}",
             f"- Exits: {int(safe_float(payload.get('exit_count')))}",
             f"- Trims: {int(safe_float(payload.get('trim_count')))}",
+            f"- Trade log: `{payload.get('trade_log_path')}`",
             "",
             "This validates whether monthly proxy exits are observable on cached daily prices. "
             "It is stricter than a month-end cap, but still not live execution evidence.",

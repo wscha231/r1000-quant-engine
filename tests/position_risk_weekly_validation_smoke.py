@@ -75,6 +75,10 @@ def test_weekly_validation_uses_daily_path_for_hard_stop() -> None:
         assert "daily_hard_stop_exit" in set(actions["action"])
         monthly = pd.read_csv(out / "monthly.csv")
         assert monthly["net_return"].iloc[0] < -0.08
+        trades = pd.read_csv(out / "trade_log.csv")
+        assert {"BUY", "SELL"}.issubset(set(trades["side"]))
+        assert "trade_date" in trades.columns
+        assert trades.loc[trades["side"].eq("SELL"), "trade_weight"].iloc[0] == 1.0
         assert (out / "validation_report.md").exists()
 
 

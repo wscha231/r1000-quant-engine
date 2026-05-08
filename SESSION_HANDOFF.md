@@ -20,6 +20,10 @@ Position-risk proxy realism update:
   - weekly SPY-relative trim/exit checks
   - trim action sells half first; hard/distribution exits override long-hold
     patience
+- The validator writes explicit dated trade ledgers:
+  - `trade_log.csv` with BUY/SELL/TRIM rows
+  - `actions.csv` with risk/relative trigger diagnostics
+  - `positions.csv` with entry/exit/final price-path summary
 - This is stricter than the previous monthly position-risk proxy because it
   requires an observable price path before a stop/exit is credited.
 - It is still research-only. It does not yet create true weekly scored

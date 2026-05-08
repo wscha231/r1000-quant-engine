@@ -140,8 +140,10 @@ All entries must be written in English. Entries must be predictable and machine-
 - outputs:
   - `outputs/position_risk_weekly_validation/main/metrics.json` ->main daily/weekly position-risk validation metrics.
   - `outputs/position_risk_weekly_validation/main/actions.csv` ->main stop/trim/exit action log with action dates.
+  - `outputs/position_risk_weekly_validation/main/trade_log.csv` ->main BUY/SELL/TRIM trade-date ledger from daily/weekly validation.
   - `outputs/position_risk_weekly_validation/concentrated/metrics.json` ->concentrated daily/weekly position-risk validation metrics.
   - `outputs/position_risk_weekly_validation/concentrated/actions.csv` ->concentrated stop/trim/exit action log with action dates.
+  - `outputs/position_risk_weekly_validation/concentrated/trade_log.csv` ->concentrated BUY/SELL/TRIM trade-date ledger from daily/weekly validation.
 - validation:
   - `py -3 tests\position_risk_weekly_validation_smoke.py` ->passed.
   - `py -3 tests\weekly_evaluation_smoke.py` ->passed.
