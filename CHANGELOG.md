@@ -252,6 +252,39 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local latest lifecycle-review concentrated improved from CAGR 10.46%, MaxDD -39.37% to CAGR 14.42%, MaxDD -25.91%, but it remains far below target and is not a production candidate.
   - This confirms the lifecycle engine is useful as a diagnostic/learning feed, while the stronger near-target path remains concentrated position-risk replay plus better early leader capture.
 
+### 10:27 KST - historical-first-decision-priorities
+
+- scope:
+  - Promote historical decision quality above latest snapshot inspection by adding first-class historical priority queues to the trade journey sidecar.
+- files:
+  - `tools/run_historical_trade_journey.py` ->adds book summary, journey-tag summary, and historical decision priority outputs before latest-holdings sections.
+  - `tests/historical_challenger_replays_smoke.py` ->runs the historical trade journey sidecar in smoke coverage and checks the new summary outputs.
+  - `CHANGELOG.md` ->records the historical-first reporting change.
+  - `SESSION_HANDOFF.md` ->documents the new interpretation: historical runs are the primary evaluation surface.
+- symbols_added:
+  - `book_summary(runs)` ->summarizes holding history by book, including long winners, quick losses, stale open watches, and weighted contribution.
+  - `journey_tag_summary(runs)` ->summarizes historical holding-run tags by book.
+  - `historical_decision_priorities(runs, current_history)` ->ranks stale holdings, short big wins, quick losses, and long winners as historical review queues.
+- symbols_changed:
+  - `build_report(summary, runs, trades_by_ticker, current_history, priorities, books_by_run, tag_summary)` ->moves historical decision priorities and book-level history above current snapshot sections.
+  - `analyze(latest_run, output_dir)` ->writes `book_summary.csv`, `journey_tag_summary.csv`, and `historical_decision_priorities.csv`.
+  - `test_historical_challenger_replays()` ->checks the historical journey sidecar and new summary outputs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/historical_trade_journey/book_summary.csv` ->history quality by book.
+  - `outputs/historical_trade_journey/journey_tag_summary.csv` ->counts and returns for normal, long winner, short big win, quick loss, and stale-watch tags.
+  - `outputs/historical_trade_journey/historical_decision_priorities.csv` ->ranked historical review queue before latest-position review.
+- validation:
+  - `py -3 -m py_compile tools\run_historical_trade_journey.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tools\run_historical_trade_journey.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_historical_trade_journey_check` ->passed.
+- risks_or_notes:
+  - Local latest history shows production main average run length is only 2.81 months, with 43 `short_big_win_review` runs and only 8 runs held 12+ months.
+  - This confirms the next alpha improvement should learn from historical premature exits and long-winner templates, not only inspect `portfolio_latest.csv`.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

@@ -93,6 +93,27 @@ Step 4 implemented for monster lifecycle risk defense:
   near-target commercial concentrated path is still the concentrated
   position-risk replay plus better early leader capture.
 
+Step 5 implemented for historical-first evaluation:
+- User clarified that historical behavior matters more than current latest
+  outputs. `tools/run_historical_trade_journey.py` now treats historical
+  decision quality as the first section of the report.
+- New outputs:
+  - `outputs/historical_trade_journey/book_summary.csv`
+  - `outputs/historical_trade_journey/journey_tag_summary.csv`
+  - `outputs/historical_trade_journey/historical_decision_priorities.csv`
+- Local latest diagnostic:
+  - holding runs: 2,170
+  - unique held tickers: 446
+  - production main avg run length: 2.81 months
+  - production main 12m+ runs: 8
+  - production main `short_big_win_review`: 43
+  - current stale priority includes NVDA in current main.
+- Interpretation: the engine still churns too quickly for the desired
+  “enter early, pyramid winners, hold for years unless true breakdown” behavior.
+  Next work should convert historical priority queues into AutoLearning
+  counterfactual experiments: premature-exit repair, long-winner template
+  preservation, and stale-current trim/exit rules.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the

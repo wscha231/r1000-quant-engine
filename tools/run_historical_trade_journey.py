@@ -398,11 +398,138 @@ def _top_records(frame: pd.DataFrame, sort_col: str, n: int = 10, ascending: boo
     return frame.sort_values(sort_col, ascending=ascending).head(n).to_dict("records")
 
 
+def book_summary(runs: pd.DataFrame) -> pd.DataFrame:
+    if runs.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for book, group in runs.groupby("book", sort=True):
+        months = pd.to_numeric(group["months_held"], errors="coerce").fillna(0)
+        total_return = pd.to_numeric(group["total_return"], errors="coerce").fillna(0.0)
+        contribution = pd.to_numeric(group["weighted_contribution"], errors="coerce").fillna(0.0)
+        rows.append(
+            {
+                "book": book,
+                "holding_run_count": int(len(group)),
+                "unique_tickers": int(group["ticker"].nunique()),
+                "avg_run_months": float(months.mean()) if len(months) else 0.0,
+                "median_run_months": float(months.median()) if len(months) else 0.0,
+                "runs_ge_6m": int((months >= 6).sum()),
+                "runs_ge_12m": int((months >= 12).sum()),
+                "long_winner_count": int((group["journey_tag"] == "long_winner").sum()),
+                "open_winner_hold_count": int((group["journey_tag"] == "open_winner_hold").sum()),
+                "open_stale_watch_count": int((group["journey_tag"] == "open_stale_watch").sum()),
+                "quick_loss_count": int((group["journey_tag"] == "quick_loss").sum()),
+                "short_big_win_review_count": int((group["journey_tag"] == "short_big_win_review").sum()),
+                "avg_total_return": float(total_return.mean()) if len(total_return) else 0.0,
+                "total_weighted_contribution": float(contribution.sum()),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("total_weighted_contribution", ascending=False)
+
+
+def journey_tag_summary(runs: pd.DataFrame) -> pd.DataFrame:
+    if runs.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for (book, tag), group in runs.groupby(["book", "journey_tag"], sort=True):
+        months = pd.to_numeric(group["months_held"], errors="coerce").fillna(0)
+        total_return = pd.to_numeric(group["total_return"], errors="coerce").fillna(0.0)
+        contribution = pd.to_numeric(group["weighted_contribution"], errors="coerce").fillna(0.0)
+        rows.append(
+            {
+                "book": book,
+                "journey_tag": tag,
+                "count": int(len(group)),
+                "avg_run_months": float(months.mean()) if len(months) else 0.0,
+                "avg_total_return": float(total_return.mean()) if len(total_return) else 0.0,
+                "total_weighted_contribution": float(contribution.sum()),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["book", "count"], ascending=[True, False])
+
+
+def historical_decision_priorities(runs: pd.DataFrame, current_history: pd.DataFrame) -> pd.DataFrame:
+    """Rank historical lessons before latest snapshot opinions.
+
+    The user priority is that past decision quality matters more than today's
+    holdings. This scorecard turns holding history into review queues:
+    stale open winners, quick losses, short big wins, and long winners that
+    should become templates for future holding rules.
+    """
+    rows: list[dict[str, Any]] = []
+    if not runs.empty:
+        for row in runs.to_dict("records"):
+            tag = str(row.get("journey_tag", "normal"))
+            priority = 0
+            action = "archive_context"
+            if tag == "open_stale_watch":
+                priority = 100
+                action = "review_trim_or_exit"
+            elif tag == "short_big_win_review":
+                priority = 85
+                action = "study_premature_exit_or_fast_capture"
+            elif tag == "quick_loss":
+                priority = 75
+                action = "tighten_entry_or_fast_exit"
+            elif tag in {"long_winner", "open_winner_hold"}:
+                priority = 60
+                action = "preserve_winner_hold_template"
+            if priority <= 0:
+                continue
+            rows.append(
+                {
+                    "priority": priority,
+                    "source": "holding_history",
+                    "book": row.get("book", ""),
+                    "ticker": row.get("ticker", ""),
+                    "action": action,
+                    "journey_tag": tag,
+                    "entry_date": row.get("entry_date", ""),
+                    "exit_date": row.get("exit_date", ""),
+                    "status": row.get("status", ""),
+                    "months_held": row.get("months_held", ""),
+                    "total_return": row.get("total_return", ""),
+                    "recent_3m_return": row.get("recent_3m_return", ""),
+                    "max_weight": row.get("max_weight", ""),
+                    "reason": f"historical_{tag}",
+                }
+            )
+    if not current_history.empty:
+        for row in current_history.to_dict("records"):
+            tag = str(row.get("current_run_tag", ""))
+            if tag != "open_stale_watch":
+                continue
+            rows.append(
+                {
+                    "priority": 110,
+                    "source": "current_vs_history",
+                    "book": row.get("current_book", ""),
+                    "ticker": row.get("ticker", ""),
+                    "action": "current_position_stale_review",
+                    "journey_tag": tag,
+                    "entry_date": row.get("first_seen", ""),
+                    "exit_date": row.get("last_seen", ""),
+                    "status": row.get("history_status", ""),
+                    "months_held": row.get("current_run_months", ""),
+                    "total_return": row.get("current_run_return", ""),
+                    "recent_3m_return": row.get("current_run_recent_3m_return", ""),
+                    "max_weight": row.get("current_weight", ""),
+                    "reason": "current holding has stale historical pattern",
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(["priority", "total_return"], ascending=[False, True])
+
+
 def build_report(
     summary: dict[str, Any],
     runs: pd.DataFrame,
     trades_by_ticker: pd.DataFrame,
     current_history: pd.DataFrame,
+    priorities: pd.DataFrame,
+    books_by_run: pd.DataFrame,
+    tag_summary: pd.DataFrame,
 ) -> str:
     def table(rows: list[dict[str, Any]], cols: list[str]) -> str:
         if not rows:
@@ -434,7 +561,7 @@ def build_report(
     return (
         "# Historical Trade Journey\n\n"
         f"Status: `{summary.get('status', 'unknown')}`\n\n"
-        "This report is sidecar-only. It reconstructs historical holdings and round-trip trades so current decisions can be compared against past ownership behavior.\n\n"
+        "This report is sidecar-only. It prioritizes historical decision quality before latest snapshot opinions.\n\n"
         "## Summary\n\n"
         f"- Holding books: {summary.get('holding_books', [])}\n"
         f"- Holding runs: {summary.get('holding_run_count', 0)}\n"
@@ -443,7 +570,14 @@ def build_report(
         f"- Median run length: {summary.get('median_run_months', 0):.2f} months\n"
         f"- Runs >= 6m / 12m: {summary.get('runs_ge_6m', 0)} / {summary.get('runs_ge_12m', 0)}\n"
         f"- Trade journal rows: {summary.get('trade_count', 0)}\n"
-        "\n## Longest Holding Runs\n\n"
+        f"- Historical priority items: {summary.get('historical_priority_count', 0)}\n"
+        "\n## Historical Decision Priorities\n\n"
+        + table(_top_records(priorities, "priority", 20), ["priority", "source", "book", "ticker", "action", "journey_tag", "entry_date", "exit_date", "months_held", "total_return", "recent_3m_return"])
+        + "\n## Book-Level History Summary\n\n"
+        + table(books_by_run.to_dict("records") if not books_by_run.empty else [], ["book", "holding_run_count", "unique_tickers", "avg_run_months", "runs_ge_6m", "runs_ge_12m", "long_winner_count", "open_stale_watch_count", "quick_loss_count", "total_weighted_contribution"])
+        + "\n## Journey Tag Summary\n\n"
+        + table(tag_summary.to_dict("records") if not tag_summary.empty else [], ["book", "journey_tag", "count", "avg_run_months", "avg_total_return", "total_weighted_contribution"])
+        + "\n## Longest Holding Runs\n\n"
         + table(longest, ["book", "ticker", "entry_date", "exit_date", "status", "months_held", "total_return", "max_weight", "journey_tag"])
         + "\n## Largest Weighted Contributors\n\n"
         + table(contributors, ["book", "ticker", "entry_date", "exit_date", "months_held", "total_return", "weighted_contribution", "journey_tag"])
@@ -483,6 +617,9 @@ def analyze(latest_run: Path, output_dir: Path) -> dict[str, Any]:
     trades_by_ticker = trade_summary_by_ticker(trades)
     timeline = leader_rotation_timeline(books)
     current_history = current_vs_history(current, runs)
+    books_by_run = book_summary(runs)
+    tag_summary = journey_tag_summary(runs)
+    priorities = historical_decision_priorities(runs, current_history)
 
     if not runs.empty:
         run_months = pd.to_numeric(runs["months_held"], errors="coerce").fillna(0)
@@ -503,6 +640,9 @@ def analyze(latest_run: Path, output_dir: Path) -> dict[str, Any]:
             "open_stale_watch_count": int((runs["journey_tag"] == "open_stale_watch").sum()),
             "trade_count": int(len(trades)),
             "trade_summary_ticker_count": int(len(trades_by_ticker)),
+            "book_summary_count": int(len(books_by_run)),
+            "journey_tag_summary_count": int(len(tag_summary)),
+            "historical_priority_count": int(len(priorities)),
             "research_only": True,
             "production_activation_allowed": False,
         }
@@ -527,6 +667,12 @@ def analyze(latest_run: Path, output_dir: Path) -> dict[str, Any]:
         write_rows(output_dir / "holding_runs.csv", runs.to_dict("records"))
     if not trades_by_ticker.empty:
         write_rows(output_dir / "trade_summary_by_ticker.csv", trades_by_ticker.to_dict("records"))
+    if not books_by_run.empty:
+        write_rows(output_dir / "book_summary.csv", books_by_run.to_dict("records"))
+    if not tag_summary.empty:
+        write_rows(output_dir / "journey_tag_summary.csv", tag_summary.to_dict("records"))
+    if not priorities.empty:
+        write_rows(output_dir / "historical_decision_priorities.csv", priorities.to_dict("records"))
     if not timeline.empty:
         write_rows(output_dir / "leader_rotation_timeline.csv", timeline.to_dict("records"))
     if not current_history.empty:
@@ -552,7 +698,7 @@ def analyze(latest_run: Path, output_dir: Path) -> dict[str, Any]:
         journey = books[thin_cols].copy()
         journey["rebalance_date"] = journey["rebalance_date"].dt.strftime("%Y-%m-%d")
         write_rows(output_dir / "ticker_journey.csv", journey.to_dict("records"))
-    write_text(output_dir / "report.md", build_report(summary, runs, trades_by_ticker, current_history))
+    write_text(output_dir / "report.md", build_report(summary, runs, trades_by_ticker, current_history, priorities, books_by_run, tag_summary))
     return summary
 
 

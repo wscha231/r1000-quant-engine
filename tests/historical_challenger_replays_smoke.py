@@ -18,6 +18,7 @@ from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
 from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
 from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_replay  # noqa: E402
 from tools.run_governance_catalyst_report import run as governance_report_run  # noqa: E402
+from tools.run_historical_trade_journey import analyze as historical_journey_analyze  # noqa: E402
 from tools.run_leader_drop_diagnostics_sidecar import run as leader_drop_run  # noqa: E402
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 from tools.run_style_regime_report import run as style_regime_run  # noqa: E402
@@ -381,7 +382,13 @@ def test_historical_challenger_replays() -> None:
         latest_reports = latest / "reports"
         latest_reports.mkdir(parents=True, exist_ok=True)
         (latest_reports / "candidate_replay_book.csv").write_text(book.read_text(encoding="utf-8"), encoding="utf-8")
+        (latest_reports / "main_monthly_weights.csv").write_text(monthly_weights.read_text(encoding="utf-8"), encoding="utf-8")
+        with (latest / "portfolio_latest.csv").open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["ticker", "Name", "sector", "weight"])
+            writer.writeheader()
+            writer.writerow({"ticker": "AAA", "Name": "AAA", "sector": "Tech", "weight": 0.30})
         style_metrics = style_regime_run(latest, root / "style")
+        journey_metrics = historical_journey_analyze(latest, root / "historical_journey")
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
         assert concentrated_position_metrics["status"] == "completed"
@@ -394,6 +401,8 @@ def test_historical_challenger_replays() -> None:
         assert lifecycle_review_metrics["status"] == "completed"
         assert overlay_metrics["status"] == "completed"
         assert style_metrics["status"] == "completed"
+        assert journey_metrics["status"] == "completed"
+        assert journey_metrics["historical_priority_count"] >= 0
         assert lifecycle_review_metrics["entry_requires_leadership"]
         assert lifecycle_review_metrics["hard_stop_proxy"] == -0.08
         assert lifecycle_review_metrics["hard_stop_exit"] is True
@@ -405,6 +414,8 @@ def test_historical_challenger_replays() -> None:
         assert (root / "monster_review" / "events.csv").exists()
         assert (root / "overlay" / "holdings.csv").exists()
         assert (root / "style" / "monthly.csv").exists()
+        assert (root / "historical_journey" / "book_summary.csv").exists()
+        assert (root / "historical_journey" / "journey_tag_summary.csv").exists()
         with (root / "main_v2" / "monthly_returns.csv").open(encoding="utf-8", newline="") as f:
             first_main_month = next(csv.DictReader(f))
             assert "style_regime" in first_main_month
