@@ -13,30 +13,30 @@ Artifact-only ranking against explicit portfolio targets. Production defaults ar
 
 | Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `experiment_E6_risk_sensing_on` | 18.47% | 11.53pp | -21.63% | 6.63pp | false | `blocked_both` |
-| concentrated | `experiment_E4_concentrated_balanced` | 34.85% | 15.15pp | -22.94% | 4.94pp | false | `blocked_both` |
+| main | `main_v2_position_aware_risk_proxy` | 36.10% | 0.00pp | -12.63% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_proxy` | 50.38% | 0.00pp | -17.82% | 0.00pp | true | `target_pass_review` |
 
 ## Main Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `experiment_E6_risk_sensing_on` | 18.47% | 11.53pp | -21.63% | 6.63pp | 1.119 | false | experiment:outputs/experiments/E6_risk_sensing_on/metrics.json |
-| `experiment_E0_baseline_latest` | 21.40% | 8.60pp | -27.27% | 12.27pp | 1.183 | false | experiment:outputs/experiments/E0_baseline_latest/metrics.json |
-| `experiment_E2_main_v2_balanced` | 21.40% | 8.60pp | -27.27% | 12.27pp | 1.183 | false | experiment:outputs/experiments/E2_main_v2_balanced/metrics.json |
-| `experiment_E3_main_v2_aggressive` | 21.40% | 8.60pp | -27.27% | 12.27pp | 1.183 | false | experiment:outputs/experiments/E3_main_v2_aggressive/metrics.json |
-| `experiment_E5_orchestrator_balanced` | 21.40% | 8.60pp | -27.27% | 12.27pp | 1.183 | false | experiment:outputs/experiments/E5_orchestrator_balanced/metrics.json |
+| `main_v2_position_aware_risk_proxy` | 36.10% | 0.00pp | -12.63% | 0.00pp | 1.726 | true | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
+| `orchestrator_replay_main_proxy` | 32.16% | 0.00pp | -13.60% | 0.00pp | 1.813 | true | sidecar:outputs/orchestrator_replay/concentrated_balanced/metrics.json#metrics.main_proxy |
+| `main_rebalance_interval_fixed_interval_I1` | 28.48% | 1.52pp | -14.92% | 0.00pp | 1.635 | false | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
+| `main_latest_champion` | 28.12% | 1.88pp | -15.92% | 0.92pp | 1.620 | false | latest_run:outputs/backtest_metrics.json |
+| `main_rebalance_interval_adaptive_I1` | 28.12% | 1.88pp | -15.92% | 0.92pp | 1.620 | false | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
 
 ## Concentrated Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `experiment_E4_concentrated_balanced` | 34.85% | 15.15pp | -22.94% | 4.94pp | 1.429 | false | experiment:outputs/experiments/E4_concentrated_balanced/metrics.json |
-| `concentrated_policy_replay` |  |  |  |  |  | false | sidecar:outputs/concentrated_policy_replay/metrics.json |
-| `concentrated_position_risk_proxy` |  |  |  |  |  | false | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
-| `monster_lifecycle_replay` |  |  |  |  |  | false | sidecar:outputs/monster_lifecycle_replay/metrics.json |
-| `monster_lifecycle_review_concentrated` |  |  |  |  |  | false | sidecar:outputs/monster_lifecycle_review_concentrated/metrics.json |
+| `concentrated_position_risk_proxy` | 50.38% | 0.00pp | -17.82% | 0.00pp | 1.825 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
+| `concentrated_latest_champion` | 47.71% | 2.29pp | -19.72% | 1.72pp | 1.750 | false | latest_run:outputs/concentrated_backtest_metrics.json |
+| `concentrated_grid_N3_score_power_I1` | 47.71% | 2.29pp | -19.72% | 1.72pp | 1.750 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N3_winner_take_all_I1` | 47.16% | 2.84pp | -20.39% | 2.39pp | 1.710 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N4_conviction_curve_I1` | 44.29% | 5.71pp | -15.38% | 0.00pp | 1.748 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
 
 ## Next Actions
 
-- Main: run true Main v2 historical challenger; current artifacts do not meet both CAGR and MaxDD targets.
-- Concentrated: run full concentrated grid replay from concentrated_strategy_monthly and reject proxy-only evidence.
+- Main: target-pass candidate exists; require strict gate, stress windows, turnover, and human approval.
+- Concentrated: target-pass candidate exists; validate caps, timing, turnover, and production promotion gates.

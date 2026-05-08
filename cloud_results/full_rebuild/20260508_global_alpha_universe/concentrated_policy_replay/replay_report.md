@@ -1,7 +1,12 @@
-# concentrated_policy_replay
+# Concentrated Policy Replay
 
-Status: `blocked`
+Research-only concentrated replay from historical candidate rows.
 
-Reason: missing reports/candidate_replay_book.csv from full rebuild
+- Status: `completed`
+- Target N: 3
+- Single cap: 50.00%
+- CAGR: 15.84%
+- Sharpe: 0.636
+- MaxDD: -47.88%
 
-Required path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv`
+This is the path that can test high-conviction caps up to 50% without hardcoding tickers.

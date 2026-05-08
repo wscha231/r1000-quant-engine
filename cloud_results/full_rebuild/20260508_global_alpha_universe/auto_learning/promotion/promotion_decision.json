@@ -13,7 +13,7 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-05-08T01:35:03Z",
+  "generated_at_utc": "2026-05-08T06:22:21Z",
   "hard_failures": [
     {
       "check": "feature_gate_candidate_backtest_executed",
@@ -26,6 +26,26 @@
       "threshold": "full candidate rebuild/backtest"
     },
     {
+      "check": "main_cagr_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 0.20165834588806963,
+      "passed": false,
+      "reason": "Candidate main CAGR must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 0.27116073881810343
+    },
+    {
+      "check": "main_sharpe_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": 1.0971959712745438,
+      "passed": false,
+      "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
+      "severity": "hard",
+      "threshold": 1.5402096991237042
+    },
+    {
       "check": "main_max_dd_floor",
       "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
       "gate": "main",
@@ -33,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.01
+      "threshold": -0.16921178440601548
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -44,16 +64,6 @@
       "reason": "Main v2 currently has latest shadow output, not historical performance.",
       "severity": "hard",
       "threshold": "83-month main_v2 backtest"
-    },
-    {
-      "check": "concentrated_cagr_floor",
-      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
-      "gate": "concentrated",
-      "observed": 0.0,
-      "passed": false,
-      "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
-      "severity": "hard",
-      "threshold": 0.3
     },
     {
       "check": "single_name_and_sector_cap_audit",

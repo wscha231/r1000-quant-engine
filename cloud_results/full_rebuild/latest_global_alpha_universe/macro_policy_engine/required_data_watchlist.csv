@@ -1,0 +1,7 @@
+group,series_or_source,why,priority
+market_breadth,"SPY/QQQ/RSP/IWM/SMH relative strength, % above MA50/MA200, new highs-lows",Fast warning when index leadership narrows or growth leaders break.,high
+credit_stress,"FRED BAMLH0A0HYM2, BAMLC0A0CM, Chicago Fed NFCI/ANFCI, OFR FSI",Keep bear regimes active when financial conditions tighten slowly.,high
+volatility_structure,"VIX level/change, VIX term structure, VVIX, MOVE",Distinguish temporary volatility shock from persistent risk-off plumbing stress.,high
+liquidity,"WALCL, WTREGEN, RRPONTSYD, M2SL, DXY",Route between growth breakout and cash defense.,high
+labor_cycle,"SAHMREALTIME, ICSA, CCSA, UNRATE",Separate slowdown/recession risk from pure equity-market pullbacks.,medium
+earnings_breadth,"EPS revision breadth, surprise breadth by sector/theme",Confirm whether a style/sector rally is supported by fundamentals.,medium

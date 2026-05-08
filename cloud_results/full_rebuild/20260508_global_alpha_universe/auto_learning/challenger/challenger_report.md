@@ -5,7 +5,7 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 - Policy version: `2026-05-alphaops-20260508-v1`
 - Status: `blocked`
 - Approved for promotion: `False`
-- Hard failures: 10
+- Hard failures: 11
 
 ## Gate Matrix
 
@@ -15,13 +15,13 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 | schema | production_activation_disabled | hard | True | `False` | `False` |
 | schema | human_approval_required | hard | True | `True` | `True` |
 | main | feature_gate_candidate_backtest_executed | hard | False | `candidate_only` | `full candidate rebuild/backtest` |
-| main | main_cagr_floor | hard | True | `0.20165834588806963` | `-0.01` |
-| main | main_sharpe_floor | hard | True | `1.0971959712745438` | `-0.08` |
-| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.01` |
+| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.27116073881810343` |
+| main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.5402096991237042` |
+| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.16921178440601548` |
 | main_v2 | main_v2_historical_backtest_exists | hard | False | `latest_snapshot_only` | `83-month main_v2 backtest` |
 | main_v2 | main_v2_cap_audit | soft | True | `{'positions': 11, 'cash': 0.07820306303913749}` | `cap<=15%, positions>0` |
-| concentrated | concentrated_cagr_floor | hard | False | `0.0` | `0.3` |
-| concentrated | concentrated_max_dd_floor | hard | True | `0.0` | `-0.25` |
+| concentrated | concentrated_cagr_floor | hard | True | `0.4770597336284852` | `0.3` |
+| concentrated | concentrated_max_dd_floor | hard | True | `-0.19716786794336416` | `-0.25` |
 | concentrated | single_name_and_sector_cap_audit | hard | False | `2` | `0` |
 | orchestrator | orchestrator_historical_backtest_exists | hard | False | `snapshot_report_only` | `83-month orchestrator backtest` |
 | orchestrator | snapshot_cash_floor | soft | True | `0.19999999999999996` | `0.25` |
@@ -33,9 +33,10 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 ## Blockers
 
 - main/feature_gate_candidate_backtest_executed: Feature-gate candidate currently has dry-run/proxy metrics only.
+- main/main_cagr_floor: Candidate main CAGR must not regress beyond the policy gate.
+- main/main_sharpe_floor: Candidate main Sharpe must not regress beyond the policy gate.
 - main/main_max_dd_floor: Candidate main MaxDD must not worsen beyond the policy gate.
 - main_v2/main_v2_historical_backtest_exists: Main v2 currently has latest shadow output, not historical performance.
-- concentrated/concentrated_cagr_floor: Standalone concentrated historical CAGR must clear the policy floor.
 - concentrated/single_name_and_sector_cap_audit: Latest concentrated policy audit found cap violations that must be resolved before more capital.
 - orchestrator/orchestrator_historical_backtest_exists: Orchestrator balanced currently reports latest snapshot only.
 - alpha_sprint/alpha_sprint_historical_backtest_exists: Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.

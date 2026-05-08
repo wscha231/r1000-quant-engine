@@ -1,8 +1,55 @@
 {
+  "benchmark_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/equity_curve.csv",
+  "benchmark_rows": 83,
+  "cagr": 0.3609848174155128,
+  "calmar": 2.8586110944934315,
+  "cost_bps": 25.0,
+  "cost_sensitivity_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/cost_sensitivity.csv",
+  "data_mode": "monthly_position_proxy",
+  "defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/defensive_holdings.csv",
+  "delta": {
+    "cagr": 0.11365520519486205,
+    "max_dd": 0.12934233622531066,
+    "sharpe": 0.597837134256876
+  },
+  "ending_equity": 8.649140717674005,
   "experiment_id": "position_aware_risk_replay",
+  "hard_stop": -0.08,
+  "input": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2_backtest/monthly_holdings.csv",
+  "latest_defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/defensive_latest.csv",
+  "list_defense_mode": "risk_exit_trim50_exit_proxy",
+  "max_dd": -0.12627979304735826,
+  "metric_mode": "position_aware_risk_proxy",
+  "original": {
+    "cagr": 0.24732961222065075,
+    "calmar": 0.9675594711787545,
+    "ending_equity": 4.697519913538256,
+    "max_dd": -0.2556221292726689,
+    "months": 84,
+    "sharpe": 1.1284791511893626,
+    "vol_ann": 0.2180950904253409
+  },
   "production_activation_allowed": false,
-  "reason": "monthly holdings input is empty or missing",
-  "required_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2_backtest/monthly_holdings.csv",
+  "relative_exit_count": 3,
+  "relative_exit_threshold": -0.12,
+  "relative_trim_count": 22,
+  "relative_trim_threshold": -0.06,
+  "relative_trim_weight": 0.5,
   "research_only": true,
-  "status": "blocked"
+  "risk_exit_count": 205,
+  "risk_exit_rate": 0.22956326987681971,
+  "rolling_3y_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/rolling_3y.csv",
+  "sharpe": 1.7263162854462386,
+  "status": "completed",
+  "trailing_stop": -0.15,
+  "vol_ann": 0.190807687249851,
+  "with_position_risk": {
+    "cagr": 0.3609848174155128,
+    "calmar": 2.8586110944934315,
+    "ending_equity": 8.649140717674005,
+    "max_dd": -0.12627979304735826,
+    "months": 84,
+    "sharpe": 1.7263162854462386,
+    "vol_ann": 0.190807687249851
+  }
 }

@@ -1,7 +1,11 @@
-# alpha_sprint_historical_sidecar
+# Alpha Sprint Historical Sidecar
 
-Status: `blocked`
+Bull-only research replay for short-horizon explosive candidates.
 
-Reason: missing reports/candidate_replay_book.csv from full rebuild
+- Status: `inactive_no_bull_months_or_candidates`
+- Active months: 0
+- CAGR contribution stream: 0.00%
+- Sharpe: 0.000
+- MaxDD: 0.00%
 
-Required path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv`
+This remains a sidecar until it improves the unified orchestrator replay after costs.

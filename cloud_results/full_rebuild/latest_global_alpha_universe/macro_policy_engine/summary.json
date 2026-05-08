@@ -1,7 +1,37 @@
 {
+  "diagnostic_counts": {
+    "balanced_under_drawdown": 9,
+    "late_risk_alert": 10,
+    "possible_cash_drag": 4,
+    "premature_growth_reentry": 1
+  },
+  "experiment_id": "macro_policy_engine",
+  "latest": {
+    "macro_risk_state": "red",
+    "macro_style_state": "cash_defense",
+    "rebalance_date": "2026-02-27",
+    "recommended_action": "defend_half_trim_stale_leaders_no_tactical_new_buys",
+    "recommended_cash_floor": 0.28,
+    "recommended_new_buy_policy": "no_new_buy_except_top_quality_or_recovery",
+    "recommended_target_n": 16,
+    "recommended_trim_policy": "half_trim_then_exit_relative_losers"
+  },
+  "months": 83,
   "production_activation_allowed": false,
-  "reason": "missing reports/regime_by_month.csv",
-  "required_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/regime_by_month.csv",
   "research_only": true,
-  "status": "blocked"
+  "risk_state_counts": {
+    "crisis": 5,
+    "green": 50,
+    "recovery": 7,
+    "red": 11,
+    "yellow": 10
+  },
+  "source_regime_by_month": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/regime_by_month.csv",
+  "status": "completed",
+  "style_state_counts": {
+    "breakout_growth": 12,
+    "cash_defense": 18,
+    "quality_compounder": 47,
+    "turnaround_accumulation": 6
+  }
 }

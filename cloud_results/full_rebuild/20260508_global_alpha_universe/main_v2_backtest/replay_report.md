@@ -1,7 +1,13 @@
-# main_v2_historical_replay
+# Main v2 Historical Replay
 
-Status: `blocked`
+Research-only challenger replay. Production defaults are unchanged.
 
-Reason: missing reports/candidate_replay_book.csv from full rebuild
+- Status: `completed`
+- Months: 84
+- CAGR: 21.21%
+- Sharpe: 0.994
+- MaxDD: -26.94%
+- Avg cash: 19.32%
+- Avg monthly turnover: 48.29%
 
-Required path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv`
+Promotion requires comparison against the same-run legacy main metrics and strict target gates.
