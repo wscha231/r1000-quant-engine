@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-07 19:35 KST (concentrated grid fix + macro-policy rerun)
+# Session Handoff - 2026-05-08 12:03 KST (AlphaOps policy fusion arbitration)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-07 19:35 KST) - concentrated grid fix + macro-policy rerun
+## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
 
 **2026-05-08 target update:** User raised the product gates to:
 
@@ -18,6 +18,37 @@ concentrated: CAGR >= 50%, MaxDD >= -18%
 These are now centralized in `r1000_config.PORTFOLIO_GOAL_TARGETS` and consumed
 by `tools/run_portfolio_goal_search.py`. This is an evaluation/goal change only;
 production selection and portfolio weights are not changed by this edit.
+
+Policy-fusion update:
+- `tools/run_alphaops_policy_fusion.py` now reads the major sidecars/replays and
+  emits a single conflict-aware shadow activation plan.
+- The full rebuild workflow now runs it after goal search, historical journey,
+  and dataset coverage, then uploads/syncs `outputs/policy_fusion/`.
+- Output files:
+  - `outputs/policy_fusion/policy_fusion_summary.json`
+  - `outputs/policy_fusion/policy_candidates.csv`
+  - `outputs/policy_fusion/conflict_matrix.csv`
+  - `outputs/policy_fusion/activation_plan.yaml`
+  - `outputs/policy_fusion/policy_fusion_report.md`
+- Production mutation remains disabled. This is the arbitration layer that says
+  which policy wins when monster sizing, stale trims, shakeout veto, crisis cash,
+  idle-cash redeploy, long-winner patience, macro style routing, governance
+  catalysts, and AutoLearning proposals disagree.
+- Precedence is explicit:
+  1. hard stop / distribution exit
+  2. macro crisis cash ladder
+  3. stale leader trim
+  4. shakeout hold veto for soft trims only
+  5. monster early staged sizing
+  6. long-winner hold template
+  7. idle cash redeploy
+  8. style/macro router
+  9. governance catalyst watch
+  10. AutoLearning proposal
+- Local check against existing `latest_global_alpha_universe` passed, but those
+  artifacts did not yet contain enough completed sidecar metrics for an
+  actionable top policy. A rebuild from this new commit is needed for full cloud
+  evidence.
 
 Cash policy intent from user:
 - Keep cash low in normal/bull regimes.

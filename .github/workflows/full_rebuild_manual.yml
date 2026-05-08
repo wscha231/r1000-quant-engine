@@ -307,6 +307,7 @@ jobs:
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
           python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
+          python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir outputs/policy_fusion 2>&1 | tee outputs/full_rebuild_logs/policy_fusion.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -360,6 +361,7 @@ jobs:
             outputs/monster_lifecycle_review_main/
             outputs/monster_lifecycle_review_concentrated/
             outputs/historical_trade_journey/
+            outputs/policy_fusion/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
 
       - name: Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)
@@ -497,7 +499,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey; do
+          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -637,6 +639,7 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
           copy_dir_clean outputs/monster_lifecycle_review_concentrated /tmp/bundle/monster_lifecycle_review_concentrated
           copy_dir_clean outputs/historical_trade_journey /tmp/bundle/historical_trade_journey
+          copy_dir_clean outputs/policy_fusion /tmp/bundle/policy_fusion
           if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
             (cd /tmp/bundle && zip -qr "$BUNDLE" .)
             BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
@@ -748,6 +751,7 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"
           copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
           copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
+          copy_dir_clean outputs/policy_fusion "$DEST/policy_fusion"
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer for sync helper convenience

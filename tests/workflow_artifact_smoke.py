@@ -47,6 +47,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/monster_lifecycle_review_main/",
         "outputs/monster_lifecycle_review_concentrated/",
         "outputs/historical_trade_journey/",
+        "outputs/policy_fusion/",
     ):
         assert token in text, token
 
@@ -100,6 +101,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_main_cash_drag_replay.py",
         "tools/run_crisis_reentry_replay.py",
         "tools/run_dataset_coverage_audit.py",
+        "tools/run_alphaops_policy_fusion.py",
         "outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log",
         "outputs/full_rebuild_logs/governance_catalyst_report.log",
         "outputs/full_rebuild_logs/style_regime_report.log",
@@ -108,6 +110,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/main_cash_drag_replay.log",
         "outputs/full_rebuild_logs/crisis_reentry_replay.log",
         "outputs/full_rebuild_logs/dataset_coverage_audit.log",
+        "outputs/full_rebuild_logs/policy_fusion.log",
         "tools/build_concentrated_trade_journal.py",
         "--extra-trades outputs/concentrated_trade_journal/trades.csv",
         "auto_learning_promote_live",

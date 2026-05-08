@@ -285,6 +285,66 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local latest history shows production main average run length is only 2.81 months, with 43 `short_big_win_review` runs and only 8 runs held 12+ months.
   - This confirms the next alpha improvement should learn from historical premature exits and long-winner templates, not only inspect `portfolio_latest.csv`.
 
+### 12:03 KST - alphaops-policy-fusion-arbitration
+
+- scope:
+  - Add a conflict-aware AlphaOps policy fusion layer that ranks sidecar/replay policies, declares which policy wins when signals disagree, and emits a shadow activation plan.
+- files:
+  - `tools/run_alphaops_policy_fusion.py` ->new artifact-only fusion runner that reads goal-search, replay, cash, macro, governance, and historical journey outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the policy fusion sidecar after the replay/goal/journey sidecars and archives/syncs `outputs/policy_fusion/`.
+  - `tests/alphaops_policy_fusion_smoke.py` ->adds synthetic fixture coverage for policy arbitration, conflict matrix output, and shadow-only behavior.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution/export tokens for the new sidecar.
+  - `CHANGELOG.md` ->records the fusion layer.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes repo-relative paths.
+  - `rel(path)` ->formats output paths relative to repo root.
+  - `read_json(path)` ->safe JSON loader.
+  - `read_csv_rows(path)` ->safe CSV row loader.
+  - `write_json(path, payload)` ->writes formatted JSON artifacts.
+  - `write_rows(path, rows, fieldnames=None)` ->writes CSV artifacts.
+  - `write_text(path, text)` ->writes text artifacts.
+  - `safe_float(value, default=None)` ->safe finite float parser.
+  - `pct(value)` ->formats percent values for reports.
+  - `pp(value)` ->formats decimal values as percentage points.
+  - `load_production_metrics(latest_run, portfolio)` ->loads main/concentrated production metrics for deltas.
+  - `metric_value(row, *names)` ->extracts the first available numeric metric.
+  - `score_policy(...)` ->scores a policy candidate against targets, production deltas, evidence type, and activation stage.
+  - `find_candidate(candidates, candidate_id)` ->finds a normalized goal-search candidate.
+  - `best_metric_from_summary(path, key='best_by_cagr')` ->extracts best replay metrics from summary artifacts.
+  - `build_metric_policies(latest_run)` ->builds policy candidates from replay metrics.
+  - `build_diagnostic_policies(latest_run)` ->builds policy candidates from diagnostic artifacts.
+  - `dedupe_policy_rows(rows)` ->keeps the best evidence row per policy/portfolio pair.
+  - `activation_queue(rows)` ->orders policies by priority, target pass, and fusion score.
+  - `render_yaml_plan(rows, queue)` ->writes a shadow activation YAML plan.
+  - `render_report(payload)` ->writes the human-readable fusion report.
+  - `run(args)` ->executes policy fusion and writes all artifacts.
+  - `parse_args()` ->CLI parser.
+  - `main()` ->CLI entrypoint.
+  - `test_policy_fusion_smoke()` ->smoke test for policy fusion output.
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks policy fusion workflow/log tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/policy_fusion/policy_fusion_summary.json` ->machine-readable policy candidates, precedence, conflicts, and top recommendation.
+  - `outputs/policy_fusion/policy_candidates.csv` ->ranked policy rows with targets, deltas, evidence type, activation stage, and conflict scope.
+  - `outputs/policy_fusion/conflict_matrix.csv` ->explicit winner/loser rules for policy conflicts.
+  - `outputs/policy_fusion/activation_plan.yaml` ->shadow-only activation queue for future policy promotion.
+  - `outputs/policy_fusion/policy_fusion_report.md` ->human-readable fusion summary.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_policy_fusion.py tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tools\run_alphaops_policy_fusion.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_policy_fusion_check` ->passed; existing latest artifacts do not yet contain enough completed sidecar metrics for an actionable top policy.
+- risks_or_notes:
+  - This is shadow governance only; production selection, weights, active gates, and broker execution are unchanged.
+  - The next full rebuild at the new commit is required for `outputs/policy_fusion/` to evaluate the latest sidecar set in cloud artifacts.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard
