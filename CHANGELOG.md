@@ -154,6 +154,55 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is stricter than monthly loss-capping, but still uses monthly holding books. True production activation still needs order-ticket simulation and true weekly/daily scored snapshots.
   - Local repo has no populated `cache_prices`, so full historical validation must be verified in the next cloud rebuild.
 
+### 18:06 KST - strict-macro-cash-confirmation
+
+- scope:
+  - Tighten the research-only macro/cash sidecars so large cash raises require confirmed long-trend/liquidity/breadth deterioration instead of reacting to one-off index shocks or prior cash weight.
+- files:
+  - `tools/run_macro_policy_engine.py` ->removes `cash_weight` as a causal risk input, adds trend/liquidity/breadth/event-shock components, confirmation counts, monster exception capacity, and lower yellow/recovery cash floors.
+  - `tools/run_cash_policy_attribution.py` ->separates confirmed macro-defense cash from event-shock cash and idle-cash candidates.
+  - `tests/macro_policy_engine_smoke.py` ->checks new macro confirmation and monster-exception output columns.
+  - `tests/cash_policy_attribution_smoke.py` ->adds synthetic coverage for event-shock cash, confirmed macro-defense cash, and idle cash.
+  - `CHANGELOG.md` ->records the strict macro/cash confirmation update.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `_clip_score(value)` ->bounds macro component scores to `[0, 1]`.
+  - `_long_trend_damage_score(row)` ->scores persistent index/regime trend damage without using portfolio cash weight.
+  - `_liquidity_drain_score(row)` ->scores liquidity/rate/inflation/overheat pressure from existing style features.
+  - `_breadth_credit_stress_score(row)` ->scores breadth/credit-style stress from regime and style labels.
+  - `_event_shock_score(row)` ->identifies event-only shocks that should not alone force broad cash.
+  - `_cash_raise_confirmation_count(row, trend_score, liquidity_score, breadth_credit_score)` ->counts independent confirmations required before large cash raises.
+  - `_is_confirmed_macro_defense(label, cash_target, dd_before, dd_after)` ->classifies cash as confirmed macro defense only when deterioration is independently supported.
+  - `_is_event_shock_without_confirmation(label, confirmed_macro_defense)` ->classifies event-shock cash that should be reviewed separately.
+- symbols_changed:
+  - `_risk_score(row)` ->now combines long-trend, liquidity, breadth/credit, and event-shock components; no longer uses `cash_weight`.
+  - `_risk_state(row, risk_score)` ->requires at least two confirmations for red cash defense and three/severe confirmation for crisis.
+  - `_diagnostic_flags(rows)` ->adds `unconfirmed_cash_raise` diagnostics when cash is high without enough confirmations.
+  - `run(latest_run, output_dir)` ->emits component scores, confirmation counts, cash-raise gates, and monster exception policy fields.
+  - `_summary(rows, diagnostics, regime_path)` ->surfaces latest component and confirmation fields.
+  - `render_report(summary, diagnostics)` ->documents the confirmation-first cash policy.
+  - `_primary_reason(row)` ->uses confirmed macro defense and event-shock review classifications.
+  - `_rows_by_month(holdings, regime)` ->adds confirmed macro defense and event-shock diagnostic columns.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/macro_policy_engine/macro_policy_by_month.csv` ->now includes component scores, `cash_raise_confirmation_count`, `cash_raise_gate`, and `monster_exception_allowed`.
+  - `outputs/macro_policy_engine/regime_speed_audit.csv` ->now flags `unconfirmed_cash_raise` months.
+  - `outputs/cash_policy/cash_drag_attribution.csv` ->now includes `confirmed_macro_defense` and `event_shock_without_confirmation`.
+- validation:
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `py -3 tests\cash_policy_attribution_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This remains research-only. It does not mutate production portfolio weights.
+  - The current implementation uses existing regime/style proxy fields until longer-history macro series are added to the feature store.
+  - Monster exceptions are surfaced as policy fields only; they still require separate challenger replay before production activation.
+
 ### 14:08 KST - gdrive-branch-output-isolation
 
 - scope:

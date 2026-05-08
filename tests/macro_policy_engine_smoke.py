@@ -106,8 +106,21 @@ def main() -> int:
         assert summary["status"] == "completed", summary
         assert summary["months"] == 4, summary
         assert summary["risk_state_counts"].get("red", 0) >= 1, summary
+        latest = summary["latest"]
+        assert "cash_raise_confirmation_count" in latest, summary
+        assert "recommended_monster_exception_capacity" in latest, summary
+        assert latest["cash_raise_gate"] in {
+            "none",
+            "no_big_cash_without_second_confirmation",
+            "confirmed_long_trend_plus_liquidity_or_breadth",
+            "systemic_or_multi_confirmed_crisis",
+            "reentry_holdback_only",
+        }, summary
         assert (out_dir / "macro_policy_by_month.csv").exists()
         assert (out_dir / "regime_speed_audit.csv").exists()
+        policy_text = (out_dir / "macro_policy_by_month.csv").read_text(encoding="utf-8")
+        assert "liquidity_drain_score" in policy_text
+        assert "monster_exception_allowed" in policy_text
         diagnostics = (out_dir / "regime_speed_audit.csv").read_text(encoding="utf-8")
         assert "late_risk_alert" in diagnostics
         assert "premature_growth_reentry" in diagnostics
@@ -117,4 +130,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

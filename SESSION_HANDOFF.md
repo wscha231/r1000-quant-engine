@@ -8,6 +8,41 @@
 
 ## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
 
+Strict macro/cash confirmation update:
+- User clarified that broad cash should not rise simply because the index dips
+  or a one-off event shock scares the market. Some monster leaders can keep
+  rising during index weakness, so cash expansion must require more durable
+  evidence.
+- Updated `tools/run_macro_policy_engine.py`:
+  - removed `cash_weight` as a causal risk input;
+  - added component scores for long-trend damage, liquidity drain,
+    breadth/credit stress, and event shock;
+  - added `cash_raise_confirmation_count`, `confirmed_cash_raise`,
+    `cash_raise_gate`, `recommended_monster_exception_capacity`, and
+    `monster_exception_allowed`;
+  - reduced yellow/recovery research cash floors from 10% to 5%;
+  - requires two independent confirmations before red cash defense and
+    stronger confirmation before crisis cash defense.
+- Updated `tools/run_cash_policy_attribution.py`:
+  - separates confirmed macro-defense cash from event-shock cash;
+  - flags event-shock cash for review instead of treating it as automatic
+    risk-defense cash;
+  - keeps idle-cash redeploy candidates restricted to non-confirmed risk
+    regimes.
+- New test:
+  - `tests/cash_policy_attribution_smoke.py`
+- Validation passed:
+  - `py -3 tests\macro_policy_engine_smoke.py`
+  - `py -3 tests\cash_policy_attribution_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\historical_challenger_replays_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- This remains research-only. It does not change production weights. Next
+  cloud run should show whether `outputs/macro_policy_engine/` and
+  `outputs/cash_policy/` classify prior high-cash months as confirmed macro
+  defense, event-shock review, or idle drag.
+
 Position-risk proxy realism update:
 - User asked whether the strong monthly proxy results can be made realistic.
 - Added `tools/run_position_risk_weekly_validation.py`.

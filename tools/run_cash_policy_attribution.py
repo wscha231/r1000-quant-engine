@@ -27,6 +27,8 @@ DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/cash_policy"
 CASH_TICKER = "CASH"
 RISK_LABEL_TOKENS = ("risk", "systemic", "crisis", "shock", "stagflation", "carry_unwind", "war")
+CONFIRMED_RISK_LABEL_TOKENS = ("systemic", "risk_off", "crisis", "stagflation", "carry_unwind", "credit")
+EVENT_ONLY_LABEL_TOKENS = ("shock", "war", "panic", "geopolitical")
 
 
 def _pct(value: Any) -> str:
@@ -37,6 +39,20 @@ def _pct(value: Any) -> str:
 def _is_risk_label(label: str) -> bool:
     text = str(label or "").lower()
     return any(token in text for token in RISK_LABEL_TOKENS)
+
+
+def _is_confirmed_macro_defense(label: str, cash_target: float, dd_before: float, dd_after: float) -> bool:
+    text = str(label or "").lower()
+    if any(token in text for token in CONFIRMED_RISK_LABEL_TOKENS):
+        return True
+    if cash_target >= 0.25 and (dd_before <= -0.08 or dd_after <= -0.08):
+        return True
+    return dd_before <= -0.15 or dd_after <= -0.15
+
+
+def _is_event_shock_without_confirmation(label: str, confirmed_macro_defense: bool) -> bool:
+    text = str(label or "").lower()
+    return bool(not confirmed_macro_defense and any(token in text for token in EVENT_ONLY_LABEL_TOKENS))
 
 
 def _is_partial_action(action: str) -> bool:
@@ -53,10 +69,12 @@ def _primary_reason(row: dict[str, Any]) -> str:
         return "cash_export_mismatch"
     target = safe_float(row.get("cash_target_used"), 0.0)
     target_share = min(reported, max(target, 0.0)) / max(reported, 1e-12)
-    if bool(row.get("drawdown_or_risk_defense")) and target_share >= 0.70:
-        return "risk_defense_cash"
-    if bool(row.get("drawdown_or_risk_defense")) and target_share > 0.05:
-        return "mixed_risk_and_idle_cash"
+    if bool(row.get("confirmed_macro_defense")) and target_share >= 0.70:
+        return "confirmed_macro_defense_cash"
+    if bool(row.get("confirmed_macro_defense")) and target_share > 0.05:
+        return "mixed_confirmed_macro_and_idle_cash"
+    if bool(row.get("event_shock_without_confirmation")) and target_share > 0.05:
+        return "event_shock_cash_to_review"
     if safe_float(row.get("stock_count"), 0.0) < max(3.0, 0.80 * safe_float(row.get("target_n"), 0.0)):
         return "candidate_scarcity_cash"
     if bool(row.get("partial_rebalance")):
@@ -102,15 +120,17 @@ def _rows_by_month(holdings: pd.DataFrame, regime: pd.DataFrame) -> list[dict[st
         regime_label = str(rrow.get("regime_label", "") or "")
         action = str(rrow.get("rebalance_action", "") or "")
         target_n = safe_float(rrow.get("target_n"), safe_float(group.get("target_n", pd.Series([0.0])).iloc[0] if not group.empty and "target_n" in group.columns else 0.0, 0.0))
-        risk_like = _is_risk_label(regime_label) or drawdown_before <= -0.08 or drawdown_after <= -0.08 or cash_target >= 0.10
+        confirmed_macro_defense = _is_confirmed_macro_defense(regime_label, cash_target, drawdown_before, drawdown_after)
+        event_shock_without_confirmation = _is_event_shock_without_confirmation(regime_label, confirmed_macro_defense)
         target_defense_cash = min(max(reported_cash, 0.0), max(cash_target, 0.0))
         excess_over_target = max(0.0, reported_cash - target_defense_cash)
         possible_idle = (
             reported_cash > 0.02
-            and cash_target <= 0.01
-            and not _is_risk_label(regime_label)
-            and drawdown_before > -0.05
-            and drawdown_after > -0.05
+            and cash_target <= 0.05
+            and not confirmed_macro_defense
+            and not event_shock_without_confirmation
+            and drawdown_before > -0.15
+            and drawdown_after > -0.15
         )
 
         row = {
@@ -126,7 +146,9 @@ def _rows_by_month(holdings: pd.DataFrame, regime: pd.DataFrame) -> list[dict[st
             "target_defense_cash": target_defense_cash,
             "excess_cash_over_target": excess_over_target,
             "possible_idle_cash": possible_idle,
-            "drawdown_or_risk_defense": risk_like,
+            "drawdown_or_risk_defense": confirmed_macro_defense,
+            "confirmed_macro_defense": confirmed_macro_defense,
+            "event_shock_without_confirmation": event_shock_without_confirmation,
             "partial_rebalance": _is_partial_action(action),
             "stock_count": stock_count,
             "target_n": target_n,
@@ -212,7 +234,8 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "Use reported_cash_weight from regime_by_month as the source of truth for backtest avg_cash_weight.",
             "A large reported_vs_book_cash_gap means main_monthly_weights does not explicitly carry the cash that influenced backtest_metrics.",
             "The existing main cash-drag replay must be repaired or it can understate cash by relying on explicit CASH rows only.",
-            "Idle-cash redeploy A/B should preserve target_defense_cash and only test excess cash in non-risk regimes.",
+            "Idle-cash redeploy A/B should preserve confirmed macro-defense cash and only test excess cash in non-risk regimes.",
+            "Event shocks without long-trend/liquidity confirmation should be reviewed separately so monster leaders are not sold purely because the index wobbled.",
         ],
     }
 
@@ -280,6 +303,7 @@ def _render_report(payload: dict[str, Any]) -> str:
         "## Interpretation",
         "",
         "- Defense cash should be preserved in crisis/red regimes.",
+        "- Large defense cash should require confirmed macro deterioration, not a one-off event shock.",
         "- Non-risk excess cash is the candidate pool for the next idle-cash redeploy A/B.",
         "- If reported cash and explicit monthly-book cash diverge, downstream replays must use the reported cash source or the monthly book should be repaired.",
         "",
