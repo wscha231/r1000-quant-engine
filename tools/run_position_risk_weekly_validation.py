@@ -37,6 +37,12 @@ from run_weekly_evaluation import load_price_series, price_on_or_after
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 DEFAULT_OUT_DIR = "outputs/position_risk_weekly_validation"
+CONCENTRATED_CHAMPION_FILTERS = {
+    "target_stock_names": "3",
+    "weighting_mode": "score_power",
+    "active_rebalance_interval_months": "1",
+}
+MAX_REASONABLE_WEIGHT_SUM = 1.05
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -65,10 +71,24 @@ def read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def filter_concentrated_champion(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+    if portfolio_kind != "concentrated" or frame.empty:
+        return frame
+    out = frame.copy()
+    for col, expected in CONCENTRATED_CHAMPION_FILTERS.items():
+        if col not in out.columns:
+            continue
+        values = out[col].astype(str).str.strip()
+        mask = values.eq(expected)
+        if mask.any():
+            out = out[mask].copy()
+    return out
+
+
 def normalize_holdings(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
     if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns or "weight" not in frame.columns:
         return pd.DataFrame()
-    out = frame.copy()
+    out = filter_concentrated_champion(frame.copy(), portfolio_kind)
     out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
     out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
     out["weight"] = pd.to_numeric(out["weight"], errors="coerce").fillna(0.0)
@@ -76,6 +96,32 @@ def normalize_holdings(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame
     out = out[(out["ticker"] != "") & (out["weight"] > 1e-12)]
     out["portfolio_kind"] = portfolio_kind
     return out.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+
+
+def weight_book_diagnostics(holdings: pd.DataFrame) -> dict[str, Any]:
+    if holdings.empty:
+        return {"max_total_weight": None, "invalid_weight_dates": []}
+    rows: list[dict[str, Any]] = []
+    tmp = holdings.copy()
+    tmp["rebalance_date"] = pd.to_datetime(tmp["rebalance_date"], errors="coerce").dt.normalize()
+    for dt, period in tmp.dropna(subset=["rebalance_date"]).groupby("rebalance_date"):
+        stock_weight = float(period.loc[~period["ticker"].isin(CASH_TICKERS), "weight"].sum())
+        cash_weight = float(period.loc[period["ticker"].isin(CASH_TICKERS), "weight"].sum())
+        rows.append(
+            {
+                "rebalance_date": pd.Timestamp(dt).date().isoformat(),
+                "stock_weight": stock_weight,
+                "cash_weight": cash_weight,
+                "total_weight": stock_weight + cash_weight,
+            }
+        )
+    invalid = [row for row in rows if row["total_weight"] > MAX_REASONABLE_WEIGHT_SUM]
+    return {
+        "max_total_weight": max((row["total_weight"] for row in rows), default=None),
+        "max_stock_weight": max((row["stock_weight"] for row in rows), default=None),
+        "invalid_weight_dates": invalid[:10],
+        "invalid_weight_date_count": len(invalid),
+    }
 
 
 def period_end_map(path: Path) -> dict[pd.Timestamp, pd.Timestamp]:
@@ -331,6 +377,22 @@ def replay(
     holdings = normalize_holdings(raw, portfolio_kind)
     if holdings.empty:
         return blocked_payload("holdings input is empty or missing", holdings_path, output_dir, "position_risk_weekly_validation")
+    weight_diag = weight_book_diagnostics(holdings)
+    if int(weight_diag.get("invalid_weight_date_count") or 0) > 0:
+        payload = blocked_payload("holdings weight sum exceeds 105%; refusing contaminated replay", holdings_path, output_dir, "position_risk_weekly_validation")
+        payload.update(weight_diag)
+        payload["research_only"] = True
+        payload["production_activation_allowed"] = False
+        payload["valid_for_production"] = False
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_json(output_dir / "metrics.json", payload)
+        write_text(
+            output_dir / "validation_report.md",
+            "# Position Risk Weekly Validation\n\n"
+            "Status: blocked\n\n"
+            "Reason: holdings weight sum exceeds 105%; refusing contaminated replay.\n",
+        )
+        return payload
     if not price_cache.exists():
         return blocked_payload("price cache is missing", price_cache, output_dir, "position_risk_weekly_validation")
     next_dates = period_end_map(period_map_path)
@@ -519,6 +581,7 @@ def replay(
         "production_activation_allowed": False,
         "valid_for_production": False,
         "promotion_note": "Stricter than monthly proxy, but still uses monthly holding books. True production requires order ticket simulation and weekly/daily scored snapshots.",
+        **weight_diag,
         "monthly_path": str(output_dir / "monthly.csv"),
         "actions_path": str(output_dir / "actions.csv"),
         "trade_log_path": str(output_dir / "trade_log.csv"),

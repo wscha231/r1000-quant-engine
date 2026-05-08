@@ -31,7 +31,7 @@ if str(REPO_ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
-from run_portfolio_goal_search import collect_candidates  # noqa: E402
+from run_portfolio_goal_search import collect_candidates, invalid_metric_reason  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -314,8 +314,11 @@ def score_policy(
     dd_target = safe_float(target.get("max_dd"))
     cagr_gap = max(0.0, cagr_target - cagr) if cagr is not None and cagr_target is not None else None
     dd_gap = max(0.0, dd_target - max_dd) if max_dd is not None and dd_target is not None else None
+    invalid_reason = invalid_metric_reason(cagr, max_dd, sharpe, metrics)
+    metrics_valid = invalid_reason is None
     target_pass = bool(
-        cagr is not None
+        metrics_valid
+        and cagr is not None
         and max_dd is not None
         and cagr_target is not None
         and dd_target is not None
@@ -330,12 +333,16 @@ def score_policy(
     )
     target_penalty = ((cagr_gap or 0.0) * 120.0) + ((dd_gap or 0.0) * 90.0)
     score = (40.0 if target_pass else 0.0) + improvement_score * evidence_weight - target_penalty
+    if not metrics_valid:
+        score = -1000.0 - target_penalty
     if production_ready:
         score += 4.0
     if evidence_type in {"monthly_proxy", "diagnostic", "proposal"}:
         score -= 2.0
 
-    if cagr is None or max_dd is None:
+    if not metrics_valid:
+        stage = "blocked_invalid_metrics"
+    elif cagr is None or max_dd is None:
         stage = "blocked_missing_metrics"
     elif target_pass and production_ready:
         stage = "ready_for_human_activation_review"
@@ -359,6 +366,8 @@ def score_policy(
         "source": source,
         "production_ready": bool(production_ready),
         "activation_stage": stage,
+        "metrics_valid": bool(metrics_valid),
+        "invalid_reason": invalid_reason,
         "target_pass": target_pass,
         "cagr": cagr,
         "cagr_target": cagr_target,
@@ -388,6 +397,10 @@ def find_candidate(candidates: list[dict[str, Any]], candidate_id: str) -> dict[
     return {}
 
 
+def candidate_is_usable(row: dict[str, Any]) -> bool:
+    return bool(row) and row.get("metrics_valid", True) is not False
+
+
 def best_metric_from_summary(path: Path, key: str = "best_by_cagr") -> dict[str, Any]:
     payload = read_json(path)
     metrics = payload.get(key) if isinstance(payload, dict) else None
@@ -401,12 +414,12 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     main_position_risk = find_candidate(main_candidates, "main_position_risk_weekly_validation")
     main_position_risk_evidence = "weekly_validation"
-    if not main_position_risk:
+    if not candidate_is_usable(main_position_risk):
         main_position_risk = find_candidate(main_candidates, "main_v2_position_aware_risk_proxy")
         main_position_risk_evidence = "monthly_proxy"
     concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_weekly_validation")
     concentrated_position_risk_evidence = "weekly_validation"
-    if not concentrated_position_risk:
+    if not candidate_is_usable(concentrated_position_risk):
         concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_proxy")
         concentrated_position_risk_evidence = "monthly_proxy"
 
@@ -856,6 +869,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "source",
         "production_ready",
         "activation_stage",
+        "metrics_valid",
+        "invalid_reason",
         "target_pass",
         "cagr",
         "cagr_target",

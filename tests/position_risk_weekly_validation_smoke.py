@@ -82,8 +82,75 @@ def test_weekly_validation_uses_daily_path_for_hard_stop() -> None:
         assert (out / "validation_report.md").exists()
 
 
+def test_concentrated_validation_filters_champion_grid() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        reports = root / "outputs" / "reports"
+        out = root / "weekly_validation_concentrated"
+        cache.mkdir(parents=True)
+        reports.mkdir(parents=True)
+
+        for ticker in ["AAA", "BBB", "CCC", "DDD", "SPY"]:
+            _write_px(cache, ticker, [100 + i for i in range(30)])
+
+        rows = [
+            {
+                "rebalance_date": "2026-01-30",
+                "ticker": "AAA",
+                "weight": 0.40,
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            },
+            {
+                "rebalance_date": "2026-01-30",
+                "ticker": "BBB",
+                "weight": 0.35,
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            },
+            {
+                "rebalance_date": "2026-01-30",
+                "ticker": "CCC",
+                "weight": 0.25,
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            },
+            {
+                "rebalance_date": "2026-01-30",
+                "ticker": "DDD",
+                "weight": 25.0,
+                "target_stock_names": 10,
+                "weighting_mode": "winner_take_all",
+                "active_rebalance_interval_months": 1,
+            },
+        ]
+        pd.DataFrame(rows).to_csv(reports / "concentrated_strategy_holdings.csv", index=False)
+        pd.DataFrame(
+            [{"rebalance_date": "2026-01-30", "next_rebalance_date": "2026-02-27"}]
+        ).to_csv(reports / "concentrated_strategy_monthly.csv", index=False)
+
+        payload = replay(
+            holdings_path=reports / "concentrated_strategy_holdings.csv",
+            period_map_path=reports / "concentrated_strategy_monthly.csv",
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="concentrated",
+        )
+        assert payload["status"] == "completed"
+        assert payload["max_total_weight"] <= 1.05
+        monthly = pd.read_csv(out / "monthly.csv")
+        assert monthly["stock_weight_start"].iloc[0] <= 1.05
+        positions = pd.read_csv(out / "positions.csv")
+        assert "DDD" not in set(positions["ticker"])
+
+
 def main() -> int:
     test_weekly_validation_uses_daily_path_for_hard_stop()
+    test_concentrated_validation_filters_champion_grid()
     print("position_risk_weekly_validation_smoke: PASS")
     return 0
 

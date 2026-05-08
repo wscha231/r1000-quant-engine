@@ -19,6 +19,11 @@ import pandas as pd
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
+CONCENTRATED_CHAMPION_FILTERS = {
+    "target_stock_names": "3",
+    "weighting_mode": "score_power",
+    "active_rebalance_interval_months": "1",
+}
 
 
 def px_cache_name(ticker: str) -> str:
@@ -32,6 +37,15 @@ def _read_csv(path: Path) -> pd.DataFrame:
         return pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def _json_default(value: Any) -> Any:
@@ -109,10 +123,24 @@ def price_on_or_before(px: pd.DataFrame, date_like: Any, column: str) -> tuple[p
     return actual, val
 
 
+def filter_concentrated_champion(df: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+    if portfolio_kind != "concentrated" or df.empty:
+        return df
+    out = df.copy()
+    for col, expected in CONCENTRATED_CHAMPION_FILTERS.items():
+        if col not in out.columns:
+            continue
+        values = out[col].astype(str).str.strip()
+        mask = values.eq(expected)
+        if mask.any():
+            out = out[mask].copy()
+    return out
+
+
 def normalize_holdings(df: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
     if df.empty or "rebalance_date" not in df.columns or "ticker" not in df.columns:
         return pd.DataFrame(columns=["rebalance_date", "ticker", "weight", "portfolio_kind"])
-    d = df.copy()
+    d = filter_concentrated_champion(df.copy(), portfolio_kind)
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["weight"] = pd.to_numeric(d.get("weight"), errors="coerce").fillna(0.0)
@@ -155,6 +183,18 @@ def weekly_targets(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]
     return clean
 
 
+def latest_price_date(prices: dict[str, pd.DataFrame], tickers: list[str]) -> pd.Timestamp | None:
+    dates: list[pd.Timestamp] = []
+    for ticker in tickers:
+        px = prices.get(ticker, pd.DataFrame())
+        if px.empty:
+            continue
+        idx = pd.to_datetime(px.index, errors="coerce").dropna()
+        if not idx.empty:
+            dates.append(pd.Timestamp(idx.max()).normalize())
+    return max(dates) if dates else None
+
+
 def build_weekly_curve(
     holdings: pd.DataFrame,
     next_dates: dict[pd.Timestamp, pd.Timestamp],
@@ -173,17 +213,25 @@ def build_weekly_curve(
     rows: list[dict[str, Any]] = []
     equity = 1.0
     prev_rebalance_dates = sorted(pd.to_datetime(holdings["rebalance_date"], errors="coerce").dropna().unique())
+    latest_px_date = latest_price_date(prices, tickers)
     for i, raw_dt in enumerate(prev_rebalance_dates):
         dt = pd.Timestamp(raw_dt)
         period_holdings = holdings[pd.to_datetime(holdings["rebalance_date"], errors="coerce").eq(dt)].copy()
         if period_holdings.empty:
             continue
         if dt in next_dates:
-            end_dt = next_dates[dt]
+            scheduled_end_dt = next_dates[dt]
         elif i + 1 < len(prev_rebalance_dates):
-            end_dt = pd.Timestamp(prev_rebalance_dates[i + 1])
+            scheduled_end_dt = pd.Timestamp(prev_rebalance_dates[i + 1])
         else:
+            scheduled_end_dt = latest_px_date
+        if scheduled_end_dt is None or pd.isna(scheduled_end_dt):
             continue
+        end_dt = pd.Timestamp(scheduled_end_dt).normalize()
+        final_period_extension = False
+        if i == len(prev_rebalance_dates) - 1 and latest_px_date is not None and latest_px_date > end_dt:
+            end_dt = latest_px_date
+            final_period_extension = True
         entry_dt = dt + pd.Timedelta(days=1)
         stock_weight = float(period_holdings.loc[~period_holdings["ticker"].isin(CASH_TICKERS), "weight"].sum())
         explicit_cash = float(period_holdings.loc[period_holdings["ticker"].isin(CASH_TICKERS), "weight"].sum())
@@ -233,6 +281,8 @@ def build_weekly_curve(
                 "target_week_end_date": target.date().isoformat(),
                 "rebalance_date": dt.date().isoformat(),
                 "period_end_date": pd.Timestamp(end_dt).date().isoformat(),
+                "scheduled_period_end_date": pd.Timestamp(scheduled_end_dt).date().isoformat(),
+                "final_period_extension": bool(final_period_extension and target > pd.Timestamp(scheduled_end_dt).normalize()),
                 "weekly_return": float(weekly_return),
                 "period_return_since_rebalance": float(period_rel - 1.0),
                 "equity": float(equity),
@@ -271,6 +321,7 @@ def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str) -> dict[str, Any]:
     vol_ann = float(returns.std(ddof=0) * math.sqrt(52.0))
     sharpe = float((returns.mean() * 52.0) / (vol_ann + 1e-12))
     dd = equity / equity.cummax() - 1.0
+    final_extensions = curve[curve.get("final_period_extension", False).astype(bool)] if "final_period_extension" in curve.columns else pd.DataFrame()
     return {
         "status": "completed",
         "portfolio_kind": portfolio_kind,
@@ -287,7 +338,15 @@ def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str) -> dict[str, Any]:
         "vol_ann": vol_ann,
         "ending_equity": float(equity.iloc[-1]),
         "avg_cash_weight": float(pd.to_numeric(curve.get("cash_weight"), errors="coerce").mean()),
+        "avg_stock_weight": float(pd.to_numeric(curve.get("stock_weight"), errors="coerce").mean()),
+        "max_stock_weight": float(pd.to_numeric(curve.get("stock_weight"), errors="coerce").max()),
         "avg_missing_price_count": float(pd.to_numeric(curve.get("missing_price_count"), errors="coerce").mean()),
+        "uses_stale_final_holdings_extension": bool(not final_extensions.empty),
+        "extension_start_date": (
+            pd.to_datetime(final_extensions["week_end_date"], errors="coerce").min().date().isoformat()
+            if not final_extensions.empty
+            else None
+        ),
     }
 
 
@@ -326,6 +385,13 @@ def build_freshness(
         status = "unknown"
     elif lag_days > int(stale_days_threshold):
         status = "stale"
+    unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json")
+    raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv")
+    raw_portfolio_cash_target = None
+    if not raw_portfolio.empty and "cash_target" in raw_portfolio.columns:
+        cash_values = pd.to_numeric(raw_portfolio["cash_target"], errors="coerce").dropna()
+        if not cash_values.empty:
+            raw_portfolio_cash_target = float(cash_values.max())
     return {
         "status": status,
         "stale_days_threshold": int(stale_days_threshold),
@@ -334,9 +400,17 @@ def build_freshness(
         "latest_weekly_eval_dates": latest_eval_dates,
         "primary_weekly_eval_date": primary_eval,
         "scored_vs_weekly_eval_lag_days": lag_days,
+        "latest_raw_portfolio_cash_target": raw_portfolio_cash_target,
+        "latest_unified_target": {
+            "cash_target": unified.get("cash_target"),
+            "by_mandate_capacity": unified.get("by_mandate_capacity"),
+            "invested_amount": (unified.get("audit_checks") or {}).get("invested_amount"),
+            "n_positions": (unified.get("audit_checks") or {}).get("n_positions"),
+        } if unified else {},
         "explanation": (
             "Weekly evaluation is mark-to-market on monthly holding books. "
-            "If lag remains above threshold, the next step is true weekly scored snapshots."
+            "The final available monthly holding book can be extended to the latest cached price date, "
+            "but true production promotion still requires true weekly scored snapshots."
         ),
         "metrics": metrics,
     }
@@ -351,6 +425,8 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"- primary_weekly_eval_date: `{payload.get('primary_weekly_eval_date')}`",
         f"- scored_vs_weekly_eval_lag_days: `{payload.get('scored_vs_weekly_eval_lag_days')}`",
         f"- stale_days_threshold: `{payload.get('stale_days_threshold')}`",
+        f"- latest_raw_portfolio_cash_target: `{payload.get('latest_raw_portfolio_cash_target')}`",
+        f"- latest_unified_cash_target: `{(payload.get('latest_unified_target') or {}).get('cash_target')}`",
         "",
         "## Portfolio Metrics",
     ]

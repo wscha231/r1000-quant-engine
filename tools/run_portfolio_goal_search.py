@@ -30,6 +30,8 @@ DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/portfolio_goal_search"
 
 TARGETS = PORTFOLIO_GOAL_TARGETS
+MAX_REASONABLE_PORTFOLIO_CAGR = 3.0
+MAX_REASONABLE_ABS_SHARPE = 10.0
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -125,6 +127,27 @@ def candidate_action(cagr_pass: bool, dd_pass: bool) -> str:
     return "blocked_both"
 
 
+def invalid_metric_reason(cagr: float | None, max_dd: float | None, sharpe: float | None, metrics: dict[str, Any]) -> str | None:
+    if metrics.get("status") == "blocked":
+        return str(metrics.get("reason") or "blocked metrics payload")
+    for name, value in (("cagr", cagr), ("max_dd", max_dd), ("sharpe", sharpe)):
+        if value is not None and not math.isfinite(float(value)):
+            return f"{name} is not finite"
+    if cagr is not None and (cagr < -0.99 or cagr > MAX_REASONABLE_PORTFOLIO_CAGR):
+        return f"cagr outside plausible portfolio range: {cagr}"
+    if max_dd is not None and (max_dd < -1.0 or max_dd > 0.05):
+        return f"max_dd outside plausible portfolio range: {max_dd}"
+    if sharpe is not None and abs(sharpe) > MAX_REASONABLE_ABS_SHARPE:
+        return f"sharpe outside plausible portfolio range: {sharpe}"
+    try:
+        invalid_weight_count = int(float(metrics.get("invalid_weight_date_count") or 0))
+    except (TypeError, ValueError):
+        invalid_weight_count = 0
+    if invalid_weight_count > 0:
+        return "holdings weight diagnostics flagged invalid periods"
+    return None
+
+
 def normalize_candidate(
     *,
     portfolio: str,
@@ -140,18 +163,24 @@ def normalize_candidate(
     max_dd = first_metric(metrics, "max_dd", "max_drawdown")
     sharpe = first_metric(metrics, "sharpe", "Sharpe")
     turnover = first_metric(metrics, "avg_turnover_monthly", "turnover", "monthly_turnover")
-    cagr_pass = cagr is not None and cagr >= target["cagr"]
-    dd_pass = max_dd is not None and max_dd >= target["max_dd"]
+    invalid_reason = invalid_metric_reason(cagr, max_dd, sharpe, metrics)
+    metrics_valid = invalid_reason is None
+    cagr_pass = metrics_valid and cagr is not None and cagr >= target["cagr"]
+    dd_pass = metrics_valid and max_dd is not None and max_dd >= target["max_dd"]
     cagr_gap = max(0.0, target["cagr"] - cagr) if cagr is not None else None
     dd_gap = max(0.0, target["max_dd"] - max_dd) if max_dd is not None else None
     gap_score = (100.0 if cagr is None or max_dd is None else 0.0) + (cagr_gap or 0.0) * 100.0 + (dd_gap or 0.0) * 100.0
     reward = (cagr or -1.0) * 100.0 + (sharpe or 0.0) * 2.0 - abs(max_dd or -1.0) * 30.0
     rank_score = (1000.0 if cagr_pass and dd_pass else 0.0) - gap_score + reward / 100.0
+    if not metrics_valid:
+        rank_score = -1000.0 - gap_score
     return {
         "portfolio": portfolio,
         "candidate_id": candidate_id,
         "source": source,
         "valid_for_production": bool(valid_for_production),
+        "metrics_valid": bool(metrics_valid),
+        "invalid_reason": invalid_reason,
         "target_pass": bool(cagr_pass and dd_pass),
         "cagr": cagr,
         "cagr_target": target["cagr"],
@@ -161,7 +190,7 @@ def normalize_candidate(
         "max_dd_gap_pp": pp(dd_gap),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
-        "governance_action": candidate_action(cagr_pass, dd_pass),
+        "governance_action": "invalid_metrics_blocked" if not metrics_valid else candidate_action(cagr_pass, dd_pass),
         "distance_to_target_pp": None if cagr_gap is None or dd_gap is None else round((cagr_gap + dd_gap) * 100.0, 4),
         "rank_score": rank_score,
         "notes": notes,
@@ -622,6 +651,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = {
         "latest_run": rel(latest_run),
         "target_pass": bool(best_main.get("target_pass") and best_concentrated.get("target_pass")),
+        "production_target_pass": bool(
+            best_main.get("target_pass")
+            and best_main.get("valid_for_production")
+            and best_concentrated.get("target_pass")
+            and best_concentrated.get("valid_for_production")
+        ),
         "best_main": best_main,
         "best_concentrated": best_concentrated,
         "main_candidates": main_candidates,
@@ -634,6 +669,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_id",
         "source",
         "valid_for_production",
+        "metrics_valid",
+        "invalid_reason",
         "target_pass",
         "cagr",
         "cagr_target",

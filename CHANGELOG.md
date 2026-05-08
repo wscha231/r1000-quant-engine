@@ -51,6 +51,60 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-09
+
+### 06:58 KST - latest-weekly-eval-contamination-guard
+
+- scope:
+  - Extend stale weekly mark-to-market evaluation to the latest cached price date and block contaminated concentrated validation metrics before goal search or policy fusion can use them.
+- files:
+  - `tools/run_weekly_evaluation.py` ->extends the final monthly holding period to the latest cached price date, filters concentrated champion holdings, and reports unified target cash alongside raw portfolio cash.
+  - `tools/run_position_risk_weekly_validation.py` ->filters concentrated champion holdings and blocks validation when monthly weight books exceed reasonable portfolio exposure.
+  - `tools/run_portfolio_goal_search.py` ->adds metric sanity gates and separates research/proxy target pass from production-ready target pass.
+  - `tools/run_alphaops_policy_fusion.py` ->blocks invalid metric payloads and falls back from invalid weekly validation candidates to usable monthly proxy evidence.
+  - `tests/weekly_evaluation_smoke.py` ->expects final stale-holding extension and updated freshness behavior.
+  - `tests/position_risk_weekly_validation_smoke.py` ->adds a contaminated concentrated grid regression test.
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->refreshes candidate rankings with metric validity and production target-pass fields.
+  - `outputs/portfolio_goal_search/main_candidate_ranking.csv` ->refreshes main candidate ranking columns.
+  - `outputs/portfolio_goal_search/concentrated_candidate_ranking.csv` ->refreshes concentrated candidate ranking columns and blocks invalid weekly validation.
+  - `outputs/portfolio_goal_search/goal_search_report.md` ->refreshes the human-readable goal-search report.
+  - `CHANGELOG.md` ->records the weekly freshness and validation contamination fix.
+- symbols_added:
+  - `_read_json(path)` ->loads optional JSON payloads without failing the weekly freshness audit.
+  - `filter_concentrated_champion(frame)` ->keeps only the production concentrated champion grid before replaying holdings.
+  - `latest_price_date(prices, tickers)` ->finds the latest available cached price date for final-period weekly evaluation extension.
+  - `weight_book_diagnostics(holdings)` ->summarizes monthly weight sums and invalid exposure periods before daily/weekly validation.
+  - `invalid_metric_reason(cagr, max_dd, sharpe, metrics)` ->rejects non-finite or implausible goal-search metrics.
+  - `candidate_is_usable(row)` ->detects policy-fusion candidates that remain usable after metric validation.
+- symbols_changed:
+  - `normalize_holdings(frame, portfolio_kind)` ->filters concentrated champion rows before weekly evaluation and position-risk validation.
+  - `build_weekly_curve(holdings, next_dates, price_cache, portfolio_kind, benchmark_tickers)` ->extends the final period to the newest cached price date when prices are fresher than the monthly period map.
+  - `weekly_metrics(curve, portfolio_kind)` ->reports stock weight diagnostics and stale-final-holdings extension metadata.
+  - `build_freshness(latest_run, curves, metrics, stale_days_threshold)` ->reports raw portfolio cash and unified target cash/invested capacity in the freshness audit.
+  - `replay(args)` ->blocks contaminated validation books instead of emitting absurd CAGR/Sharpe metrics.
+  - `normalize_candidate(...)` ->sets `metrics_valid`, `invalid_reason`, and blocked governance actions for invalid metric payloads.
+  - `run(args)` ->emits `production_target_pass` separately from proxy/research target pass.
+  - `score_policy(row)` ->blocks invalid policy-fusion metrics before activation scoring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->goal-search payload with invalid metric blocking and `production_target_pass`.
+  - `outputs/portfolio_goal_search/main_candidate_ranking.csv` ->main candidate ranking with `metrics_valid` and `invalid_reason`.
+  - `outputs/portfolio_goal_search/concentrated_candidate_ranking.csv` ->concentrated candidate ranking with invalid weekly validation blocked.
+  - `outputs/portfolio_goal_search/goal_search_report.md` ->updated goal-search summary.
+- validation:
+  - `python -m py_compile tools/run_weekly_evaluation.py tools/run_position_risk_weekly_validation.py tools/run_portfolio_goal_search.py tools/run_alphaops_policy_fusion.py` ->passed.
+  - `python tests/weekly_evaluation_smoke.py` ->passed.
+  - `python tests/position_risk_weekly_validation_smoke.py` ->passed.
+  - `python tests/portfolio_goal_search_smoke.py` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - The weekly extension is still mark-to-market on monthly holding books; it is not true weekly scoring or rebalancing.
+  - Local cache prices were not present in the workspace, so the full GitHub Actions rebuild must recompute the latest May 2026 curves in CI.
+  - Proxy candidates can pass research targets while `production_target_pass` remains false until production-ready gates pass.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

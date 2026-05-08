@@ -76,17 +76,19 @@ def test_weekly_evaluation_marks_to_weekly_and_reports_staleness() -> None:
         )
 
         payload = run(latest, out, cache, stale_days_threshold=10)
-        assert payload["status"] == "stale"
+        assert payload["status"] == "ok"
         assert payload["latest_scored_date"] == "2026-04-15"
-        assert payload["primary_weekly_eval_date"] == "2026-03-31"
-        assert payload["scored_vs_weekly_eval_lag_days"] == 15
+        assert payload["primary_weekly_eval_date"] > "2026-03-31"
+        assert payload["scored_vs_weekly_eval_lag_days"] <= 10
         assert (out / "weekly_equity_curve.csv").exists()
         assert (out / "weekly_freshness_audit.json").exists()
         assert (out / "weekly_freshness_audit.md").exists()
 
         curve = pd.read_csv(out / "weekly_equity_curve.csv")
         assert {"main", "concentrated"}.issubset(set(curve["portfolio_kind"]))
-        assert curve["week_end_date"].max() == "2026-03-31"
+        assert curve["week_end_date"].max() > "2026-03-31"
+        metrics = payload["metrics"]["main"]
+        assert metrics["uses_stale_final_holdings_extension"] is True
 
 
 def main() -> int:
