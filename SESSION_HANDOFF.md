@@ -8,6 +8,20 @@
 
 ## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
 
+GDrive branch isolation update:
+- Future full rebuilds now route Google Drive outputs by branch.
+- `master` keeps the canonical production path:
+  - `outputs/`
+  - `full_rebuild_logs/`
+- Non-master branches now write to branch/run-isolated paths:
+  - `research_runs/<safe_branch>/<run_id>/outputs/`
+  - `research_runs/<safe_branch>/<run_id>/full_rebuild_logs/`
+- Failed non-master runs write to:
+  - `research_runs/<safe_branch>/failed_runs/<run_id>/outputs/`
+- This prevents research branch rebuilds from overwriting production Drive
+  outputs. It affects future runs only; currently running runs use the workflow
+  from their own head SHA.
+
 **2026-05-08 target update:** User raised the product gates to:
 
 ```

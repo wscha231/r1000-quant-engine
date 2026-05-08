@@ -419,13 +419,34 @@ jobs:
             echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
           fi
 
-          # Sync FULL rebuild outputs to gdrive r1000_top30_institutional/outputs/
+          # Sync FULL rebuild outputs. Only master may update canonical
+          # GDrive outputs/. Branch experiments are isolated under
+          # research_runs/<branch>/<run_id>/ so research cannot overwrite the
+          # production operating view.
+          BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-unknown}}"
+          SAFE_BRANCH=$(printf '%s' "$BRANCH_NAME" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')
+          if [ -z "$SAFE_BRANCH" ]; then
+            SAFE_BRANCH="unknown"
+          fi
+          GDRIVE_SCOPE="research"
           if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
-            DEST="gdrive:outputs"
-            LOG_DEST="gdrive:full_rebuild_logs"
+            if [ "$BRANCH_NAME" = "master" ]; then
+              GDRIVE_SCOPE="production"
+              DEST="gdrive:outputs"
+              LOG_DEST="gdrive:full_rebuild_logs"
+            else
+              DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
+            fi
           else
-            DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
-            LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
+            if [ "$BRANCH_NAME" = "master" ]; then
+              GDRIVE_SCOPE="production"
+              DEST="gdrive:${GDRIVE_FOLDER_NAME}/outputs"
+              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/full_rebuild_logs"
+            else
+              DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs"
+              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
+            fi
           fi
           VALID_PRIMARY_OUTPUTS="no"
           if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
@@ -433,13 +454,24 @@ jobs:
           else
             echo "[gdrive-sync] WARN: core metrics missing; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
             if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
-              DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
-              LOG_DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              if [ "$BRANCH_NAME" = "master" ]; then
+                DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              else
+                DEST="gdrive:research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              fi
             else
-              DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs"
-              LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              if [ "$BRANCH_NAME" = "master" ]; then
+                DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              else
+                DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/outputs"
+                LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/full_rebuild_logs"
+              fi
             fi
           fi
+          echo "[gdrive-sync] branch=$BRANCH_NAME safe_branch=$SAFE_BRANCH scope=$GDRIVE_SCOPE valid_primary_outputs=$VALID_PRIMARY_OUTPUTS"
           echo "[gdrive-sync] copying outputs/ to $DEST/"
           copy_if_exists() {
             local src="$1"
@@ -539,6 +571,9 @@ jobs:
             "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "head_sha": "${GITHUB_SHA}",
             "auth": "${AUTH}",
+            "branch_name": "${BRANCH_NAME}",
+            "safe_branch": "${SAFE_BRANCH}",
+            "gdrive_scope": "${GDRIVE_SCOPE}",
             "valid_primary_outputs": "${VALID_PRIMARY_OUTPUTS}",
             "dest": "${DEST}",
             "log_dest": "${LOG_DEST}",

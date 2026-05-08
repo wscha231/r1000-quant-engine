@@ -53,6 +53,35 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-08
 
+### 14:08 KST - gdrive-branch-output-isolation
+
+- scope:
+  - Isolate Google Drive full-rebuild outputs by branch so research runs cannot overwrite production `outputs/`.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->routes `master` runs to canonical GDrive `outputs/`, and non-master branch runs to `research_runs/<safe_branch>/<run_id>/outputs/`.
+  - `tests/workflow_artifact_smoke.py` ->checks branch-isolated GDrive routing tokens.
+  - `CHANGELOG.md` ->records the GDrive branch isolation change.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks `BRANCH_NAME`, `SAFE_BRANCH`, `GDRIVE_SCOPE`, and branch research path tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `Google Drive outputs/` ->production-only canonical path for `master` full rebuilds.
+  - `Google Drive research_runs/<safe_branch>/<run_id>/outputs/` ->branch-isolated research results for non-master runs.
+  - `Google Drive research_runs/<safe_branch>/failed_runs/<run_id>/outputs/` ->branch-isolated failed research diagnostics.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This affects future workflow runs only; already-running runs use the workflow file from their head SHA.
+  - Secrets, API keys, and GitHub cache remain shared infrastructure; final output artifacts are now branch-scoped in GDrive.
+
 ### 09:36 KST - portfolio-target-gate-tightening
 
 - scope:
