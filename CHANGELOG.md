@@ -188,6 +188,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - The equity curve is reset per policy; policy results are no longer chained into one combined curve.
   - Next step should move from directional replay toward production-compatible cash/reentry accounting before activation.
 
+### 10:14 KST - concentrated-risk-replay-goal-hardening
+
+- scope:
+  - Harden the concentrated position-risk replay against the new commercial concentrated target and add cost/rolling-window diagnostics.
+- files:
+  - `tools/run_concentrated_position_risk_replay.py` ->uses shared concentrated goal targets, tests 25/50/75bps cost sensitivity, and writes rolling 3-year diagnostics.
+  - `tests/historical_challenger_replays_smoke.py` ->adds concentrated position-risk replay coverage with cost-grid and shared target assertions.
+  - `CHANGELOG.md` ->records the concentrated risk replay hardening.
+  - `SESSION_HANDOFF.md` ->adds the current concentrated risk replay interpretation for the next agent.
+- symbols_added:
+  - `rolling_window_rows(monthly_rows, months)` ->computes rolling-window metrics for the selected concentrated risk policy.
+  - `rolling_summary(rows)` ->summarizes rolling-window pass rate, minimum CAGR, and worst drawdown.
+- symbols_changed:
+  - `replay(holdings_path, monthly_path, output_dir, hard_stops, cost_bps_grid)` ->adds cost-bps grid testing and shared concentrated target gates.
+  - `render_report(metrics)` ->surfaces cost bps, target gates, and rolling 3-year diagnostics.
+  - `parse_args()` ->adds `--cost-bps-grid`.
+  - `main()` ->passes the parsed cost-bps grid to replay.
+  - `test_historical_challenger_replays()` ->checks concentrated position-risk replay outputs and target wiring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_position_risk_replay/rolling_3y.csv` ->rolling 36-month metrics for the best hard-stop/cost policy.
+  - `outputs/concentrated_position_risk_replay/comparison.csv` ->now includes `cost_bps`, `target_cagr`, and `target_max_dd`.
+  - `outputs/concentrated_position_risk_replay/metrics.json` ->now includes cost-grid, shared target gates, and rolling 3-year summary fields.
+- validation:
+  - `py -3 -m py_compile tools\run_concentrated_position_risk_replay.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tools\run_concentrated_position_risk_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_concentrated_position_risk_check` ->passed.
+- risks_or_notes:
+  - Local latest replay is now very close but still below the new target: best `score_power`, hard stop -8%, 25bps cost, CAGR 49.90%, MaxDD -18.16%, rolling 3-year pass rate 10.42%.
+  - The replay remains monthly hard-stop proxy evidence only; weekly/intramonth execution data is required before production activation.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

@@ -68,6 +68,18 @@ Step 2 implemented after the cash attribution:
 - Latest local directional replay should be treated as evidence for the next
   production-compatible replay, not as an activation gate.
 
+Step 3 implemented for concentrated target hardening:
+- `tools/run_concentrated_position_risk_replay.py` now uses the shared
+  `PORTFOLIO_GOAL_TARGETS["concentrated"]` target: CAGR 50%, MaxDD -18%.
+- It tests cost sensitivity at 25/50/75bps and writes
+  `outputs/concentrated_position_risk_replay/rolling_3y.csv`.
+- Local latest replay is near-miss evidence rather than a pass:
+  best policy is `score_power`, hard stop -8%, 25bps cost, CAGR 49.90%,
+  MaxDD -18.16%, Sharpe 1.749, rolling 3-year pass rate 10.42%.
+- Interpretation: concentrated is close to the commercial target but still
+  needs either more alpha capture from early monster/staged sizing or a better
+  intramonth/weekly risk execution model before production promotion.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the

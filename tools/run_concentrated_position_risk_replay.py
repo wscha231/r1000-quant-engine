@@ -12,15 +12,21 @@ import argparse
 import csv
 import json
 import math
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUT_DIR = "outputs/concentrated_position_risk_replay"
-TARGET = {"cagr": 0.40, "max_dd": -0.22}
+try:
+    from r1000_config import PORTFOLIO_GOAL_TARGETS
+except Exception:
+    PORTFOLIO_GOAL_TARGETS = {"concentrated": {"cagr": 0.50, "max_dd": -0.18}}
+TARGET = dict(PORTFOLIO_GOAL_TARGETS.get("concentrated", {"cagr": 0.50, "max_dd": -0.18}))
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -139,12 +145,64 @@ def worst_month_rows(curve: list[dict[str, Any]], limit: int = 10) -> list[dict[
     return sorted(curve, key=lambda row: safe_float(row.get("net_return")))[:limit]
 
 
+def rolling_window_rows(monthly_rows: list[dict[str, Any]], months: int = 36) -> list[dict[str, Any]]:
+    ordered = sorted(monthly_rows, key=lambda row: str(row.get("rebalance_date") or ""))
+    if len(ordered) < months:
+        return []
+    out: list[dict[str, Any]] = []
+    for idx in range(0, len(ordered) - months + 1):
+        window = ordered[idx : idx + months]
+        metrics = calc_metrics([safe_float(row.get("net_return")) for row in window])
+        cagr = metrics.get("cagr")
+        max_dd = metrics.get("max_dd")
+        out.append(
+            {
+                "window_start": window[0].get("rebalance_date"),
+                "window_end": window[-1].get("rebalance_date"),
+                "months": months,
+                "cagr": cagr,
+                "sharpe": metrics.get("sharpe"),
+                "max_dd": max_dd,
+                "calmar": metrics.get("calmar"),
+                "target_cagr": TARGET["cagr"],
+                "target_max_dd": TARGET["max_dd"],
+                "target_pass": bool(
+                    cagr is not None
+                    and cagr >= TARGET["cagr"]
+                    and max_dd is not None
+                    and max_dd >= TARGET["max_dd"]
+                ),
+            }
+        )
+    return out
+
+
+def rolling_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {
+            "rolling_3y_windows": 0,
+            "rolling_3y_pass_rate": None,
+            "rolling_3y_min_cagr": None,
+            "rolling_3y_worst_max_dd": None,
+        }
+    cagrs = [safe_float(row.get("cagr"), float("nan")) for row in rows]
+    dds = [safe_float(row.get("max_dd"), float("nan")) for row in rows]
+    cagrs = [value for value in cagrs if math.isfinite(value)]
+    dds = [value for value in dds if math.isfinite(value)]
+    return {
+        "rolling_3y_windows": len(rows),
+        "rolling_3y_pass_rate": sum(1 for row in rows if str(row.get("target_pass")).lower() == "true") / max(len(rows), 1),
+        "rolling_3y_min_cagr": min(cagrs) if cagrs else None,
+        "rolling_3y_worst_max_dd": min(dds) if dds else None,
+    }
+
+
 def build_defensive_holdings(
     grouped: dict[tuple[float, str, str, str, str], list[dict[str, str]]],
-    best_key: tuple[float, str, str, str],
+    best_key: tuple[float, str, str, str, float],
     monthly_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    hard_stop, target_n, weighting_mode, interval = best_key
+    hard_stop, target_n, weighting_mode, interval = best_key[:4]
     defensive_rows: list[dict[str, Any]] = []
     for month in monthly_rows:
         dt = str(month.get("rebalance_date") or "")[:10]
@@ -232,6 +290,7 @@ def replay(
     monthly_path: Path,
     output_dir: Path,
     hard_stops: list[float],
+    cost_bps_grid: list[float],
 ) -> dict[str, Any]:
     holdings = read_rows(holdings_path)
     monthly = read_rows(monthly_path)
@@ -250,10 +309,10 @@ def replay(
         write_text(output_dir / "replay_report.md", "# Concentrated Position Risk Replay\n\nBlocked: missing inputs.\n")
         return payload
 
-    monthly_cost: dict[tuple[str, str, str, str], float] = {}
+    monthly_turnover: dict[tuple[str, str, str, str], float] = {}
     for row in monthly:
         key = (*strategy_key(row), str(row.get("rebalance_date") or "")[:10])
-        monthly_cost[key] = safe_float(row.get("cost"))
+        monthly_turnover[key] = safe_float(row.get("turnover"))
 
     grouped: dict[tuple[float, str, str, str, str], list[dict[str, str]]] = defaultdict(list)
     for row in holdings:
@@ -263,7 +322,7 @@ def replay(
         for hard_stop in hard_stops:
             grouped[(hard_stop, *strategy_key(row), dt)].append(row)
 
-    variants: dict[tuple[float, str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    variants: dict[tuple[float, str, str, str, float], list[dict[str, Any]]] = defaultdict(list)
     action_rows: list[dict[str, Any]] = []
     for key, rows in grouped.items():
         hard_stop, target_n, weighting_mode, interval, dt = key
@@ -292,44 +351,51 @@ def replay(
                         "action": "hard_stop_proxy",
                     }
                 )
-        cost = monthly_cost.get((target_n, weighting_mode, interval, dt), 0.0)
-        variants[(hard_stop, target_n, weighting_mode, interval)].append(
-            {
-                "rebalance_date": dt,
-                "hard_stop": hard_stop,
-                "target_n": target_n,
-                "weighting_mode": weighting_mode,
-                "active_rebalance_interval_months": interval,
-                "gross_return": adjusted_gross,
-                "original_gross_return": original_gross,
-                "cost": cost,
-                "net_return": adjusted_gross - cost,
-                "return_delta": adjusted_gross - original_gross,
-                "risk_exit_count": exit_count,
-                "n_positions": len(rows),
-            }
-        )
+        turn = monthly_turnover.get((target_n, weighting_mode, interval, dt), 0.0)
+        for cost_bps in cost_bps_grid:
+            cost = turn * (cost_bps / 10000.0)
+            variants[(hard_stop, target_n, weighting_mode, interval, cost_bps)].append(
+                {
+                    "rebalance_date": dt,
+                    "hard_stop": hard_stop,
+                    "target_n": target_n,
+                    "weighting_mode": weighting_mode,
+                    "active_rebalance_interval_months": interval,
+                    "cost_bps": cost_bps,
+                    "gross_return": adjusted_gross,
+                    "original_gross_return": original_gross,
+                    "cost": cost,
+                    "turnover": turn,
+                    "net_return": adjusted_gross - cost,
+                    "return_delta": adjusted_gross - original_gross,
+                    "risk_exit_count": exit_count,
+                    "n_positions": len(rows),
+                }
+            )
 
     comparison: list[dict[str, Any]] = []
-    best_key: tuple[float, str, str, str] | None = None
+    best_key: tuple[float, str, str, str, float] | None = None
     best_metrics: dict[str, Any] | None = None
     for key, rows in variants.items():
         ordered = sorted(rows, key=lambda row: str(row.get("rebalance_date")))
         if len(ordered) < 12:
             continue
         metrics = calc_metrics([safe_float(row.get("net_return")) for row in ordered])
-        hard_stop, target_n, weighting_mode, interval = key
+        hard_stop, target_n, weighting_mode, interval, cost_bps = key
         row = {
             "hard_stop": hard_stop,
             "target_n": target_n,
             "weighting_mode": weighting_mode,
             "active_rebalance_interval_months": interval,
+            "cost_bps": cost_bps,
             "cagr": metrics.get("cagr"),
             "sharpe": metrics.get("sharpe"),
             "max_dd": metrics.get("max_dd"),
             "calmar": metrics.get("calmar"),
             "ending_equity": metrics.get("ending_equity"),
             "months": metrics.get("months"),
+            "target_cagr": TARGET["cagr"],
+            "target_max_dd": TARGET["max_dd"],
             "target_pass": bool(
                 metrics.get("cagr") is not None
                 and metrics.get("cagr") >= TARGET["cagr"]
@@ -347,6 +413,7 @@ def replay(
     assert best_key is not None and best_metrics is not None
     best_monthly = sorted(variants[best_key], key=lambda row: str(row.get("rebalance_date")))
     curve = equity_curve_rows(best_monthly)
+    rolling_3y = rolling_window_rows(best_monthly, months=36)
     defensive_rows, latest_defensive_rows = build_defensive_holdings(grouped, best_key, best_monthly)
     best_metrics.update(
         {
@@ -355,6 +422,10 @@ def replay(
             "data_mode": "concentrated_monthly_position_proxy",
             "metric_mode": "hard_stop_proxy",
             "list_defense_mode": "hard_stop_to_cash_proxy",
+            "target_cagr": TARGET["cagr"],
+            "target_max_dd": TARGET["max_dd"],
+            "cost_bps": best_key[4],
+            "cost_bps_grid": cost_bps_grid,
             "defensive_holdings_path": str(output_dir / "defensive_holdings.csv"),
             "latest_defensive_holdings_path": str(output_dir / "defensive_latest.csv"),
             "holdings_path": str(holdings_path),
@@ -364,6 +435,7 @@ def replay(
             "proxy_warning": "Monthly position-loss capping is not execution evidence; validate with weekly/intramonth prices before promotion.",
         }
     )
+    best_metrics.update(rolling_summary(rolling_3y))
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "metrics.json", best_metrics)
     write_rows(output_dir / "comparison.csv", sorted(comparison, key=lambda row: safe_float(row.get("rank_score")), reverse=True))
@@ -372,6 +444,7 @@ def replay(
     write_rows(output_dir / "defensive_holdings.csv", defensive_rows)
     write_rows(output_dir / "defensive_latest.csv", latest_defensive_rows)
     write_rows(output_dir / "equity_curve.csv", curve)
+    write_rows(output_dir / "rolling_3y.csv", rolling_3y)
     write_rows(output_dir / "stress_windows.csv", worst_month_rows(curve))
     write_text(output_dir / "replay_report.md", render_report(best_metrics))
     return best_metrics
@@ -388,11 +461,16 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Target N: {metrics.get('target_n')}",
             f"- Weighting: `{metrics.get('weighting_mode')}`",
             f"- Interval: {metrics.get('active_rebalance_interval_months')} month(s)",
+            f"- Cost bps: {safe_float(metrics.get('cost_bps')):.1f}",
             f"- Hard stop: {safe_float(metrics.get('hard_stop')):.2%}",
+            f"- Target: CAGR {safe_float(metrics.get('target_cagr')):.2%}, MaxDD {safe_float(metrics.get('target_max_dd')):.2%}",
             f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
             f"- Target pass: {str(metrics.get('target_pass')).lower()}",
+            f"- Rolling 3y pass rate: {safe_float(metrics.get('rolling_3y_pass_rate')):.2%}",
+            f"- Rolling 3y min CAGR: {safe_float(metrics.get('rolling_3y_min_cagr')):.2%}",
+            f"- Rolling 3y worst MaxDD: {safe_float(metrics.get('rolling_3y_worst_max_dd')):.2%}",
             f"- List defense mode: `{metrics.get('list_defense_mode')}`",
             f"- Defensive latest: `{metrics.get('latest_defensive_holdings_path')}`",
             "",
@@ -409,6 +487,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--monthly", default=None)
     parser.add_argument("--output-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--hard-stops", default="-0.08,-0.10,-0.12")
+    parser.add_argument("--cost-bps-grid", default="25,50,75")
     return parser.parse_args()
 
 
@@ -418,7 +497,7 @@ def main() -> int:
     holdings = repo_path(args.holdings) if args.holdings else latest_run / "reports" / "concentrated_strategy_holdings.csv"
     monthly = repo_path(args.monthly) if args.monthly else latest_run / "reports" / "concentrated_strategy_monthly.csv"
     output_dir = repo_path(args.output_dir)
-    replay(holdings, monthly, output_dir, parse_floats(args.hard_stops))
+    replay(holdings, monthly, output_dir, parse_floats(args.hard_stops), parse_floats(args.cost_bps_grid))
     print(f"[concentrated-position-risk] wrote {output_dir / 'metrics.json'}")
     return 0
 

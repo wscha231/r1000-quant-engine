@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from tools.run_alpha_sprint_backtest import replay as alpha_replay  # noqa: E402
 from tools.run_concentrated_policy_replay import replay as concentrated_replay  # noqa: E402
+from tools.run_concentrated_position_risk_replay import replay as concentrated_position_risk_replay  # noqa: E402
 from tools.run_main_v2_backtest import replay as main_v2_replay  # noqa: E402
 from tools.run_monster_lifecycle_replay import replay as monster_replay  # noqa: E402
 from tools.run_lifecycle_review_overlay import replay as lifecycle_overlay_replay  # noqa: E402
@@ -21,7 +22,7 @@ from tools.run_leader_drop_diagnostics_sidecar import run as leader_drop_run  # 
 from tools.run_position_aware_risk_replay import replay as risk_replay  # noqa: E402
 from tools.run_style_regime_report import run as style_regime_run  # noqa: E402
 from tools.historical_replay_lib import infer_return_col, score_power_weights  # noqa: E402
-from r1000_config import EngineConfig  # noqa: E402
+from r1000_config import EngineConfig, PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from r1000_pipeline import concentrated_weight_map  # noqa: E402
 
 
@@ -293,6 +294,67 @@ def write_monthly_weights(path: Path) -> None:
         writer.writerows(rows)
 
 
+def write_concentrated_strategy_files(root: Path) -> tuple[Path, Path]:
+    holdings_path = root / "concentrated_strategy_holdings.csv"
+    monthly_path = root / "concentrated_strategy_monthly.csv"
+    holding_fields = [
+        "rebalance_date",
+        "ticker",
+        "Name",
+        "sector",
+        "weight",
+        "period_forward_return",
+        "target_stock_names",
+        "weighting_mode",
+        "active_rebalance_interval_months",
+    ]
+    monthly_fields = [
+        "rebalance_date",
+        "turnover",
+        "target_stock_names",
+        "weighting_mode",
+        "active_rebalance_interval_months",
+    ]
+    holding_rows = []
+    monthly_rows = []
+    for idx in range(12):
+        month = f"2024-{idx + 1:02d}-28"
+        monthly_rows.append(
+            {
+                "rebalance_date": month,
+                "turnover": 0.50,
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            }
+        )
+        returns = [0.09, -0.12 if idx == 3 else 0.04, 0.01]
+        for ticker, weight, ret in zip(["AAA", "BBB", "CCC"], [0.50, 0.30, 0.20], returns):
+            holding_rows.append(
+                {
+                    "rebalance_date": month,
+                    "ticker": ticker,
+                    "Name": ticker,
+                    "sector": "Tech",
+                    "weight": weight,
+                    "period_forward_return": ret,
+                    "target_stock_names": 3,
+                    "weighting_mode": "score_power",
+                    "active_rebalance_interval_months": 1,
+                }
+            )
+    root.mkdir(parents=True, exist_ok=True)
+    with holdings_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=holding_fields)
+        writer.writeheader()
+        writer.writerows(holding_rows)
+    with monthly_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=monthly_fields)
+        writer.writeheader()
+        writer.writerows(monthly_rows)
+    return holdings_path, monthly_path
+
+
 def test_historical_challenger_replays() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -300,8 +362,16 @@ def test_historical_challenger_replays() -> None:
         monthly_weights = root / "main_monthly_weights.csv"
         write_candidate_book(book)
         write_monthly_weights(monthly_weights)
+        concentrated_holdings, concentrated_monthly = write_concentrated_strategy_files(root / "concentrated_strategy")
         main_metrics = main_v2_replay(book, root / "main_v2", cost_bps=0.0)
         concentrated_metrics = concentrated_replay(book, root / "conc", [3, 5], [0.25, 0.50], cost_bps=0.0)
+        concentrated_position_metrics = concentrated_position_risk_replay(
+            concentrated_holdings,
+            concentrated_monthly,
+            root / "conc_position_risk",
+            hard_stops=[-0.08],
+            cost_bps_grid=[25.0, 50.0],
+        )
         alpha_metrics = alpha_replay(book, root / "alpha", cost_bps=0.0, allow_neutral=False)
         risk_metrics = risk_replay(root / "main_v2" / "monthly_holdings.csv", root / "risk", hard_stop=-0.08, trailing_stop=-0.15)
         monster_metrics = monster_replay(book, root / "monster", policy_name="concentrated", cost_bps=0.0)
@@ -314,6 +384,10 @@ def test_historical_challenger_replays() -> None:
         style_metrics = style_regime_run(latest, root / "style")
         assert main_metrics["status"] == "completed"
         assert concentrated_metrics["status"] == "completed"
+        assert concentrated_position_metrics["status"] == "completed"
+        assert concentrated_position_metrics["target_cagr"] == PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"]
+        assert concentrated_position_metrics["target_max_dd"] == PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]
+        assert concentrated_position_metrics["cost_bps"] in {25.0, 50.0}
         assert alpha_metrics["status"] in {"completed", "inactive_no_bull_months_or_candidates"}
         assert risk_metrics["status"] == "completed"
         assert monster_metrics["status"] == "completed"
@@ -323,6 +397,7 @@ def test_historical_challenger_replays() -> None:
         assert lifecycle_review_metrics["entry_requires_leadership"]
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
+        assert (root / "conc_position_risk" / "rolling_3y.csv").exists()
         assert (root / "risk" / "actions.csv").exists()
         assert (root / "monster" / "events.csv").exists()
         assert (root / "monster_review" / "events.csv").exists()
