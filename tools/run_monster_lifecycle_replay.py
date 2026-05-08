@@ -83,6 +83,8 @@ POLICIES = {
         "winner_return": 0.32,
         "monster_score": 0.94,
         "monster_return": 1.00,
+        "hard_stop_proxy": -0.10,
+        "hard_stop_exit": True,
     },
     "concentrated": {
         "max_single_name_weight": 0.50,
@@ -128,6 +130,8 @@ POLICIES = {
         "winner_return": 0.35,
         "monster_score": 0.94,
         "monster_return": 0.95,
+        "hard_stop_proxy": -0.08,
+        "hard_stop_exit": True,
     },
 }
 
@@ -410,6 +414,16 @@ def stage_weight(stage: str, policy: dict[str, Any]) -> float:
     }.get(stage, safe_float(policy.get("scout_weight")))
 
 
+def risk_adjusted_period_return(ret: float, policy: dict[str, Any]) -> tuple[float, bool, str]:
+    hard_stop = policy.get("hard_stop_proxy")
+    if hard_stop is None or hard_stop == "":
+        return ret, False, "none"
+    stop = safe_float(hard_stop, 0.0)
+    if ret < stop:
+        return stop, True, "monthly_hard_stop_proxy"
+    return ret, False, "hold"
+
+
 def normalize_weights(raw: dict[str, float], capacity: float, max_single: float) -> dict[str, float]:
     capped = {ticker: min(weight, max_single) for ticker, weight in raw.items() if weight > 0}
     total = sum(capped.values())
@@ -547,19 +561,35 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
             row = by_ticker.get(ticker, {})
             pos = active_state.get(ticker, {})
             ret = safe_float(row.get(return_col), 0.0)
+            row_policy = theme_adjusted_policy(row, policy)
+            risk_ret, risk_exit, risk_reason = risk_adjusted_period_return(ret, row_policy)
             cum_before = safe_float(pos.get("cum_return"))
-            cum_after = (1.0 + cum_before) * (1.0 + ret) - 1.0
+            cum_after = (1.0 + cum_before) * (1.0 + risk_ret) - 1.0
             peak_after = max(safe_float(pos.get("peak_return")), cum_after)
-            next_state[ticker] = {
-                "stage": pos.get("stage", "scout"),
-                "cum_return": cum_after,
-                "peak_return": peak_after,
-                "months_held": int(pos.get("months_held", 0)) + 1,
-                "last_score": safe_float(pos.get("last_score")),
-                "last_return": ret,
-                "bad_months": int(pos.get("bad_months", 0)),
-            }
-            gross_return += weight * ret
+            if risk_exit and bool(row_policy.get("hard_stop_exit", True)):
+                event_rows.append(
+                    {
+                        "rebalance_date": dt,
+                        "ticker": ticker,
+                        "action": "exit",
+                        "reason": risk_reason,
+                        "stage": pos.get("stage"),
+                        "score": pos.get("last_score"),
+                        "period_forward_return": ret,
+                        "risk_adjusted_forward_return": risk_ret,
+                    }
+                )
+            else:
+                next_state[ticker] = {
+                    "stage": pos.get("stage", "scout"),
+                    "cum_return": cum_after,
+                    "peak_return": peak_after,
+                    "months_held": int(pos.get("months_held", 0)) + 1,
+                    "last_score": safe_float(pos.get("last_score")),
+                    "last_return": risk_ret,
+                    "bad_months": int(pos.get("bad_months", 0)),
+                }
+            gross_return += weight * risk_ret
         cost = month_turnover * (cost_bps / 10000.0)
         net_return = gross_return - cost
         monthly_rows.append(
@@ -580,8 +610,10 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
         )
         for ticker, weight in weights.items():
             row = by_ticker.get(ticker, {})
-            pos = next_state.get(ticker, {})
+            pos = next_state.get(ticker) or active_state.get(ticker, {})
             ret = safe_float(row.get(return_col), 0.0)
+            row_policy = theme_adjusted_policy(row, policy)
+            risk_ret, risk_exit, risk_reason = risk_adjusted_period_return(ret, row_policy)
             holding_rows.append(
                 {
                     "rebalance_date": dt,
@@ -594,7 +626,11 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
                     "months_held": pos.get("months_held"),
                     "bad_months": pos.get("bad_months"),
                     "period_forward_return": ret,
-                    "weighted_forward_return": weight * ret,
+                    "risk_adjusted_forward_return": risk_ret,
+                    "weighted_forward_return": weight * risk_ret,
+                    "risk_exit_proxy": risk_exit,
+                    "risk_exit_reason": risk_reason,
+                    "hard_stop_proxy": row_policy.get("hard_stop_proxy", ""),
                     "sector": row.get("sector", ""),
                     "industry_group": row.get("industry_group", ""),
                     "theme_horizon_primary": row.get("theme_horizon_primary", ""),
@@ -636,6 +672,8 @@ def replay(candidate_book: Path, output_dir: Path, policy_name: str, cost_bps: f
             "entry_requires_leadership": bool(policy.get("entry_requires_leadership", False)),
             "stale_patience_months": policy.get("stale_patience_months"),
             "scout_timeout_months": policy.get("scout_timeout_months"),
+            "hard_stop_proxy": policy.get("hard_stop_proxy"),
+            "hard_stop_exit": policy.get("hard_stop_exit"),
             "research_only": True,
             "production_activation_allowed": False,
         }
@@ -665,6 +703,7 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Max new scouts/month: {int(safe_float(metrics.get('max_new_scouts_per_month'), 0))}",
             f"- Entry requires leadership/growth: `{bool(metrics.get('entry_requires_leadership'))}`",
             f"- Stale patience months: {metrics.get('stale_patience_months')}",
+            f"- Hard-stop proxy: {safe_float(metrics.get('hard_stop_proxy')):.2%}",
             f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
             f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
             f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",

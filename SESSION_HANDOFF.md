@@ -80,6 +80,19 @@ Step 3 implemented for concentrated target hardening:
   needs either more alpha capture from early monster/staged sizing or a better
   intramonth/weekly risk execution model before production promotion.
 
+Step 4 implemented for monster lifecycle risk defense:
+- `tools/run_monster_lifecycle_replay.py` lifecycle-review policies now have a
+  monthly hard-stop proxy: main -10%, concentrated -8%.
+- Holdings now carry `risk_adjusted_forward_return`, `risk_exit_proxy`,
+  `risk_exit_reason`, and `hard_stop_proxy`; events now include
+  `monthly_hard_stop_proxy` exits.
+- Local latest lifecycle-review concentrated improved materially but remains
+  weak: CAGR 14.42%, MaxDD -25.91%, Sharpe 0.881. This is not a production
+  candidate.
+- Interpretation: lifecycle replay is useful for learning/diagnostics, but the
+  near-target commercial concentrated path is still the concentrated
+  position-risk replay plus better early leader capture.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the

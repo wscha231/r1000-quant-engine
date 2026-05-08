@@ -222,6 +222,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local latest replay is now very close but still below the new target: best `score_power`, hard stop -8%, 25bps cost, CAGR 49.90%, MaxDD -18.16%, rolling 3-year pass rate 10.42%.
   - The replay remains monthly hard-stop proxy evidence only; weekly/intramonth execution data is required before production activation.
 
+### 10:18 KST - monster-lifecycle-hard-stop-proxy
+
+- scope:
+  - Add research-only hard-stop defense to lifecycle-review monster replays so staged sizing can be evaluated with failure exits instead of full-month losses.
+- files:
+  - `tools/run_monster_lifecycle_replay.py` ->adds policy-level monthly hard-stop proxy, risk-adjusted returns, and optional exit-after-stop behavior for lifecycle review policies.
+  - `tests/historical_challenger_replays_smoke.py` ->asserts lifecycle-review hard-stop settings and risk-adjusted holding output.
+  - `CHANGELOG.md` ->records the monster lifecycle hard-stop proxy.
+- symbols_added:
+  - `risk_adjusted_period_return(ret, policy)` ->caps monthly proxy return at the configured hard-stop level and labels stop events.
+- symbols_changed:
+  - `replay(candidate_book, output_dir, policy_name, cost_bps)` ->applies risk-adjusted period returns, writes hard-stop events, and exits stopped positions before the next month.
+  - `render_report(metrics)` ->shows the configured hard-stop proxy.
+  - `test_historical_challenger_replays()` ->checks lifecycle-review hard-stop proxy and risk-adjusted holding fields.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/monster_lifecycle_review_main/holdings.csv` ->now includes `risk_adjusted_forward_return`, `risk_exit_proxy`, `risk_exit_reason`, and `hard_stop_proxy`.
+  - `outputs/monster_lifecycle_review_concentrated/holdings.csv` ->same risk-adjusted lifecycle holding diagnostics for concentrated review.
+  - `outputs/monster_lifecycle_review_concentrated/events.csv` ->now includes `monthly_hard_stop_proxy` exits when the proxy stop is hit.
+- validation:
+  - `py -3 -m py_compile tools\run_monster_lifecycle_replay.py` ->passed.
+  - `py -3 tools\run_monster_lifecycle_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --policy lifecycle_review_concentrated --output-dir _local_monster_review_concentrated_check` ->passed.
+  - `py -3 tools\run_monster_lifecycle_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --policy lifecycle_review_main --output-dir _local_monster_review_main_check` ->passed.
+- risks_or_notes:
+  - Local latest lifecycle-review concentrated improved from CAGR 10.46%, MaxDD -39.37% to CAGR 14.42%, MaxDD -25.91%, but it remains far below target and is not a production candidate.
+  - This confirms the lifecycle engine is useful as a diagnostic/learning feed, while the stronger near-target path remains concentrated position-risk replay plus better early leader capture.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

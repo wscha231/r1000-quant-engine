@@ -395,6 +395,8 @@ def test_historical_challenger_replays() -> None:
         assert overlay_metrics["status"] == "completed"
         assert style_metrics["status"] == "completed"
         assert lifecycle_review_metrics["entry_requires_leadership"]
+        assert lifecycle_review_metrics["hard_stop_proxy"] == -0.08
+        assert lifecycle_review_metrics["hard_stop_exit"] is True
         assert (root / "main_v2" / "monthly_holdings.csv").exists()
         assert (root / "conc" / "comparison.csv").exists()
         assert (root / "conc_position_risk" / "rolling_3y.csv").exists()
@@ -419,6 +421,7 @@ def test_historical_challenger_replays() -> None:
             first_holding = next(csv.DictReader(f))
             assert "theme_event_risk_sensitivity_max" in first_holding
             assert "theme_structural_growth_max" in first_holding
+            assert "risk_adjusted_forward_return" in first_holding
 
 
 def test_latest_diagnostics_sidecars() -> None:
