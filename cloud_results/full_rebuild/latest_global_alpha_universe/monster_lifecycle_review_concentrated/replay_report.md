@@ -1,18 +1,7 @@
-# Monster Lifecycle Replay
+# monster_lifecycle_replay
 
-Research-only staged sizing replay: scout -> confirm -> winner -> monster.
+Status: `blocked`
 
-- Policy: `lifecycle_review_concentrated`
-- Status: `completed`
-- Max single-name weight: 50.00%
-- Max positions: 7
-- Max new scouts/month: 3
-- Entry requires leadership/growth: `True`
-- Stale patience months: 2
-- CAGR: 10.46%
-- Sharpe: 0.542
-- MaxDD: -39.37%
-- Avg cash: 6.70%
-- Avg turnover: 23.23%
+Reason: missing reports/candidate_replay_book.csv from full rebuild
 
-This is the priority challenger for detecting early monster winners without hardcoded tickers.
+Required path: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv`
