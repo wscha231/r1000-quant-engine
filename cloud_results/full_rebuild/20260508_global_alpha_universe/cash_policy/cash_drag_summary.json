@@ -7,30 +7,31 @@
   "cash_weight_sum_by_reason": {
     "cap_limited_leftover": 0.0934799861309971,
     "cash_export_mismatch": 13.202806848961782,
-    "mixed_risk_and_idle_cash": 0.8614183844853773,
+    "confirmed_macro_defense_cash": 2.1834123625799067,
+    "mixed_confirmed_macro_and_idle_cash": 0.8614183844853773,
     "no_cash": 0.0,
-    "partial_rebalance_leftover": 0.027857557183271202,
-    "risk_defense_cash": 2.1834123625799067
+    "partial_rebalance_leftover": 0.027857557183271202
   },
   "months": 83,
   "months_cash_export_mismatch_gt_2pct": 74,
-  "months_possible_idle_cash": 45,
+  "months_possible_idle_cash": 61,
   "months_reported_cash_gt_20pct": 29,
   "months_reported_cash_gt_50pct": 6,
   "notes": [
     "Use reported_cash_weight from regime_by_month as the source of truth for backtest avg_cash_weight.",
     "A large reported_vs_book_cash_gap means main_monthly_weights does not explicitly carry the cash that influenced backtest_metrics.",
     "The existing main cash-drag replay must be repaired or it can understate cash by relying on explicit CASH rows only.",
-    "Idle-cash redeploy A/B should preserve target_defense_cash and only test excess cash in non-risk regimes."
+    "Idle-cash redeploy A/B should preserve confirmed macro-defense cash and only test excess cash in non-risk regimes.",
+    "Event shocks without long-trend/liquidity confirmation should be reviewed separately so monster leaders are not sold purely because the index wobbled."
   ],
   "production_activation_allowed": false,
   "reason_counts": {
     "cap_limited_leftover": 2,
     "cash_export_mismatch": 67,
-    "mixed_risk_and_idle_cash": 2,
+    "confirmed_macro_defense_cash": 6,
+    "mixed_confirmed_macro_and_idle_cash": 2,
     "no_cash": 4,
-    "partial_rebalance_leftover": 2,
-    "risk_defense_cash": 6
+    "partial_rebalance_leftover": 2
   },
   "research_only": true,
   "status": "completed",
@@ -64,7 +65,7 @@
     {
       "book_explicit_cash_weight": 0.0,
       "cash_target_used": 0.0,
-      "possible_idle_cash": false,
+      "possible_idle_cash": true,
       "primary_cash_reason": "cash_export_mismatch",
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2022-03-31",
@@ -103,7 +104,7 @@
     {
       "book_explicit_cash_weight": 0.0,
       "cash_target_used": 0.0,
-      "possible_idle_cash": false,
+      "possible_idle_cash": true,
       "primary_cash_reason": "cash_export_mismatch",
       "rebalance_action": "circuit_breaker_rebalance",
       "rebalance_date": "2022-05-31",
@@ -116,7 +117,7 @@
     {
       "book_explicit_cash_weight": 0.0,
       "cash_target_used": 0.0,
-      "possible_idle_cash": false,
+      "possible_idle_cash": true,
       "primary_cash_reason": "cash_export_mismatch",
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2023-08-31",
@@ -130,7 +131,7 @@
       "book_explicit_cash_weight": 0.28,
       "cash_target_used": 0.28,
       "possible_idle_cash": false,
-      "primary_cash_reason": "mixed_risk_and_idle_cash",
+      "primary_cash_reason": "mixed_confirmed_macro_and_idle_cash",
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2021-01-29",
       "regime_label": "risk_off_alert",
@@ -143,7 +144,7 @@
       "book_explicit_cash_weight": 0.4,
       "cash_target_used": 0.4,
       "possible_idle_cash": false,
-      "primary_cash_reason": "risk_defense_cash",
+      "primary_cash_reason": "confirmed_macro_defense_cash",
       "rebalance_action": "rebalance",
       "rebalance_date": "2023-09-29",
       "regime_label": "systemic_alert",
@@ -156,7 +157,7 @@
       "book_explicit_cash_weight": 0.4,
       "cash_target_used": 0.4,
       "possible_idle_cash": false,
-      "primary_cash_reason": "risk_defense_cash",
+      "primary_cash_reason": "confirmed_macro_defense_cash",
       "rebalance_action": "rebalance",
       "rebalance_date": "2024-07-31",
       "regime_label": "systemic_alert",
@@ -169,7 +170,7 @@
       "book_explicit_cash_weight": 0.28,
       "cash_target_used": 0.28,
       "possible_idle_cash": false,
-      "primary_cash_reason": "mixed_risk_and_idle_cash",
+      "primary_cash_reason": "mixed_confirmed_macro_and_idle_cash",
       "rebalance_action": "rebalance",
       "rebalance_date": "2021-02-26",
       "regime_label": "risk_off_alert",
@@ -198,11 +199,47 @@
       "cash_target_used": 0.0,
       "primary_cash_reason": "cash_export_mismatch",
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
+      "rebalance_date": "2022-03-31",
+      "regime_label": "growth_reentry_alert",
+      "reported_cash_weight": 0.7083128350549436,
+      "reported_vs_book_cash_gap": 0.7083128350549436,
+      "stock_count": 18,
+      "target_n": 18.0
+    },
+    {
+      "book_explicit_cash_weight": 0.0,
+      "cash_target_used": 0.0,
+      "primary_cash_reason": "cash_export_mismatch",
+      "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2025-10-31",
       "regime_label": "balanced",
       "reported_cash_weight": 0.6673538053450518,
       "reported_vs_book_cash_gap": 0.6673538053450518,
       "stock_count": 25,
+      "target_n": 18.0
+    },
+    {
+      "book_explicit_cash_weight": 0.0,
+      "cash_target_used": 0.0,
+      "primary_cash_reason": "cash_export_mismatch",
+      "rebalance_action": "circuit_breaker_rebalance",
+      "rebalance_date": "2022-05-31",
+      "regime_label": "balanced",
+      "reported_cash_weight": 0.5424426260188291,
+      "reported_vs_book_cash_gap": 0.5424426260188291,
+      "stock_count": 30,
+      "target_n": 18.0
+    },
+    {
+      "book_explicit_cash_weight": 0.0,
+      "cash_target_used": 0.0,
+      "primary_cash_reason": "cash_export_mismatch",
+      "rebalance_action": "partial_rebalance:core_compounder,early_scout",
+      "rebalance_date": "2023-08-31",
+      "regime_label": "balanced",
+      "reported_cash_weight": 0.4818931390742059,
+      "reported_vs_book_cash_gap": 0.4818931390742059,
+      "stock_count": 18,
       "target_n": 18.0
     },
     {
@@ -239,6 +276,18 @@
       "reported_cash_weight": 0.3348459508371214,
       "reported_vs_book_cash_gap": 0.3348459508371214,
       "stock_count": 33,
+      "target_n": 18.0
+    },
+    {
+      "book_explicit_cash_weight": 0.0,
+      "cash_target_used": 0.0,
+      "primary_cash_reason": "cash_export_mismatch",
+      "rebalance_action": "rebalance",
+      "rebalance_date": "2021-08-31",
+      "regime_label": "balanced",
+      "reported_cash_weight": 0.329509256032358,
+      "reported_vs_book_cash_gap": 0.329509256032358,
+      "stock_count": 36,
       "target_n": 18.0
     },
     {
@@ -287,54 +336,6 @@
       "reported_cash_weight": 0.2814842023911296,
       "reported_vs_book_cash_gap": 0.2814842023911296,
       "stock_count": 47,
-      "target_n": 18.0
-    },
-    {
-      "book_explicit_cash_weight": 0.0,
-      "cash_target_used": 0.0,
-      "primary_cash_reason": "cash_export_mismatch",
-      "rebalance_action": "rebalance",
-      "rebalance_date": "2021-10-29",
-      "regime_label": "growth_reentry_alert",
-      "reported_cash_weight": 0.2711095733859313,
-      "reported_vs_book_cash_gap": 0.2711095733859313,
-      "stock_count": 25,
-      "target_n": 18.0
-    },
-    {
-      "book_explicit_cash_weight": 0.0,
-      "cash_target_used": 0.0,
-      "primary_cash_reason": "cash_export_mismatch",
-      "rebalance_action": "partial_rebalance:core_compounder,early_scout",
-      "rebalance_date": "2025-12-31",
-      "regime_label": "balanced",
-      "reported_cash_weight": 0.2588610127723692,
-      "reported_vs_book_cash_gap": 0.2588610127723692,
-      "stock_count": 34,
-      "target_n": 18.0
-    },
-    {
-      "book_explicit_cash_weight": 0.0,
-      "cash_target_used": 0.0,
-      "primary_cash_reason": "cash_export_mismatch",
-      "rebalance_action": "initial_rebalance",
-      "rebalance_date": "2019-04-30",
-      "regime_label": "balanced",
-      "reported_cash_weight": 0.2149340706985424,
-      "reported_vs_book_cash_gap": 0.2149340706985424,
-      "stock_count": 18,
-      "target_n": 18.0
-    },
-    {
-      "book_explicit_cash_weight": 0.0,
-      "cash_target_used": 0.0,
-      "primary_cash_reason": "cash_export_mismatch",
-      "rebalance_action": "partial_rebalance:core_compounder,early_scout",
-      "rebalance_date": "2021-03-31",
-      "regime_label": "growth_reentry_alert",
-      "reported_cash_weight": 0.2012939485304048,
-      "reported_vs_book_cash_gap": 0.2012939485304048,
-      "stock_count": 27,
       "target_n": 18.0
     }
   ]

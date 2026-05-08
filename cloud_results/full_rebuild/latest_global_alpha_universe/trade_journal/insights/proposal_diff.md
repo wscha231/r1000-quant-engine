@@ -1,6 +1,6 @@
 # Auto Feature Gate Proposal Diff
 
-Generated: 2026-05-08T06:22:20Z
+Generated: 2026-05-08T12:17:43Z
 
 Total proposals: **5**
 
@@ -13,7 +13,7 @@ Total proposals: **5**
 +# instead edit the proposal tool's thresholds and re-run.
 +# Empty `gates: []` is the safe default (no behavior change).
 +
-+generated_at: '2026-05-08T06:22:20Z'
++generated_at: '2026-05-08T12:17:43Z'
 +expires_at: '2026-08-06'
 +n_proposals: 5
 +

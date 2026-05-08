@@ -1,7 +1,7 @@
 # Trade Insights Summary
 
 - trades analyzed: **890**
-- generated: 2026-05-08 06:22 UTC
+- generated: 2026-05-08 12:17 UTC
 
 ## 1. Signal IC by regime (rank correlation)
 Top actionable findings:

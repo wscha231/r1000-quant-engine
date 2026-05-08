@@ -34,19 +34,13 @@ alphaops_policy_fusion:
       domain: learning
   activation_queue:
     - policy_id: position_hard_stop_distribution
-      portfolio: main
+      portfolio: concentrated
       priority: highest
       activation_stage: confirm_with_production_compatible_replay
       target_pass: true
-      evidence_type: monthly_proxy
+      evidence_type: weekly_validation
     - policy_id: idle_cash_redeploy
       portfolio: main
-      priority: highest
-      activation_stage: confirm_with_production_compatible_replay
-      target_pass: true
-      evidence_type: monthly_proxy
-    - policy_id: position_hard_stop_distribution
-      portfolio: concentrated
       priority: highest
       activation_stage: confirm_with_production_compatible_replay
       target_pass: true
@@ -57,6 +51,12 @@ alphaops_policy_fusion:
       activation_stage: candidate_for_combination
       target_pass: false
       evidence_type: monthly_proxy
+    - policy_id: position_hard_stop_distribution
+      portfolio: main
+      priority: watch
+      activation_stage: shadow_watch
+      target_pass: false
+      evidence_type: diagnostic
     - policy_id: stale_leader_trim
       portfolio: main
       priority: watch

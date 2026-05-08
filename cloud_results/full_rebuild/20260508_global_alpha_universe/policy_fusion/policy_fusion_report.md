@@ -14,10 +14,10 @@ It does not mutate production defaults.
 
 | Priority | Policy | Portfolio | Stage | Evidence | Target Pass | Score |
 | --- | --- | --- | --- | --- | ---: | ---: |
-| highest | `position_hard_stop_distribution` | main | `confirm_with_production_compatible_replay` | monthly_proxy | true | 53.49 |
+| highest | `position_hard_stop_distribution` | concentrated | `confirm_with_production_compatible_replay` | weekly_validation | true | 320679943879700546322432.00 |
 | highest | `idle_cash_redeploy` | main | `confirm_with_production_compatible_replay` | monthly_proxy | true | 49.71 |
-| highest | `position_hard_stop_distribution` | concentrated | `confirm_with_production_compatible_replay` | monthly_proxy | true | 43.97 |
-| high | `macro_crisis_cash_ladder` | main | `candidate_for_combination` | monthly_proxy | false | 5.79 |
+| high | `macro_crisis_cash_ladder` | main | `candidate_for_combination` | monthly_proxy | false | 1.74 |
+| watch | `position_hard_stop_distribution` | main | `shadow_watch` | diagnostic | false | -5.09 |
 | watch | `stale_leader_trim` | main | `shadow_watch` | diagnostic | false | -5.09 |
 | watch | `shakeout_hold_veto` | main | `shadow_watch` | diagnostic | false | -5.09 |
 | watch | `monster_early_staged_sizing` | main | `shadow_watch` | diagnostic | false | -5.09 |
@@ -31,9 +31,9 @@ It does not mutate production defaults.
 
 | Policy | Portfolio | CAGR | MaxDD | Sharpe | Delta CAGR | Delta MaxDD | Stage | Source |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| `position_hard_stop_distribution` | main | 36.10% | -12.63% | 1.726 | 7.98pp | 3.29pp | `confirm_with_production_compatible_replay` | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
-| `position_hard_stop_distribution` | concentrated | 50.38% | -17.82% | 1.825 | 2.67pp | 1.90pp | `confirm_with_production_compatible_replay` | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
-| `macro_crisis_cash_ladder` | main | 29.87% | -10.76% | 1.922 | 1.75pp | 5.17pp | `candidate_for_combination` | outputs/crisis_reentry_replay/metrics.json#best_by_cagr |
+| `position_hard_stop_distribution` | concentrated | 168778917831421347233792.00% | 0.00% | 31.177 | 168778917831421347233792.00pp | 19.72pp | `confirm_with_production_compatible_replay` | sidecar:outputs/position_risk_weekly_validation/concentrated/metrics.json |
+| `position_hard_stop_distribution` | main | 28.12% | -15.92% | 1.620 | 0.00pp | 0.00pp | `shadow_watch` | outputs/historical_trade_journey/historical_decision_priorities.csv |
+| `macro_crisis_cash_ladder` | main | 29.04% | -12.64% | 1.866 | 0.93pp | 3.28pp | `candidate_for_combination` | outputs/crisis_reentry_replay/metrics.json#best_by_cagr |
 | `stale_leader_trim` | main | 28.12% | -15.92% | 1.620 | 0.00pp | 0.00pp | `shadow_watch` | outputs/historical_trade_journey/historical_decision_priorities.csv |
 | `shakeout_hold_veto` | main | 28.12% | -15.92% | 1.620 | 0.00pp | 0.00pp | `shadow_watch` | outputs/shakeout_breakdown_study/pattern_summary.json |
 | `monster_early_staged_sizing` | main | 28.12% | -15.92% | 1.620 | 0.00pp | 0.00pp | `shadow_watch` | outputs/winner_onset_study/pattern_summary.json |

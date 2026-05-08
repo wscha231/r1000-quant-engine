@@ -29,7 +29,7 @@
   "audit": {
     "mode": "legacy_passthrough",
     "n_unique_tickers": 17,
-    "generated_at": "2026-05-08T06:22:14Z"
+    "generated_at": "2026-05-08T12:17:36Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,

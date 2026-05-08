@@ -9,7 +9,7 @@
 +# challenger backtest, promotion gate, and human approval.
 +
 +policy_version: "2026-05-alphaops-20260508-v1"
-+generated_at: "2026-05-08T06:22:21Z"
++generated_at: "2026-05-08T12:17:43Z"
 +expires_at: "2026-08-06"
 +mode: "proposal_only"
 +guardrails:

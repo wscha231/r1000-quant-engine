@@ -1,28 +1,28 @@
 {
   "best_concentrated": {
     "avg_turnover_monthly": null,
-    "cagr": 0.503782536325996,
+    "cagr": 1.6877891783142136e+21,
     "cagr_gap_pp": 0.0,
     "cagr_target": 0.5,
-    "candidate_id": "concentrated_position_risk_proxy",
+    "candidate_id": "concentrated_position_risk_weekly_validation",
     "distance_to_target_pp": 0.0,
     "governance_action": "target_pass_review",
-    "max_dd": -0.17821298596873147,
+    "max_dd": 0.0,
     "max_dd_gap_pp": 0.0,
     "max_dd_target": -0.18,
-    "notes": "Monthly proxy for concentrated position-level hard stops. Target pass here requires weekly/intramonth confirmation before promotion.",
+    "notes": "Daily stop / weekly relative-performance validation for concentrated holdings. This is the bridge from monthly proxy to production-compatible evidence.",
     "params": {
-      "defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_holdings.csv",
+      "data_mode": "daily_price_path_validation_from_monthly_holdings",
       "hard_stop": -0.08,
-      "latest_defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_latest.csv",
-      "list_defense_mode": "hard_stop_to_cash_proxy",
-      "metric_mode": "hard_stop_proxy",
-      "proxy_warning": "Monthly position-loss capping is not execution evidence; validate with weekly/intramonth prices before promotion."
+      "metric_mode": "position_risk_weekly_validation",
+      "price_coverage": 1.0,
+      "trailing_stop": -0.15,
+      "validation_granularity": "daily_stop_checks_weekly_relative_checks"
     },
     "portfolio": "concentrated",
-    "rank_score": 1000.4868148354051,
-    "sharpe": 1.8248097434839676,
-    "source": "sidecar:outputs/concentrated_position_risk_replay/metrics.json",
+    "rank_score": 1.6877891783142136e+21,
+    "sharpe": 31.17654721580941,
+    "source": "sidecar:outputs/position_risk_weekly_validation/concentrated/metrics.json",
     "target_pass": true,
     "valid_for_production": false
   },
@@ -56,6 +56,33 @@
   "concentrated_candidates": [
     {
       "avg_turnover_monthly": null,
+      "cagr": 1.6877891783142136e+21,
+      "cagr_gap_pp": 0.0,
+      "cagr_target": 0.5,
+      "candidate_id": "concentrated_position_risk_weekly_validation",
+      "distance_to_target_pp": 0.0,
+      "governance_action": "target_pass_review",
+      "max_dd": 0.0,
+      "max_dd_gap_pp": 0.0,
+      "max_dd_target": -0.18,
+      "notes": "Daily stop / weekly relative-performance validation for concentrated holdings. This is the bridge from monthly proxy to production-compatible evidence.",
+      "params": {
+        "data_mode": "daily_price_path_validation_from_monthly_holdings",
+        "hard_stop": -0.08,
+        "metric_mode": "position_risk_weekly_validation",
+        "price_coverage": 1.0,
+        "trailing_stop": -0.15,
+        "validation_granularity": "daily_stop_checks_weekly_relative_checks"
+      },
+      "portfolio": "concentrated",
+      "rank_score": 1.6877891783142136e+21,
+      "sharpe": 31.17654721580941,
+      "source": "sidecar:outputs/position_risk_weekly_validation/concentrated/metrics.json",
+      "target_pass": true,
+      "valid_for_production": false
+    },
+    {
+      "avg_turnover_monthly": null,
       "cagr": 0.503782536325996,
       "cagr_gap_pp": 0.0,
       "cagr_target": 0.5,
@@ -67,6 +94,7 @@
       "max_dd_target": -0.18,
       "notes": "Monthly proxy for concentrated position-level hard stops. Target pass here requires weekly/intramonth confirmation before promotion.",
       "params": {
+        "data_mode": "concentrated_monthly_position_proxy",
         "defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_holdings.csv",
         "hard_stop": -0.08,
         "latest_defensive_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_position_risk_replay/defensive_latest.csv",
@@ -1777,7 +1805,9 @@
       "max_dd_gap_pp": 8.7108,
       "max_dd_target": -0.18,
       "notes": "Research-only concentrated lifecycle review with staged 5/14/32/50% sizing and stale-leader patience.",
-      "params": {},
+      "params": {
+        "data_mode": "historical_candidate_replay_book"
+      },
       "portfolio": "concentrated",
       "rank_score": -44.51963471852195,
       "sharpe": 0.867601396483136,
@@ -1878,7 +1908,9 @@
       "max_dd_gap_pp": 26.5167,
       "max_dd_target": -0.18,
       "notes": "Research-only monster lifecycle replay; useful for drawdown control discovery.",
-      "params": {},
+      "params": {
+        "data_mode": "historical_candidate_replay_book"
+      },
       "portfolio": "concentrated",
       "rank_score": -61.724918706322065,
       "sharpe": 0.687372038362365,
@@ -1898,7 +1930,9 @@
       "max_dd_gap_pp": 29.8797,
       "max_dd_target": -0.18,
       "notes": "Research-only concentrated policy replay from candidate_replay_book.",
-      "params": {},
+      "params": {
+        "data_mode": "historical_candidate_replay_book"
+      },
       "portfolio": "concentrated",
       "rank_score": -64.01706352208511,
       "sharpe": 0.6358119341494147,
@@ -1968,7 +2002,7 @@
       "candidate_id": "main_rebalance_interval_fixed_interval_I1",
       "distance_to_target_pp": 1.5173,
       "governance_action": "needs_alpha_boost",
-      "max_dd": -0.14920785413484472,
+      "max_dd": -0.14920785413484494,
       "max_dd_gap_pp": 0.0,
       "max_dd_target": -0.15,
       "notes": "Comparison artifact; requires champion/challenger gate before production.",
@@ -1977,7 +2011,7 @@
         "rebalance_interval_months": "1"
       },
       "portfolio": "main",
-      "rank_score": -1.244497686616994,
+      "rank_score": -1.2444976866169941,
       "sharpe": 1.6347173433850848,
       "source": "latest_run_report:outputs/reports/rebalance_interval_comparison.csv",
       "target_pass": false,
@@ -2034,7 +2068,7 @@
       "candidate_id": "main_sleeve_cap_policy_sleeve_cap_policy_I1",
       "distance_to_target_pp": 4.7186,
       "governance_action": "blocked_both",
-      "max_dd": -0.15632877518709365,
+      "max_dd": -0.15632877518709387,
       "max_dd_gap_pp": 0.6329,
       "max_dd_target": -0.15,
       "notes": "Comparison artifact; requires champion/challenger gate before production.",
@@ -2043,7 +2077,7 @@
         "rebalance_interval_months": "1"
       },
       "portfolio": "main",
-      "rank_score": -4.475035626775819,
+      "rank_score": -4.475035626775841,
       "sharpe": 1.5660216946392478,
       "source": "latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv",
       "target_pass": false,
@@ -2051,13 +2085,13 @@
     },
     {
       "avg_turnover_monthly": 0.5164767215380077,
-      "cagr": 0.2590117109711412,
+      "cagr": 0.2590117109711414,
       "cagr_gap_pp": 4.0988,
       "cagr_target": 0.3,
       "candidate_id": "main_sleeve_cap_policy_sleeve_cap_policy_I1",
       "distance_to_target_pp": 6.0844,
       "governance_action": "blocked_both",
-      "max_dd": -0.16985599291153497,
+      "max_dd": -0.16985599291153475,
       "max_dd_gap_pp": 1.9856,
       "max_dd_target": -0.15,
       "notes": "Comparison artifact; requires champion/challenger gate before production.",
@@ -2066,7 +2100,7 @@
         "rebalance_interval_months": "1"
       },
       "portfolio": "main",
-      "rank_score": -5.846079209643204,
+      "rank_score": -5.846079209643159,
       "sharpe": 1.5147035649247411,
       "source": "latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv",
       "target_pass": false,
@@ -2080,7 +2114,7 @@
       "candidate_id": "main_rebalance_interval_fixed_interval_I3",
       "distance_to_target_pp": 6.1429,
       "governance_action": "needs_alpha_boost",
-      "max_dd": -0.1264466996094863,
+      "max_dd": -0.1264466996094864,
       "max_dd_gap_pp": 0.0,
       "max_dd_target": -0.15,
       "notes": "Comparison artifact; requires champion/challenger gate before production.",
@@ -2113,7 +2147,7 @@
       },
       "portfolio": "main",
       "rank_score": -7.087526171279926,
-      "sharpe": 1.5203150625693767,
+      "sharpe": 1.520315062569377,
       "source": "latest_run_report:outputs/reports/rebalance_interval_comparison.csv",
       "target_pass": false,
       "valid_for_production": false
@@ -2126,7 +2160,7 @@
       "candidate_id": "main_sleeve_cap_policy_sleeve_cap_policy_I1",
       "distance_to_target_pp": 7.7295,
       "governance_action": "blocked_both",
-      "max_dd": -0.18275956385566672,
+      "max_dd": -0.18275956385566694,
       "max_dd_gap_pp": 3.276,
       "max_dd_target": -0.15,
       "notes": "Comparison artifact; requires champion/challenger gate before production.",
@@ -2135,7 +2169,7 @@
         "rebalance_interval_months": "1"
       },
       "portfolio": "main",
-      "rank_score": -7.499299280908429,
+      "rank_score": -7.49929928090845,
       "sharpe": 1.4759732181695744,
       "source": "latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv",
       "target_pass": false,
@@ -2153,7 +2187,9 @@
       "max_dd_gap_pp": 6.6138,
       "max_dd_target": -0.15,
       "notes": "Research-only overlay on production monthly picks: monthly lifecycle review instead of monthly churn.",
-      "params": {},
+      "params": {
+        "data_mode": "main_monthly_weights_plus_candidate_replay_book"
+      },
       "portfolio": "main",
       "rank_score": -13.323743764139667,
       "sharpe": 1.154824929332958,
@@ -2193,7 +2229,9 @@
       "max_dd_gap_pp": 11.9373,
       "max_dd_target": -0.15,
       "notes": "Research-only Main v2 replay from candidate_replay_book.",
-      "params": {},
+      "params": {
+        "data_mode": "historical_candidate_replay_book"
+      },
       "portfolio": "main",
       "rank_score": -20.571893199819204,
       "sharpe": 0.9939476049338214,
@@ -2333,11 +2371,40 @@
       "max_dd_gap_pp": 12.6603,
       "max_dd_target": -0.15,
       "notes": "Research-only monthly lifecycle review: staged entry, long-hold winners, shakeout hold, stale-leader exits.",
-      "params": {},
+      "params": {
+        "data_mode": "historical_candidate_replay_book"
+      },
       "portfolio": "main",
       "rank_score": -27.304632306638556,
       "sharpe": 0.8936815616099995,
       "source": "sidecar:outputs/monster_lifecycle_review_main/metrics.json",
+      "target_pass": false,
+      "valid_for_production": false
+    },
+    {
+      "avg_turnover_monthly": null,
+      "cagr": 0.11252142467596116,
+      "cagr_gap_pp": 18.7479,
+      "cagr_target": 0.3,
+      "candidate_id": "main_position_risk_weekly_validation",
+      "distance_to_target_pp": 36.7631,
+      "governance_action": "blocked_both",
+      "max_dd": -0.330152175021474,
+      "max_dd_gap_pp": 18.0152,
+      "max_dd_target": -0.15,
+      "notes": "Daily stop / weekly relative-performance validation on monthly holdings. Stricter than monthly proxy, still research-only until true weekly scored snapshots and order tickets exist.",
+      "params": {
+        "data_mode": "daily_price_path_validation_from_monthly_holdings",
+        "hard_stop": -0.08,
+        "metric_mode": "position_risk_weekly_validation",
+        "price_coverage": 1.0,
+        "trailing_stop": -0.15,
+        "validation_granularity": "daily_stop_checks_weekly_relative_checks"
+      },
+      "portfolio": "main",
+      "rank_score": -36.736678634616275,
+      "sharpe": 0.6460313882741826,
+      "source": "sidecar:outputs/position_risk_weekly_validation/main/metrics.json",
       "target_pass": false,
       "valid_for_production": false
     },

@@ -1,6 +1,6 @@
 {
   "report_version": "2026-05-02-alphaops-stage0-2a",
-  "generated_at_utc": "2026-05-08T06:22:14Z",
+  "generated_at_utc": "2026-05-08T12:17:36Z",
   "controls": {
     "phase15d": {
       "name": "Phase 15-D global_alpha_universe",
@@ -27,11 +27,11 @@
   },
   "current_run": {
     "run_identity": {
-      "run_ts": "20260508_060802",
-      "git_commit": "e5f039825392a959defccfa98e680edc3aab88c6",
+      "run_ts": "20260508_120447",
+      "git_commit": "af2414b67b189fbc69eb5bb3973fadfc8083ded1",
       "engine_version": "2026-05-07-style-regime-router",
-      "config_fingerprint": "71c6822d2f71ab5f63d40aee0a9642d04aa66770",
-      "run_id": "20260508_060802__e5f0398__2026-05-07-style-regime-router"
+      "config_fingerprint": "edb340c8ef5cde75a04b561ba913bc6cd1414842",
+      "run_id": "20260508_120447__af2414b__2026-05-07-style-regime-router"
     },
     "engine_version": "2026-05-07-style-regime-router",
     "base_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine",
@@ -45,7 +45,7 @@
       "sortino": 3.6956712581928404,
       "max_dd": -0.15921178440601547,
       "calmar": 1.7659543222070715,
-      "ir": 1.233812373948804,
+      "ir": 1.2338123739488038,
       "vol_ann": 0.16239790355046882,
       "avg_turnover_monthly": 0.5292144217508118,
       "avg_cash_weight": 0.1972165679438715,
@@ -168,10 +168,10 @@
         "strategy_cagr": 0.23014896181579303,
         "benchmark_cagr": 0.103420318856831,
         "excess_cagr": 0.12672864295896202,
-        "sharpe": 1.4761511546697579,
+        "sharpe": 1.4761511546697574,
         "sortino": 3.035872327218298,
         "max_dd": -0.14956049209774913,
-        "ir": 1.2608356931440965,
+        "ir": 1.2608356931440967,
         "beat_month_ratio": 0.6833333333333333,
         "avg_turnover_monthly": 0.5419807885642195,
         "avg_cash_weight": 0.20137039076734384,
@@ -204,7 +204,7 @@
         "sharpe": 1.6202096991237043,
         "sortino": 3.6956712581928404,
         "max_dd": -0.15921178440601547,
-        "ir": 1.233812373948804,
+        "ir": 1.2338123739488038,
         "beat_month_ratio": 0.6626506024096386,
         "avg_turnover_monthly": 0.5292144217508118,
         "avg_cash_weight": 0.1972165679438715,
@@ -237,7 +237,7 @@
         "sharpe": 1.6202096991237043,
         "sortino": 3.6956712581928404,
         "max_dd": -0.15921178440601547,
-        "ir": 1.233812373948804,
+        "ir": 1.2338123739488038,
         "beat_month_ratio": 0.6626506024096386,
         "avg_turnover_monthly": 0.5292144217508118,
         "avg_cash_weight": 0.1972165679438715,

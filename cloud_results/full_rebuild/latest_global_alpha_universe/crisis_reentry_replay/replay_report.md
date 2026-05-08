@@ -8,9 +8,9 @@ Research-only replay. Production weights are unchanged.
 
 | Policy | CAGR | Sharpe | MaxDD | Avg Cash | Turnover | Production Allowed |
 |---|---:|---:|---:|---:|---:|---:|
-| `fast_reentry` | 29.87% | 1.922 | -10.76% | 8.47% | 51.12% | false |
-| `bargain_reentry` | 28.62% | 1.921 | -10.45% | 11.35% | 50.09% | false |
-| `crisis_ladder` | 28.25% | 1.905 | -10.49% | 12.31% | 49.42% | false |
+| `fast_reentry` | 29.04% | 1.866 | -12.64% | 8.60% | 51.94% | false |
+| `bargain_reentry` | 27.91% | 1.873 | -11.79% | 11.58% | 50.81% | false |
+| `crisis_ladder` | 27.65% | 1.866 | -11.59% | 12.57% | 49.92% | false |
 
 ## Limits
 

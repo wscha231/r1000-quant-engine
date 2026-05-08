@@ -2,7 +2,7 @@
 
 Research-only. No production rules, weights, features, or execution behavior are changed.
 
-- generated_at_utc: `2026-05-08T06:23:27Z`
+- generated_at_utc: `2026-05-08T12:20:47Z`
 - latest_run: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs`
 - scored_rows: `714`
 - held_tickers: `20`

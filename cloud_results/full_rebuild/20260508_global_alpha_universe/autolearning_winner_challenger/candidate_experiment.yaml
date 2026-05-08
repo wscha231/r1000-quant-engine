@@ -22,7 +22,7 @@ candidate_rules:
       - shakeout_hold_add_or_breakdown_exit
     suggested_event_hold_rule:
       strategy: hold_18m_return
-      median_return: 1.8960340023444076
+      median_return: 1.8960336467509826
     limits:
       max_shadow_capacity: 0.10
       max_single_name_weight: 0.05

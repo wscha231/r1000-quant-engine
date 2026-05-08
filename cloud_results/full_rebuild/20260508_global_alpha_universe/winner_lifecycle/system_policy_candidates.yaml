@@ -6,7 +6,7 @@ production_activation_allowed: false
 requires_historical_replay: true
 requires_shadow_validation: true
 requires_human_approval: true
-generated_at_utc: 2026-05-08T06:23:27Z
+generated_at_utc: 2026-05-08T12:20:47Z
 rules:
   - id: fundamental_acceleration_override_candidate
     rationale: Treat explosive leaders as repricing candidates, not automatic chase rejects.

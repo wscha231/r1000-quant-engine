@@ -1,22 +1,22 @@
 {
   "event_count": 28,
-  "generated_at": "2026-05-08T06:24:26Z",
+  "generated_at": "2026-05-08T12:21:39Z",
   "production_activation_allowed": false,
   "onset_medians": {
     "entry_readiness_score": 0.6500000000000001,
-    "onset_mom_1m": 0.06764289742476037,
-    "onset_mom_3m": 0.09985131027016392,
-    "onset_mom_6m": 0.0396358776909681,
-    "onset_rs_vs_spy_3m": 0.0891792886937342,
-    "onset_rs_vs_spy_6m": 0.05819561250647681,
+    "onset_mom_1m": 0.06764286651796736,
+    "onset_mom_3m": 0.09985125901657366,
+    "onset_mom_6m": 0.03963598544300917,
+    "onset_rs_vs_spy_3m": 0.08917932297858266,
+    "onset_rs_vs_spy_6m": 0.05819534118483621,
     "onset_volume_surge": 1.0625040794759815,
-    "onset_price_vs_sma50": 0.05489754523196899,
-    "onset_price_vs_sma200": 0.003934774111452155,
-    "onset_dist_52w_high": -0.20989423046337236,
-    "peak_multiple_12m": 2.8306526954285145,
-    "forward_6m_return": 0.7664823524324178,
-    "forward_12m_return": 1.5510744430371328,
-    "max_drawdown_first_3m": -0.1385835877113007,
+    "onset_price_vs_sma50": 0.054897501086596745,
+    "onset_price_vs_sma200": 0.003934765614184321,
+    "onset_dist_52w_high": -0.20989425669321843,
+    "peak_multiple_12m": 2.8306527820488805,
+    "forward_6m_return": 0.7664819986380245,
+    "forward_12m_return": 1.5510745538247084,
+    "max_drawdown_first_3m": -0.13858368435404111,
     "days_to_peak": 355.0
   },
   "top_events": [
@@ -34,9 +34,9 @@
       "onset_date": "2025-05-05",
       "peak_date": "2026-05-06",
       "winner_tier": "super_5x",
-      "peak_return_12m": 7.512031033785394,
-      "peak_multiple_12m": 8.512031033785394,
-      "forward_6m_return": 1.8617396667663395
+      "peak_return_12m": 7.5120303308718785,
+      "peak_multiple_12m": 8.512030330871879,
+      "forward_6m_return": 1.8617394304472419
     },
     {
       "ticker": "LITE",
@@ -61,9 +61,9 @@
       "onset_date": "2025-03-14",
       "peak_date": "2026-03-17",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 3.5957241511875226,
-      "peak_multiple_12m": 4.595724151187523,
-      "forward_6m_return": 0.5688471375882127
+      "peak_return_12m": 3.5957245003519205,
+      "peak_multiple_12m": 4.5957245003519205,
+      "forward_6m_return": 0.5688474087346787
     },
     {
       "ticker": "VRT",
@@ -72,34 +72,34 @@
       "winner_tier": "major_2_5x",
       "peak_return_12m": 2.4528643286767866,
       "peak_multiple_12m": 3.4528643286767866,
-      "forward_6m_return": 0.5512448176818059
+      "forward_6m_return": 0.551244677574185
     },
     {
       "ticker": "GLW",
       "onset_date": "2025-03-19",
       "peak_date": "2026-02-25",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.33356961471232,
-      "peak_multiple_12m": 3.33356961471232,
-      "forward_6m_return": 0.6487968748597857
+      "peak_return_12m": 2.3335693499821955,
+      "peak_multiple_12m": 3.3335693499821955,
+      "forward_6m_return": 0.6487969027500229
     },
     {
       "ticker": "LRCX",
       "onset_date": "2025-03-12",
       "peak_date": "2026-02-25",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.2772845568396827,
-      "peak_multiple_12m": 3.2772845568396827,
-      "forward_6m_return": 0.5128294974083323
+      "peak_return_12m": 2.2772842279860543,
+      "peak_multiple_12m": 3.2772842279860543,
+      "forward_6m_return": 0.5128294459493157
     },
     {
       "ticker": "GEV",
       "onset_date": "2025-04-09",
       "peak_date": "2026-04-10",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.042297708525251,
-      "peak_multiple_12m": 3.042297708525251,
-      "forward_6m_return": 0.9431164161480281
+      "peak_return_12m": 2.04229799345622,
+      "peak_multiple_12m": 3.04229799345622,
+      "forward_6m_return": 0.9431165981335194
     },
     {
       "ticker": "PLTR",
@@ -115,9 +115,9 @@
       "onset_date": "2022-11-30",
       "peak_date": "2023-11-20",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.979786809983287,
-      "peak_multiple_12m": 2.979786809983287,
-      "forward_6m_return": 1.3242732597005609
+      "peak_return_12m": 1.9797871461819763,
+      "peak_multiple_12m": 2.9797871461819763,
+      "forward_6m_return": 1.3242735219400008
     },
     {
       "ticker": "NEM",
@@ -133,9 +133,9 @@
       "onset_date": "2019-08-19",
       "peak_date": "2020-08-17",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.8976125151984538,
-      "peak_multiple_12m": 2.8976125151984538,
-      "forward_6m_return": 0.8459070348542594
+      "peak_return_12m": 1.897612863855358,
+      "peak_multiple_12m": 2.897612863855358,
+      "forward_6m_return": 0.8459068274049208
     },
     {
       "ticker": "COHR",
@@ -151,9 +151,9 @@
       "onset_date": "2020-09-14",
       "peak_date": "2021-05-07",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.8036524708863593,
-      "peak_multiple_12m": 2.8036524708863593,
-      "forward_6m_return": 1.5576480831015909
+      "peak_return_12m": 1.8036526441270908,
+      "peak_multiple_12m": 2.803652644127091,
+      "forward_6m_return": 1.5576482411414445
     },
     {
       "ticker": "MTZ",
@@ -178,9 +178,9 @@
       "onset_date": "2020-02-28",
       "peak_date": "2021-02-16",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.6704154752340665,
-      "peak_multiple_12m": 2.6704154752340665,
-      "forward_6m_return": 0.5225290227270132
+      "peak_return_12m": 1.6704148406494594,
+      "peak_multiple_12m": 2.6704148406494594,
+      "forward_6m_return": 0.5225288640808614
     },
     {
       "ticker": "MPWR",
@@ -189,16 +189,16 @@
       "winner_tier": "major_2_5x",
       "peak_return_12m": 1.6100274294883987,
       "peak_multiple_12m": 2.6100274294883987,
-      "forward_6m_return": 0.5909664648411062
+      "forward_6m_return": 0.5909663622127213
     },
     {
       "ticker": "PWR",
       "onset_date": "2020-06-17",
       "peak_date": "2021-05-10",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.5944866238297184,
-      "peak_multiple_12m": 2.5944866238297184,
-      "forward_6m_return": 0.7830015065522871
+      "peak_return_12m": 1.594484998922049,
+      "peak_multiple_12m": 2.594484998922049,
+      "forward_6m_return": 0.7830007989635004
     }
   ],
   "winner_tier_counts": {
@@ -221,8 +221,8 @@
       "onset_date": "2025-05-05",
       "peak_date": "2026-05-06",
       "winner_tier": "super_5x",
-      "peak_return_12m": 7.512031033785394,
-      "peak_multiple_12m": 8.512031033785394,
+      "peak_return_12m": 7.5120303308718785,
+      "peak_multiple_12m": 8.512030330871879,
       "entry_readiness_score": 0.5727272727272728
     },
     {
@@ -245,62 +245,62 @@
     }
   ],
   "hold_medians": {
-    "hold_6m_return": 0.7664823524324178,
-    "hold_12m_return": 1.5510744430371328,
-    "max_return_12m": 1.8306526954285145,
-    "max_dd_6m": -0.20547776344947238,
+    "hold_6m_return": 0.7664819986380245,
+    "hold_12m_return": 1.5510745538247084,
+    "max_return_12m": 1.8306527820488803,
+    "max_dd_6m": -0.205478075471197,
     "trail20_after_50pct_return": 1.1735219892123556,
-    "ma50_5d_after_50pct_return": 1.043734532799109
+    "ma50_5d_after_50pct_return": 1.0437341105470326
   },
   "phase_medians_by_offset_months": {
     "-6": {
       "n": 27,
-      "median_mom_3m": 0.053206499481379455,
-      "median_rs_vs_spy_3m": 0.002466574292554702,
+      "median_mom_3m": 0.05320704885742189,
+      "median_rs_vs_spy_3m": 0.002467703587170522,
       "median_entry_readiness_score": 0.5454545454545456,
-      "median_forward_6m_return": 0.18427481148761982
+      "median_forward_6m_return": 0.18427469239457528
     },
     "-3": {
       "n": 27,
-      "median_mom_3m": -0.021936618282108578,
-      "median_rs_vs_spy_3m": -0.03730282455113476,
+      "median_mom_3m": -0.021936616628220773,
+      "median_rs_vs_spy_3m": -0.03730226885434573,
       "median_entry_readiness_score": 0.36363636363636365,
-      "median_forward_6m_return": 0.4222984913795058
+      "median_forward_6m_return": 0.4222984530878986
     },
     "-1": {
       "n": 27,
-      "median_mom_3m": 0.045359452425781654,
-      "median_rs_vs_spy_3m": 0.04052346826637687,
+      "median_mom_3m": 0.045359448733261365,
+      "median_rs_vs_spy_3m": 0.04052346457385658,
       "median_entry_readiness_score": 0.4545454545454547,
       "median_forward_6m_return": 0.6147541861417518
     },
     "0": {
       "n": 28,
-      "median_mom_3m": 0.09985131027016392,
-      "median_rs_vs_spy_3m": 0.0891792886937342,
+      "median_mom_3m": 0.09985125901657366,
+      "median_rs_vs_spy_3m": 0.08917932297858266,
       "median_entry_readiness_score": 0.6500000000000001,
-      "median_forward_6m_return": 0.7664823524324178
+      "median_forward_6m_return": 0.7664819986380245
     },
     "1": {
       "n": 28,
-      "median_mom_3m": 0.08687906343697827,
-      "median_rs_vs_spy_3m": 0.08638114218116394,
+      "median_mom_3m": 0.08687901616499705,
+      "median_rs_vs_spy_3m": 0.08638115656304529,
       "median_entry_readiness_score": 0.6045454545454546,
-      "median_forward_6m_return": 0.8468975364075986
+      "median_forward_6m_return": 0.846897623079107
     },
     "3": {
       "n": 28,
-      "median_mom_3m": 0.21761346155140648,
-      "median_rs_vs_spy_3m": 0.14697355295651354,
+      "median_mom_3m": 0.21761340672474372,
+      "median_rs_vs_spy_3m": 0.14697376832187597,
       "median_entry_readiness_score": 0.7272727272727274,
-      "median_forward_6m_return": 0.7000905283212195
+      "median_forward_6m_return": 0.7000905026278053
     },
     "6": {
       "n": 28,
-      "median_mom_3m": 0.429208502498138,
-      "median_rs_vs_spy_3m": 0.3078545702945823,
+      "median_mom_3m": 0.429208431917836,
+      "median_rs_vs_spy_3m": 0.3078545172173317,
       "median_entry_readiness_score": 0.8181818181818182,
-      "median_forward_6m_return": 0.6606121559793244
+      "median_forward_6m_return": 0.6606120259186934
     }
   },
   "filters": {

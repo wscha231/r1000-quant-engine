@@ -14,7 +14,7 @@ Artifact-only ranking against explicit portfolio targets. Production defaults ar
 | Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | main | `main_v2_position_aware_risk_proxy` | 36.10% | 0.00pp | -12.63% | 0.00pp | true | `target_pass_review` |
-| concentrated | `concentrated_position_risk_proxy` | 50.38% | 0.00pp | -17.82% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_weekly_validation` | 168778917831421347233792.00% | 0.00pp | 0.00% | 0.00pp | true | `target_pass_review` |
 
 ## Main Top 5
 
@@ -30,11 +30,11 @@ Artifact-only ranking against explicit portfolio targets. Production defaults ar
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `concentrated_position_risk_weekly_validation` | 168778917831421347233792.00% | 0.00pp | 0.00% | 0.00pp | 31.177 | true | sidecar:outputs/position_risk_weekly_validation/concentrated/metrics.json |
 | `concentrated_position_risk_proxy` | 50.38% | 0.00pp | -17.82% | 0.00pp | 1.825 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
 | `concentrated_latest_champion` | 47.71% | 2.29pp | -19.72% | 1.72pp | 1.750 | false | latest_run:outputs/concentrated_backtest_metrics.json |
 | `concentrated_grid_N3_score_power_I1` | 47.71% | 2.29pp | -19.72% | 1.72pp | 1.750 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
 | `concentrated_grid_N3_winner_take_all_I1` | 47.16% | 2.84pp | -20.39% | 2.39pp | 1.710 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
-| `concentrated_grid_N4_conviction_curve_I1` | 44.29% | 5.71pp | -15.38% | 0.00pp | 1.748 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
 
 ## Next Actions
 

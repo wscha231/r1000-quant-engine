@@ -1,0 +1,51 @@
+{
+  "status": "stale",
+  "stale_days_threshold": 10,
+  "latest_scored_date": "2026-05-08",
+  "latest_portfolio_date": null,
+  "latest_weekly_eval_dates": {
+    "main": "2026-03-31",
+    "concentrated": "2026-03-31"
+  },
+  "primary_weekly_eval_date": "2026-03-31",
+  "scored_vs_weekly_eval_lag_days": 38,
+  "explanation": "Weekly evaluation is mark-to-market on monthly holding books. If lag remains above threshold, the next step is true weekly scored snapshots.",
+  "metrics": {
+    "main": {
+      "status": "completed",
+      "portfolio_kind": "main",
+      "evaluation_granularity": "weekly_mark_to_market",
+      "production_selection_changed": false,
+      "uses_monthly_holding_books": true,
+      "true_weekly_scoring": false,
+      "weeks": 407,
+      "start_date": "2019-05-03",
+      "end_date": "2026-03-31",
+      "cagr": 0.17842801306271916,
+      "sharpe": 0.934797881618496,
+      "max_dd": -0.2874065306075805,
+      "vol_ann": 0.1965723075238481,
+      "ending_equity": 3.6147939657873565,
+      "avg_cash_weight": 0.0427533749224785,
+      "avg_missing_price_count": 0.12039312039312039
+    },
+    "concentrated": {
+      "status": "completed",
+      "portfolio_kind": "concentrated",
+      "evaluation_granularity": "weekly_mark_to_market",
+      "production_selection_changed": false,
+      "uses_monthly_holding_books": true,
+      "true_weekly_scoring": false,
+      "weeks": 407,
+      "start_date": "2019-05-03",
+      "end_date": "2026-03-31",
+      "cagr": 6.201584246436511e+18,
+      "sharpe": 3.6307625132370682,
+      "max_dd": -0.2484964460282978,
+      "vol_ann": 167.87628210844164,
+      "ending_equity": 1.2231300817196808e+147,
+      "avg_cash_weight": 0.40625509949709926,
+      "avg_missing_price_count": 0.09090909090909091
+    }
+  }
+}
