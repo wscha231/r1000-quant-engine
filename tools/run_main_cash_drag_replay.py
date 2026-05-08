@@ -2,9 +2,10 @@
 """Replay main-book cash deployment using monthly holdings.
 
 This is a lightweight pre-fullrun diagnostic. It does not rebuild features or
-models. It reads `reports/main_monthly_weights.csv`, caps each month's cash
-weight, and redeploys excess cash into the already-selected stock book subject
-to a single-name cap grid.
+models. It reads `reports/main_monthly_weights.csv`, aligns it to
+`reports/regime_by_month.csv` so reported backtest cash is preserved, caps each
+month's cash weight, and redeploys excess cash into the already-selected stock
+book subject to a single-name cap grid.
 
 The goal is to answer one narrow question before a 4-hour rebuild:
 
@@ -51,6 +52,15 @@ def safe_float(value: Any, default: float = float("nan")) -> float:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def performance_metrics(monthly_returns: pd.Series) -> dict[str, float]:
@@ -122,6 +132,83 @@ def approx_turnover(weights_by_month: dict[str, dict[str, float]]) -> float:
             turns.append(0.5 * sum(abs(cur.get(k, 0.0) - prev.get(k, 0.0)) for k in keys))
         prev = cur
     return float(np.mean(turns)) if turns else float("nan")
+
+
+def align_to_reported_cash(df: pd.DataFrame, regime: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Rebuild explicit CASH rows from regime_by_month.cash_weight.
+
+    `main_monthly_weights.csv` is a holdings book; in recent runs it often
+    contains stock weights summing to 1 even when the backtest metrics report a
+    large cash weight. For cash redeploy A/B, the source of truth must be the
+    cash that affected backtest returns: `regime_by_month.cash_weight`.
+    """
+    meta = {
+        "cash_source": "reported_regime_by_month",
+        "regime_rows": 0,
+        "avg_reported_cash_weight": float("nan"),
+        "avg_explicit_cash_before_alignment": float("nan"),
+        "avg_cash_gap_before_alignment": float("nan"),
+    }
+    if df.empty or regime.empty or "cash_weight" not in regime.columns:
+        meta["cash_source"] = "explicit_monthly_book"
+        return df, meta
+
+    d = df.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0).clip(lower=0.0)
+
+    r = regime.copy()
+    r["rebalance_date"] = pd.to_datetime(r["rebalance_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    r["cash_weight"] = pd.to_numeric(r["cash_weight"], errors="coerce").fillna(0.0).clip(lower=0.0, upper=1.0)
+    cash_map = {str(row["rebalance_date"]): float(row["cash_weight"]) for _, row in r.iterrows()}
+    if not cash_map:
+        meta["cash_source"] = "explicit_monthly_book"
+        return df, meta
+
+    explicit_before: list[float] = []
+    reported_vals: list[float] = []
+    out_groups: list[pd.DataFrame] = []
+    for date, group in d.groupby("rebalance_date", sort=True):
+        g = group.copy()
+        cash_target = cash_map.get(str(date))
+        if cash_target is None:
+            out_groups.append(g)
+            continue
+        tickers = g["ticker"].astype(str).str.upper()
+        cash_mask = tickers.eq(CASH_TICKER)
+        explicit_cash = float(pd.to_numeric(g.loc[cash_mask, "weight"], errors="coerce").fillna(0.0).sum())
+        explicit_before.append(explicit_cash)
+        reported_vals.append(cash_target)
+        stocks = g.loc[~cash_mask].copy()
+        stock_weight_sum = float(pd.to_numeric(stocks["weight"], errors="coerce").fillna(0.0).sum())
+        target_stock_weight = max(0.0, 1.0 - float(cash_target))
+        if stock_weight_sum > 1e-12:
+            stocks["weight"] = pd.to_numeric(stocks["weight"], errors="coerce").fillna(0.0) * (target_stock_weight / stock_weight_sum)
+        elif target_stock_weight > 1e-12:
+            stocks["weight"] = 0.0
+        cash_row = {col: "" for col in g.columns}
+        cash_row.update({
+            "rebalance_date": str(date),
+            "ticker": CASH_TICKER,
+            "Name": "Cash" if "Name" in g.columns else "",
+            "sector": "Cash" if "sector" in g.columns else "",
+            "weight": float(cash_target),
+            "portfolio_sleeve_label": "cash" if "portfolio_sleeve_label" in g.columns else "",
+            "portfolio_sleeve_role": "cash" if "portfolio_sleeve_role" in g.columns else "",
+            "period_forward_return": 0.0 if "period_forward_return" in g.columns else "",
+            "weighted_forward_return": 0.0 if "weighted_forward_return" in g.columns else "",
+        })
+        out_groups.append(pd.concat([stocks, pd.DataFrame([cash_row])], ignore_index=True))
+
+    aligned = pd.concat(out_groups, ignore_index=True) if out_groups else d
+    meta.update({
+        "regime_rows": int(len(cash_map)),
+        "avg_reported_cash_weight": float(np.mean(reported_vals)) if reported_vals else float("nan"),
+        "avg_explicit_cash_before_alignment": float(np.mean(explicit_before)) if explicit_before else float("nan"),
+        "avg_cash_gap_before_alignment": float(np.mean(np.array(reported_vals) - np.array(explicit_before))) if reported_vals and explicit_before else float("nan"),
+    })
+    return aligned, meta
 
 
 def replay(df: pd.DataFrame, cash_caps: list[float], single_caps: list[float]) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -201,6 +288,9 @@ def replay(df: pd.DataFrame, cash_caps: list[float], single_caps: list[float]) -
 def render_report(summary: dict[str, Any], grid: pd.DataFrame) -> str:
     base = summary.get("base_metrics") or {}
     best = summary.get("best_by_cagr") or {}
+    cash_alignment = summary.get("cash_alignment") or {}
+    production = summary.get("production_metrics") or {}
+    production_gap = summary.get("base_vs_production_delta") or {}
 
     def pct(value: Any) -> str:
         value = safe_float(value)
@@ -212,10 +302,16 @@ def render_report(summary: dict[str, Any], grid: pd.DataFrame) -> str:
         "Research-only pre-fullrun diagnostic. No production behavior is changed.",
         "",
         f"- base CAGR / Sharpe / MaxDD: {pct(base.get('cagr'))} / {base.get('sharpe')} / {pct(base.get('max_dd'))}",
+        f"- production CAGR / Sharpe / MaxDD: {pct(production.get('cagr'))} / {production.get('sharpe')} / {pct(production.get('max_dd'))}",
+        f"- base-vs-production CAGR / MaxDD delta: {pct(production_gap.get('cagr'))} / {pct(production_gap.get('max_dd'))}",
         f"- base avg cash: {pct(base.get('avg_cash_weight'))}",
         f"- best model: `{best.get('model', 'NA')}`",
         f"- best CAGR / Sharpe / MaxDD: {pct(best.get('cagr'))} / {best.get('sharpe')} / {pct(best.get('max_dd'))}",
         f"- best avg cash: {pct(best.get('avg_cash_weight'))}",
+        f"- cash source: `{cash_alignment.get('cash_source', 'unknown')}`",
+        f"- avg reported cash before alignment: {pct(cash_alignment.get('avg_reported_cash_weight'))}",
+        f"- avg explicit monthly-book cash before alignment: {pct(cash_alignment.get('avg_explicit_cash_before_alignment'))}",
+        f"- avg cash gap before alignment: {pct(cash_alignment.get('avg_cash_gap_before_alignment'))}",
         "",
         "## Top Grid Rows",
         "",
@@ -233,6 +329,7 @@ def render_report(summary: dict[str, Any], grid: pd.DataFrame) -> str:
         "## Limits",
         "",
         "- This replay reallocates only within already-selected monthly holdings.",
+        "- Base replay may not match production metrics exactly because it uses exported holdings and monthly forward returns, not the full portfolio accounting path.",
         "- It does not discover missed winners such as a future SNDK-like setup.",
         "- A full rebuild/challenger replay is still required before activation.",
         "",
@@ -251,7 +348,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if not source.exists():
         raise SystemExit(f"ERROR: missing {source}")
     df = pd.read_csv(source)
+    cash_meta: dict[str, Any] = {"cash_source": "explicit_monthly_book"}
+    if str(args.cash_source) == "reported":
+        regime_path = latest_run / "reports" / "regime_by_month.csv"
+        regime = pd.read_csv(regime_path) if regime_path.exists() else pd.DataFrame()
+        df, cash_meta = align_to_reported_cash(df, regime)
     grid, payload = replay(df, parse_grid(args.cash_caps), parse_grid(args.single_name_caps))
+    payload["summary"]["cash_alignment"] = cash_meta
+    production = read_json(latest_run / "backtest_metrics.json")
+    production_metrics = {
+        key: production.get(key)
+        for key in ["cagr", "sharpe", "max_dd", "avg_cash_weight", "avg_turnover_monthly", "months"]
+        if key in production
+    }
+    payload["summary"]["production_metrics"] = production_metrics
+    base = payload["summary"].get("base_metrics") or {}
+    payload["summary"]["base_vs_production_delta"] = {
+        "cagr": safe_float(base.get("cagr")) - safe_float(production_metrics.get("cagr")),
+        "max_dd": safe_float(base.get("max_dd")) - safe_float(production_metrics.get("max_dd")),
+        "avg_cash_weight": safe_float(base.get("avg_cash_weight")) - safe_float(production_metrics.get("avg_cash_weight")),
+    }
     out_dir.mkdir(parents=True, exist_ok=True)
     grid.to_csv(out_dir / "cash_drag_grid.csv", index=False)
     pd.DataFrame(payload["curve_rows"]).to_csv(out_dir / "cash_drag_equity_inputs.csv", index=False)
@@ -264,6 +380,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--latest-run", default=str(DEFAULT_LATEST_RUN))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--cash-source", choices=["reported", "explicit"], default="reported")
     parser.add_argument("--cash-caps", default="0.00,0.03,0.05,0.08")
     parser.add_argument("--single-name-caps", default="0.18,0.22,0.25,0.33")
     return parser.parse_args()

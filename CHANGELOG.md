@@ -79,6 +79,69 @@ All entries must be written in English. Entries must be predictable and machine-
   - This changes evaluation thresholds only; it does not change production selection, cash policy, or portfolio weights.
   - The best completed-run concentrated candidate is still below the new 50% / -18% target, so concentrated needs further alpha/risk work before promotion.
 
+### 10:01 KST - cash-policy-attribution-sidecar
+
+- scope:
+  - Add the first cash-policy migration step: explain whether main-book cash is risk defense, idle cash, or an artifact/export mismatch before changing allocations.
+- files:
+  - `tools/run_cash_policy_attribution.py` ->new research-only sidecar that joins `main_monthly_weights.csv` and `regime_by_month.csv`, writes cash attribution rows, summary JSON, and a Markdown report.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the cash attribution sidecar after macro policy and syncs/uploads `outputs/cash_policy/`.
+  - `tests/workflow_artifact_smoke.py` ->checks that the workflow runs and exports the cash attribution artifacts.
+  - `CHANGELOG.md` ->records the cash attribution sidecar.
+- symbols_added:
+  - `_rows_by_month(holdings, regime)` ->builds per-month cash attribution inputs from holdings and regime artifacts.
+  - `_summary(rows)` ->summarizes reported cash, explicit monthly-book cash, target defense cash, excess cash, idle-cash candidates, and export mismatch counts.
+  - `_render_report(payload)` ->renders the human-readable cash policy attribution report.
+  - `run(latest_run, output_dir)` ->sidecar entrypoint that writes `cash_drag_attribution.csv`, `cash_drag_summary.json`, and `cash_drag_report.md`.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/cash_policy/` artifact upload coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires cash attribution workflow execution and log capture.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/cash_policy/cash_drag_attribution.csv` ->per-month cash source and mismatch diagnostics.
+  - `outputs/cash_policy/cash_drag_summary.json` ->summary of cash defense, idle cash, and cash export mismatch.
+  - `outputs/cash_policy/cash_drag_report.md` ->human-readable cash policy diagnostic.
+- validation:
+  - `py -3 tools\run_cash_policy_attribution.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_cash_policy_check` ->passed.
+  - `py -3 -m py_compile tools\run_cash_policy_attribution.py` ->passed.
+- risks_or_notes:
+  - The latest local completed artifacts show average reported cash 21.02% but explicit CASH rows in `main_monthly_weights.csv` average only 4.71%, so the existing cash-drag replay must be repaired before using it as evidence.
+  - This is diagnostic-only and does not change production weights.
+
+### 10:05 KST - idle-cash-redeploy-replay-alignment
+
+- scope:
+  - Repair the idle-cash redeploy A/B replay so it uses reported backtest cash from `regime_by_month.csv` before testing cash-cap redeployment.
+- files:
+  - `tools/run_main_cash_drag_replay.py` ->aligns monthly holdings to reported cash, records production-vs-replay deltas, and keeps the replay research-only.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the main cash-drag replay and uploads/syncs `outputs/main_cash_drag_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->requires workflow execution and artifact coverage for `outputs/main_cash_drag_replay/`.
+  - `CHANGELOG.md` ->records the idle-cash replay repair.
+- symbols_added:
+  - `align_to_reported_cash(df, regime)` ->reconstructs explicit CASH rows from `regime_by_month.cash_weight` and scales selected stock weights to the reported invested share.
+  - `read_json(path)` ->loads production metrics for replay-vs-production diagnostics.
+- symbols_changed:
+  - `run(args)` ->uses reported cash by default, writes cash-alignment metadata, and compares replay base metrics against production metrics.
+  - `render_report(summary, grid)` ->shows production metrics, replay-vs-production gap, and cash alignment diagnostics.
+  - `parse_args()` ->adds `--cash-source {reported,explicit}`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_cash_drag_replay/cash_drag_grid.csv` ->idle-cash cap redeploy grid.
+  - `outputs/main_cash_drag_replay/summary.json` ->replay metrics, cash alignment, and production comparison.
+  - `outputs/main_cash_drag_replay/cash_drag_replay_report.md` ->human-readable replay summary.
+- validation:
+  - `py -3 tools\run_main_cash_drag_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_main_cash_drag_replay_check` ->passed.
+  - `py -3 -m py_compile tools\run_main_cash_drag_replay.py` ->passed.
+- risks_or_notes:
+  - The local replay base still differs from production metrics, so this remains directional evidence only.
+  - The next implementation should produce a production-compatible cash replay from `equity_curve.csv` / pipeline monthly accounting, not only exported holdings.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

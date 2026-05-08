@@ -26,6 +26,24 @@ Cash policy intent from user:
 - Add a bargain-reentry style: deploy cash aggressively only when drawdown
   risk is fading and recovery/bottoming evidence appears.
 
+Step 1 implemented after the target update:
+- `tools/run_cash_policy_attribution.py` now writes
+  `outputs/cash_policy/cash_drag_attribution.csv`,
+  `outputs/cash_policy/cash_drag_summary.json`, and
+  `outputs/cash_policy/cash_drag_report.md`.
+- The full rebuild workflow runs this sidecar and uploads/syncs
+  `outputs/cash_policy/`.
+- Local diagnostic against the latest completed artifacts found a major
+  accounting issue to address before idle-cash A/B: `regime_by_month.cash_weight`
+  averages 21.02%, while explicit CASH rows in `main_monthly_weights.csv`
+  average only 4.71%. Existing cash-drag replays that read only explicit CASH
+  rows can understate real cash drag.
+- `tools/run_main_cash_drag_replay.py` now defaults to
+  `--cash-source reported`, reconstructs CASH rows from
+  `regime_by_month.cash_weight`, and writes `outputs/main_cash_drag_replay/`.
+  Local replay still does not exactly match production metrics, so treat it as
+  directional A/B evidence until a production-compatible replay is added.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the
