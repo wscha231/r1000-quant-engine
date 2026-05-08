@@ -8,6 +8,24 @@
 
 ## ACTIVE INBOX (2026-05-07 19:35 KST) - concentrated grid fix + macro-policy rerun
 
+**2026-05-08 target update:** User raised the product gates to:
+
+```
+main:         CAGR >= 30%, MaxDD >= -15%
+concentrated: CAGR >= 50%, MaxDD >= -18%
+```
+
+These are now centralized in `r1000_config.PORTFOLIO_GOAL_TARGETS` and consumed
+by `tools/run_portfolio_goal_search.py`. This is an evaluation/goal change only;
+production selection and portfolio weights are not changed by this edit.
+
+Cash policy intent from user:
+- Keep cash low in normal/bull regimes.
+- Allow staged cash increases in real deterioration and up to roughly 50% in
+  severe drawdown/black-swan regimes.
+- Add a bargain-reentry style: deploy cash aggressively only when drawdown
+  risk is fading and recovery/bottoming evidence appears.
+
 **TL;DR** Full rebuild `25481291492` completed successfully on branch
 `codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
 macro-policy sidecar commit `0c7f91d`. Production main improved versus the

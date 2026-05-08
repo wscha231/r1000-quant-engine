@@ -51,6 +51,34 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-08
+
+### 09:36 KST - portfolio-target-gate-tightening
+
+- scope:
+  - Tighten explicit portfolio goal gates to the new commercial targets: main CAGR 30% / MaxDD -15%, concentrated CAGR 50% / MaxDD -18%.
+- files:
+  - `r1000_config.py` ->adds shared portfolio goal targets and wires main/concentrated target fields to them.
+  - `tools/run_portfolio_goal_search.py` ->reads shared goal targets instead of maintaining local hardcoded thresholds and bootstraps repo-root imports when run directly.
+  - `CHANGELOG.md` ->records the target gate change.
+- symbols_added:
+  - `PORTFOLIO_GOAL_TARGETS` ->single source of truth for artifact goal-search targets.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `main_target_cagr: float = 0.30` ->commercial target for main portfolio CAGR.
+  - `main_target_max_dd: float = -0.15` ->commercial target for main portfolio MaxDD.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tools\run_portfolio_goal_search.py --latest-run cloud_results\full_rebuild\20260505_global_alpha_universe --output-dir _local_goal_target_20260508` ->passed; main proxy passes, concentrated remains below the new target.
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py r1000_config.py` ->passed.
+- risks_or_notes:
+  - This changes evaluation thresholds only; it does not change production selection, cash policy, or portfolio weights.
+  - The best completed-run concentrated candidate is still below the new 50% / -18% target, so concentrated needs further alpha/risk work before promotion.
+
 ## 2026-05-07
 
 ### 00:50 KST - concentrated-champion-guard

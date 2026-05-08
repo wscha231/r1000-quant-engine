@@ -430,6 +430,12 @@ MANDATE_REGISTRY = {
 }
 
 
+PORTFOLIO_GOAL_TARGETS = {
+    "main": {"cagr": 0.30, "max_dd": -0.15},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+}
+
+
 def mandate_capacity_for_regime(mandate: str, regime_state: str) -> float:
     """Return the NAV share for a mandate under a regime label."""
     spec = MANDATE_REGISTRY.get(str(mandate))
@@ -1734,8 +1740,10 @@ class EngineConfig:
     concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
     concentrated_min_production_names: int = 3
     concentrated_latest_prefer_goal_passing: bool = True
-    concentrated_target_cagr: float = 0.40
-    concentrated_target_max_dd: float = -0.22
+    main_target_cagr: float = PORTFOLIO_GOAL_TARGETS["main"]["cagr"]
+    main_target_max_dd: float = PORTFOLIO_GOAL_TARGETS["main"]["max_dd"]
+    concentrated_target_cagr: float = PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"]
+    concentrated_target_max_dd: float = PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
     # Phase 15-A (2026-04-28): relaxed 0.45 -> 0.30. Default rejected cyclical
     # leaders (SNDK/MU/WDC class) where score is high but multi_year_winner_score
@@ -2481,6 +2489,7 @@ __all__ = [
     "ROBUST_Z_WINSOR_P",
     "ROBUST_Z_CLIP",
     "MANDATE_REGISTRY",
+    "PORTFOLIO_GOAL_TARGETS",
     "mandate_capacity_for_regime",
     "mandate_cadence",
     "mandate_target_n",

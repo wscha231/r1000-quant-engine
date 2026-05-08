@@ -6,8 +6,8 @@ defaults and does not promote any candidate. Its job is to make the target
 gap operational after a full rebuild by ranking every available historical
 candidate artifact against:
 
-  - main: CAGR >= 25%, MaxDD >= -20%
-  - concentrated: CAGR >= 40%, MaxDD >= -22%
+  - main: CAGR >= 30%, MaxDD >= -15%
+  - concentrated: CAGR >= 50%, MaxDD >= -18%
 """
 from __future__ import annotations
 
@@ -15,18 +15,21 @@ import argparse
 import csv
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from r1000_config import PORTFOLIO_GOAL_TARGETS
+
+
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/portfolio_goal_search"
 
-TARGETS = {
-    "main": {"cagr": 0.25, "max_dd": -0.20},
-    "concentrated": {"cagr": 0.40, "max_dd": -0.22},
-}
+TARGETS = PORTFOLIO_GOAL_TARGETS
 
 
 def repo_path(path_like: str | Path) -> Path:
