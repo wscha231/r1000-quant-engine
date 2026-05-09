@@ -105,6 +105,64 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local cache prices were not present in the workspace, so the full GitHub Actions rebuild must recompute the latest May 2026 curves in CI.
   - Proxy candidates can pass research targets while `production_target_pass` remains false until production-ready gates pass.
 
+### 11:14 KST - broker-ledger-replay-foundation
+
+- scope:
+  - Add a production-style broker ledger replay sidecar that converts target weights into realistic account cash, integer-share trades, holdings, and equity curves using adjusted next-close fills.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->adds the internal broker-style replay engine for main and concentrated target books.
+  - `tests/broker_ledger_replay_smoke.py` ->verifies integer-share cash tracking and contaminated weight-book blocking on synthetic price data.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs broker ledger replays after monthly and weekly validation and archives/syncs `outputs/broker_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->checks broker replay workflow commands, logs, artifact retention, and sync coverage.
+  - `research/alphaops_20260509_broker_ledger_replay_design.md` ->documents the broker ledger replay design, timing assumptions, conflict priorities, and promotion role.
+  - `CHANGELOG.md` ->records the broker ledger replay foundation.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes CLI paths relative to the repo root.
+  - `safe_float(value, default)` ->coerces optional numeric values without propagating non-finite values.
+  - `read_csv(path)` ->loads optional CSV inputs without raising on missing files.
+  - `filter_concentrated_champion(frame, portfolio_kind)` ->keeps only the production concentrated champion grid before replay.
+  - `normalize_targets(frame, portfolio_kind)` ->normalizes target books into rebalance-date, ticker, and weight rows.
+  - `weight_book_diagnostics(targets, max_reasonable_weight_sum)` ->blocks contaminated books with unreasonable gross exposure.
+  - `target_period_ends(targets, price_cache)` ->maps each rebalance target to the next rebalance date or latest cached price date.
+  - `mark_dates_for_period(tickers, prices, start_dt, end_dt)` ->builds daily mark-to-market dates for active holdings.
+  - `price_at_or_before(prices, ticker, date)` ->reads the latest observable adjusted close before a mark date.
+  - `fill_price(prices, ticker, signal_date, fill_mode, max_fill_lag_days)` ->implements next-close, next-open, and same-close fill lookup with sparse-history backdating protection.
+  - `LedgerState(cash, shares, cost_basis, realized_pnl)` ->stores mutable account cash, shares, basis, and realized PnL.
+  - `account_equity(state, prices, date)` ->marks broker account equity to market.
+  - `execute_order(...)` ->fills integer-share buy/sell orders with per-side fee costs and no negative cash.
+  - `calc_metrics(equity_curve, trades, starting_capital)` ->computes CAGR, Sharpe, MaxDD, cash, fee, and trade-count metrics from account equity.
+  - `replay(...)` ->runs the full broker ledger replay and writes account-level artifacts.
+  - `render_report(metrics)` ->writes a human-readable broker replay summary.
+  - `parse_args()` ->parses CLI arguments for the replay tool.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/broker_replay/` in full-rebuild artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects broker replay commands and logs in the full-rebuild workflow.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_replay/main/metrics.json` ->main broker-ledger metrics from account equity.
+  - `outputs/broker_replay/main/equity_curve.csv` ->daily account equity, cash, stock value, and position count.
+  - `outputs/broker_replay/main/trades.csv` ->filled integer-share orders with fees and cash deltas.
+  - `outputs/broker_replay/main/holdings_daily.csv` ->daily share, price, value, weight, basis, and unrealized PnL rows.
+  - `outputs/broker_replay/main/holdings_weekly.csv` ->weekly sampled holdings from the daily ledger.
+  - `outputs/broker_replay/main/cash_ledger.csv` ->rebalance-date cash and equity snapshots.
+  - `outputs/broker_replay/main/target_vs_actual_weights.csv` ->target weight versus realized integer-share weight diagnostics.
+  - `outputs/broker_replay/concentrated/*` ->equivalent concentrated champion replay artifacts.
+- validation:
+  - `python -m py_compile tools/run_broker_ledger_replay.py` ->passed.
+  - `python tests/broker_ledger_replay_smoke.py` ->passed.
+  - `python tests/workflow_artifact_smoke.py` ->passed.
+  - `python tests/smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is an evaluation sidecar only; it does not change alpha selection or production portfolio construction.
+  - Default production-style metrics use adjusted next-close fills after signal date, integer shares, 25 bps per side, no leverage, no negative cash, and a 7-calendar-day maximum fill lag.
+  - Same-close and fractional-share modes remain research-only even though the CLI supports them.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar
