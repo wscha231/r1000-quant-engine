@@ -40,6 +40,7 @@ def test_theme_leadership_detects_memory_cluster() -> None:
         _write_px(cache, "WDC", base + [33.0, 37.0, 42.0, 47.0, 55.0], [1_000_000] * 145 + [4_000_000] * 5)
         _write_px(cache, "SNDK", base + [32.0, 35.0, 39.0, 44.0, 50.0], [1_000_000] * 145 + [4_000_000] * 5)
         _write_px(cache, "AAPL", [100.0 + i * 0.1 for i in range(150)], [2_000_000] * 150)
+        _write_px(cache, "DRAM", [20.0] * 145 + [22.0, 25.0, 29.0, 34.0, 40.0], [100_000] * 145 + [5_000_000] * 5)
         scored = root / "scored_latest.csv"
         pd.DataFrame(
             [
@@ -58,6 +59,10 @@ def test_theme_leadership_detects_memory_cluster() -> None:
         ticker = pd.read_csv(out / "ticker_leadership.csv")
         assert "memory_semiconductors" in set(theme["leadership_theme"])
         assert {"MU", "WDC", "SNDK"}.issubset(set(ticker["ticker"]))
+        etf = pd.read_csv(out / "etf_attention.csv")
+        lookthrough = pd.read_csv(out / "etf_lookthrough_watchlist.csv")
+        assert "DRAM" in set(etf["etf"])
+        assert {"MU", "WDC", "SNDK"}.intersection(set(lookthrough["ticker"]))
         assert (out / "report.md").exists()
 
 

@@ -30,6 +30,59 @@ DEFAULT_PRICE_CACHE = "cache_prices"
 DEFAULT_OUT_DIR = "outputs/theme_leadership_tape"
 CASH_TICKERS = {"CASH", "__CASH__"}
 
+ETF_LOOKTHROUGH: dict[str, dict[str, Any]] = {
+    "DRAM": {
+        "theme": "memory_semiconductors",
+        "label": "Roundhill Memory ETF",
+        "holdings": ("MU", "SNDK", "WDC", "STX"),
+    },
+    "SOXX": {
+        "theme": "semiconductors_broad",
+        "label": "iShares Semiconductor ETF",
+        "holdings": ("NVDA", "AVGO", "AMD", "MU", "INTC", "QCOM", "MRVL", "LRCX", "AMAT", "KLAC", "MCHP", "ON", "MPWR"),
+    },
+    "SMH": {
+        "theme": "semiconductors_broad",
+        "label": "VanEck Semiconductor ETF",
+        "holdings": ("NVDA", "TSM", "AVGO", "ASML", "AMD", "MU", "INTC", "QCOM", "LRCX", "AMAT", "KLAC", "ARM"),
+    },
+    "XSD": {
+        "theme": "semiconductors_equal_weight",
+        "label": "SPDR S&P Semiconductor ETF",
+        "holdings": ("AMD", "INTC", "MU", "MRVL", "ON", "MCHP", "LSCC", "MPWR", "TER", "ALAB", "CRUS", "ONTO"),
+    },
+    "ARKK": {
+        "theme": "innovation_beta",
+        "label": "ARK Innovation ETF",
+        "holdings": ("TSLA", "COIN", "ROKU", "HOOD", "CRSP", "PATH", "PLTR"),
+    },
+    "XME": {
+        "theme": "metals_mining",
+        "label": "SPDR Metals & Mining ETF",
+        "holdings": ("MP", "FCX", "CLF", "X", "NUE", "STLD", "AA"),
+    },
+    "URA": {
+        "theme": "nuclear_uranium",
+        "label": "Global X Uranium ETF",
+        "holdings": ("CCJ", "UEC", "UUUU", "LEU", "NXE", "DNN"),
+    },
+    "NLR": {
+        "theme": "nuclear_power",
+        "label": "VanEck Uranium and Nuclear ETF",
+        "holdings": ("CEG", "BWXT", "CCJ", "LEU", "SMR", "OKLO"),
+    },
+    "ITA": {
+        "theme": "aerospace_defense",
+        "label": "iShares U.S. Aerospace & Defense ETF",
+        "holdings": ("RTX", "LMT", "NOC", "GD", "RKLB", "KTOS", "HWM"),
+    },
+    "XBI": {
+        "theme": "biotech_small",
+        "label": "SPDR Biotech ETF",
+        "holdings": ("EXEL", "INSM", "CRSP", "BEAM", "EDIT"),
+    },
+}
+
 THEME_TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
     "memory_semiconductors": {
         "tickers": ("MU", "SNDK", "WDC", "STX", "KXSCF", "SSNLF", "HXSCF"),
@@ -50,7 +103,7 @@ THEME_TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
         ),
     },
     "ai_compute_semiconductors": {
-        "tickers": ("NVDA", "AMD", "AVGO", "ARM", "MRVL", "TSM", "ASML", "LRCX", "AMAT", "KLAC"),
+        "tickers": ("NVDA", "AMD", "AVGO", "ARM", "MRVL", "TSM", "ASML", "LRCX", "AMAT", "KLAC", "INTC", "QCOM", "ON", "MCHP", "TER", "ALAB", "LSCC"),
         "keywords": ("semiconductor", "ai chip", "gpu", "accelerator", "foundry", "semicap", "wafer", "lithography"),
     },
     "nuclear_power": {
@@ -190,6 +243,134 @@ def price_metrics(price_cache: Path, ticker: str) -> dict[str, Any]:
         "dollar_volume_20d": safe_float(dollar_volume.tail(20).mean(), np.nan),
         "distance_from_252d_high": dist_high,
     }
+
+
+def fetch_yfinance_history(ticker: str, days: int = 260) -> pd.DataFrame:
+    try:
+        import yfinance as yf
+    except Exception:
+        return pd.DataFrame()
+    try:
+        from datetime import datetime, timedelta
+
+        end = datetime.now()
+        start = end - timedelta(days=int(days * 1.8))
+        df = yf.Ticker(ticker).history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), auto_adjust=True)
+    except Exception:
+        return pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    out.index = pd.to_datetime(out.index, errors="coerce").tz_localize(None)
+    out = out[out.index.notna()].sort_index()
+    if "Close" not in out.columns:
+        return pd.DataFrame()
+    return pd.DataFrame(
+        {
+            "close": pd.to_numeric(out["Close"], errors="coerce"),
+            "volume": pd.to_numeric(out.get("Volume", np.nan), errors="coerce"),
+            "dollar_volume": pd.to_numeric(out["Close"], errors="coerce") * pd.to_numeric(out.get("Volume", np.nan), errors="coerce"),
+        },
+        index=out.index,
+    ).dropna(subset=["close"])
+
+
+def etf_price_frame(price_cache: Path, ticker: str) -> pd.DataFrame:
+    cached = load_price_cache(price_cache, ticker)
+    if not cached.empty and len(cached) >= 22:
+        return cached
+    return fetch_yfinance_history(ticker)
+
+
+def etf_attention(price_cache: Path) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for ticker, spec in ETF_LOOKTHROUGH.items():
+        px = etf_price_frame(price_cache, ticker)
+        if px.empty or len(px) < 22:
+            rows.append(
+                {
+                    "etf": ticker,
+                    "theme": spec["theme"],
+                    "label": spec["label"],
+                    "price_status": "missing_or_short",
+                    "holdings": ",".join(spec.get("holdings", ())),
+                }
+            )
+            continue
+        close = pd.to_numeric(px["close"], errors="coerce").dropna()
+        volume = pd.to_numeric(px.get("volume"), errors="coerce")
+        dollar_volume = pd.to_numeric(px.get("dollar_volume"), errors="coerce")
+        vol_z = 0.0
+        if len(volume) > 21:
+            denom = safe_float(volume.shift(1).rolling(20).std(ddof=0).iloc[-1], 0.0)
+            base = safe_float(volume.shift(1).rolling(20).mean().iloc[-1], 0.0)
+            if denom > 1e-12:
+                vol_z = (safe_float(volume.iloc[-1]) - base) / denom
+        rows.append(
+            {
+                "etf": ticker,
+                "theme": spec["theme"],
+                "label": spec["label"],
+                "price_status": "ok",
+                "price_date": pd.Timestamp(close.index[-1]).date().isoformat(),
+                "ret_1d": trailing_return(close, 1),
+                "ret_5d": trailing_return(close, 5),
+                "ret_21d": trailing_return(close, 21),
+                "ret_63d": trailing_return(close, 63),
+                "volume_z_20d": vol_z,
+                "dollar_volume_20d": safe_float(dollar_volume.tail(20).mean(), np.nan),
+                "holdings": ",".join(spec.get("holdings", ())),
+            }
+        )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    for col in ("ret_1d", "ret_5d", "ret_21d", "ret_63d", "volume_z_20d", "dollar_volume_20d"):
+        out[col] = pd.to_numeric(out.get(col), errors="coerce")
+    out["attention_score"] = (
+        0.25 * robust_z(out["ret_5d"])
+        + 0.25 * robust_z(out["ret_21d"])
+        + 0.20 * robust_z(out["ret_63d"])
+        + 0.15 * out["volume_z_20d"].fillna(0.0).clip(-6, 6)
+        + 0.15 * robust_z(np.log1p(out["dollar_volume_20d"].fillna(0.0)))
+    )
+    return out.sort_values("attention_score", ascending=False, na_position="last").reset_index(drop=True)
+
+
+def build_etf_lookthrough_watchlist(ticker_tape: pd.DataFrame, etf_attention_frame: pd.DataFrame) -> pd.DataFrame:
+    if etf_attention_frame.empty:
+        return pd.DataFrame()
+    tape_by_ticker = ticker_tape.set_index("ticker", drop=False) if not ticker_tape.empty and "ticker" in ticker_tape.columns else pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for etf in etf_attention_frame.to_dict("records"):
+        attention = safe_float(etf.get("attention_score"))
+        holdings = [x.strip().upper() for x in str(etf.get("holdings") or "").split(",") if x.strip()]
+        for ticker in holdings:
+            tape = tape_by_ticker.loc[ticker].to_dict() if not tape_by_ticker.empty and ticker in tape_by_ticker.index else {}
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "source_etf": etf.get("etf"),
+                    "source_etf_theme": etf.get("theme"),
+                    "source_etf_label": etf.get("label"),
+                    "etf_attention_score": attention,
+                    "ticker_in_scored_universe": bool(tape),
+                    "ticker_participation_score": safe_float(tape.get("participation_score"), np.nan),
+                    "ticker_ret_5d": safe_float(tape.get("ret_5d"), np.nan),
+                    "ticker_ret_21d": safe_float(tape.get("ret_21d"), np.nan),
+                    "ticker_dollar_volume_20d": safe_float(tape.get("dollar_volume_20d"), np.nan),
+                    "ticker_market_cap": safe_float(tape.get("market_cap"), np.nan),
+                    "ticker_name": tape.get("Name") or tape.get("name") or "",
+                }
+            )
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out["combined_watch_score"] = (
+        pd.to_numeric(out["etf_attention_score"], errors="coerce").fillna(0.0)
+        + 0.50 * pd.to_numeric(out["ticker_participation_score"], errors="coerce").fillna(0.0)
+    )
+    return out.sort_values(["combined_watch_score", "etf_attention_score"], ascending=False, na_position="last").reset_index(drop=True)
 
 
 def infer_theme(row: pd.Series) -> str:
@@ -343,7 +524,14 @@ def classify_group(liquid: pd.DataFrame, top: pd.DataFrame) -> str:
     return "neutral"
 
 
-def render_report(summary: dict[str, Any], themes: pd.DataFrame, sectors: pd.DataFrame, tickers: pd.DataFrame) -> str:
+def render_report(
+    summary: dict[str, Any],
+    themes: pd.DataFrame,
+    sectors: pd.DataFrame,
+    tickers: pd.DataFrame,
+    etfs: pd.DataFrame,
+    lookthrough: pd.DataFrame,
+) -> str:
     lines = [
         "# Theme Leadership Tape",
         "",
@@ -383,6 +571,21 @@ def render_report(summary: dict[str, Any], themes: pd.DataFrame, sectors: pd.Dat
             f"1d {safe_float(row.get('ret_1d')):.2%}, 5d {safe_float(row.get('ret_5d')):.2%}, "
             f"21d {safe_float(row.get('ret_21d')):.2%}, score {safe_float(row.get('participation_score')):.2f}"
         )
+    lines.extend(["", "## ETF Attention", ""])
+    for row in (etfs.head(10).to_dict("records") if not etfs.empty else []):
+        lines.append(
+            f"- `{row.get('etf')}` {row.get('label')}: theme `{row.get('theme')}`, "
+            f"5d {safe_float(row.get('ret_5d')):.2%}, 21d {safe_float(row.get('ret_21d')):.2%}, "
+            f"attention {safe_float(row.get('attention_score')):.2f}, holdings `{row.get('holdings')}`"
+        )
+    lines.extend(["", "## ETF Look-Through Watchlist", ""])
+    for row in (lookthrough.head(20).to_dict("records") if not lookthrough.empty else []):
+        lines.append(
+            f"- `{row.get('ticker')}` via `{row.get('source_etf')}`/{row.get('source_etf_theme')}: "
+            f"ETF attention {safe_float(row.get('etf_attention_score')):.2f}, "
+            f"ticker score {safe_float(row.get('ticker_participation_score')):.2f}, "
+            f"5d {safe_float(row.get('ticker_ret_5d')):.2%}, in universe `{row.get('ticker_in_scored_universe')}`"
+        )
     lines.extend(
         [
             "",
@@ -390,6 +593,7 @@ def render_report(summary: dict[str, Any], themes: pd.DataFrame, sectors: pd.Dat
             "",
             "- `climax_hot` means the theme is already moving violently; use it for tactical participation and tight exit rules, not blind long-term compounding.",
             "- `emerging_leader` is the better early-entry state; the next step is to A/B test staged sizing into these themes.",
+            "- ETF attention is a proxy from ETF price/volume/dollar-volume behavior plus a curated look-through seed list; it is not a verified fund-flow feed.",
             "- This report uses adjusted closes through the latest cached price date, so it can evaluate through the most recent close when cache data is fresh.",
             "",
         ]
@@ -397,13 +601,26 @@ def render_report(summary: dict[str, Any], themes: pd.DataFrame, sectors: pd.Dat
     return "\n".join(lines)
 
 
-def write_outputs(out_dir: Path, ticker_tape: pd.DataFrame, theme_leaders: pd.DataFrame, sector_leaders: pd.DataFrame, summary: dict[str, Any]) -> None:
+def write_outputs(
+    out_dir: Path,
+    ticker_tape: pd.DataFrame,
+    theme_leaders: pd.DataFrame,
+    sector_leaders: pd.DataFrame,
+    etf_attention_frame: pd.DataFrame,
+    lookthrough: pd.DataFrame,
+    summary: dict[str, Any],
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ticker_tape.to_csv(out_dir / "ticker_leadership.csv", index=False)
     theme_leaders.to_csv(out_dir / "theme_leadership.csv", index=False)
     sector_leaders.to_csv(out_dir / "sector_leadership.csv", index=False)
+    etf_attention_frame.to_csv(out_dir / "etf_attention.csv", index=False)
+    lookthrough.to_csv(out_dir / "etf_lookthrough_watchlist.csv", index=False)
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
-    (out_dir / "report.md").write_text(render_report(summary, theme_leaders, sector_leaders, ticker_tape), encoding="utf-8")
+    (out_dir / "report.md").write_text(
+        render_report(summary, theme_leaders, sector_leaders, ticker_tape, etf_attention_frame, lookthrough),
+        encoding="utf-8",
+    )
 
 
 def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, min_dollar_vol: float) -> dict[str, Any]:
@@ -416,11 +633,13 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
             "scored_source": str(scored_path),
             "price_cache": str(price_cache),
         }
-        write_outputs(out_dir, ticker_tape, pd.DataFrame(), pd.DataFrame(), summary)
+        write_outputs(out_dir, ticker_tape, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), summary)
         return summary
     theme_leaders = aggregate_leadership(ticker_tape, "leadership_theme")
     sector_col = "sector" if "sector" in ticker_tape.columns else "leadership_theme"
     sector_leaders = aggregate_leadership(ticker_tape, sector_col)
+    etf_attention_frame = etf_attention(price_cache)
+    lookthrough = build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)
     latest_price = pd.to_datetime(ticker_tape.get("price_date"), errors="coerce").max()
     summary = {
         "status": "completed",
@@ -433,9 +652,11 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         "liquid_tickers": int(ticker_tape["liquidity_pass"].sum()),
         "top_theme": None if theme_leaders.empty else str(theme_leaders.iloc[0]["leadership_theme"]),
         "top_theme_state": None if theme_leaders.empty else str(theme_leaders.iloc[0]["leadership_state"]),
+        "top_etf_attention": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("etf")),
+        "top_etf_attention_theme": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("theme")),
         "top_tickers": ticker_tape.head(20)["ticker"].astype(str).tolist(),
     }
-    write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, summary)
+    write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, etf_attention_frame, lookthrough, summary)
     return summary
 
 

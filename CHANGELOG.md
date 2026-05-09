@@ -156,6 +156,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `python tests/broker_ledger_replay_smoke.py` ->passed.
   - `python tests/workflow_artifact_smoke.py` ->passed.
   - `python tests/smoke_test.py` ->passed, 89/89.
+  - `python tests/smoke_test.py --quick` ->passed, 18/18.
   - `PYTHONUTF8=1 python tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
   - `git diff --check` ->passed.
 - risks_or_notes:
@@ -166,10 +167,10 @@ All entries must be written in English. Entries must be predictable and machine-
 ### 11:33 KST - theme-leadership-tape-sidecar
 
 - scope:
-  - Add a daily market leadership tape that detects short-term theme and sector crowding from adjusted close returns, volume, dollar volume, and scored metadata so bubble/climax leadership is visible before monthly rebuild decisions.
+  - Add a daily market leadership tape that detects short-term theme and sector crowding from adjusted close returns, volume, dollar volume, ETF attention proxies, ETF look-through seeds, and scored metadata so bubble/climax leadership is visible before monthly rebuild decisions.
 - files:
-  - `tools/run_theme_leadership_tape.py` ->adds the report-only theme/sector/ticker leadership scanner using cached adjusted prices and latest scored metadata.
-  - `tests/theme_leadership_tape_smoke.py` ->verifies that a synthetic memory semiconductor surge is ranked as the top theme without changing production selection.
+  - `tools/run_theme_leadership_tape.py` ->adds the report-only theme/sector/ticker leadership scanner using cached adjusted prices, ETF attention proxies, ETF look-through seeds, and latest scored metadata.
+  - `tests/theme_leadership_tape_smoke.py` ->verifies that a synthetic memory semiconductor surge is ranked as the top theme and that DRAM look-through seeds surface without changing production selection.
   - `.github/workflows/after_close_daily.yml` ->runs the theme leadership tape after ETF leadership and archives/commits `cloud_results/theme_leadership_tape/`.
   - `.github/workflows/full_rebuild_manual.yml` ->runs the tape as a full-rebuild sidecar and syncs `outputs/theme_leadership_tape/`.
   - `tools/etf_leadership_snapshot.py` ->adds `DRAM`, `SMH`, and `XSD` to the ETF leadership watchlist and allows young ETFs with at least 22 trading days.
@@ -183,6 +184,10 @@ All entries must be written in English. Entries must be predictable and machine-
   - `load_price_cache(price_cache, ticker)` ->loads adjusted close, raw close, volume, and dollar volume from cached parquet prices.
   - `trailing_return(close, days)` ->computes observable trailing returns through the latest cached close.
   - `price_metrics(price_cache, ticker)` ->extracts 1d/5d/21d/63d/126d returns, volume z-score, dollar volume, and 252d high distance.
+  - `fetch_yfinance_history(ticker, days)` ->loads optional ETF history when an ETF is not present in the local price cache.
+  - `etf_price_frame(price_cache, ticker)` ->prefers cached ETF prices and falls back to yfinance for report-only ETF attention.
+  - `etf_attention(price_cache)` ->ranks theme and sector ETFs by return, volume, and dollar-volume attention proxies.
+  - `build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)` ->maps high-attention ETFs to seed constituents and joins ticker-level leadership evidence.
   - `infer_theme(row)` ->maps tickers and metadata to report-only leadership themes such as memory semiconductors, nuclear power, power grid, and optical networking.
   - `read_scored(path)` ->loads scored metadata without failing on missing files.
   - `build_ticker_tape(scored, price_cache, min_mcap, min_dollar_vol)` ->builds ticker-level leadership, climax, and early-leader scores.
@@ -206,7 +211,9 @@ All entries must be written in English. Entries must be predictable and machine-
   - `outputs/theme_leadership_tape/ticker_leadership.csv` ->ticker-level 1d/5d/21d/63d/126d returns, liquidity, climax, and leadership scores.
   - `outputs/theme_leadership_tape/theme_leadership.csv` ->theme-level leadership, breadth, volume, and top ticker summary.
   - `outputs/theme_leadership_tape/sector_leadership.csv` ->sector-level equivalent leadership tape.
-  - `outputs/theme_leadership_tape/summary.json` ->machine-readable freshness and top leadership summary.
+  - `outputs/theme_leadership_tape/etf_attention.csv` ->ETF-level attention proxy scores from return, volume, and dollar-volume behavior.
+  - `outputs/theme_leadership_tape/etf_lookthrough_watchlist.csv` ->ETF constituent seed list joined to ticker leadership evidence.
+  - `outputs/theme_leadership_tape/summary.json` ->machine-readable freshness, top theme, and top ETF attention summary.
   - `outputs/theme_leadership_tape/report.md` ->human-readable report.
   - `cloud_results/theme_leadership_tape/` ->after-close daily output mirror.
 - validation:
@@ -219,7 +226,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - `git diff --check` ->passed.
 - risks_or_notes:
   - This is a report-only sidecar; it surfaces market leadership concentration but does not auto-buy a ticker or alter production weights.
-  - The theme taxonomy is used for labeling and aggregation only, not as a hardcoded buy list.
+  - ETF attention is a proxy from ETF price/volume/dollar-volume behavior; it is not yet a verified primary-source fund-flow feed.
+  - The theme taxonomy and ETF look-through seeds are used for labeling and candidate discovery only, not as hardcoded buy lists.
   - `climax_hot` should feed tactical research and tight exit rules; it should not be treated as a long-term compounder signal without a replay gate.
 
 ## 2026-05-08
