@@ -29,13 +29,17 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
     against broker-ledger production metrics when available.
   - Legacy `backtest_metrics.json` and `concentrated_backtest_metrics.json`
     remain research-comparison artifacts, not official production evidence.
-- Latest verified replay evidence from run `25592296646`:
+- Latest verified replay evidence from run `25593261448` at branch SHA
+  `0d36a4c`:
   - main broker ledger: CAGR 20.96%, MaxDD -36.47%, Sharpe 0.972, avg cash
     5.43%, 1,918 round trips, win rate 54.7%.
   - concentrated broker ledger: CAGR 34.53%, MaxDD -40.38%, Sharpe 1.091, avg
     cash 0.04%, 244 round trips, win rate 61.1%.
   - Research/proxy candidates can show target pass, but production target pass
     remains false until the account-ledger/daily validation path confirms them.
+  - `outputs/account_evaluation/` was generated in the GitHub artifact and
+    synced to Google Drive:
+    `r1000_top30_institutional/research_runs/codex_broker-ledger-replay-foundation/25593261448/replay_outputs/account_evaluation/`.
 - No broker API is called and no live/paper orders are placed. These are
   replay, journal, and order-preview artifacts only.
 - Validation passed after the latest change:
@@ -51,16 +55,17 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - `py -3 tests\smoke_test.py` (89/89)
   - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
   - `git diff --check`
+- Completed after validation:
+  - Branch commit `0d36a4c` pushed.
+  - Master workflow registration commit `dffb01b` pushed for
+    `alphaops_replay_sidecars_manual.yml`.
+  - GitHub fast replay run `25593261448` completed successfully.
 - Next steps:
-  1. Commit/push the branch.
-  2. Register the fast replay workflow update on `master` so GitHub can
-     dispatch it from the branch.
-  3. Trigger `alphaops_replay_sidecars_manual.yml` on
-     `codex/broker-ledger-replay-foundation` using source run `25581634925`.
-  4. Inspect `outputs/account_evaluation/*`, `outputs/broker_trade_journal/*`,
-     `outputs/account_ledger_preview/*`, `outputs/portfolio_goal_search/*`,
-     and Google Drive sync.
-  5. Next engineering phase is a daily/account simulator that can evaluate true
+  1. Treat `outputs/account_evaluation/*` as the official current performance
+     checkpoint.
+  2. Do not promote proxy target-pass candidates yet; they need conversion into
+     account-ledger/daily scored-decision replay evidence.
+  3. Next engineering phase is a daily/account simulator that can evaluate true
      dated decisions closer to paper/live trading, while keeping broker-ledger
      official metrics as the current baseline.
 
