@@ -342,6 +342,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - Broker-ledger metrics are stricter than legacy target-weight metrics and should be treated as the production-like evaluation baseline.
   - A future paper/live adapter should replace `account_state_latest.json` with real broker positions and fill reconciliation.
 
+### 13:40 KST - production-goal-ledger-evidence
+
+- scope:
+  - Require broker-ledger evidence for production-compatible goal-search candidates so legacy target-weight backtests cannot mask realistic account replay drawdowns.
+- files:
+  - `tools/run_portfolio_goal_search.py` ->marks legacy target-weight champion metrics as research comparisons, filters production candidates to valid production evidence, and leaves broker-ledger replay as the current production-like metric source.
+  - `tests/portfolio_goal_search_smoke.py` ->adds a regression case where attractive legacy target-weight metrics are not allowed to become the best production-compatible candidate when broker-ledger metrics exist.
+  - `CHANGELOG.md` ->records the production goal-search evidence hardening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_candidates()` ->marks `backtest_metrics.json` and `concentrated_backtest_metrics.json` as research comparison artifacts instead of production-compatible evidence.
+  - `best_production_summary()` ->requires both `valid_for_production` and `metrics_valid` before choosing a production candidate.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_portfolio_goal_search.py --latest-run _run_25591750197_artifacts\alphaops-replay-sidecars-25581634925-25591750197 --output-dir _local_goal_search_255917_check` ->passed; best production candidates were `main_broker_ledger_replay` and `concentrated_broker_ledger_replay`.
+- risks_or_notes:
+  - This intentionally makes production target pass stricter than research target pass.
+  - Strong legacy CAGR/MDD values remain visible in research rankings but must not be used as production proof until broker-ledger or paper/live replay confirms them.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

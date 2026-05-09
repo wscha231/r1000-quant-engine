@@ -22,6 +22,10 @@ Latest account-ledger update:
   - `tools/run_portfolio_goal_search.py` now separates research/proxy winners
     from production-compatible winners; production pass requires valid
     production evidence.
+  - Follow-up fix: legacy target-weight `backtest_metrics.json` and
+    `concentrated_backtest_metrics.json` are now research-comparison metrics,
+    not production-compatible evidence. Current production-like goal candidates
+    must come from valid broker-ledger replay.
   - Full rebuild and fast replay workflows now archive/sync
     `outputs/account_ledger_preview/`.
 - Important behavior:
@@ -34,6 +38,7 @@ Latest account-ledger update:
   - `py -3 -m py_compile tools\run_broker_ledger_replay.py tools\run_account_order_preview.py tools\run_portfolio_goal_search.py`
   - `py -3 tests\broker_ledger_replay_smoke.py`
   - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\portfolio_goal_search_smoke.py`
   - `py -3 tests\workflow_artifact_smoke.py`
   - `py -3 tests\smoke_test.py` (89/89)
   - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`

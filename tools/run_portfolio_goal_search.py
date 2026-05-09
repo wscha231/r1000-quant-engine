@@ -397,16 +397,16 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         portfolio="main",
         candidate_id="main_latest_champion",
         source_label="latest_run",
-        valid_for_production=True,
-        notes="Current production baseline artifact.",
+        valid_for_production=False,
+        notes="Legacy target-weight champion artifact. Useful for research comparison, but not production-compatible after broker-ledger replay is available.",
     )
     concentrated += candidate_from_json(
         latest_run / "concentrated_backtest_metrics.json",
         portfolio="concentrated",
         candidate_id="concentrated_latest_champion",
         source_label="latest_run",
-        valid_for_production=True,
-        notes="Current concentrated champion artifact.",
+        valid_for_production=False,
+        notes="Legacy target-weight concentrated artifact. Useful for research comparison, but not production-compatible after broker-ledger replay is available.",
     )
 
     main += candidate_from_json(
@@ -590,7 +590,11 @@ def best_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def best_production_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    production_rows = [row for row in rows if bool(row.get("valid_for_production"))]
+    production_rows = [
+        row
+        for row in rows
+        if bool(row.get("valid_for_production")) and bool(row.get("metrics_valid"))
+    ]
     if not production_rows:
         return {"candidate_id": None, "target_pass": False, "governance_action": "missing_production_candidates"}
     return dict(production_rows[0])
