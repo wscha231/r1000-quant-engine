@@ -28,6 +28,10 @@ on:
         description: 'bypass Layer 3 HALT_NEW when execute=true'
         type: boolean
         default: false
+      allow_legacy_execute:
+        description: 'acknowledge old Alpaca paper executor bypasses account-ledger safety audit'
+        type: boolean
+        default: false
       scanner_top:
         description: 'scanner top-N output'
         type: string
@@ -217,6 +221,10 @@ jobs:
           if [ "${{ github.event.inputs.override_regime_halt }}" = "true" ]; then
             OVERRIDE_FLAG="--override-regime-halt"
           fi
+          LEGACY_EXECUTE_FLAG=""
+          if [ "${{ github.event.inputs.allow_legacy_execute }}" = "true" ]; then
+            LEGACY_EXECUTE_FLAG="--allow-legacy-execute"
+          fi
           DEPRECATED_FLAG=""
           if [ "$ADVISOR" = "v4" ]; then
             DEPRECATED_FLAG="--allow-deprecated-v4"
@@ -231,6 +239,7 @@ jobs:
             --advisor "$ADVISOR" \
             $EXECUTE_FLAG \
             $OVERRIDE_FLAG \
+            $LEGACY_EXECUTE_FLAG \
             $DEPRECATED_FLAG \
             2>&1 | tee "$OUT"
           STATUS=${PIPESTATUS[0]}

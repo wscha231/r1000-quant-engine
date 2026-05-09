@@ -667,6 +667,69 @@ All entries must be written in English. Entries must be predictable and machine-
   - Gap attribution reads `weighted_forward_return` only for diagnostics; it must not feed production selection.
   - The next fast replay must determine whether account-aware execution improves broker-ledger CAGR/MDD versus the mechanical monthly broker replay.
 
+### 15:58 KST - live-trading-safety-audit
+
+- scope:
+  - Add pre-trade safety auditing for account-ledger order previews and lock the legacy paper executor so live/paper execution cannot bypass the new account-safety path by accident.
+- files:
+  - `tools/run_live_trading_safety_audit.py` ->adds a preview-only audit for leakage columns, invalid weights, account-state mismatch, stale prices, blocked orders, and legacy executor risk.
+  - `r1000_paper_executor.py` ->requires explicit `--allow-legacy-execute` together with `--execute` because the old Alpaca paper executor bypasses account-ledger safety audit.
+  - `.github/workflows/after_close_daily.yml` ->adds manual `allow_legacy_execute` acknowledgement and passes the legacy execute flag only when explicitly requested.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/live_trading_safety/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs live trading safety audit in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `live_trading_safety/`.
+  - `tests/live_trading_safety_audit_smoke.py` ->verifies a clean preview passes and a forward-return target is blocked.
+  - `tests/workflow_artifact_smoke.py` ->requires safety audit workflow commands, logs, and artifacts.
+  - `tests/smoke_test.py` ->checks the legacy paper executor execution acknowledgement.
+  - `CHANGELOG.md` ->records the live/paper safety guard.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves repo-relative paths for the safety audit.
+  - `read_json(path)` ->loads optional JSON artifacts safely.
+  - `read_csv(path)` ->loads optional CSV artifacts safely.
+  - `write_json(path, payload)` ->writes deterministic JSON audit payloads.
+  - `write_csv(path, rows, fieldnames)` ->writes audit issue rows.
+  - `safe_float(value, default)` ->normalizes numeric inputs without crashing the audit.
+  - `normalize_ticker(value)` ->normalizes ticker symbols before matching account/order/price data.
+  - `banned_columns(columns)` ->detects forward-return and benchmark-forward leakage columns in actionable target files.
+  - `issue(rows, severity, check_id, message, path, details)` ->records structured audit issues.
+  - `latest_known_date(*frames)` ->finds the latest date visible across preview artifacts.
+  - `audit_target(...)` ->checks target portfolio files for leakage columns, invalid weights, exposure, and concentration risk.
+  - `audit_account_preview(...)` ->checks account preview status, order sequencing, cash feasibility, stale prices, and missing price evidence.
+  - `audit_legacy_executor(issues)` ->checks that the old executor is locked behind explicit acknowledgement.
+  - `render_report(payload)` ->renders the Markdown safety audit report.
+  - `run(args)` ->runs the safety audit and writes JSON, CSV, and Markdown outputs.
+  - `parse_args()` ->parses CLI arguments for the safety audit.
+  - `main()` ->CLI entrypoint for the safety audit.
+- symbols_changed:
+  - `r1000_paper_executor.main()` ->refuses `--execute` unless `--allow-legacy-execute` is also provided.
+  - `SYNC_DIRS` ->includes `live_trading_safety`.
+  - `test_workflow_keeps_monthly_books()` ->requires the safety audit artifact directory.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the safety audit command and log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires the safety audit command and artifact.
+  - `test_paper_executor_layer3_preflight()` ->checks the new explicit legacy execute acknowledgement.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `r1000_paper_executor.py --execute` now requires `--allow-legacy-execute`; use account-ledger order previews plus `tools/run_live_trading_safety_audit.py` for the current paper/live path.
+- outputs:
+  - `outputs/live_trading_safety/safety_audit_summary.json` ->overall pass/warn/blocked status and counts by severity.
+  - `outputs/live_trading_safety/safety_audit_issues.csv` ->structured issue table for pre-trade review.
+  - `outputs/live_trading_safety/safety_audit_report.md` ->human-readable safety report.
+- validation:
+  - `py -3 -m py_compile tools\run_live_trading_safety_audit.py r1000_paper_executor.py` ->passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - The safety audit is intentionally conservative and can emit `blocked` without failing GitHub Actions; blocked audit output means do not trade from that preview.
+  - This does not improve CAGR directly. It prevents bad live/paper execution, leakage-contaminated target files, stale price use, and accidental bypass of the account-ledger path before performance tuning resumes.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

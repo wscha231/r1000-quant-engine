@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 15:06 KST (Proxy-to-account risk conversion)
+# Session Handoff - 2026-05-09 15:58 KST (Live trading safety guard)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,9 +6,53 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 15:06 KST) - Proxy-to-account risk conversion
+## ACTIVE INBOX (2026-05-09 15:58 KST) - Live trading safety guard
 
 Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
+- Current safety-first response after the user asked to anticipate live/paper
+  trading errors, data leakage, and information mismatch before performance
+  tuning:
+  - New pre-trade audit:
+    `tools/run_live_trading_safety_audit.py`.
+  - It audits `portfolio_latest.csv`, `concentrated_portfolio_latest.csv`, and
+    `outputs/account_ledger_preview/{main,concentrated}/` without placing
+    orders.
+  - It blocks actionable target files containing forward-return or benchmark
+    forward-return leakage columns.
+  - It checks invalid/negative/NaN weights, total exposure, single-name caps,
+    account preview status, sell-first ordering, positive quantities, blocked
+    orders, estimated cash feasibility, stale/missing prices, and missing price
+    evidence for target tickers.
+  - It writes:
+    - `outputs/live_trading_safety/safety_audit_summary.json`
+    - `outputs/live_trading_safety/safety_audit_issues.csv`
+    - `outputs/live_trading_safety/safety_audit_report.md`
+  - Workflows now run and sync this audit from both `full_rebuild_manual.yml`
+    and `alphaops_replay_sidecars_manual.yml`.
+  - `tools/sync_cloud_to_drive.py` syncs `live_trading_safety/`.
+- Legacy execution lock:
+  - `r1000_paper_executor.py --execute` now refuses to run unless
+    `--allow-legacy-execute` is also provided.
+  - `.github/workflows/after_close_daily.yml` exposes a manual
+    `allow_legacy_execute` acknowledgement and defaults it to false.
+  - This prevents the old Alpaca paper executor from bypassing the new
+    account-ledger order-preview and safety-audit path by accident.
+- Latest validation after the safety guard:
+  - `py -3 -m py_compile tools\run_live_trading_safety_audit.py r1000_paper_executor.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\broker_ledger_replay_smoke.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+  - `git diff --check`
+- Next safe operating rule:
+  - Do not use legacy `r1000_paper_executor.py --execute` for the current
+    system unless intentionally testing the old Alpaca path.
+  - Use account-ledger order previews plus `outputs/live_trading_safety/`.
+  - If safety audit status is `blocked`, do not trade; inspect
+    `safety_audit_issues.csv` first.
 - The engine now has a stricter account-like evaluation chain:
   1. `tools/run_broker_ledger_replay.py` replays monthly target books through
      next-close fills, integer shares, cash, transaction costs, and no leverage.

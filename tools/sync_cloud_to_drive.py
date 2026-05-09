@@ -75,6 +75,7 @@ SYNC_DIRS = [
     "broker_position_risk_replay",
     "broker_execution_policy_replay",
     "broker_gap_attribution",
+    "live_trading_safety",
 ]
 
 

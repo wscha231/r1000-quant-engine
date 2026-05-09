@@ -1418,6 +1418,9 @@ def test_paper_executor_layer3_preflight() -> None:
     assert "skip-regime-check" in pe_src, (
         "paper_executor missing --skip-regime-check escape flag"
     )
+    assert "allow-legacy-execute" in pe_src, (
+        "paper_executor missing --allow-legacy-execute lock for old Alpaca executor"
+    )
 
 
 @_test("regression.after_close_daily_workflow_yaml_valid")
