@@ -9,6 +9,7 @@ sell-first/buy-second order preview. It does not place orders.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -226,6 +227,8 @@ def build_orders(
     *,
     current: pd.DataFrame,
     target: pd.DataFrame,
+    portfolio_kind: str,
+    as_of_date: pd.Timestamp,
     equity: float,
     cash: float,
     cost_bps: float,
@@ -315,7 +318,42 @@ def build_orders(
         running_cash += float(row["cash_impact_usd"])
         row["estimated_cash_after_usd"] = float(running_cash)
         accepted.append(row)
-    return pd.DataFrame(accepted)
+    out = pd.DataFrame(accepted)
+    out = attach_client_order_ids(out, portfolio_kind=portfolio_kind, as_of_date=as_of_date)
+    return out
+
+
+def attach_client_order_ids(orders: pd.DataFrame, *, portfolio_kind: str, as_of_date: pd.Timestamp) -> pd.DataFrame:
+    """Attach deterministic idempotency keys to preview orders."""
+    if orders.empty:
+        return orders
+    out = orders.copy()
+    as_of = pd.Timestamp(as_of_date).date().isoformat()
+    ids: list[str] = []
+    keys: list[str] = []
+    for row in out.to_dict("records"):
+        basis = {
+            "schema": "r1000-order-preview-v1",
+            "portfolio_kind": str(portfolio_kind),
+            "as_of_date": as_of,
+            "ticker": str(row.get("ticker", "")).upper().strip(),
+            "side": str(row.get("side", "")).upper().strip(),
+            "quantity": round(safe_float(row.get("quantity"), 0.0), 8),
+            "limit_price": round(safe_float(row.get("limit_price"), 0.0), 6),
+            "target_weight": round(safe_float(row.get("target_weight"), 0.0), 8),
+            "current_shares": round(safe_float(row.get("current_shares"), 0.0), 8),
+            "status": str(row.get("status", "")),
+        }
+        key = json.dumps(basis, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        ticker = str(row.get("ticker", "")).upper().strip().replace(".", "")
+        side = str(row.get("side", "")).upper().strip()[:1]
+        prefix = "M" if portfolio_kind == "main" else "C"
+        ids.append(f"r1k-{prefix}-{as_of.replace('-', '')}-{side}-{ticker[:8]}-{digest[:12]}")
+        keys.append(digest)
+    out["client_order_id"] = ids
+    out["idempotency_key"] = keys
+    return out
 
 
 def render_report(payload: dict[str, Any]) -> str:
@@ -367,6 +405,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     orders = build_orders(
         current=current,
         target=target,
+        portfolio_kind=args.portfolio_kind,
+        as_of_date=as_of,
         equity=equity,
         cash=cash,
         cost_bps=args.cost_bps,
@@ -377,6 +417,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     current.to_csv(output_dir / "positions_current.csv", index=False)
     target.to_csv(output_dir / "target_weights.csv", index=False)
     orders.to_csv(output_dir / "orders_preview.csv", index=False)
+    manifest_payload = {
+        "schema_version": "account-ledger-preview-order-batch-v1",
+        "portfolio_kind": args.portfolio_kind,
+        "as_of_date": as_of.date().isoformat(),
+        "order_count": int(len(orders)),
+        "ready_order_count": int((orders.get("status", pd.Series(dtype=str)) == "ready").sum()) if not orders.empty else 0,
+        "client_order_ids": orders.get("client_order_id", pd.Series(dtype=str)).astype(str).tolist() if not orders.empty else [],
+    }
+    manifest_payload["order_batch_id"] = hashlib.sha256(
+        json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    (output_dir / "order_batch_manifest.json").write_text(
+        json.dumps(manifest_payload, indent=2, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
     buy_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("BUY"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     sell_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("SELL"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     fees = float(pd.to_numeric(orders.get("estimated_fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not orders.empty else 0.0
@@ -406,6 +461,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "min_trade_usd": float(args.min_trade_usd),
         "ready_order_count": int((orders.get("status", pd.Series(dtype=str)) == "ready").sum()) if not orders.empty else 0,
         "blocked_order_count": int(orders.get("status", pd.Series(dtype=str)).astype(str).str.startswith("blocked").sum()) if not orders.empty else 0,
+        "order_batch_id": manifest_payload["order_batch_id"],
     }
     (output_dir / "preview_metrics.json").write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     (output_dir / "preview_report.md").write_text(render_report(payload), encoding="utf-8")

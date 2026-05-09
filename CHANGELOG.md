@@ -768,6 +768,70 @@ All entries must be written in English. Entries must be predictable and machine-
   - Fast replay `25594827958` intentionally blocked on `concentrated_target_leakage_columns`; this export fix is proven by new target generation, not by replaying the old dirty source artifact unchanged.
   - Research artifacts may still keep forward-return labels for diagnostics; this fix applies to orderable portfolio CSV exports only.
 
+### 16:45 KST - live-trading-risk-controls
+
+- scope:
+  - Add the next live/paper trading safety layer for account reconciliation, idempotent order manifests, duplicate-order prevention, partial-fill templates, as-of checks, open-order checks, and corporate-action review flags.
+- files:
+  - `tools/run_account_order_preview.py` ->adds deterministic `client_order_id`, `idempotency_key`, and `order_batch_manifest.json` to every order preview.
+  - `tools/run_live_trading_risk_controls.py` ->adds preview-only operational risk controls for broker snapshot reconciliation, prior-manifest duplicate detection, open-order conflicts, stale as-of checks, large price-jump/cost-basis review, order manifests, and fill reconciliation templates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/live_trading_risk_controls/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs risk controls in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `live_trading_risk_controls/`.
+  - `tests/account_order_preview_smoke.py` ->checks deterministic order ids and order batch manifest output.
+  - `tests/live_trading_risk_controls_smoke.py` ->checks manifest generation, prior-manifest duplicate blocking, and strict-live broker snapshot requirement.
+  - `tests/workflow_artifact_smoke.py` ->requires risk control workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the live trading risk-control layer.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `attach_client_order_ids(orders, portfolio_kind, as_of_date)` ->adds deterministic broker-safe client order IDs and idempotency hashes.
+  - `run_live_trading_risk_controls.repo_path(path_like)` ->resolves repo-relative paths.
+  - `run_live_trading_risk_controls.read_json(path)` ->loads optional JSON artifacts safely.
+  - `run_live_trading_risk_controls.read_csv(path)` ->loads optional CSV artifacts safely.
+  - `run_live_trading_risk_controls.write_json(path, payload)` ->writes deterministic JSON risk-control payloads.
+  - `run_live_trading_risk_controls.write_csv(path, rows, fieldnames)` ->writes risk-control CSV artifacts.
+  - `run_live_trading_risk_controls.safe_float(value, default)` ->normalizes numeric values safely.
+  - `run_live_trading_risk_controls.normalize_ticker(value)` ->normalizes ticker symbols before comparisons.
+  - `run_live_trading_risk_controls.issue(rows, severity, check_id, message, path, details)` ->records structured risk-control issues.
+  - `broker_file(snapshot_dir, portfolio, filename)` ->finds nested or flat broker snapshot files.
+  - `read_previous_manifest(path)` ->loads prior order manifests for duplicate detection.
+  - `normalize_order_frame(orders)` ->normalizes order-preview rows before manifest checks.
+  - `make_order_manifest(...)` ->builds order manifest and fill reconciliation rows, and blocks duplicate ids.
+  - `audit_open_orders(...)` ->checks broker open-order conflicts and reserved buy cash when a broker snapshot is supplied.
+  - `audit_broker_reconciliation(...)` ->compares broker positions/cash/equity against internal account preview state.
+  - `audit_as_of_and_corporate_actions(...)` ->checks stale/future/weekend as-of dates, large latest price jumps, and extreme cost-basis/price ratios.
+  - `run_live_trading_risk_controls.render_report(payload)` ->renders risk-control Markdown.
+  - `run_live_trading_risk_controls.run(args)` ->writes risk-control summary, issues, order manifest, fill template, and report.
+  - `run_live_trading_risk_controls.parse_args()` ->parses CLI arguments.
+  - `run_live_trading_risk_controls.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `build_orders(...)` ->now receives portfolio/as-of context and attaches idempotent order IDs after cash scaling.
+  - `run_account_order_preview.run(args)` ->writes `order_batch_manifest.json` and includes `order_batch_id` in preview metrics.
+  - `SYNC_DIRS` ->includes `live_trading_risk_controls`.
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/live_trading_risk_controls/`.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires `run_live_trading_risk_controls.py` and its log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires risk-control fast replay artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/account_ledger_preview/{main,concentrated}/order_batch_manifest.json` ->deterministic preview order batch identity and client order IDs.
+  - `outputs/live_trading_risk_controls/order_manifest.csv` ->planned order manifest for broker submission and duplicate prevention.
+  - `outputs/live_trading_risk_controls/fill_reconciliation_template.csv` ->template for partial/no-fill broker execution reconciliation.
+  - `outputs/live_trading_risk_controls/risk_controls_summary.json` ->overall pass/warn/blocked status.
+  - `outputs/live_trading_risk_controls/risk_controls_issues.csv` ->structured account/open-order/as-of/corporate-action risk issues.
+  - `outputs/live_trading_risk_controls/risk_controls_report.md` ->human-readable operational risk-control report.
+- validation:
+  - `py -3 -m py_compile tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+- risks_or_notes:
+  - This still does not place broker orders. It creates the controls needed before a broker adapter can be safely enabled.
+  - Without a broker snapshot, risk controls emit a warning because real account/open-order reconciliation is skipped. With `--strict-live`, broker snapshot absence is a blocking error.
+  - Partial-fill handling is still a reconciliation template, not a broker adapter. The next live step is to import real broker fills into this template and reconcile post-trade account state.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

@@ -306,6 +306,7 @@ jobs:
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
           python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
+          python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
           python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy concentrated --output-dir outputs/monster_lifecycle_replay 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_replay.log || true
           python tools/run_lifecycle_review_overlay.py --latest-run outputs --policy lifecycle_review_main --output-dir outputs/lifecycle_review_overlay_main 2>&1 | tee outputs/full_rebuild_logs/lifecycle_review_overlay_main.log || true
           python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy lifecycle_review_main --output-dir outputs/monster_lifecycle_review_main 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_review_main.log || true
@@ -382,6 +383,7 @@ jobs:
             outputs/broker_trade_journal/
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
+            outputs/live_trading_risk_controls/
             outputs/account_evaluation/
             outputs/governance_catalyst/
             outputs/style_regime_report/
@@ -586,7 +588,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -728,6 +730,7 @@ jobs:
           copy_dir_clean outputs/broker_trade_journal /tmp/bundle/broker_trade_journal
           copy_dir_clean outputs/account_ledger_preview /tmp/bundle/account_ledger_preview
           copy_dir_clean outputs/live_trading_safety /tmp/bundle/live_trading_safety
+          copy_dir_clean outputs/live_trading_risk_controls /tmp/bundle/live_trading_risk_controls
           copy_dir_clean outputs/account_evaluation /tmp/bundle/account_evaluation
           copy_dir_clean outputs/governance_catalyst /tmp/bundle/governance_catalyst
           copy_dir_clean outputs/macro_policy_engine /tmp/bundle/macro_policy_engine
@@ -864,6 +867,7 @@ jobs:
           copy_dir_clean outputs/broker_trade_journal "$DEST/broker_trade_journal"
           copy_dir_clean outputs/account_ledger_preview "$DEST/account_ledger_preview"
           copy_dir_clean outputs/live_trading_safety "$DEST/live_trading_safety"
+          copy_dir_clean outputs/live_trading_risk_controls "$DEST/live_trading_risk_controls"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"

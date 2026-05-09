@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 16:18 KST (Live trading safety + export hygiene)
+# Session Handoff - 2026-05-09 16:45 KST (Live trading safety + risk controls)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 16:18 KST) - Live trading safety + export hygiene
+## ACTIVE INBOX (2026-05-09 16:45 KST) - Live trading safety + risk controls
 
 Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
 - Current safety-first response after the user asked to anticipate live/paper
@@ -86,6 +86,45 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - After a new target is generated, confirm
     `outputs/live_trading_safety/safety_audit_summary.json` is `pass` or
     inspect any remaining independent block.
+- New live/paper trading risk controls after the user asked to fix all
+  remaining trading risks:
+  - `tools/run_account_order_preview.py` now attaches deterministic
+    `client_order_id` and `idempotency_key` columns to every preview order.
+  - Each account preview also writes
+    `order_batch_manifest.json`.
+  - `tools/run_live_trading_risk_controls.py` creates the next operating
+    safety layer under `outputs/live_trading_risk_controls/`.
+  - It writes:
+    - `order_manifest.csv`
+    - `fill_reconciliation_template.csv`
+    - `risk_controls_summary.json`
+    - `risk_controls_issues.csv`
+    - `risk_controls_report.md`
+  - Covered risks:
+    - duplicate order IDs inside a preview
+    - duplicate planned orders versus a previous active manifest
+    - missing broker snapshot in strict-live mode
+    - optional broker position/cash/equity reconciliation
+    - optional broker open-order conflicts and reserved cash
+    - stale/future/weekend as-of dates
+    - large latest price jumps that may require corporate-action/news review
+    - extreme price versus stored cost basis that may indicate split/transfer
+      or cost-basis drift
+    - partial/no-fill workflow via a fill reconciliation template
+  - Workflows now run and sync the risk-control sidecar:
+    `full_rebuild_manual.yml` and `alphaops_replay_sidecars_manual.yml`.
+  - `tools/sync_cloud_to_drive.py` syncs `live_trading_risk_controls/`.
+  - Important operating rule:
+    - Safety audit answers "is this target/order preview clean enough to use?"
+    - Risk controls answer "can this preview be submitted only once and
+      reconciled against the actual broker/account state?"
+    - Real live/paper auto-execution must require both safety status and risk
+      controls status to be acceptable.
+  - Remaining live gap after this commit:
+    - There is still no broker adapter and no real fill import yet. The system
+      now creates the required manifest/template, but actual broker fills must
+      be imported into `fill_reconciliation_template.csv` or a future adapter
+      before post-trade account state is authoritative.
 - The engine now has a stricter account-like evaluation chain:
   1. `tools/run_broker_ledger_replay.py` replays monthly target books through
      next-close fills, integer shares, cash, transaction costs, and no leverage.

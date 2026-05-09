@@ -78,8 +78,14 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert orders.iloc[0]["side"] == "SELL"
         assert {"SELL", "BUY"}.issubset(set(orders["side"]))
         assert (orders["quantity"] % 1 == 0).all()
+        assert "client_order_id" in orders.columns
+        assert "idempotency_key" in orders.columns
+        assert orders["client_order_id"].is_unique
         assert (out / "positions_current.csv").exists()
         assert (out / "preview_metrics.json").exists()
+        manifest = json.loads((out / "order_batch_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["order_count"] == len(orders)
+        assert manifest["order_batch_id"] == payload["order_batch_id"]
 
 
 def main() -> int:
