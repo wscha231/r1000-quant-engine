@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
+REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -100,6 +101,10 @@ def test_pipeline_exports_monthly_books() -> None:
         '"mom_1m"',
         '"mom_3m"',
         '"rs_benchmark_3m"',
+        '"cash_weight_start"',
+        '"cash_weight_end"',
+        "avg_cash_weight_start",
+        "avg_cash_weight_end",
     ]:
         assert token in text, token
 
@@ -144,6 +149,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/main_cash_drag_replay.log",
         "outputs/full_rebuild_logs/crisis_reentry_replay.log",
         "outputs/full_rebuild_logs/position_risk_weekly_validation_main.log",
+        "outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log",
         "outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log",
@@ -161,8 +167,35 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/build_concentrated_trade_journal.py",
         "--extra-trades outputs/concentrated_trade_journal/trades.csv",
         "auto_learning_promote_live",
+        "outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main",
+        "outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2",
     ]:
         assert token in text, token
+
+
+def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
+    text = REPLAY_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "AlphaOps Replay Sidecars",
+        "source_run_id",
+        "gh run download",
+        "outputs/reports/main_monthly_weights.csv",
+        "outputs/reports/regime_by_month.csv",
+        "outputs/position_risk_weekly_validation/main",
+        "outputs/position_risk_weekly_validation/main_v2",
+        "tools/run_broker_ledger_replay.py",
+        "tools/run_theme_leadership_tape.py",
+        "tools/run_theme_concentration_challenger.py",
+        "tools/run_portfolio_goal_search.py",
+        "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "python run_local.py --full",
+        "Refresh SEC companyfacts bulk archive",
+        "Full Rebuild START",
+    ]:
+        assert forbidden not in text, forbidden
 
 
 def main() -> int:
@@ -170,6 +203,7 @@ def main() -> int:
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
     test_workflow_runs_latest_diagnostics_sidecars()
+    test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     print("workflow artifact smoke passed")
     return 0
 

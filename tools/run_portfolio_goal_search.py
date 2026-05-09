@@ -239,6 +239,32 @@ def candidate_from_json(
     ]
 
 
+def candidate_from_json_metric_validity(
+    path: Path,
+    *,
+    portfolio: str,
+    candidate_id: str,
+    source_label: str,
+    notes: str = "",
+    extra_params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metrics = read_json(path)
+    if not metrics:
+        return []
+    valid_for_production = bool(metrics.get("valid_for_production"))
+    return [
+        normalize_candidate(
+            portfolio=portfolio,
+            candidate_id=candidate_id,
+            source=f"{source_label}:{rel(path)}",
+            metrics=metrics,
+            valid_for_production=valid_for_production,
+            notes=notes,
+            params=extra_params or {},
+        )
+    ]
+
+
 def candidate_from_nested_metrics(
     path: Path,
     *,
@@ -406,7 +432,22 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="main_position_risk_weekly_validation",
         source_label="sidecar",
         valid_for_production=False,
-        notes="Daily stop / weekly relative-performance validation on monthly holdings. Stricter than monthly proxy, still research-only until true weekly scored snapshots and order tickets exist.",
+        notes="Daily stop / weekly relative-performance validation on official main monthly holdings. Stricter than monthly proxy, still research-only until true weekly scored snapshots and order tickets exist.",
+    )
+    main += candidate_from_json(
+        latest_run / "position_risk_weekly_validation" / "main_v2" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v2_position_risk_weekly_validation",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Daily stop / weekly relative-performance validation on Main v2 research holdings. Kept separate from official main to avoid metric contamination.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_ledger_replay",
+        source_label="sidecar",
+        notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
@@ -431,6 +472,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         valid_for_production=False,
         notes="Daily stop / weekly relative-performance validation for concentrated holdings. This is the bridge from monthly proxy to production-compatible evidence.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_ledger_replay",
+        source_label="sidecar",
+        notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     concentrated += candidate_from_json(
         latest_run / "monster_lifecycle_replay" / "metrics.json",

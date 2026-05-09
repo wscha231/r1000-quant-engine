@@ -11273,6 +11273,14 @@ def backtest_portfolio(
         if not current_w:
             continue
 
+        period_start_cash_weight = float(current_w.get(CASH_PROXY_TICKER, 0.0))
+        period_start_stock_weight = float(
+            sum(
+                float(v)
+                for k, v in current_w.items()
+                if str(k).upper() != CASH_PROXY_TICKER and pd.notna(v)
+            )
+        )
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
         position_risk_source_by_ticker: dict[str, dict[str, Any]] = {}
@@ -11585,6 +11593,14 @@ def backtest_portfolio(
                 current_portfolio["ticker"].astype(str).isin(keep_tickers)
             ].copy()
         sleeve_policy_snapshot = current_meta.get("sleeve_policy", {}) if isinstance(current_meta, dict) else {}
+        period_end_cash_weight = float(current_w.get(CASH_PROXY_TICKER, 0.0))
+        period_end_stock_weight = float(
+            sum(
+                float(v)
+                for k, v in current_w.items()
+                if str(k).upper() != CASH_PROXY_TICKER and pd.notna(v)
+            )
+        )
         ret_rows.append(
             {
                 "rebalance_date": dt,
@@ -11600,7 +11616,14 @@ def backtest_portfolio(
                 "net_return": net_ret,
                 "turnover": turn,
                 "missing_tickers": missing,
-                "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
+                # Backward-compatible `cash_weight` is end-of-period cash after
+                # drift and managed exits. `cash_weight_start` is the actual
+                # target-book cash used for the next-close/weekly ledger replays.
+                "cash_weight": period_end_cash_weight,
+                "cash_weight_start": period_start_cash_weight,
+                "cash_weight_end": period_end_cash_weight,
+                "stock_weight_start": period_start_stock_weight,
+                "stock_weight_end": period_end_stock_weight,
                 "rebalance_action": rebalance_action,
                 "due_sleeves": due_sleeves_value,
                 "active_rebalance_interval_months": int(active_interval_months),
@@ -11663,6 +11686,18 @@ def backtest_portfolio(
     metrics = performance_metrics(ret_df["net_return"], benchmark=ret_df["bench_return"])
     metrics["avg_turnover_monthly"] = float(ret_df["turnover"].mean())
     metrics["avg_cash_weight"] = float(ret_df["cash_weight"].mean()) if "cash_weight" in ret_df.columns else 0.0
+    metrics["avg_cash_weight_start"] = (
+        float(ret_df["cash_weight_start"].mean()) if "cash_weight_start" in ret_df.columns else np.nan
+    )
+    metrics["avg_cash_weight_end"] = (
+        float(ret_df["cash_weight_end"].mean()) if "cash_weight_end" in ret_df.columns else metrics["avg_cash_weight"]
+    )
+    metrics["avg_stock_weight_start"] = (
+        float(ret_df["stock_weight_start"].mean()) if "stock_weight_start" in ret_df.columns else np.nan
+    )
+    metrics["avg_stock_weight_end"] = (
+        float(ret_df["stock_weight_end"].mean()) if "stock_weight_end" in ret_df.columns else np.nan
+    )
     metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
     metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
     metrics["months"] = int(len(ret_df))
@@ -11756,6 +11791,11 @@ def backtest_portfolio(
         "position_risk_enabled",
         "position_risk_hard_stop",
         "position_risk_trailing_stop",
+        "cash_weight",
+        "cash_weight_start",
+        "cash_weight_end",
+        "stock_weight_start",
+        "stock_weight_end",
     ):
         if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
             _equity_cols.append(_diag_col)
@@ -16631,6 +16671,10 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "early_target",
             "cash_target_used",
             "cash_weight",
+            "cash_weight_start",
+            "cash_weight_end",
+            "stock_weight_start",
+            "stock_weight_end",
             "rebalance_action",
             "due_sleeves",
             "active_rebalance_interval_months",
