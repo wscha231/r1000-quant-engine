@@ -68,6 +68,7 @@ jobs:
             aggressive/cache/bars
           key: replay-price-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
+            collector-cache--${{ runner.os }}-
             collector-cache-${{ runner.os }}-
             replay-price-cache-${{ runner.os }}-
 
@@ -88,6 +89,12 @@ jobs:
           cp -R "$SRC"/. outputs/
           test -s outputs/reports/main_monthly_weights.csv
           test -s outputs/reports/regime_by_month.csv
+          PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "[replay] restored price cache files=$PRICE_FILES"
+          if [ "${PRICE_FILES:-0}" -lt 10 ]; then
+            echo "[replay] ERROR: price cache was not restored. Fast replay needs the full-run cache; run one full rebuild first or rerun after cache is available."
+            exit 3
+          fi
 
       - name: Run fast replay sidecars
         run: |

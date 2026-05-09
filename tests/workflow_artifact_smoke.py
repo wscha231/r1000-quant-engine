@@ -179,6 +179,8 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "AlphaOps Replay Sidecars",
         "source_run_id",
         "gh run download",
+        "collector-cache--${{ runner.os }}-",
+        "restored price cache files",
         "outputs/reports/main_monthly_weights.csv",
         "outputs/reports/regime_by_month.csv",
         "outputs/position_risk_weekly_validation/main",
