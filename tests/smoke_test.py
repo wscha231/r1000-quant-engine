@@ -1441,6 +1441,7 @@ def test_paper_executor_workflow() -> None:
         "aggressive/scanner.py",
         "tools/macro_daily_snapshot.py",
         "tools/etf_leadership_snapshot.py",
+        "tools/run_theme_leadership_tape.py",
         "tools/explosive_mover_scan_daily.py",
         "r1000_tactical_alpha.py",
         "r1000_layer4_swap.py",

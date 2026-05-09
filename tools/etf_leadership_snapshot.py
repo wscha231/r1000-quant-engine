@@ -40,7 +40,10 @@ SECTOR_ETFS = {
 }
 
 THEME_ETFS = {
+    "DRAM": "memory_semiconductors",
     "SOXX": "semiconductors",
+    "SMH": "semiconductors_broad",
+    "XSD": "semiconductors_equal_weight",
     "XBI": "biotech_small",
     "IBB": "biotech_large",
     "ARKK": "innovation",
@@ -84,7 +87,7 @@ def fetch_etf_history(ticker: str, days: int = 260):
 
 def compute_etf_metrics(ticker: str, label: str) -> dict | None:
     df = fetch_etf_history(ticker)
-    if df is None or len(df) < 130:
+    if df is None or len(df) < 22:
         return None
     close = df["Close"]
     last = float(close.iloc[-1])

@@ -163,6 +163,65 @@ All entries must be written in English. Entries must be predictable and machine-
   - Default production-style metrics use adjusted next-close fills after signal date, integer shares, 25 bps per side, no leverage, no negative cash, and a 7-calendar-day maximum fill lag.
   - Same-close and fractional-share modes remain research-only even though the CLI supports them.
 
+### 11:33 KST - theme-leadership-tape-sidecar
+
+- scope:
+  - Add a daily market leadership tape that detects short-term theme and sector crowding from adjusted close returns, volume, dollar volume, and scored metadata so bubble/climax leadership is visible before monthly rebuild decisions.
+- files:
+  - `tools/run_theme_leadership_tape.py` ->adds the report-only theme/sector/ticker leadership scanner using cached adjusted prices and latest scored metadata.
+  - `tests/theme_leadership_tape_smoke.py` ->verifies that a synthetic memory semiconductor surge is ranked as the top theme without changing production selection.
+  - `.github/workflows/after_close_daily.yml` ->runs the theme leadership tape after ETF leadership and archives/commits `cloud_results/theme_leadership_tape/`.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the tape as a full-rebuild sidecar and syncs `outputs/theme_leadership_tape/`.
+  - `tools/etf_leadership_snapshot.py` ->adds `DRAM`, `SMH`, and `XSD` to the ETF leadership watchlist and allows young ETFs with at least 22 trading days.
+  - `tests/workflow_artifact_smoke.py` ->checks full-rebuild command, log, artifact, and sync coverage for the tape.
+  - `tests/smoke_test.py` ->checks the after-close daily workflow includes the tape.
+  - `CHANGELOG.md` ->records the leadership tape sidecar.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes CLI paths relative to the repo root.
+  - `safe_float(value, default)` ->coerces optional numeric values without propagating non-finite values.
+  - `robust_z(values)` ->computes robust cross-sectional z-scores for return, volume, and liquidity ranks.
+  - `load_price_cache(price_cache, ticker)` ->loads adjusted close, raw close, volume, and dollar volume from cached parquet prices.
+  - `trailing_return(close, days)` ->computes observable trailing returns through the latest cached close.
+  - `price_metrics(price_cache, ticker)` ->extracts 1d/5d/21d/63d/126d returns, volume z-score, dollar volume, and 252d high distance.
+  - `infer_theme(row)` ->maps tickers and metadata to report-only leadership themes such as memory semiconductors, nuclear power, power grid, and optical networking.
+  - `read_scored(path)` ->loads scored metadata without failing on missing files.
+  - `build_ticker_tape(scored, price_cache, min_mcap, min_dollar_vol)` ->builds ticker-level leadership, climax, and early-leader scores.
+  - `aggregate_leadership(tape, group_col)` ->aggregates ticker tape into theme or sector leadership rows.
+  - `classify_group(liquid, top)` ->labels groups as `climax_hot`, `emerging_leader`, `lagging`, or `neutral`.
+  - `render_report(summary, themes, sectors, tickers)` ->writes the human-readable leadership tape report.
+  - `write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, summary)` ->writes CSV, JSON, and Markdown artifacts.
+  - `run(scored_path, price_cache, out_dir, min_mcap, min_dollar_vol)` ->executes the leadership tape.
+  - `parse_args()` ->parses CLI arguments for the sidecar.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `compute_etf_metrics(ticker, label)` ->allows young theme ETFs to contribute 1-month leadership before they have 3-6 months of history.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/theme_leadership_tape/` in full-rebuild artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects theme leadership tape command and log export.
+  - `test_paper_executor_workflow()` ->expects the after-close daily workflow to run the leadership tape.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/theme_leadership_tape/ticker_leadership.csv` ->ticker-level 1d/5d/21d/63d/126d returns, liquidity, climax, and leadership scores.
+  - `outputs/theme_leadership_tape/theme_leadership.csv` ->theme-level leadership, breadth, volume, and top ticker summary.
+  - `outputs/theme_leadership_tape/sector_leadership.csv` ->sector-level equivalent leadership tape.
+  - `outputs/theme_leadership_tape/summary.json` ->machine-readable freshness and top leadership summary.
+  - `outputs/theme_leadership_tape/report.md` ->human-readable report.
+  - `cloud_results/theme_leadership_tape/` ->after-close daily output mirror.
+- validation:
+  - `python -m py_compile tools/run_theme_leadership_tape.py tools/etf_leadership_snapshot.py tools/run_broker_ledger_replay.py` ->passed.
+  - `python tests/theme_leadership_tape_smoke.py` ->passed.
+  - `python tests/broker_ledger_replay_smoke.py` ->passed.
+  - `python tests/workflow_artifact_smoke.py` ->passed.
+  - `python tests/smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is a report-only sidecar; it surfaces market leadership concentration but does not auto-buy a ticker or alter production weights.
+  - The theme taxonomy is used for labeling and aggregation only, not as a hardcoded buy list.
+  - `climax_hot` should feed tactical research and tight exit rules; it should not be treated as a long-term compounder signal without a replay gate.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar
