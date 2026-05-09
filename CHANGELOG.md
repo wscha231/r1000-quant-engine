@@ -230,6 +230,58 @@ All entries must be written in English. Entries must be predictable and machine-
   - The theme taxonomy and ETF look-through seeds are used for labeling and candidate discovery only, not as hardcoded buy lists.
   - `climax_hot` should feed tactical research and tight exit rules; it should not be treated as a long-term compounder signal without a replay gate.
 
+### 11:46 KST - theme-concentration-top3-challenger
+
+- scope:
+  - Add a research-only historical challenger that picks the strongest point-in-time theme each month and concentrates into at most three liquid leaders without using forward labels for selection.
+- files:
+  - `tools/run_theme_concentration_challenger.py` ->adds the top-three theme concentration replay using current momentum, relative strength, liquidity, setup, monster-early, and risk scores from the candidate replay book.
+  - `tests/theme_concentration_challenger_smoke.py` ->verifies synthetic memory-semiconductor selection and blocks a high-future-return non-leader from leaking into selection.
+  - `r1000_pipeline.py` ->adds observable `mom_*` and relative-strength columns to `reports/candidate_replay_book.csv` so historical challengers do not need forward `r_*` labels for selection.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the challenger after the theme leadership tape and archives/syncs `outputs/theme_concentration_challenger/`.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow command, log, artifact, sync, and candidate replay book current-momentum coverage.
+  - `CHANGELOG.md` ->records the top-three concentration challenger.
+- symbols_added:
+  - `first_numeric(frame, cols, default)` ->coalesces observable current momentum/relative-strength fields without falling back to forward labels.
+  - `robust_z(frame, col)` ->computes robust cross-sectional z-scores for theme and member ranks.
+  - `numeric(frame, col, default)` ->coerces optional numeric fields.
+  - `add_theme_and_scores(month)` ->adds inferred theme labels and leakage-safe member scores for one rebalance month.
+  - `liquidity_filter(frame, min_mcap, min_dollar_vol, min_price)` ->keeps only large, liquid, tradeable candidates.
+  - `rank_themes(month, min_theme_members, allow_single_name_theme)` ->ranks themes by top-member score, observable momentum breadth, and liquidity attention.
+  - `render_report(metrics)` ->writes the human-readable challenger report.
+  - `replay(candidate_book, output_dir, ...)` ->runs the monthly theme concentration replay and writes metrics, holdings, ranks, and equity curves.
+  - `parse_args()` ->parses CLI arguments for the challenger.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `_write_monthly_mandate_books()` ->exports current momentum and relative-strength columns in the candidate replay book for leakage-safe historical testing.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/theme_concentration_challenger/` in full-rebuild artifact coverage.
+  - `test_pipeline_exports_monthly_books()` ->expects current momentum and relative-strength columns in candidate replay exports.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects the theme concentration command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/theme_concentration_challenger/metrics.json` ->research-only CAGR, Sharpe, MaxDD, exposure, and guard metadata.
+  - `outputs/theme_concentration_challenger/monthly.csv` ->selected theme, selected tickers, turnover, cost, and return by rebalance month.
+  - `outputs/theme_concentration_challenger/holdings.csv` ->ticker-level weights, current evidence, and realized period returns after selection.
+  - `outputs/theme_concentration_challenger/theme_rankings.csv` ->point-in-time monthly theme ranking table.
+  - `outputs/theme_concentration_challenger/equity_curve.csv` ->monthly challenger equity curve.
+  - `outputs/theme_concentration_challenger/stress_windows.csv` ->worst monthly windows.
+  - `outputs/theme_concentration_challenger/replay_report.md` ->human-readable report.
+- validation:
+  - `py -3 -m py_compile tools/run_theme_concentration_challenger.py tools/run_theme_leadership_tape.py` ->passed.
+  - `py -3 tests/theme_concentration_challenger_smoke.py` ->passed.
+  - `py -3 tests/theme_leadership_tape_smoke.py` ->passed.
+  - `py -3 tests/workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests/smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 py -3 tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This remains research-only and cannot auto-promote or alter production weights.
+  - Theme labels depend on the current taxonomy; next improvements should compare theme taxonomy stability and realized trade ledgers before orchestrator integration.
+  - The replay is monthly and candidate-book based; it is not yet a true daily broker-ledger concentrated strategy.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

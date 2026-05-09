@@ -52,6 +52,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/selection_audit/",
         "outputs/weekly_evaluation/",
         "outputs/theme_leadership_tape/",
+        "outputs/theme_concentration_challenger/",
         "outputs/auto_learning_v2/",
         "outputs/winner_lifecycle/",
         "outputs/winner_onset_study/",
@@ -96,6 +97,9 @@ def test_pipeline_exports_monthly_books() -> None:
         '"gross_profit_ttm"',
         '"sales_growth_yoy"',
         '"eps_growth_yoy"',
+        '"mom_1m"',
+        '"mom_3m"',
+        '"rs_benchmark_3m"',
     ]:
         assert token in text, token
 
@@ -117,6 +121,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_dataset_coverage_audit.py",
         "tools/run_weekly_evaluation.py",
         "tools/run_theme_leadership_tape.py",
+        "tools/run_theme_concentration_challenger.py",
         "tools/run_auto_learning_v2.py",
         "tools/run_winner_lifecycle_reports.py",
         "tools/run_winner_onset_study.py",
@@ -146,6 +151,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/dataset_coverage_audit.log",
         "outputs/full_rebuild_logs/weekly_evaluation.log",
         "outputs/full_rebuild_logs/theme_leadership_tape.log",
+        "outputs/full_rebuild_logs/theme_concentration_challenger.log",
         "outputs/full_rebuild_logs/auto_learning_v2.log",
         "outputs/full_rebuild_logs/winner_lifecycle.log",
         "outputs/full_rebuild_logs/winner_onset_study.log",
