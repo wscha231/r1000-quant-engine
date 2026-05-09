@@ -1,0 +1,29 @@
+{
+  "avg_holding_days": 69.25555555555556,
+  "avg_loss": -0.08306289831764738,
+  "avg_realized_return": 0.04108852803368321,
+  "avg_win": 0.14126424872251975,
+  "broker_cagr": 0.1971854381058713,
+  "broker_end_date": "2026-05-08",
+  "broker_max_dd": -0.3446750826700783,
+  "broker_sharpe": 0.9617652645855442,
+  "broker_start_date": "2019-05-01",
+  "broker_total_fees_usd": 37052.43435138225,
+  "broker_trade_count": 2637,
+  "grade_counts": {
+    "BIG_WIN": 39,
+    "LOSS": 67,
+    "NEUTRAL_OR_SMALL_LOSS": 648,
+    "SMALL_WIN": 732,
+    "TRAP": 129,
+    "WIN": 275
+  },
+  "journal_mode": "broker_ledger_round_trip",
+  "median_realized_return": 0.014466755364720855,
+  "portfolio_kind": "main",
+  "profit_factor": 2.107727302184121,
+  "status": "completed",
+  "trade_count": 1890,
+  "valid_for_autolearning": true,
+  "win_rate": 0.5534391534391534
+}
