@@ -1,26 +1,27 @@
 {
   "unified_weights": {
-    "GOOG": 0.18,
-    "LRCX": 0.06333338795149054,
-    "AMAT": 0.06333338795149054,
-    "VRT": 0.06333338795149054,
-    "GEV": 0.06332029699790334,
-    "GLW": 0.06258909684882219,
-    "FTI": 0.06196077698323383,
-    "NXPI": 0.06109422923451814,
-    "WELL": 0.06103543608105076,
-    "TER": 0.04,
-    "ON": 0.04,
+    "GEV": 0.1388055961636909,
+    "FTI": 0.06541789581708166,
+    "NXPI": 0.06499245915805214,
+    "STM": 0.06494933359358528,
+    "VRT": 0.06490079805237972,
+    "UMC": 0.06464031143128095,
+    "FIX": 0.05873609433909824,
+    "RKLB": 0.05856220041464006,
+    "MRVL": 0.052470276259523295,
+    "GLW": 0.052470276259523295,
+    "LRCX": 0.05122944640630681,
     "PR": 0.04,
-    "DTM": 0.04,
-    "KIM": 0.04,
-    "MLI": 0.04,
-    "ECG": 0.04,
-    "TKR": 0.04
+    "MLI": 0.03949765551509556,
+    "TKR": 0.03949765551509556,
+    "ON": 0.03595750026866165,
+    "AKAM": 0.03595750026866165,
+    "ENTG": 0.03595750026866165,
+    "HPE": 0.03595750026866165
   },
-  "cash_target": 1.1102230246251565e-16,
+  "cash_target": 0.0,
   "by_mandate_capacity": {
-    "main": 0.9999999999999999,
+    "main": 1.0,
     "concentrated": 0.0,
     "tactical": 0.0
   },
@@ -28,17 +29,17 @@
   "regime_state": "neutral",
   "audit": {
     "mode": "legacy_passthrough",
-    "n_unique_tickers": 17,
-    "generated_at": "2026-05-08T12:17:36Z"
+    "n_unique_tickers": 18,
+    "generated_at": "2026-05-09T02:45:16Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,
     "weights_at_most_one": true,
     "cash_in_unit_range": true,
     "invested_plus_cash_close_to_one": true,
-    "invested_amount": 0.9999999999999999,
-    "cash_amount": 1.1102230246251565e-16,
-    "n_positions": 17,
+    "invested_amount": 1.0,
+    "cash_amount": 0.0,
+    "n_positions": 18,
     "n_conflicts": 0,
     "all_passed": true
   }
