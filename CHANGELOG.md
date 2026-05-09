@@ -765,7 +765,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\account_evaluation_smoke.py` ->passed.
   - `git diff --check` ->passed.
 - risks_or_notes:
-  - Fast replay `25594827958` intentionally blocked on `concentrated_target_leakage_columns`; rerun after this commit should confirm `outputs/live_trading_safety/` passes unless another independent safety issue remains.
+  - Fast replay `25594827958` intentionally blocked on `concentrated_target_leakage_columns`; this export fix is proven by new target generation, not by replaying the old dirty source artifact unchanged.
   - Research artifacts may still keep forward-return labels for diagnostics; this fix applies to orderable portfolio CSV exports only.
 
 ## 2026-05-08

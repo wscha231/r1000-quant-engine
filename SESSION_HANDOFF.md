@@ -76,11 +76,16 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - `tools/run_live_trading_safety_audit.py` now also blocks `r_<horizon>`
     label columns in actionable target files.
 - Required next action:
-  - Commit/push the export hygiene fix.
-  - Rerun `alphaops_replay_sidecars_manual.yml` from source run `25581634925`
-    on branch `codex/broker-ledger-replay-foundation`.
-  - Confirm `outputs/live_trading_safety/safety_audit_summary.json` is `pass`
-    or inspect any remaining independent block.
+  - The export hygiene fix was committed as `2fcb3c2`.
+  - Do not expect a fast replay from old source run `25581634925` to prove the
+    exporter fix, because that source artifact already contains the old dirty
+    `concentrated_portfolio_latest.csv`.
+  - Confirm this fix with either a new full rebuild from commit `2fcb3c2` or a
+    deliberate target-regeneration/sanitization replay that rewrites the
+    copied target CSV before safety audit.
+  - After a new target is generated, confirm
+    `outputs/live_trading_safety/safety_audit_summary.json` is `pass` or
+    inspect any remaining independent block.
 - The engine now has a stricter account-like evaluation chain:
   1. `tools/run_broker_ledger_replay.py` replays monthly target books through
      next-close fills, integer shares, cash, transaction costs, and no leverage.
