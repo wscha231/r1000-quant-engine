@@ -180,6 +180,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "source_run_id",
         "gh run download",
         "collector-cache--${{ runner.os }}-",
+        "Run this workflow from a branch that contains the AlphaOps replay tools",
         "restored price cache files",
         "outputs/reports/main_monthly_weights.csv",
         "outputs/reports/regime_by_month.csv",

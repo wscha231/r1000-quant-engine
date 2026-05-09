@@ -77,6 +77,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          for tool in tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py; do
+            if [ ! -f "$tool" ]; then
+              echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
+              exit 4
+            fi
+          done
           mkdir -p source_artifacts outputs/full_rebuild_logs
           gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
           SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
