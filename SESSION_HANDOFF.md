@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 15:58 KST (Live trading safety guard)
+# Session Handoff - 2026-05-09 16:18 KST (Live trading safety + export hygiene)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 15:58 KST) - Live trading safety guard
+## ACTIVE INBOX (2026-05-09 16:18 KST) - Live trading safety + export hygiene
 
 Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
 - Current safety-first response after the user asked to anticipate live/paper
@@ -53,6 +53,34 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - Use account-ledger order previews plus `outputs/live_trading_safety/`.
   - If safety audit status is `blocked`, do not trade; inspect
     `safety_audit_issues.csv` first.
+- Safety audit real-world verdict:
+  - Fast replay run `25594827958` completed successfully on commit `6798d30`
+    and synced to Google Drive:
+    `r1000_top30_institutional/research_runs/codex_broker-ledger-replay-foundation/25594827958/replay_outputs`.
+  - The audit status was `blocked`.
+  - Root issue:
+    `outputs/concentrated_portfolio_latest.csv` contained benchmark forward
+    return labels: `bench_r_1m`, `bench_r_3m`, `bench_r_6m`, `bench_r_12m`,
+    `bench_r_24m`, `bench_r_36m`.
+  - This confirmed the safety audit is useful: the order-preview normalized
+    `target_weights.csv` was clean, but the top-level orderable target CSV
+    still carried research/label columns.
+- Fix after the blocked safety audit:
+  - `r1000_pipeline.py` now has
+    `drop_actionable_leakage_columns(df)`.
+  - `portfolio_latest.csv` and `concentrated_portfolio_latest.csv` are
+    sanitized before export.
+  - The sanitizer removes `r_*`, `bench_r_*`, and explicit
+    `*_forward_return` label columns while preserving legitimate features such
+    as `future_winner_scout_score`.
+  - `tools/run_live_trading_safety_audit.py` now also blocks `r_<horizon>`
+    label columns in actionable target files.
+- Required next action:
+  - Commit/push the export hygiene fix.
+  - Rerun `alphaops_replay_sidecars_manual.yml` from source run `25581634925`
+    on branch `codex/broker-ledger-replay-foundation`.
+  - Confirm `outputs/live_trading_safety/safety_audit_summary.json` is `pass`
+    or inspect any remaining independent block.
 - The engine now has a stricter account-like evaluation chain:
   1. `tools/run_broker_ledger_replay.py` replays monthly target books through
      next-close fills, integer shares, cash, transaction costs, and no leverage.

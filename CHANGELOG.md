@@ -730,6 +730,44 @@ All entries must be written in English. Entries must be predictable and machine-
   - The safety audit is intentionally conservative and can emit `blocked` without failing GitHub Actions; blocked audit output means do not trade from that preview.
   - This does not improve CAGR directly. It prevents bad live/paper execution, leakage-contaminated target files, stale price use, and accidental bypass of the account-ledger path before performance tuning resumes.
 
+### 16:18 KST - actionable-export-leakage-hygiene
+
+- scope:
+  - Strip forward-return label columns from orderable portfolio CSV exports after live-trading safety audit blocked the latest concentrated target.
+- files:
+  - `r1000_pipeline.py` ->adds actionable export hygiene and applies it before writing `portfolio_latest.csv` and `concentrated_portfolio_latest.csv`.
+  - `tools/run_live_trading_safety_audit.py` ->also blocks `r_<horizon>` forward-return label columns in actionable target files.
+  - `tests/live_trading_safety_audit_smoke.py` ->covers `r_1m`, `bench_r_12m`, and `period_forward_return` stripping/blocking while preserving legitimate `future_winner_scout_score`.
+  - `CHANGELOG.md` ->records the actionable export hygiene fix.
+  - `SESSION_HANDOFF.md` ->updates the active inbox with the safety audit verdict and hygiene fix.
+- symbols_added:
+  - `drop_actionable_leakage_columns(df)` ->removes `r_*`, `bench_r_*`, and forward-return label columns from orderable portfolio exports.
+- symbols_changed:
+  - `banned_columns(columns)` ->detects `r_<horizon>` forward-return labels in addition to benchmark and explicit forward-return columns.
+  - `run_default_pipeline(...)` ->sanitizes main and concentrated actionable portfolio exports before writing CSVs.
+  - `test_live_trading_safety_blocks_forward_columns()` ->adds `r_1m` and `bench_r_6m` coverage.
+  - `test_actionable_export_hygiene_strips_forward_columns()` ->verifies the new export sanitizer.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_latest.csv` ->no longer carries future-return label columns if they accidentally enter the operational frame.
+  - `outputs/concentrated_portfolio_latest.csv` ->no longer carries future-return label columns from the concentrated latest selection frame.
+- validation:
+  - `py -3 -m py_compile r1000_pipeline.py tools\run_live_trading_safety_audit.py` ->passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Fast replay `25594827958` intentionally blocked on `concentrated_target_leakage_columns`; rerun after this commit should confirm `outputs/live_trading_safety/` passes unless another independent safety issue remains.
+  - Research artifacts may still keep forward-return labels for diagnostics; this fix applies to orderable portfolio CSV exports only.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

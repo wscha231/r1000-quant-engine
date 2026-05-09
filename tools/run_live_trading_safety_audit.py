@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,7 @@ FORWARD_EXACT = {
 }
 FORWARD_PREFIXES = ("bench_r_",)
 FORWARD_SUFFIXES = ("_forward_return",)
+FORWARD_REGEXES = (re.compile(r"^r_\d+[mdy]$"),)
 MAX_REASONABLE_PRICE_STALE_DAYS = 5
 
 
@@ -104,7 +106,12 @@ def banned_columns(columns: list[str]) -> list[str]:
     for col in columns:
         c = str(col)
         lower = c.lower()
-        if lower in FORWARD_EXACT or any(lower.startswith(prefix) for prefix in FORWARD_PREFIXES) or any(lower.endswith(suffix) for suffix in FORWARD_SUFFIXES):
+        if (
+            lower in FORWARD_EXACT
+            or any(lower.startswith(prefix) for prefix in FORWARD_PREFIXES)
+            or any(lower.endswith(suffix) for suffix in FORWARD_SUFFIXES)
+            or any(pattern.match(lower) for pattern in FORWARD_REGEXES)
+        ):
             out.append(c)
     return sorted(set(out))
 

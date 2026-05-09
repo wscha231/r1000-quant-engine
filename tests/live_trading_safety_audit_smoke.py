@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_live_trading_safety_audit import run
+from r1000_pipeline import drop_actionable_leakage_columns
 
 
 class Args:
@@ -82,7 +83,7 @@ def test_live_trading_safety_passes_clean_preview() -> None:
 def test_live_trading_safety_blocks_forward_columns() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        pd.DataFrame([{"ticker": "AAA", "weight": 0.10, "period_forward_return": 0.50}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10, "period_forward_return": 0.50, "r_1m": 0.20, "bench_r_6m": 0.10}]).to_csv(root / "portfolio_latest.csv", index=False)
         pd.DataFrame([{"ticker": "AAA", "weight": 0.50}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
         _write_preview(root, "main")
         _write_preview(root, "concentrated")
@@ -91,9 +92,30 @@ def test_live_trading_safety_blocks_forward_columns() -> None:
         assert any(row["check_id"] == "main_target_leakage_columns" for row in payload["issues"])
 
 
+def test_actionable_export_hygiene_strips_forward_columns() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "weight": 0.25,
+                "r_1m": 0.20,
+                "bench_r_12m": 0.15,
+                "period_forward_return": 0.33,
+                "future_winner_scout_score": 0.70,
+            }
+        ]
+    )
+    out = drop_actionable_leakage_columns(frame)
+    assert "r_1m" not in out.columns
+    assert "bench_r_12m" not in out.columns
+    assert "period_forward_return" not in out.columns
+    assert "future_winner_scout_score" in out.columns
+
+
 def main() -> int:
     test_live_trading_safety_passes_clean_preview()
     test_live_trading_safety_blocks_forward_columns()
+    test_actionable_export_hygiene_strips_forward_columns()
     print("live_trading_safety_audit_smoke: PASS")
     return 0
 

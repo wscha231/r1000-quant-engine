@@ -8618,6 +8618,37 @@ def _prune_export_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=drop)
 
 
+_ACTIONABLE_LEAKAGE_EXACT_COLUMNS = {
+    "period_forward_return",
+    "weighted_forward_return",
+    "raw_period_forward_return",
+    "raw_weighted_forward_return",
+    "risk_adjusted_forward_return",
+    "future_return",
+    "forward_return",
+}
+
+
+def drop_actionable_leakage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove future-return labels from orderable portfolio CSV exports."""
+    if df is None or df.empty:
+        return df
+    drop: list[str] = []
+    for col in df.columns:
+        c = str(col)
+        lower = c.lower()
+        if (
+            lower in _ACTIONABLE_LEAKAGE_EXACT_COLUMNS
+            or lower.startswith("bench_r_")
+            or lower.endswith("_forward_return")
+            or re.match(r"^r_\d+[mdy]$", lower)
+        ):
+            drop.append(c)
+    if not drop:
+        return df
+    return df.drop(columns=drop)
+
+
 def save_phase4_latest_scoring_artifacts(
     paths: dict[str, Path],
     model_features: list[str],
@@ -16962,6 +16993,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
 
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
+    portfolio_operational = drop_actionable_leakage_columns(portfolio_operational)
     portfolio_operational.to_csv(portfolio_path, index=False)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the
@@ -17028,6 +17060,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         # second yaml `manual_positions_concentrated.yaml` (Option B) would
         # be wired here if/when split-yaml mode is adopted.
         concentrated_latest_holdings = _enrich_with_live_state(concentrated_latest_holdings)
+        concentrated_latest_holdings = drop_actionable_leakage_columns(concentrated_latest_holdings)
         concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
         concentrated_top1_path.write_text(
             concentrated_latest_holdings.head(1).to_csv(index=False),
