@@ -21,6 +21,17 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from r1000_config import PORTFOLIO_GOAL_TARGETS
+except Exception:  # pragma: no cover - isolated smoke fallback
+    PORTFOLIO_GOAL_TARGETS = {
+        "main": {"cagr": 0.30, "max_dd": -0.15},
+        "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+    }
+
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/portfolio_system_guard"
 
@@ -81,6 +92,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
     maxdd_gap = max_dd_target - max_dd
     return {
         "portfolio": name,
+        "metric_source": metrics.get("_metric_source", "legacy_weight_backtest"),
         "cagr": cagr,
         "cagr_target": cagr_target,
         "cagr_pass": cagr >= cagr_target,
@@ -99,6 +111,7 @@ def write_target_gap_csv(path: Path, statuses: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "portfolio",
+        "metric_source",
         "cagr",
         "cagr_target",
         "cagr_pass",
@@ -125,16 +138,42 @@ def existing_workflows() -> list[str]:
     return sorted(path.name for path in workflow_dir.glob("*.yml"))
 
 
+def broker_or_legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
+    """Prefer account-like broker ledger metrics for target governance.
+
+    Legacy weight-level backtests remain useful for research comparison, but
+    target pass/fail must use replayed trades with cash, fills, shares, and
+    transaction costs when those artifacts exist.
+    """
+
+    broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+    legacy_name = "backtest_metrics.json" if portfolio == "main" else "concentrated_backtest_metrics.json"
+    legacy = read_json(latest_run / legacy_name)
+    if broker:
+        out = dict(broker)
+        out["_metric_source"] = "broker_ledger_next_close"
+        out["_legacy_cagr"] = metric(legacy, "cagr", "strategy_cagr") if legacy else None
+        out["_legacy_max_dd"] = metric(legacy, "max_dd", "max_drawdown") if legacy else None
+        return out
+    out = dict(legacy)
+    if out:
+        out["_metric_source"] = "legacy_weight_backtest"
+    return out
+
+
 def load_inputs(latest_run: Path) -> dict[str, Any]:
     return {
-        "main_metrics": read_json(latest_run / "backtest_metrics.json"),
-        "concentrated_metrics": read_json(latest_run / "concentrated_backtest_metrics.json"),
+        "main_metrics": broker_or_legacy_metrics(latest_run, "main"),
+        "concentrated_metrics": broker_or_legacy_metrics(latest_run, "concentrated"),
         "experiment_summary": read_json(REPO_ROOT / "outputs" / "experiments" / "experiment_matrix_summary.json"),
         "auto_learning_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "challenger_review.json"),
         "promotion_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "promotion_decision.json"),
         "policy_candidate_v2": read_json(REPO_ROOT / "outputs" / "auto_learning_v2" / "policy_candidate.json"),
         "orchestrator_replay": read_json(REPO_ROOT / "outputs" / "orchestrator_replay" / "concentrated_balanced" / "metrics.json"),
-        "goal_search": read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
+        "goal_search": read_json(latest_run / "portfolio_goal_search" / "goal_search_summary.json")
+        or read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
+        "account_evaluation": read_json(latest_run / "account_evaluation" / "account_evaluation_summary.json")
+        or read_json(REPO_ROOT / "outputs" / "account_evaluation" / "account_evaluation_summary.json"),
         "workflows": existing_workflows(),
     }
 
@@ -155,13 +194,19 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
         ("auto_learning_v2_policy_available", bool(inputs["policy_candidate_v2"]), "outputs/auto_learning_v2/policy_candidate.json"),
         ("orchestrator_replay_available", bool(inputs["orchestrator_replay"]), "outputs/orchestrator_replay/concentrated_balanced/metrics.json"),
         ("portfolio_goal_search_available", bool(inputs["goal_search"]), "outputs/portfolio_goal_search/goal_search_summary.json"),
+        ("account_evaluation_available", bool(inputs["account_evaluation"]), "outputs/account_evaluation/account_evaluation_summary.json"),
         ("github_workflows_available", bool(inputs["workflows"]), ".github/workflows"),
     ]
     out = []
     for check_id, passed, detail in checks:
         severity = "ok"
         if not passed:
-            severity = latest_artifact_severity if check_id in {"main_metrics_available", "concentrated_metrics_available"} else "error"
+            if check_id in {"main_metrics_available", "concentrated_metrics_available"}:
+                severity = latest_artifact_severity
+            elif check_id == "account_evaluation_available":
+                severity = "warn"
+            else:
+                severity = "error"
         out.append({"check": check_id, "passed": passed, "severity": severity, "detail": detail})
 
     challenger = inputs.get("auto_learning_v2") or {}
@@ -300,8 +345,8 @@ def automation_plan(inputs: dict[str, Any], targets_pass: bool) -> dict[str, Any
             "promotion_rule": "No production write without challenger pass, strict target gate, and human approval.",
         },
         "target_management": {
-            "main_target": "CAGR >= 25%, MaxDD >= -20%",
-            "concentrated_target": "CAGR >= 40%, MaxDD >= -22%",
+            "main_target": f"CAGR >= {PORTFOLIO_GOAL_TARGETS['main']['cagr']:.0%}, MaxDD >= {PORTFOLIO_GOAL_TARGETS['main']['max_dd']:.0%}",
+            "concentrated_target": f"CAGR >= {PORTFOLIO_GOAL_TARGETS['concentrated']['cagr']:.0%}, MaxDD >= {PORTFOLIO_GOAL_TARGETS['concentrated']['max_dd']:.0%}",
             "current_target_pass": targets_pass,
             "recommended_next_focus": [
                 "Concentrated full orchestrator replay at 20-30% capacity with caps.",
@@ -345,6 +390,9 @@ def render_report(
                 passed=str(row.get("target_pass")).lower(),
             )
         )
+    lines.extend(["", "Metric sources:"])
+    for row in [main_status, concentrated_status]:
+        lines.append(f"- `{row['portfolio']}`: `{row.get('metric_source', 'unknown')}`")
     lines.extend(["", f"Strict target mode: `{str(strict_targets).lower()}`", ""])
 
     lines.extend(["## Candidate Priority", ""])
@@ -473,10 +521,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--main-cagr-target", type=float, default=0.25)
-    parser.add_argument("--main-max-dd-target", type=float, default=-0.20)
-    parser.add_argument("--concentrated-cagr-target", type=float, default=0.40)
-    parser.add_argument("--concentrated-max-dd-target", type=float, default=-0.22)
+    parser.add_argument("--main-cagr-target", type=float, default=PORTFOLIO_GOAL_TARGETS["main"]["cagr"])
+    parser.add_argument("--main-max-dd-target", type=float, default=PORTFOLIO_GOAL_TARGETS["main"]["max_dd"])
+    parser.add_argument("--concentrated-cagr-target", type=float, default=PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"])
+    parser.add_argument("--concentrated-max-dd-target", type=float, default=PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"])
     parser.add_argument("--strict-targets", action="store_true")
     parser.add_argument(
         "--require-latest-artifacts",

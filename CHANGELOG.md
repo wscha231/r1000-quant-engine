@@ -432,6 +432,78 @@ All entries must be written in English. Entries must be predictable and machine-
   - The journal uses FIFO pairing for learning labels. This is appropriate for signal attribution, but tax-lot accounting remains out of scope.
   - Real broker reconciliation is still a future step; this is an account-replay learning bridge, not live execution.
 
+### 14:41 KST - broker-account-evaluation-officialization
+
+- scope:
+  - Make broker-ledger replay the official account-level performance evidence path and keep legacy weight-level backtests as research comparison only.
+- files:
+  - `tools/run_account_evaluation.py` ->adds the official broker-ledger account evaluation summary, CSV, and Markdown report.
+  - `tools/run_portfolio_system_guard.py` ->prefers broker-ledger metrics over legacy target-weight backtest metrics for target governance.
+  - `tools/run_alphaops_policy_fusion.py` ->compares candidate policies against broker-ledger production metrics when available.
+  - `tools/sync_cloud_to_drive.py` ->syncs `account_evaluation/` with other account-ledger outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs account evaluation after goal search.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs account evaluation in the fast replay workflow.
+  - `tests/account_evaluation_smoke.py` ->adds a broker-ledger official-source smoke test.
+  - `tests/portfolio_system_guard_smoke.py` ->uses synthetic broker-ledger metrics so the guard test does not depend on committed legacy artifacts.
+  - `tests/workflow_artifact_smoke.py` ->requires account evaluation workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the account evaluation officialization.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with the new official evaluation layer.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves relative account-evaluation paths against the repository root.
+  - `read_json(path)` ->loads optional account-evaluation JSON inputs.
+  - `write_json(path, payload)` ->writes account-evaluation JSON artifacts.
+  - `write_text(path, text)` ->writes account-evaluation Markdown artifacts.
+  - `safe_float(value, default)` ->normalizes numeric account-evaluation fields.
+  - `safe_int(value, default)` ->normalizes integer account-evaluation fields.
+  - `pct(value)` ->formats account-evaluation percentages for the report.
+  - `pp(value)` ->formats percentage-point gaps.
+  - `metric(row, *names)` ->reads the first available numeric metric alias.
+  - `legacy_metrics(latest_run, portfolio)` ->loads legacy comparison metrics for a portfolio.
+  - `target_for(portfolio)` ->loads configured main/concentrated CAGR and MaxDD targets for account evaluation.
+  - `summarize_portfolio(latest_run, portfolio)` ->summarizes official broker-ledger performance, account state, order preview, trade journal, and legacy comparison metrics.
+  - `summarize_goal_search(latest_run)` ->loads optional goal-search context for the account evaluation summary.
+  - `write_csv(path, rows)` ->writes portfolio account metrics as a compact CSV artifact.
+  - `render_report(payload)` ->renders the account-level evaluation Markdown report.
+  - `run(args)` ->builds all account-evaluation output artifacts.
+  - `parse_args()` ->parses account-evaluation CLI arguments.
+  - `main()` ->account-evaluation CLI entrypoint.
+  - `broker_or_legacy_metrics(latest_run, portfolio)` ->selects broker-ledger metrics first and falls back to legacy metrics only when broker evidence is absent.
+- symbols_changed:
+  - `load_inputs(latest_run)` ->loads broker-ledger metrics, account evaluation, and goal search from the requested latest-run first.
+  - `portfolio_status(name, metrics, cagr_target, max_dd_target)` ->emits the metric source used for target pass/fail.
+  - `write_target_gap_csv(path, statuses)` ->exports metric source in target-gap CSV output.
+  - `automation_plan(inputs, targets_pass)` ->uses configured 30%/50% CAGR and -15%/-18% MaxDD targets instead of stale hard-coded target text.
+  - `render_report(...)` ->prints metric sources so users can see whether guard status came from broker ledger or legacy fallback.
+  - `parse_args()` ->defaults portfolio system guard targets from `PORTFOLIO_GOAL_TARGETS`.
+  - `load_production_metrics(latest_run, portfolio)` ->uses broker-ledger replay metrics as the production baseline for policy fusion when available.
+  - `test_portfolio_system_guard_reports_target_gaps()` ->validates broker-ledger metric preference with synthetic data.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/account_evaluation/account_evaluation_summary.json` ->official account-level evaluation payload with broker-ledger target pass/fail.
+  - `outputs/account_evaluation/official_metrics.json` ->compact machine-readable official metrics by portfolio.
+  - `outputs/account_evaluation/portfolio_account_metrics.csv` ->flat account metrics, order-preview, and broker-trade-journal summary by portfolio.
+  - `outputs/account_evaluation/account_evaluation_report.md` ->human-readable official account evaluation report.
+- validation:
+  - `py -3 -m py_compile tools\run_account_evaluation.py tools\run_portfolio_system_guard.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_evidence_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Official performance is still based on monthly target books replayed through an account ledger; it is stricter than target-weight metrics but not yet a daily scored-decision simulator.
+  - Order preview remains preview-only and does not call a broker API.
+  - Account evaluation artifacts appear after the next full rebuild or fast replay run.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

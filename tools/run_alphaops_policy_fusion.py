@@ -266,14 +266,22 @@ def pp(value: float | None) -> float | None:
 
 def load_production_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
     filename = "backtest_metrics.json" if portfolio == "main" else "concentrated_backtest_metrics.json"
-    payload = read_json(latest_run / filename)
+    broker_path = latest_run / "broker_replay" / portfolio / "metrics.json"
+    payload = read_json(broker_path)
+    source = broker_path
+    metric_mode = "broker_ledger_next_close"
+    if not payload:
+        payload = read_json(latest_run / filename)
+        source = latest_run / filename
+        metric_mode = "legacy_weight_backtest"
     return {
         "cagr": safe_float(payload.get("cagr") or payload.get("strategy_cagr")),
         "max_dd": safe_float(payload.get("max_dd") or payload.get("max_drawdown")),
         "sharpe": safe_float(payload.get("sharpe")),
         "avg_cash_weight": safe_float(payload.get("avg_cash_weight")),
         "avg_turnover_monthly": safe_float(payload.get("avg_turnover_monthly")),
-        "source": rel(latest_run / filename),
+        "source": rel(source),
+        "metric_mode": metric_mode,
     }
 
 

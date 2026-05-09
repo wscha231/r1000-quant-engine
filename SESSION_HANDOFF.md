@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 13:28 KST (Account ledger order preview bridge)
+# Session Handoff - 2026-05-09 14:41 KST (Official account evaluation layer)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,66 +6,63 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 13:28 KST) - Account ledger order preview bridge
+## ACTIVE INBOX (2026-05-09 14:41 KST) - Official account evaluation layer
 
-Latest account-ledger update:
-- User asked to build a real-account-like system before further CAGR/MDD
-  optimization.
-- Added account-ledger bridge on branch `codex/broker-ledger-replay-foundation`:
-  - `tools/run_broker_ledger_replay.py` now exports
-    `account_state_latest.json`, `positions_latest.csv`, and max-DD
-    peak/trough metadata.
-  - `tools/run_account_order_preview.py` creates preview-only sell-first /
-    buy-second order tickets from account state, latest target portfolio,
-    cached prices, cash, integer shares, limit-price margin, and estimated
-    fees.
-  - `tools/run_portfolio_goal_search.py` now separates research/proxy winners
-    from production-compatible winners; production pass requires valid
-    production evidence.
-  - Follow-up fix: legacy target-weight `backtest_metrics.json` and
-    `concentrated_backtest_metrics.json` are now research-comparison metrics,
-    not production-compatible evidence. Current production-like goal candidates
-    must come from valid broker-ledger replay.
-  - New broker-learning bridge:
-    - `tools/run_broker_trade_journal.py` reconstructs broker replay BUY/SELL
-      executions into round-trip journals under `outputs/broker_trade_journal/`.
-    - It joins point-in-time entry evidence from candidate/target books and
-      excludes forward-return labels from entry features.
-    - `r1000_auto_learning_evidence.py` now prefers broker-ledger metrics and
-      broker round-trip journals when available.
-    - AutoLearning v2 therefore sees actual account-replay trades first, while
-      legacy trade journals remain fallback evidence.
-  - Full rebuild and fast replay workflows now archive/sync
-    `outputs/account_ledger_preview/`.
-- Important behavior:
-  - No broker API is called.
-  - No live or paper orders are placed.
-  - If no explicit preview date is supplied, order preview marks holdings to
-    the latest cached close across current holdings and target tickers, not
-    merely the stale account-state JSON date.
-- Validation passed:
-  - `py -3 -m py_compile tools\run_broker_ledger_replay.py tools\run_account_order_preview.py tools\run_portfolio_goal_search.py`
-  - `py -3 tests\broker_ledger_replay_smoke.py`
-  - `py -3 tests\account_order_preview_smoke.py`
+Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
+- The engine now has a stricter account-like evaluation chain:
+  1. `tools/run_broker_ledger_replay.py` replays monthly target books through
+     next-close fills, integer shares, cash, transaction costs, and no leverage.
+  2. `tools/run_broker_trade_journal.py` converts broker replay executions into
+     FIFO round-trip journals and joins point-in-time entry evidence for
+     AutoLearning.
+  3. `tools/run_account_order_preview.py` creates preview-only sell-first /
+     buy-second order tickets from account state and latest target portfolios.
+  4. `tools/run_account_evaluation.py` is the new official account-level
+     performance summary under `outputs/account_evaluation/`.
+- Important governance change:
+  - `tools/run_portfolio_goal_search.py` already separates research/proxy
+    target pass from production-compatible target pass.
+  - `tools/run_portfolio_system_guard.py` now uses broker-ledger metrics first
+    for target pass/fail and falls back to legacy metrics only when broker
+    evidence is absent.
+  - `tools/run_alphaops_policy_fusion.py` now compares candidate policies
+    against broker-ledger production metrics when available.
+  - Legacy `backtest_metrics.json` and `concentrated_backtest_metrics.json`
+    remain research-comparison artifacts, not official production evidence.
+- Latest verified replay evidence from run `25592296646`:
+  - main broker ledger: CAGR 20.96%, MaxDD -36.47%, Sharpe 0.972, avg cash
+    5.43%, 1,918 round trips, win rate 54.7%.
+  - concentrated broker ledger: CAGR 34.53%, MaxDD -40.38%, Sharpe 1.091, avg
+    cash 0.04%, 244 round trips, win rate 61.1%.
+  - Research/proxy candidates can show target pass, but production target pass
+    remains false until the account-ledger/daily validation path confirms them.
+- No broker API is called and no live/paper orders are placed. These are
+  replay, journal, and order-preview artifacts only.
+- Validation passed after the latest change:
+  - `py -3 -m py_compile tools\run_account_evaluation.py tools\run_portfolio_system_guard.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\portfolio_system_guard_smoke.py`
   - `py -3 tests\portfolio_goal_search_smoke.py`
+  - `py -3 tests\alphaops_policy_fusion_smoke.py`
   - `py -3 tests\broker_trade_journal_smoke.py`
   - `py -3 tests\auto_learning_evidence_smoke.py`
-  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\broker_ledger_replay_smoke.py`
   - `py -3 tests\smoke_test.py` (89/89)
   - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
   - `git diff --check`
 - Next steps:
-  1. Commit/push this branch.
+  1. Commit/push the branch.
   2. Register the fast replay workflow update on `master` so GitHub can
      dispatch it from the branch.
   3. Trigger `alphaops_replay_sidecars_manual.yml` on
      `codex/broker-ledger-replay-foundation` using source run `25581634925`.
-  4. Inspect `outputs/broker_trade_journal/*`,
-     `outputs/account_ledger_preview/main/*`,
-     `outputs/account_ledger_preview/concentrated/*`,
-     `outputs/auto_learning_v2/*`, and updated `outputs/portfolio_goal_search/*`.
-  5. Next engineering phase is replacing JSON account state with an actual
-     paper broker position/fill reconciliation adapter.
+  4. Inspect `outputs/account_evaluation/*`, `outputs/broker_trade_journal/*`,
+     `outputs/account_ledger_preview/*`, `outputs/portfolio_goal_search/*`,
+     and Google Drive sync.
+  5. Next engineering phase is a daily/account simulator that can evaluate true
+     dated decisions closer to paper/live trading, while keeping broker-ledger
+     official metrics as the current baseline.
 
 ## RECENT CONTEXT (2026-05-08) - AlphaOps policy fusion arbitration
 

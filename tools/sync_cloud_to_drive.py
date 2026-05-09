@@ -68,6 +68,7 @@ SYNC_DIRS = [
     "broker_replay",
     "broker_trade_journal",
     "account_ledger_preview",
+    "account_evaluation",
     "auto_learning",
     "macro_policy_engine",
     "selection_audit",
