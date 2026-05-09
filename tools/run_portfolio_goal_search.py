@@ -614,9 +614,25 @@ def best_production_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return dict(production_rows[0])
 
 
-def next_actions(best_main: dict[str, Any], best_concentrated: dict[str, Any]) -> list[str]:
+def next_actions(
+    best_main: dict[str, Any],
+    best_concentrated: dict[str, Any],
+    best_production_main: dict[str, Any],
+    best_production_concentrated: dict[str, Any],
+) -> list[str]:
     actions: list[str] = []
-    if not best_main.get("target_pass"):
+    if not best_production_main.get("target_pass"):
+        if best_main.get("target_pass") and not best_main.get("valid_for_production"):
+            actions.append(
+                "Main: research/proxy target-pass exists, but no production-compatible account replay passes; convert the rule to broker-ledger evidence before promotion."
+            )
+        elif best_production_main.get("candidate_id"):
+            actions.append(
+                "Main: production-compatible candidate exists but misses target; inspect broker-ledger trades, cash drag, and MDD before changing live policy."
+            )
+        else:
+            actions.append("Main: no production-compatible candidate found; run broker-ledger replay before promotion review.")
+    elif not best_main.get("target_pass"):
         action = best_main.get("governance_action")
         if action == "needs_alpha_boost":
             actions.append("Main: keep drawdown controls and test Main v2 target N 12/15 with future_winner-heavy sleeve allocation.")
@@ -625,9 +641,20 @@ def next_actions(best_main: dict[str, Any], best_concentrated: dict[str, Any]) -
         else:
             actions.append("Main: run true Main v2 historical challenger; current artifacts do not meet both CAGR and MaxDD targets.")
     else:
-        actions.append("Main: target-pass candidate exists; require strict gate, stress windows, turnover, and human approval.")
+        actions.append("Main: production-compatible target-pass candidate exists; require stress windows, turnover, leakage audit, and human approval.")
 
-    if not best_concentrated.get("target_pass"):
+    if not best_production_concentrated.get("target_pass"):
+        if best_concentrated.get("target_pass") and not best_concentrated.get("valid_for_production"):
+            actions.append(
+                "Concentrated: research/proxy target-pass exists, but broker-ledger conversion does not pass; do not promote until next-close replay supports it."
+            )
+        elif best_production_concentrated.get("candidate_id"):
+            actions.append(
+                "Concentrated: production-compatible candidate exists but misses target; improve staged sizing, replacement, and distribution exits in broker-ledger replay."
+            )
+        else:
+            actions.append("Concentrated: no production-compatible candidate found; run broker-ledger replay before promotion review.")
+    elif not best_concentrated.get("target_pass"):
         action = best_concentrated.get("governance_action")
         if action == "needs_alpha_boost":
             actions.append("Concentrated: search N/weighting grid, staged entry, and Alpha Sprint overlay; current best lacks CAGR.")
@@ -636,7 +663,7 @@ def next_actions(best_main: dict[str, Any], best_concentrated: dict[str, Any]) -
         else:
             actions.append("Concentrated: run full concentrated grid replay from concentrated_strategy_monthly and reject proxy-only evidence.")
     else:
-        actions.append("Concentrated: target-pass candidate exists; validate caps, timing, turnover, and production promotion gates.")
+        actions.append("Concentrated: production-compatible target-pass candidate exists; validate caps, timing, turnover, and production promotion gates.")
     return actions
 
 
@@ -740,21 +767,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     best_concentrated = best_summary(concentrated_candidates)
     best_production_main = best_production_summary(main_candidates)
     best_production_concentrated = best_production_summary(concentrated_candidates)
+    research_target_pass = bool(best_main.get("target_pass") and best_concentrated.get("target_pass"))
+    production_target_pass = bool(
+        best_production_main.get("target_pass")
+        and best_production_concentrated.get("target_pass")
+    )
     payload = {
         "latest_run": rel(latest_run),
-        "research_target_pass": bool(best_main.get("target_pass") and best_concentrated.get("target_pass")),
-        "target_pass": bool(best_main.get("target_pass") and best_concentrated.get("target_pass")),
-        "production_target_pass": bool(
-            best_production_main.get("target_pass")
-            and best_production_concentrated.get("target_pass")
-        ),
+        "research_target_pass": research_target_pass,
+        "target_pass": production_target_pass,
+        "production_target_pass": production_target_pass,
         "best_main": best_main,
         "best_concentrated": best_concentrated,
         "best_production_main": best_production_main,
         "best_production_concentrated": best_production_concentrated,
         "main_candidates": main_candidates,
         "concentrated_candidates": concentrated_candidates,
-        "next_actions": next_actions(best_main, best_concentrated),
+        "next_actions": next_actions(best_main, best_concentrated, best_production_main, best_production_concentrated),
     }
 
     fields = [
@@ -795,7 +824,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     payload = run(parse_args())
-    print(json.dumps({"target_pass": payload["target_pass"], "next_actions": payload["next_actions"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "target_pass": payload["target_pass"],
+                "research_target_pass": payload["research_target_pass"],
+                "production_target_pass": payload["production_target_pass"],
+                "next_actions": payload["next_actions"],
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

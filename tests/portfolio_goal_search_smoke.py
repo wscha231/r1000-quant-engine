@@ -63,6 +63,8 @@ def main() -> int:
         assert payload2["best_main"]["candidate_id"] == "main_latest_champion"
         assert payload2["best_production_main"]["candidate_id"] == "main_broker_ledger_replay"
         assert payload2["best_production_concentrated"]["candidate_id"] == "concentrated_broker_ledger_replay"
+        assert payload2["research_target_pass"] is True
+        assert payload2["target_pass"] is False
         assert payload2["production_target_pass"] is False
     return 0
 

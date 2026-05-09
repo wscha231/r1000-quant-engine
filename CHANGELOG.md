@@ -571,6 +571,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - Actual broker API execution remains out of scope.
   - AutoLearning remains proposal-only until an account-compatible replay candidate passes the documented production gates and human approval.
 
+### 15:20 KST - production-target-pass-clarity
+
+- scope:
+  - Make goal-search top-level target pass mean production-compatible target pass, leaving proxy/research success under `research_target_pass`.
+- files:
+  - `tools/run_portfolio_goal_search.py` ->changes `target_pass` to production-compatible pass/fail, keeps `research_target_pass`, and makes next actions prioritize broker-ledger evidence.
+  - `tests/portfolio_goal_search_smoke.py` ->asserts proxy target pass no longer implies production target pass.
+  - `CHANGELOG.md` ->records the production target-pass clarification.
+  - `SESSION_HANDOFF.md` ->records replay run `25593756248` and the broker-ledger conversion result.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `next_actions(best_main, best_concentrated, best_production_main, best_production_concentrated)` ->now distinguishes proxy/research target-pass from production-compatible target-pass.
+  - `run(args)` ->sets top-level `target_pass` equal to `production_target_pass` and keeps proxy success in `research_target_pass`.
+  - `main()` ->prints research and production target-pass separately.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` top-level `target_pass` is now stricter; consumers that want proxy success must read `research_target_pass`.
+- outputs:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->top-level `target_pass` now means production-compatible target pass.
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py tools\run_broker_position_risk_replay.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is a reporting/governance correction only; it does not change portfolio selection defaults.
+  - Fast replay `25593756248` showed proxy target-pass does not survive broker-position-risk conversion, so production promotion remains blocked.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

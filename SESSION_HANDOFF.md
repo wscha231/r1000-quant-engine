@@ -58,6 +58,22 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - `PRODUCTION_PROMOTION_GATES.md` defines the promotion path:
     proposal -> research replay -> account-compatible replay -> shadow ->
     canary -> production.
+- Latest conversion run:
+  - Branch commit `c2ac470` pushed to `codex/broker-ledger-replay-foundation`.
+  - Master workflow registration commit `464dbde` pushed so the fast replay
+    workflow can run the broker-position-risk sidecar.
+  - GitHub fast replay run `25593756248` completed successfully from source
+    full run `25581634925`.
+  - Broker-position-risk account replay results:
+    - main: CAGR 16.16%, MaxDD -37.17%, Sharpe 0.908, avg cash 15.04%,
+      394 exits, 129 trims.
+    - concentrated: CAGR 20.45%, MaxDD -50.16%, Sharpe 0.843, avg cash
+      10.80%, 48 exits, 15 trims.
+  - Verdict: proxy position-risk target pass did not survive conversion to
+    next-close broker-ledger evidence. Do not promote this policy.
+  - Governance fix in progress: `tools/run_portfolio_goal_search.py` should use
+    top-level `target_pass` for production-compatible pass/fail only; proxy
+    success remains under `research_target_pass`.
 - Validation passed after the latest change:
   - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py`
   - `py -3 tests\broker_position_risk_replay_smoke.py`
