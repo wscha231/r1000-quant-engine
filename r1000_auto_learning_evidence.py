@@ -168,6 +168,9 @@ def load_auto_learning_evidence(
     if not run_path.is_absolute():
         run_path = root_path / run_path
 
+    broker_main_trade_path = run_path / "broker_trade_journal" / "main" / "round_trips.csv"
+    broker_concentrated_trade_path = run_path / "broker_trade_journal" / "concentrated" / "round_trips.csv"
+    broker_combined_trade_path = run_path / "broker_trade_journal" / "combined_round_trips.csv"
     trade_path = run_path / "trade_journal" / "trades.csv"
     if not trade_path.exists():
         trade_path = run_path / "trade_journal" / "trade_journal" / "trades.csv"
@@ -177,10 +180,22 @@ def load_auto_learning_evidence(
     sleeve_audit_path = run_path / "reports" / "global_alpha_sleeve_audit_summary.csv"
     feature_gate_path = run_path / "auto_learning" / "auto_feature_gates_candidate.yaml"
 
-    main_metrics = read_json(run_path / "backtest_metrics.json")
-    concentrated_metrics = read_json(run_path / "concentrated_backtest_metrics.json")
-    trade_rows = read_csv_rows(trade_path)
-    concentrated_trade_rows = read_csv_rows(concentrated_trade_path)
+    legacy_main_metrics = read_json(run_path / "backtest_metrics.json")
+    legacy_concentrated_metrics = read_json(run_path / "concentrated_backtest_metrics.json")
+    broker_main_metrics = read_json(run_path / "broker_replay" / "main" / "metrics.json")
+    broker_concentrated_metrics = read_json(run_path / "broker_replay" / "concentrated" / "metrics.json")
+    main_metrics = {**legacy_main_metrics, **broker_main_metrics} if broker_main_metrics else legacy_main_metrics
+    concentrated_metrics = (
+        {**legacy_concentrated_metrics, **broker_concentrated_metrics}
+        if broker_concentrated_metrics
+        else legacy_concentrated_metrics
+    )
+    broker_main_trade_rows = read_csv_rows(broker_main_trade_path)
+    broker_concentrated_trade_rows = read_csv_rows(broker_concentrated_trade_path)
+    broker_combined_trade_rows = read_csv_rows(broker_combined_trade_path)
+    trade_rows = broker_main_trade_rows or read_csv_rows(trade_path)
+    concentrated_trade_rows = broker_concentrated_trade_rows or read_csv_rows(concentrated_trade_path)
+    combined_rows = broker_combined_trade_rows or (trade_rows + concentrated_trade_rows)
     sleeve_audit_rows = read_csv_rows(sleeve_audit_path)
     main_v2_audit = read_json(root_path / "outputs" / "main_v2" / "main_v2_audit_latest.json")
     concentrated_policy_audit = read_json(root_path / "outputs" / "concentrated_policy" / "policy_audit_latest.json")
@@ -191,18 +206,23 @@ def load_auto_learning_evidence(
         "paths": {
             "trade_journal": str(trade_path),
             "concentrated_trade_journal": str(concentrated_trade_path),
+            "broker_main_trade_journal": str(broker_main_trade_path),
+            "broker_concentrated_trade_journal": str(broker_concentrated_trade_path),
+            "broker_combined_trade_journal": str(broker_combined_trade_path),
             "sleeve_audit": str(sleeve_audit_path),
             "feature_gate_candidate": str(feature_gate_path),
-            "main_metrics": str(run_path / "backtest_metrics.json"),
-            "concentrated_metrics": str(run_path / "concentrated_backtest_metrics.json"),
+            "main_metrics": str(run_path / "broker_replay" / "main" / "metrics.json" if broker_main_metrics else run_path / "backtest_metrics.json"),
+            "concentrated_metrics": str(run_path / "broker_replay" / "concentrated" / "metrics.json" if broker_concentrated_metrics else run_path / "concentrated_backtest_metrics.json"),
             "main_v2_audit": str(root_path / "outputs" / "main_v2" / "main_v2_audit_latest.json"),
             "concentrated_policy_audit": str(root_path / "outputs" / "concentrated_policy" / "policy_audit_latest.json"),
             "alpha_sprint_latest": str(root_path / "outputs" / "alpha_sprint" / "alpha_sprint_latest.json"),
         },
+        "evidence_mode": "broker_ledger" if (broker_main_metrics or broker_concentrated_metrics or broker_combined_trade_rows) else "legacy_trade_journal",
         "metrics": summarize_metrics(main_metrics, concentrated_metrics),
+        "broker_trade_journal": summarize_trades(broker_combined_trade_rows),
         "trade_journal": summarize_trades(trade_rows),
         "concentrated_trade_journal": summarize_trades(concentrated_trade_rows),
-        "combined_trade_journal": summarize_trades(trade_rows + concentrated_trade_rows),
+        "combined_trade_journal": summarize_trades(combined_rows),
         "feature_gate_candidate": parse_feature_gate_candidate(feature_gate_path),
         "sleeve_audit": summarize_sleeve_audit(sleeve_audit_rows),
         "main_v2": main_v2_audit,

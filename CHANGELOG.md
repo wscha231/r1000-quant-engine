@@ -370,6 +370,68 @@ All entries must be written in English. Entries must be predictable and machine-
   - This intentionally makes production target pass stricter than research target pass.
   - Strong legacy CAGR/MDD values remain visible in research rankings but must not be used as production proof until broker-ledger or paper/live replay confirms them.
 
+### 13:56 KST - broker-ledger-autolearning-journal
+
+- scope:
+  - Connect broker-ledger replay to AutoLearning by creating round-trip broker trade journals and making AutoLearning evidence prefer broker-ledger metrics/trades over legacy target-weight artifacts.
+- files:
+  - `tools/run_broker_trade_journal.py` ->reconstructs FIFO round-trip trades from broker replay executions, joins point-in-time entry evidence, excludes forward-return labels, and writes main/concentrated/combined journals.
+  - `r1000_auto_learning_evidence.py` ->prefers `broker_replay/*/metrics.json` and `broker_trade_journal/*/round_trips.csv` while retaining legacy metadata fields for diagnostics.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs broker trade journal after broker replay and before AutoLearning v2, and archives/syncs `outputs/broker_trade_journal/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs broker trade journal in fast replay sidecars and syncs the journal artifacts.
+  - `tools/sync_cloud_to_drive.py` ->adds broker replay, broker trade journal, and account order preview to local Drive sync.
+  - `tests/broker_trade_journal_smoke.py` ->verifies round-trip pairing, realized returns, entry evidence, and forward-label exclusion.
+  - `tests/auto_learning_evidence_smoke.py` ->verifies AutoLearning evidence prioritizes broker-ledger metrics and broker round-trip trades.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow commands, logs, artifacts, and sync tokens for broker trade journal.
+  - `CHANGELOG.md` ->records the broker-ledger AutoLearning journal bridge.
+- symbols_added:
+  - `is_label_column(column)` ->blocks forward-return and label columns from entry evidence.
+  - `prepare_entry_evidence(latest_run, portfolio_kind)` ->loads point-in-time candidate/target evidence for journal enrichment.
+  - `evidence_lookup(evidence)` ->builds `(rebalance_date, ticker)` lookup rows.
+  - `signal_breakdown(evidence)` ->serializes selected entry signal values for downstream trade insight tooling.
+  - `add_entry_fields(row, entry_evidence)` ->adds sleeve, regime, theme, style, quality, leadership, and liquidity fields to a trade row.
+  - `classify_trade(realized_return, holding_days)` ->assigns simple WIN/LOSS/TRAP/BIG_WIN labels from broker round-trip outcomes.
+  - `build_round_trips(trades, evidence, portfolio_kind)` ->pairs broker BUY/SELL executions into round-trip trades and open lots.
+  - `summary_stats(round_trips, metrics, portfolio_kind)` ->summarizes broker journal win rate, average return, holding period, grade counts, and linked broker metrics.
+  - `render_report(payload)` ->writes broker trade journal report text.
+  - `write_frame(path, frame)` ->writes journal CSV outputs.
+  - `run(args)` ->runs broker trade journal generation.
+  - `parse_args()` ->parses broker trade journal CLI arguments.
+  - `main()` ->broker trade journal CLI entrypoint.
+- symbols_changed:
+  - `load_auto_learning_evidence()` ->uses broker-ledger metrics and broker round-trip journals when present, falling back to legacy trade journals only when broker evidence is unavailable.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/broker_trade_journal/` in artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects broker trade journal command and log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->expects broker trade journal in fast replay.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_trade_journal/main/round_trips.csv` ->main portfolio broker-ledger round-trip trades.
+  - `outputs/broker_trade_journal/main/open_positions.csv` ->main open lots after replay.
+  - `outputs/broker_trade_journal/main/summary.json` ->main broker trade journal summary.
+  - `outputs/broker_trade_journal/concentrated/round_trips.csv` ->concentrated broker-ledger round-trip trades.
+  - `outputs/broker_trade_journal/concentrated/open_positions.csv` ->concentrated open lots after replay.
+  - `outputs/broker_trade_journal/concentrated/summary.json` ->concentrated broker trade journal summary.
+  - `outputs/broker_trade_journal/combined_round_trips.csv` ->combined broker trade journal for AutoLearning evidence.
+  - `outputs/broker_trade_journal/combined_open_positions.csv` ->combined open lots.
+  - `outputs/broker_trade_journal/summary.json` ->combined summary.
+  - `outputs/broker_trade_journal/broker_trade_journal_report.md` ->human-readable report.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_trade_journal.py r1000_auto_learning_evidence.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_evidence_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_v2_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/full_rebuild_manual.yml','.github/workflows/alphaops_replay_sidecars_manual.yml']]"` ->passed.
+- risks_or_notes:
+  - Broker journal enrichment depends on source reports being present in the run directory; fast replay has those during execution, but previously downloaded replay-only artifacts may not include the source reports.
+  - The journal uses FIFO pairing for learning labels. This is appropriate for signal attribution, but tax-lot accounting remains out of scope.
+  - Real broker reconciliation is still a future step; this is an account-replay learning bridge, not live execution.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

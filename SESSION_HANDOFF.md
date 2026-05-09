@@ -26,6 +26,15 @@ Latest account-ledger update:
     `concentrated_backtest_metrics.json` are now research-comparison metrics,
     not production-compatible evidence. Current production-like goal candidates
     must come from valid broker-ledger replay.
+  - New broker-learning bridge:
+    - `tools/run_broker_trade_journal.py` reconstructs broker replay BUY/SELL
+      executions into round-trip journals under `outputs/broker_trade_journal/`.
+    - It joins point-in-time entry evidence from candidate/target books and
+      excludes forward-return labels from entry features.
+    - `r1000_auto_learning_evidence.py` now prefers broker-ledger metrics and
+      broker round-trip journals when available.
+    - AutoLearning v2 therefore sees actual account-replay trades first, while
+      legacy trade journals remain fallback evidence.
   - Full rebuild and fast replay workflows now archive/sync
     `outputs/account_ledger_preview/`.
 - Important behavior:
@@ -39,6 +48,8 @@ Latest account-ledger update:
   - `py -3 tests\broker_ledger_replay_smoke.py`
   - `py -3 tests\account_order_preview_smoke.py`
   - `py -3 tests\portfolio_goal_search_smoke.py`
+  - `py -3 tests\broker_trade_journal_smoke.py`
+  - `py -3 tests\auto_learning_evidence_smoke.py`
   - `py -3 tests\workflow_artifact_smoke.py`
   - `py -3 tests\smoke_test.py` (89/89)
   - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
@@ -49,9 +60,10 @@ Latest account-ledger update:
      dispatch it from the branch.
   3. Trigger `alphaops_replay_sidecars_manual.yml` on
      `codex/broker-ledger-replay-foundation` using source run `25581634925`.
-  4. Inspect `outputs/account_ledger_preview/main/*`,
-     `outputs/account_ledger_preview/concentrated/*`, and updated
-     `outputs/portfolio_goal_search/*`.
+  4. Inspect `outputs/broker_trade_journal/*`,
+     `outputs/account_ledger_preview/main/*`,
+     `outputs/account_ledger_preview/concentrated/*`,
+     `outputs/auto_learning_v2/*`, and updated `outputs/portfolio_goal_search/*`.
   5. Next engineering phase is replacing JSON account state with an actual
      paper broker position/fill reconciliation adapter.
 
