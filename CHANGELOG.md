@@ -605,6 +605,68 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is a reporting/governance correction only; it does not change portfolio selection defaults.
   - Fast replay `25593756248` showed proxy target-pass does not survive broker-position-risk conversion, so production promotion remains blocked.
 
+### 15:40 KST - broker-ledger-gap-and-execution-policy
+
+- scope:
+  - Add account-ledger gap attribution and a research-only account-aware execution replay to redesign buy/sell behavior around the new evaluation system.
+- files:
+  - `tools/run_broker_gap_attribution.py` ->adds diagnostic comparison of monthly/proxy forward-return accounting versus broker-ledger account replay.
+  - `tools/run_broker_execution_policy_replay.py` ->adds broker-ledger execution challenger with no-trade bands, staged entries, minimum holding, and winner trim deferral.
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated broker execution-policy replay candidates as production-compatible evidence when metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` ->adds `account_aware_execution` policy rows for main and concentrated.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs gap attribution and execution-policy replay outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs gap attribution and execution-policy replay in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `broker_execution_policy_replay/` and `broker_gap_attribution/`.
+  - `tests/broker_execution_policy_replay_smoke.py` ->verifies small target-weight changes are not forced into extra trades.
+  - `tests/broker_gap_attribution_smoke.py` ->verifies diagnostic output reads target forward returns and broker-ledger metrics separately.
+  - `tests/workflow_artifact_smoke.py` ->requires new workflow commands, logs, and artifact paths.
+  - `CHANGELOG.md` ->records the broker-ledger redesign step.
+- symbols_added:
+  - `target_forward_stats(target_book, portfolio_kind)` ->computes legacy/proxy monthly forward-return diagnostics and target churn.
+  - `broker_stats(broker_dir)` ->computes broker-ledger daily/month-end drawdown, fees, trades, and cash diagnostics.
+  - `portfolio_attribution(latest_run, portfolio_kind)` ->combines target and broker diagnostics for a portfolio.
+  - `run(latest_run, output_dir)` ->writes broker gap attribution JSON, CSV, and Markdown.
+  - `held_days(holding_since, ticker, date)` ->tracks position holding age for execution-policy decisions.
+  - `unrealized_return(state, ticker, price)` ->computes observable unrealized return from cost basis.
+  - `execute_policy_order(...)` ->executes an account-ledger order while maintaining holding-age state.
+  - `maybe_exit_missing_target(...)` ->decides whether to exit a ticker missing from the new monthly target book.
+  - `replay(...)` ->runs account-aware execution replay and writes metrics, trades, holdings, cash, and policy decisions.
+  - `render_report(metrics)` ->renders execution-policy replay summary Markdown.
+  - `main()` ->CLI entrypoints for the new tools.
+  - `test_broker_execution_policy_replay_smoke.main()` ->synthetic no-trade-band regression test.
+  - `test_broker_gap_attribution_smoke.main()` ->synthetic broker-gap attribution regression test.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_broker_execution_policy_replay` and `concentrated_broker_execution_policy_replay`.
+  - `build_metric_policies(latest_run)` ->adds `account_aware_execution` policy rows.
+  - `SYNC_DIRS` ->includes `broker_execution_policy_replay` and `broker_gap_attribution`.
+  - `test_workflow_keeps_monthly_books()` ->requires new artifact directories.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires new full-run commands and logs.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires new fast replay commands and artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_gap_attribution/gap_attribution_summary.json` ->diagnostic gap decomposition for monthly/proxy versus broker-ledger metrics.
+  - `outputs/broker_gap_attribution/monthly_gap_attribution.csv` ->monthly target/proxy versus broker return and cost diagnostics.
+  - `outputs/broker_gap_attribution/gap_attribution_report.md` ->human-readable explanation of the metric collapse.
+  - `outputs/broker_execution_policy_replay/{main,concentrated}/metrics.json` ->account-aware execution challenger metrics.
+  - `outputs/broker_execution_policy_replay/{main,concentrated}/policy_decisions.csv` ->hold/buy/sell decisions and skipped churn reasons.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_gap_attribution.py tools\run_broker_execution_policy_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py` ->passed.
+  - `py -3 tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `py -3 tests\broker_gap_attribution_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Execution-policy replay is a research challenger, not a production default.
+  - Gap attribution reads `weighted_forward_return` only for diagnostics; it must not feed production selection.
+  - The next fast replay must determine whether account-aware execution improves broker-ledger CAGR/MDD versus the mechanical monthly broker replay.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

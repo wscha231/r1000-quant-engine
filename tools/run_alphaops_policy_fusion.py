@@ -508,6 +508,26 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
             "Requires stale-leader and hard-stop vetoes to avoid holding broken former leaders.",
             "Conflicts with stale-leader trim and hard stops.",
         ),
+        (
+            "account_aware_execution",
+            "main",
+            "production",
+            find_candidate(main_candidates, "main_broker_execution_policy_replay"),
+            main_production,
+            "Broker-ledger execution challenger that reduces monthly churn, stages new entries, and defers small trims.",
+            "Requires account-ledger target pass, turnover review, and stress-window validation before production activation.",
+            "Changes execution behavior after alpha selection; must yield to hard exits and crisis cash rules.",
+        ),
+        (
+            "account_aware_execution",
+            "concentrated",
+            "production",
+            find_candidate(concentrated_candidates, "concentrated_broker_execution_policy_replay"),
+            concentrated_production,
+            "Concentrated broker-ledger execution challenger for holding winners longer while reducing forced monthly churn.",
+            "Requires account-ledger target pass, liquidity/cap review, and stress-window validation before production activation.",
+            "Changes execution behavior after alpha selection; must yield to hard exits and crisis cash rules.",
+        ),
     ]
     for policy_id, portfolio, evidence_type, metrics, production, notes, dependencies, conflicts in metric_map:
         if not metrics:

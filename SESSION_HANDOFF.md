@@ -74,6 +74,32 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
   - Governance fix in progress: `tools/run_portfolio_goal_search.py` should use
     top-level `target_pass` for production-compatible pass/fail only; proxy
     success remains under `research_target_pass`.
+- Current development response to the metric collapse:
+  - Root-cause finding: the old monthly/proxy accounting can show strong CAGR
+    and mild MDD while broker-ledger replay collapses because monthly returns
+    hide intramonth drawdown and the target books cause high churn, fees, and
+    forced monthly replacement.
+  - Local attribution on source run `25581634925` plus broker replay
+    `25593991828`:
+    - main proxy/implied CAGR 35.57% vs broker 20.96%, CAGR gap 14.61pp,
+      target turnover 53.30%, fees $42,519, daily MDD -36.47%.
+    - concentrated proxy/implied CAGR 56.60% vs broker 34.53%, CAGR gap
+      22.07pp, target turnover 61.89%, fees $75,678, daily MDD -40.38%.
+  - New diagnostic sidecar:
+    - `tools/run_broker_gap_attribution.py`
+    - outputs `outputs/broker_gap_attribution/`.
+  - New research challenger:
+    - `tools/run_broker_execution_policy_replay.py`
+    - outputs `outputs/broker_execution_policy_replay/`.
+    - It keeps production defaults unchanged but tests no-trade bands, staged
+      entries, minimum holding, and winner trim deferral under broker-ledger
+      next-close accounting.
+  - Next required action after commit/push:
+    - Run fast replay from source run `25581634925` on the latest branch HEAD.
+    - Inspect `outputs/broker_execution_policy_replay/{main,concentrated}/metrics.json`
+      versus `outputs/broker_replay/{main,concentrated}/metrics.json`.
+    - If execution-policy improves account-ledger CAGR/MDD without target pass,
+      use it as the next AutoLearning optimization surface, not production.
 - Validation passed after the latest change:
   - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py`
   - `py -3 tests\broker_position_risk_replay_smoke.py`

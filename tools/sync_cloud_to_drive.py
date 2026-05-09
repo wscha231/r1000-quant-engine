@@ -73,6 +73,8 @@ SYNC_DIRS = [
     "macro_policy_engine",
     "selection_audit",
     "broker_position_risk_replay",
+    "broker_execution_policy_replay",
+    "broker_gap_attribution",
 ]
 
 
