@@ -305,6 +305,8 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
     years = max((dates.max() - dates.min()).days / 365.25, len(returns) / 252.0, 1e-6)
     cagr = float((eq.iloc[-1] / max(starting_capital, 1e-12)) ** (1.0 / years) - 1.0)
     drawdown = eq / eq.cummax() - 1.0
+    trough_pos = int(drawdown.argmin()) if not drawdown.empty else 0
+    peak_pos = int(eq.iloc[: trough_pos + 1].argmax()) if not eq.empty else 0
     vol = float(returns.std(ddof=0) * math.sqrt(252.0)) if not returns.empty else 0.0
     sharpe = float((returns.mean() * 252.0) / (vol + 1e-12)) if not returns.empty else 0.0
     fees = float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
@@ -322,12 +324,79 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
         "cagr": cagr,
         "sharpe": sharpe,
         "max_dd": float(drawdown.min()),
+        "max_dd_peak_date": dates.iloc[peak_pos].date().isoformat() if len(dates) else None,
+        "max_dd_trough_date": dates.iloc[trough_pos].date().isoformat() if len(dates) else None,
+        "max_dd_peak_equity_usd": float(eq.iloc[peak_pos]) if len(eq) else None,
+        "max_dd_trough_equity_usd": float(eq.iloc[trough_pos]) if len(eq) else None,
         "avg_cash_weight": float(pd.to_numeric(equity_curve.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()),
         "min_cash_usd": float(pd.to_numeric(equity_curve.get("cash_usd", pd.Series(dtype=float)), errors="coerce").min()),
         "trade_count": int(len(trades)),
         "total_fees_usd": fees,
         "gross_traded_usd": gross_traded,
     }
+
+
+def latest_account_state(
+    *,
+    state: LedgerState,
+    prices: dict[str, pd.DataFrame],
+    as_of_date: pd.Timestamp,
+    metrics: dict[str, Any],
+    trades: pd.DataFrame,
+    portfolio_kind: str,
+    starting_capital: float,
+    fill_mode: str,
+    cost_bps: float,
+    integer_shares: bool,
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    equity, values = account_equity(state, prices, as_of_date)
+    rows: list[dict[str, Any]] = []
+    for ticker in sorted(state.shares.keys()):
+        qty = float(state.shares.get(ticker, 0.0))
+        if abs(qty) <= 1e-12:
+            continue
+        px = price_at_or_before(prices, ticker, as_of_date)
+        market_value = float(values.get(ticker, 0.0))
+        basis = float(state.cost_basis.get(ticker, np.nan))
+        rows.append(
+            {
+                "as_of_date": pd.Timestamp(as_of_date).date().isoformat(),
+                "ticker": ticker,
+                "shares": qty,
+                "price": px if px is not None else np.nan,
+                "market_value_usd": market_value,
+                "weight": float(market_value / equity) if equity > 0 else np.nan,
+                "cost_basis": basis,
+                "unrealized_pnl_usd": float(market_value - qty * basis) if np.isfinite(basis) else np.nan,
+                "realized_pnl_usd": float(state.realized_pnl.get(ticker, 0.0)),
+            }
+        )
+    positions = pd.DataFrame(rows)
+    total_fees = (
+        float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum())
+        if not trades.empty
+        else 0.0
+    )
+    account = {
+        "schema_version": "account-ledger-v1",
+        "portfolio_kind": portfolio_kind,
+        "as_of_date": pd.Timestamp(as_of_date).date().isoformat(),
+        "starting_capital_usd": float(starting_capital),
+        "equity_usd": float(equity),
+        "cash_usd": float(state.cash),
+        "cash_weight": float(state.cash / equity) if equity > 0 else np.nan,
+        "stock_value_usd": float(sum(values.values())),
+        "position_count": int(len(rows)),
+        "fill_mode": fill_mode,
+        "cost_bps_per_side": float(cost_bps),
+        "integer_shares": bool(integer_shares),
+        "metrics": metrics,
+        "realized_pnl_by_ticker": {str(k): float(v) for k, v in sorted(state.realized_pnl.items())},
+        "total_realized_pnl_usd": float(sum(state.realized_pnl.values())),
+        "total_fees_usd": total_fees,
+        "positions": rows,
+    }
+    return account, positions
 
 
 def replay(
@@ -525,6 +594,25 @@ def replay(
         weekly.to_csv(output_dir / "holdings_weekly.csv", index=False)
     cash_df.to_csv(output_dir / "cash_ledger.csv", index=False)
     target_vs_actual_df.to_csv(output_dir / "target_vs_actual_weights.csv", index=False)
+    if not equity_df.empty:
+        latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
+        account_state, latest_positions = latest_account_state(
+            state=state,
+            prices=prices,
+            as_of_date=latest_date,
+            metrics=metrics,
+            trades=trades_df,
+            portfolio_kind=portfolio_kind,
+            starting_capital=starting_capital,
+            fill_mode=fill_mode,
+            cost_bps=cost_bps,
+            integer_shares=integer_shares,
+        )
+        latest_positions.to_csv(output_dir / "positions_latest.csv", index=False)
+        (output_dir / "account_state_latest.json").write_text(
+            json.dumps(account_state, indent=2, default=str),
+            encoding="utf-8",
+        )
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
     (output_dir / "replay_report.md").write_text(render_report(metrics), encoding="utf-8")
     return metrics

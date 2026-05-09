@@ -282,6 +282,66 @@ All entries must be written in English. Entries must be predictable and machine-
   - Theme labels depend on the current taxonomy; next improvements should compare theme taxonomy stability and realized trade ledgers before orchestrator integration.
   - The replay is monthly and candidate-book based; it is not yet a true daily broker-ledger concentrated strategy.
 
+### 13:28 KST - account-ledger-order-preview
+
+- scope:
+  - Add the first paper/live bridge on top of broker-ledger replay: latest account state, current positions, sell-first order preview, and production-compatible goal-search separation.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->exports final account-state JSON, latest positions, and max-drawdown peak/trough metadata from the account ledger replay.
+  - `tools/run_account_order_preview.py` ->creates a preview-only order ticket from account state, latest target portfolio, cached prices, cash, integer shares, and estimated fees.
+  - `tools/run_portfolio_goal_search.py` ->separates best research/proxy candidates from best production-compatible candidates when deciding production target pass.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs account order preview after broker-ledger replay and syncs `outputs/account_ledger_preview/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs account order preview in the fast replay workflow and uploads/syncs the preview artifacts.
+  - `tests/account_order_preview_smoke.py` ->verifies sell-first order generation, buy order generation, integer shares, and latest-price date inference.
+  - `tests/broker_ledger_replay_smoke.py` ->expects final account-state and latest-position artifacts from broker replay.
+  - `tests/workflow_artifact_smoke.py` ->checks account order preview workflow commands, logs, artifacts, and GDrive sync tokens.
+  - `CHANGELOG.md` ->records the account-ledger order preview bridge.
+- symbols_added:
+  - `read_json(path)` ->loads account-state JSON safely for order preview.
+  - `normalize_ticker(value)` ->normalizes ticker symbols for order-preview joins.
+  - `normalize_target(frame, portfolio_kind, target_date)` ->normalizes latest target weights for main and concentrated previews.
+  - `load_positions(account_state)` ->extracts current account positions from broker-ledger state.
+  - `latest_price(price_cache, ticker, as_of_date)` ->loads the latest usable close for a ticker at or before the preview date.
+  - `infer_as_of_date(explicit_as_of_date, account_state, positions, target, price_cache)` ->marks account positions to the latest cached price date when no explicit date is supplied.
+  - `current_account_view(account_state, positions, price_cache, as_of_date)` ->marks current shares and cash to account equity.
+  - `add_zero_position_target_prices(current, target, price_cache, as_of_date)` ->adds target tickers not currently held so buy orders can be priced.
+  - `build_orders(current, target, equity, cash, cost_bps, integer_shares, min_trade_usd, limit_margin_pct)` ->builds sell-first/buy-second preview orders without placing trades.
+  - `render_report(payload)` ->writes the human-readable account order preview report.
+  - `run(args)` ->runs account order preview and writes CSV/JSON/Markdown outputs.
+  - `parse_args()` ->parses account order preview CLI arguments.
+  - `main()` ->account order preview CLI entrypoint.
+  - `latest_account_state(state, prices, as_of_date, metrics, trades, portfolio_kind, starting_capital, fill_mode, cost_bps, integer_shares)` ->serializes replay state as a paper-account snapshot.
+  - `best_production_summary(rows)` ->selects the best production-compatible goal-search candidate only from valid production evidence.
+- symbols_changed:
+  - `calc_metrics()` ->adds max-drawdown peak/trough date and equity metadata.
+  - `replay()` ->writes `account_state_latest.json` and `positions_latest.csv` after broker-ledger replay.
+  - `run()` ->adds research-vs-production target-pass separation in portfolio goal search.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects account preview commands and logs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_replay/*/account_state_latest.json` ->final account equity, cash, shares, cost basis, realized PnL, fees, and replay metrics.
+  - `outputs/broker_replay/*/positions_latest.csv` ->latest marked account positions from broker replay.
+  - `outputs/account_ledger_preview/*/positions_current.csv` ->current marked positions used for preview.
+  - `outputs/account_ledger_preview/*/target_weights.csv` ->normalized target weights used for preview.
+  - `outputs/account_ledger_preview/*/orders_preview.csv` ->preview-only sell/buy order ticket with quantities, limit prices, cash impact, and estimated fees.
+  - `outputs/account_ledger_preview/*/preview_metrics.json` ->order-preview summary metrics.
+  - `outputs/account_ledger_preview/*/preview_report.md` ->human-readable account order preview report.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_ledger_replay.py tools\run_account_order_preview.py tools\run_portfolio_goal_search.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This creates preview orders only; it does not call a broker API and cannot place live orders.
+  - Broker-ledger metrics are stricter than legacy target-weight metrics and should be treated as the production-like evaluation baseline.
+  - A future paper/live adapter should replace `account_state_latest.json` with real broker positions and fill reconciliation.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

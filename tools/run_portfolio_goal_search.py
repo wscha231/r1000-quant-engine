@@ -589,6 +589,13 @@ def best_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return dict(rows[0])
 
 
+def best_production_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    production_rows = [row for row in rows if bool(row.get("valid_for_production"))]
+    if not production_rows:
+        return {"candidate_id": None, "target_pass": False, "governance_action": "missing_production_candidates"}
+    return dict(production_rows[0])
+
+
 def next_actions(best_main: dict[str, Any], best_concentrated: dict[str, Any]) -> list[str]:
     actions: list[str] = []
     if not best_main.get("target_pass"):
@@ -647,6 +654,23 @@ def render_report(payload: dict[str, Any]) -> str:
                 action=row.get("governance_action"),
             )
         )
+    lines.extend(["", "## Best Production-Compatible Candidates", ""])
+    lines.append("| Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |")
+    for key in ["best_production_main", "best_production_concentrated"]:
+        row = payload.get(key) or {}
+        lines.append(
+            "| {portfolio} | `{candidate}` | {cagr} | {cagr_gap} | {max_dd} | {dd_gap} | {passed} | `{action}` |".format(
+                portfolio=row.get("portfolio", key.replace("best_production_", "")),
+                candidate=row.get("candidate_id"),
+                cagr=pct(row.get("cagr")),
+                cagr_gap="" if row.get("cagr_gap_pp") is None else f"{row.get('cagr_gap_pp'):.2f}pp",
+                max_dd=pct(row.get("max_dd")),
+                dd_gap="" if row.get("max_dd_gap_pp") is None else f"{row.get('max_dd_gap_pp'):.2f}pp",
+                passed=str(row.get("target_pass")).lower(),
+                action=row.get("governance_action"),
+            )
+        )
     lines.extend(["", "## Main Top 5", ""])
     lines.extend(render_table(payload.get("main_candidates", [])[:5]))
     lines.extend(["", "## Concentrated Top 5", ""])
@@ -696,17 +720,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     main_candidates, concentrated_candidates = collect_candidates(latest_run)
     best_main = best_summary(main_candidates)
     best_concentrated = best_summary(concentrated_candidates)
+    best_production_main = best_production_summary(main_candidates)
+    best_production_concentrated = best_production_summary(concentrated_candidates)
     payload = {
         "latest_run": rel(latest_run),
+        "research_target_pass": bool(best_main.get("target_pass") and best_concentrated.get("target_pass")),
         "target_pass": bool(best_main.get("target_pass") and best_concentrated.get("target_pass")),
         "production_target_pass": bool(
-            best_main.get("target_pass")
-            and best_main.get("valid_for_production")
-            and best_concentrated.get("target_pass")
-            and best_concentrated.get("valid_for_production")
+            best_production_main.get("target_pass")
+            and best_production_concentrated.get("target_pass")
         ),
         "best_main": best_main,
         "best_concentrated": best_concentrated,
+        "best_production_main": best_production_main,
+        "best_production_concentrated": best_production_concentrated,
         "main_candidates": main_candidates,
         "concentrated_candidates": concentrated_candidates,
         "next_actions": next_actions(best_main, best_concentrated),

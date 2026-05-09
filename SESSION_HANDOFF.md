@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-08 12:03 KST (AlphaOps policy fusion arbitration)
+# Session Handoff - 2026-05-09 13:28 KST (Account ledger order preview bridge)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,51 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-08 12:03 KST) - AlphaOps policy fusion arbitration
+## ACTIVE INBOX (2026-05-09 13:28 KST) - Account ledger order preview bridge
+
+Latest account-ledger update:
+- User asked to build a real-account-like system before further CAGR/MDD
+  optimization.
+- Added account-ledger bridge on branch `codex/broker-ledger-replay-foundation`:
+  - `tools/run_broker_ledger_replay.py` now exports
+    `account_state_latest.json`, `positions_latest.csv`, and max-DD
+    peak/trough metadata.
+  - `tools/run_account_order_preview.py` creates preview-only sell-first /
+    buy-second order tickets from account state, latest target portfolio,
+    cached prices, cash, integer shares, limit-price margin, and estimated
+    fees.
+  - `tools/run_portfolio_goal_search.py` now separates research/proxy winners
+    from production-compatible winners; production pass requires valid
+    production evidence.
+  - Full rebuild and fast replay workflows now archive/sync
+    `outputs/account_ledger_preview/`.
+- Important behavior:
+  - No broker API is called.
+  - No live or paper orders are placed.
+  - If no explicit preview date is supplied, order preview marks holdings to
+    the latest cached close across current holdings and target tickers, not
+    merely the stale account-state JSON date.
+- Validation passed:
+  - `py -3 -m py_compile tools\run_broker_ledger_replay.py tools\run_account_order_preview.py tools\run_portfolio_goal_search.py`
+  - `py -3 tests\broker_ledger_replay_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+  - `git diff --check`
+- Next steps:
+  1. Commit/push this branch.
+  2. Register the fast replay workflow update on `master` so GitHub can
+     dispatch it from the branch.
+  3. Trigger `alphaops_replay_sidecars_manual.yml` on
+     `codex/broker-ledger-replay-foundation` using source run `25581634925`.
+  4. Inspect `outputs/account_ledger_preview/main/*`,
+     `outputs/account_ledger_preview/concentrated/*`, and updated
+     `outputs/portfolio_goal_search/*`.
+  5. Next engineering phase is replacing JSON account state with an actual
+     paper broker position/fill reconciliation adapter.
+
+## RECENT CONTEXT (2026-05-08) - AlphaOps policy fusion arbitration
 
 Strict macro/cash confirmation update:
 - User clarified that broad cash should not rise simply because the index dips

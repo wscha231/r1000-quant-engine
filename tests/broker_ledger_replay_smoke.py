@@ -70,6 +70,8 @@ def test_broker_replay_tracks_integer_shares_and_cash() -> None:
         assert curve["date"].min() >= "2026-01-02"
         assert (out / "holdings_daily.csv").exists()
         assert (out / "target_vs_actual_weights.csv").exists()
+        assert (out / "account_state_latest.json").exists()
+        assert (out / "positions_latest.csv").exists()
 
 
 def test_broker_replay_blocks_contaminated_weight_book() -> None:
