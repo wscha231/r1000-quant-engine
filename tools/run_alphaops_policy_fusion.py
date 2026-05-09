@@ -420,13 +420,19 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
     concentrated_production = load_production_metrics(latest_run, "concentrated")
     main_candidates, concentrated_candidates = collect_candidates(latest_run)
     rows: list[dict[str, Any]] = []
-    main_position_risk = find_candidate(main_candidates, "main_position_risk_weekly_validation")
-    main_position_risk_evidence = "weekly_validation"
+    main_position_risk = find_candidate(main_candidates, "main_broker_position_risk_replay")
+    main_position_risk_evidence = "production"
+    if not candidate_is_usable(main_position_risk):
+        main_position_risk = find_candidate(main_candidates, "main_position_risk_weekly_validation")
+        main_position_risk_evidence = "weekly_validation"
     if not candidate_is_usable(main_position_risk):
         main_position_risk = find_candidate(main_candidates, "main_v2_position_aware_risk_proxy")
         main_position_risk_evidence = "monthly_proxy"
-    concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_weekly_validation")
-    concentrated_position_risk_evidence = "weekly_validation"
+    concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_broker_position_risk_replay")
+    concentrated_position_risk_evidence = "production"
+    if not candidate_is_usable(concentrated_position_risk):
+        concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_weekly_validation")
+        concentrated_position_risk_evidence = "weekly_validation"
     if not candidate_is_usable(concentrated_position_risk):
         concentrated_position_risk = find_candidate(concentrated_candidates, "concentrated_position_risk_proxy")
         concentrated_position_risk_evidence = "monthly_proxy"
@@ -459,7 +465,7 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
             main_position_risk,
             main_production,
             "Main position-aware risk evidence for hard stops, decay, and risk exits.",
-            "Requires order-ticket simulation and true weekly/daily scored snapshots before production activation.",
+            "Requires account-ledger target pass, stress review, and human approval before production activation.",
             "Overrides shakeout and long-hold rules when hard exits trigger.",
         ),
         (
@@ -469,7 +475,7 @@ def build_metric_policies(latest_run: Path) -> list[dict[str, Any]]:
             concentrated_position_risk,
             concentrated_production,
             "Concentrated hard-stop evidence near the 50% CAGR / -18% MaxDD goal.",
-            "Requires cost sensitivity, rolling windows, order-ticket simulation, and weekly/daily scored confirmation.",
+            "Requires account-ledger target pass, stress review, liquidity review, and human approval before production activation.",
             "Overrides 50% conviction sizing when a position breaks.",
         ),
         (

@@ -72,6 +72,7 @@ SYNC_DIRS = [
     "auto_learning",
     "macro_policy_engine",
     "selection_audit",
+    "broker_position_risk_replay",
 ]
 
 

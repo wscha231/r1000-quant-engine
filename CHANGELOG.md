@@ -504,6 +504,73 @@ All entries must be written in English. Entries must be predictable and machine-
   - Order preview remains preview-only and does not call a broker API.
   - Account evaluation artifacts appear after the next full rebuild or fast replay run.
 
+### 15:06 KST - broker-position-risk-replay-conversion
+
+- scope:
+  - Convert monthly proxy risk results into account-ledger daily risk replay candidates and document production promotion gates.
+- files:
+  - `tools/run_broker_position_risk_replay.py` ->adds broker-ledger replay for daily hard-stop, trailing-stop, relative-exit, and trim rules with next-close fills.
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated broker-position-risk replay candidates as production-compatible evidence when metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` ->prefers broker-position-risk replay over weekly validation or monthly proxy for the position-risk policy.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs broker-position-risk replay outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs broker-position-risk replay in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `broker_position_risk_replay/`.
+  - `tests/broker_position_risk_replay_smoke.py` ->verifies observable daily stop signals are filled at the next close and do not use forward-return labels.
+  - `tests/workflow_artifact_smoke.py` ->requires broker-position-risk workflow commands, logs, and artifacts.
+  - `PRODUCTION_PROMOTION_GATES.md` ->documents proposal, research, account replay, shadow, canary, and production gates.
+  - `CHANGELOG.md` ->records the proxy-to-account conversion.
+  - `SESSION_HANDOFF.md` ->updates the active inbox with the new next phase.
+- symbols_added:
+  - `RiskMeta` ->tracks per-position entry price, benchmark entry, peak price, trim status, and feature row context.
+  - `benchmark_return(prices, benchmark_ticker, entry_price, date)` ->computes benchmark return up to an observable date.
+  - `should_check_relative(date, period_end)` ->checks weekly/final-period relative-performance review dates.
+  - `risk_signal(...)` ->detects observable hard-stop, trailing-stop, distribution, relative-exit, and trim signals.
+  - `metadata_for_targets(target, state, prices, benchmark_ticker, fill_dt, existing)` ->refreshes per-position risk metadata after monthly account rebalance.
+  - `execute_rebalance(...)` ->executes monthly target rebalances through the broker ledger before risk checks.
+  - `replay(...)` ->runs account-ledger daily risk replay and writes metrics, trades, daily holdings, risk actions, and account state.
+  - `render_report(metrics)` ->renders broker-position-risk replay summary Markdown.
+  - `parse_args()` ->parses broker-position-risk replay CLI arguments.
+  - `main()` ->broker-position-risk replay CLI entrypoint.
+  - `test_broker_position_risk_replay_uses_next_close_risk_fills()` ->tests next-close risk execution and no forward-return trade labels.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_broker_position_risk_replay` and `concentrated_broker_position_risk_replay` to goal search.
+  - `build_metric_policies(latest_run)` ->uses broker-position-risk replay as the highest-evidence position-risk input before weekly validation and monthly proxy fallback.
+  - `SYNC_DIRS` ->includes `broker_position_risk_replay`.
+  - `test_workflow_keeps_monthly_books()` ->requires broker-position-risk replay artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires broker-position-risk commands and logs.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires broker-position-risk fast replay support.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_position_risk_replay/main/metrics.json` ->main broker-ledger daily risk replay metrics.
+  - `outputs/broker_position_risk_replay/main/trades.csv` ->main account replay trades including risk exits and trims.
+  - `outputs/broker_position_risk_replay/main/risk_actions.csv` ->observable risk signal and next-close fill records.
+  - `outputs/broker_position_risk_replay/main/equity_curve.csv` ->main daily account equity curve.
+  - `outputs/broker_position_risk_replay/main/account_state_latest.json` ->main latest replay account state.
+  - `outputs/broker_position_risk_replay/concentrated/metrics.json` ->concentrated broker-ledger daily risk replay metrics.
+  - `outputs/broker_position_risk_replay/concentrated/trades.csv` ->concentrated account replay trades including risk exits and trims.
+  - `outputs/broker_position_risk_replay/concentrated/risk_actions.csv` ->concentrated observable risk signal and next-close fill records.
+  - `outputs/broker_position_risk_replay/concentrated/equity_curve.csv` ->concentrated daily account equity curve.
+  - `outputs/broker_position_risk_replay/concentrated/account_state_latest.json` ->concentrated latest replay account state.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py` ->passed.
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Broker-position-risk replay is stricter than monthly proxy because it uses daily close signals and next-close fills, but it still starts from monthly target books.
+  - Actual broker API execution remains out of scope.
+  - AutoLearning remains proposal-only until an account-compatible replay candidate passes the documented production gates and human approval.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

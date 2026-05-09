@@ -449,6 +449,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_position_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger conversion of proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
         portfolio="concentrated",
@@ -479,6 +486,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_ledger_replay",
         source_label="sidecar",
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_position_risk_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_position_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger conversion of concentrated proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
     )
     concentrated += candidate_from_json(
         latest_run / "monster_lifecycle_replay" / "metrics.json",

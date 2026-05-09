@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 14:41 KST (Official account evaluation layer)
+# Session Handoff - 2026-05-09 15:06 KST (Proxy-to-account risk conversion)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,7 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 14:41 KST) - Official account evaluation layer
+## ACTIVE INBOX (2026-05-09 15:06 KST) - Proxy-to-account risk conversion
 
 Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
 - The engine now has a stricter account-like evaluation chain:
@@ -42,7 +42,25 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
     `r1000_top30_institutional/research_runs/codex_broker-ledger-replay-foundation/25593261448/replay_outputs/account_evaluation/`.
 - No broker API is called and no live/paper orders are placed. These are
   replay, journal, and order-preview artifacts only.
+- New proxy-to-account conversion after user asked to convert proxy winners:
+  - `tools/run_broker_position_risk_replay.py` converts the position-risk proxy
+    idea into observable account-ledger rules.
+  - It does not copy proxy actions that used `period_forward_return`.
+  - It checks daily close hard-stop / trailing-stop signals and weekly relative
+    exits/trims, then fills them at the next close with shares, cash, fees, and
+    no leverage.
+  - `tools/run_portfolio_goal_search.py` now includes
+    `main_broker_position_risk_replay` and
+    `concentrated_broker_position_risk_replay` as production-compatible
+    candidates when their broker metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` now prefers broker-position-risk
+    evidence before weekly validation or monthly proxy evidence.
+  - `PRODUCTION_PROMOTION_GATES.md` defines the promotion path:
+    proposal -> research replay -> account-compatible replay -> shadow ->
+    canary -> production.
 - Validation passed after the latest change:
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py`
+  - `py -3 tests\broker_position_risk_replay_smoke.py`
   - `py -3 -m py_compile tools\run_account_evaluation.py tools\run_portfolio_system_guard.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py`
   - `py -3 tests\account_evaluation_smoke.py`
   - `py -3 tests\workflow_artifact_smoke.py`
@@ -63,11 +81,15 @@ Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
 - Next steps:
   1. Treat `outputs/account_evaluation/*` as the official current performance
      checkpoint.
-  2. Do not promote proxy target-pass candidates yet; they need conversion into
-     account-ledger/daily scored-decision replay evidence.
-  3. Next engineering phase is a daily/account simulator that can evaluate true
-     dated decisions closer to paper/live trading, while keeping broker-ledger
-     official metrics as the current baseline.
+  2. Run fast replay again from source run `25581634925` after committing the
+     broker-position-risk conversion, then inspect
+     `outputs/broker_position_risk_replay/*`, `outputs/portfolio_goal_search/*`,
+     `outputs/policy_fusion/*`, and `outputs/account_evaluation/*`.
+  3. Do not promote proxy target-pass candidates directly. Promotion requires
+     account-compatible target pass, stress/cost review, and human approval.
+  4. Next engineering phase is a daily scored-decision simulator that can
+     evaluate true dated model decisions closer to paper/live trading, while
+     keeping broker-ledger official metrics as the current baseline.
 
 ## RECENT CONTEXT (2026-05-08) - AlphaOps policy fusion arbitration
 
