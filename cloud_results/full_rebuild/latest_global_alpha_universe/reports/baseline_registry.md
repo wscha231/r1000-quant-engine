@@ -1,8 +1,8 @@
 # AlphaOps Baseline Registry
 
-- Generated UTC: 2026-05-10T07:06:06Z
+- Generated UTC: 2026-05-10T10:56:18Z
 - Engine version: 2026-05-07-style-regime-router
-- Commit: 78f5320f505673bf5cb442c622138d8952612a23
+- Commit: 714e61747c9b4054b8229df2c7b3434cdabb4209
 - Universe: global_alpha_universe
 - Backtest years: 8
 

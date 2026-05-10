@@ -17,7 +17,7 @@
 - CAGR: `0.19716264232217395`
 - Sharpe: `1.0076349864247922`
 - MaxDD: `-0.30406314509390353`
-- avg_cash_weight: `0.04523346283427703`
+- avg_cash_weight: `0.04523346283427704`
 
 ### concentrated
 - status: `completed`

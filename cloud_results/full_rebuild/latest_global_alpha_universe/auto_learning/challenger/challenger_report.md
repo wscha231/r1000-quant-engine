@@ -15,9 +15,9 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 | schema | production_activation_disabled | hard | True | `False` | `False` |
 | schema | human_approval_required | hard | True | `True` | `True` |
 | main | feature_gate_candidate_backtest_executed | hard | False | `candidate_only` | `full candidate rebuild/backtest` |
-| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.2747134251245684` |
+| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.2747134251245682` |
 | main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.570588082520192` |
-| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.1642379649695953` |
+| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.1642379649695952` |
 | main_v2 | main_v2_historical_backtest_exists | hard | False | `latest_snapshot_only` | `83-month main_v2 backtest` |
 | main_v2 | main_v2_cap_audit | soft | True | `{'positions': 11, 'cash': 0.07820306303913749}` | `cap<=15%, positions>0` |
 | concentrated | concentrated_cagr_floor | hard | True | `0.43243153809103063` | `0.3` |

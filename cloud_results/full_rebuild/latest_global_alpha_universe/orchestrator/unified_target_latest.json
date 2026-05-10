@@ -66,7 +66,7 @@
     "unified_single_name_cap": 1.0,
     "n_unique_tickers": 20,
     "n_conflicts": 1,
-    "generated_at": "2026-05-10T07:06:06Z"
+    "generated_at": "2026-05-10T10:56:18Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,

@@ -6,7 +6,7 @@
   "avg_target_defense_cash": 0.04,
   "cash_weight_sum_by_reason": {
     "cap_limited_leftover": 0.1202393751702281,
-    "cash_export_mismatch": 13.604310292315498,
+    "cash_export_mismatch": 13.6043102923155,
     "confirmed_macro_defense_cash": 2.1532803774021905,
     "mixed_confirmed_macro_and_idle_cash": 0.9265301034228447,
     "no_cash": 0.0027966468986065
@@ -107,8 +107,8 @@
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2025-10-31",
       "regime_label": "balanced",
-      "reported_cash_weight": 0.5868354000551352,
-      "reported_vs_book_cash_gap": 0.5868354000551352,
+      "reported_cash_weight": 0.5868354000551355,
+      "reported_vs_book_cash_gap": 0.5868354000551355,
       "stock_count": 24,
       "target_n": 18.0
     },
@@ -223,8 +223,8 @@
       "rebalance_action": "partial_rebalance:core_compounder,early_scout",
       "rebalance_date": "2025-10-31",
       "regime_label": "balanced",
-      "reported_cash_weight": 0.5868354000551352,
-      "reported_vs_book_cash_gap": 0.5868354000551352,
+      "reported_cash_weight": 0.5868354000551355,
+      "reported_vs_book_cash_gap": 0.5868354000551355,
       "stock_count": 24,
       "target_n": 18.0
     },
@@ -283,8 +283,8 @@
       "rebalance_action": "rebalance",
       "rebalance_date": "2026-01-30",
       "regime_label": "balanced",
-      "reported_cash_weight": 0.3237170126496851,
-      "reported_vs_book_cash_gap": 0.3237170126496851,
+      "reported_cash_weight": 0.323717012649685,
+      "reported_vs_book_cash_gap": 0.323717012649685,
       "stock_count": 38,
       "target_n": 18.0
     },

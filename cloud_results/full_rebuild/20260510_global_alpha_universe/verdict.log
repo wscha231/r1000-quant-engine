@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        78f5320 (DIRTY)
-  started:       2026-05-10 16:06:07 KST
+  commit:        714e617 (DIRTY)
+  started:       2026-05-10 19:56:19 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-05-10
   mode:          QUICK_RESCORE
@@ -17,7 +17,7 @@ r1000 Quant Engine -- local run
   Phase 9 C3:    auto
   Phase 14:      auto
 ======================================================================
-OK: companyfacts.zip 1.0d old, 1315 MB
+OK: companyfacts.zip 1.1d old, 1315 MB
 
 ======================================================================
 CELL E -- PHASE 9 C1+C2 DIAGNOSTIC

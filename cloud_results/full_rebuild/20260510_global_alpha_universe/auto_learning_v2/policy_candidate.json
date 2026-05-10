@@ -109,7 +109,7 @@
     }
   ],
   "expires_at": "2026-08-08",
-  "generated_at": "2026-05-10T07:10:28Z",
+  "generated_at": "2026-05-10T11:00:42Z",
   "generated_by": "auto_learning_v2.alpha_scientist",
   "guardrails": {
     "kill_switch": {

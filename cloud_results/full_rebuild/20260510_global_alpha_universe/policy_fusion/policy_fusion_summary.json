@@ -222,7 +222,7 @@
       "winner": "all_production_policies"
     }
   ],
-  "generated_at_utc": "2026-05-10T07:12:23.594523+00:00",
+  "generated_at_utc": "2026-05-10T11:02:10.199997+00:00",
   "latest_run": "outputs",
   "mode": "shadow",
   "policy_candidates": [
@@ -286,7 +286,7 @@
     {
       "activation_stage": "candidate_for_combination",
       "avg_turnover_monthly": 0.5126754377214244,
-      "cagr": 0.2951784507410331,
+      "cagr": 0.2951784507410329,
       "cagr_gap_pp": 0.4822,
       "cagr_target": 0.3,
       "conflict_scope": "Overrides idle cash redeploy and new risk-on adds in red/crisis regimes.",
@@ -297,7 +297,7 @@
       "evidence_type": "monthly_proxy",
       "fusion_score": 32.632,
       "invalid_reason": null,
-      "max_dd": -0.11064963001488481,
+      "max_dd": -0.11064963001488515,
       "max_dd_gap_pp": 0.0,
       "max_dd_target": -0.15,
       "metrics_valid": true,

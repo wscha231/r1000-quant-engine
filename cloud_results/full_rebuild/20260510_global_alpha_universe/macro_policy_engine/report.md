@@ -3,25 +3,26 @@
 Research-only sidecar. It does not change production weights.
 
 - Status: `completed`
-- Months: 83
-- Latest risk state: `red`
-- Latest style state: `cash_defense`
-- Cash-raise confirmations: 2
-- Confirmed cash raise: `True`
-- Recommended cash floor: 28.0%
-- Recommended target N: 16
-- Monster exception capacity: 3.0%
+- Months: 84
+- Latest risk state: `recovery`
+- Latest style state: `breakout_growth`
+- Cash-raise confirmations: 0
+- Confirmed cash raise: `False`
+- Recommended cash floor: 5.0%
+- Recommended target N: 14
+- Monster exception capacity: 10.0%
 - Monster exception allowed: `True`
-- Cash-raise gate: `confirmed_long_trend_plus_liquidity_or_breadth`
-- New-buy policy: `no_new_buy_except_confirmed_monster_scout_or_top_quality`
-- Trim policy: `half_trim_then_exit_relative_losers`
-- Action: `defend_half_trim_stale_leaders_no_tactical_new_buys`
+- Cash-raise gate: `reentry_holdback_only`
+- New-buy policy: `staged_scout_then_confirm`
+- Trim policy: `keep_cash_until_confirmation`
+- Action: `staged_reentry_scout_then_scale_confirmed_new_leaders`
+- Snapshot source: `scored_latest`
 
 ## Risk State Counts
 
 - crisis: 5
 - green: 46
-- recovery: 7
+- recovery: 8
 - red: 10
 - yellow: 15
 
@@ -29,9 +30,9 @@ Research-only sidecar. It does not change production weights.
 
 - balanced_under_drawdown: 10
 - late_risk_alert: 11
-- possible_cash_drag: 6
+- possible_cash_drag: 7
 - premature_growth_reentry: 1
-- unconfirmed_cash_raise: 15
+- unconfirmed_cash_raise: 16
 
 ## Interpretation
 

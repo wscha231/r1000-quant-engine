@@ -2,7 +2,7 @@
   "account_mode": "simulated",
   "error_count": 0,
   "fill_template_order_count": 35,
-  "generated_at_utc": "2026-05-10T07:09:21.490783+00:00",
+  "generated_at_utc": "2026-05-10T10:59:35.674381+00:00",
   "issues": [
     {
       "check_id": "simulated_broker_account",
