@@ -32,6 +32,8 @@ storage; local folders are rebuilt or restored from manifests.
   - Raw or near-raw durable inputs.
   - Examples: historical universe membership, SEC companyfacts archive,
     vendor exports, raw macro inputs.
+  - Free-first subpaths should follow `data_raw/free/<source>/`, as documented
+    in `docs/FREE_DATA_LAKE_PLAN.md`.
 - `data_pit/`
   - Point-in-time normalized datasets.
   - Target examples:
@@ -40,6 +42,11 @@ storage; local folders are rebuilt or restored from manifests.
     - `fundamentals_pit.parquet`
     - `feature_store_monthly.parquet`
     - `scored_history.parquet`
+  - Free-first normalized datasets should live under `data_pit/free/`.
+- `manifests/free_data/`
+  - Small, portable data snapshot manifests, coverage reports, PIT labels, and
+    source limitations that let GitHub Actions and future machines understand
+    what Drive data was restored.
 - `cache_prices/`
   - Fast replay cache. Rebuildable, but expensive enough to preserve.
 - `outputs/`
@@ -90,3 +97,15 @@ Daily decision backtests must distinguish:
 
 The readiness checker does not prove PIT correctness. It only verifies that the
 expected durable folders and manifests exist.
+
+## GitHub Actions And Google Drive
+
+GitHub Actions can use Google Drive data only after Drive authentication is
+configured in repository secrets. The current workflows already use rclone with
+either `GOOGLE_SERVICE_ACCOUNT_KEY` or `RCLONE_CONFIG_GDRIVE`. Run
+`.github/workflows/gdrive_smoke_test.yml` after changing those credentials.
+
+For free-first data, Actions should restore large data from Drive into
+`data_raw/free/`, `data_pit/free/`, and optional caches at the start of a job,
+then sync updated manifests and outputs back to Drive at the end. GitHub should
+only keep small manifests and summaries.

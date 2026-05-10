@@ -13,6 +13,9 @@ aggressive/alpaca_keys.txt
 aggressive/state/
 aggressive/cache/
 # ---- Runtime caches (regenerated, do not commit) ----
+data_raw/
+data_pit/
+cache_prices/
 outputs/regime_snapshot_cache.json
 outputs/winner_lifecycle/
 outputs/winner_onset_study/

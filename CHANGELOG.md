@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 05:20 KST - free-data-lake-design
+
+- scope:
+  - Document the free-first PIT data lake design and make portable readiness aware of the future Google Drive-backed free data paths.
+- files:
+  - `docs/FREE_DATA_LAKE_PLAN.md` ->documents how free SEC, price, macro, and proxy-universe data should live in Drive while GitHub Actions consumes it through rclone authentication.
+  - `docs/PORTABLE_DATA_STRATEGY.md` ->links the portable storage strategy to the free-first data lake contract.
+  - `tools/check_portable_data_readiness.py` ->adds optional readiness checks for free raw data, normalized PIT data, manifests, and coverage audits.
+  - `.gitignore` ->keeps future large `data_raw/`, `data_pit/`, and `cache_prices/` payloads out of Git.
+  - `CHANGELOG.md` ->records the free data lake design patch.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `SPECS` ->adds optional free data lake path expectations without changing minimum readiness status.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portable_data_readiness.json` ->future readiness runs include optional free data lake path checks.
+- validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py` ->passed.
+  - `py -3 tools\check_portable_data_readiness.py --no-write` ->passed with `status=ready_minimum`, `missing_required_count=0`, and optional gaps for the future free data lake paths.
+- risks_or_notes:
+  - Free data can support serious research, but Russell 1000 historical membership and delisted coverage remain proxy/survivorship-risk until paid or official historical constituent data is added.
+
 ### 04:58 KST - portable-data-readiness
 
 - scope:

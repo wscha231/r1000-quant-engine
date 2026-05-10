@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-11 04:58 KST (Portable data readiness)
+# Session Handoff - 2026-05-11 05:20 KST (Free data lake design)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,53 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-11 04:58 KST) - Portable data readiness
+## ACTIVE INBOX (2026-05-11 05:20 KST) - Free data lake design
+
+User wants to start with free data and asked whether Google Drive storage can
+be used from GitHub. Answer: yes, if GitHub Actions authenticates to Drive via
+rclone. The repo already has:
+
+- `.github/workflows/gdrive_smoke_test.yml`
+  - Verifies Drive access with `GOOGLE_SERVICE_ACCOUNT_KEY` or
+    `RCLONE_CONFIG_GDRIVE`.
+- `.github/workflows/full_rebuild_manual.yml`
+  - Syncs outputs to Drive using the same auth pattern.
+
+Latest patch adds:
+
+- `docs/FREE_DATA_LAKE_PLAN.md`
+  - Defines free-first data lake layout:
+    - `data_raw/free/sec/`
+    - `data_raw/free/prices/`
+    - `data_raw/free/macro/`
+    - `data_raw/free/universe_proxy/`
+    - `data_pit/free/`
+    - `manifests/free_data/`
+  - Explains that Drive stores large data, GitHub tracks code/small manifests,
+    and GitHub Actions restores/syncs data through rclone.
+  - Labels free historical tests as `pit_safe`, `pit_proxy_universe`, or
+    `research_proxy`.
+  - Warns not to call free proxy results official Russell 1000 backtests until
+    historical constituents and delisted coverage are solved.
+- `docs/PORTABLE_DATA_STRATEGY.md`
+  - Links the portable data strategy to the free data lake contract.
+- `tools/check_portable_data_readiness.py`
+  - Adds optional free data lake readiness checks without changing minimum
+    readiness status.
+- `.gitignore`
+  - Keeps large future `data_raw/`, `data_pit/`, and `cache_prices/` payloads
+    out of Git.
+
+Next recommended action:
+
+- Validate the checker.
+- Commit and push the free data lake design patch.
+- Then add an actual GitHub workflow or script to restore `data_raw/free/` and
+  `data_pit/free/` from Drive before daily/backtest jobs.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 04:58 KST) - Portable data readiness
 
 User wants the system usable after changing computers. Latest patch adds:
 
