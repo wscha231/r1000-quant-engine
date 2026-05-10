@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-09 16:45 KST (Live trading safety + risk controls)
+# Session Handoff - 2026-05-10 11:25 KST (Operating snapshot + strict live gate)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,67 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-09 16:45 KST) - Live trading safety + risk controls
+## ACTIVE INBOX (2026-05-10 11:25 KST) - Operating snapshot + strict live gate
+
+Latest patch on branch `codex/broker-ledger-replay-foundation` after the user
+clarified that the desired output is an operating portfolio snapshot, not a
+"buy this now" target list:
+
+- New canonical operator artifact:
+  - `tools/run_operating_snapshot.py`
+  - Writes:
+    - `outputs/operating_snapshot/operating_snapshot_latest.csv`
+    - `outputs/operating_snapshot/operating_snapshot_latest.json`
+    - `outputs/operating_snapshot/operating_snapshot_report.md`
+  - This is now the file future agents should inspect first when answering
+    "what portfolio is being operated right now?"
+  - It merges:
+    - `account_ledger_preview/*/positions_current.csv`
+    - `account_ledger_preview/*/orders_preview.csv`
+    - `orchestrator/unified_target_latest.csv/json`
+    - `live_trading_safety/safety_audit_summary.json`
+    - `live_trading_risk_controls/risk_controls_summary.json`
+- Important semantics:
+  - `portfolio_latest.csv` and `concentrated_portfolio_latest.csv` are model
+    target recommendations, not account holdings.
+  - Existing `account_ledger_preview/*` folders remain order-preview sidecars.
+  - `operating_snapshot_latest.csv` is the canonical operator-facing snapshot
+    with CASH, current weights, unified target weights, deltas, source labels,
+    and block reasons.
+- Live gate change:
+  - Full and replay workflows now call
+    `tools/run_live_trading_risk_controls.py --strict-live --strict`.
+  - When no real broker snapshot is supplied, the risk-control artifact should
+    be `blocked` instead of a clean live pass.
+  - The workflow still continues because these are diagnostic sidecars and all
+    commands remain guarded with `|| true`.
+- Account preview labels:
+  - `tools/run_account_order_preview.py` now records
+    `preview_semantics=order_preview_not_operating_snapshot`.
+  - It also records `account_source_kind` and `target_source_kind` in
+    `preview_metrics.json` and `preview_report.md`.
+- Workflow/Drive visibility:
+  - `outputs/operating_snapshot/` is included in workflow uploads, bundle
+    copies, cloud_results copies, Google Drive sync, and
+    `tools/sync_cloud_to_drive.py`.
+- Latest validation for this patch:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py`
+  - `py -3 tests\operating_snapshot_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\live_trading_risk_controls_smoke.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+- Next safe action:
+  - Trigger a full rebuild on `codex/broker-ledger-replay-foundation`.
+  - In the resulting Drive folder, inspect
+    `operating_snapshot/operating_snapshot_latest.csv` first.
+  - Treat a `blocked_missing_broker_snapshot` approval state as expected until
+    a real broker/account/open-order snapshot is wired into the workflow.
+
+---
+
+## PREVIOUS INBOX (2026-05-09 16:45 KST) - Live trading safety + risk controls
 
 Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
 - Current safety-first response after the user asked to anticipate live/paper

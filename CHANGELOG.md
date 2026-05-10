@@ -51,6 +51,68 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-10
+
+### 11:25 KST - operating-snapshot-live-gate
+
+- scope:
+  - Add a canonical operating snapshot layer and make cloud workflows mark live risk controls blocked when no real broker snapshot is reconciled.
+- files:
+  - `tools/run_operating_snapshot.py` ->adds the operator-facing snapshot builder that merges account previews, unified orchestrator targets, safety status, and risk-control status.
+  - `tools/run_account_order_preview.py` ->labels account preview semantics, account source kind, and target source kind so target files are not mistaken for live holdings.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs strict live risk controls, emits operating snapshot artifacts, and syncs them to artifacts, bundles, cloud_results, and Google Drive.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs strict live risk controls and operating snapshot generation for replay sidecars.
+  - `tools/sync_cloud_to_drive.py` ->syncs `operating_snapshot/` from cloud results into the local Drive mirror.
+  - `tests/operating_snapshot_smoke.py` ->adds a regression fixture for missing broker snapshot blocking and unified target cash usage.
+  - `tests/workflow_artifact_smoke.py` ->requires the new workflow command, artifact folder, log, and strict-live flags.
+  - `CHANGELOG.md` ->records the operating snapshot/live gate patch.
+  - `SESSION_HANDOFF.md` ->updates agent handoff guidance for the new canonical operating snapshot.
+- symbols_added:
+  - `read_json(path)` ->loads optional JSON artifacts for the operating snapshot builder.
+  - `read_csv(path)` ->loads optional CSV artifacts for the operating snapshot builder.
+  - `write_json(path, payload)` ->writes deterministic JSON snapshot metadata.
+  - `normalize_ticker(value)` ->normalizes ticker keys for snapshot joins.
+  - `clean_float(value)` ->coerces finite numeric values for snapshot math.
+  - `latest_non_empty(values)` ->selects the latest non-empty as-of date string.
+  - `detect_account_source(preview_metrics)` ->labels replay-derived account state versus supplied account state.
+  - `load_unified_target(latest_run)` ->loads `orchestrator/unified_target_latest` CSV/JSON as the preferred target source.
+  - `load_preview_metrics(latest_run)` ->loads per-sleeve account preview metrics.
+  - `load_current_positions(latest_run, preview_metrics)` ->combines per-sleeve current position previews and cash/equity totals.
+  - `fallback_preview_target(latest_run, preview_metrics, total_equity)` ->derives a fallback target from preview weights when the unified target is missing.
+  - `aggregate_current(current, total_equity)` ->aggregates current holdings across preview sleeves.
+  - `aggregate_target(target)` ->aggregates unified target weights by ticker.
+  - `aggregate_orders(latest_run)` ->summarizes preview orders by ticker for the snapshot.
+  - `load_control_status(latest_run)` ->loads live risk and safety audit statuses.
+  - `approval_status(risk, safety, issues)` ->derives the snapshot-level approval state.
+  - `build_snapshot(args)` ->writes `operating_snapshot_latest.csv/json/report.md`.
+  - `render_report(payload)` ->renders a concise operator-facing markdown report.
+  - `parse_args()` ->parses operating snapshot CLI arguments.
+  - `main()` ->runs the operating snapshot CLI.
+  - `test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_target()` ->covers broker-snapshot blocking and unified cash target handling.
+- symbols_changed:
+  - `render_report(payload)` ->prints preview semantics and source labels in account order previews.
+  - `run(args)` ->adds `preview_semantics`, `account_source_kind`, and `target_source_kind` to account preview metrics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Cloud full/replay workflows now run `run_live_trading_risk_controls.py` with `--strict-live --strict`; without a real broker snapshot the risk-control artifact is expected to be `blocked`, while the workflow continues to publish diagnostics because the step remains preview-sidecar only.
+- outputs:
+  - `outputs/operating_snapshot/operating_snapshot_latest.csv` ->canonical operator snapshot with current, target, delta, suggested action, source, and block reason fields.
+  - `outputs/operating_snapshot/operating_snapshot_latest.json` ->snapshot summary, approval status, account source, cash weights, and inherited safety/risk issues.
+  - `outputs/operating_snapshot/operating_snapshot_report.md` ->human-readable snapshot summary.
+  - `outputs/full_rebuild_logs/operating_snapshot.log` ->operating snapshot CLI log.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py` passed.
+  - `py -3 tests\operating_snapshot_smoke.py` passed.
+  - `py -3 tests\account_order_preview_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` passed.
+  - `py -3 tests\account_evaluation_smoke.py` passed.
+- risks_or_notes:
+  - The new operating snapshot is still preview-only until a real broker snapshot directory is supplied and reconciled.
+  - Existing per-sleeve order previews remain available, but `operating_snapshot_latest.csv` is the canonical operator-facing file.
+
 ## 2026-05-09
 
 ### 06:58 KST - latest-weekly-eval-contamination-guard

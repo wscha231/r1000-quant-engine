@@ -361,6 +361,9 @@ def render_report(payload: dict[str, Any]) -> str:
         "# Account Ledger Order Preview",
         "",
         f"- Portfolio: `{payload.get('portfolio_kind')}`",
+        f"- Semantics: `{payload.get('preview_semantics')}`",
+        f"- Account source: `{payload.get('account_source_kind')}`",
+        f"- Target source: `{payload.get('target_source_kind')}`",
         f"- As-of date: `{payload.get('as_of_date')}`",
         f"- Equity: ${safe_float(payload.get('equity_usd')):,.2f}",
         f"- Cash: ${safe_float(payload.get('cash_usd')):,.2f} ({safe_float(payload.get('cash_weight')):.2%})",
@@ -388,6 +391,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return payload
     positions = load_positions(account)
     target = normalize_target(read_csv(target_path), args.portfolio_kind, args.target_date)
+    account_source_kind = "simulated_broker_replay" if "broker_replay" in str(account_path).replace("\\", "/") else "account_state_file"
+    target_source_kind = "unified_target" if "unified_target" in target_path.name else "sleeve_model_target"
     as_of = infer_as_of_date(
         explicit_as_of_date=args.as_of_date,
         account_state=account,
@@ -439,6 +444,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "status": "completed",
         "schema_version": "account-ledger-preview-v1",
         "portfolio_kind": args.portfolio_kind,
+        "preview_semantics": "order_preview_not_operating_snapshot",
+        "account_source_kind": account_source_kind,
+        "target_source_kind": target_source_kind,
         "account_state": str(account_path),
         "account_state_as_of_date": str(account.get("as_of_date") or ""),
         "target": str(target_path),
