@@ -53,6 +53,41 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-10
 
+### 16:49 KST - macro-policy-latest-scored-snapshot
+
+- scope:
+  - Keep the macro policy sidecar current when monthly regime books stop before the latest scored/broker-ledger snapshot.
+- files:
+  - `tools/run_macro_policy_engine.py` ->appends a latest `scored_latest.csv` snapshot row when it is newer than `reports/regime_by_month.csv`, including style, regime, cash-target, and snapshot-source metadata.
+  - `tests/macro_policy_engine_smoke.py` ->covers the newest scored snapshot becoming the macro policy summary latest row.
+  - `CHANGELOG.md` ->records the macro freshness fix.
+  - `SESSION_HANDOFF.md` ->updates the active handoff for future agents.
+- symbols_added:
+  - `_mode_text(frame, column, default)` ->returns a stable modal text value from a frame column.
+  - `_latest_unified_cash_target(latest_run)` ->reads the current unified target cash weight for the latest macro snapshot row.
+  - `_latest_target_next_rebalance(latest_run)` ->reads the next scheduled portfolio date when available.
+  - `_append_latest_scored_snapshot(regime, latest_run)` ->adds a current scored snapshot row after historical monthly regime rows.
+- symbols_changed:
+  - `run(latest_run, output_dir)` ->uses `scored_latest.csv` to prevent macro policy outputs from ending at stale monthly books when a fresher scored snapshot exists.
+  - `_summary(rows, diagnostics, regime_path)` ->reports `macro_snapshot_source` for the latest macro policy row.
+  - `render_report(summary, diagnostics)` ->prints the latest macro snapshot source.
+  - `main()` ->unchanged behavior apart from fresher summary/output data emitted by `run`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/macro_policy_engine/macro_policy_by_month.csv` ->now includes an additional `scored_latest` row when latest scored data is newer than monthly regime books.
+  - `outputs/macro_policy_engine/summary.json` ->latest row can now report `rebalance_date` equal to the latest scored snapshot and includes `macro_snapshot_source`.
+  - `outputs/macro_policy_engine/report.md` ->prints the snapshot source for freshness auditing.
+- validation:
+  - `py -3 -m py_compile tools\run_macro_policy_engine.py` passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` passed.
+  - `py -3 tools\run_macro_policy_engine.py --latest-run cloud_results\full_rebuild\20260510_global_alpha_universe --output-dir %TEMP%\r1000_macro_policy_check` passed and produced latest `rebalance_date=2026-05-08`, `macro_snapshot_source=scored_latest`.
+- risks_or_notes:
+  - The macro sidecar remains research-only and still requires a production-compatible challenger replay before it can mutate portfolio construction.
+  - The appended latest row uses scored snapshot/style/regime evidence and unified target cash; it does not invent missing monthly drawdown or full monthly return fields.
+
 ### 12:12 KST - simulated-account-monster-overlay
 
 - scope:

@@ -101,12 +101,41 @@ def main() -> int:
                 },
             ],
         )
+        _write_csv(
+            latest / "scored_latest.csv",
+            [
+                {
+                    "rebalance_date": "2022-05-06",
+                    "ticker": "AAA",
+                    "live_event_alert_label": "growth_reentry_alert",
+                    "regime_state": "bull",
+                    "style_breakout_preference": 0.7,
+                    "style_turnaround_preference": 0.2,
+                    "style_quality_compounder_preference": 0.4,
+                    "style_cash_defense_preference": 0.1,
+                    "style_liquidity_tailwind_score": 0.5,
+                    "style_rate_pressure_score": 0.1,
+                    "style_inflation_pressure_score": 0.1,
+                    "style_overheat_risk_score": 0.1,
+                    "market_style_regime_label": "breakout_growth",
+                }
+            ],
+        )
+        _write_csv(
+            latest / "orchestrator" / "unified_target_latest.csv",
+            [
+                {"ticker": "AAA", "target_weight": 0.88},
+                {"ticker": "CASH", "target_weight": 0.12},
+            ],
+        )
         out_dir = root / "out"
         summary = run(latest, out_dir)
         assert summary["status"] == "completed", summary
-        assert summary["months"] == 4, summary
+        assert summary["months"] == 5, summary
         assert summary["risk_state_counts"].get("red", 0) >= 1, summary
         latest = summary["latest"]
+        assert latest["rebalance_date"] == "2022-05-06", summary
+        assert latest["macro_snapshot_source"] == "scored_latest", summary
         assert "cash_raise_confirmation_count" in latest, summary
         assert "recommended_monster_exception_capacity" in latest, summary
         assert latest["cash_raise_gate"] in {

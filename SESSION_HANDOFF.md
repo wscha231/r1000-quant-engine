@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-10 12:12 KST (Simulated account + monster overlay)
+# Session Handoff - 2026-05-10 16:49 KST (Macro policy latest scored snapshot)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,72 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-10 12:12 KST) - Simulated account + monster overlay
+## ACTIVE INBOX (2026-05-10 16:49 KST) - Macro policy latest scored snapshot
+
+GitHub Actions run `25619398127` completed successfully on commit `78f5320`
+and committed full rebuild outputs as `e0e750c chore(bot): full rebuild
+[global_alpha_universe] 2026-05-10 [skip ci]`.
+
+Important result audit:
+
+- Main broker ledger official metrics now run daily through `2026-05-08`:
+  - CAGR `20.25%`, Sharpe `0.965`, MaxDD `-32.50%`, target pass `false`.
+- Concentrated broker ledger official metrics now run daily through
+  `2026-05-08`:
+  - CAGR `31.31%`, Sharpe `1.049`, MaxDD `-39.03%`, target pass `false`.
+- Operating snapshot is current:
+  - `outputs/operating_snapshot/operating_snapshot_latest.json`
+  - `as_of_date=2026-05-08`
+  - `status=simulation`
+  - `approval_status=simulation_ready_preview_only`
+  - `target_cash_weight=27.6%`
+  - `monster_recommendation_count=32`
+- Monster bridge completed and is attached to the operating snapshot:
+  - `outputs/monster_recommendations/unified_recommendations.csv`
+  - `status=completed`
+  - `unified_rows=45`
+- Remaining issue found during the audit:
+  - `outputs/macro_policy_engine/summary.json` still reported latest
+    `rebalance_date=2026-02-27` because the sidecar only consumed
+    `reports/regime_by_month.csv`, while `scored_latest.csv` and broker-ledger
+    outputs were current at `2026-05-08`.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_macro_policy_engine.py`
+  - Adds `_append_latest_scored_snapshot()`.
+  - If `scored_latest.csv` has a newer `rebalance_date`/`feature_date` than
+    `reports/regime_by_month.csv`, the macro policy output appends a latest
+    snapshot row with:
+    - style preference means
+    - modal `regime_state`
+    - modal live/event regime label
+    - unified target cash weight
+    - `macro_snapshot_source=scored_latest`
+  - This keeps `summary.json.latest.rebalance_date` aligned with current
+    scored/broker-ledger artifacts.
+- `tests/macro_policy_engine_smoke.py`
+  - Covers a newer `scored_latest.csv` row and asserts the macro latest row is
+    sourced from `scored_latest`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_macro_policy_engine.py`
+- `py -3 tests\macro_policy_engine_smoke.py`
+- Manual latest-run check:
+  - `py -3 tools\run_macro_policy_engine.py --latest-run cloud_results\full_rebuild\20260510_global_alpha_universe --output-dir %TEMP%\r1000_macro_policy_check`
+  - Produced `latest.rebalance_date=2026-05-08`,
+    `macro_snapshot_source=scored_latest`, `macro_risk_state=recovery`.
+
+Next recommended action:
+
+- Commit and push this macro freshness patch, then trigger or wait for the next
+  full rebuild so `outputs/macro_policy_engine/summary.json` in cloud artifacts
+  reflects `2026-05-08` instead of `2026-02-27`.
+
+---
+
+## PREVIOUS INBOX (2026-05-10 12:12 KST) - Simulated account + monster overlay
 
 User clarified that the desired account environment is not a real broker
 connection. The goal is a conservative broker-like simulated account that can

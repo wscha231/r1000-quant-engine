@@ -196,6 +196,101 @@ def _mean_group(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _mode_text(frame: pd.DataFrame, column: str, default: str = "") -> str:
+    if frame.empty or column not in frame.columns:
+        return default
+    values = frame[column].dropna().astype(str).str.strip()
+    values = values[values != ""]
+    if values.empty:
+        return default
+    modes = values.mode()
+    return str(modes.iloc[0]) if not modes.empty else str(values.iloc[0])
+
+
+def _latest_unified_cash_target(latest_run: Path) -> float:
+    target = read_table(latest_run / "orchestrator" / "unified_target_latest.csv")
+    if target.empty or "ticker" not in target.columns:
+        return 0.0
+    weight_col = "target_weight" if "target_weight" in target.columns else "weight"
+    if weight_col not in target.columns:
+        return 0.0
+    mask = target["ticker"].astype(str).str.upper().eq("CASH")
+    if not mask.any():
+        return 0.0
+    return safe_float(pd.to_numeric(target.loc[mask, weight_col], errors="coerce").sum(), 0.0)
+
+
+def _latest_target_next_rebalance(latest_run: Path) -> str:
+    portfolio = read_table(latest_run / "portfolio_latest.csv")
+    if portfolio.empty:
+        return ""
+    for col in ("next_scheduled_rebalance_date", "recommended_next_run_date"):
+        if col not in portfolio.columns:
+            continue
+        dates = pd.to_datetime(portfolio[col], errors="coerce").dropna()
+        if not dates.empty:
+            return pd.Timestamp(dates.max()).date().isoformat()
+    return ""
+
+
+def _append_latest_scored_snapshot(regime: pd.DataFrame, latest_run: Path) -> pd.DataFrame:
+    """Append the live/latest scored snapshot when monthly books are stale.
+
+    The historical macro sidecar is monthly because its base input is
+    reports/regime_by_month.csv. Full rebuilds can also produce a fresher
+    scored_latest.csv; keeping that row out made macro_policy_engine look stale
+    even when the main scorer and broker-ledger outputs were current.
+    """
+    scored = read_table(latest_run / "scored_latest.csv")
+    if scored.empty:
+        return regime
+    date_col = "rebalance_date" if "rebalance_date" in scored.columns else "feature_date"
+    if date_col not in scored.columns:
+        return regime
+
+    scored = scored.copy()
+    scored["_snapshot_date"] = pd.to_datetime(scored[date_col], errors="coerce")
+    scored = scored.dropna(subset=["_snapshot_date"])
+    if scored.empty:
+        return regime
+
+    latest_dt = pd.Timestamp(scored["_snapshot_date"].max()).normalize()
+    existing = pd.to_datetime(regime.get("rebalance_date", pd.Series(dtype=object)), errors="coerce")
+    if existing.notna().any() and latest_dt <= pd.Timestamp(existing.max()).normalize():
+        return regime
+
+    latest_rows = scored[scored["_snapshot_date"].dt.normalize().eq(latest_dt)].copy()
+    base_cols = list(regime.columns)
+    row: dict[str, Any] = {col: "" for col in base_cols}
+    row["rebalance_date"] = latest_dt.date().isoformat()
+    if "next_rebalance_date" in row:
+        row["next_rebalance_date"] = _latest_target_next_rebalance(latest_run)
+    row["regime_label"] = _first_non_empty(
+        [
+            _mode_text(latest_rows, "live_event_alert_label"),
+            _mode_text(latest_rows, "event_regime_label"),
+            _mode_text(latest_rows, "market_style_regime_label"),
+        ],
+        default="latest_scored_snapshot",
+    )
+    row["regime_state"] = _mode_text(latest_rows, "regime_state", default="unknown")
+    row["regime_state_from_candidates"] = row["regime_state"]
+    for col in STYLE_COLS:
+        row[col] = safe_float(pd.to_numeric(latest_rows[col], errors="coerce").mean(), 0.0) if col in latest_rows.columns else 0.0
+    row["market_style_regime_label"] = _mode_text(latest_rows, "market_style_regime_label", default="unknown")
+    cash_target = _latest_unified_cash_target(latest_run)
+    row["cash_target_used"] = cash_target
+    row["cash_weight"] = cash_target
+    row["drawdown_before_month"] = 0.0
+    row["drawdown_after_month"] = 0.0
+    row["macro_snapshot_source"] = "scored_latest"
+    if "macro_snapshot_source" not in base_cols:
+        regime = regime.copy()
+        regime["macro_snapshot_source"] = "regime_by_month"
+        base_cols = list(regime.columns)
+    return pd.concat([regime, pd.DataFrame([row], columns=base_cols)], ignore_index=True)
+
+
 def _regime_state_by_month(latest_run: Path) -> pd.DataFrame:
     for rel in ("reports/main_monthly_weights.csv", "reports/candidate_replay_book.csv"):
         frame = read_table(latest_run / rel)
@@ -424,6 +519,7 @@ def run(latest_run: Path, output_dir: Path) -> dict[str, Any]:
     style = _mean_group(candidate, STYLE_COLS)
     if not style.empty:
         regime = regime.merge(style, on="rebalance_date", how="left")
+    regime = _append_latest_scored_snapshot(regime, latest_run)
 
     rows: list[dict[str, Any]] = []
     for raw in regime.to_dict("records"):
@@ -539,6 +635,7 @@ def _summary(rows: list[dict[str, Any]], diagnostics: list[dict[str, Any]], regi
             "recommended_new_buy_policy": latest.get("recommended_new_buy_policy", ""),
             "recommended_trim_policy": latest.get("recommended_trim_policy", ""),
             "recommended_action": latest.get("recommended_action", ""),
+            "macro_snapshot_source": latest.get("macro_snapshot_source", ""),
         },
         "research_only": True,
         "production_activation_allowed": False,
@@ -567,6 +664,7 @@ def render_report(summary: dict[str, Any], diagnostics: list[dict[str, Any]]) ->
         f"- New-buy policy: `{latest.get('recommended_new_buy_policy', '')}`",
         f"- Trim policy: `{latest.get('recommended_trim_policy', '')}`",
         f"- Action: `{latest.get('recommended_action', '')}`",
+        f"- Snapshot source: `{latest.get('macro_snapshot_source', '')}`",
         "",
         "## Risk State Counts",
         "",
