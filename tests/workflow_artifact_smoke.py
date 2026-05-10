@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
 REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml"
+FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.yml"
+FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -259,12 +261,71 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         assert forbidden not in text, forbidden
 
 
+def test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay() -> None:
+    text = FREE_DATA_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Free Data Lake Bootstrap",
+        "tools/run_free_data_lake_bootstrap.py",
+        "tools/run_free_data_engine_validation.py",
+        "data_raw/free",
+        "data_pit/free",
+        "manifests/free_data",
+        "cache_prices",
+        "GOOGLE_SERVICE_ACCOUNT_KEY",
+        "RCLONE_CONFIG_GDRIVE",
+        "gdrive_smoke_test",
+        "run_proxy_replay",
+        "tools/run_broker_ledger_replay.py",
+        "outputs/free_data_proxy_backtest/",
+        "outputs/free_data_engine_validation/",
+        "data_pit/free/coverage_audit.json",
+        "manifests/free_data/latest_manifest.json",
+        "SAFE_BRANCH",
+        "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "git commit",
+        "python run_local.py --full",
+    ]:
+        assert forbidden not in text, forbidden
+
+
+def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
+    text = FREE_DATA_DAILY_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Free Data Daily Update",
+        "schedule:",
+        "30 23 * * 1-5",
+        "pandas_market_calendars",
+        "MARKET_READY",
+        "LAST_NYSE_CLOSE_UTC",
+        "tools/run_free_data_lake_bootstrap.py",
+        "price-mode target_books",
+        "tools/run_broker_ledger_replay.py",
+        "outputs/free_data_proxy_backtest/",
+        "tools/run_free_data_engine_validation.py",
+        "outputs/free_data_engine_validation/",
+        "CAGR",
+        "MaxDD",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "--sec-companyfacts",
+        "python run_local.py --full",
+        "git commit",
+    ]:
+        assert forbidden not in text, forbidden
+
+
 def main() -> int:
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
     test_workflow_runs_latest_diagnostics_sidecars()
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
+    test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
+    test_free_data_daily_workflow_updates_metrics_after_close()
     print("workflow artifact smoke passed")
     return 0
 

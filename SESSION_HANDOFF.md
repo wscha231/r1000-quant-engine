@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-11 05:20 KST (Free data lake design)
+# Session Handoff - 2026-05-11 05:29 KST (Free data performance loop)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,96 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-11 05:20 KST) - Free data lake design
+## ACTIVE INBOX (2026-05-11 05:29 KST) - Free data performance loop
+
+User approved proceeding with the free-first path: collect data, design
+backtests on the new data, and plan learning/engine strengthening.
+User clarified the real objective: data exists to validate and improve engine
+performance with CAGR, MDD/MaxDD, Sharpe, current portfolio realism, and
+continuous updates.
+
+Latest patch adds the first executable bootstrap path:
+
+- `tools/run_free_data_lake_bootstrap.py`
+  - Coordinates existing helpers instead of building a parallel engine.
+  - Optionally refreshes SEC `companyfacts.zip` into `data_raw/free/sec/`.
+  - Optionally runs a macro snapshot into `data_raw/free/macro/`.
+  - Builds or dry-runs `cache_prices` from current target books via
+    `tools/build_replay_price_cache.py`.
+  - Writes:
+    - `manifests/free_data/latest_manifest.json`
+    - `data_pit/free/coverage_audit.json`
+    - `outputs/free_data_lake_bootstrap/summary.json`
+  - Labels results as `pit_safe`, `pit_proxy_universe`, or
+    `research_proxy`.
+- `tools/run_free_data_engine_validation.py`
+  - Reads main/concentrated broker replay metrics from the latest full rebuild
+    and the free-data proxy replay.
+  - Writes CAGR, Sharpe, MaxDD, ending capital, cash, trade-count, known data
+    gaps, policy-fusion queue, and next action gates.
+  - Outputs:
+    - `outputs/free_data_engine_validation/summary.json`
+    - `outputs/free_data_engine_validation/report.md`
+- `.github/workflows/free_data_lake_bootstrap.yml`
+  - Manual workflow.
+  - Restores Drive-backed `data_raw/free`, `data_pit/free`,
+    `manifests/free_data`, and `cache_prices` through rclone when auth exists.
+  - Runs the bootstrap.
+  - Optionally runs broker-ledger proxy replays into
+    `outputs/free_data_proxy_backtest/`.
+  - Runs `tools/run_free_data_engine_validation.py` so every bootstrap reports
+    performance readiness, not just data presence.
+  - Syncs free data, manifests, price cache, and per-run proxy outputs back to
+    Google Drive.
+  - Defaults are conservative:
+    - `sec_companyfacts=false`
+    - `price_mode=dry_run`
+    - `max_price_tickers=80`
+    - `run_proxy_replay=true`
+- `.github/workflows/free_data_daily_update.yml`
+  - Scheduled continuous update workflow.
+  - Runs at `23:30 UTC Mon-Fri` (`08:30 KST Tue-Sat`) after the prior US close.
+  - Uses `pandas_market_calendars` to skip stale/holiday windows unless
+    manually forced.
+  - Restores Drive data, refreshes free prices/macros, reruns broker-ledger
+    proxy replay, and writes the free-data engine validation report.
+- `docs/FREE_BACKTEST_LEARNING_PLAN.md`
+  - Defines phases from free ingestion to PIT normalization, daily-decision
+    broker replay, AutoLearning, policy fusion, and engine promotion gates.
+- `tests/free_data_lake_bootstrap_smoke.py`
+  - Dry-run smoke without network downloads.
+- `tests/workflow_artifact_smoke.py`
+  - Static workflow contract checks.
+
+Recommended execution:
+
+1. Run `gdrive_smoke_test.yml` if credentials changed.
+2. Run `free_data_lake_bootstrap.yml` with default dry-run inputs.
+3. If Drive sync works, rerun with `price_mode=target_books`,
+   `max_price_tickers=80`.
+4. If stable, rerun with `max_price_tickers=0`.
+5. Then enable `sec_companyfacts=true` to store the 1GB+ SEC bulk archive in
+   Drive.
+6. Use `free_data_daily_update.yml` for recurring after-close validation once
+   Drive and price cache are confirmed.
+7. Next development patch should add the actual PIT normalizer that turns
+   `data_raw/free/*` into `data_pit/free/*.parquet`.
+
+Validation completed in this patch:
+
+- `py -3 -m py_compile tools\run_free_data_lake_bootstrap.py`
+- `py -3 -m py_compile tools\run_free_data_engine_validation.py`
+- `py -3 tests\free_data_lake_bootstrap_smoke.py`
+- `py -3 tests\free_data_engine_validation_smoke.py`
+- `py -3 tests\workflow_artifact_smoke.py`
+- YAML parse check for free-data workflows
+- Local validation against latest cloud results returned
+  `validation_status=missing_coverage`, expected until the first
+  `free_data_lake_bootstrap.yml` run creates `data_pit/free/coverage_audit.json`.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 05:20 KST) - Free data lake design
 
 User wants to start with free data and asked whether Google Drive storage can
 be used from GitHub. Answer: yes, if GitHub Actions authenticates to Drive via

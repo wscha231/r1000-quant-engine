@@ -1,0 +1,205 @@
+name: Free Data Daily Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Run even if no fresh NYSE close is detected'
+        type: boolean
+        default: false
+      max_price_tickers:
+        description: '0 = all target-book tickers; keep small while free providers are being tested'
+        type: string
+        default: '80'
+  schedule:
+    # 08:30 KST Tue-Sat, after the prior US regular-session close.
+    - cron: '30 23 * * 1-5'
+
+permissions:
+  contents: read
+
+jobs:
+  daily_update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check latest NYSE close
+        id: market
+        env:
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import os
+          import pandas as pd
+          import pandas_market_calendars as mcal
+
+          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
+          now = datetime.now(timezone.utc)
+          cal = mcal.get_calendar("NYSE")
+          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
+          ready = force
+          last_close = ""
+          if not sched.empty:
+              close = sched["market_close"].max()
+              if isinstance(close, pd.Timestamp):
+                  close_utc = close.to_pydatetime()
+                  if close_utc.tzinfo is None:
+                      close_utc = close_utc.replace(tzinfo=timezone.utc)
+                  last_close = close_utc.isoformat()
+                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=18))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
+              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"ready={'yes' if ready else 'no'}\n")
+              handle.write(f"last_close={last_close}\n")
+          print(f"[market] ready={ready} force={force} last_close={last_close}")
+          PY
+
+      - name: Restore GitHub cache
+        if: steps.market.outputs.ready == 'yes'
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache_prices
+            data_raw/free
+            data_pit/free
+          key: free-data-daily-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            free-data-daily-${{ runner.os }}-
+            free-data-lake-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+
+      - name: Configure rclone
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore free data from Google Drive
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/free data_pit/free manifests/free_data cache_prices; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
+
+      - name: Run free data daily validation
+        if: steps.market.outputs.ready == 'yes'
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+          MAX_PRICE_TICKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_price_tickers || '80' }}
+        run: |
+          set -euo pipefail
+          # Engine validation writes the recurring CAGR / Sharpe / MaxDD report.
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          python tools/run_free_data_lake_bootstrap.py \
+            --latest-run "$LATEST" \
+            --price-mode target_books \
+            --max-price-tickers "$MAX_PRICE_TICKERS" \
+            --pit-label pit_proxy_universe \
+            2>&1 | tee free_data_daily_bootstrap.log
+          mkdir -p outputs/free_data_proxy_backtest/main outputs/free_data_proxy_backtest/concentrated outputs/full_rebuild_logs
+          python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
+          python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
+          python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
+
+      - name: Upload daily validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-data-daily-update-${{ github.run_id }}
+          path: |
+            free_data_daily_bootstrap.log
+            outputs/free_data_lake_bootstrap/
+            outputs/free_data_proxy_backtest/
+            outputs/free_data_engine_validation/
+            outputs/full_rebuild_logs/free_data_*.log
+            data_pit/free/coverage_audit.json
+            manifests/free_data/latest_manifest.json
+          retention-days: 90
+
+      - name: Sync daily validation to Google Drive
+        if: ${{ always() && steps.market.outputs.ready == 'yes' }}
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          for d in data_raw/free data_pit/free manifests/free_data cache_prices; do
+            if [ -e "$d" ]; then
+              rclone copy "$d" "$BASE$d/"
+            fi
+          done
+          rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
+          rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"

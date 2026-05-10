@@ -53,6 +53,69 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 05:29 KST - free-data-bootstrap-workflow
+
+- scope:
+  - Add the first executable free-data bootstrap path so GitHub Actions can restore Google Drive data, seed free datasets, run proxy replay hooks, and preserve manifests for future daily-decision backtests and learning.
+- files:
+  - `tools/run_free_data_lake_bootstrap.py` ->creates free-data manifests, optional SEC/macro/price bootstrap calls, coverage audit output, and proxy backtest readiness labels.
+  - `tools/run_free_data_engine_validation.py` ->summarizes free-data proxy replay CAGR, Sharpe, MaxDD, learning gates, and next actions.
+  - `.github/workflows/free_data_lake_bootstrap.yml` ->manual workflow that restores/syncs Drive-backed free data, runs the bootstrap, optionally runs broker-ledger proxy replays, and uploads artifacts.
+  - `.github/workflows/free_data_daily_update.yml` ->scheduled after-close workflow that skips stale/holiday windows, refreshes free data, reruns proxy broker replay, and emits engine validation metrics.
+  - `docs/FREE_BACKTEST_LEARNING_PLAN.md` ->lays out the free-data path from ingestion to PIT normalization, daily-decision replay, learning, and engine promotion.
+  - `tests/free_data_lake_bootstrap_smoke.py` ->covers dry-run bootstrap outputs without network downloads.
+  - `tests/free_data_engine_validation_smoke.py` ->covers validation metric reporting and learning-review gate output.
+  - `tests/workflow_artifact_smoke.py` ->adds static checks for the free-data workflow contract.
+  - `.gitignore` ->ignores bootstrap runtime outputs.
+  - `CHANGELOG.md` ->records the bootstrap workflow patch.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - `CommandResult` ->records helper command execution results.
+  - `repo_path(path_like)` ->normalizes repo-relative paths.
+  - `path_stats(path)` ->summarizes existence, file count, and size for data lake paths.
+  - `run_command(args, required)` ->runs helper scripts and records bounded stdout/stderr.
+  - `count_csv_rows(path)` ->counts CSV data rows for manifest diagnostics.
+  - `latest_run_summary(latest_run)` ->summarizes existing scored/books/metrics inputs.
+  - `price_cache_data_file_count(cache_dir)` ->counts actual parquet price cache files without treating dry-run manifests as price data.
+  - `build_coverage_audit(args, actions, latest_summary)` ->creates the free-data PIT/proxy coverage audit.
+  - `build_manifest(args, actions, latest_summary, coverage)` ->creates the durable free-data manifest.
+  - `run(args)` ->orchestrates the bootstrap.
+  - `metric_row(label, portfolio, metrics)` ->normalizes CAGR, Sharpe, MaxDD, cash, and trade metrics for validation reports.
+  - `read_metric_pair(base, label)` ->loads main and concentrated broker replay metric pairs.
+  - `load_policy_queue(latest_run, limit)` ->extracts the top policy-fusion learning queue.
+  - `classify_validation(coverage, metrics)` ->gates whether data is ready for learning review.
+  - `next_actions(status, coverage)` ->maps validation status to the next operational step.
+  - `render_report(payload)` ->renders the human-readable free-data engine validation report.
+- symbols_changed:
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->unchanged behavior; new workflow coverage is added separately.
+- config_fields_added:
+  - `free_data_lake_bootstrap.workflow_dispatch.sec_companyfacts: boolean = false` ->controls optional SEC bulk download.
+  - `free_data_lake_bootstrap.workflow_dispatch.price_mode: choice = dry_run` ->controls price bootstrap download mode.
+  - `free_data_lake_bootstrap.workflow_dispatch.max_price_tickers: string = 80` ->bounds first free price bootstrap runs.
+  - `free_data_lake_bootstrap.workflow_dispatch.run_proxy_replay: boolean = true` ->runs broker-ledger proxy replay after price bootstrap when possible.
+  - `free_data_lake_bootstrap.workflow_dispatch.sync_to_gdrive: boolean = true` ->syncs free data/manifests/artifacts to Drive when auth is configured.
+  - `free_data_daily_update.schedule: cron = 30 23 * * 1-5` ->runs after the prior US close at 08:30 KST Tue-Sat and skips stale/holiday windows.
+  - `free_data_daily_update.workflow_dispatch.force_run: boolean = false` ->allows manual override of the market-close freshness gate.
+  - `free_data_daily_update.workflow_dispatch.max_price_tickers: string = 80` ->bounds daily free price refresh breadth.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/free_data_lake_bootstrap/summary.json` ->bootstrap manifest summary.
+  - `data_pit/free/coverage_audit.json` ->PIT/proxy coverage audit for free data.
+  - `manifests/free_data/latest_manifest.json` ->durable free-data snapshot manifest.
+  - `outputs/free_data_proxy_backtest/` ->optional broker-ledger proxy replay outputs from the workflow.
+  - `outputs/free_data_engine_validation/summary.json` ->machine-readable CAGR, Sharpe, MaxDD, learning gate, and next-action summary.
+  - `outputs/free_data_engine_validation/report.md` ->human-readable performance validation report.
+- validation:
+  - `py -3 -m py_compile tools\run_free_data_lake_bootstrap.py tools\run_free_data_engine_validation.py` ->passed.
+  - `py -3 tests\free_data_lake_bootstrap_smoke.py` ->passed.
+  - `py -3 tests\free_data_engine_validation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml']]; print('yaml ok')"` ->passed.
+  - `py -3 tools\run_free_data_engine_validation.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_free_validation_check` ->passed with `validation_status=missing_coverage`, which is expected until the first free-data bootstrap creates `data_pit/free/coverage_audit.json`.
+- risks_or_notes:
+  - Default workflow avoids the 1GB+ SEC bulk download and full price download; increase inputs deliberately after the Drive smoke path is confirmed.
+
 ### 05:20 KST - free-data-lake-design
 
 - scope:

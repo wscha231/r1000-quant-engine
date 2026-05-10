@@ -17,6 +17,9 @@ data_raw/
 data_pit/
 cache_prices/
 outputs/regime_snapshot_cache.json
+outputs/free_data_lake_bootstrap/
+outputs/free_data_proxy_backtest/
+outputs/free_data_engine_validation/
 outputs/winner_lifecycle/
 outputs/winner_onset_study/
 outputs/autolearning_winner_challenger/
