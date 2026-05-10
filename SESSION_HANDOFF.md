@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-11 00:55 KST (Current portfolio snapshot)
+# Session Handoff - 2026-05-11 04:19 KST (Cash policy review)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,70 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-11 00:55 KST) - Current portfolio snapshot
+## ACTIVE INBOX (2026-05-11 04:19 KST) - Cash policy review
+
+User noticed the cash weight looked too high. The important distinction:
+
+- Actual simulated combined cash in the latest replay is about `8.98%`.
+- Main has `25.61%` cash, concentrated has near-zero cash, so the combined
+  account is not actually holding `27.6%` cash.
+- The `27.6%` value is the orchestrator combined target cash, not a
+  per-portfolio cash target.
+- Latest macro policy says recovery/breakout with recommended cash floor `5%`
+  and no confirmed cash-raise evidence, so blindly reserving more cash is too
+  conservative for the user's "hold monsters, do not over-churn" operating
+  intent.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_operating_snapshot.py`
+  - Loads `macro_policy_engine/summary.json` latest state.
+  - Uses macro risk state when available instead of only the orchestrator
+    regime label.
+  - Adds combined cash fields to `current_portfolio_snapshot_latest.csv`:
+    - `combined_current_cash_weight`
+    - `combined_target_cash_weight`
+    - `combined_cash_gap_weight`
+    - `macro_recommended_cash_floor`
+    - `macro_cash_raise_gate`
+    - `macro_cash_raise_confirmation_count`
+    - `cash_policy_flag`
+  - Cash rows now compare combined cash vs combined target cash, not each
+    portfolio's isolated cash row vs the combined target.
+  - If target cash is materially above macro floor without confirmed cash raise
+    in green/recovery state, cash action becomes `CASH_POLICY_REVIEW` instead
+    of blind `RESERVE_CASH`.
+- `tests/operating_snapshot_smoke.py`
+  - Covers the recovery/no-confirmation case and expects
+    `CASH_POLICY_REVIEW`.
+- `CHANGELOG.md`
+  - Records this patch under `2026-05-11 04:19 KST`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_operating_snapshot.py`
+- `py -3 tests\operating_snapshot_smoke.py`
+- Manual latest artifact check:
+  - `py -3 tools\run_operating_snapshot.py --latest-run %TEMP%\r1000_full_25623429543\full-rebuild-global_alpha_universe-25623429543 --output-dir %TEMP%\r1000_cash_policy_check`
+  - Latest `2026-05-08` snapshot now reports:
+    - combined current cash `8.98%`
+    - combined target cash `27.6%`
+    - macro floor `5%`
+    - cash review action `CASH_POLICY_REVIEW`
+    - flag `target_cash_above_macro_floor_without_confirmation`
+
+Next recommended action:
+
+- Commit and push this patch.
+- Run the fast AlphaOps replay sidecar again from source run `25623429543` so
+  the cloud/Drive artifact includes the corrected cash-policy fields.
+- Longer-term: test a lower-cash orchestrator policy or use macro-policy
+  capacities directly, but do that as a measured replay experiment rather than
+  silently changing production targets.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 00:55 KST) - Current portfolio snapshot
 
 User clarified the intended operating model:
 

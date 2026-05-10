@@ -53,6 +53,36 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 04:19 KST - operating-cash-policy-review
+
+- scope:
+  - Clarify high cash readings in the operating snapshot and prevent recovery-regime cash targets from being treated as blind reserve-cash instructions.
+- files:
+  - `tools/run_operating_snapshot.py` ->loads latest macro policy state, labels combined cash policy fields, and emits `CASH_POLICY_REVIEW` when target cash is materially above the macro floor without confirmed cash-raise evidence.
+  - `tests/operating_snapshot_smoke.py` ->covers the new cash policy review fields.
+  - `CHANGELOG.md` ->records the cash-policy review fix.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with cash-policy review semantics.
+- symbols_added:
+  - `load_macro_policy_latest(latest_run)` ->loads `macro_policy_engine/summary.json` latest policy metadata.
+  - `truthy(value)` ->normalizes bool-like policy fields.
+  - `cash_policy_review_decision(current_cash_weight, target_cash_weight, macro_policy)` ->decides whether cash should be held, reserved, deployed, or manually reviewed.
+- symbols_changed:
+  - `write_current_portfolio_snapshot(...)` ->adds combined cash policy context and avoids comparing a combined cash target against each portfolio's isolated cash row as if it were a per-portfolio target.
+  - `build_snapshot(args)` ->uses macro policy risk state when available instead of only the orchestrator regime label.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_portfolio_snapshot_latest.csv` ->adds combined cash policy fields and `cash_policy_flag`.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_summary.json` ->adds combined current/target cash weights and cash-policy review action.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py` ->passed.
+  - `py -3 tests\operating_snapshot_smoke.py` ->passed.
+  - `py -3 tools\run_operating_snapshot.py --latest-run %TEMP%\r1000_full_25623429543\full-rebuild-global_alpha_universe-25623429543 --output-dir %TEMP%\r1000_cash_policy_check` ->passed and labeled the latest 27.6% combined cash target as `CASH_POLICY_REVIEW` because macro recovery recommended floor was 5% with no confirmed cash-raise evidence.
+- risks_or_notes:
+  - This is an operator-snapshot fix; it does not yet change the underlying target books or execute a lower-cash historical replay.
+
 ### 00:55 KST - operating-current-portfolio-snapshot
 
 - scope:

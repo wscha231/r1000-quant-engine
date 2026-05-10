@@ -66,9 +66,21 @@ def clean_float(value: Any) -> float:
     return float(out) if math.isfinite(float(out)) else 0.0
 
 
+def truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
 def latest_non_empty(values: list[str]) -> str:
     non_empty = sorted({str(v) for v in values if str(v or "").strip()})
     return non_empty[-1] if non_empty else ""
+
+
+def load_macro_policy_latest(latest_run: Path) -> dict[str, Any]:
+    summary = read_json(latest_run / "macro_policy_engine" / "summary.json")
+    latest = summary.get("latest") if isinstance(summary, dict) else {}
+    return dict(latest) if isinstance(latest, dict) else {}
 
 
 def detect_account_source(preview_metrics: dict[str, dict[str, Any]]) -> tuple[str, str]:
@@ -416,6 +428,33 @@ def operating_review_decision(preview_action: str, monster_recommendation: str, 
     return "HOLD", "No preview order or no material target gap."
 
 
+def cash_policy_review_decision(
+    *,
+    current_cash_weight: float,
+    target_cash_weight: float,
+    macro_policy: dict[str, Any],
+) -> tuple[str, str, str]:
+    floor = clean_float(macro_policy.get("recommended_cash_floor"))
+    risk_state = str(macro_policy.get("macro_risk_state") or "").lower()
+    cash_gate = str(macro_policy.get("cash_raise_gate") or "")
+    confirmed_raise = truthy(macro_policy.get("confirmed_cash_raise"))
+    confirmations = clean_float(macro_policy.get("cash_raise_confirmation_count"))
+    gap = float(target_cash_weight) - float(current_cash_weight)
+    if abs(gap) <= 0.005:
+        return "HOLD", "Combined cash is already close to target.", "cash_close_to_target"
+    if gap < 0:
+        return "DEPLOY_CASH_REVIEW", "Combined cash is above target; review deploy candidates before acting.", "cash_above_target"
+    if target_cash_weight >= floor + 0.10 and not confirmed_raise and confirmations < 2 and risk_state in {"", "green", "recovery"}:
+        reason = (
+            "Combined cash target is materially above the macro floor without confirmed cash-raise evidence; "
+            "review before reserving more cash."
+        )
+        return "CASH_POLICY_REVIEW", reason, "target_cash_above_macro_floor_without_confirmation"
+    if cash_gate:
+        return "RESERVE_CASH", f"Combined cash is below target under macro gate `{cash_gate}`.", "below_combined_cash_target"
+    return "RESERVE_CASH", "Combined cash is below target.", "below_combined_cash_target"
+
+
 def write_current_portfolio_snapshot(
     *,
     latest_run: Path,
@@ -425,6 +464,9 @@ def write_current_portfolio_snapshot(
     approval: str,
     account_source: str,
     macro_state: str,
+    total_equity: float,
+    total_cash: float,
+    macro_policy: dict[str, Any],
 ) -> dict[str, Any]:
     portfolio_targets = load_portfolio_targets(latest_run)
     portfolio_orders = aggregate_orders_by_portfolio(latest_run)
@@ -433,6 +475,13 @@ def write_current_portfolio_snapshot(
     rows: list[dict[str, Any]] = []
     portfolio_counts: dict[str, int] = {}
     as_of_dates: list[str] = []
+    combined_current_cash_weight = float(total_cash / total_equity) if total_equity > 0.0 else 0.0
+    combined_target_cash_weight = clean_float((target_map.get("CASH") or {}).get("target_weight"))
+    cash_review_action, cash_review_reason, cash_policy_flag = cash_policy_review_decision(
+        current_cash_weight=combined_current_cash_weight,
+        target_cash_weight=combined_target_cash_weight,
+        macro_policy=macro_policy,
+    )
 
     for portfolio in PORTFOLIOS:
         positions = read_csv(latest_run / "broker_replay" / portfolio / "positions_latest.csv")
@@ -507,6 +556,13 @@ def write_current_portfolio_snapshot(
                     "account_source": account_source,
                     "approval_status": approval,
                     "risk_state": macro_state,
+                    "combined_current_cash_weight": combined_current_cash_weight,
+                    "combined_target_cash_weight": combined_target_cash_weight,
+                    "combined_cash_gap_weight": combined_target_cash_weight - combined_current_cash_weight,
+                    "macro_recommended_cash_floor": clean_float(macro_policy.get("recommended_cash_floor")),
+                    "macro_cash_raise_gate": str(macro_policy.get("cash_raise_gate") or ""),
+                    "macro_cash_raise_confirmation_count": clean_float(macro_policy.get("cash_raise_confirmation_count")),
+                    "cash_policy_flag": "",
                 }
             )
 
@@ -514,7 +570,6 @@ def write_current_portfolio_snapshot(
         as_of_date = str(row.get("as_of_date") or "")
         if as_of_date:
             as_of_dates.append(as_of_date)
-        cash_preview_action = "RESERVE_CASH" if clean_float((target_map.get("CASH") or {}).get("target_weight")) > clean_float(row.get("cash_weight")) else "HOLD"
         rows.append(
             {
                 "as_of_date": as_of_date,
@@ -538,11 +593,11 @@ def write_current_portfolio_snapshot(
                 "entry_reasons": "",
                 "entry_sleeves": "",
                 "target_portfolio_weight": 0.0,
-                "target_combined_weight": clean_float((target_map.get("CASH") or {}).get("target_weight")),
-                "delta_portfolio_weight": clean_float((target_map.get("CASH") or {}).get("target_weight")) - clean_float(row.get("cash_weight")),
-                "preview_action": cash_preview_action,
-                "review_action": cash_preview_action,
-                "review_reason": "Cash reserve target is above current cash weight." if cash_preview_action == "RESERVE_CASH" else "Cash is already at or above target.",
+                "target_combined_weight": combined_target_cash_weight,
+                "delta_portfolio_weight": "",
+                "preview_action": cash_review_action,
+                "review_action": cash_review_action,
+                "review_reason": cash_review_reason,
                 "review_quantity_delta": 0.0,
                 "review_trade_value_delta_usd": 0.0,
                 "review_order_count": 0,
@@ -557,6 +612,13 @@ def write_current_portfolio_snapshot(
                 "account_source": account_source,
                 "approval_status": approval,
                 "risk_state": macro_state,
+                "combined_current_cash_weight": combined_current_cash_weight,
+                "combined_target_cash_weight": combined_target_cash_weight,
+                "combined_cash_gap_weight": combined_target_cash_weight - combined_current_cash_weight,
+                "macro_recommended_cash_floor": clean_float(macro_policy.get("recommended_cash_floor")),
+                "macro_cash_raise_gate": str(macro_policy.get("cash_raise_gate") or ""),
+                "macro_cash_raise_confirmation_count": clean_float(macro_policy.get("cash_raise_confirmation_count")),
+                "cash_policy_flag": cash_policy_flag,
             }
         )
 
@@ -578,6 +640,14 @@ def write_current_portfolio_snapshot(
         "row_count": int(len(frame)),
         "cash_row_count": int((frame.get("row_type", pd.Series(dtype=str)) == "cash").sum()) if not frame.empty else 0,
         "monster_recommendation_count": int((frame.get("monster_recommendation", pd.Series(dtype=str)).astype(str).str.strip() != "").sum()) if not frame.empty else 0,
+        "combined_current_cash_weight": combined_current_cash_weight,
+        "combined_target_cash_weight": combined_target_cash_weight,
+        "combined_cash_gap_weight": combined_target_cash_weight - combined_current_cash_weight,
+        "cash_policy_review_action": cash_review_action,
+        "cash_policy_flag": cash_policy_flag,
+        "macro_recommended_cash_floor": clean_float(macro_policy.get("recommended_cash_floor")),
+        "macro_cash_raise_gate": str(macro_policy.get("cash_raise_gate") or ""),
+        "macro_cash_raise_confirmation_count": clean_float(macro_policy.get("cash_raise_confirmation_count")),
         "outputs": {
             "csv": str(csv_path),
             "json": str(output_dir / "current_portfolio_snapshot_summary.json"),
@@ -587,6 +657,7 @@ def write_current_portfolio_snapshot(
             "This is the current simulated broker-ledger account state marked to the latest available close.",
             "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
             "Review actions are suggestions from the order preview; this tool does not place orders.",
+            "Cash policy fields are combined-account policy context, not duplicated per-portfolio cash targets.",
         ],
     }
     write_json(output_dir / "current_portfolio_snapshot_summary.json", summary)
@@ -665,12 +736,18 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     target_map = aggregate_target(target)
     order_map = aggregate_orders(latest_run)
     monster_map = load_monster_recommendations(latest_run)
+    macro_policy = load_macro_policy_latest(latest_run)
     risk, safety, issues = load_control_status(latest_run)
     approval, approval_note = approval_status(risk=risk, safety=safety, issues=issues)
 
     as_of_dates = [str((payload or {}).get("as_of_date") or "") for payload in preview_metrics.values()]
     as_of_date = args.as_of_date or latest_non_empty(as_of_dates)
-    macro_state = str(orchestrator_payload.get("regime_state") or orchestrator_payload.get("macro_state") or "")
+    macro_state = str(
+        macro_policy.get("macro_risk_state")
+        or orchestrator_payload.get("regime_state")
+        or orchestrator_payload.get("macro_state")
+        or ""
+    )
     all_tickers = sorted(set(current_map) | set(target_map) | set(order_map) | set(monster_map))
     if "CASH" not in all_tickers:
         all_tickers.append("CASH")
@@ -750,6 +827,9 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         approval=approval,
         account_source=account_source,
         macro_state=macro_state,
+        total_equity=total_equity,
+        total_cash=total_cash,
+        macro_policy=macro_policy,
     )
 
     error_count = sum(1 for row in issues if str(row.get("severity")) == "error")
@@ -771,6 +851,11 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "cash_usd": float(total_cash),
         "current_cash_weight": float(total_cash / total_equity) if total_equity > 0.0 else 0.0,
         "target_cash_weight": float((target_map.get("CASH") or {}).get("target_weight") or 0.0),
+        "macro_recommended_cash_floor": clean_float(macro_policy.get("recommended_cash_floor")),
+        "macro_cash_raise_gate": str(macro_policy.get("cash_raise_gate") or ""),
+        "macro_cash_raise_confirmation_count": clean_float(macro_policy.get("cash_raise_confirmation_count")),
+        "cash_policy_review_action": current_snapshot.get("cash_policy_review_action"),
+        "cash_policy_flag": current_snapshot.get("cash_policy_flag"),
         "row_count": int(len(frame)),
         "equity_row_count": int((frame.get("row_type", pd.Series(dtype=str)) == "equity").sum()) if not frame.empty else 0,
         "preview_order_count": int(frame.get("preview_order_count", pd.Series(dtype=float)).sum()) if not frame.empty else 0,
@@ -806,6 +891,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Total equity: ${clean_float(payload.get('total_equity_usd')):,.2f}",
         f"- Current cash: {clean_float(payload.get('current_cash_weight')):.2%}",
         f"- Target cash: {clean_float(payload.get('target_cash_weight')):.2%}",
+        f"- Cash policy review: `{payload.get('cash_policy_review_action', '')}`",
         f"- Preview orders represented: {payload.get('preview_order_count')}",
         "",
         "This file is the canonical operator snapshot. Raw portfolio_latest files are model targets, not account holdings.",
@@ -826,9 +912,13 @@ def render_current_snapshot_report(payload: dict[str, Any]) -> str:
         f"- Rows: {payload.get('row_count')}",
         f"- Cash rows: {payload.get('cash_row_count')}",
         f"- Monster recommendation rows: {payload.get('monster_recommendation_count')}",
+        f"- Combined current cash: {clean_float(payload.get('combined_current_cash_weight')):.2%}",
+        f"- Combined target cash: {clean_float(payload.get('combined_target_cash_weight')):.2%}",
+        f"- Cash policy review: `{payload.get('cash_policy_review_action', '')}`",
         "",
         "This file answers what the simulated broker-ledger portfolios currently hold after historical trades and latest close mark-to-market.",
         "It is different from `portfolio_latest.csv` and `concentrated_portfolio_latest.csv`, which are target recommendation books.",
+        "Cash policy fields are combined-account context; they are not separate per-portfolio target cash weights.",
         "",
     ]
     counts = payload.get("portfolio_position_counts") or {}

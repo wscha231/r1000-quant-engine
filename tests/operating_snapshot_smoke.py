@@ -165,6 +165,22 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
             ),
             encoding="utf-8",
         )
+        macro_dir = root / "macro_policy_engine"
+        macro_dir.mkdir()
+        (macro_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "latest": {
+                        "macro_risk_state": "recovery",
+                        "recommended_cash_floor": 0.05,
+                        "cash_raise_gate": "reentry_holdback_only",
+                        "cash_raise_confirmation_count": 0,
+                        "confirmed_cash_raise": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
         safety_dir = root / "live_trading_safety"
         safety_dir.mkdir()
         (safety_dir / "safety_audit_summary.json").write_text(json.dumps({"status": "pass", "issues": []}), encoding="utf-8")
@@ -189,9 +205,14 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         assert main_aaa["review_action"] == "HOLD"
         cash_rows = current[current["row_type"] == "cash"]
         assert set(cash_rows["portfolio_kind"]) == {"main", "concentrated"}
+        assert set(cash_rows["review_action"]) == {"CASH_POLICY_REVIEW"}
+        assert cash_rows["combined_current_cash_weight"].astype(float).iloc[0] == 0.20
+        assert cash_rows["combined_target_cash_weight"].astype(float).iloc[0] == 0.40
+        assert cash_rows["cash_policy_flag"].iloc[0] == "target_cash_above_macro_floor_without_confirmation"
         summary = json.loads((root / "operating_snapshot" / "current_portfolio_snapshot_summary.json").read_text())
         assert summary["status"] == "completed"
         assert summary["portfolio_position_counts"]["main"] == 2
+        assert summary["cash_policy_review_action"] == "CASH_POLICY_REVIEW"
 
 
 def main() -> int:
