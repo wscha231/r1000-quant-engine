@@ -66,7 +66,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `tests/free_data_lake_bootstrap_smoke.py` ->covers dry-run bootstrap outputs without network downloads.
   - `tests/free_data_engine_validation_smoke.py` ->covers validation metric reporting and learning-review gate output.
   - `tests/workflow_artifact_smoke.py` ->adds static checks for the free-data workflow contract.
-  - `.gitignore` ->ignores bootstrap runtime outputs.
+  - `.gitignore` ->ignores bootstrap runtime outputs and generated free-data manifests that should live in Drive/artifacts unless intentionally promoted.
   - `CHANGELOG.md` ->records the bootstrap workflow patch.
   - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
 - symbols_added:
@@ -75,6 +75,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `path_stats(path)` ->summarizes existence, file count, and size for data lake paths.
   - `run_command(args, required)` ->runs helper scripts and records bounded stdout/stderr.
   - `count_csv_rows(path)` ->counts CSV data rows for manifest diagnostics.
+  - `safe_int(value, default)` ->parses manifest counts for coverage gates.
   - `latest_run_summary(latest_run)` ->summarizes existing scored/books/metrics inputs.
   - `price_cache_data_file_count(cache_dir)` ->counts actual parquet price cache files without treating dry-run manifests as price data.
   - `build_coverage_audit(args, actions, latest_summary)` ->creates the free-data PIT/proxy coverage audit.
@@ -113,8 +114,11 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\workflow_artifact_smoke.py` ->passed.
   - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml']]; print('yaml ok')"` ->passed.
   - `py -3 tools\run_free_data_engine_validation.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_free_validation_check` ->passed with `validation_status=missing_coverage`, which is expected until the first free-data bootstrap creates `data_pit/free/coverage_audit.json`.
+  - `py -3 tools\run_free_data_lake_bootstrap.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --price-mode target_books --max-price-tickers 80 --pit-label pit_proxy_universe` ->passed locally, created 80 price cache files, and correctly kept readiness at `manifest_only` because required target-book coverage is 80/386.
+  - `py -3 tools\run_free_data_engine_validation.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --proxy-backtest-dir outputs\free_data_proxy_backtest --coverage data_pit\free\coverage_audit.json --output-dir outputs\free_data_engine_validation` ->passed with `validation_status=data_not_ready` after the partial-cache gate fix.
 - risks_or_notes:
   - Default workflow avoids the 1GB+ SEC bulk download and full price download; increase inputs deliberately after the Drive smoke path is confirmed.
+  - Partial price caches are now treated as `manifest_only` until all required target-book tickers are present; this prevents incomplete-data replays from being promoted as engine evidence.
 
 ### 05:20 KST - free-data-lake-design
 

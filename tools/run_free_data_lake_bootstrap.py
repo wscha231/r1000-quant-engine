@@ -129,6 +129,13 @@ def count_csv_rows(path: Path) -> int:
         return 0
 
 
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def latest_run_summary(latest_run: Path) -> dict[str, Any]:
     reports = latest_run / "reports"
     backtest = read_json(latest_run / "backtest_metrics.json", {}) or {}
@@ -175,7 +182,16 @@ def build_coverage_audit(
     sec_zip = data_root / "data_raw" / "free" / "sec" / "companyfacts.zip"
     macro_dir = data_root / "data_raw" / "free" / "macro"
     price_manifest = data_root / "data_raw" / "free" / "prices" / "replay_price_cache_manifest.json"
+    price_manifest_payload = read_json(price_manifest, {}) or {}
     price_cache_files = price_cache_data_file_count(cache_dir)
+    required_price_tickers = safe_int(price_manifest_payload.get("book_ticker_count"))
+    requested_price_tickers = safe_int(price_manifest_payload.get("ticker_count"))
+    price_coverage_ratio = (
+        float(price_cache_files) / float(required_price_tickers)
+        if required_price_tickers > 0
+        else (1.0 if price_cache_files > 0 else 0.0)
+    )
+    price_ready = required_price_tickers > 0 and price_cache_files >= required_price_tickers
     latest_exists = bool(latest_summary.get("exists"))
     has_target_books = (
         int(latest_summary.get("main_monthly_weight_rows") or 0) > 0
@@ -188,9 +204,13 @@ def build_coverage_audit(
         known_gaps.append("SEC companyfacts bulk archive is not present in data_raw/free/sec")
     if price_cache_files <= 0:
         known_gaps.append("free price cache is not populated yet")
+    elif not price_ready:
+        known_gaps.append(
+            f"free price cache coverage incomplete: {price_cache_files}/{required_price_tickers} required target-book tickers"
+        )
     if not has_target_books:
         known_gaps.append("monthly target books are missing, so proxy replay cannot run")
-    readiness = "ready_for_proxy_replay" if latest_exists and has_target_books and price_cache_files > 0 else "manifest_only"
+    readiness = "ready_for_proxy_replay" if latest_exists and has_target_books and price_ready else "manifest_only"
     return {
         "schema_version": "free-data-coverage-v1",
         "generated_at_utc": now_utc(),
@@ -214,6 +234,9 @@ def build_coverage_audit(
                 "cache_path": rel(cache_dir),
                 "manifest_path": rel(price_manifest),
                 "cache_data_file_count": price_cache_files,
+                "required_target_book_ticker_count": required_price_tickers,
+                "requested_ticker_count": requested_price_tickers,
+                "coverage_ratio": round(price_coverage_ratio, 6),
             },
             "universe": {
                 "tier": "proxy_until_historical_constituents_added",

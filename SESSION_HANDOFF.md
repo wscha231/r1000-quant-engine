@@ -22,6 +22,9 @@ Latest patch adds the first executable bootstrap path:
   - Optionally runs a macro snapshot into `data_raw/free/macro/`.
   - Builds or dry-runs `cache_prices` from current target books via
     `tools/build_replay_price_cache.py`.
+  - Treats partial price caches as `manifest_only` until all required
+    target-book tickers are cached, so partial 80-name test runs cannot be
+    mistaken for engine evidence.
   - Writes:
     - `manifests/free_data/latest_manifest.json`
     - `data_pit/free/coverage_audit.json`
@@ -92,6 +95,10 @@ Validation completed in this patch:
 - Local validation against latest cloud results returned
   `validation_status=missing_coverage`, expected until the first
   `free_data_lake_bootstrap.yml` run creates `data_pit/free/coverage_audit.json`.
+- Local bootstrap with `price_mode=target_books --max-price-tickers=80`
+  downloaded/cached 80 tickers and correctly stayed `manifest_only` because
+  target books require 386 tickers. A partial replay showed high cash and weak
+  CAGR, so it must not be used as engine evidence.
 
 ---
 
