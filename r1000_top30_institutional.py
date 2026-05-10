@@ -245,6 +245,7 @@ from r1000_signals import (
     resolve_regime_sleeve_multipliers,
     add_historical_data_quality_columns,
     compute_portfolio_sleeve_columns,
+    compute_defensive_monster_rotation_overlay,
     compute_portfolio_sleeve_policy,
     compute_regime_portfolio_controls,
     compute_benchmark_beating_focus_overlay,

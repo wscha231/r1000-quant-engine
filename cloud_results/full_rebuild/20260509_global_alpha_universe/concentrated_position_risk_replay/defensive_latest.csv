@@ -1,0 +1,5 @@
+rebalance_date,ticker,Name,sector,original_weight,defended_weight,cash_after_defense,list_action,reason,period_forward_return,risk_adjusted_return,hard_stop,risk_exit_proxy,target_n,weighting_mode,active_rebalance_interval_months,raw_score,concentrated_score,portfolio_sleeve_label
+2026-02-27,ETR,ENTERGY CORP,Utilities,0.31854422701587876,0.31854422701587876,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,4,score_power,1,3.492231206859597,0.6954883827845055,early_scout
+2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.30599139678250387,0.30599139678250387,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,4,score_power,1,2.7428096330678358,0.6889575552825978,early_scout
+2026-02-27,BKNG,BOOKING HOLDINGS INC,Consumer Discretionary,0.19058708897749146,0.19058708897749146,,hold,hold,0.04356784208919762,0.04356784208919762,-0.08,False,4,score_power,1,5.354299476124495,0.6211614848135543,early_scout
+2026-02-27,PEG,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,0.18487728722412594,0.18487728722412594,,hold,hold,-0.05657827013290484,-0.05657827013290484,-0.08,False,4,score_power,1,2.542044558901955,0.6173303057811415,early_scout

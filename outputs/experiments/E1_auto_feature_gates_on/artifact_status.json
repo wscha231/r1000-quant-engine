@@ -1,0 +1,67 @@
+[
+  {
+    "artifact": "feature_gate_candidate.yaml",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/auto_learning/auto_feature_gates_candidate.yaml",
+    "status": "copied"
+  },
+  {
+    "artifact": "promotion_decision.json",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/auto_learning/promotion_decision.json",
+    "status": "copied"
+  },
+  {
+    "artifact": "feature_gate_candidates.csv",
+    "source": "",
+    "status": "derived"
+  },
+  {
+    "artifact": "equity_curve.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "monthly_allocations.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "sleeve_returns.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "turnover.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "stress_windows.csv",
+    "source": "",
+    "status": "report_only_placeholder"
+  },
+  {
+    "artifact": "trade_journal_summary.md",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/summary.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "trade_journal_ic_matrix.csv",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/ic_matrix.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "trade_journal_cluster_winrate.csv",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/cluster_winrate.csv",
+    "status": "copied"
+  },
+  {
+    "artifact": "trade_journal_proposal_diff.md",
+    "source": "cloud_results/full_rebuild/latest_global_alpha_universe/trade_journal/insights/proposal_diff.md",
+    "status": "copied"
+  },
+  {
+    "artifact": "metrics.json",
+    "source": "",
+    "status": "derived"
+  }
+]

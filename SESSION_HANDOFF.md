@@ -1,4 +1,4 @@
-# Session Handoff - 2026-04-29 19:08 KST (ADR mktcap + concentrated CAGR regression fixes, rebuild needed)
+# Session Handoff - 2026-05-11 05:29 KST (Free data performance loop)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,1740 @@
 
 ---
 
-## ACTIVE INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
+## ACTIVE INBOX (2026-05-11 05:29 KST) - Free data performance loop
+
+User approved proceeding with the free-first path: collect data, design
+backtests on the new data, and plan learning/engine strengthening.
+User clarified the real objective: data exists to validate and improve engine
+performance with CAGR, MDD/MaxDD, Sharpe, current portfolio realism, and
+continuous updates.
+
+Latest patch adds the first executable bootstrap path:
+
+- `tools/run_free_data_lake_bootstrap.py`
+  - Coordinates existing helpers instead of building a parallel engine.
+  - Optionally refreshes SEC `companyfacts.zip` into `data_raw/free/sec/`.
+  - Optionally runs a macro snapshot into `data_raw/free/macro/`.
+  - Builds or dry-runs `cache_prices` from current target books via
+    `tools/build_replay_price_cache.py`.
+  - Treats partial price caches as `manifest_only` until all required
+    target-book tickers are cached, so partial 80-name test runs cannot be
+    mistaken for engine evidence.
+  - Writes:
+    - `manifests/free_data/latest_manifest.json`
+    - `data_pit/free/coverage_audit.json`
+    - `outputs/free_data_lake_bootstrap/summary.json`
+  - Labels results as `pit_safe`, `pit_proxy_universe`, or
+    `research_proxy`.
+- `tools/run_free_data_engine_validation.py`
+  - Reads main/concentrated broker replay metrics from the latest full rebuild
+    and the free-data proxy replay.
+  - Writes CAGR, Sharpe, MaxDD, ending capital, cash, trade-count, known data
+    gaps, policy-fusion queue, and next action gates.
+  - Outputs:
+    - `outputs/free_data_engine_validation/summary.json`
+    - `outputs/free_data_engine_validation/report.md`
+- `.github/workflows/free_data_lake_bootstrap.yml`
+  - Manual workflow.
+  - Restores Drive-backed `data_raw/free`, `data_pit/free`,
+    `manifests/free_data`, and `cache_prices` through rclone when auth exists.
+  - Runs the bootstrap.
+  - Optionally runs broker-ledger proxy replays into
+    `outputs/free_data_proxy_backtest/`.
+  - Runs `tools/run_free_data_engine_validation.py` so every bootstrap reports
+    performance readiness, not just data presence.
+  - Syncs free data, manifests, price cache, and per-run proxy outputs back to
+    Google Drive.
+  - Defaults are conservative:
+    - `sec_companyfacts=false`
+    - `price_mode=dry_run`
+    - `max_price_tickers=80`
+    - `run_proxy_replay=true`
+- `.github/workflows/free_data_daily_update.yml`
+  - Scheduled continuous update workflow.
+  - Runs at `23:30 UTC Mon-Fri` (`08:30 KST Tue-Sat`) after the prior US close.
+  - Uses `pandas_market_calendars` to skip stale/holiday windows unless
+    manually forced.
+  - Restores Drive data, refreshes free prices/macros, reruns broker-ledger
+    proxy replay, and writes the free-data engine validation report.
+- `docs/FREE_BACKTEST_LEARNING_PLAN.md`
+  - Defines phases from free ingestion to PIT normalization, daily-decision
+    broker replay, AutoLearning, policy fusion, and engine promotion gates.
+- `tests/free_data_lake_bootstrap_smoke.py`
+  - Dry-run smoke without network downloads.
+- `tests/workflow_artifact_smoke.py`
+  - Static workflow contract checks.
+
+Recommended execution:
+
+1. Run `gdrive_smoke_test.yml` if credentials changed.
+2. Run `free_data_lake_bootstrap.yml` with default dry-run inputs.
+3. If Drive sync works, rerun with `price_mode=target_books`,
+   `max_price_tickers=80`.
+4. If stable, rerun with `max_price_tickers=0`.
+5. Then enable `sec_companyfacts=true` to store the 1GB+ SEC bulk archive in
+   Drive.
+6. Use `free_data_daily_update.yml` for recurring after-close validation once
+   Drive and price cache are confirmed.
+7. Next development patch should add the actual PIT normalizer that turns
+   `data_raw/free/*` into `data_pit/free/*.parquet`.
+
+Validation completed in this patch:
+
+- `py -3 -m py_compile tools\run_free_data_lake_bootstrap.py`
+- `py -3 -m py_compile tools\run_free_data_engine_validation.py`
+- `py -3 tests\free_data_lake_bootstrap_smoke.py`
+- `py -3 tests\free_data_engine_validation_smoke.py`
+- `py -3 tests\workflow_artifact_smoke.py`
+- YAML parse check for free-data workflows
+- Local validation against latest cloud results returned
+  `validation_status=missing_coverage`, expected until the first
+  `free_data_lake_bootstrap.yml` run creates `data_pit/free/coverage_audit.json`.
+- Local bootstrap with `price_mode=target_books --max-price-tickers=80`
+  downloaded/cached 80 tickers and correctly stayed `manifest_only` because
+  target books require 386 tickers. A partial replay showed high cash and weak
+  CAGR, so it must not be used as engine evidence.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 05:20 KST) - Free data lake design
+
+User wants to start with free data and asked whether Google Drive storage can
+be used from GitHub. Answer: yes, if GitHub Actions authenticates to Drive via
+rclone. The repo already has:
+
+- `.github/workflows/gdrive_smoke_test.yml`
+  - Verifies Drive access with `GOOGLE_SERVICE_ACCOUNT_KEY` or
+    `RCLONE_CONFIG_GDRIVE`.
+- `.github/workflows/full_rebuild_manual.yml`
+  - Syncs outputs to Drive using the same auth pattern.
+
+Latest patch adds:
+
+- `docs/FREE_DATA_LAKE_PLAN.md`
+  - Defines free-first data lake layout:
+    - `data_raw/free/sec/`
+    - `data_raw/free/prices/`
+    - `data_raw/free/macro/`
+    - `data_raw/free/universe_proxy/`
+    - `data_pit/free/`
+    - `manifests/free_data/`
+  - Explains that Drive stores large data, GitHub tracks code/small manifests,
+    and GitHub Actions restores/syncs data through rclone.
+  - Labels free historical tests as `pit_safe`, `pit_proxy_universe`, or
+    `research_proxy`.
+  - Warns not to call free proxy results official Russell 1000 backtests until
+    historical constituents and delisted coverage are solved.
+- `docs/PORTABLE_DATA_STRATEGY.md`
+  - Links the portable data strategy to the free data lake contract.
+- `tools/check_portable_data_readiness.py`
+  - Adds optional free data lake readiness checks without changing minimum
+    readiness status.
+- `.gitignore`
+  - Keeps large future `data_raw/`, `data_pit/`, and `cache_prices/` payloads
+    out of Git.
+
+Next recommended action:
+
+- Validate the checker.
+- Commit and push the free data lake design patch.
+- Then add an actual GitHub workflow or script to restore `data_raw/free/` and
+  `data_pit/free/` from Drive before daily/backtest jobs.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 04:58 KST) - Portable data readiness
+
+User wants the system usable after changing computers. Latest patch adds:
+
+- `docs/PORTABLE_DATA_STRATEGY.md`
+  - Defines GitHub as code/small manifest storage.
+  - Defines Google Drive/object storage as durable home for large data and run
+    bundles.
+  - Defines local checkout as replaceable cache/run workspace.
+  - Documents restore steps for a new computer.
+- `tools/check_portable_data_readiness.py`
+  - Audits required local paths for minimum operation:
+    - `cloud_results/full_rebuild/latest_global_alpha_universe`
+    - `operating_snapshot`
+    - `broker_replay`
+    - `macro_policy_engine`
+  - Audits optional but important paths:
+    - `data_raw`
+    - `data_pit`
+    - `cache_prices`
+    - `outputs/companyfacts.zip`
+    - Drive sync manifests
+  - Writes `outputs/portable_data_readiness.json` by default; use
+    `--no-write` for read-only checks.
+- Validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py`
+  - `py -3 tools\check_portable_data_readiness.py`
+  - Current machine returned `status=ready_minimum` with no missing required
+    paths. Optional durable data folders/caches are missing locally and should
+    be restored from Drive/object storage or regenerated.
+
+Next recommended action:
+
+- Commit and push the portability docs/checker.
+- Later, add a GitHub workflow step that uploads durable `data_pit/` manifests
+  and cache bundle manifests to Drive/object storage when those datasets are
+  created.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 04:19 KST) - Cash policy review
+
+User noticed the cash weight looked too high. The important distinction:
+
+- Actual simulated combined cash in the latest replay is about `8.98%`.
+- Main has `25.61%` cash, concentrated has near-zero cash, so the combined
+  account is not actually holding `27.6%` cash.
+- The `27.6%` value is the orchestrator combined target cash, not a
+  per-portfolio cash target.
+- Latest macro policy says recovery/breakout with recommended cash floor `5%`
+  and no confirmed cash-raise evidence, so blindly reserving more cash is too
+  conservative for the user's "hold monsters, do not over-churn" operating
+  intent.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_operating_snapshot.py`
+  - Loads `macro_policy_engine/summary.json` latest state.
+  - Uses macro risk state when available instead of only the orchestrator
+    regime label.
+  - Adds combined cash fields to `current_portfolio_snapshot_latest.csv`:
+    - `combined_current_cash_weight`
+    - `combined_target_cash_weight`
+    - `combined_cash_gap_weight`
+    - `macro_recommended_cash_floor`
+    - `macro_cash_raise_gate`
+    - `macro_cash_raise_confirmation_count`
+    - `cash_policy_flag`
+  - Cash rows now compare combined cash vs combined target cash, not each
+    portfolio's isolated cash row vs the combined target.
+  - If target cash is materially above macro floor without confirmed cash raise
+    in green/recovery state, cash action becomes `CASH_POLICY_REVIEW` instead
+    of blind `RESERVE_CASH`.
+- `tests/operating_snapshot_smoke.py`
+  - Covers the recovery/no-confirmation case and expects
+    `CASH_POLICY_REVIEW`.
+- `CHANGELOG.md`
+  - Records this patch under `2026-05-11 04:19 KST`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_operating_snapshot.py`
+- `py -3 tests\operating_snapshot_smoke.py`
+- Manual latest artifact check:
+  - `py -3 tools\run_operating_snapshot.py --latest-run %TEMP%\r1000_full_25623429543\full-rebuild-global_alpha_universe-25623429543 --output-dir %TEMP%\r1000_cash_policy_check`
+  - Latest `2026-05-08` snapshot now reports:
+    - combined current cash `8.98%`
+    - combined target cash `27.6%`
+    - macro floor `5%`
+    - cash review action `CASH_POLICY_REVIEW`
+    - flag `target_cash_above_macro_floor_without_confirmation`
+
+Next recommended action:
+
+- Commit and push this patch.
+- Run the fast AlphaOps replay sidecar again from source run `25623429543` so
+  the cloud/Drive artifact includes the corrected cash-policy fields.
+- Longer-term: test a lower-cash orchestrator policy or use macro-policy
+  capacities directly, but do that as a measured replay experiment rather than
+  silently changing production targets.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 00:55 KST) - Current portfolio snapshot
+
+User clarified the intended operating model:
+
+- The system should not present `portfolio_latest.csv` as the current account.
+- Main and concentrated should be shown as broker-like current holdings
+  snapshots, checked daily against latest close data.
+- Trading should be market-responsive but not churn-heavy: hold monster winners
+  as long as they remain valid, trim/replace only when they break down or lose
+  leadership.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_operating_snapshot.py`
+  - Adds `current_portfolio_snapshot_latest.csv`.
+  - Adds `current_portfolio_snapshot_summary.json`.
+  - Adds `current_portfolio_snapshot_report.md`.
+  - The snapshot is built from:
+    - `broker_replay/<portfolio>/positions_latest.csv`
+    - `broker_replay/<portfolio>/equity_curve.csv`
+    - `broker_trade_journal/<portfolio>/open_positions.csv`
+    - `account_ledger_preview/<portfolio>/target_weights.csv`
+    - `account_ledger_preview/<portfolio>/orders_preview.csv`
+    - `monster_recommendations/unified_recommendations.csv`
+  - It records per-portfolio current shares, latest close price, value, weight,
+    cost basis, realized/unrealized PnL, first entry date, holding days, target
+    gaps, raw preview action, and a monster-aware `review_action`.
+  - `review_action` is deliberately not a blind BUY/SELL field. It separates
+    raw preview orders from operating decisions such as
+    `SCALE_OR_HOLD_MONSTER_REVIEW`, `HOLD_OR_TRIM_REVIEW`, `ROTATION_REVIEW`,
+    and `EXIT_REVIEW`.
+- `tests/operating_snapshot_smoke.py`
+  - Covers the new current snapshot output, open-lot entry date, per-portfolio
+    target weight, and cash rows.
+- `CHANGELOG.md`
+  - Records the patch under `2026-05-11`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_operating_snapshot.py`
+- `py -3 tests\operating_snapshot_smoke.py`
+- Manual latest-run check:
+  - `py -3 tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check`
+  - Produced a 23-row current portfolio snapshot dated `2026-05-08`:
+    - concentrated: 3 equity rows + cash
+    - main: 18 equity rows + cash
+    - GOOGL raw preview action `BUY` became
+      `SCALE_OR_HOLD_MONSTER_REVIEW` because monster bridge said defend/hold.
+
+Next recommended actions:
+
+- Commit and push this patch.
+- Run replay sidecars or a full rebuild so `outputs/operating_snapshot/` in
+  the next cloud artifact includes the new current snapshot files.
+- Longer-term: build true daily/weekly scored selection so daily checks can
+  generate new targets without waiting for monthly holding books.
+
+---
+
+## PREVIOUS INBOX (2026-05-10 16:49 KST) - Macro policy latest scored snapshot
+
+GitHub Actions run `25619398127` completed successfully on commit `78f5320`
+and committed full rebuild outputs as `e0e750c chore(bot): full rebuild
+[global_alpha_universe] 2026-05-10 [skip ci]`.
+
+Important result audit:
+
+- Main broker ledger official metrics now run daily through `2026-05-08`:
+  - CAGR `20.25%`, Sharpe `0.965`, MaxDD `-32.50%`, target pass `false`.
+- Concentrated broker ledger official metrics now run daily through
+  `2026-05-08`:
+  - CAGR `31.31%`, Sharpe `1.049`, MaxDD `-39.03%`, target pass `false`.
+- Operating snapshot is current:
+  - `outputs/operating_snapshot/operating_snapshot_latest.json`
+  - `as_of_date=2026-05-08`
+  - `status=simulation`
+  - `approval_status=simulation_ready_preview_only`
+  - `target_cash_weight=27.6%`
+  - `monster_recommendation_count=32`
+- Monster bridge completed and is attached to the operating snapshot:
+  - `outputs/monster_recommendations/unified_recommendations.csv`
+  - `status=completed`
+  - `unified_rows=45`
+- Remaining issue found during the audit:
+  - `outputs/macro_policy_engine/summary.json` still reported latest
+    `rebalance_date=2026-02-27` because the sidecar only consumed
+    `reports/regime_by_month.csv`, while `scored_latest.csv` and broker-ledger
+    outputs were current at `2026-05-08`.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_macro_policy_engine.py`
+  - Adds `_append_latest_scored_snapshot()`.
+  - If `scored_latest.csv` has a newer `rebalance_date`/`feature_date` than
+    `reports/regime_by_month.csv`, the macro policy output appends a latest
+    snapshot row with:
+    - style preference means
+    - modal `regime_state`
+    - modal live/event regime label
+    - unified target cash weight
+    - `macro_snapshot_source=scored_latest`
+  - This keeps `summary.json.latest.rebalance_date` aligned with current
+    scored/broker-ledger artifacts.
+- `tests/macro_policy_engine_smoke.py`
+  - Covers a newer `scored_latest.csv` row and asserts the macro latest row is
+    sourced from `scored_latest`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_macro_policy_engine.py`
+- `py -3 tests\macro_policy_engine_smoke.py`
+- Manual latest-run check:
+  - `py -3 tools\run_macro_policy_engine.py --latest-run cloud_results\full_rebuild\20260510_global_alpha_universe --output-dir %TEMP%\r1000_macro_policy_check`
+  - Produced `latest.rebalance_date=2026-05-08`,
+    `macro_snapshot_source=scored_latest`, `macro_risk_state=recovery`.
+
+Next recommended action:
+
+- Commit and push this macro freshness patch, then trigger or wait for the next
+  full rebuild so `outputs/macro_policy_engine/summary.json` in cloud artifacts
+  reflects `2026-05-08` instead of `2026-02-27`.
+
+---
+
+## PREVIOUS INBOX (2026-05-10 12:12 KST) - Simulated account + monster overlay
+
+User clarified that the desired account environment is not a real broker
+connection. The goal is a conservative broker-like simulated account that can
+evaluate from history and produce paper/live-like recommendations.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- Simulated account mode is now explicit:
+  - `tools/run_live_trading_risk_controls.py --account-mode simulated`
+    records `account_mode=simulated`.
+  - Missing live broker snapshots are no longer treated as a problem in this
+    mode; the artifact records `simulated_broker_account` as an informational
+    issue.
+  - `--account-mode live --strict-live --strict` remains available if a future
+    operator really wants live broker/account reconciliation.
+- Operating snapshot semantics:
+  - `tools/run_operating_snapshot.py` now reports
+    `approval_status=simulation_ready_preview_only` when simulated mode passes.
+  - The top-level status becomes `simulation`, not `blocked`, for the intended
+    simulated broker-ledger account path.
+- Monster recommendation bridge:
+  - New tool: `tools/run_monster_recommendation_bridge.py`.
+  - Writes:
+    - `outputs/monster_recommendations/main_recommendations.csv`
+    - `outputs/monster_recommendations/concentrated_recommendations.csv`
+    - `outputs/monster_recommendations/unified_recommendations.csv`
+    - `outputs/monster_recommendations/monster_recommendation_summary.json`
+    - `outputs/monster_recommendations/monster_recommendation_report.md`
+  - It does not create a separate tradable portfolio. It annotates the existing
+    main and concentrated targets with:
+    - missed-winner candidates
+    - stale-winner trim/replace candidates
+    - same-sector leadership rotation candidates
+    - latest monster lifecycle stages from replay sidecars
+  - `operating_snapshot_latest.csv` now includes monster recommendation fields
+    when this bridge output exists.
+- Workflow ordering:
+  - Full rebuild now runs monster lifecycle/autolearning sidecars first, then
+    `run_monster_recommendation_bridge.py`, then final
+    `run_operating_snapshot.py`.
+  - Replay sidecars also run the bridge and final operating snapshot, but they
+    may have fewer monster inputs if the replay artifact did not include full
+    lifecycle folders.
+- Current run caveat:
+  - GitHub Actions run `25617706497` is still running from commit `8b3baaf`.
+  - It will not include the simulated account/monster overlay patch. Trigger a
+    new full rebuild after this patch is pushed if those new outputs are needed.
+- Latest validation:
+  - `py -3 -m py_compile tools\run_live_trading_risk_controls.py tools\run_operating_snapshot.py tools\run_monster_recommendation_bridge.py`
+  - `py -3 tests\live_trading_risk_controls_smoke.py`
+  - `py -3 tests\operating_snapshot_smoke.py`
+  - `py -3 tests\monster_recommendation_bridge_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+
+---
+
+## PREVIOUS INBOX (2026-05-10 11:25 KST) - Operating snapshot + strict live gate
+
+Latest patch on branch `codex/broker-ledger-replay-foundation` after the user
+clarified that the desired output is an operating portfolio snapshot, not a
+"buy this now" target list:
+
+- New canonical operator artifact:
+  - `tools/run_operating_snapshot.py`
+  - Writes:
+    - `outputs/operating_snapshot/operating_snapshot_latest.csv`
+    - `outputs/operating_snapshot/operating_snapshot_latest.json`
+    - `outputs/operating_snapshot/operating_snapshot_report.md`
+  - This is now the file future agents should inspect first when answering
+    "what portfolio is being operated right now?"
+  - It merges:
+    - `account_ledger_preview/*/positions_current.csv`
+    - `account_ledger_preview/*/orders_preview.csv`
+    - `orchestrator/unified_target_latest.csv/json`
+    - `live_trading_safety/safety_audit_summary.json`
+    - `live_trading_risk_controls/risk_controls_summary.json`
+- Important semantics:
+  - `portfolio_latest.csv` and `concentrated_portfolio_latest.csv` are model
+    target recommendations, not account holdings.
+  - Existing `account_ledger_preview/*` folders remain order-preview sidecars.
+  - `operating_snapshot_latest.csv` is the canonical operator-facing snapshot
+    with CASH, current weights, unified target weights, deltas, source labels,
+    and block reasons.
+- Live gate change:
+  - Full and replay workflows now call
+    `tools/run_live_trading_risk_controls.py --strict-live --strict`.
+  - When no real broker snapshot is supplied, the risk-control artifact should
+    be `blocked` instead of a clean live pass.
+  - The workflow still continues because these are diagnostic sidecars and all
+    commands remain guarded with `|| true`.
+- Account preview labels:
+  - `tools/run_account_order_preview.py` now records
+    `preview_semantics=order_preview_not_operating_snapshot`.
+  - It also records `account_source_kind` and `target_source_kind` in
+    `preview_metrics.json` and `preview_report.md`.
+- Workflow/Drive visibility:
+  - `outputs/operating_snapshot/` is included in workflow uploads, bundle
+    copies, cloud_results copies, Google Drive sync, and
+    `tools/sync_cloud_to_drive.py`.
+- Latest validation for this patch:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py`
+  - `py -3 tests\operating_snapshot_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\live_trading_risk_controls_smoke.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+- Next safe action:
+  - Trigger a full rebuild on `codex/broker-ledger-replay-foundation`.
+  - In the resulting Drive folder, inspect
+    `operating_snapshot/operating_snapshot_latest.csv` first.
+  - Treat a `blocked_missing_broker_snapshot` approval state as expected until
+    a real broker/account/open-order snapshot is wired into the workflow.
+
+---
+
+## PREVIOUS INBOX (2026-05-09 16:45 KST) - Live trading safety + risk controls
+
+Latest account-ledger state on branch `codex/broker-ledger-replay-foundation`:
+- Current safety-first response after the user asked to anticipate live/paper
+  trading errors, data leakage, and information mismatch before performance
+  tuning:
+  - New pre-trade audit:
+    `tools/run_live_trading_safety_audit.py`.
+  - It audits `portfolio_latest.csv`, `concentrated_portfolio_latest.csv`, and
+    `outputs/account_ledger_preview/{main,concentrated}/` without placing
+    orders.
+  - It blocks actionable target files containing forward-return or benchmark
+    forward-return leakage columns.
+  - It checks invalid/negative/NaN weights, total exposure, single-name caps,
+    account preview status, sell-first ordering, positive quantities, blocked
+    orders, estimated cash feasibility, stale/missing prices, and missing price
+    evidence for target tickers.
+  - It writes:
+    - `outputs/live_trading_safety/safety_audit_summary.json`
+    - `outputs/live_trading_safety/safety_audit_issues.csv`
+    - `outputs/live_trading_safety/safety_audit_report.md`
+  - Workflows now run and sync this audit from both `full_rebuild_manual.yml`
+    and `alphaops_replay_sidecars_manual.yml`.
+  - `tools/sync_cloud_to_drive.py` syncs `live_trading_safety/`.
+- Legacy execution lock:
+  - `r1000_paper_executor.py --execute` now refuses to run unless
+    `--allow-legacy-execute` is also provided.
+  - `.github/workflows/after_close_daily.yml` exposes a manual
+    `allow_legacy_execute` acknowledgement and defaults it to false.
+  - This prevents the old Alpaca paper executor from bypassing the new
+    account-ledger order-preview and safety-audit path by accident.
+- Latest validation after the safety guard:
+  - `py -3 -m py_compile tools\run_live_trading_safety_audit.py r1000_paper_executor.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\broker_ledger_replay_smoke.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+  - `git diff --check`
+- Next safe operating rule:
+  - Do not use legacy `r1000_paper_executor.py --execute` for the current
+    system unless intentionally testing the old Alpaca path.
+  - Use account-ledger order previews plus `outputs/live_trading_safety/`.
+  - If safety audit status is `blocked`, do not trade; inspect
+    `safety_audit_issues.csv` first.
+- Safety audit real-world verdict:
+  - Fast replay run `25594827958` completed successfully on commit `6798d30`
+    and synced to Google Drive:
+    `r1000_top30_institutional/research_runs/codex_broker-ledger-replay-foundation/25594827958/replay_outputs`.
+  - The audit status was `blocked`.
+  - Root issue:
+    `outputs/concentrated_portfolio_latest.csv` contained benchmark forward
+    return labels: `bench_r_1m`, `bench_r_3m`, `bench_r_6m`, `bench_r_12m`,
+    `bench_r_24m`, `bench_r_36m`.
+  - This confirmed the safety audit is useful: the order-preview normalized
+    `target_weights.csv` was clean, but the top-level orderable target CSV
+    still carried research/label columns.
+- Fix after the blocked safety audit:
+  - `r1000_pipeline.py` now has
+    `drop_actionable_leakage_columns(df)`.
+  - `portfolio_latest.csv` and `concentrated_portfolio_latest.csv` are
+    sanitized before export.
+  - The sanitizer removes `r_*`, `bench_r_*`, and explicit
+    `*_forward_return` label columns while preserving legitimate features such
+    as `future_winner_scout_score`.
+  - `tools/run_live_trading_safety_audit.py` now also blocks `r_<horizon>`
+    label columns in actionable target files.
+- Required next action:
+  - The export hygiene fix was committed as `2fcb3c2`.
+  - Do not expect a fast replay from old source run `25581634925` to prove the
+    exporter fix, because that source artifact already contains the old dirty
+    `concentrated_portfolio_latest.csv`.
+  - Confirm this fix with either a new full rebuild from commit `2fcb3c2` or a
+    deliberate target-regeneration/sanitization replay that rewrites the
+    copied target CSV before safety audit.
+  - After a new target is generated, confirm
+    `outputs/live_trading_safety/safety_audit_summary.json` is `pass` or
+    inspect any remaining independent block.
+- New live/paper trading risk controls after the user asked to fix all
+  remaining trading risks:
+  - `tools/run_account_order_preview.py` now attaches deterministic
+    `client_order_id` and `idempotency_key` columns to every preview order.
+  - Each account preview also writes
+    `order_batch_manifest.json`.
+  - `tools/run_live_trading_risk_controls.py` creates the next operating
+    safety layer under `outputs/live_trading_risk_controls/`.
+  - It writes:
+    - `order_manifest.csv`
+    - `fill_reconciliation_template.csv`
+    - `risk_controls_summary.json`
+    - `risk_controls_issues.csv`
+    - `risk_controls_report.md`
+  - Covered risks:
+    - duplicate order IDs inside a preview
+    - duplicate planned orders versus a previous active manifest
+    - missing broker snapshot in strict-live mode
+    - optional broker position/cash/equity reconciliation
+    - optional broker open-order conflicts and reserved cash
+    - stale/future/weekend as-of dates
+    - large latest price jumps that may require corporate-action/news review
+    - extreme price versus stored cost basis that may indicate split/transfer
+      or cost-basis drift
+    - partial/no-fill workflow via a fill reconciliation template
+  - Workflows now run and sync the risk-control sidecar:
+    `full_rebuild_manual.yml` and `alphaops_replay_sidecars_manual.yml`.
+  - `tools/sync_cloud_to_drive.py` syncs `live_trading_risk_controls/`.
+  - Important operating rule:
+    - Safety audit answers "is this target/order preview clean enough to use?"
+    - Risk controls answer "can this preview be submitted only once and
+      reconciled against the actual broker/account state?"
+    - Real live/paper auto-execution must require both safety status and risk
+      controls status to be acceptable.
+  - Remaining live gap after this commit:
+    - There is still no broker adapter and no real fill import yet. The system
+      now creates the required manifest/template, but actual broker fills must
+      be imported into `fill_reconciliation_template.csv` or a future adapter
+      before post-trade account state is authoritative.
+- The engine now has a stricter account-like evaluation chain:
+  1. `tools/run_broker_ledger_replay.py` replays monthly target books through
+     next-close fills, integer shares, cash, transaction costs, and no leverage.
+  2. `tools/run_broker_trade_journal.py` converts broker replay executions into
+     FIFO round-trip journals and joins point-in-time entry evidence for
+     AutoLearning.
+  3. `tools/run_account_order_preview.py` creates preview-only sell-first /
+     buy-second order tickets from account state and latest target portfolios.
+  4. `tools/run_account_evaluation.py` is the new official account-level
+     performance summary under `outputs/account_evaluation/`.
+- Important governance change:
+  - `tools/run_portfolio_goal_search.py` already separates research/proxy
+    target pass from production-compatible target pass.
+  - `tools/run_portfolio_system_guard.py` now uses broker-ledger metrics first
+    for target pass/fail and falls back to legacy metrics only when broker
+    evidence is absent.
+  - `tools/run_alphaops_policy_fusion.py` now compares candidate policies
+    against broker-ledger production metrics when available.
+  - Legacy `backtest_metrics.json` and `concentrated_backtest_metrics.json`
+    remain research-comparison artifacts, not official production evidence.
+- Latest verified replay evidence from run `25593261448` at branch SHA
+  `0d36a4c`:
+  - main broker ledger: CAGR 20.96%, MaxDD -36.47%, Sharpe 0.972, avg cash
+    5.43%, 1,918 round trips, win rate 54.7%.
+  - concentrated broker ledger: CAGR 34.53%, MaxDD -40.38%, Sharpe 1.091, avg
+    cash 0.04%, 244 round trips, win rate 61.1%.
+  - Research/proxy candidates can show target pass, but production target pass
+    remains false until the account-ledger/daily validation path confirms them.
+  - `outputs/account_evaluation/` was generated in the GitHub artifact and
+    synced to Google Drive:
+    `r1000_top30_institutional/research_runs/codex_broker-ledger-replay-foundation/25593261448/replay_outputs/account_evaluation/`.
+- No broker API is called and no live/paper orders are placed. These are
+  replay, journal, and order-preview artifacts only.
+- New proxy-to-account conversion after user asked to convert proxy winners:
+  - `tools/run_broker_position_risk_replay.py` converts the position-risk proxy
+    idea into observable account-ledger rules.
+  - It does not copy proxy actions that used `period_forward_return`.
+  - It checks daily close hard-stop / trailing-stop signals and weekly relative
+    exits/trims, then fills them at the next close with shares, cash, fees, and
+    no leverage.
+  - `tools/run_portfolio_goal_search.py` now includes
+    `main_broker_position_risk_replay` and
+    `concentrated_broker_position_risk_replay` as production-compatible
+    candidates when their broker metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` now prefers broker-position-risk
+    evidence before weekly validation or monthly proxy evidence.
+  - `PRODUCTION_PROMOTION_GATES.md` defines the promotion path:
+    proposal -> research replay -> account-compatible replay -> shadow ->
+    canary -> production.
+- Latest conversion run:
+  - Branch commit `c2ac470` pushed to `codex/broker-ledger-replay-foundation`.
+  - Master workflow registration commit `464dbde` pushed so the fast replay
+    workflow can run the broker-position-risk sidecar.
+  - GitHub fast replay run `25593756248` completed successfully from source
+    full run `25581634925`.
+  - Broker-position-risk account replay results:
+    - main: CAGR 16.16%, MaxDD -37.17%, Sharpe 0.908, avg cash 15.04%,
+      394 exits, 129 trims.
+    - concentrated: CAGR 20.45%, MaxDD -50.16%, Sharpe 0.843, avg cash
+      10.80%, 48 exits, 15 trims.
+  - Verdict: proxy position-risk target pass did not survive conversion to
+    next-close broker-ledger evidence. Do not promote this policy.
+  - Governance fix in progress: `tools/run_portfolio_goal_search.py` should use
+    top-level `target_pass` for production-compatible pass/fail only; proxy
+    success remains under `research_target_pass`.
+- Current development response to the metric collapse:
+  - Root-cause finding: the old monthly/proxy accounting can show strong CAGR
+    and mild MDD while broker-ledger replay collapses because monthly returns
+    hide intramonth drawdown and the target books cause high churn, fees, and
+    forced monthly replacement.
+  - Local attribution on source run `25581634925` plus broker replay
+    `25593991828`:
+    - main proxy/implied CAGR 35.57% vs broker 20.96%, CAGR gap 14.61pp,
+      target turnover 53.30%, fees $42,519, daily MDD -36.47%.
+    - concentrated proxy/implied CAGR 56.60% vs broker 34.53%, CAGR gap
+      22.07pp, target turnover 61.89%, fees $75,678, daily MDD -40.38%.
+  - New diagnostic sidecar:
+    - `tools/run_broker_gap_attribution.py`
+    - outputs `outputs/broker_gap_attribution/`.
+  - New research challenger:
+    - `tools/run_broker_execution_policy_replay.py`
+    - outputs `outputs/broker_execution_policy_replay/`.
+    - It keeps production defaults unchanged but tests no-trade bands, staged
+      entries, minimum holding, and winner trim deferral under broker-ledger
+      next-close accounting.
+  - Next required action after commit/push:
+    - Run fast replay from source run `25581634925` on the latest branch HEAD.
+    - Inspect `outputs/broker_execution_policy_replay/{main,concentrated}/metrics.json`
+      versus `outputs/broker_replay/{main,concentrated}/metrics.json`.
+    - If execution-policy improves account-ledger CAGR/MDD without target pass,
+      use it as the next AutoLearning optimization surface, not production.
+- Validation passed after the latest change:
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py`
+  - `py -3 tests\broker_position_risk_replay_smoke.py`
+  - `py -3 -m py_compile tools\run_account_evaluation.py tools\run_portfolio_system_guard.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py`
+  - `py -3 tests\account_evaluation_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\portfolio_system_guard_smoke.py`
+  - `py -3 tests\portfolio_goal_search_smoke.py`
+  - `py -3 tests\alphaops_policy_fusion_smoke.py`
+  - `py -3 tests\broker_trade_journal_smoke.py`
+  - `py -3 tests\auto_learning_evidence_smoke.py`
+  - `py -3 tests\broker_ledger_replay_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+  - `git diff --check`
+- Completed after validation:
+  - Branch commit `0d36a4c` pushed.
+  - Master workflow registration commit `dffb01b` pushed for
+    `alphaops_replay_sidecars_manual.yml`.
+  - GitHub fast replay run `25593261448` completed successfully.
+- Next steps:
+  1. Treat `outputs/account_evaluation/*` as the official current performance
+     checkpoint.
+  2. Run fast replay again from source run `25581634925` after committing the
+     broker-position-risk conversion, then inspect
+     `outputs/broker_position_risk_replay/*`, `outputs/portfolio_goal_search/*`,
+     `outputs/policy_fusion/*`, and `outputs/account_evaluation/*`.
+  3. Do not promote proxy target-pass candidates directly. Promotion requires
+     account-compatible target pass, stress/cost review, and human approval.
+  4. Next engineering phase is a daily scored-decision simulator that can
+     evaluate true dated model decisions closer to paper/live trading, while
+     keeping broker-ledger official metrics as the current baseline.
+
+## RECENT CONTEXT (2026-05-08) - AlphaOps policy fusion arbitration
+
+Strict macro/cash confirmation update:
+- User clarified that broad cash should not rise simply because the index dips
+  or a one-off event shock scares the market. Some monster leaders can keep
+  rising during index weakness, so cash expansion must require more durable
+  evidence.
+- Updated `tools/run_macro_policy_engine.py`:
+  - removed `cash_weight` as a causal risk input;
+  - added component scores for long-trend damage, liquidity drain,
+    breadth/credit stress, and event shock;
+  - added `cash_raise_confirmation_count`, `confirmed_cash_raise`,
+    `cash_raise_gate`, `recommended_monster_exception_capacity`, and
+    `monster_exception_allowed`;
+  - reduced yellow/recovery research cash floors from 10% to 5%;
+  - requires two independent confirmations before red cash defense and
+    stronger confirmation before crisis cash defense.
+- Updated `tools/run_cash_policy_attribution.py`:
+  - separates confirmed macro-defense cash from event-shock cash;
+  - flags event-shock cash for review instead of treating it as automatic
+    risk-defense cash;
+  - keeps idle-cash redeploy candidates restricted to non-confirmed risk
+    regimes.
+- New test:
+  - `tests/cash_policy_attribution_smoke.py`
+- Validation passed:
+  - `py -3 tests\macro_policy_engine_smoke.py`
+  - `py -3 tests\cash_policy_attribution_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\historical_challenger_replays_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- This remains research-only. It does not change production weights. Next
+  cloud run should show whether `outputs/macro_policy_engine/` and
+  `outputs/cash_policy/` classify prior high-cash months as confirmed macro
+  defense, event-shock review, or idle drag.
+
+Selection audit update:
+- User asked whether current portfolio names are inherited holdings or just a
+  separate current display. Code review showed:
+  - `portfolio_latest.csv` is the current target portfolio generated from the
+    latest scored universe, enriched with live-state fields when available;
+  - historical holding continuity lives in `reports/main_monthly_weights.csv`
+    and `reports/concentrated_strategy_holdings.csv`;
+  - true dated BUY/TRIM/SELL validation lives in
+    `outputs/position_risk_weekly_validation/*/trade_log.csv`.
+- Added `tools/run_selection_audit.py`.
+- Full rebuild now writes:
+  - `outputs/selection_audit/current_selected_audit.csv`
+  - `outputs/selection_audit/omitted_high_potential_candidates.csv`
+  - `outputs/selection_audit/historical_hold_persistence.csv`
+  - `outputs/selection_audit/ticker_decision_audit.csv`
+  - `outputs/selection_audit/selection_audit_summary.json`
+  - `outputs/selection_audit/selection_audit_report.md`
+- This lets the next run answer:
+  - why current names were selected;
+  - whether selected names are stale-review names;
+  - which high-pressure/monster candidates were omitted;
+  - whether omissions were due to candidate gate, risk block, stale penalty,
+    sleeve/cap pressure, or lower priority;
+  - whether current names are long-held or newly selected.
+- Validation passed:
+  - `py -3 tests\selection_audit_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\smoke_test.py` (89/89)
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- This remains explanatory only and does not change production selection.
+
+Position-risk proxy realism update:
+- User asked whether the strong monthly proxy results can be made realistic.
+- Added `tools/run_position_risk_weekly_validation.py`.
+- Full rebuild now validates both books:
+  - `outputs/position_risk_weekly_validation/main/`
+  - `outputs/position_risk_weekly_validation/concentrated/`
+- The validator uses monthly holding books plus `cache_prices` daily data:
+  - daily hard-stop checks
+  - daily trailing-stop checks after profit cushion
+  - weekly SPY-relative trim/exit checks
+  - trim action sells half first; hard/distribution exits override long-hold
+    patience
+- The validator writes explicit dated trade ledgers:
+  - `trade_log.csv` with BUY/SELL/TRIM rows
+  - `actions.csv` with risk/relative trigger diagnostics
+  - `positions.csv` with entry/exit/final price-path summary
+- This is stricter than the previous monthly position-risk proxy because it
+  requires an observable price path before a stop/exit is credited.
+- It is still research-only. It does not yet create true weekly scored
+  snapshots, replacement buys, order tickets, or broker execution evidence.
+- `tools/run_portfolio_goal_search.py` now ranks these validation candidates:
+  - `main_position_risk_weekly_validation`
+  - `concentrated_position_risk_weekly_validation`
+- `tools/run_alphaops_policy_fusion.py` now prefers weekly-validation evidence
+  over monthly proxy evidence for `position_hard_stop_distribution`, falling
+  back to the proxy only when validation artifacts are missing.
+- Local validation passed, but local `cache_prices` is empty, so the next cloud
+  full rebuild is needed to see actual historical validation metrics.
+
+Weekly evaluation freshness update:
+- User identified that monthly `equity_curve.csv` can look stale because the
+  row label is the entry/rebalance date, while realized return needs the next
+  rebalance date.
+- Added `tools/run_weekly_evaluation.py` and wired it into full rebuild.
+- New output directory:
+  - `outputs/weekly_evaluation/`
+- Expected files:
+  - `weekly_equity_curve.csv`
+  - `main_weekly_equity_curve.csv`
+  - `concentrated_weekly_equity_curve.csv`
+  - `weekly_metrics.json`
+  - `weekly_freshness_audit.json`
+  - `weekly_freshness_audit.md`
+- This is weekly mark-to-market evaluation of monthly holding books only. It
+  does not change portfolio selection, rebalance cadence, or production
+  weights.
+- If `weekly_freshness_audit.json` is still `stale`, next development step is
+  true weekly scored snapshots in the feature-store/backtest pipeline.
+
+GDrive branch isolation update:
+- Future full rebuilds now route Google Drive outputs by branch.
+- `master` keeps the canonical production path:
+  - `outputs/`
+  - `full_rebuild_logs/`
+- Non-master branches now write to branch/run-isolated paths:
+  - `research_runs/<safe_branch>/<run_id>/outputs/`
+  - `research_runs/<safe_branch>/<run_id>/full_rebuild_logs/`
+- Failed non-master runs write to:
+  - `research_runs/<safe_branch>/failed_runs/<run_id>/outputs/`
+- This prevents research branch rebuilds from overwriting production Drive
+  outputs. It affects future runs only; currently running runs use the workflow
+  from their own head SHA.
+
+**2026-05-08 target update:** User raised the product gates to:
+
+```
+main:         CAGR >= 30%, MaxDD >= -15%
+concentrated: CAGR >= 50%, MaxDD >= -18%
+```
+
+These are now centralized in `r1000_config.PORTFOLIO_GOAL_TARGETS` and consumed
+by `tools/run_portfolio_goal_search.py`. This is an evaluation/goal change only;
+production selection and portfolio weights are not changed by this edit.
+
+Policy-fusion update:
+- `tools/run_alphaops_policy_fusion.py` now reads the major sidecars/replays and
+  emits a single conflict-aware shadow activation plan.
+- The full rebuild workflow now runs it after goal search, historical journey,
+  and dataset coverage, then uploads/syncs `outputs/policy_fusion/`.
+- Output files:
+  - `outputs/policy_fusion/policy_fusion_summary.json`
+  - `outputs/policy_fusion/policy_candidates.csv`
+  - `outputs/policy_fusion/conflict_matrix.csv`
+  - `outputs/policy_fusion/activation_plan.yaml`
+  - `outputs/policy_fusion/policy_fusion_report.md`
+- Production mutation remains disabled. This is the arbitration layer that says
+  which policy wins when monster sizing, stale trims, shakeout veto, crisis cash,
+  idle-cash redeploy, long-winner patience, macro style routing, governance
+  catalysts, and AutoLearning proposals disagree.
+- Precedence is explicit:
+  1. hard stop / distribution exit
+  2. macro crisis cash ladder
+  3. stale leader trim
+  4. shakeout hold veto for soft trims only
+  5. monster early staged sizing
+  6. long-winner hold template
+  7. idle cash redeploy
+  8. style/macro router
+  9. governance catalyst watch
+  10. AutoLearning proposal
+- Local check against existing `latest_global_alpha_universe` passed, but those
+  artifacts did not yet contain enough completed sidecar metrics for an
+  actionable top policy. A rebuild from this new commit is needed for full cloud
+  evidence.
+
+Artifact-validity guard:
+- A cancelled 2026-05-08 run had overwritten
+  `cloud_results/full_rebuild/latest_global_alpha_universe` with a partial
+  artifact lacking `backtest_metrics.json` and
+  `concentrated_backtest_metrics.json`.
+- The workflow now treats those core metric files as the validity gate.
+- If either core metric is missing:
+  - GitHub cloud results go to
+    `cloud_results/full_rebuild/failed_runs/<run_id>_<universe_mode>/`.
+  - Google Drive sync goes to `failed_runs/<run_id>/outputs/`.
+  - Existing canonical Drive `outputs/` and local `latest_<universe_mode>` are
+    preserved.
+- If both core metrics exist, behavior is unchanged: the dated folder and
+  `latest_<universe_mode>` are refreshed.
+
+Winner-learning wire-up:
+- The full rebuild now runs these previously standalone research sidecars before
+  policy fusion:
+  - `tools/run_auto_learning_v2.py`
+  - `tools/run_winner_lifecycle_reports.py`
+  - `tools/run_winner_onset_study.py`
+  - `tools/run_shakeout_breakdown_study.py`
+  - `tools/run_autolearning_winner_challenger.py`
+- New synced outputs:
+  - `outputs/auto_learning_v2/`
+  - `outputs/winner_lifecycle/`
+  - `outputs/winner_onset_study/`
+  - `outputs/shakeout_breakdown_study/`
+  - `outputs/autolearning_winner_challenger/`
+- `run_alphaops_policy_fusion.py` now consumes those outputs:
+  - winner onset -> `monster_early_staged_sizing` diagnostic evidence
+  - shakeout/breakdown -> `shakeout_hold_veto` evidence
+  - AutoLearning v2 / winner challenger -> `auto_learning_policy_candidate`
+    proposal evidence
+- These remain proposal/research-only. They are now fused and visible every run,
+  but production scoring/weights are not changed without replay-backed gates.
+
+Cash policy intent from user:
+- Keep cash low in normal/bull regimes.
+- Allow staged cash increases in real deterioration and up to roughly 50% in
+  severe drawdown/black-swan regimes.
+- Add a bargain-reentry style: deploy cash aggressively only when drawdown
+  risk is fading and recovery/bottoming evidence appears.
+
+Step 1 implemented after the target update:
+- `tools/run_cash_policy_attribution.py` now writes
+  `outputs/cash_policy/cash_drag_attribution.csv`,
+  `outputs/cash_policy/cash_drag_summary.json`, and
+  `outputs/cash_policy/cash_drag_report.md`.
+- The full rebuild workflow runs this sidecar and uploads/syncs
+  `outputs/cash_policy/`.
+- Local diagnostic against the latest completed artifacts found a major
+  accounting issue to address before idle-cash A/B: `regime_by_month.cash_weight`
+  averages 21.02%, while explicit CASH rows in `main_monthly_weights.csv`
+  average only 4.71%. Existing cash-drag replays that read only explicit CASH
+  rows can understate real cash drag.
+- `tools/run_main_cash_drag_replay.py` now defaults to
+  `--cash-source reported`, reconstructs CASH rows from
+  `regime_by_month.cash_weight`, and writes `outputs/main_cash_drag_replay/`.
+  Local replay still does not exactly match production metrics, so treat it as
+  directional A/B evidence until a production-compatible replay is added.
+
+Step 2 implemented after the cash attribution:
+- `tools/run_crisis_reentry_replay.py` now writes
+  `outputs/crisis_reentry_replay/comparison.csv`,
+  `outputs/crisis_reentry_replay/policy_by_month.csv`,
+  `outputs/crisis_reentry_replay/monthly.csv`,
+  `outputs/crisis_reentry_replay/equity_curve.csv`,
+  `outputs/crisis_reentry_replay/holdings.csv`,
+  `outputs/crisis_reentry_replay/metrics.json`, and
+  `outputs/crisis_reentry_replay/replay_report.md`.
+- The full rebuild workflow runs this sidecar and uploads/syncs
+  `outputs/crisis_reentry_replay/`.
+- The replay is research-only. It starts from exported monthly main holdings,
+  aligns them to reported backtest cash, applies macro-policy cash floors, and
+  tests crisis cash ladders plus staged bargain reentry. Production selection
+  and production weights are still unchanged.
+- It fixes the first version's equity-curve accounting by resetting equity per
+  policy instead of chaining all policies into one curve.
+- Latest local directional replay against
+  `cloud_results/full_rebuild/latest_global_alpha_universe` ranked
+  `fast_reentry` best: CAGR 32.11%, MaxDD -10.98%, Sharpe 1.984,
+  avg cash 8.47%. This is promising but still not production evidence.
+- Latest local directional replay should be treated as evidence for the next
+  production-compatible replay, not as an activation gate.
+
+Step 3 implemented for concentrated target hardening:
+- `tools/run_concentrated_position_risk_replay.py` now uses the shared
+  `PORTFOLIO_GOAL_TARGETS["concentrated"]` target: CAGR 50%, MaxDD -18%.
+- It tests cost sensitivity at 25/50/75bps and writes
+  `outputs/concentrated_position_risk_replay/rolling_3y.csv`.
+- Local latest replay is near-miss evidence rather than a pass:
+  best policy is `score_power`, hard stop -8%, 25bps cost, CAGR 49.90%,
+  MaxDD -18.16%, Sharpe 1.749, rolling 3-year pass rate 10.42%.
+- Interpretation: concentrated is close to the commercial target but still
+  needs either more alpha capture from early monster/staged sizing or a better
+  intramonth/weekly risk execution model before production promotion.
+
+Step 4 implemented for monster lifecycle risk defense:
+- `tools/run_monster_lifecycle_replay.py` lifecycle-review policies now have a
+  monthly hard-stop proxy: main -10%, concentrated -8%.
+- Holdings now carry `risk_adjusted_forward_return`, `risk_exit_proxy`,
+  `risk_exit_reason`, and `hard_stop_proxy`; events now include
+  `monthly_hard_stop_proxy` exits.
+- Local latest lifecycle-review concentrated improved materially but remains
+  weak: CAGR 14.42%, MaxDD -25.91%, Sharpe 0.881. This is not a production
+  candidate.
+- Interpretation: lifecycle replay is useful for learning/diagnostics, but the
+  near-target commercial concentrated path is still the concentrated
+  position-risk replay plus better early leader capture.
+
+Step 5 implemented for historical-first evaluation:
+- User clarified that historical behavior matters more than current latest
+  outputs. `tools/run_historical_trade_journey.py` now treats historical
+  decision quality as the first section of the report.
+- New outputs:
+  - `outputs/historical_trade_journey/book_summary.csv`
+  - `outputs/historical_trade_journey/journey_tag_summary.csv`
+  - `outputs/historical_trade_journey/historical_decision_priorities.csv`
+- Local latest diagnostic:
+  - holding runs: 2,170
+  - unique held tickers: 446
+  - production main avg run length: 2.81 months
+  - production main 12m+ runs: 8
+  - production main `short_big_win_review`: 43
+  - current stale priority includes NVDA in current main.
+- Interpretation: the engine still churns too quickly for the desired
+  “enter early, pyramid winners, hold for years unless true breakdown” behavior.
+  Next work should convert historical priority queues into AutoLearning
+  counterfactual experiments: premature-exit repair, long-winner template
+  preservation, and stale-current trim/exit rules.
+
+**TL;DR** Full rebuild `25481291492` completed successfully on branch
+`codex/leader-rescue-stale-trim`, but it ran on commit `eb99c97`, before the
+macro-policy sidecar commit `0c7f91d`. Production main improved versus the
+older target-pass run, but concentrated production metrics were invalid because
+the concentrated comparison grid crashed on N=4 conviction-curve weighting.
+That bug is now fixed locally and should be committed/pushed before the next
+full rebuild.
+
+Latest completed run `25481291492`:
+
+```
+main production:                 CAGR 28.16%, MaxDD -18.19%, Sharpe 1.577
+concentrated production metrics: NaN / invalid due N>3 conviction-curve bug
+latest concentrated holdings:    GLW 50%, WDC 30%, SNDK 20%
+position-aware risk proxy:       CAGR 37.34%, MaxDD -12.73%, Sharpe 1.799
+Main v2 historical replay:       CAGR 22.50%, MaxDD -26.98%, Sharpe 1.056
+monster lifecycle replays:       weak; diagnostics only, not promotion-ready
+```
+
+Clear bug fixed after the run:
+- `concentrated_weight_map()` only had explicit `conviction_curve` weights for
+  N=1/2/3. The grid now tests N=4/5/7/10, so N=4 hit a shape mismatch:
+  `Length of values (3) does not match length of index (4)`.
+- The fix keeps legacy N<=3 weights exactly as before and generates a smooth
+  decay curve for wider N values.
+- Added regression coverage in `tests/historical_challenger_replays_smoke.py`.
+
+Validation already passed:
+- `py -3 tests\historical_challenger_replays_smoke.py`
+- `py -3 -m py_compile r1000_pipeline.py tests\historical_challenger_replays_smoke.py`
+- `py -3 tests\workflow_artifact_smoke.py`
+- `py -3 tests\macro_policy_engine_smoke.py`
+- `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- `py -3 tests\smoke_test.py` -> 88/88
+
+Next action:
+1. Commit and push the concentrated grid fix.
+2. Trigger a new `full_rebuild_manual` on `codex/leader-rescue-stale-trim` with
+   `universe_mode=global_alpha_universe`, `backtest_years=8`, `fast_mode=true`,
+   `skip_collector=true`.
+3. Verify:
+   - `concentrated_backtest_metrics.json` has finite CAGR/Sharpe/MaxDD.
+   - `outputs/reports/concentrated_strategy_monthly.csv` exists.
+   - `outputs/macro_policy_engine/` is exported because the next run includes
+     commit `0c7f91d`.
+   - Main stays near the current 28% CAGR / -18% MaxDD level or better.
+
+**Latest local patch after full rebuild `25490280861` started**
+
+Purpose:
+- Add finer power/material theme recognition requested by the user:
+  nuclear fuel-cycle (`LEU`), SMR/advanced nuclear, fuel cells, gas turbines,
+  renewable power equipment, and critical minerals / rare earths.
+- Separate long-duration structural themes from product-cycle and
+  commodity-cycle themes so theme RS/phase changes can drive different
+  research-only holding and trim behavior.
+- Add non-R1000 or possibly non-R1000 names to `cycle_play_universe.yaml` so
+  they can appear in `global_alpha_universe` scoring when liquidity/mcap gates
+  pass. This is not a buy list.
+
+Changed files:
+- `themes.yaml`
+- `cycle_play_universe.yaml`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\smoke_test.py` passed, 89/89.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` passed.
+
+Run note:
+- Active run `25490280861` started on commit `ee8f0d1`, before this theme
+  refresh. Commit/push this patch after review; the next full rebuild after
+  `25490280861` should include it.
+
+**Prior context follows.**
+
+## PRIOR INBOX (2026-05-06 18:10 KST) - relative weakness + catalyst diagnostics
+
+**TL;DR** The target-pass rebuild `25394753964` remains the latest completed
+evidence set, but the active work has moved to branch
+`codex/leader-rescue-stale-trim`. This branch generalizes the PLTR/SNDK/LITE
+diagnostic into data-driven leader rescue, stale-leader trim, lifecycle review,
+and historical holding/trade journey reporting. Full rebuild `25416283891`
+completed successfully on commit `b5d1ee1`; the bot pushed results in
+`cloud_results/full_rebuild/latest_global_alpha_universe`. The latest local
+patch adds research-only relative-weakness trim/exit replay, guaranteed leader
+drop fallback diagnostics, governance catalyst surfacing, and an explicit 50%
+concentrated single-name cap.
+
+Latest completed target-pass reference:
+
+```
+main production:          CAGR 30.29%, MaxDD -18.90%, Sharpe 1.659
+concentrated production:  CAGR 45.16%, MaxDD -19.87%, Sharpe 1.653
+latest concentrated:      WDC / CIEN / SNDK, all monster_extreme_early
+```
+
+**Current branch**
+
+```
+codex/leader-rescue-stale-trim
+latest bot result commit: 0903e14 chore(bot): full rebuild [global_alpha_universe] 2026-05-06 [skip ci]
+code commit under test: b5d1ee1 feat(alphaops): add historical trade journey report
+base evidence run: 25394753964 on codex/goal-risk-replay-fullrun @ a54872e
+```
+
+**Latest local patch after run `25416283891`**
+
+Purpose:
+- Cut stale leaders in two stages: trim 50% after prior monthly benchmark-relative weakness, then exit if weakness persists.
+- Keep true long-hold winners from being shaken out by one bad relative window.
+- Make concentrated risk policy explicit: single-name cap is now 50%; infeasible excess stays cash instead of being renormalized away.
+- Guarantee `leader_drop_diagnostics_latest.csv` / summary exists even if the in-pipeline writer does not produce it.
+- Surface ownership/insider/event/revision catalyst columns every full run so governance-change signals can be inspected.
+
+Changed files:
+- `.github/workflows/full_rebuild_manual.yml`
+- `r1000_config.py`
+- `r1000_pipeline.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tools/run_leader_drop_diagnostics_sidecar.py`
+- `tools/run_governance_catalyst_report.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/workflow_artifact_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Local real-artifact check on `cloud_results/full_rebuild/latest_global_alpha_universe`:
+
+```
+enhanced position-aware risk proxy @25bps:
+  CAGR 34.97%, MaxDD -8.63%, Sharpe 1.729
+  relative trims 20, relative exits 2, risk exits 232
+  50bps CAGR 34.07%, 75bps CAGR 33.19%
+
+leader diagnostics fallback:
+  701 rows generated with watchlist examples
+
+governance catalyst report:
+  82 rows generated
+```
+
+**Latest local patch after 2026-05-07 13:15 KST**
+
+Purpose:
+- Add a theme half-life / chameleon policy route without changing production
+  `DEFAULT_FEATURES`.
+- Event/commodity themes such as oil & gas services, oil E&P, crypto, and
+  defense shock beneficiaries are tagged as shorter-cycle candidates.
+- Structural growth themes such as AI compute, optical/datacenter, memory,
+  semiconductor equipment/design, power grid, and nuclear/SMR are tagged as
+  longer-duration candidates.
+- `candidate_replay_book.csv` will now preserve theme horizon, event-risk,
+  structural-growth, target-hold, max-hold, and short-cycle fields.
+- `monster_lifecycle_replay` and `position_aware_risk_replay` use those fields
+  in research-only replays: short-cycle event themes get faster trim/time-stop
+  logic; structural winners get more shakeout patience when leadership remains
+  intact.
+
+Changed files:
+- `themes.yaml`
+- `r1000_themes.py`
+- `r1000_features.py`
+- `r1000_config.py`
+- `r1000_pipeline.py`
+- `tools/run_monster_lifecycle_replay.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 85/85.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+**Latest local patch after 2026-05-07 13:23 KST**
+
+Purpose:
+- Add a research-only market style regime router for the user's concern that
+  the engine leans heavily toward near-high breakout leaders.
+- The new route outputs whether the current tape favors:
+  - `breakout_growth`
+  - `turnaround_accumulation`
+  - `quality_compounder`
+  - `cash_defense`
+  - `balanced`
+- It uses existing macro/market columns such as liquidity, M2/TGA/reverse repo
+  derivatives, CPI/inflation pressure, rates, VIX/credit, benchmark trend,
+  breadth/participation, QQQ-vs-SPY, and overheat/narrowing.
+- It also surfaces calendar/seasonality metadata: month, quarter, weekday,
+  years since first sample, and month/quarter/weekday sin/cos encodings.
+- These fields are preserved in `candidate_replay_book.csv` and summarized by
+  a new `outputs/style_regime_report/` sidecar.
+
+Changed files:
+- `.github/workflows/full_rebuild_manual.yml`
+- `r1000_config.py`
+- `r1000_features.py`
+- `r1000_pipeline.py`
+- `tools/run_style_regime_report.py`
+- `tools/run_main_v2_backtest.py`
+- `tools/run_position_aware_risk_replay.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `tests/workflow_artifact_smoke.py`
+- `tests/smoke_test.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 86/86.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Interpretation:
+- This is not a production style allocation switch yet.
+- Next full rebuild should populate `outputs/style_regime_report/monthly.csv`
+  and latest top breakout/turnaround/compounder candidate lists.
+- The next A/B should test whether style-aware slot/cap changes improve CAGR
+  without worsening MDD.
+
+**Latest local patch after 2026-05-07 14:05 KST**
+
+Purpose:
+- Connect the style regime router to actual Main v2 research-only selection.
+- `Main v2` now infers the dominant monthly style regime from
+  `candidate_replay_book.csv` rows and adjusts sleeve capacity plus target N:
+  - `breakout_growth`: more future/early leader slots.
+  - `turnaround_accumulation`: more early-scout turnaround slots.
+  - `quality_compounder`: more core compounder slots.
+  - `cash_defense`: less future/early event risk and more core/cash defense.
+- Sleeve scores now receive style-fit bonuses:
+  - future sleeve uses `style_row_breakout_fit`.
+  - early sleeve uses `style_row_turnaround_fit`.
+  - core sleeve uses `style_row_compounder_fit`.
+- Early-scout can now admit bottom/turnaround growth candidates when style,
+  improving fundamentals, h1 oversold value, RS stabilization, and risk gates
+  align, even before the stock is fully back above MA200.
+- Cash-defense regimes block high event-risk future/early candidates unless
+  they also have strong structural-growth metadata.
+- Production `DEFAULT_FEATURES` and production portfolio construction remain
+  unchanged.
+
+Changed files:
+- `r1000_main_v2.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/smoke_test.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py
+  tests\smoke_test.py tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 87/87.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Next run focus:
+- Run full rebuild on `codex/leader-rescue-stale-trim`.
+- Inspect `outputs/main_v2_backtest/monthly_returns.csv`,
+  `outputs/main_v2_backtest/monthly_holdings.csv`, and
+  `outputs/style_regime_report/monthly.csv`.
+- Compare style-aware Main v2 CAGR/MaxDD/Sharpe/turnover against the latest
+  production main and prior Main v2 replay before any promotion.
+
+**Latest local patch after 2026-05-07 16:00 KST**
+
+Purpose:
+- Add a research-only opportunity-cost replacement layer to Main v2.
+- The goal is to stop high-value signals from "each playing separately" by
+  combining them into one replacement score:
+  - earnings / revision / event reaction
+  - macro and semis-cycle tailwind
+  - market style fit
+  - theme phase and structural-growth metadata
+  - monster/future/early alpha strength
+  - profitability/cash-flow turnaround evidence
+  - stale leader, risk block, overheat, relative weakness, and event-cycle
+    decay penalties
+- Strong replacement candidates can pass future/early gates and receive score
+  tilt; stale/event-cycle candidates receive decay pressure.
+- This is designed to test whether names like AMD/INTC/ARM/STX-style new
+  leaders can displace weaker incumbents without hardcoding tickers.
+- Production `DEFAULT_FEATURES` and production portfolio construction remain
+  unchanged.
+
+Changed files:
+- `r1000_main_v2.py`
+- `tools/run_main_v2_backtest.py`
+- `tests/smoke_test.py`
+- `tests/historical_challenger_replays_smoke.py`
+- `CHANGELOG.md`
+- `SESSION_HANDOFF.md`
+
+Validation:
+- `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py
+  tests\smoke_test.py tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\smoke_test.py` passed, 88/88.
+- `py -3 tests\historical_challenger_replays_smoke.py` passed.
+- `py -3 tests\workflow_artifact_smoke.py` passed.
+- `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime`
+  passed, 245 features and no leakage.
+
+Run note:
+- Full rebuild `25477647771` is still running on prior commit `7ff739c`.
+- After this replacement patch is committed/pushed, trigger a new rebuild only
+  if the user wants the replacement effect measured immediately.
+
+Do not treat the enhanced risk replay as production execution evidence yet:
+it still uses monthly proxy stop assumptions. It is now better suited for the
+next full rebuild / A-B check because it also exports cost sensitivity and
+rolling 3-year metrics.
+
+**Active GitHub Actions**
+
+1. Old run `25415594156` was started on commit `91958dd` before the historical
+   journey reporter was added. The user asked to stop it. A cancel request was
+   submitted; GitHub may still show it as `in_progress` for a short time.
+2. New run `25416283891` completed successfully on branch
+   `codex/leader-rescue-stale-trim` at commit `b5d1ee1`.
+   Settings:
+
+```
+workflow: Full Rebuild (Manual / Long-Run)
+universe_mode: global_alpha_universe
+backtest_years: 8
+fast_mode: true
+skip_collector: true
+leader_rescue_mode: latest_only
+cache_key_suffix: ""
+```
+
+The next agent should analyze run `25416283891`, not the canceled run. GDrive
+sync, artifact upload, Telegram bundle, and bot `cloud_results` commit all
+completed successfully.
+
+**Run `25416283891` quick result snapshot**
+
+```
+main latest champion:          CAGR 30.19%, MaxDD -18.35%, Sharpe 1.662
+concentrated latest champion:  CAGR 45.75%, MaxDD -20.62%, Sharpe 1.642
+main position-risk proxy:      CAGR 36.25%, MaxDD -8.20%,  Sharpe 1.790
+orchestrator main proxy:       CAGR 34.30%, MaxDD -16.02%, Sharpe 1.848
+```
+
+Important interpretation:
+- Production main/concentrated still pass the user's target gates.
+- `main_v2_position_aware_risk_proxy` and `orchestrator_replay_main_proxy`
+  are strong but still sidecar/proxy candidates. Do not promote blindly.
+- The historical journey reporter worked and produced the new output directory.
+
+**Current direction**
+
+1. The system should read the market environment earlier and better before
+   portfolio construction.
+2. Main should not keep high-weight stale leaders only because long-horizon
+   winner / core scores are high.
+3. Main should admit data-driven monster/extreme early candidates earlier,
+   without hardcoding tickers.
+4. The system should not analyze only the latest portfolio. It must also review
+   historical holdings, round-trip trades, re-entry churn, short big wins, and
+   current holdings versus history.
+5. Relative underperformance should be staged: first trim, then exit if the
+   stock keeps lagging SPY/QQQ and no long-hold winner protection remains.
+6. Governance/ownership catalysts should be visible in reports now, then later
+   upgraded with a true SEC 8-K/Form 4/Form 13F/news event parser.
+
+**What changed on `codex/leader-rescue-stale-trim`**
+
+1. Generic leader rescue, no ticker hardcoding.
+   - S&P 500 / Nasdaq-100 rescue candidates are added as broad source evidence.
+   - `leader_rescue_mode=latest_only` keeps this PIT-safer by excluding
+     rescue-only historical rows from OOS backtest months.
+   - `full_proxy` remains research-only because it uses today's index members
+     historically.
+
+2. Stale former-leader trim, no ticker hardcoding.
+   - Broad stale-leader logic now covers prior large winners below MA50/MA200
+     with weak RS acceleration and requires a price/trend break when configured.
+   - Intended to reduce stale PLTR/NVDA-style old leaders only when the data
+     confirms current weakness.
+
+3. Lifecycle review experiments.
+   - `tools/run_lifecycle_review_overlay.py` tests monthly review without
+     forced monthly churn.
+   - `tools/run_monster_lifecycle_replay.py` has lifecycle review policies for
+     main and concentrated research.
+   - Local check on prior artifacts showed E10 reduced turnover/cash but did
+     not beat the 30% main run, so it is research-only, not a production
+     candidate yet.
+
+4. Historical trade journey reporting.
+   - New report-only sidecar:
+     `tools/run_historical_trade_journey.py`
+   - Outputs:
+     - `outputs/historical_trade_journey/summary.json`
+     - `outputs/historical_trade_journey/holding_runs.csv`
+     - `outputs/historical_trade_journey/trade_summary_by_ticker.csv`
+     - `outputs/historical_trade_journey/leader_rotation_timeline.csv`
+     - `outputs/historical_trade_journey/current_vs_history.csv`
+     - `outputs/historical_trade_journey/ticker_journey.csv`
+     - `outputs/historical_trade_journey/report.md`
+   - Full rebuild artifact, GDrive sync, Telegram zip, and `cloud_results`
+     copy all include this directory.
+   - The tool explicitly collapses duplicated concentrated grid rows, so
+     `concentrated_strategy_holdings.csv` does not produce impossible holding
+     durations.
+
+**Concrete PLTR / SNDK / LITE / INTC diagnostics**
+
+- Latest `portfolio_latest.csv` from run `25416283891` has `PLTR` at about
+  5.00% weight. It is no longer a dominant main name, but it still survives
+  because long-horizon/core scores offset weak current relative strength.
+- Latest `PLTR` diagnostics are contradictory: strong long-horizon winner/core
+  scores but weak current technical state:
+  - `price_above_ma50 = 0`
+  - `price_above_ma200 = 0`
+  - `rs_acceleration_score = about -0.84`
+  - `breakout_fresh_20d = 0`
+- `PLTR` first appeared in main monthly weights on `2024-11-29` at about 8.90%,
+  then reached about 20.25% on `2024-12-31`.
+- Latest `SNDK` is in concentrated but not main. It has strong current monster
+  characteristics but is rejected by the main gate:
+  - `portfolio_future_winner_engine_score = 0.947`
+  - `portfolio_early_scout_engine_score = 0.920`
+  - `price_above_ma50 = 1`
+  - `price_above_ma200 = 1`
+  - `breakout_fresh_20d = 1`
+  - `multi_year_winner_score = 0`
+  - `ranking_eligible = False`
+  - `portfolio_candidate_gate_label = rejected`
+- Latest `LITE` is eligible as `future_winner` and passes `future_relaxed`, but
+  it does not make the final main portfolio because selected future/monster
+  slots and sleeve scoring still prefer other names.
+- Latest `INTC` is not present in `scored_latest.csv`; it cannot enter any
+  portfolio until universe coverage admits it. Treat INTC as an example of a
+  large-cap comeback / recovery candidate, not as a hardcoded ticker target.
+- The new fallback sidecar can emit watchlist-missing rows for examples like
+  `INTC` and `STX`, but a true fix still requires upstream universe/source
+  admission and event coverage rather than ticker-specific selection code.
+
+**Market-context gap to fix before another run**
+
+Add a market-context preflight before final main/concentrated selection. It
+should summarize the current environment from existing repo artifacts rather
+than from hardcoded opinions:
+
+- `macro_daily` / macro columns: liquidity, rates, VIX, inflation, risk-off,
+  growth re-entry, war/oil/rate shock.
+- `etf_leadership` / industry leadership columns: semis, AI infrastructure,
+  power infrastructure, energy, financials, defensive leaders.
+- `explosive_movers` / breakout columns: fresh breakout, volume confirmation,
+  volatility contraction, near 52-week high, RS acceleration.
+- candidate diagnostics: `portfolio_monster_early_score`,
+  `portfolio_risk_entry_block_score`, `portfolio_stale_mega_leader_score`,
+  `portfolio_defensive_rotation_action`.
+
+The goal is to classify environments like:
+
+```
+leadership_narrow_bull
+growth_reentry
+rate_shock
+liquidity_shock
+inflation_energy_bear
+AI_power_infra_cycle
+semis_storage_recovery
+defensive_rotation
+```
+
+This label should affect gates and slots, not directly buy/sell by itself.
+
+**Specific code changes recommended next**
+
+1. Expand stale leader defense in `r1000_signals.py`.
+   - Current stale logic is too mega-cap-specific.
+   - Add a stale-leader branch for large prior winners:
+     `market_cap > 50B or 100B`, high long-horizon winner score, below MA50 or
+     MA200, negative RS acceleration, no fresh breakout.
+   - Action should be `rotate_out_stale_leader`, not only
+     `rotate_out_stale_mega_core`.
+
+2. Add new-buy block or severe cap for broken core leaders.
+   - A `core_strict` candidate with `price_above_ma50 = 0`,
+     `price_above_ma200 = 0`, and `rs_acceleration_score < -0.5` should not get
+     a high fresh allocation.
+   - If it is an incumbent, allow a small review/hold cap only when thesis and
+     market-context support it.
+
+3. Add sparse-history monster override for main.
+   - Do not require `multi_year_winner_score > 0` when all current monster
+     evidence is strong.
+   - Candidate rule shape:
+     `future_engine >= 0.85`, `early_engine >= 0.80`, above MA50/MA200,
+     fresh breakout, acceptable risk block, and positive catalyst/inflection.
+   - This is how SNDK-style names can enter main earlier without hardcoding.
+
+4. Reserve main monster slots by market context.
+   - In neutral/bull leadership environments, reserve at least 2-4 future/monster
+     slots for sparse-history monster candidates.
+   - In risk-off environments, keep the reserve smaller and require stronger
+     price confirmation.
+
+5. Improve Layer 4 swap integration.
+   - Use daily/monthly Layer 4 only as proposal/manual review for now.
+   - Swap stale leaders into monster candidates only when cap, sector, theme,
+     and risk-entry-block checks pass.
+
+6. Add concentrated metadata parity.
+   - Latest concentrated metrics pass the target, but
+     `concentrated_backtest_metrics.json` does not explicitly expose
+     `position_risk_enabled` and `position_risk_metric_mode`.
+   - Add those fields so future agents/users do not confuse production metrics
+     with sidecar proxy metrics.
+
+**Do not hardcode these tickers**
+
+Use `PLTR`, `SNDK`, `LITE`, and `INTC` only as diagnostic examples. The actual
+logic should be data-driven and should generalize to any future stale leader or
+early monster candidate.
+
+**What to analyze next from run `25416283891`**
+
+1. Production metrics:
+   - `outputs/backtest_metrics.json`
+   - `outputs/concentrated_backtest_metrics.json`
+   - compare against reference run `25394753964`:
+     main 30.29% CAGR / -18.90% MaxDD / 1.659 Sharpe,
+     concentrated 45.16% CAGR / -19.87% MaxDD / 1.653 Sharpe.
+
+2. Latest holdings:
+   - `outputs/portfolio_latest.csv`
+   - `outputs/concentrated_portfolio_latest.csv`
+   - verify stale leaders are trimmed only with confirmed break evidence.
+   - verify sparse-history monsters are not blocked solely because
+     `multi_year_winner_score=0`.
+
+3. Leader rescue diagnostics:
+   - `outputs/reports/leader_drop_diagnostics_latest.csv`
+   - `outputs/reports/leader_drop_diagnostics_summary.json`
+   - `outputs/reports/leader_rescue_backtest_filter_summary.json`
+   - confirm `leader_rescue_mode=latest_only` kept rescue-only names latest-only.
+
+4. Historical journey:
+   - `outputs/historical_trade_journey/report.md`
+   - `holding_runs.csv` for longest winners, short big wins, and stale current
+     holdings.
+   - `trade_summary_by_ticker.csv` for repeated re-entry churn.
+   - `current_vs_history.csv` for whether current holdings are new leaders,
+     stale old winners, or returning names.
+   - Quick read from the completed run:
+     - holding runs: 1,971
+     - unique held tickers: 440
+     - average / median run length: 3.06m / 2.00m
+     - runs >= 6m / 12m: 266 / 25
+     - short big wins to review: 116
+     - open stale watch: 1 (`GOOGL` in lifecycle overlay)
+
+5. Lifecycle/replay sidecars:
+   - `outputs/lifecycle_review_overlay_main/`
+   - `outputs/monster_lifecycle_review_main/`
+   - `outputs/monster_lifecycle_review_concentrated/`
+   - Treat these as challenger evidence only. Do not promote if they do not beat
+     production targets.
+
+**Validation already run on `b5d1ee1` before dispatch**
+
+```
+py -3 tests\historical_trade_journey_smoke.py        -> passed
+py -3 tests\workflow_artifact_smoke.py               -> passed
+py -3 tests\smoke_test.py                            -> 83/83 passed
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime -> passed
+py -3 tests\historical_challenger_replays_smoke.py   -> passed
+```
+
+**Result paths now available locally after pulling bot commit**
+
+```
+cloud_results/full_rebuild/20260506_global_alpha_universe/
+cloud_results/full_rebuild/latest_global_alpha_universe/
+```
+
+---
+
+## PRIOR INBOX (2026-05-04 10:43 KST) - PR #3 historical replay foundation
+
+**TL;DR** PR #3 is directionally good but still too report-only/proxy-heavy for
+production. This follow-up branch preserves the raw monthly artifacts needed for
+true historical replay and fixes the concentrated entry-gate fallback issue
+flagged by review. Production defaults, DEFAULT_FEATURES, orchestrator
+activation, broker execution, and auto-promotion remain unchanged.
+
+**Branch**
+
+```
+codex/pr3-historical-replay-foundation
+base: codex/integrate-phase17-19
+purpose: narrow hardening follow-up before judging PR #3 as a production candidate
+```
+
+**What changed**
+
+1. `r1000_pipeline.py` now writes monthly replay inputs:
+   - `outputs/reports/main_monthly_weights.csv`
+   - `outputs/reports/tactical_monthly_weights.csv` (empty schema until true tactical book is wired)
+   - `outputs/reports/alpha_sprint_monthly_weights.csv` (empty schema until true alpha-sprint book is wired)
+   - `outputs/reports/regime_by_month.csv`
+   - `outputs/reports/sleeve_returns_by_month.csv`
+2. `.github/workflows/full_rebuild_manual.yml` now preserves those files plus
+   `outputs/equity_curve.csv` and `outputs/reports/concentrated_strategy_*.csv`
+   in GitHub artifacts, Google Drive sync, Telegram zip, and cloud_results.
+3. cloud_results directory copies now use `copy_dir_clean` to avoid nested
+   `orchestrator/orchestrator`, `trade_journal/trade_journal`, etc.
+4. `r1000_concentrated_policy.py` now derives an `entry_quality_proxy` when
+   `entry_quality_score` is missing, using existing pass flags and conservative
+   technical/confirmation fallbacks. Audit rows expose both proxy value and
+   source.
+5. `tools/run_winner_lifecycle_reports.py` adds report-only missed winner,
+   stale winner, and leadership rotation diagnostics. Existing artifacts flag
+   SNDK/LITE/WDC as missed explosive leaders and NVDA as a stale/opportunity-cost
+   holding candidate.
+6. `.github/workflows/daily_autolearning_scan.yml` schedules the winner
+   lifecycle diagnostics after the US close as an artifact-only daily scan.
+7. `tools/run_winner_onset_study.py` adds a report-only historical onset miner
+   for multi-month/multi-bagger advances. It studies the months before/after
+   detected onset events, evaluates hold/exit diagnostics, and emits only
+   proposal-only policy candidates. When sourced from `scored_latest.csv`, it
+   defaults to a $5B current market-cap floor and $20M 20-day dollar-volume
+   floor to avoid micro-cap multi-bagger noise.
+8. `tools/run_autolearning_winner_challenger.py` connects AutoLearning v2,
+   winner lifecycle, and winner onset outputs into a separate research-only
+   challenger package. Current local event-level run found 16 onset cases and
+   reports verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS` until the cloud
+   run provides monthly books.
+9. `tools/run_shakeout_breakdown_study.py` adds report-only drawdown event
+   labeling for SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, and
+   AMBIGUOUS events. It replays hold/trim/add/exit actions at event level and
+   feeds the separate AutoLearning winner challenger. Daily scan now uploads
+   lifecycle, onset, shakeout/breakdown, and combined challenger artifacts.
+   Local top-40 scored-universe probe found 682 events: 261 SHAKEOUT, 124
+   TRUE_BREAKDOWN, and 297 AMBIGUOUS. Six-month SHAKEOUT hold median was
+   +37.11%; TRUE_BREAKDOWN hold median was -17.58%.
+
+**Validation**
+
+```
+py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py
+py -3 tests\concentrated_policy_smoke.py
+py -3 tests\workflow_artifact_smoke.py
+py -3 tests\orchestrator_replay_smoke.py
+py -3 tests\portfolio_system_guard_smoke.py
+py -3 tests\aggressive_lab_smoke.py
+py -3 tests\smoke_test.py                         # 81/81 pass
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\winner_lifecycle_smoke.py
+py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20
+py -3 tests\winner_onset_study_smoke.py
+PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime
+py -3 tests\autolearning_winner_challenger_smoke.py
+py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study
+py -3 tools\run_autolearning_winner_challenger.py
+py -3 tests\shakeout_breakdown_study_smoke.py
+py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study
+```
+
+**Next work**
+
+1. Run full rebuild on this branch with `global_alpha_universe`, 8 years,
+   fast mode, cached collector if cache exists.
+2. Confirm GDrive and artifact contain the monthly books above.
+3. Use winner lifecycle diagnostics to seed SNDK/NVDA-style counterfactual
+   rules: acceleration override, stale trim, and leadership rotation.
+4. Run `tools/run_winner_onset_study.py` on a targeted universe to mine
+   historical early-onset patterns before promoting any "hold winners longer"
+   rule.
+5. Use `tools/run_shakeout_breakdown_study.py` to mine whether sharp drawdowns
+   were recoverable shakeouts or true breakdowns before testing hold/add/exit
+   policies and high single-name cap grids.
+6. Implement true `tools/run_main_v2_backtest.py` using monthly books.
+7. Implement true concentrated policy replay using `concentrated_strategy_monthly.csv`
+   and `concentrated_strategy_holdings.csv`.
+8. Only after true replays exist, test orchestrator merge policies
+   (`max`, `sum_then_cap`, `priority_concentrated`, `risk_budget_blend`).
+
+---
+
+## PRIOR INBOX (2026-04-29 19:08 KST) - ADR USD market-cap fix + concentrated continuation fix + Phase 15-D rerun
 
 **TL;DR** — Run `25091384080` completed successfully and synced to GDrive, but
 verdict was PARTIAL, not SHIP. User spotted a real ADR market-cap bug: TSM was

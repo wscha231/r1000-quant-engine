@@ -1,0 +1,70 @@
+{
+  "status": "ok",
+  "stale_days_threshold": 10,
+  "latest_scored_date": "2026-05-08",
+  "latest_portfolio_date": null,
+  "latest_weekly_eval_dates": {
+    "main": "2026-05-08",
+    "concentrated": "2026-05-08"
+  },
+  "primary_weekly_eval_date": "2026-05-08",
+  "scored_vs_weekly_eval_lag_days": 0,
+  "latest_raw_portfolio_cash_target": 0.0,
+  "latest_unified_target": {
+    "cash_target": 0.2759999999999999,
+    "by_mandate_capacity": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0.0
+    },
+    "invested_amount": 0.7240000000000001,
+    "n_positions": 20
+  },
+  "explanation": "Weekly evaluation is mark-to-market on monthly holding books. The final available monthly holding book can be extended to the latest cached price date, but true production promotion still requires true weekly scored snapshots.",
+  "metrics": {
+    "main": {
+      "status": "completed",
+      "portfolio_kind": "main",
+      "evaluation_granularity": "weekly_mark_to_market",
+      "production_selection_changed": false,
+      "uses_monthly_holding_books": true,
+      "true_weekly_scoring": false,
+      "weeks": 412,
+      "start_date": "2019-05-03",
+      "end_date": "2026-05-08",
+      "cagr": 0.19716264232217395,
+      "sharpe": 1.0076349864247922,
+      "max_dd": -0.30406314509390353,
+      "vol_ann": 0.19845444732289444,
+      "ending_equity": 4.16115092446294,
+      "avg_cash_weight": 0.04523346283427704,
+      "avg_stock_weight": 0.9547665371657228,
+      "max_stock_weight": 0.9999999999999996,
+      "avg_missing_price_count": 0.12378640776699029,
+      "uses_stale_final_holdings_extension": true,
+      "extension_start_date": "2026-04-02"
+    },
+    "concentrated": {
+      "status": "completed",
+      "portfolio_kind": "concentrated",
+      "evaluation_granularity": "weekly_mark_to_market",
+      "production_selection_changed": false,
+      "uses_monthly_holding_books": true,
+      "true_weekly_scoring": false,
+      "weeks": 412,
+      "start_date": "2019-05-03",
+      "end_date": "2026-05-08",
+      "cagr": 0.33025125872465155,
+      "sharpe": 1.182764124709736,
+      "max_dd": -0.3996628378892775,
+      "vol_ann": 0.2733199013902005,
+      "ending_equity": 9.592594105782322,
+      "avg_cash_weight": 6.41342426846571e-17,
+      "avg_stock_weight": 1.0,
+      "max_stock_weight": 1.0000000000000002,
+      "avg_missing_price_count": 0.014563106796116505,
+      "uses_stale_final_holdings_extension": true,
+      "extension_start_date": "2026-04-02"
+    }
+  }
+}

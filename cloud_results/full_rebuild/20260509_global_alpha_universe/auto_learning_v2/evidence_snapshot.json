@@ -1,0 +1,465 @@
+{
+  "alpha_sprint": {
+    "active": false,
+    "candidate_count": 5,
+    "capacity": 0.0,
+    "regime_state": "neutral"
+  },
+  "broker_trade_journal": {
+    "avg_alpha_vs_benchmark": 0.0,
+    "avg_holding_days": 67.30477528089888,
+    "avg_realized_return": 0.04365006187990016,
+    "avg_return_by_regime": {
+      "bear": 0.05084475047794554,
+      "bull": 0.041457039604392835,
+      "deep_bear": 0.5440201115989779,
+      "neutral": 0.03373238393177029,
+      "strong_bull": -0.02087734474114694
+    },
+    "avg_return_by_sleeve": {
+      "core_compounder": 0.03873257226822315,
+      "early_scout": 0.051625835951347676,
+      "future_winner": 0.03755892950261241,
+      "unassigned": 0.00648395101103061
+    },
+    "exit_reason_counts": {
+      "target_exit": 1149,
+      "target_rebalance": 987
+    },
+    "regime_counts": {
+      "bear": 401,
+      "bull": 568,
+      "deep_bear": 23,
+      "neutral": 1111,
+      "strong_bull": 33
+    },
+    "sleeve_counts": {
+      "core_compounder": 385,
+      "early_scout": 895,
+      "future_winner": 855,
+      "unassigned": 1
+    },
+    "trade_count": 2136,
+    "win_rate": 0.5674157303370787
+  },
+  "combined_trade_journal": {
+    "avg_alpha_vs_benchmark": 0.0,
+    "avg_holding_days": 67.30477528089888,
+    "avg_realized_return": 0.04365006187990016,
+    "avg_return_by_regime": {
+      "bear": 0.05084475047794554,
+      "bull": 0.041457039604392835,
+      "deep_bear": 0.5440201115989779,
+      "neutral": 0.03373238393177029,
+      "strong_bull": -0.02087734474114694
+    },
+    "avg_return_by_sleeve": {
+      "core_compounder": 0.03873257226822315,
+      "early_scout": 0.051625835951347676,
+      "future_winner": 0.03755892950261241,
+      "unassigned": 0.00648395101103061
+    },
+    "exit_reason_counts": {
+      "target_exit": 1149,
+      "target_rebalance": 987
+    },
+    "regime_counts": {
+      "bear": 401,
+      "bull": 568,
+      "deep_bear": 23,
+      "neutral": 1111,
+      "strong_bull": 33
+    },
+    "sleeve_counts": {
+      "core_compounder": 385,
+      "early_scout": 895,
+      "future_winner": 855,
+      "unassigned": 1
+    },
+    "trade_count": 2136,
+    "win_rate": 0.5674157303370787
+  },
+  "concentrated_policy": {
+    "audit": {
+      "entry_gate_all_pass": false,
+      "generated_at_utc": "2026-05-03T18:52:52Z",
+      "production_activation_allowed": false,
+      "risk_gate_all_pass": false,
+      "sector_cap_pass": false,
+      "single_name_cap_pass": false
+    },
+    "cap_violations": [
+      {
+        "cap": 0.25,
+        "cap_type": "single_name",
+        "excess": 0.012442024069509006,
+        "ticker": "PR",
+        "weight": 0.262442024069509
+      },
+      {
+        "cap": 0.55,
+        "cap_type": "sector",
+        "excess": 0.18755797593049084,
+        "sector": "Information Technology",
+        "weight": 0.7375579759304909
+      }
+    ],
+    "current_n": 5,
+    "current_weight_sum": 1.0,
+    "entry_blocked": [
+      {
+        "failed": [
+          "entry_quality_ok"
+        ],
+        "ticker": "PR"
+      },
+      {
+        "failed": [
+          "entry_quality_ok"
+        ],
+        "ticker": "MRVL"
+      },
+      {
+        "failed": [
+          "entry_quality_ok"
+        ],
+        "ticker": "AMKR"
+      },
+      {
+        "failed": [
+          "entry_quality_ok"
+        ],
+        "ticker": "CIEN"
+      },
+      {
+        "failed": [
+          "entry_quality_ok"
+        ],
+        "ticker": "GLW"
+      }
+    ],
+    "entry_gate": {
+      "block_if_theme_ending": true,
+      "min_entry_quality_score": 0.7,
+      "require_price_above_ma200": true,
+      "require_price_above_ma50": true
+    },
+    "exit_rules": {
+      "enable_better_replacement_swap": true,
+      "hard_stop": -0.1,
+      "review_days": 7,
+      "rs_decay_pp": -30,
+      "trailing_stop": -0.15
+    },
+    "policy_name": "concentrated_balanced_research_policy",
+    "recommended_capacity": 0.2,
+    "recommended_target_n": 5,
+    "regime_state": "neutral",
+    "research_only": true,
+    "risk_blocked": [
+      {
+        "failed": [
+          "rs_not_decaying"
+        ],
+        "ticker": "AMKR"
+      },
+      {
+        "failed": [
+          "rs_not_decaying"
+        ],
+        "ticker": "CIEN"
+      },
+      {
+        "failed": [
+          "rs_not_decaying"
+        ],
+        "ticker": "GLW"
+      }
+    ],
+    "risk_budget": {
+      "high_conviction_cap": 0.3,
+      "sector_cap": 0.55,
+      "single_name_cap": 0.25,
+      "sleeve_dd_disable": -0.15,
+      "sleeve_dd_scale_down": -0.08,
+      "theme_cap": 0.45,
+      "unified_single_name_cap": 0.18,
+      "unified_theme_cap": 0.4
+    },
+    "rows": [
+      {
+        "concentrated_conviction_score": 1.0151759381000887,
+        "concentrated_score": 0.7665712701917649,
+        "entry_failed": "entry_quality_ok",
+        "entry_gate_pass": false,
+        "name": "PERMIAN RESOURCES CORP CLASS A",
+        "risk_failed": "",
+        "risk_gate_pass": true,
+        "sector": "Energy",
+        "ticker": "PR",
+        "weight": 0.262442024069509
+      },
+      {
+        "concentrated_conviction_score": 1.9062519468332437,
+        "concentrated_score": 0.7260987083442483,
+        "entry_failed": "entry_quality_ok",
+        "entry_gate_pass": false,
+        "name": "MARVELL TECHNOLOGY INC",
+        "risk_failed": "",
+        "risk_gate_pass": true,
+        "sector": "Information Technology",
+        "ticker": "MRVL",
+        "weight": 0.20278865914364483
+      },
+      {
+        "concentrated_conviction_score": 0.7878307705780154,
+        "concentrated_score": 0.7253487818064981,
+        "entry_failed": "entry_quality_ok",
+        "entry_gate_pass": false,
+        "name": "AMKOR TECHNOLOGY INC",
+        "risk_failed": "rs_not_decaying",
+        "risk_gate_pass": false,
+        "sector": "Information Technology",
+        "ticker": "AMKR",
+        "weight": 0.20175580340159313
+      },
+      {
+        "concentrated_conviction_score": 1.8094733216101555,
+        "concentrated_score": 0.7140274260269261,
+        "entry_failed": "entry_quality_ok",
+        "entry_gate_pass": false,
+        "name": "CIENA CORP",
+        "risk_failed": "rs_not_decaying",
+        "risk_gate_pass": false,
+        "sector": "Information Technology",
+        "ticker": "CIEN",
+        "weight": 0.1864835772004387
+      },
+      {
+        "concentrated_conviction_score": 1.904284817239381,
+        "concentrated_score": 0.6819962462412272,
+        "entry_failed": "entry_quality_ok",
+        "entry_gate_pass": false,
+        "name": "CORNING INC",
+        "risk_failed": "rs_not_decaying",
+        "risk_gate_pass": false,
+        "sector": "Information Technology",
+        "ticker": "GLW",
+        "weight": 0.14652993618481427
+      }
+    ],
+    "sector_weights": {
+      "Energy": 0.262442024069509,
+      "Information Technology": 0.7375579759304909
+    }
+  },
+  "concentrated_trade_journal": {
+    "avg_alpha_vs_benchmark": 0.0,
+    "avg_holding_days": 52.31707317073171,
+    "avg_realized_return": 0.06333013899107916,
+    "avg_return_by_regime": {
+      "bear": 0.10091506641762135,
+      "bull": 0.046836392767776805,
+      "deep_bear": 0.11176050808033874,
+      "neutral": 0.05988643096976538,
+      "strong_bull": -0.1504261468480024
+    },
+    "avg_return_by_sleeve": {
+      "early_scout": 0.058011286754319734,
+      "future_winner": 0.09244385649755171
+    },
+    "exit_reason_counts": {
+      "target_exit": 190,
+      "target_rebalance": 56
+    },
+    "regime_counts": {
+      "bear": 50,
+      "bull": 68,
+      "deep_bear": 2,
+      "neutral": 124,
+      "strong_bull": 2
+    },
+    "sleeve_counts": {
+      "early_scout": 208,
+      "future_winner": 38
+    },
+    "trade_count": 246,
+    "win_rate": 0.6747967479674797
+  },
+  "evidence_mode": "broker_ledger",
+  "feature_gate_candidate": {
+    "available": true,
+    "gate_count": 3,
+    "gates": [
+      {
+        "factor": 1.3,
+        "ic": 0.1176,
+        "kind": "signal_regime_amplify",
+        "n": 201,
+        "rationale": "IC +0.118 in bull (n=201) >= amplify threshold +0.1",
+        "regime": "bull",
+        "signal": "rs_acceleration_score"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0534,
+        "kind": "signal_regime_disable",
+        "n": 374,
+        "rationale": "IC -0.053 in neutral (n=374) <= disable threshold -0.05",
+        "regime": "neutral",
+        "signal": "theme_phase_multiplier_primary"
+      },
+      {
+        "factor": 0.0,
+        "ic": -0.0587,
+        "kind": "signal_regime_disable",
+        "n": 374,
+        "rationale": "IC -0.059 in neutral (n=374) <= disable threshold -0.05",
+        "regime": "neutral",
+        "signal": "theme_phase_multiplier_max"
+      }
+    ],
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_feature_gates_candidate.yaml"
+  },
+  "main_v2": {
+    "actual_invested_after_cap": 0.9217969369608625,
+    "cap_excess_to_cash": 0.02820306303913747,
+    "cash_target": 0.07820306303913749,
+    "expected_cash": 0.05,
+    "expected_invested_before_cap": 0.9500000000000001,
+    "generated_at_utc": "2026-05-03T18:52:11Z",
+    "merge_mode": "sum_then_cap",
+    "n_conflicts": 1,
+    "n_positions": 11,
+    "policy_name": "main_v2_balanced",
+    "production_activation_allowed": false,
+    "raw_scaled_sleeve_sums": {
+      "core": 0.25,
+      "early": 0.15,
+      "future": 0.55
+    },
+    "research_only": true,
+    "selected_n_by_sleeve": {
+      "core": 4,
+      "early": 1,
+      "future": 7
+    },
+    "single_name_cap": 0.15,
+    "target_n_by_sleeve": {
+      "core": 4,
+      "early": 2,
+      "future": 7
+    }
+  },
+  "metrics": {
+    "concentrated": {
+      "cagr": 0.4590237764170235,
+      "max_dd": -0.37378783031424756,
+      "monitoring_review_days": 7,
+      "selected_names": 5,
+      "sharpe": 1.1828756807357603
+    },
+    "main": {
+      "avg_stock_names": 24.012048192771083,
+      "avg_turnover_monthly": 0.5246756384545513,
+      "cagr": 0.1971854381058713,
+      "max_dd": -0.3446750826700783,
+      "months": 83,
+      "sharpe": 0.9617652645855442
+    }
+  },
+  "paths": {
+    "alpha_sprint_latest": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_sprint/alpha_sprint_latest.json",
+    "broker_combined_trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_trade_journal/combined_round_trips.csv",
+    "broker_concentrated_trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_trade_journal/concentrated/round_trips.csv",
+    "broker_main_trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_trade_journal/main/round_trips.csv",
+    "concentrated_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/metrics.json",
+    "concentrated_policy_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_policy/policy_audit_latest.json",
+    "concentrated_trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_trade_journal/trades.csv",
+    "feature_gate_candidate": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_feature_gates_candidate.yaml",
+    "main_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/main/metrics.json",
+    "main_v2_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2/main_v2_audit_latest.json",
+    "sleeve_audit": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/global_alpha_sleeve_audit_summary.csv",
+    "trade_journal": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/trades.csv"
+  },
+  "run_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "sleeve_audit": {
+    "core_compounder": {
+      "hist_gate_avg_multi_year_winner_score": 0.7498192246146875,
+      "hist_gate_avg_score": 3.4269286718321887,
+      "latest_candidate_count": 46,
+      "latest_gate_avg_multi_year_winner_score": 1.499576681767907,
+      "latest_gate_avg_score": 3.4667374322166125,
+      "latest_gate_pass_count": 41,
+      "latest_top10_gate_tickers": "NVDA,LRCX,GOOGL,GOOG,AMAT,COST,VZ,AAPL,AVGO,MU",
+      "months": 84
+    },
+    "early_scout": {
+      "hist_gate_avg_multi_year_winner_score": 0.7495837594840735,
+      "hist_gate_avg_score": 0.3190825904150782,
+      "latest_candidate_count": 52,
+      "latest_gate_avg_multi_year_winner_score": 0.3365512615553169,
+      "latest_gate_avg_score": 0.6123104069707128,
+      "latest_gate_pass_count": 47,
+      "latest_top10_gate_tickers": "ETR,PR,AKAM,MTDR,SEB,DINO,PVH,EXE,SFD,PEG",
+      "months": 84
+    },
+    "future_winner": {
+      "hist_gate_avg_multi_year_winner_score": 2.902956175528272,
+      "hist_gate_avg_score": 1.7508558142617194,
+      "latest_candidate_count": 70,
+      "latest_gate_avg_multi_year_winner_score": 3.36151737326915,
+      "latest_gate_avg_score": 1.5399127715332546,
+      "latest_gate_pass_count": 66,
+      "latest_top10_gate_tickers": "FTI,UI,SU,NXT,TRGP,CIEN,LNG,CNQ,TPL,UTHR",
+      "months": 84
+    },
+    "unassigned": {
+      "hist_gate_avg_multi_year_winner_score": 0.0,
+      "hist_gate_avg_score": 0.0,
+      "latest_candidate_count": 438,
+      "latest_gate_avg_multi_year_winner_score": 0.0,
+      "latest_gate_avg_score": 0.0,
+      "latest_gate_pass_count": 0,
+      "latest_top10_gate_tickers": "",
+      "months": 84
+    }
+  },
+  "trade_journal": {
+    "avg_alpha_vs_benchmark": 0.0,
+    "avg_holding_days": 69.25555555555556,
+    "avg_realized_return": 0.04108852803368321,
+    "avg_return_by_regime": {
+      "bear": 0.04371222683981508,
+      "bull": 0.04072544757417262,
+      "deep_bear": 0.5851876928864673,
+      "neutral": 0.030446566472082968,
+      "strong_bull": -0.01251935750844659
+    },
+    "avg_return_by_sleeve": {
+      "core_compounder": 0.03873257226822315,
+      "early_scout": 0.04969254080284958,
+      "future_winner": 0.035006142200522214,
+      "unassigned": 0.00648395101103061
+    },
+    "exit_reason_counts": {
+      "target_exit": 959,
+      "target_rebalance": 931
+    },
+    "regime_counts": {
+      "bear": 351,
+      "bull": 500,
+      "deep_bear": 21,
+      "neutral": 987,
+      "strong_bull": 31
+    },
+    "sleeve_counts": {
+      "core_compounder": 385,
+      "early_scout": 687,
+      "future_winner": 817,
+      "unassigned": 1
+    },
+    "trade_count": 1890,
+    "win_rate": 0.5534391534391534
+  }
+}

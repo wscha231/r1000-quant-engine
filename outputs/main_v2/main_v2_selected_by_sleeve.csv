@@ -1,0 +1,13 @@
+sleeve,rank,ticker,name,sector,score,legacy_sleeve,engine_score
+core,1,NVDA,NVIDIA CORP,Information Technology,2.3212548306088236,core_compounder,0.948529744011823
+core,2,CW,CURTISS WRIGHT CORP,Industrials,1.878514306536041,future_winner,0.5534345940715305
+core,3,AAPL,APPLE INC,Information Technology,1.8410797677111208,core_compounder,0.6997489143258199
+core,4,UI,UBIQUITI INC,Information Technology,1.8269621728701368,future_winner,0.948529744011823
+future,1,MRVL,MARVELL TECHNOLOGY INC,Information Technology,1.7314508927289076,future_winner,0.9258997438818788
+future,2,UI,UBIQUITI INC,Information Technology,1.699787354435111,future_winner,0.9258997438818788
+future,3,CIEN,CIENA CORP,Information Technology,1.6196314356687251,future_winner,0.9072052167134002
+future,4,FTI,TECHNIPFMC PLC,Energy,1.5682143677696807,future_winner,0.9258997438818788
+future,5,VRT,VERTIV HOLDINGS CLASS A,Industrials,1.5371006089892039,core_compounder,0.9258997438818788
+future,6,WDC,WESTERN DIGITAL CORP,Information Technology,1.5339939173481372,unassigned,0.7932062434271903
+future,7,GLW,CORNING INC,Information Technology,1.4919957946049056,future_winner,0.8642741478089369
+early,1,ZTO,ZTO Express,Industrials,0.6406384939872403,future_winner,0.6800617009073076

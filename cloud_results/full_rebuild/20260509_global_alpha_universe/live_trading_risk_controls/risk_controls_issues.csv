@@ -1,0 +1,2 @@
+severity,check_id,message,path,details
+warning,broker_snapshot_not_supplied,broker snapshot not supplied; account/open-order reconciliation was skipped,,{}

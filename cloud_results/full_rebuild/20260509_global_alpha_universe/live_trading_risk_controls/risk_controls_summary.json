@@ -1,0 +1,20 @@
+{
+  "error_count": 0,
+  "fill_template_order_count": 50,
+  "generated_at_utc": "2026-05-09T11:09:57.318139+00:00",
+  "issues": [
+    {
+      "check_id": "broker_snapshot_not_supplied",
+      "details": "{}",
+      "message": "broker snapshot not supplied; account/open-order reconciliation was skipped",
+      "path": "",
+      "severity": "warning"
+    }
+  ],
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "manifest_order_count": 50,
+  "schema_version": "live-trading-risk-controls-v1",
+  "status": "pass",
+  "strict_live": false,
+  "warning_count": 1
+}

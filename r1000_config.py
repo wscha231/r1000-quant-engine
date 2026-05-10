@@ -216,6 +216,60 @@ PHASE15_ALPHA_COLUMNS = [
     "insider_cluster_boost_score",          # Phase 15-C P20: 3+ insider buyers = high conviction
 ]
 
+PHASE17_EXPLOSION_COLUMNS = [
+    "explosion_entry_score",
+    "explosion_exit_score",
+    "explosion_net_score",
+]
+
+PHASE17_REGIME_STATE_COLUMNS = [
+    "regime_state",
+    "regime_state_score",
+]
+
+PHASE20_THEME_POLICY_COLUMNS = [
+    # Research-only theme policy metadata. These columns are surfaced for
+    # lifecycle/chameleon replay sidecars, not appended to DEFAULT_FEATURES.
+    "theme_horizon_primary",
+    "theme_holding_profile_primary",
+    "theme_event_risk_sensitivity_primary",
+    "theme_event_risk_sensitivity_max",
+    "theme_structural_growth_primary",
+    "theme_structural_growth_max",
+    "theme_target_hold_months_primary",
+    "theme_max_hold_months_primary",
+    "theme_short_cycle_flag_primary",
+    "theme_short_cycle_flag_max",
+]
+
+PHASE21_STYLE_REGIME_COLUMNS = [
+    # Research-only style regime metadata. These columns summarize whether
+    # the macro/market tape favors breakout leaders, turnaround accumulation,
+    # quality compounders, or cash defense. They are not in DEFAULT_FEATURES.
+    "market_style_regime_label",
+    "style_breakout_preference",
+    "style_turnaround_preference",
+    "style_quality_compounder_preference",
+    "style_cash_defense_preference",
+    "style_liquidity_tailwind_score",
+    "style_rate_pressure_score",
+    "style_inflation_pressure_score",
+    "style_overheat_risk_score",
+    "style_calendar_month",
+    "style_calendar_quarter",
+    "style_calendar_weekday",
+    "style_calendar_years_since_start",
+    "style_calendar_month_sin",
+    "style_calendar_month_cos",
+    "style_calendar_quarter_sin",
+    "style_calendar_quarter_cos",
+    "style_calendar_weekday_sin",
+    "style_calendar_weekday_cos",
+    "style_row_breakout_fit",
+    "style_row_turnaround_fit",
+    "style_row_compounder_fit",
+]
+
 
 PHASE9_C3_TURNAROUND_COLUMNS = [
     "profit_turn_positive_4q",
@@ -320,6 +374,94 @@ CNN_FEAR_GREED_HEADERS = {
 
 ROBUST_Z_WINSOR_P = 0.01
 ROBUST_Z_CLIP = 6.0
+
+
+# =====================================================================
+# Phase 19a (2026-04-30): mandate registry for sidecar orchestrator.
+# =====================================================================
+# Additive metadata only. The production backtest does not consume this
+# registry yet; tools/run_orchestrator.py uses it to compose inspection
+# reports from already-produced main/concentrated/tactical outputs.
+# Do not bump ENGINE_REUSE_VERSION for this block because it does not
+# change feature_store schema or scoring behavior.
+MANDATE_REGISTRY = {
+    "main": {
+        "cadence": "monthly",
+        "default_target_n": 20,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.35,
+            "bear": 0.50,
+            "neutral": 0.65,
+            "bull": 0.75,
+            "strong_bull": 0.80,
+        },
+        "weighting_mode": "score_weighted_with_caps",
+        "stop_loss_pct": -0.15,
+        "trailing_stop_pct": -0.18,
+    },
+    "concentrated": {
+        "cadence": "monthly",
+        "default_target_n": 5,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.05,
+            "bear": 0.05,
+            "neutral": 0.10,
+            "bull": 0.10,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "score_power",
+        "stop_loss_pct": -0.10,
+        "trailing_stop_pct": -0.15,
+    },
+    "tactical": {
+        "cadence": "weekly",
+        "default_target_n": 5,
+        "capacity_pct_by_regime": {
+            "deep_bear": 0.00,
+            "bear": 0.00,
+            "neutral": 0.00,
+            "bull": 0.05,
+            "strong_bull": 0.10,
+        },
+        "weighting_mode": "equal",
+        "stop_loss_pct": -0.08,
+        "trailing_stop_pct": -0.12,
+    },
+}
+
+
+PORTFOLIO_GOAL_TARGETS = {
+    "main": {"cagr": 0.30, "max_dd": -0.15},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+}
+
+
+def mandate_capacity_for_regime(mandate: str, regime_state: str) -> float:
+    """Return the NAV share for a mandate under a regime label."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    if not spec:
+        return 0.0
+    cap_map = spec.get("capacity_pct_by_regime", {})
+    if not isinstance(cap_map, dict):
+        return 0.0
+    try:
+        return float(cap_map.get(str(regime_state), 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def mandate_cadence(mandate: str) -> str:
+    """Return the rebalance cadence for a mandate."""
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return str(spec.get("cadence", "monthly")) if spec else "monthly"
+
+
+def mandate_target_n(mandate: str, override: Optional[int] = None) -> int:
+    """Return target_n for a mandate, with optional caller override."""
+    if override is not None:
+        return int(override)
+    spec = MANDATE_REGISTRY.get(str(mandate))
+    return int(spec.get("default_target_n", 0)) if spec else 0
 
 MACRO_REGIME_COLUMNS = [
     "spy_ret_1m",
@@ -1393,7 +1535,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-04-29-concentrated-continuation"
+ENGINE_REUSE_VERSION = "2026-05-07-style-regime-router"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1410,10 +1552,10 @@ SEC_COMPANYFACTS_MEMBER_RE = re.compile(r"(?:^|/)(?:CIK)?(\d{10})\.json$", re.IG
 # ---------------------------------------------------------------------
 def default_manual_regime_conditioned_sleeve_map() -> dict[str, dict[str, Any]]:
     return {
-        "ALL": {"core": 0.22, "future": 0.46, "early": 0.24, "cash": 0.08, "policy_label": "manual_all_22_46_24_cash8"},
-        "balanced": {"core": 0.24, "future": 0.44, "early": 0.24, "cash": 0.08, "policy_label": "manual_balanced_24_44_24_cash8"},
-        "growth_reentry": {"core": 0.16, "future": 0.46, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_16_46_30_cash8"},
-        "growth_reentry_alert": {"core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08, "policy_label": "manual_growth_alert_14_48_30_cash8"},
+        "ALL": {"core": 0.23, "future": 0.48, "early": 0.24, "cash": 0.05, "policy_label": "manual_all_23_48_24_cash5"},
+        "balanced": {"core": 0.25, "future": 0.46, "early": 0.24, "cash": 0.05, "policy_label": "manual_balanced_25_46_24_cash5"},
+        "growth_reentry": {"core": 0.17, "future": 0.48, "early": 0.30, "cash": 0.05, "policy_label": "manual_growth_17_48_30_cash5"},
+        "growth_reentry_alert": {"core": 0.15, "future": 0.50, "early": 0.30, "cash": 0.05, "policy_label": "manual_growth_alert_15_50_30_cash5"},
         "systemic_crisis": {"core": 0.18, "future": 0.24, "early": 0.08, "cash": 0.50, "policy_label": "manual_systemic_18_24_08_cash50"},
         "carry_unwind": {"core": 0.22, "future": 0.34, "early": 0.14, "cash": 0.30, "policy_label": "manual_carry_22_34_14_cash30"},
         "war_oil_rate_shock": {"core": 0.24, "future": 0.32, "early": 0.14, "cash": 0.30, "policy_label": "manual_war_24_32_14_cash30"},
@@ -1558,6 +1700,7 @@ class EngineConfig:
     run_sleeve_regime_comparison: bool = True
     sleeve_regime_comparison_cash_max: float = 0.02
     sleeve_regime_apply_champion: bool = True
+    regime_conditioned_min_learned_months: int = 12
     regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=dict)
     manual_regime_conditioned_sleeve_map: dict[str, dict[str, Any]] = field(default_factory=default_manual_regime_conditioned_sleeve_map)
     run_regime_map_method_comparison: bool = True
@@ -1595,6 +1738,12 @@ class EngineConfig:
     concentrated_top_n_candidates: list[int] = field(default_factory=lambda: [3, 4, 5, 1, 2, 7, 10])
     concentrated_rebalance_intervals: list[int] = field(default_factory=lambda: [1, 2, 3])
     concentrated_weighting_modes: list[str] = field(default_factory=lambda: ["conviction_curve", "winner_take_all", "score_power"])
+    concentrated_min_production_names: int = 3
+    concentrated_latest_prefer_goal_passing: bool = True
+    main_target_cagr: float = PORTFOLIO_GOAL_TARGETS["main"]["cagr"]
+    main_target_max_dd: float = PORTFOLIO_GOAL_TARGETS["main"]["max_dd"]
+    concentrated_target_cagr: float = PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"]
+    concentrated_target_max_dd: float = PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]
     concentrated_allowed_sleeves: list[str] = field(default_factory=lambda: ["future_winner", "early_scout"])
     # Phase 15-A (2026-04-28): relaxed 0.45 -> 0.30. Default rejected cyclical
     # leaders (SNDK/MU/WDC class) where score is high but multi_year_winner_score
@@ -1633,7 +1782,36 @@ class EngineConfig:
     concentrated_score_cycle_recovery_weight: float = 0.50
     concentrated_score_early_inflection_weight: float = 0.40
     concentrated_score_entry_quality_weight: float = 0.25
-    concentrated_max_single_name_weight: float = 1.00
+    # Defensive monster rotation (2026-05-05): apply the defense thesis to the
+    # actual selection path, not only to post-hoc return proxies. The overlay
+    # de-emphasizes stale mega-cap/core names with weakening leadership and
+    # promotes early monster/extreme candidates with price-confirmed leadership.
+    portfolio_defensive_rotation_enabled: bool = True
+    portfolio_monster_early_weight: float = 1.35
+    portfolio_fill_monster_early_weight: float = 1.15
+    portfolio_utility_monster_early_weight: float = 0.50
+    portfolio_stale_mega_leader_penalty_weight: float = 1.35
+    portfolio_stale_mega_mcap_min: float = 1_000_000_000_000.0
+    portfolio_stale_mega_rs_accel_max: float = -0.75
+    portfolio_stale_mega_rs_level_max: float = 1.00
+    portfolio_stale_mega_near_high_max: float = -0.05
+    portfolio_stale_leader_mcap_min: float = 100_000_000_000.0
+    portfolio_stale_leader_rs_accel_max: float = -0.50
+    portfolio_stale_leader_rs_level_max: float = 1.25
+    portfolio_stale_leader_near_high_max: float = -0.08
+    portfolio_stale_leader_group_strength_max: float = 0.0
+    portfolio_stale_leader_require_broken_ma: bool = True
+    portfolio_monster_promote_unassigned_to_future: bool = True
+    portfolio_monster_early_min_slots: int = 3
+    portfolio_monster_early_min_score: float = 0.58
+    concentrated_monster_early_min_slots: int = 3
+    concentrated_score_monster_early_weight: float = 1.45
+    concentrated_score_risk_entry_penalty_weight: float = 1.10
+    concentrated_risk_candidate_filter_enabled: bool = True
+    concentrated_risk_candidate_block_threshold: float = 0.45
+    concentrated_entry_quality_monster_early_override: bool = True
+    concentrated_entry_quality_monster_early_min: float = 0.62
+    concentrated_max_single_name_weight: float = 0.50
     concentrated_monitoring_review_days: int = 7
     run_historical_data_quality_reports: bool = True
     growth_history_confidence_penalty_weight: float = 0.18
@@ -1815,6 +1993,19 @@ class EngineConfig:
     baseline_v42_code: str = ""
     features: list[str] = field(default_factory=lambda: DEFAULT_FEATURES.copy())
     use_wikipedia_lists: bool = False
+    # Leader rescue universe (2026-05-06): current IWB can miss strong
+    # emerging leaders that sit outside Russell 1000 proxy coverage or
+    # disappear because a price-cache refresh failed. Keep this generic:
+    # add broad S&P/Nasdaq constituent candidates and write drop diagnostics
+    # instead of hardcoding example tickers.
+    leader_rescue_universe_enabled: bool = True
+    leader_rescue_include_sp500: bool = True
+    leader_rescue_include_nasdaq100: bool = True
+    leader_rescue_backtest_mode: str = "latest_only"  # latest_only | full_proxy | off
+    leader_rescue_diagnostics_enabled: bool = True
+    leader_rescue_price_stale_days: int = 14
+    strategic_global_hardware_universe_enabled: bool = True
+    strategic_global_hardware_universe_path: str = ""
     w_quality_trend: float = 0.20
     w_forward_revision: float = 0.25
     w_event_reaction: float = 0.10
@@ -1853,11 +2044,11 @@ class EngineConfig:
     early_scout_fundamental_presence_min: float = 0.18
     early_scout_fundamental_reliability_min: float = 0.24
     stock_weight_max_sector_adjusted: float = 0.08
-    stock_weight_max_partial_scout: float = 0.04
-    partial_scout_total_weight_cap: float = 0.10
+    stock_weight_max_partial_scout: float = 0.06
+    partial_scout_total_weight_cap: float = 0.18
     speculative_stop_loss_pct: float = 0.25
-    speculative_weight_max: float = 0.04
-    speculative_total_weight_max: float = 0.15
+    speculative_weight_max: float = 0.08
+    speculative_total_weight_max: float = 0.24
     speculative_min_rs_composite: float = 0.0
     # Phase 15-A (2026-04-28): concentrated-sleeve specific stop-loss + regime
     # cash gates. Concentrated has only 5 names so a single -25% drawdown
@@ -1870,6 +2061,20 @@ class EngineConfig:
     concentrated_regime_cash_vix_threshold: float = 25.0  # VIX > 25 (vs core 30)
     concentrated_regime_cash_breadth_threshold: float = 0.30  # breadth_above_ma200 < 30%
     concentrated_regime_cash_pct: float = 0.30          # force 30% cash when regime risk-off
+    # 2026-05-06: connect the previously sidecar-only monthly position-risk
+    # replay to actual backtest metrics. This is still monthly return capping,
+    # not intraday broker execution, but it makes the exported main and
+    # concentrated metrics include the defensive list mechanics.
+    portfolio_position_risk_enabled: bool = True
+    portfolio_position_risk_hard_stop: float = -0.08
+    portfolio_position_risk_trailing_stop: float = -0.15
+    portfolio_position_risk_trailing_min_profit: float = 0.15
+    portfolio_position_risk_distribution_threshold: float = 0.85
+    concentrated_position_risk_enabled: bool = True
+    concentrated_position_risk_hard_stop: float = -0.08
+    concentrated_position_risk_trailing_stop: float = 0.0
+    concentrated_position_risk_trailing_min_profit: float = 0.15
+    concentrated_position_risk_distribution_threshold: float = 2.0
     # Phase 15-R1 (2026-04-21): trailing stop from peak.
     # Complements the entry-point -25% hard stop with a peak-relative exit so
     # the engine preserves realized gains when a held position rolls over.
@@ -2273,6 +2478,8 @@ __all__ = [
     "PHASE1_ALPHA_COLUMNS",
     "PHASE8B_LONG_LOOKBACK_COLUMNS",
     "PHASE9_C3_TURNAROUND_COLUMNS",
+    "PHASE17_EXPLOSION_COLUMNS",
+    "PHASE17_REGIME_STATE_COLUMNS",
     "CRISIS_SECTOR_BENEFICIARIES",
     "CORE_FUNDAMENTAL_COLUMNS",
     "MACRO_PRICE_TICKERS",
@@ -2281,6 +2488,11 @@ __all__ = [
     "CNN_FEAR_GREED_HEADERS",
     "ROBUST_Z_WINSOR_P",
     "ROBUST_Z_CLIP",
+    "MANDATE_REGISTRY",
+    "PORTFOLIO_GOAL_TARGETS",
+    "mandate_capacity_for_regime",
+    "mandate_cadence",
+    "mandate_target_n",
     "MACRO_REGIME_COLUMNS",
     "MACRO_INTERACTION_COLUMNS",
     "DYNAMIC_LEADER_COLUMNS",

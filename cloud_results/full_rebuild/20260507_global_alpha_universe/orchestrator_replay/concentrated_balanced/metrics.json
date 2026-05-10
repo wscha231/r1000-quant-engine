@@ -1,0 +1,118 @@
+{
+  "capacity_map": {
+    "bear": {
+      "cash": 0.4,
+      "concentrated": 0.05,
+      "main": 0.55
+    },
+    "bull": {
+      "cash": 0.15,
+      "concentrated": 0.25,
+      "main": 0.6
+    },
+    "deep_bear": {
+      "cash": 0.6,
+      "concentrated": 0.0,
+      "main": 0.4
+    },
+    "neutral": {
+      "cash": 0.2,
+      "concentrated": 0.25,
+      "main": 0.55
+    },
+    "strong_bull": {
+      "cash": 0.15,
+      "concentrated": 0.3,
+      "main": 0.55
+    }
+  },
+  "concentrated_audit": {
+    "interval": 1,
+    "matched_rows": 83,
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_monthly.csv",
+    "rows": 5229,
+    "target_n": 5,
+    "weighting_mode": "score_power"
+  },
+  "data_mode": "historical_concentrated_monthly",
+  "experiment_id": "E4_concentrated_balanced_replay",
+  "interpretation": [
+    "Replay used historical concentrated monthly returns and can be used as a challenger input.",
+    "Production remains blocked until target gates and human approval pass."
+  ],
+  "main_audit": {
+    "months": 83,
+    "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/holdings_history.csv",
+    "rows": 2153
+  },
+  "metrics": {
+    "concentrated": {
+      "cagr": 0.4294519190249473,
+      "calmar": 2.6983705931316755,
+      "ending_equity": 11.83739305025944,
+      "max_dd": -0.1591523121835292,
+      "months": 83,
+      "sharpe": 1.7759945019280001,
+      "vol_ann": 0.21662490383210267
+    },
+    "main_proxy": {
+      "cagr": 0.3354840071670344,
+      "calmar": 2.413892595241564,
+      "ending_equity": 7.396068930537254,
+      "max_dd": -0.1389805030382728,
+      "months": 83,
+      "sharpe": 1.9133129914397542,
+      "vol_ann": 0.15951309061534558
+    },
+    "unified_balanced": {
+      "cagr": 0.2687481694283449,
+      "calmar": 2.423237314427105,
+      "ending_equity": 5.18816024460723,
+      "max_dd": -0.11090460180202433,
+      "months": 83,
+      "sharpe": 1.9742600999199165,
+      "vol_ann": 0.1256800375502385
+    }
+  },
+  "production_activation_allowed": false,
+  "status": "completed",
+  "target_status": [
+    {
+      "cagr": 0.3354840071670344,
+      "cagr_gap_pp": 0.0,
+      "cagr_pass": true,
+      "cagr_target": 0.25,
+      "max_dd": -0.1389805030382728,
+      "max_dd_improvement_needed_pp": 0.0,
+      "max_dd_pass": true,
+      "max_dd_target": -0.2,
+      "portfolio": "main_proxy",
+      "target_pass": true
+    },
+    {
+      "cagr": 0.4294519190249473,
+      "cagr_gap_pp": 0.0,
+      "cagr_pass": true,
+      "cagr_target": 0.4,
+      "max_dd": -0.1591523121835292,
+      "max_dd_improvement_needed_pp": 0.0,
+      "max_dd_pass": true,
+      "max_dd_target": -0.22,
+      "portfolio": "concentrated",
+      "target_pass": true
+    },
+    {
+      "cagr": 0.2687481694283449,
+      "cagr_gap_pp": 1.125183057165513,
+      "cagr_pass": false,
+      "cagr_target": 0.28,
+      "max_dd": -0.11090460180202433,
+      "max_dd_improvement_needed_pp": 0.0,
+      "max_dd_pass": true,
+      "max_dd_target": -0.22,
+      "portfolio": "unified_balanced",
+      "target_pass": false
+    }
+  ],
+  "valid_for_promotion": true
+}

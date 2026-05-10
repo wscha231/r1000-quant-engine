@@ -1,0 +1,2 @@
+artifact,status,reason
+turnover.csv,not_available,E2_main_v2_balanced is latest-snapshot Main v2 only; historical backtest not executed

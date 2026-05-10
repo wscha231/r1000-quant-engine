@@ -51,6 +51,3160 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-11
+
+### 05:29 KST - free-data-bootstrap-workflow
+
+- scope:
+  - Add the first executable free-data bootstrap path so GitHub Actions can restore Google Drive data, seed free datasets, run proxy replay hooks, and preserve manifests for future daily-decision backtests and learning.
+- files:
+  - `tools/run_free_data_lake_bootstrap.py` ->creates free-data manifests, optional SEC/macro/price bootstrap calls, coverage audit output, and proxy backtest readiness labels.
+  - `tools/run_free_data_engine_validation.py` ->summarizes free-data proxy replay CAGR, Sharpe, MaxDD, learning gates, and next actions.
+  - `.github/workflows/free_data_lake_bootstrap.yml` ->manual workflow that restores/syncs Drive-backed free data, runs the bootstrap, optionally runs broker-ledger proxy replays, and uploads artifacts.
+  - `.github/workflows/free_data_daily_update.yml` ->scheduled after-close workflow that skips stale/holiday windows, refreshes free data, reruns proxy broker replay, and emits engine validation metrics.
+  - `docs/FREE_BACKTEST_LEARNING_PLAN.md` ->lays out the free-data path from ingestion to PIT normalization, daily-decision replay, learning, and engine promotion.
+  - `tests/free_data_lake_bootstrap_smoke.py` ->covers dry-run bootstrap outputs without network downloads.
+  - `tests/free_data_engine_validation_smoke.py` ->covers validation metric reporting and learning-review gate output.
+  - `tests/workflow_artifact_smoke.py` ->adds static checks for the free-data workflow contract.
+  - `.gitignore` ->ignores bootstrap runtime outputs and generated free-data manifests that should live in Drive/artifacts unless intentionally promoted.
+  - `CHANGELOG.md` ->records the bootstrap workflow patch.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - `CommandResult` ->records helper command execution results.
+  - `repo_path(path_like)` ->normalizes repo-relative paths.
+  - `path_stats(path)` ->summarizes existence, file count, and size for data lake paths.
+  - `run_command(args, required)` ->runs helper scripts and records bounded stdout/stderr.
+  - `count_csv_rows(path)` ->counts CSV data rows for manifest diagnostics.
+  - `safe_int(value, default)` ->parses manifest counts for coverage gates.
+  - `latest_run_summary(latest_run)` ->summarizes existing scored/books/metrics inputs.
+  - `price_cache_data_file_count(cache_dir)` ->counts actual parquet price cache files without treating dry-run manifests as price data.
+  - `build_coverage_audit(args, actions, latest_summary)` ->creates the free-data PIT/proxy coverage audit.
+  - `build_manifest(args, actions, latest_summary, coverage)` ->creates the durable free-data manifest.
+  - `run(args)` ->orchestrates the bootstrap.
+  - `metric_row(label, portfolio, metrics)` ->normalizes CAGR, Sharpe, MaxDD, cash, and trade metrics for validation reports.
+  - `read_metric_pair(base, label)` ->loads main and concentrated broker replay metric pairs.
+  - `load_policy_queue(latest_run, limit)` ->extracts the top policy-fusion learning queue.
+  - `classify_validation(coverage, metrics)` ->gates whether data is ready for learning review.
+  - `next_actions(status, coverage)` ->maps validation status to the next operational step.
+  - `render_report(payload)` ->renders the human-readable free-data engine validation report.
+- symbols_changed:
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->unchanged behavior; new workflow coverage is added separately.
+- config_fields_added:
+  - `free_data_lake_bootstrap.workflow_dispatch.sec_companyfacts: boolean = false` ->controls optional SEC bulk download.
+  - `free_data_lake_bootstrap.workflow_dispatch.price_mode: choice = dry_run` ->controls price bootstrap download mode.
+  - `free_data_lake_bootstrap.workflow_dispatch.max_price_tickers: string = 80` ->bounds first free price bootstrap runs.
+  - `free_data_lake_bootstrap.workflow_dispatch.run_proxy_replay: boolean = true` ->runs broker-ledger proxy replay after price bootstrap when possible.
+  - `free_data_lake_bootstrap.workflow_dispatch.sync_to_gdrive: boolean = true` ->syncs free data/manifests/artifacts to Drive when auth is configured.
+  - `free_data_daily_update.schedule: cron = 30 23 * * 1-5` ->runs after the prior US close at 08:30 KST Tue-Sat and skips stale/holiday windows.
+  - `free_data_daily_update.workflow_dispatch.force_run: boolean = false` ->allows manual override of the market-close freshness gate.
+  - `free_data_daily_update.workflow_dispatch.max_price_tickers: string = 80` ->bounds daily free price refresh breadth.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/free_data_lake_bootstrap/summary.json` ->bootstrap manifest summary.
+  - `data_pit/free/coverage_audit.json` ->PIT/proxy coverage audit for free data.
+  - `manifests/free_data/latest_manifest.json` ->durable free-data snapshot manifest.
+  - `outputs/free_data_proxy_backtest/` ->optional broker-ledger proxy replay outputs from the workflow.
+  - `outputs/free_data_engine_validation/summary.json` ->machine-readable CAGR, Sharpe, MaxDD, learning gate, and next-action summary.
+  - `outputs/free_data_engine_validation/report.md` ->human-readable performance validation report.
+- validation:
+  - `py -3 -m py_compile tools\run_free_data_lake_bootstrap.py tools\run_free_data_engine_validation.py` ->passed.
+  - `py -3 tests\free_data_lake_bootstrap_smoke.py` ->passed.
+  - `py -3 tests\free_data_engine_validation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml']]; print('yaml ok')"` ->passed.
+  - `py -3 tools\run_free_data_engine_validation.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_free_validation_check` ->passed with `validation_status=missing_coverage`, which is expected until the first free-data bootstrap creates `data_pit/free/coverage_audit.json`.
+  - `py -3 tools\run_free_data_lake_bootstrap.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --price-mode target_books --max-price-tickers 80 --pit-label pit_proxy_universe` ->passed locally, created 80 price cache files, and correctly kept readiness at `manifest_only` because required target-book coverage is 80/386.
+  - `py -3 tools\run_free_data_engine_validation.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --proxy-backtest-dir outputs\free_data_proxy_backtest --coverage data_pit\free\coverage_audit.json --output-dir outputs\free_data_engine_validation` ->passed with `validation_status=data_not_ready` after the partial-cache gate fix.
+- risks_or_notes:
+  - Default workflow avoids the 1GB+ SEC bulk download and full price download; increase inputs deliberately after the Drive smoke path is confirmed.
+  - Partial price caches are now treated as `manifest_only` until all required target-book tickers are present; this prevents incomplete-data replays from being promoted as engine evidence.
+
+### 05:20 KST - free-data-lake-design
+
+- scope:
+  - Document the free-first PIT data lake design and make portable readiness aware of the future Google Drive-backed free data paths.
+- files:
+  - `docs/FREE_DATA_LAKE_PLAN.md` ->documents how free SEC, price, macro, and proxy-universe data should live in Drive while GitHub Actions consumes it through rclone authentication.
+  - `docs/PORTABLE_DATA_STRATEGY.md` ->links the portable storage strategy to the free-first data lake contract.
+  - `tools/check_portable_data_readiness.py` ->adds optional readiness checks for free raw data, normalized PIT data, manifests, and coverage audits.
+  - `.gitignore` ->keeps future large `data_raw/`, `data_pit/`, and `cache_prices/` payloads out of Git.
+  - `CHANGELOG.md` ->records the free data lake design patch.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `SPECS` ->adds optional free data lake path expectations without changing minimum readiness status.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portable_data_readiness.json` ->future readiness runs include optional free data lake path checks.
+- validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py` ->passed.
+  - `py -3 tools\check_portable_data_readiness.py --no-write` ->passed with `status=ready_minimum`, `missing_required_count=0`, and optional gaps for the future free data lake paths.
+- risks_or_notes:
+  - Free data can support serious research, but Russell 1000 historical membership and delisted coverage remain proxy/survivorship-risk until paid or official historical constituent data is added.
+
+### 04:58 KST - portable-data-readiness
+
+- scope:
+  - Add a portable data strategy and local readiness audit so the system can be restored on a different computer without confusing durable data, run artifacts, and disposable caches.
+- files:
+  - `docs/PORTABLE_DATA_STRATEGY.md` ->documents what belongs in GitHub, Google Drive/object storage, local caches, and run outputs.
+  - `tools/check_portable_data_readiness.py` ->audits required/optional portable paths and emits a JSON manifest.
+  - `CHANGELOG.md` ->records the portability support.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - `PathSpec` ->declares portable data path expectations.
+  - `audit_path(spec)` ->summarizes existence, size, file count, and portability status.
+  - `build_payload(root)` ->builds the portable readiness manifest.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portable_data_readiness.json` ->machine-readable readiness manifest.
+- validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py` ->passed.
+  - `py -3 tools\check_portable_data_readiness.py` ->passed with `status=ready_minimum`, `missing_required_count=0`, and optional gaps for `data_raw`, `data_pit`, `cache_prices`, SEC bulk archive, and local Drive manifests.
+- risks_or_notes:
+  - This does not upload large PIT datasets by itself; it makes restore requirements explicit and checkable.
+
+### 04:19 KST - operating-cash-policy-review
+
+- scope:
+  - Clarify high cash readings in the operating snapshot and prevent recovery-regime cash targets from being treated as blind reserve-cash instructions.
+- files:
+  - `tools/run_operating_snapshot.py` ->loads latest macro policy state, labels combined cash policy fields, and emits `CASH_POLICY_REVIEW` when target cash is materially above the macro floor without confirmed cash-raise evidence.
+  - `tests/operating_snapshot_smoke.py` ->covers the new cash policy review fields.
+  - `CHANGELOG.md` ->records the cash-policy review fix.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with cash-policy review semantics.
+- symbols_added:
+  - `load_macro_policy_latest(latest_run)` ->loads `macro_policy_engine/summary.json` latest policy metadata.
+  - `truthy(value)` ->normalizes bool-like policy fields.
+  - `cash_policy_review_decision(current_cash_weight, target_cash_weight, macro_policy)` ->decides whether cash should be held, reserved, deployed, or manually reviewed.
+- symbols_changed:
+  - `write_current_portfolio_snapshot(...)` ->adds combined cash policy context and avoids comparing a combined cash target against each portfolio's isolated cash row as if it were a per-portfolio target.
+  - `build_snapshot(args)` ->uses macro policy risk state when available instead of only the orchestrator regime label.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_portfolio_snapshot_latest.csv` ->adds combined cash policy fields and `cash_policy_flag`.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_summary.json` ->adds combined current/target cash weights and cash-policy review action.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py` ->passed.
+  - `py -3 tests\operating_snapshot_smoke.py` ->passed.
+  - `py -3 tools\run_operating_snapshot.py --latest-run %TEMP%\r1000_full_25623429543\full-rebuild-global_alpha_universe-25623429543 --output-dir %TEMP%\r1000_cash_policy_check` ->passed and labeled the latest 27.6% combined cash target as `CASH_POLICY_REVIEW` because macro recovery recommended floor was 5% with no confirmed cash-raise evidence.
+- risks_or_notes:
+  - This is an operator-snapshot fix; it does not yet change the underlying target books or execute a lower-cash historical replay.
+
+### 00:55 KST - operating-current-portfolio-snapshot
+
+- scope:
+  - Add an operator-facing current holdings snapshot so agents and users do not confuse target recommendation books with the live-like broker-ledger portfolio state.
+- files:
+  - `tools/run_operating_snapshot.py` ->emits current portfolio snapshots from broker replay positions, open lots, order previews, targets, and monster recommendations.
+  - `tests/operating_snapshot_smoke.py` ->covers current holdings snapshot output with entry dates and cash rows.
+  - `CHANGELOG.md` ->records the operating snapshot change.
+  - `SESSION_HANDOFF.md` ->updates the active handoff so future agents know the current snapshot semantics and next action.
+- symbols_added:
+  - `aggregate_orders_by_portfolio(latest_run)` ->summarizes preview order actions per portfolio and ticker.
+  - `load_portfolio_targets(latest_run)` ->loads per-portfolio target weights from account preview target files.
+  - `load_open_lot_summary(latest_run)` ->summarizes broker trade journal open lots by portfolio and ticker.
+  - `load_broker_cash(latest_run)` ->loads latest broker replay cash and equity rows by portfolio.
+  - `holding_days(as_of_date, first_entry_date)` ->calculates open holding age for the current snapshot.
+  - `operating_review_decision(preview_action, monster_recommendation, monster_stage)` ->separates raw order preview actions from monster-aware operating review actions.
+  - `write_current_portfolio_snapshot(latest_run, output_dir, target_map, monster_map, approval, account_source, macro_state)` ->writes the current broker-ledger portfolio snapshot CSV, JSON, and report.
+  - `render_current_snapshot_report(payload)` ->renders the current snapshot report.
+- symbols_changed:
+  - `build_snapshot(args)` ->now writes the current portfolio snapshot alongside the existing operating snapshot and exposes paths in the summary JSON.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_portfolio_snapshot_latest.csv` ->current broker-ledger holdings by portfolio with entry, price, value, weight, PnL, target, and review action fields.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_summary.json` ->summary of the current holdings snapshot.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_report.md` ->human-readable explanation of target-vs-current semantics.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py` ->passed.
+  - `py -3 tests\operating_snapshot_smoke.py` ->passed.
+  - `py -3 tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check` ->passed and produced a 23-row current portfolio snapshot dated 2026-05-08.
+- risks_or_notes:
+  - This does not yet create true daily scored selection; it exposes the daily mark-to-market operating state from the current broker-ledger replay.
+
+## 2026-05-10
+
+### 16:49 KST - macro-policy-latest-scored-snapshot
+
+- scope:
+  - Keep the macro policy sidecar current when monthly regime books stop before the latest scored/broker-ledger snapshot.
+- files:
+  - `tools/run_macro_policy_engine.py` ->appends a latest `scored_latest.csv` snapshot row when it is newer than `reports/regime_by_month.csv`, including style, regime, cash-target, and snapshot-source metadata.
+  - `tests/macro_policy_engine_smoke.py` ->covers the newest scored snapshot becoming the macro policy summary latest row.
+  - `CHANGELOG.md` ->records the macro freshness fix.
+  - `SESSION_HANDOFF.md` ->updates the active handoff for future agents.
+- symbols_added:
+  - `_mode_text(frame, column, default)` ->returns a stable modal text value from a frame column.
+  - `_latest_unified_cash_target(latest_run)` ->reads the current unified target cash weight for the latest macro snapshot row.
+  - `_latest_target_next_rebalance(latest_run)` ->reads the next scheduled portfolio date when available.
+  - `_append_latest_scored_snapshot(regime, latest_run)` ->adds a current scored snapshot row after historical monthly regime rows.
+- symbols_changed:
+  - `run(latest_run, output_dir)` ->uses `scored_latest.csv` to prevent macro policy outputs from ending at stale monthly books when a fresher scored snapshot exists.
+  - `_summary(rows, diagnostics, regime_path)` ->reports `macro_snapshot_source` for the latest macro policy row.
+  - `render_report(summary, diagnostics)` ->prints the latest macro snapshot source.
+  - `main()` ->unchanged behavior apart from fresher summary/output data emitted by `run`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/macro_policy_engine/macro_policy_by_month.csv` ->now includes an additional `scored_latest` row when latest scored data is newer than monthly regime books.
+  - `outputs/macro_policy_engine/summary.json` ->latest row can now report `rebalance_date` equal to the latest scored snapshot and includes `macro_snapshot_source`.
+  - `outputs/macro_policy_engine/report.md` ->prints the snapshot source for freshness auditing.
+- validation:
+  - `py -3 -m py_compile tools\run_macro_policy_engine.py` passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` passed.
+  - `py -3 tools\run_macro_policy_engine.py --latest-run cloud_results\full_rebuild\20260510_global_alpha_universe --output-dir %TEMP%\r1000_macro_policy_check` passed and produced latest `rebalance_date=2026-05-08`, `macro_snapshot_source=scored_latest`.
+- risks_or_notes:
+  - The macro sidecar remains research-only and still requires a production-compatible challenger replay before it can mutate portfolio construction.
+  - The appended latest row uses scored snapshot/style/regime evidence and unified target cash; it does not invent missing monthly drawdown or full monthly return fields.
+
+### 12:12 KST - simulated-account-monster-overlay
+
+- scope:
+  - Treat broker-ledger replay as the intended simulated account mode and attach monster lifecycle evidence to main/concentrated recommendation overlays.
+- files:
+  - `tools/run_live_trading_risk_controls.py` ->adds `--account-mode simulated|live` and records simulated broker-ledger accounts as an intentional non-live mode instead of a missing broker warning.
+  - `tools/run_operating_snapshot.py` ->accepts simulated account mode as `simulation_ready_preview_only` and merges monster recommendation fields into the canonical operating snapshot.
+  - `tools/run_monster_recommendation_bridge.py` ->adds a recommendation-only bridge that annotates main/concentrated targets with missed-winner, stale-winner, rotation, and monster lifecycle evidence.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs risk controls in simulated mode, generates monster recommendations after lifecycle sidecars, then writes the final operating snapshot.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs simulated risk controls and the monster recommendation bridge before the operating snapshot.
+  - `tools/sync_cloud_to_drive.py` ->syncs `monster_recommendations/` into the local Drive mirror.
+  - `tests/live_trading_risk_controls_smoke.py` ->expects simulated account mode to pass with an informational issue.
+  - `tests/operating_snapshot_smoke.py` ->expects simulated account mode to produce a simulation-ready snapshot.
+  - `tests/monster_recommendation_bridge_smoke.py` ->covers main/concentrated monster recommendation attachment.
+  - `tests/workflow_artifact_smoke.py` ->requires simulated mode, monster recommendation workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the simulated account and monster overlay patch.
+  - `SESSION_HANDOFF.md` ->updates the active handoff for the intended simulated account mode.
+- symbols_added:
+  - `read_json(path)` ->loads optional JSON payloads for the monster recommendation bridge.
+  - `read_csv(path)` ->loads optional CSV payloads for the monster recommendation bridge.
+  - `write_json(path, payload)` ->writes monster recommendation summary metadata.
+  - `normalize_ticker(value)` ->normalizes ticker keys across target and sidecar sources.
+  - `clean_float(value)` ->coerces finite numeric bridge scores.
+  - `latest_rows(frame, date_col)` ->keeps the latest monster lifecycle holding rows.
+  - `load_target(latest_run, portfolio)` ->loads main or concentrated current target rows.
+  - `load_scored(latest_run)` ->loads latest scored metadata for recommendation scoring.
+  - `load_lifecycle_maps(latest_run)` ->loads missed, stale, and rotation lifecycle reports.
+  - `load_monster_holdings(latest_run, portfolio)` ->loads latest monster lifecycle replay holdings for a portfolio.
+  - `score_lookup(scored, ticker, *cols)` ->extracts supplemental scored signal strength.
+  - `build_recommendations_for_portfolio(...)` ->creates main or concentrated monster recommendation rows.
+  - `render_report(payload)` ->renders monster recommendation bridge markdown.
+  - `run(args)` ->writes monster recommendation CSV/JSON/report outputs.
+  - `parse_args()` ->parses monster recommendation bridge CLI arguments.
+  - `main()` ->runs the monster recommendation bridge CLI.
+  - `load_monster_recommendations(latest_run)` ->loads unified monster recommendations for operating snapshot annotation.
+  - `test_monster_recommendations_attach_to_main_and_concentrated()` ->regresses bridge attachment behavior.
+- symbols_changed:
+  - `run(args)` ->adds account-mode semantics to live trading risk controls.
+  - `render_report(payload)` ->prints account mode in risk-control reports.
+  - `approval_status(risk, safety, issues)` ->treats simulated broker-ledger mode as an accepted preview/simulation state.
+  - `build_snapshot(args)` ->adds monster recommendation columns and simulation status to operating snapshots.
+- config_fields_added:
+  - `--account-mode: choice = simulated` ->selects simulated broker-ledger account mode or live broker reconciliation mode.
+  - `--max-candidates: int = 12` ->limits non-held monster recommendation candidates per portfolio.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/monster_recommendations/main_recommendations.csv` ->main target and candidate rows annotated with monster recommendation evidence.
+  - `outputs/monster_recommendations/concentrated_recommendations.csv` ->concentrated target and candidate rows annotated with monster recommendation evidence.
+  - `outputs/monster_recommendations/unified_recommendations.csv` ->combined main/concentrated monster recommendation overlay.
+  - `outputs/monster_recommendations/monster_recommendation_summary.json` ->bridge summary and output paths.
+  - `outputs/monster_recommendations/monster_recommendation_report.md` ->human-readable bridge summary.
+  - `outputs/operating_snapshot/operating_snapshot_latest.csv` ->now includes monster recommendation, stage, priority score, and reason columns when available.
+- validation:
+  - `py -3 -m py_compile tools\run_live_trading_risk_controls.py tools\run_operating_snapshot.py tools\run_monster_recommendation_bridge.py` passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` passed.
+  - `py -3 tests\operating_snapshot_smoke.py` passed.
+  - `py -3 tests\monster_recommendation_bridge_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tests\account_order_preview_smoke.py` passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` passed.
+- risks_or_notes:
+  - The running full rebuild `25617706497` started from commit `8b3baaf` and will not include this patch; trigger a new full rebuild after this commit lands to get simulated-mode monster overlays.
+  - Monster recommendations remain recommendation-only and do not mutate main/concentrated portfolio construction.
+
+### 11:25 KST - operating-snapshot-live-gate
+
+- scope:
+  - Add a canonical operating snapshot layer and make cloud workflows mark live risk controls blocked when no real broker snapshot is reconciled.
+- files:
+  - `tools/run_operating_snapshot.py` ->adds the operator-facing snapshot builder that merges account previews, unified orchestrator targets, safety status, and risk-control status.
+  - `tools/run_account_order_preview.py` ->labels account preview semantics, account source kind, and target source kind so target files are not mistaken for live holdings.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs strict live risk controls, emits operating snapshot artifacts, and syncs them to artifacts, bundles, cloud_results, and Google Drive.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs strict live risk controls and operating snapshot generation for replay sidecars.
+  - `tools/sync_cloud_to_drive.py` ->syncs `operating_snapshot/` from cloud results into the local Drive mirror.
+  - `tests/operating_snapshot_smoke.py` ->adds a regression fixture for missing broker snapshot blocking and unified target cash usage.
+  - `tests/workflow_artifact_smoke.py` ->requires the new workflow command, artifact folder, log, and strict-live flags.
+  - `CHANGELOG.md` ->records the operating snapshot/live gate patch.
+  - `SESSION_HANDOFF.md` ->updates agent handoff guidance for the new canonical operating snapshot.
+- symbols_added:
+  - `read_json(path)` ->loads optional JSON artifacts for the operating snapshot builder.
+  - `read_csv(path)` ->loads optional CSV artifacts for the operating snapshot builder.
+  - `write_json(path, payload)` ->writes deterministic JSON snapshot metadata.
+  - `normalize_ticker(value)` ->normalizes ticker keys for snapshot joins.
+  - `clean_float(value)` ->coerces finite numeric values for snapshot math.
+  - `latest_non_empty(values)` ->selects the latest non-empty as-of date string.
+  - `detect_account_source(preview_metrics)` ->labels replay-derived account state versus supplied account state.
+  - `load_unified_target(latest_run)` ->loads `orchestrator/unified_target_latest` CSV/JSON as the preferred target source.
+  - `load_preview_metrics(latest_run)` ->loads per-sleeve account preview metrics.
+  - `load_current_positions(latest_run, preview_metrics)` ->combines per-sleeve current position previews and cash/equity totals.
+  - `fallback_preview_target(latest_run, preview_metrics, total_equity)` ->derives a fallback target from preview weights when the unified target is missing.
+  - `aggregate_current(current, total_equity)` ->aggregates current holdings across preview sleeves.
+  - `aggregate_target(target)` ->aggregates unified target weights by ticker.
+  - `aggregate_orders(latest_run)` ->summarizes preview orders by ticker for the snapshot.
+  - `load_control_status(latest_run)` ->loads live risk and safety audit statuses.
+  - `approval_status(risk, safety, issues)` ->derives the snapshot-level approval state.
+  - `build_snapshot(args)` ->writes `operating_snapshot_latest.csv/json/report.md`.
+  - `render_report(payload)` ->renders a concise operator-facing markdown report.
+  - `parse_args()` ->parses operating snapshot CLI arguments.
+  - `main()` ->runs the operating snapshot CLI.
+  - `test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_target()` ->covers broker-snapshot blocking and unified cash target handling.
+- symbols_changed:
+  - `render_report(payload)` ->prints preview semantics and source labels in account order previews.
+  - `run(args)` ->adds `preview_semantics`, `account_source_kind`, and `target_source_kind` to account preview metrics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Cloud full/replay workflows now run `run_live_trading_risk_controls.py` with `--strict-live --strict`; without a real broker snapshot the risk-control artifact is expected to be `blocked`, while the workflow continues to publish diagnostics because the step remains preview-sidecar only.
+- outputs:
+  - `outputs/operating_snapshot/operating_snapshot_latest.csv` ->canonical operator snapshot with current, target, delta, suggested action, source, and block reason fields.
+  - `outputs/operating_snapshot/operating_snapshot_latest.json` ->snapshot summary, approval status, account source, cash weights, and inherited safety/risk issues.
+  - `outputs/operating_snapshot/operating_snapshot_report.md` ->human-readable snapshot summary.
+  - `outputs/full_rebuild_logs/operating_snapshot.log` ->operating snapshot CLI log.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py` passed.
+  - `py -3 tests\operating_snapshot_smoke.py` passed.
+  - `py -3 tests\account_order_preview_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` passed.
+  - `py -3 tests\account_evaluation_smoke.py` passed.
+- risks_or_notes:
+  - The new operating snapshot is still preview-only until a real broker snapshot directory is supplied and reconciled.
+  - Existing per-sleeve order previews remain available, but `operating_snapshot_latest.csv` is the canonical operator-facing file.
+
+## 2026-05-09
+
+### 06:58 KST - latest-weekly-eval-contamination-guard
+
+- scope:
+  - Extend stale weekly mark-to-market evaluation to the latest cached price date and block contaminated concentrated validation metrics before goal search or policy fusion can use them.
+- files:
+  - `tools/run_weekly_evaluation.py` ->extends the final monthly holding period to the latest cached price date, filters concentrated champion holdings, and reports unified target cash alongside raw portfolio cash.
+  - `tools/run_position_risk_weekly_validation.py` ->filters concentrated champion holdings and blocks validation when monthly weight books exceed reasonable portfolio exposure.
+  - `tools/run_portfolio_goal_search.py` ->adds metric sanity gates and separates research/proxy target pass from production-ready target pass.
+  - `tools/run_alphaops_policy_fusion.py` ->blocks invalid metric payloads and falls back from invalid weekly validation candidates to usable monthly proxy evidence.
+  - `tests/weekly_evaluation_smoke.py` ->expects final stale-holding extension and updated freshness behavior.
+  - `tests/position_risk_weekly_validation_smoke.py` ->adds a contaminated concentrated grid regression test.
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->refreshes candidate rankings with metric validity and production target-pass fields.
+  - `outputs/portfolio_goal_search/main_candidate_ranking.csv` ->refreshes main candidate ranking columns.
+  - `outputs/portfolio_goal_search/concentrated_candidate_ranking.csv` ->refreshes concentrated candidate ranking columns and blocks invalid weekly validation.
+  - `outputs/portfolio_goal_search/goal_search_report.md` ->refreshes the human-readable goal-search report.
+  - `CHANGELOG.md` ->records the weekly freshness and validation contamination fix.
+- symbols_added:
+  - `_read_json(path)` ->loads optional JSON payloads without failing the weekly freshness audit.
+  - `filter_concentrated_champion(frame)` ->keeps only the production concentrated champion grid before replaying holdings.
+  - `latest_price_date(prices, tickers)` ->finds the latest available cached price date for final-period weekly evaluation extension.
+  - `weight_book_diagnostics(holdings)` ->summarizes monthly weight sums and invalid exposure periods before daily/weekly validation.
+  - `invalid_metric_reason(cagr, max_dd, sharpe, metrics)` ->rejects non-finite or implausible goal-search metrics.
+  - `candidate_is_usable(row)` ->detects policy-fusion candidates that remain usable after metric validation.
+- symbols_changed:
+  - `normalize_holdings(frame, portfolio_kind)` ->filters concentrated champion rows before weekly evaluation and position-risk validation.
+  - `build_weekly_curve(holdings, next_dates, price_cache, portfolio_kind, benchmark_tickers)` ->extends the final period to the newest cached price date when prices are fresher than the monthly period map.
+  - `weekly_metrics(curve, portfolio_kind)` ->reports stock weight diagnostics and stale-final-holdings extension metadata.
+  - `build_freshness(latest_run, curves, metrics, stale_days_threshold)` ->reports raw portfolio cash and unified target cash/invested capacity in the freshness audit.
+  - `replay(args)` ->blocks contaminated validation books instead of emitting absurd CAGR/Sharpe metrics.
+  - `normalize_candidate(...)` ->sets `metrics_valid`, `invalid_reason`, and blocked governance actions for invalid metric payloads.
+  - `run(args)` ->emits `production_target_pass` separately from proxy/research target pass.
+  - `score_policy(row)` ->blocks invalid policy-fusion metrics before activation scoring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->goal-search payload with invalid metric blocking and `production_target_pass`.
+  - `outputs/portfolio_goal_search/main_candidate_ranking.csv` ->main candidate ranking with `metrics_valid` and `invalid_reason`.
+  - `outputs/portfolio_goal_search/concentrated_candidate_ranking.csv` ->concentrated candidate ranking with invalid weekly validation blocked.
+  - `outputs/portfolio_goal_search/goal_search_report.md` ->updated goal-search summary.
+- validation:
+  - `python -m py_compile tools/run_weekly_evaluation.py tools/run_position_risk_weekly_validation.py tools/run_portfolio_goal_search.py tools/run_alphaops_policy_fusion.py` ->passed.
+  - `python tests/weekly_evaluation_smoke.py` ->passed.
+  - `python tests/position_risk_weekly_validation_smoke.py` ->passed.
+  - `python tests/portfolio_goal_search_smoke.py` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - The weekly extension is still mark-to-market on monthly holding books; it is not true weekly scoring or rebalancing.
+  - Local cache prices were not present in the workspace, so the full GitHub Actions rebuild must recompute the latest May 2026 curves in CI.
+  - Proxy candidates can pass research targets while `production_target_pass` remains false until production-ready gates pass.
+
+### 11:14 KST - broker-ledger-replay-foundation
+
+- scope:
+  - Add a production-style broker ledger replay sidecar that converts target weights into realistic account cash, integer-share trades, holdings, and equity curves using adjusted next-close fills.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->adds the internal broker-style replay engine for main and concentrated target books.
+  - `tests/broker_ledger_replay_smoke.py` ->verifies integer-share cash tracking and contaminated weight-book blocking on synthetic price data.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs broker ledger replays after monthly and weekly validation and archives/syncs `outputs/broker_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->checks broker replay workflow commands, logs, artifact retention, and sync coverage.
+  - `research/alphaops_20260509_broker_ledger_replay_design.md` ->documents the broker ledger replay design, timing assumptions, conflict priorities, and promotion role.
+  - `CHANGELOG.md` ->records the broker ledger replay foundation.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes CLI paths relative to the repo root.
+  - `safe_float(value, default)` ->coerces optional numeric values without propagating non-finite values.
+  - `read_csv(path)` ->loads optional CSV inputs without raising on missing files.
+  - `filter_concentrated_champion(frame, portfolio_kind)` ->keeps only the production concentrated champion grid before replay.
+  - `normalize_targets(frame, portfolio_kind)` ->normalizes target books into rebalance-date, ticker, and weight rows.
+  - `weight_book_diagnostics(targets, max_reasonable_weight_sum)` ->blocks contaminated books with unreasonable gross exposure.
+  - `target_period_ends(targets, price_cache)` ->maps each rebalance target to the next rebalance date or latest cached price date.
+  - `mark_dates_for_period(tickers, prices, start_dt, end_dt)` ->builds daily mark-to-market dates for active holdings.
+  - `price_at_or_before(prices, ticker, date)` ->reads the latest observable adjusted close before a mark date.
+  - `fill_price(prices, ticker, signal_date, fill_mode, max_fill_lag_days)` ->implements next-close, next-open, and same-close fill lookup with sparse-history backdating protection.
+  - `LedgerState(cash, shares, cost_basis, realized_pnl)` ->stores mutable account cash, shares, basis, and realized PnL.
+  - `account_equity(state, prices, date)` ->marks broker account equity to market.
+  - `execute_order(...)` ->fills integer-share buy/sell orders with per-side fee costs and no negative cash.
+  - `calc_metrics(equity_curve, trades, starting_capital)` ->computes CAGR, Sharpe, MaxDD, cash, fee, and trade-count metrics from account equity.
+  - `replay(...)` ->runs the full broker ledger replay and writes account-level artifacts.
+  - `render_report(metrics)` ->writes a human-readable broker replay summary.
+  - `parse_args()` ->parses CLI arguments for the replay tool.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/broker_replay/` in full-rebuild artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects broker replay commands and logs in the full-rebuild workflow.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_replay/main/metrics.json` ->main broker-ledger metrics from account equity.
+  - `outputs/broker_replay/main/equity_curve.csv` ->daily account equity, cash, stock value, and position count.
+  - `outputs/broker_replay/main/trades.csv` ->filled integer-share orders with fees and cash deltas.
+  - `outputs/broker_replay/main/holdings_daily.csv` ->daily share, price, value, weight, basis, and unrealized PnL rows.
+  - `outputs/broker_replay/main/holdings_weekly.csv` ->weekly sampled holdings from the daily ledger.
+  - `outputs/broker_replay/main/cash_ledger.csv` ->rebalance-date cash and equity snapshots.
+  - `outputs/broker_replay/main/target_vs_actual_weights.csv` ->target weight versus realized integer-share weight diagnostics.
+  - `outputs/broker_replay/concentrated/*` ->equivalent concentrated champion replay artifacts.
+- validation:
+  - `python -m py_compile tools/run_broker_ledger_replay.py` ->passed.
+  - `python tests/broker_ledger_replay_smoke.py` ->passed.
+  - `python tests/workflow_artifact_smoke.py` ->passed.
+  - `python tests/smoke_test.py` ->passed, 89/89.
+  - `python tests/smoke_test.py --quick` ->passed, 18/18.
+  - `PYTHONUTF8=1 python tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is an evaluation sidecar only; it does not change alpha selection or production portfolio construction.
+  - Default production-style metrics use adjusted next-close fills after signal date, integer shares, 25 bps per side, no leverage, no negative cash, and a 7-calendar-day maximum fill lag.
+  - Same-close and fractional-share modes remain research-only even though the CLI supports them.
+
+### 11:33 KST - theme-leadership-tape-sidecar
+
+- scope:
+  - Add a daily market leadership tape that detects short-term theme and sector crowding from adjusted close returns, volume, dollar volume, ETF attention proxies, ETF look-through seeds, and scored metadata so bubble/climax leadership is visible before monthly rebuild decisions.
+- files:
+  - `tools/run_theme_leadership_tape.py` ->adds the report-only theme/sector/ticker leadership scanner using cached adjusted prices, ETF attention proxies, ETF look-through seeds, and latest scored metadata.
+  - `tests/theme_leadership_tape_smoke.py` ->verifies that a synthetic memory semiconductor surge is ranked as the top theme and that DRAM look-through seeds surface without changing production selection.
+  - `.github/workflows/after_close_daily.yml` ->runs the theme leadership tape after ETF leadership and archives/commits `cloud_results/theme_leadership_tape/`.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the tape as a full-rebuild sidecar and syncs `outputs/theme_leadership_tape/`.
+  - `tools/etf_leadership_snapshot.py` ->adds `DRAM`, `SMH`, and `XSD` to the ETF leadership watchlist and allows young ETFs with at least 22 trading days.
+  - `tests/workflow_artifact_smoke.py` ->checks full-rebuild command, log, artifact, and sync coverage for the tape.
+  - `tests/smoke_test.py` ->checks the after-close daily workflow includes the tape.
+  - `CHANGELOG.md` ->records the leadership tape sidecar.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes CLI paths relative to the repo root.
+  - `safe_float(value, default)` ->coerces optional numeric values without propagating non-finite values.
+  - `robust_z(values)` ->computes robust cross-sectional z-scores for return, volume, and liquidity ranks.
+  - `load_price_cache(price_cache, ticker)` ->loads adjusted close, raw close, volume, and dollar volume from cached parquet prices.
+  - `trailing_return(close, days)` ->computes observable trailing returns through the latest cached close.
+  - `price_metrics(price_cache, ticker)` ->extracts 1d/5d/21d/63d/126d returns, volume z-score, dollar volume, and 252d high distance.
+  - `fetch_yfinance_history(ticker, days)` ->loads optional ETF history when an ETF is not present in the local price cache.
+  - `etf_price_frame(price_cache, ticker)` ->prefers cached ETF prices and falls back to yfinance for report-only ETF attention.
+  - `etf_attention(price_cache)` ->ranks theme and sector ETFs by return, volume, and dollar-volume attention proxies.
+  - `build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)` ->maps high-attention ETFs to seed constituents and joins ticker-level leadership evidence.
+  - `infer_theme(row)` ->maps tickers and metadata to report-only leadership themes such as memory semiconductors, nuclear power, power grid, and optical networking.
+  - `read_scored(path)` ->loads scored metadata without failing on missing files.
+  - `build_ticker_tape(scored, price_cache, min_mcap, min_dollar_vol)` ->builds ticker-level leadership, climax, and early-leader scores.
+  - `aggregate_leadership(tape, group_col)` ->aggregates ticker tape into theme or sector leadership rows.
+  - `classify_group(liquid, top)` ->labels groups as `climax_hot`, `emerging_leader`, `lagging`, or `neutral`.
+  - `render_report(summary, themes, sectors, tickers)` ->writes the human-readable leadership tape report.
+  - `write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, summary)` ->writes CSV, JSON, and Markdown artifacts.
+  - `run(scored_path, price_cache, out_dir, min_mcap, min_dollar_vol)` ->executes the leadership tape.
+  - `parse_args()` ->parses CLI arguments for the sidecar.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `compute_etf_metrics(ticker, label)` ->allows young theme ETFs to contribute 1-month leadership before they have 3-6 months of history.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/theme_leadership_tape/` in full-rebuild artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects theme leadership tape command and log export.
+  - `test_paper_executor_workflow()` ->expects the after-close daily workflow to run the leadership tape.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/theme_leadership_tape/ticker_leadership.csv` ->ticker-level 1d/5d/21d/63d/126d returns, liquidity, climax, and leadership scores.
+  - `outputs/theme_leadership_tape/theme_leadership.csv` ->theme-level leadership, breadth, volume, and top ticker summary.
+  - `outputs/theme_leadership_tape/sector_leadership.csv` ->sector-level equivalent leadership tape.
+  - `outputs/theme_leadership_tape/etf_attention.csv` ->ETF-level attention proxy scores from return, volume, and dollar-volume behavior.
+  - `outputs/theme_leadership_tape/etf_lookthrough_watchlist.csv` ->ETF constituent seed list joined to ticker leadership evidence.
+  - `outputs/theme_leadership_tape/summary.json` ->machine-readable freshness, top theme, and top ETF attention summary.
+  - `outputs/theme_leadership_tape/report.md` ->human-readable report.
+  - `cloud_results/theme_leadership_tape/` ->after-close daily output mirror.
+- validation:
+  - `python -m py_compile tools/run_theme_leadership_tape.py tools/etf_leadership_snapshot.py tools/run_broker_ledger_replay.py` ->passed.
+  - `python tests/theme_leadership_tape_smoke.py` ->passed.
+  - `python tests/broker_ledger_replay_smoke.py` ->passed.
+  - `python tests/workflow_artifact_smoke.py` ->passed.
+  - `python tests/smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is a report-only sidecar; it surfaces market leadership concentration but does not auto-buy a ticker or alter production weights.
+  - ETF attention is a proxy from ETF price/volume/dollar-volume behavior; it is not yet a verified primary-source fund-flow feed.
+  - The theme taxonomy and ETF look-through seeds are used for labeling and candidate discovery only, not as hardcoded buy lists.
+  - `climax_hot` should feed tactical research and tight exit rules; it should not be treated as a long-term compounder signal without a replay gate.
+
+### 11:46 KST - theme-concentration-top3-challenger
+
+- scope:
+  - Add a research-only historical challenger that picks the strongest point-in-time theme each month and concentrates into at most three liquid leaders without using forward labels for selection.
+- files:
+  - `tools/run_theme_concentration_challenger.py` ->adds the top-three theme concentration replay using current momentum, relative strength, liquidity, setup, monster-early, and risk scores from the candidate replay book.
+  - `tests/theme_concentration_challenger_smoke.py` ->verifies synthetic memory-semiconductor selection and blocks a high-future-return non-leader from leaking into selection.
+  - `r1000_pipeline.py` ->adds observable `mom_*` and relative-strength columns to `reports/candidate_replay_book.csv` so historical challengers do not need forward `r_*` labels for selection.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the challenger after the theme leadership tape and archives/syncs `outputs/theme_concentration_challenger/`.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow command, log, artifact, sync, and candidate replay book current-momentum coverage.
+  - `CHANGELOG.md` ->records the top-three concentration challenger.
+- symbols_added:
+  - `first_numeric(frame, cols, default)` ->coalesces observable current momentum/relative-strength fields without falling back to forward labels.
+  - `robust_z(frame, col)` ->computes robust cross-sectional z-scores for theme and member ranks.
+  - `numeric(frame, col, default)` ->coerces optional numeric fields.
+  - `add_theme_and_scores(month)` ->adds inferred theme labels and leakage-safe member scores for one rebalance month.
+  - `liquidity_filter(frame, min_mcap, min_dollar_vol, min_price)` ->keeps only large, liquid, tradeable candidates.
+  - `rank_themes(month, min_theme_members, allow_single_name_theme)` ->ranks themes by top-member score, observable momentum breadth, and liquidity attention.
+  - `render_report(metrics)` ->writes the human-readable challenger report.
+  - `replay(candidate_book, output_dir, ...)` ->runs the monthly theme concentration replay and writes metrics, holdings, ranks, and equity curves.
+  - `parse_args()` ->parses CLI arguments for the challenger.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `_write_monthly_mandate_books()` ->exports current momentum and relative-strength columns in the candidate replay book for leakage-safe historical testing.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/theme_concentration_challenger/` in full-rebuild artifact coverage.
+  - `test_pipeline_exports_monthly_books()` ->expects current momentum and relative-strength columns in candidate replay exports.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects the theme concentration command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/theme_concentration_challenger/metrics.json` ->research-only CAGR, Sharpe, MaxDD, exposure, and guard metadata.
+  - `outputs/theme_concentration_challenger/monthly.csv` ->selected theme, selected tickers, turnover, cost, and return by rebalance month.
+  - `outputs/theme_concentration_challenger/holdings.csv` ->ticker-level weights, current evidence, and realized period returns after selection.
+  - `outputs/theme_concentration_challenger/theme_rankings.csv` ->point-in-time monthly theme ranking table.
+  - `outputs/theme_concentration_challenger/equity_curve.csv` ->monthly challenger equity curve.
+  - `outputs/theme_concentration_challenger/stress_windows.csv` ->worst monthly windows.
+  - `outputs/theme_concentration_challenger/replay_report.md` ->human-readable report.
+- validation:
+  - `py -3 -m py_compile tools/run_theme_concentration_challenger.py tools/run_theme_leadership_tape.py` ->passed.
+  - `py -3 tests/theme_concentration_challenger_smoke.py` ->passed.
+  - `py -3 tests/theme_leadership_tape_smoke.py` ->passed.
+  - `py -3 tests/workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests/smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 py -3 tests/audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This remains research-only and cannot auto-promote or alter production weights.
+  - Theme labels depend on the current taxonomy; next improvements should compare theme taxonomy stability and realized trade ledgers before orchestrator integration.
+  - The replay is monthly and candidate-book based; it is not yet a true daily broker-ledger concentrated strategy.
+
+### 13:28 KST - account-ledger-order-preview
+
+- scope:
+  - Add the first paper/live bridge on top of broker-ledger replay: latest account state, current positions, sell-first order preview, and production-compatible goal-search separation.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->exports final account-state JSON, latest positions, and max-drawdown peak/trough metadata from the account ledger replay.
+  - `tools/run_account_order_preview.py` ->creates a preview-only order ticket from account state, latest target portfolio, cached prices, cash, integer shares, and estimated fees.
+  - `tools/run_portfolio_goal_search.py` ->separates best research/proxy candidates from best production-compatible candidates when deciding production target pass.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs account order preview after broker-ledger replay and syncs `outputs/account_ledger_preview/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs account order preview in the fast replay workflow and uploads/syncs the preview artifacts.
+  - `tests/account_order_preview_smoke.py` ->verifies sell-first order generation, buy order generation, integer shares, and latest-price date inference.
+  - `tests/broker_ledger_replay_smoke.py` ->expects final account-state and latest-position artifacts from broker replay.
+  - `tests/workflow_artifact_smoke.py` ->checks account order preview workflow commands, logs, artifacts, and GDrive sync tokens.
+  - `CHANGELOG.md` ->records the account-ledger order preview bridge.
+- symbols_added:
+  - `read_json(path)` ->loads account-state JSON safely for order preview.
+  - `normalize_ticker(value)` ->normalizes ticker symbols for order-preview joins.
+  - `normalize_target(frame, portfolio_kind, target_date)` ->normalizes latest target weights for main and concentrated previews.
+  - `load_positions(account_state)` ->extracts current account positions from broker-ledger state.
+  - `latest_price(price_cache, ticker, as_of_date)` ->loads the latest usable close for a ticker at or before the preview date.
+  - `infer_as_of_date(explicit_as_of_date, account_state, positions, target, price_cache)` ->marks account positions to the latest cached price date when no explicit date is supplied.
+  - `current_account_view(account_state, positions, price_cache, as_of_date)` ->marks current shares and cash to account equity.
+  - `add_zero_position_target_prices(current, target, price_cache, as_of_date)` ->adds target tickers not currently held so buy orders can be priced.
+  - `build_orders(current, target, equity, cash, cost_bps, integer_shares, min_trade_usd, limit_margin_pct)` ->builds sell-first/buy-second preview orders without placing trades.
+  - `render_report(payload)` ->writes the human-readable account order preview report.
+  - `run(args)` ->runs account order preview and writes CSV/JSON/Markdown outputs.
+  - `parse_args()` ->parses account order preview CLI arguments.
+  - `main()` ->account order preview CLI entrypoint.
+  - `latest_account_state(state, prices, as_of_date, metrics, trades, portfolio_kind, starting_capital, fill_mode, cost_bps, integer_shares)` ->serializes replay state as a paper-account snapshot.
+  - `best_production_summary(rows)` ->selects the best production-compatible goal-search candidate only from valid production evidence.
+- symbols_changed:
+  - `calc_metrics()` ->adds max-drawdown peak/trough date and equity metadata.
+  - `replay()` ->writes `account_state_latest.json` and `positions_latest.csv` after broker-ledger replay.
+  - `run()` ->adds research-vs-production target-pass separation in portfolio goal search.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects account preview commands and logs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_replay/*/account_state_latest.json` ->final account equity, cash, shares, cost basis, realized PnL, fees, and replay metrics.
+  - `outputs/broker_replay/*/positions_latest.csv` ->latest marked account positions from broker replay.
+  - `outputs/account_ledger_preview/*/positions_current.csv` ->current marked positions used for preview.
+  - `outputs/account_ledger_preview/*/target_weights.csv` ->normalized target weights used for preview.
+  - `outputs/account_ledger_preview/*/orders_preview.csv` ->preview-only sell/buy order ticket with quantities, limit prices, cash impact, and estimated fees.
+  - `outputs/account_ledger_preview/*/preview_metrics.json` ->order-preview summary metrics.
+  - `outputs/account_ledger_preview/*/preview_report.md` ->human-readable account order preview report.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_ledger_replay.py tools\run_account_order_preview.py tools\run_portfolio_goal_search.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed, 0 forward-return leakage.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This creates preview orders only; it does not call a broker API and cannot place live orders.
+  - Broker-ledger metrics are stricter than legacy target-weight metrics and should be treated as the production-like evaluation baseline.
+  - A future paper/live adapter should replace `account_state_latest.json` with real broker positions and fill reconciliation.
+
+### 13:40 KST - production-goal-ledger-evidence
+
+- scope:
+  - Require broker-ledger evidence for production-compatible goal-search candidates so legacy target-weight backtests cannot mask realistic account replay drawdowns.
+- files:
+  - `tools/run_portfolio_goal_search.py` ->marks legacy target-weight champion metrics as research comparisons, filters production candidates to valid production evidence, and leaves broker-ledger replay as the current production-like metric source.
+  - `tests/portfolio_goal_search_smoke.py` ->adds a regression case where attractive legacy target-weight metrics are not allowed to become the best production-compatible candidate when broker-ledger metrics exist.
+  - `CHANGELOG.md` ->records the production goal-search evidence hardening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_candidates()` ->marks `backtest_metrics.json` and `concentrated_backtest_metrics.json` as research comparison artifacts instead of production-compatible evidence.
+  - `best_production_summary()` ->requires both `valid_for_production` and `metrics_valid` before choosing a production candidate.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_portfolio_goal_search.py --latest-run _run_25591750197_artifacts\alphaops-replay-sidecars-25581634925-25591750197 --output-dir _local_goal_search_255917_check` ->passed; best production candidates were `main_broker_ledger_replay` and `concentrated_broker_ledger_replay`.
+- risks_or_notes:
+  - This intentionally makes production target pass stricter than research target pass.
+  - Strong legacy CAGR/MDD values remain visible in research rankings but must not be used as production proof until broker-ledger or paper/live replay confirms them.
+
+### 13:56 KST - broker-ledger-autolearning-journal
+
+- scope:
+  - Connect broker-ledger replay to AutoLearning by creating round-trip broker trade journals and making AutoLearning evidence prefer broker-ledger metrics/trades over legacy target-weight artifacts.
+- files:
+  - `tools/run_broker_trade_journal.py` ->reconstructs FIFO round-trip trades from broker replay executions, joins point-in-time entry evidence, excludes forward-return labels, and writes main/concentrated/combined journals.
+  - `r1000_auto_learning_evidence.py` ->prefers `broker_replay/*/metrics.json` and `broker_trade_journal/*/round_trips.csv` while retaining legacy metadata fields for diagnostics.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs broker trade journal after broker replay and before AutoLearning v2, and archives/syncs `outputs/broker_trade_journal/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs broker trade journal in fast replay sidecars and syncs the journal artifacts.
+  - `tools/sync_cloud_to_drive.py` ->adds broker replay, broker trade journal, and account order preview to local Drive sync.
+  - `tests/broker_trade_journal_smoke.py` ->verifies round-trip pairing, realized returns, entry evidence, and forward-label exclusion.
+  - `tests/auto_learning_evidence_smoke.py` ->verifies AutoLearning evidence prioritizes broker-ledger metrics and broker round-trip trades.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow commands, logs, artifacts, and sync tokens for broker trade journal.
+  - `CHANGELOG.md` ->records the broker-ledger AutoLearning journal bridge.
+- symbols_added:
+  - `is_label_column(column)` ->blocks forward-return and label columns from entry evidence.
+  - `prepare_entry_evidence(latest_run, portfolio_kind)` ->loads point-in-time candidate/target evidence for journal enrichment.
+  - `evidence_lookup(evidence)` ->builds `(rebalance_date, ticker)` lookup rows.
+  - `signal_breakdown(evidence)` ->serializes selected entry signal values for downstream trade insight tooling.
+  - `add_entry_fields(row, entry_evidence)` ->adds sleeve, regime, theme, style, quality, leadership, and liquidity fields to a trade row.
+  - `classify_trade(realized_return, holding_days)` ->assigns simple WIN/LOSS/TRAP/BIG_WIN labels from broker round-trip outcomes.
+  - `build_round_trips(trades, evidence, portfolio_kind)` ->pairs broker BUY/SELL executions into round-trip trades and open lots.
+  - `summary_stats(round_trips, metrics, portfolio_kind)` ->summarizes broker journal win rate, average return, holding period, grade counts, and linked broker metrics.
+  - `render_report(payload)` ->writes broker trade journal report text.
+  - `write_frame(path, frame)` ->writes journal CSV outputs.
+  - `run(args)` ->runs broker trade journal generation.
+  - `parse_args()` ->parses broker trade journal CLI arguments.
+  - `main()` ->broker trade journal CLI entrypoint.
+- symbols_changed:
+  - `load_auto_learning_evidence()` ->uses broker-ledger metrics and broker round-trip journals when present, falling back to legacy trade journals only when broker evidence is unavailable.
+  - `test_workflow_keeps_monthly_books()` ->expects `outputs/broker_trade_journal/` in artifact coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->expects broker trade journal command and log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->expects broker trade journal in fast replay.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_trade_journal/main/round_trips.csv` ->main portfolio broker-ledger round-trip trades.
+  - `outputs/broker_trade_journal/main/open_positions.csv` ->main open lots after replay.
+  - `outputs/broker_trade_journal/main/summary.json` ->main broker trade journal summary.
+  - `outputs/broker_trade_journal/concentrated/round_trips.csv` ->concentrated broker-ledger round-trip trades.
+  - `outputs/broker_trade_journal/concentrated/open_positions.csv` ->concentrated open lots after replay.
+  - `outputs/broker_trade_journal/concentrated/summary.json` ->concentrated broker trade journal summary.
+  - `outputs/broker_trade_journal/combined_round_trips.csv` ->combined broker trade journal for AutoLearning evidence.
+  - `outputs/broker_trade_journal/combined_open_positions.csv` ->combined open lots.
+  - `outputs/broker_trade_journal/summary.json` ->combined summary.
+  - `outputs/broker_trade_journal/broker_trade_journal_report.md` ->human-readable report.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_trade_journal.py r1000_auto_learning_evidence.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_evidence_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_v2_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/full_rebuild_manual.yml','.github/workflows/alphaops_replay_sidecars_manual.yml']]"` ->passed.
+- risks_or_notes:
+  - Broker journal enrichment depends on source reports being present in the run directory; fast replay has those during execution, but previously downloaded replay-only artifacts may not include the source reports.
+  - The journal uses FIFO pairing for learning labels. This is appropriate for signal attribution, but tax-lot accounting remains out of scope.
+  - Real broker reconciliation is still a future step; this is an account-replay learning bridge, not live execution.
+
+### 14:41 KST - broker-account-evaluation-officialization
+
+- scope:
+  - Make broker-ledger replay the official account-level performance evidence path and keep legacy weight-level backtests as research comparison only.
+- files:
+  - `tools/run_account_evaluation.py` ->adds the official broker-ledger account evaluation summary, CSV, and Markdown report.
+  - `tools/run_portfolio_system_guard.py` ->prefers broker-ledger metrics over legacy target-weight backtest metrics for target governance.
+  - `tools/run_alphaops_policy_fusion.py` ->compares candidate policies against broker-ledger production metrics when available.
+  - `tools/sync_cloud_to_drive.py` ->syncs `account_evaluation/` with other account-ledger outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs account evaluation after goal search.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs account evaluation in the fast replay workflow.
+  - `tests/account_evaluation_smoke.py` ->adds a broker-ledger official-source smoke test.
+  - `tests/portfolio_system_guard_smoke.py` ->uses synthetic broker-ledger metrics so the guard test does not depend on committed legacy artifacts.
+  - `tests/workflow_artifact_smoke.py` ->requires account evaluation workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the account evaluation officialization.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with the new official evaluation layer.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves relative account-evaluation paths against the repository root.
+  - `read_json(path)` ->loads optional account-evaluation JSON inputs.
+  - `write_json(path, payload)` ->writes account-evaluation JSON artifacts.
+  - `write_text(path, text)` ->writes account-evaluation Markdown artifacts.
+  - `safe_float(value, default)` ->normalizes numeric account-evaluation fields.
+  - `safe_int(value, default)` ->normalizes integer account-evaluation fields.
+  - `pct(value)` ->formats account-evaluation percentages for the report.
+  - `pp(value)` ->formats percentage-point gaps.
+  - `metric(row, *names)` ->reads the first available numeric metric alias.
+  - `legacy_metrics(latest_run, portfolio)` ->loads legacy comparison metrics for a portfolio.
+  - `target_for(portfolio)` ->loads configured main/concentrated CAGR and MaxDD targets for account evaluation.
+  - `summarize_portfolio(latest_run, portfolio)` ->summarizes official broker-ledger performance, account state, order preview, trade journal, and legacy comparison metrics.
+  - `summarize_goal_search(latest_run)` ->loads optional goal-search context for the account evaluation summary.
+  - `write_csv(path, rows)` ->writes portfolio account metrics as a compact CSV artifact.
+  - `render_report(payload)` ->renders the account-level evaluation Markdown report.
+  - `run(args)` ->builds all account-evaluation output artifacts.
+  - `parse_args()` ->parses account-evaluation CLI arguments.
+  - `main()` ->account-evaluation CLI entrypoint.
+  - `broker_or_legacy_metrics(latest_run, portfolio)` ->selects broker-ledger metrics first and falls back to legacy metrics only when broker evidence is absent.
+- symbols_changed:
+  - `load_inputs(latest_run)` ->loads broker-ledger metrics, account evaluation, and goal search from the requested latest-run first.
+  - `portfolio_status(name, metrics, cagr_target, max_dd_target)` ->emits the metric source used for target pass/fail.
+  - `write_target_gap_csv(path, statuses)` ->exports metric source in target-gap CSV output.
+  - `automation_plan(inputs, targets_pass)` ->uses configured 30%/50% CAGR and -15%/-18% MaxDD targets instead of stale hard-coded target text.
+  - `render_report(...)` ->prints metric sources so users can see whether guard status came from broker ledger or legacy fallback.
+  - `parse_args()` ->defaults portfolio system guard targets from `PORTFOLIO_GOAL_TARGETS`.
+  - `load_production_metrics(latest_run, portfolio)` ->uses broker-ledger replay metrics as the production baseline for policy fusion when available.
+  - `test_portfolio_system_guard_reports_target_gaps()` ->validates broker-ledger metric preference with synthetic data.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/account_evaluation/account_evaluation_summary.json` ->official account-level evaluation payload with broker-ledger target pass/fail.
+  - `outputs/account_evaluation/official_metrics.json` ->compact machine-readable official metrics by portfolio.
+  - `outputs/account_evaluation/portfolio_account_metrics.csv` ->flat account metrics, order-preview, and broker-trade-journal summary by portfolio.
+  - `outputs/account_evaluation/account_evaluation_report.md` ->human-readable official account evaluation report.
+- validation:
+  - `py -3 -m py_compile tools\run_account_evaluation.py tools\run_portfolio_system_guard.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_evidence_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Official performance is still based on monthly target books replayed through an account ledger; it is stricter than target-weight metrics but not yet a daily scored-decision simulator.
+  - Order preview remains preview-only and does not call a broker API.
+  - Account evaluation artifacts appear after the next full rebuild or fast replay run.
+
+### 15:06 KST - broker-position-risk-replay-conversion
+
+- scope:
+  - Convert monthly proxy risk results into account-ledger daily risk replay candidates and document production promotion gates.
+- files:
+  - `tools/run_broker_position_risk_replay.py` ->adds broker-ledger replay for daily hard-stop, trailing-stop, relative-exit, and trim rules with next-close fills.
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated broker-position-risk replay candidates as production-compatible evidence when metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` ->prefers broker-position-risk replay over weekly validation or monthly proxy for the position-risk policy.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs broker-position-risk replay outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs broker-position-risk replay in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `broker_position_risk_replay/`.
+  - `tests/broker_position_risk_replay_smoke.py` ->verifies observable daily stop signals are filled at the next close and do not use forward-return labels.
+  - `tests/workflow_artifact_smoke.py` ->requires broker-position-risk workflow commands, logs, and artifacts.
+  - `PRODUCTION_PROMOTION_GATES.md` ->documents proposal, research, account replay, shadow, canary, and production gates.
+  - `CHANGELOG.md` ->records the proxy-to-account conversion.
+  - `SESSION_HANDOFF.md` ->updates the active inbox with the new next phase.
+- symbols_added:
+  - `RiskMeta` ->tracks per-position entry price, benchmark entry, peak price, trim status, and feature row context.
+  - `benchmark_return(prices, benchmark_ticker, entry_price, date)` ->computes benchmark return up to an observable date.
+  - `should_check_relative(date, period_end)` ->checks weekly/final-period relative-performance review dates.
+  - `risk_signal(...)` ->detects observable hard-stop, trailing-stop, distribution, relative-exit, and trim signals.
+  - `metadata_for_targets(target, state, prices, benchmark_ticker, fill_dt, existing)` ->refreshes per-position risk metadata after monthly account rebalance.
+  - `execute_rebalance(...)` ->executes monthly target rebalances through the broker ledger before risk checks.
+  - `replay(...)` ->runs account-ledger daily risk replay and writes metrics, trades, daily holdings, risk actions, and account state.
+  - `render_report(metrics)` ->renders broker-position-risk replay summary Markdown.
+  - `parse_args()` ->parses broker-position-risk replay CLI arguments.
+  - `main()` ->broker-position-risk replay CLI entrypoint.
+  - `test_broker_position_risk_replay_uses_next_close_risk_fills()` ->tests next-close risk execution and no forward-return trade labels.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_broker_position_risk_replay` and `concentrated_broker_position_risk_replay` to goal search.
+  - `build_metric_policies(latest_run)` ->uses broker-position-risk replay as the highest-evidence position-risk input before weekly validation and monthly proxy fallback.
+  - `SYNC_DIRS` ->includes `broker_position_risk_replay`.
+  - `test_workflow_keeps_monthly_books()` ->requires broker-position-risk replay artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires broker-position-risk commands and logs.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires broker-position-risk fast replay support.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_position_risk_replay/main/metrics.json` ->main broker-ledger daily risk replay metrics.
+  - `outputs/broker_position_risk_replay/main/trades.csv` ->main account replay trades including risk exits and trims.
+  - `outputs/broker_position_risk_replay/main/risk_actions.csv` ->observable risk signal and next-close fill records.
+  - `outputs/broker_position_risk_replay/main/equity_curve.csv` ->main daily account equity curve.
+  - `outputs/broker_position_risk_replay/main/account_state_latest.json` ->main latest replay account state.
+  - `outputs/broker_position_risk_replay/concentrated/metrics.json` ->concentrated broker-ledger daily risk replay metrics.
+  - `outputs/broker_position_risk_replay/concentrated/trades.csv` ->concentrated account replay trades including risk exits and trims.
+  - `outputs/broker_position_risk_replay/concentrated/risk_actions.csv` ->concentrated observable risk signal and next-close fill records.
+  - `outputs/broker_position_risk_replay/concentrated/equity_curve.csv` ->concentrated daily account equity curve.
+  - `outputs/broker_position_risk_replay/concentrated/account_state_latest.json` ->concentrated latest replay account state.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py` ->passed.
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->passed.
+  - `py -3 tests\broker_trade_journal_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Broker-position-risk replay is stricter than monthly proxy because it uses daily close signals and next-close fills, but it still starts from monthly target books.
+  - Actual broker API execution remains out of scope.
+  - AutoLearning remains proposal-only until an account-compatible replay candidate passes the documented production gates and human approval.
+
+### 15:20 KST - production-target-pass-clarity
+
+- scope:
+  - Make goal-search top-level target pass mean production-compatible target pass, leaving proxy/research success under `research_target_pass`.
+- files:
+  - `tools/run_portfolio_goal_search.py` ->changes `target_pass` to production-compatible pass/fail, keeps `research_target_pass`, and makes next actions prioritize broker-ledger evidence.
+  - `tests/portfolio_goal_search_smoke.py` ->asserts proxy target pass no longer implies production target pass.
+  - `CHANGELOG.md` ->records the production target-pass clarification.
+  - `SESSION_HANDOFF.md` ->records replay run `25593756248` and the broker-ledger conversion result.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `next_actions(best_main, best_concentrated, best_production_main, best_production_concentrated)` ->now distinguishes proxy/research target-pass from production-compatible target-pass.
+  - `run(args)` ->sets top-level `target_pass` equal to `production_target_pass` and keeps proxy success in `research_target_pass`.
+  - `main()` ->prints research and production target-pass separately.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` top-level `target_pass` is now stricter; consumers that want proxy success must read `research_target_pass`.
+- outputs:
+  - `outputs/portfolio_goal_search/goal_search_summary.json` ->top-level `target_pass` now means production-compatible target pass.
+- validation:
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py tools\run_broker_position_risk_replay.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - This is a reporting/governance correction only; it does not change portfolio selection defaults.
+  - Fast replay `25593756248` showed proxy target-pass does not survive broker-position-risk conversion, so production promotion remains blocked.
+
+### 15:40 KST - broker-ledger-gap-and-execution-policy
+
+- scope:
+  - Add account-ledger gap attribution and a research-only account-aware execution replay to redesign buy/sell behavior around the new evaluation system.
+- files:
+  - `tools/run_broker_gap_attribution.py` ->adds diagnostic comparison of monthly/proxy forward-return accounting versus broker-ledger account replay.
+  - `tools/run_broker_execution_policy_replay.py` ->adds broker-ledger execution challenger with no-trade bands, staged entries, minimum holding, and winner trim deferral.
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated broker execution-policy replay candidates as production-compatible evidence when metrics are valid.
+  - `tools/run_alphaops_policy_fusion.py` ->adds `account_aware_execution` policy rows for main and concentrated.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs gap attribution and execution-policy replay outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs gap attribution and execution-policy replay in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `broker_execution_policy_replay/` and `broker_gap_attribution/`.
+  - `tests/broker_execution_policy_replay_smoke.py` ->verifies small target-weight changes are not forced into extra trades.
+  - `tests/broker_gap_attribution_smoke.py` ->verifies diagnostic output reads target forward returns and broker-ledger metrics separately.
+  - `tests/workflow_artifact_smoke.py` ->requires new workflow commands, logs, and artifact paths.
+  - `CHANGELOG.md` ->records the broker-ledger redesign step.
+- symbols_added:
+  - `target_forward_stats(target_book, portfolio_kind)` ->computes legacy/proxy monthly forward-return diagnostics and target churn.
+  - `broker_stats(broker_dir)` ->computes broker-ledger daily/month-end drawdown, fees, trades, and cash diagnostics.
+  - `portfolio_attribution(latest_run, portfolio_kind)` ->combines target and broker diagnostics for a portfolio.
+  - `run(latest_run, output_dir)` ->writes broker gap attribution JSON, CSV, and Markdown.
+  - `held_days(holding_since, ticker, date)` ->tracks position holding age for execution-policy decisions.
+  - `unrealized_return(state, ticker, price)` ->computes observable unrealized return from cost basis.
+  - `execute_policy_order(...)` ->executes an account-ledger order while maintaining holding-age state.
+  - `maybe_exit_missing_target(...)` ->decides whether to exit a ticker missing from the new monthly target book.
+  - `replay(...)` ->runs account-aware execution replay and writes metrics, trades, holdings, cash, and policy decisions.
+  - `render_report(metrics)` ->renders execution-policy replay summary Markdown.
+  - `main()` ->CLI entrypoints for the new tools.
+  - `test_broker_execution_policy_replay_smoke.main()` ->synthetic no-trade-band regression test.
+  - `test_broker_gap_attribution_smoke.main()` ->synthetic broker-gap attribution regression test.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_broker_execution_policy_replay` and `concentrated_broker_execution_policy_replay`.
+  - `build_metric_policies(latest_run)` ->adds `account_aware_execution` policy rows.
+  - `SYNC_DIRS` ->includes `broker_execution_policy_replay` and `broker_gap_attribution`.
+  - `test_workflow_keeps_monthly_books()` ->requires new artifact directories.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires new full-run commands and logs.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires new fast replay commands and artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_gap_attribution/gap_attribution_summary.json` ->diagnostic gap decomposition for monthly/proxy versus broker-ledger metrics.
+  - `outputs/broker_gap_attribution/monthly_gap_attribution.csv` ->monthly target/proxy versus broker return and cost diagnostics.
+  - `outputs/broker_gap_attribution/gap_attribution_report.md` ->human-readable explanation of the metric collapse.
+  - `outputs/broker_execution_policy_replay/{main,concentrated}/metrics.json` ->account-aware execution challenger metrics.
+  - `outputs/broker_execution_policy_replay/{main,concentrated}/policy_decisions.csv` ->hold/buy/sell decisions and skipped churn reasons.
+- validation:
+  - `py -3 -m py_compile tools\run_broker_gap_attribution.py tools\run_broker_execution_policy_replay.py tools\run_portfolio_goal_search.py tools\run_alphaops_policy_fusion.py tools\sync_cloud_to_drive.py` ->passed.
+  - `py -3 tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `py -3 tests\broker_gap_attribution_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Execution-policy replay is a research challenger, not a production default.
+  - Gap attribution reads `weighted_forward_return` only for diagnostics; it must not feed production selection.
+  - The next fast replay must determine whether account-aware execution improves broker-ledger CAGR/MDD versus the mechanical monthly broker replay.
+
+### 15:58 KST - live-trading-safety-audit
+
+- scope:
+  - Add pre-trade safety auditing for account-ledger order previews and lock the legacy paper executor so live/paper execution cannot bypass the new account-safety path by accident.
+- files:
+  - `tools/run_live_trading_safety_audit.py` ->adds a preview-only audit for leakage columns, invalid weights, account-state mismatch, stale prices, blocked orders, and legacy executor risk.
+  - `r1000_paper_executor.py` ->requires explicit `--allow-legacy-execute` together with `--execute` because the old Alpaca paper executor bypasses account-ledger safety audit.
+  - `.github/workflows/after_close_daily.yml` ->adds manual `allow_legacy_execute` acknowledgement and passes the legacy execute flag only when explicitly requested.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/live_trading_safety/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs live trading safety audit in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `live_trading_safety/`.
+  - `tests/live_trading_safety_audit_smoke.py` ->verifies a clean preview passes and a forward-return target is blocked.
+  - `tests/workflow_artifact_smoke.py` ->requires safety audit workflow commands, logs, and artifacts.
+  - `tests/smoke_test.py` ->checks the legacy paper executor execution acknowledgement.
+  - `CHANGELOG.md` ->records the live/paper safety guard.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves repo-relative paths for the safety audit.
+  - `read_json(path)` ->loads optional JSON artifacts safely.
+  - `read_csv(path)` ->loads optional CSV artifacts safely.
+  - `write_json(path, payload)` ->writes deterministic JSON audit payloads.
+  - `write_csv(path, rows, fieldnames)` ->writes audit issue rows.
+  - `safe_float(value, default)` ->normalizes numeric inputs without crashing the audit.
+  - `normalize_ticker(value)` ->normalizes ticker symbols before matching account/order/price data.
+  - `banned_columns(columns)` ->detects forward-return and benchmark-forward leakage columns in actionable target files.
+  - `issue(rows, severity, check_id, message, path, details)` ->records structured audit issues.
+  - `latest_known_date(*frames)` ->finds the latest date visible across preview artifacts.
+  - `audit_target(...)` ->checks target portfolio files for leakage columns, invalid weights, exposure, and concentration risk.
+  - `audit_account_preview(...)` ->checks account preview status, order sequencing, cash feasibility, stale prices, and missing price evidence.
+  - `audit_legacy_executor(issues)` ->checks that the old executor is locked behind explicit acknowledgement.
+  - `render_report(payload)` ->renders the Markdown safety audit report.
+  - `run(args)` ->runs the safety audit and writes JSON, CSV, and Markdown outputs.
+  - `parse_args()` ->parses CLI arguments for the safety audit.
+  - `main()` ->CLI entrypoint for the safety audit.
+- symbols_changed:
+  - `r1000_paper_executor.main()` ->refuses `--execute` unless `--allow-legacy-execute` is also provided.
+  - `SYNC_DIRS` ->includes `live_trading_safety`.
+  - `test_workflow_keeps_monthly_books()` ->requires the safety audit artifact directory.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the safety audit command and log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires the safety audit command and artifact.
+  - `test_paper_executor_layer3_preflight()` ->checks the new explicit legacy execute acknowledgement.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `r1000_paper_executor.py --execute` now requires `--allow-legacy-execute`; use account-ledger order previews plus `tools/run_live_trading_safety_audit.py` for the current paper/live path.
+- outputs:
+  - `outputs/live_trading_safety/safety_audit_summary.json` ->overall pass/warn/blocked status and counts by severity.
+  - `outputs/live_trading_safety/safety_audit_issues.csv` ->structured issue table for pre-trade review.
+  - `outputs/live_trading_safety/safety_audit_report.md` ->human-readable safety report.
+- validation:
+  - `py -3 -m py_compile tools\run_live_trading_safety_audit.py r1000_paper_executor.py` ->passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - The safety audit is intentionally conservative and can emit `blocked` without failing GitHub Actions; blocked audit output means do not trade from that preview.
+  - This does not improve CAGR directly. It prevents bad live/paper execution, leakage-contaminated target files, stale price use, and accidental bypass of the account-ledger path before performance tuning resumes.
+
+### 16:18 KST - actionable-export-leakage-hygiene
+
+- scope:
+  - Strip forward-return label columns from orderable portfolio CSV exports after live-trading safety audit blocked the latest concentrated target.
+- files:
+  - `r1000_pipeline.py` ->adds actionable export hygiene and applies it before writing `portfolio_latest.csv` and `concentrated_portfolio_latest.csv`.
+  - `tools/run_live_trading_safety_audit.py` ->also blocks `r_<horizon>` forward-return label columns in actionable target files.
+  - `tests/live_trading_safety_audit_smoke.py` ->covers `r_1m`, `bench_r_12m`, and `period_forward_return` stripping/blocking while preserving legitimate `future_winner_scout_score`.
+  - `CHANGELOG.md` ->records the actionable export hygiene fix.
+  - `SESSION_HANDOFF.md` ->updates the active inbox with the safety audit verdict and hygiene fix.
+- symbols_added:
+  - `drop_actionable_leakage_columns(df)` ->removes `r_*`, `bench_r_*`, and forward-return label columns from orderable portfolio exports.
+- symbols_changed:
+  - `banned_columns(columns)` ->detects `r_<horizon>` forward-return labels in addition to benchmark and explicit forward-return columns.
+  - `run_default_pipeline(...)` ->sanitizes main and concentrated actionable portfolio exports before writing CSVs.
+  - `test_live_trading_safety_blocks_forward_columns()` ->adds `r_1m` and `bench_r_6m` coverage.
+  - `test_actionable_export_hygiene_strips_forward_columns()` ->verifies the new export sanitizer.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_latest.csv` ->no longer carries future-return label columns if they accidentally enter the operational frame.
+  - `outputs/concentrated_portfolio_latest.csv` ->no longer carries future-return label columns from the concentrated latest selection frame.
+- validation:
+  - `py -3 -m py_compile r1000_pipeline.py tools\run_live_trading_safety_audit.py` ->passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tests\smoke_test.py` ->89/89 passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `git diff --check` ->passed.
+- risks_or_notes:
+  - Fast replay `25594827958` intentionally blocked on `concentrated_target_leakage_columns`; this export fix is proven by new target generation, not by replaying the old dirty source artifact unchanged.
+  - Research artifacts may still keep forward-return labels for diagnostics; this fix applies to orderable portfolio CSV exports only.
+
+### 16:45 KST - live-trading-risk-controls
+
+- scope:
+  - Add the next live/paper trading safety layer for account reconciliation, idempotent order manifests, duplicate-order prevention, partial-fill templates, as-of checks, open-order checks, and corporate-action review flags.
+- files:
+  - `tools/run_account_order_preview.py` ->adds deterministic `client_order_id`, `idempotency_key`, and `order_batch_manifest.json` to every order preview.
+  - `tools/run_live_trading_risk_controls.py` ->adds preview-only operational risk controls for broker snapshot reconciliation, prior-manifest duplicate detection, open-order conflicts, stale as-of checks, large price-jump/cost-basis review, order manifests, and fill reconciliation templates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/live_trading_risk_controls/`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs, uploads, and syncs risk controls in the fast replay workflow.
+  - `tools/sync_cloud_to_drive.py` ->syncs `live_trading_risk_controls/`.
+  - `tests/account_order_preview_smoke.py` ->checks deterministic order ids and order batch manifest output.
+  - `tests/live_trading_risk_controls_smoke.py` ->checks manifest generation, prior-manifest duplicate blocking, and strict-live broker snapshot requirement.
+  - `tests/workflow_artifact_smoke.py` ->requires risk control workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the live trading risk-control layer.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `attach_client_order_ids(orders, portfolio_kind, as_of_date)` ->adds deterministic broker-safe client order IDs and idempotency hashes.
+  - `run_live_trading_risk_controls.repo_path(path_like)` ->resolves repo-relative paths.
+  - `run_live_trading_risk_controls.read_json(path)` ->loads optional JSON artifacts safely.
+  - `run_live_trading_risk_controls.read_csv(path)` ->loads optional CSV artifacts safely.
+  - `run_live_trading_risk_controls.write_json(path, payload)` ->writes deterministic JSON risk-control payloads.
+  - `run_live_trading_risk_controls.write_csv(path, rows, fieldnames)` ->writes risk-control CSV artifacts.
+  - `run_live_trading_risk_controls.safe_float(value, default)` ->normalizes numeric values safely.
+  - `run_live_trading_risk_controls.normalize_ticker(value)` ->normalizes ticker symbols before comparisons.
+  - `run_live_trading_risk_controls.issue(rows, severity, check_id, message, path, details)` ->records structured risk-control issues.
+  - `broker_file(snapshot_dir, portfolio, filename)` ->finds nested or flat broker snapshot files.
+  - `read_previous_manifest(path)` ->loads prior order manifests for duplicate detection.
+  - `normalize_order_frame(orders)` ->normalizes order-preview rows before manifest checks.
+  - `make_order_manifest(...)` ->builds order manifest and fill reconciliation rows, and blocks duplicate ids.
+  - `audit_open_orders(...)` ->checks broker open-order conflicts and reserved buy cash when a broker snapshot is supplied.
+  - `audit_broker_reconciliation(...)` ->compares broker positions/cash/equity against internal account preview state.
+  - `audit_as_of_and_corporate_actions(...)` ->checks stale/future/weekend as-of dates, large latest price jumps, and extreme cost-basis/price ratios.
+  - `run_live_trading_risk_controls.render_report(payload)` ->renders risk-control Markdown.
+  - `run_live_trading_risk_controls.run(args)` ->writes risk-control summary, issues, order manifest, fill template, and report.
+  - `run_live_trading_risk_controls.parse_args()` ->parses CLI arguments.
+  - `run_live_trading_risk_controls.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `build_orders(...)` ->now receives portfolio/as-of context and attaches idempotent order IDs after cash scaling.
+  - `run_account_order_preview.run(args)` ->writes `order_batch_manifest.json` and includes `order_batch_id` in preview metrics.
+  - `SYNC_DIRS` ->includes `live_trading_risk_controls`.
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/live_trading_risk_controls/`.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires `run_live_trading_risk_controls.py` and its log.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires risk-control fast replay artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/account_ledger_preview/{main,concentrated}/order_batch_manifest.json` ->deterministic preview order batch identity and client order IDs.
+  - `outputs/live_trading_risk_controls/order_manifest.csv` ->planned order manifest for broker submission and duplicate prevention.
+  - `outputs/live_trading_risk_controls/fill_reconciliation_template.csv` ->template for partial/no-fill broker execution reconciliation.
+  - `outputs/live_trading_risk_controls/risk_controls_summary.json` ->overall pass/warn/blocked status.
+  - `outputs/live_trading_risk_controls/risk_controls_issues.csv` ->structured account/open-order/as-of/corporate-action risk issues.
+  - `outputs/live_trading_risk_controls/risk_controls_report.md` ->human-readable operational risk-control report.
+- validation:
+  - `py -3 -m py_compile tools\run_account_order_preview.py tools\run_live_trading_risk_controls.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+- risks_or_notes:
+  - This still does not place broker orders. It creates the controls needed before a broker adapter can be safely enabled.
+  - Without a broker snapshot, risk controls emit a warning because real account/open-order reconciliation is skipped. With `--strict-live`, broker snapshot absence is a blocking error.
+  - Partial-fill handling is still a reconciliation template, not a broker adapter. The next live step is to import real broker fills into this template and reconcile post-trade account state.
+
+## 2026-05-08
+
+### 15:17 KST - weekly-evaluation-freshness-sidecar
+
+- scope:
+  - Add weekly mark-to-market evaluation and freshness audit so monthly backtest reporting lag is explicit.
+- files:
+  - `tools/run_weekly_evaluation.py` ->builds weekly equity curves from monthly holding books and daily price cache without changing production selection.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the weekly evaluation sidecar and archives/syncs `outputs/weekly_evaluation/`.
+  - `tests/weekly_evaluation_smoke.py` ->verifies weekly curves and stale freshness detection on synthetic holdings/prices.
+  - `tests/workflow_artifact_smoke.py` ->checks weekly evaluation workflow, artifact, and log tokens.
+  - `CHANGELOG.md` ->records the weekly evaluation sidecar change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `px_cache_name(ticker)` ->returns the price-cache parquet filename used by the weekly sidecar.
+  - `load_price_series(price_cache, ticker)` ->loads adjusted open/close series from cache.
+  - `normalize_holdings(df, portfolio_kind)` ->normalizes monthly holding books for weekly replay.
+  - `period_end_map(path)` ->reads monthly next-rebalance dates for holding-period boundaries.
+  - `weekly_targets(start, end)` ->creates weekly Friday/end-date evaluation targets.
+  - `build_weekly_curve(holdings, next_dates, price_cache, portfolio_kind, benchmark_tickers)` ->marks monthly holdings to market weekly.
+  - `weekly_metrics(curve, portfolio_kind)` ->computes weekly CAGR, Sharpe, MaxDD, and freshness metadata.
+  - `build_freshness(latest_run, curves, metrics, stale_days_threshold)` ->compares latest scored date to latest weekly evaluation date.
+  - `write_markdown(payload, path)` ->writes the human-readable freshness audit.
+  - `run(latest_run, output_dir, price_cache, stale_days_threshold)` ->executes the weekly sidecar.
+  - `parse_args()` ->parses CLI arguments for the sidecar.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->checks `outputs/weekly_evaluation/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks weekly sidecar command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/weekly_evaluation/weekly_equity_curve.csv` ->combined weekly mark-to-market curve for main and concentrated books when price cache is available.
+  - `outputs/weekly_evaluation/main_weekly_equity_curve.csv` ->main portfolio weekly mark-to-market curve.
+  - `outputs/weekly_evaluation/concentrated_weekly_equity_curve.csv` ->concentrated portfolio weekly mark-to-market curve.
+  - `outputs/weekly_evaluation/weekly_metrics.json` ->weekly CAGR, Sharpe, MaxDD, cash, and missing-price diagnostics.
+  - `outputs/weekly_evaluation/weekly_freshness_audit.json` ->latest scored date versus latest weekly evaluation date.
+  - `outputs/weekly_evaluation/weekly_freshness_audit.md` ->human-readable freshness audit.
+- validation:
+  - `py -3 tests\weekly_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\run_weekly_evaluation.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is mark-to-market evaluation of monthly holding books; it is not yet true weekly scoring/rebalancing.
+  - If freshness remains stale, the next step is weekly scored snapshots in the feature-store pipeline.
+
+### 16:53 KST - position-risk-weekly-validation
+
+- scope:
+  - Add a stricter validation layer that tests monthly position-risk proxy exits against cached daily/weekly price paths before any production promotion.
+- files:
+  - `tools/run_position_risk_weekly_validation.py` ->simulates daily hard/trailing stops and weekly relative-performance trim/exit checks from monthly holding books and price cache.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the validator for main and concentrated books and uploads/syncs `outputs/position_risk_weekly_validation/`.
+  - `tools/run_portfolio_goal_search.py` ->adds weekly-validation candidates so target-pass monthly proxies are no longer the only ranked risk evidence.
+  - `tools/run_alphaops_policy_fusion.py` ->prefers weekly-validation evidence over monthly proxy evidence for position hard-stop/distribution policy arbitration.
+  - `tests/position_risk_weekly_validation_smoke.py` ->verifies daily hard-stop detection on synthetic prices.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution, log, and artifact tokens for the weekly validator.
+  - `CHANGELOG.md` ->records the weekly validation change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `normalize_holdings(frame, portfolio_kind)` ->normalizes monthly holding books for daily/weekly validation.
+  - `period_end_map(path)` ->loads next-rebalance boundaries for each monthly holding period.
+  - `should_check_relative(date, final_date)` ->identifies weekly/final checkpoints for relative-performance trim/exit checks.
+  - `price_path_between(px, start_dt, end_dt)` ->extracts cached daily prices inside one holding period.
+  - `benchmark_return_on(bench_path, entry_price, date)` ->computes benchmark return at a validation checkpoint.
+  - `simulate_position(row, px, bench_px, entry_dt, end_dt, ...)` ->simulates one position's stop/trim/exit path.
+  - `rolling_rows(monthly_rows, window_months)` ->builds rolling-window validation metrics.
+  - `replay(holdings_path, period_map_path, price_cache, output_dir, portfolio_kind, ...)` ->runs the validator and writes metrics/actions/curves.
+  - `render_report(payload)` ->renders the validator report.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->collects main/concentrated weekly-validation candidates.
+  - `candidate_from_json(...)` ->surfaces validation metadata such as `data_mode`, `validation_granularity`, and `price_coverage`.
+  - `build_metric_policies(latest_run)` ->uses weekly-validation evidence for position-risk policy when available, falling back to monthly proxy otherwise.
+  - `test_workflow_keeps_monthly_books()` ->checks `outputs/position_risk_weekly_validation/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks weekly-validation commands and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/position_risk_weekly_validation/main/metrics.json` ->main daily/weekly position-risk validation metrics.
+  - `outputs/position_risk_weekly_validation/main/actions.csv` ->main stop/trim/exit action log with action dates.
+  - `outputs/position_risk_weekly_validation/main/trade_log.csv` ->main BUY/SELL/TRIM trade-date ledger from daily/weekly validation.
+  - `outputs/position_risk_weekly_validation/concentrated/metrics.json` ->concentrated daily/weekly position-risk validation metrics.
+  - `outputs/position_risk_weekly_validation/concentrated/actions.csv` ->concentrated stop/trim/exit action log with action dates.
+  - `outputs/position_risk_weekly_validation/concentrated/trade_log.csv` ->concentrated BUY/SELL/TRIM trade-date ledger from daily/weekly validation.
+- validation:
+  - `py -3 tests\position_risk_weekly_validation_smoke.py` ->passed.
+  - `py -3 tests\weekly_evaluation_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+- risks_or_notes:
+  - This is stricter than monthly loss-capping, but still uses monthly holding books. True production activation still needs order-ticket simulation and true weekly/daily scored snapshots.
+  - Local repo has no populated `cache_prices`, so full historical validation must be verified in the next cloud rebuild.
+
+### 18:06 KST - strict-macro-cash-confirmation
+
+- scope:
+  - Tighten the research-only macro/cash sidecars so large cash raises require confirmed long-trend/liquidity/breadth deterioration instead of reacting to one-off index shocks or prior cash weight.
+- files:
+  - `tools/run_macro_policy_engine.py` ->removes `cash_weight` as a causal risk input, adds trend/liquidity/breadth/event-shock components, confirmation counts, monster exception capacity, and lower yellow/recovery cash floors.
+  - `tools/run_cash_policy_attribution.py` ->separates confirmed macro-defense cash from event-shock cash and idle-cash candidates.
+  - `tests/macro_policy_engine_smoke.py` ->checks new macro confirmation and monster-exception output columns.
+  - `tests/cash_policy_attribution_smoke.py` ->adds synthetic coverage for event-shock cash, confirmed macro-defense cash, and idle cash.
+  - `CHANGELOG.md` ->records the strict macro/cash confirmation update.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `_clip_score(value)` ->bounds macro component scores to `[0, 1]`.
+  - `_long_trend_damage_score(row)` ->scores persistent index/regime trend damage without using portfolio cash weight.
+  - `_liquidity_drain_score(row)` ->scores liquidity/rate/inflation/overheat pressure from existing style features.
+  - `_breadth_credit_stress_score(row)` ->scores breadth/credit-style stress from regime and style labels.
+  - `_event_shock_score(row)` ->identifies event-only shocks that should not alone force broad cash.
+  - `_cash_raise_confirmation_count(row, trend_score, liquidity_score, breadth_credit_score)` ->counts independent confirmations required before large cash raises.
+  - `_is_confirmed_macro_defense(label, cash_target, dd_before, dd_after)` ->classifies cash as confirmed macro defense only when deterioration is independently supported.
+  - `_is_event_shock_without_confirmation(label, confirmed_macro_defense)` ->classifies event-shock cash that should be reviewed separately.
+- symbols_changed:
+  - `_risk_score(row)` ->now combines long-trend, liquidity, breadth/credit, and event-shock components; no longer uses `cash_weight`.
+  - `_risk_state(row, risk_score)` ->requires at least two confirmations for red cash defense and three/severe confirmation for crisis.
+  - `_diagnostic_flags(rows)` ->adds `unconfirmed_cash_raise` diagnostics when cash is high without enough confirmations.
+  - `run(latest_run, output_dir)` ->emits component scores, confirmation counts, cash-raise gates, and monster exception policy fields.
+  - `_summary(rows, diagnostics, regime_path)` ->surfaces latest component and confirmation fields.
+  - `render_report(summary, diagnostics)` ->documents the confirmation-first cash policy.
+  - `_primary_reason(row)` ->uses confirmed macro defense and event-shock review classifications.
+  - `_rows_by_month(holdings, regime)` ->adds confirmed macro defense and event-shock diagnostic columns.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/macro_policy_engine/macro_policy_by_month.csv` ->now includes component scores, `cash_raise_confirmation_count`, `cash_raise_gate`, and `monster_exception_allowed`.
+  - `outputs/macro_policy_engine/regime_speed_audit.csv` ->now flags `unconfirmed_cash_raise` months.
+  - `outputs/cash_policy/cash_drag_attribution.csv` ->now includes `confirmed_macro_defense` and `event_shock_without_confirmation`.
+- validation:
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `py -3 tests\cash_policy_attribution_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This remains research-only. It does not mutate production portfolio weights.
+  - The current implementation uses existing regime/style proxy fields until longer-history macro series are added to the feature store.
+  - Monster exceptions are surfaced as policy fields only; they still require separate challenger replay before production activation.
+
+### 18:33 KST - current-selection-audit-sidecar
+
+- scope:
+  - Add a research-only current selection audit so each full rebuild explains selected names, omitted high-potential candidates, and historical holding continuity before strategy changes are judged.
+- files:
+  - `tools/run_selection_audit.py` ->new sidecar that joins the latest candidate book, current main/concentrated portfolios, and historical holding books.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs selection audit after historical trade journey and uploads/syncs/bundles `outputs/selection_audit/`.
+  - `tools/sync_cloud_to_drive.py` ->copies `selection_audit/` from cloud results to the local Drive mirror.
+  - `tests/selection_audit_smoke.py` ->verifies selected-current, omitted-monster, and holding-history outputs on synthetic data.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow command, log, and artifact coverage for the selection audit.
+  - `CHANGELOG.md` ->records the selection audit change.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for future agents.
+- symbols_added:
+  - `_normalize_ticker_series(series)` ->normalizes ticker strings for joins.
+  - `_with_ticker(frame)` ->filters non-stock/CASH rows and standardizes ticker columns.
+  - `_latest_candidates(latest_run)` ->loads the latest dated candidate set from `candidate_replay_book` or `scored_latest`.
+  - `_current_weights(path)` ->loads current target weights from main or concentrated portfolio files.
+  - `_history_summary(path, prefix)` ->summarizes first/last held dates and months held per ticker.
+  - `_numeric(frame, col, default)` ->returns numeric candidate columns with safe defaults.
+  - `_boolish(value, default)` ->normalizes gate flags from CSV values.
+  - `_add_pressure_score(frame)` ->builds a non-forward-looking selection-pressure score from existing rank/monster/RS fields.
+  - `_decision_bucket(row)` ->classifies selected and omitted candidates by likely reason.
+  - `run(latest_run, output_dir, top_n)` ->writes current selected, omitted candidate, historical persistence, and summary outputs.
+  - `_preview_rows(frame, n)` ->builds report previews.
+  - `_pct(value)` ->formats weights.
+  - `_render_report(summary)` ->writes the Markdown report.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/selection_audit/` artifact retention.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires selection audit command and log export.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/selection_audit/current_selected_audit.csv` ->current main/concentrated holdings with selection score, gate/risk/stale fields, and historical hold counts.
+  - `outputs/selection_audit/omitted_high_potential_candidates.csv` ->top omitted candidates by non-forward-looking selection pressure and likely omission reason.
+  - `outputs/selection_audit/historical_hold_persistence.csv` ->per-ticker historical first/last held dates and months held.
+  - `outputs/selection_audit/ticker_decision_audit.csv` ->broader top candidate audit table.
+  - `outputs/selection_audit/selection_audit_summary.json` ->machine-readable counts and previews.
+  - `outputs/selection_audit/selection_audit_report.md` ->human-readable explanation report.
+- validation:
+  - `py -3 tests\selection_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\run_selection_audit.py` ->passed.
+  - `py -3 tools\run_selection_audit.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_selection_audit_check --top-n 30` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is explanatory only and does not change production selection.
+  - The selection-pressure score intentionally excludes forward-return columns; it is a debugging rank, not a model target.
+  - Strong omitted candidates still require historical replay before any promotion or hard rule change.
+
+### 14:08 KST - gdrive-branch-output-isolation
+
+- scope:
+  - Isolate Google Drive full-rebuild outputs by branch so research runs cannot overwrite production `outputs/`.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->routes `master` runs to canonical GDrive `outputs/`, and non-master branch runs to `research_runs/<safe_branch>/<run_id>/outputs/`.
+  - `tests/workflow_artifact_smoke.py` ->checks branch-isolated GDrive routing tokens.
+  - `CHANGELOG.md` ->records the GDrive branch isolation change.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks `BRANCH_NAME`, `SAFE_BRANCH`, `GDRIVE_SCOPE`, and branch research path tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `Google Drive outputs/` ->production-only canonical path for `master` full rebuilds.
+  - `Google Drive research_runs/<safe_branch>/<run_id>/outputs/` ->branch-isolated research results for non-master runs.
+  - `Google Drive research_runs/<safe_branch>/failed_runs/<run_id>/outputs/` ->branch-isolated failed research diagnostics.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This affects future workflow runs only; already-running runs use the workflow file from their head SHA.
+  - Secrets, API keys, and GitHub cache remain shared infrastructure; final output artifacts are now branch-scoped in GDrive.
+
+### 09:36 KST - portfolio-target-gate-tightening
+
+- scope:
+  - Tighten explicit portfolio goal gates to the new commercial targets: main CAGR 30% / MaxDD -15%, concentrated CAGR 50% / MaxDD -18%.
+- files:
+  - `r1000_config.py` ->adds shared portfolio goal targets and wires main/concentrated target fields to them.
+  - `tools/run_portfolio_goal_search.py` ->reads shared goal targets instead of maintaining local hardcoded thresholds and bootstraps repo-root imports when run directly.
+  - `CHANGELOG.md` ->records the target gate change.
+- symbols_added:
+  - `PORTFOLIO_GOAL_TARGETS` ->single source of truth for artifact goal-search targets.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `main_target_cagr: float = 0.30` ->commercial target for main portfolio CAGR.
+  - `main_target_max_dd: float = -0.15` ->commercial target for main portfolio MaxDD.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tools\run_portfolio_goal_search.py --latest-run cloud_results\full_rebuild\20260505_global_alpha_universe --output-dir _local_goal_target_20260508` ->passed; main proxy passes, concentrated remains below the new target.
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py r1000_config.py` ->passed.
+- risks_or_notes:
+  - This changes evaluation thresholds only; it does not change production selection, cash policy, or portfolio weights.
+  - The best completed-run concentrated candidate is still below the new 50% / -18% target, so concentrated needs further alpha/risk work before promotion.
+
+### 10:01 KST - cash-policy-attribution-sidecar
+
+- scope:
+  - Add the first cash-policy migration step: explain whether main-book cash is risk defense, idle cash, or an artifact/export mismatch before changing allocations.
+- files:
+  - `tools/run_cash_policy_attribution.py` ->new research-only sidecar that joins `main_monthly_weights.csv` and `regime_by_month.csv`, writes cash attribution rows, summary JSON, and a Markdown report.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the cash attribution sidecar after macro policy and syncs/uploads `outputs/cash_policy/`.
+  - `tests/workflow_artifact_smoke.py` ->checks that the workflow runs and exports the cash attribution artifacts.
+  - `CHANGELOG.md` ->records the cash attribution sidecar.
+- symbols_added:
+  - `_rows_by_month(holdings, regime)` ->builds per-month cash attribution inputs from holdings and regime artifacts.
+  - `_summary(rows)` ->summarizes reported cash, explicit monthly-book cash, target defense cash, excess cash, idle-cash candidates, and export mismatch counts.
+  - `_render_report(payload)` ->renders the human-readable cash policy attribution report.
+  - `run(latest_run, output_dir)` ->sidecar entrypoint that writes `cash_drag_attribution.csv`, `cash_drag_summary.json`, and `cash_drag_report.md`.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/cash_policy/` artifact upload coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires cash attribution workflow execution and log capture.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/cash_policy/cash_drag_attribution.csv` ->per-month cash source and mismatch diagnostics.
+  - `outputs/cash_policy/cash_drag_summary.json` ->summary of cash defense, idle cash, and cash export mismatch.
+  - `outputs/cash_policy/cash_drag_report.md` ->human-readable cash policy diagnostic.
+- validation:
+  - `py -3 tools\run_cash_policy_attribution.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_cash_policy_check` ->passed.
+  - `py -3 -m py_compile tools\run_cash_policy_attribution.py` ->passed.
+- risks_or_notes:
+  - The latest local completed artifacts show average reported cash 21.02% but explicit CASH rows in `main_monthly_weights.csv` average only 4.71%, so the existing cash-drag replay must be repaired before using it as evidence.
+  - This is diagnostic-only and does not change production weights.
+
+### 10:05 KST - idle-cash-redeploy-replay-alignment
+
+- scope:
+  - Repair the idle-cash redeploy A/B replay so it uses reported backtest cash from `regime_by_month.csv` before testing cash-cap redeployment.
+- files:
+  - `tools/run_main_cash_drag_replay.py` ->aligns monthly holdings to reported cash, records production-vs-replay deltas, and keeps the replay research-only.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the main cash-drag replay and uploads/syncs `outputs/main_cash_drag_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->requires workflow execution and artifact coverage for `outputs/main_cash_drag_replay/`.
+  - `CHANGELOG.md` ->records the idle-cash replay repair.
+- symbols_added:
+  - `align_to_reported_cash(df, regime)` ->reconstructs explicit CASH rows from `regime_by_month.cash_weight` and scales selected stock weights to the reported invested share.
+  - `read_json(path)` ->loads production metrics for replay-vs-production diagnostics.
+- symbols_changed:
+  - `run(args)` ->uses reported cash by default, writes cash-alignment metadata, and compares replay base metrics against production metrics.
+  - `render_report(summary, grid)` ->shows production metrics, replay-vs-production gap, and cash alignment diagnostics.
+  - `parse_args()` ->adds `--cash-source {reported,explicit}`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_cash_drag_replay/cash_drag_grid.csv` ->idle-cash cap redeploy grid.
+  - `outputs/main_cash_drag_replay/summary.json` ->replay metrics, cash alignment, and production comparison.
+  - `outputs/main_cash_drag_replay/cash_drag_replay_report.md` ->human-readable replay summary.
+- validation:
+  - `py -3 tools\run_main_cash_drag_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_main_cash_drag_replay_check` ->passed.
+  - `py -3 -m py_compile tools\run_main_cash_drag_replay.py` ->passed.
+- risks_or_notes:
+  - The local replay base still differs from production metrics, so this remains directional evidence only.
+  - The next implementation should produce a production-compatible cash replay from `equity_curve.csv` / pipeline monthly accounting, not only exported holdings.
+
+### 10:10 KST - crisis-bargain-reentry-replay
+
+- scope:
+  - Add a research-only crisis cash ladder and staged bargain-reentry replay so normal-market cash can stay low while red/crisis regimes retain high defensive cash.
+- files:
+  - `tools/run_crisis_reentry_replay.py` ->new sidecar that consumes macro policy, aligns holdings to reported cash, and compares crisis ladder / bargain reentry / fast reentry cash policies.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the crisis-reentry replay and uploads/syncs `outputs/crisis_reentry_replay/`.
+  - `tests/workflow_artifact_smoke.py` ->requires workflow execution and artifact coverage for `outputs/crisis_reentry_replay/`.
+  - `CHANGELOG.md` ->records the crisis/reentry replay.
+- symbols_added:
+  - `read_json(path)` ->loads production metrics for replay-vs-production diagnostics.
+  - `calc_equity_rows(monthly_rows)` ->builds policy-specific equity and drawdown rows.
+  - `policy_floor(state, policy)` ->maps macro risk state to cash floor.
+  - `target_cash_for_month(state, policy, prev_target_cash, drawdown_before, drawdown_after)` ->implements staged cash raises and reentry release steps.
+  - `adjust_group_to_cash(group, target_cash, single_name_cap)` ->scales/redeploys monthly holdings to a target cash level with single-name cap headroom.
+  - `load_macro_policy(latest_run)` ->loads `macro_policy_engine/macro_policy_by_month.csv`.
+  - `replay(df, macro, policy_id, policy)` ->computes monthly returns and holdings for one cash policy.
+  - `render_report(summary, ranking)` ->renders the human-readable replay report.
+  - `run(latest_run, output_dir)` ->writes crisis-reentry metrics, comparison, policy, monthly, equity curve, holdings, and report outputs.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires crisis reentry artifact upload coverage.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires crisis reentry workflow execution and log capture.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/crisis_reentry_replay/comparison.csv` ->policy-level CAGR, Sharpe, MaxDD, cash, and turnover comparison.
+  - `outputs/crisis_reentry_replay/policy_by_month.csv` ->monthly target cash and action decisions.
+  - `outputs/crisis_reentry_replay/metrics.json` ->summary and ranked policy results.
+  - `outputs/crisis_reentry_replay/replay_report.md` ->human-readable replay report.
+- validation:
+  - `py -3 -m py_compile tools\run_crisis_reentry_replay.py tools\run_main_cash_drag_replay.py tools\run_cash_policy_attribution.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_crisis_reentry_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_crisis_reentry_check` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with CRLF warnings only.
+- risks_or_notes:
+  - Local latest directional replay ranked `fast_reentry` best at CAGR 32.11%, MaxDD -10.98%, avg cash 8.47%, but this is not production evidence because it uses exported monthly holdings and macro policy rows.
+  - The equity curve is reset per policy; policy results are no longer chained into one combined curve.
+  - Next step should move from directional replay toward production-compatible cash/reentry accounting before activation.
+
+### 10:14 KST - concentrated-risk-replay-goal-hardening
+
+- scope:
+  - Harden the concentrated position-risk replay against the new commercial concentrated target and add cost/rolling-window diagnostics.
+- files:
+  - `tools/run_concentrated_position_risk_replay.py` ->uses shared concentrated goal targets, tests 25/50/75bps cost sensitivity, and writes rolling 3-year diagnostics.
+  - `tests/historical_challenger_replays_smoke.py` ->adds concentrated position-risk replay coverage with cost-grid and shared target assertions.
+  - `CHANGELOG.md` ->records the concentrated risk replay hardening.
+  - `SESSION_HANDOFF.md` ->adds the current concentrated risk replay interpretation for the next agent.
+- symbols_added:
+  - `rolling_window_rows(monthly_rows, months)` ->computes rolling-window metrics for the selected concentrated risk policy.
+  - `rolling_summary(rows)` ->summarizes rolling-window pass rate, minimum CAGR, and worst drawdown.
+- symbols_changed:
+  - `replay(holdings_path, monthly_path, output_dir, hard_stops, cost_bps_grid)` ->adds cost-bps grid testing and shared concentrated target gates.
+  - `render_report(metrics)` ->surfaces cost bps, target gates, and rolling 3-year diagnostics.
+  - `parse_args()` ->adds `--cost-bps-grid`.
+  - `main()` ->passes the parsed cost-bps grid to replay.
+  - `test_historical_challenger_replays()` ->checks concentrated position-risk replay outputs and target wiring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_position_risk_replay/rolling_3y.csv` ->rolling 36-month metrics for the best hard-stop/cost policy.
+  - `outputs/concentrated_position_risk_replay/comparison.csv` ->now includes `cost_bps`, `target_cagr`, and `target_max_dd`.
+  - `outputs/concentrated_position_risk_replay/metrics.json` ->now includes cost-grid, shared target gates, and rolling 3-year summary fields.
+- validation:
+  - `py -3 -m py_compile tools\run_concentrated_position_risk_replay.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tools\run_concentrated_position_risk_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_concentrated_position_risk_check` ->passed.
+- risks_or_notes:
+  - Local latest replay is now very close but still below the new target: best `score_power`, hard stop -8%, 25bps cost, CAGR 49.90%, MaxDD -18.16%, rolling 3-year pass rate 10.42%.
+  - The replay remains monthly hard-stop proxy evidence only; weekly/intramonth execution data is required before production activation.
+
+### 10:18 KST - monster-lifecycle-hard-stop-proxy
+
+- scope:
+  - Add research-only hard-stop defense to lifecycle-review monster replays so staged sizing can be evaluated with failure exits instead of full-month losses.
+- files:
+  - `tools/run_monster_lifecycle_replay.py` ->adds policy-level monthly hard-stop proxy, risk-adjusted returns, and optional exit-after-stop behavior for lifecycle review policies.
+  - `tests/historical_challenger_replays_smoke.py` ->asserts lifecycle-review hard-stop settings and risk-adjusted holding output.
+  - `CHANGELOG.md` ->records the monster lifecycle hard-stop proxy.
+- symbols_added:
+  - `risk_adjusted_period_return(ret, policy)` ->caps monthly proxy return at the configured hard-stop level and labels stop events.
+- symbols_changed:
+  - `replay(candidate_book, output_dir, policy_name, cost_bps)` ->applies risk-adjusted period returns, writes hard-stop events, and exits stopped positions before the next month.
+  - `render_report(metrics)` ->shows the configured hard-stop proxy.
+  - `test_historical_challenger_replays()` ->checks lifecycle-review hard-stop proxy and risk-adjusted holding fields.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/monster_lifecycle_review_main/holdings.csv` ->now includes `risk_adjusted_forward_return`, `risk_exit_proxy`, `risk_exit_reason`, and `hard_stop_proxy`.
+  - `outputs/monster_lifecycle_review_concentrated/holdings.csv` ->same risk-adjusted lifecycle holding diagnostics for concentrated review.
+  - `outputs/monster_lifecycle_review_concentrated/events.csv` ->now includes `monthly_hard_stop_proxy` exits when the proxy stop is hit.
+- validation:
+  - `py -3 -m py_compile tools\run_monster_lifecycle_replay.py` ->passed.
+  - `py -3 tools\run_monster_lifecycle_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --policy lifecycle_review_concentrated --output-dir _local_monster_review_concentrated_check` ->passed.
+  - `py -3 tools\run_monster_lifecycle_replay.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --policy lifecycle_review_main --output-dir _local_monster_review_main_check` ->passed.
+- risks_or_notes:
+  - Local latest lifecycle-review concentrated improved from CAGR 10.46%, MaxDD -39.37% to CAGR 14.42%, MaxDD -25.91%, but it remains far below target and is not a production candidate.
+  - This confirms the lifecycle engine is useful as a diagnostic/learning feed, while the stronger near-target path remains concentrated position-risk replay plus better early leader capture.
+
+### 10:27 KST - historical-first-decision-priorities
+
+- scope:
+  - Promote historical decision quality above latest snapshot inspection by adding first-class historical priority queues to the trade journey sidecar.
+- files:
+  - `tools/run_historical_trade_journey.py` ->adds book summary, journey-tag summary, and historical decision priority outputs before latest-holdings sections.
+  - `tests/historical_challenger_replays_smoke.py` ->runs the historical trade journey sidecar in smoke coverage and checks the new summary outputs.
+  - `CHANGELOG.md` ->records the historical-first reporting change.
+  - `SESSION_HANDOFF.md` ->documents the new interpretation: historical runs are the primary evaluation surface.
+- symbols_added:
+  - `book_summary(runs)` ->summarizes holding history by book, including long winners, quick losses, stale open watches, and weighted contribution.
+  - `journey_tag_summary(runs)` ->summarizes historical holding-run tags by book.
+  - `historical_decision_priorities(runs, current_history)` ->ranks stale holdings, short big wins, quick losses, and long winners as historical review queues.
+- symbols_changed:
+  - `build_report(summary, runs, trades_by_ticker, current_history, priorities, books_by_run, tag_summary)` ->moves historical decision priorities and book-level history above current snapshot sections.
+  - `analyze(latest_run, output_dir)` ->writes `book_summary.csv`, `journey_tag_summary.csv`, and `historical_decision_priorities.csv`.
+  - `test_historical_challenger_replays()` ->checks the historical journey sidecar and new summary outputs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/historical_trade_journey/book_summary.csv` ->history quality by book.
+  - `outputs/historical_trade_journey/journey_tag_summary.csv` ->counts and returns for normal, long winner, short big win, quick loss, and stale-watch tags.
+  - `outputs/historical_trade_journey/historical_decision_priorities.csv` ->ranked historical review queue before latest-position review.
+- validation:
+  - `py -3 -m py_compile tools\run_historical_trade_journey.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tools\run_historical_trade_journey.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_historical_trade_journey_check` ->passed.
+- risks_or_notes:
+  - Local latest history shows production main average run length is only 2.81 months, with 43 `short_big_win_review` runs and only 8 runs held 12+ months.
+  - This confirms the next alpha improvement should learn from historical premature exits and long-winner templates, not only inspect `portfolio_latest.csv`.
+
+### 12:03 KST - alphaops-policy-fusion-arbitration
+
+- scope:
+  - Add a conflict-aware AlphaOps policy fusion layer that ranks sidecar/replay policies, declares which policy wins when signals disagree, and emits a shadow activation plan.
+- files:
+  - `tools/run_alphaops_policy_fusion.py` ->new artifact-only fusion runner that reads goal-search, replay, cash, macro, governance, and historical journey outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the policy fusion sidecar after the replay/goal/journey sidecars and archives/syncs `outputs/policy_fusion/`.
+  - `tests/alphaops_policy_fusion_smoke.py` ->adds synthetic fixture coverage for policy arbitration, conflict matrix output, and shadow-only behavior.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution/export tokens for the new sidecar.
+  - `CHANGELOG.md` ->records the fusion layer.
+- symbols_added:
+  - `repo_path(path_like)` ->normalizes repo-relative paths.
+  - `rel(path)` ->formats output paths relative to repo root.
+  - `read_json(path)` ->safe JSON loader.
+  - `read_csv_rows(path)` ->safe CSV row loader.
+  - `write_json(path, payload)` ->writes formatted JSON artifacts.
+  - `write_rows(path, rows, fieldnames=None)` ->writes CSV artifacts.
+  - `write_text(path, text)` ->writes text artifacts.
+  - `safe_float(value, default=None)` ->safe finite float parser.
+  - `pct(value)` ->formats percent values for reports.
+  - `pp(value)` ->formats decimal values as percentage points.
+  - `load_production_metrics(latest_run, portfolio)` ->loads main/concentrated production metrics for deltas.
+  - `metric_value(row, *names)` ->extracts the first available numeric metric.
+  - `score_policy(...)` ->scores a policy candidate against targets, production deltas, evidence type, and activation stage.
+  - `find_candidate(candidates, candidate_id)` ->finds a normalized goal-search candidate.
+  - `best_metric_from_summary(path, key='best_by_cagr')` ->extracts best replay metrics from summary artifacts.
+  - `build_metric_policies(latest_run)` ->builds policy candidates from replay metrics.
+  - `build_diagnostic_policies(latest_run)` ->builds policy candidates from diagnostic artifacts.
+  - `dedupe_policy_rows(rows)` ->keeps the best evidence row per policy/portfolio pair.
+  - `activation_queue(rows)` ->orders policies by priority, target pass, and fusion score.
+  - `render_yaml_plan(rows, queue)` ->writes a shadow activation YAML plan.
+  - `render_report(payload)` ->writes the human-readable fusion report.
+  - `run(args)` ->executes policy fusion and writes all artifacts.
+  - `parse_args()` ->CLI parser.
+  - `main()` ->CLI entrypoint.
+  - `test_policy_fusion_smoke()` ->smoke test for policy fusion output.
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks policy fusion workflow/log tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/policy_fusion/policy_fusion_summary.json` ->machine-readable policy candidates, precedence, conflicts, and top recommendation.
+  - `outputs/policy_fusion/policy_candidates.csv` ->ranked policy rows with targets, deltas, evidence type, activation stage, and conflict scope.
+  - `outputs/policy_fusion/conflict_matrix.csv` ->explicit winner/loser rules for policy conflicts.
+  - `outputs/policy_fusion/activation_plan.yaml` ->shadow-only activation queue for future policy promotion.
+  - `outputs/policy_fusion/policy_fusion_report.md` ->human-readable fusion summary.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_policy_fusion.py tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tools\run_alphaops_policy_fusion.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_policy_fusion_check` ->passed; existing latest artifacts do not yet contain enough completed sidecar metrics for an actionable top policy.
+- risks_or_notes:
+  - This is shadow governance only; production selection, weights, active gates, and broker execution are unchanged.
+  - The next full rebuild at the new commit is required for `outputs/policy_fusion/` to evaluate the latest sidecar set in cloud artifacts.
+
+### 12:12 KST - valid-artifact-latest-guard
+
+- scope:
+  - Prevent failed or cancelled full rebuilds with missing core metrics from overwriting canonical Google Drive outputs or `latest_*` cloud result pointers.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->routes runs missing `backtest_metrics.json` or `concentrated_backtest_metrics.json` to `failed_runs/<run_id>/` and preserves the previous valid `latest_<universe_mode>` result.
+  - `tests/workflow_artifact_smoke.py` ->checks the workflow contains the valid-artifact guard tokens.
+  - `CHANGELOG.md` ->records the artifact guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks `VALID_PRIMARY_OUTPUTS`, `RUN_ARTIFACT_VALID`, and failed-run routing tokens.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cloud_results/full_rebuild/failed_runs/<run_id>_<universe_mode>/` ->partial diagnostics for failed/cancelled runs that should not become latest.
+  - `Google Drive failed_runs/<run_id>/outputs/` ->partial diagnostics for failed/cancelled runs when Drive sync is configured.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This fixes the observed issue where a cancelled 2026-05-08 run replaced `latest_global_alpha_universe` with a metrics-missing artifact.
+  - Successful runs still write the dated folder and refresh `latest_<universe_mode>` as before.
+
+### 12:15 KST - winner-learning-sidecar-wireup
+
+- scope:
+  - Wire the previously standalone winner-onset, shakeout/breakdown, AutoLearning v2, and AutoLearning winner-challenger tools into the full rebuild and policy fusion flow.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs winner lifecycle, winner onset, shakeout breakdown, AutoLearning v2, and AutoLearning winner challenger before policy fusion; archives/syncs their output directories.
+  - `tools/run_alphaops_policy_fusion.py` ->reads winner-onset, shakeout/breakdown, AutoLearning v2, and winner-challenger artifacts as diagnostic/proposal evidence.
+  - `tests/alphaops_policy_fusion_smoke.py` ->adds fixture coverage for winner-onset, shakeout, and AutoLearning proposal evidence.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow execution/export tokens for the newly wired sidecars.
+  - `CHANGELOG.md` ->records the wire-up.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `build_diagnostic_policies(latest_run)` ->adds winner-onset evidence for monster early sizing, shakeout evidence for soft-trim vetoes, and AutoLearning proposal evidence.
+  - `test_policy_fusion_smoke()` ->checks AutoLearning proposal evidence is included in fusion candidates.
+  - `test_workflow_keeps_monthly_books()` ->checks new sidecar artifact directories are uploaded.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->checks new sidecar commands and logs are present.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/auto_learning_v2/` ->research-only anomaly, hypothesis, challenger, and promotion decision outputs.
+  - `outputs/winner_lifecycle/` ->missed/stale/rotation winner diagnostics.
+  - `outputs/winner_onset_study/` ->ticker-agnostic historical monster-onset event study.
+  - `outputs/shakeout_breakdown_study/` ->research-only shakeout vs true breakdown event labels and action summaries.
+  - `outputs/autolearning_winner_challenger/` ->proposal-only learner/challenger summary combining winner, shakeout, cash, and replay evidence.
+- validation:
+  - `py -3 -m py_compile tools\run_alphaops_policy_fusion.py tests\alphaops_policy_fusion_smoke.py tools\run_auto_learning_v2.py tools\run_winner_lifecycle_reports.py tools\run_winner_onset_study.py tools\run_shakeout_breakdown_study.py tools\run_autolearning_winner_challenger.py` ->passed.
+  - `py -3 tests\alphaops_policy_fusion_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - local integrated sample sidecar run with 3 scored tickers against `cloud_results\full_rebuild\20260507_global_alpha_universe` ->passed; winner lifecycle, AutoLearning v2, winner onset, shakeout, winner challenger, and policy fusion all completed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - Winner onset and shakeout studies use yfinance history for the top 80 scored tickers; they are guarded with `|| true` and remain proposal-only.
+  - This makes the discussed learning components visible in every full rebuild, but production weights remain unchanged until a replay-backed policy clears gates.
+
+## 2026-05-07
+
+### 00:50 KST - concentrated-champion-guard
+
+- scope:
+  - Prevent latest concentrated production outputs from falling back to invalid N=1/NaN metrics when a valid historical comparison-grid champion exists.
+- files:
+  - `r1000_config.py` ->adds concentrated production minimum-name and goal-threshold fields.
+  - `r1000_pipeline.py` ->filters concentrated comparison rows for finite 6y+ metrics, prefers goal-passing candidates, and reloads the comparison CSV when export artifacts are empty.
+  - `tests/concentrated_policy_smoke.py` ->adds regression coverage for rejecting NaN N=1 concentrated fallbacks and applying the grid champion to latest holdings.
+  - `CHANGELOG.md` ->records the concentrated champion guard.
+- symbols_added:
+  - `select_concentrated_champion_comparison(cfg, concentrated_compare)` ->returns valid concentrated comparison rows sorted with the production champion first.
+- symbols_changed:
+  - `build_latest_concentrated_holdings()` ->uses the validated historical comparison champion, enforces minimum production N, emits target/pass validity fields, and avoids silent N=1/NaN fallback behavior.
+- config_fields_added:
+  - `concentrated_min_production_names: int = 3` ->minimum latest concentrated production N before a fallback is considered valid.
+  - `concentrated_latest_prefer_goal_passing: bool = True` ->prefers rows meeting explicit concentrated CAGR/MaxDD goals before objective sorting.
+  - `concentrated_target_cagr: float = 0.40` ->concentrated production target CAGR used for target-pass tagging.
+  - `concentrated_target_max_dd: float = -0.22` ->concentrated production target MaxDD floor used for target-pass tagging.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_backtest_metrics.json` ->now includes `metrics_valid`, `target_cagr`, `target_max_dd`, `target_pass`, `production_valid`, and `comparison_source`.
+- validation:
+  - `python tests\concentrated_policy_smoke.py` ->passed.
+  - inline latest artifact check ->passed; selected N=3 score_power champion with CAGR 45.75%, MaxDD -20.62%, tickers CIEN/WDC/SNDK.
+- risks_or_notes:
+  - This validates the champion plumbing without launching a new full rebuild.
+  - Latest concentrated metrics remain unverified in GitHub artifacts until the next cloud rebuild writes the corrected summary.
+
+### 09:59 KST - concentrated-export-order-fix
+
+- scope:
+  - Fix concentrated latest output export order so the validated comparison-grid champion is available before `concentrated_backtest_metrics.json` and `concentrated_portfolio_latest.csv` are written.
+- files:
+  - `r1000_pipeline.py` ->writes concentrated comparison/monthly/holdings grid artifacts before dependent latest concentrated exports and reuses the same writer for final cleanup.
+  - `tests/concentrated_policy_smoke.py` ->adds coverage for reloading an already-written concentrated comparison artifact when the in-memory comparison frame is empty.
+  - `CHANGELOG.md` ->records the concentrated export-order fix.
+- symbols_added:
+  - `export_outputs._write_concentrated_grid_artifacts(prune_missing=False)` ->internal helper that persists or prunes concentrated grid artifacts consistently inside export.
+  - `test_latest_concentrated_reloads_written_grid_artifact()` ->smoke test for concentrated champion reload from a written grid artifact.
+- symbols_changed:
+  - `export_outputs()` ->persists concentrated grid artifacts before latest concentrated holdings/metrics are built, preventing stale fallback NaN metrics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/concentrated_strategy_comparison.csv` ->now exists before latest concentrated output construction during export.
+  - `outputs/concentrated_backtest_metrics.json` ->next rebuild should use the N=3 score_power champion metrics instead of NaN fallback when the grid comparison is valid.
+- validation:
+  - `py -3 tests\concentrated_policy_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - local latest artifact check ->passed; direct comparison champion selects GLW/CIEN/WDC at N=3 score_power with CAGR 45.75% and MaxDD -20.62%.
+- risks_or_notes:
+  - No production scoring/defaults changed; this is output plumbing only.
+  - Existing GitHub artifacts remain stale until the next full rebuild writes corrected concentrated summary files.
+
+### 11:26 KST - autolearning-concentrated-reflection-route
+
+- scope:
+  - Connect concentrated champion trade outcomes into AutoLearning and add a guarded route for approved learned gates to affect the next scoring run.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->builds concentrated champion trade journal, includes it in trade insights, runs policy proposal/challenger/promotion sidecars, archives/syncs the new artifacts, and adds an explicit guarded live-promotion input.
+  - `.github/workflows/quarterly_auto_learning.yml` ->adds concentrated champion trade journal as optional extra evidence for scheduled/manual learning reviews.
+  - `r1000_trade_journal.py` ->expands captured signal breakdown fields and allows sidecar-specific journal output directories.
+  - `r1000_auto_learning_evidence.py` ->summarizes concentrated and combined trade journals for policy evidence.
+  - `tools/build_concentrated_trade_journal.py` ->new sidecar that filters the concentrated strategy grid to the validated champion and emits trade/grade artifacts.
+  - `tools/trade_insights.py` ->supports extra trade journals and imports the canonical signal breakdown list.
+  - `tools/auto_policy_proposal.py` ->surfaces concentrated and combined trade counts/win-rate in policy evidence summaries.
+  - `tests/concentrated_trade_learning_smoke.py` ->adds coverage for concentrated champion journal creation and combined insight loading.
+  - `tests/workflow_artifact_smoke.py` ->checks the new learning artifacts and guarded promotion input remain wired into the full rebuild workflow.
+  - `CHANGELOG.md` ->records the AutoLearning reflection route.
+- symbols_added:
+  - `r1000_trade_journal._journal_dir(paths)` ->resolves the default or custom trade journal output directory.
+  - `tools.build_concentrated_trade_journal.repo_path(path_like)` ->normalizes repo-relative CLI paths.
+  - `tools.build_concentrated_trade_journal.safe_float(value, default=0.0)` ->NaN-safe numeric coercion.
+  - `tools.build_concentrated_trade_journal.read_csv(path)` ->defensive CSV loader.
+  - `tools.build_concentrated_trade_journal.write_json(path, payload)` ->writes JSON sidecar artifacts.
+  - `tools.build_concentrated_trade_journal.champion_row(compare)` ->selects the validated concentrated grid champion.
+  - `tools.build_concentrated_trade_journal.filter_champion_frame(df, champion)` ->filters monthly/holdings grids to champion N/mode/interval.
+  - `tools.build_concentrated_trade_journal.add_regime_state(holdings, latest_run)` ->joins monthly regime state onto concentrated holdings.
+  - `tools.build_concentrated_trade_journal.signal_breakdown(row)` ->serializes AutoLearning signal values for a concentrated holding row.
+  - `tools.build_concentrated_trade_journal.normalize_holdings(holdings, latest_run)` ->converts champion holdings into trade-journal-compatible rows.
+  - `tools.build_concentrated_trade_journal.build(latest_run, output_dir)` ->emits concentrated champion holdings/trades/grades/summary artifacts.
+  - `tools.trade_insights.merge_grade_labels(trades, trades_path)` ->merges grades for each primary or extra journal source.
+  - `tools.trade_insights.load_journals(primary_path, extra_paths)` ->loads and concatenates primary plus extra trade journals for learning.
+  - `test_concentrated_journal_build_and_insight_load()` ->smoke test for concentrated trade-learning artifacts.
+- symbols_changed:
+  - `r1000_trade_journal.SIGNAL_BREAKDOWN_COLUMNS` ->adds monster/entry-quality/risk/stale-leader fields to the learned signal signature.
+  - `r1000_trade_journal.persist_holdings_history()` ->honors `paths["trade_journal_dir"]` for sidecar outputs.
+  - `r1000_trade_journal.pair_entries_with_exits()` ->honors `paths["trade_journal_dir"]` and carries `source_journal` into trade rows.
+  - `r1000_trade_journal.grade_trades()` ->honors `paths["trade_journal_dir"]` for sidecar grades.
+  - `tools.trade_insights.main()` ->accepts `--extra-trades` and computes insights on combined trade evidence.
+  - `r1000_auto_learning_evidence.load_auto_learning_evidence()` ->adds concentrated and combined trade journal summaries.
+  - `tools.auto_policy_proposal.build_policy_from_evidence()` ->includes concentrated/combined trade evidence in policy summaries.
+- config_fields_added:
+  - `full_rebuild_manual.workflow_dispatch.auto_learning_promote_live: bool = false` ->explicit guarded switch that can commit approved `research/auto_feature_gates.yaml` for the next run.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_trade_journal/holdings_history.csv` ->champion-only concentrated monthly holdings.
+  - `outputs/concentrated_trade_journal/trades.csv` ->champion-only concentrated round-trip trades.
+  - `outputs/concentrated_trade_journal/grades.csv` ->auto-graded concentrated trades.
+  - `outputs/concentrated_trade_journal/summary.json` ->champion metadata and trade digest.
+  - `outputs/auto_learning/auto_learning_policy_candidate.yaml` ->policy candidate generated from combined learning evidence.
+  - `outputs/auto_learning/challenger/challenger_decision.json` ->guarded challenger decision for the generated policy candidate.
+  - `research/auto_feature_gates.yaml` ->only written and committed when `auto_learning_promote_live=true` and promotion checks pass.
+- validation:
+  - `py -3 tests\concentrated_trade_learning_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_policy_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\auto_learning_v2_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - local artifact check ->passed; concentrated champion journal built 152 trades from N=3 score_power champion and combined insights loaded 878 trades.
+- risks_or_notes:
+  - Learned gates still cannot alter the current run because they are generated after scoring; approved gates affect the next run.
+  - Live promotion is opt-in and guarded by `auto_learning_promote.py`; default full rebuild behavior remains dry-run/report-only.
+  - This does not enable broker execution or unguarded capital allocation changes.
+
+### 12:21 KST - dataset-coverage-audit-route
+
+- scope:
+  - Add full-run dataset coverage diagnostics and preserve historical candidate replay fields needed to explain missing or rejected leader candidates.
+- files:
+  - `r1000_pipeline.py` ->extends `candidate_replay_book.csv` with raw fundamental/growth columns, preserves `universe_source` as `source_universe`, and recomputes candidate gate labels for historical replay diagnostics.
+  - `tools/run_dataset_coverage_audit.py` ->adds a read-only sidecar that audits latest/historical coverage, effective market-cap availability, distribution counts, and watchlist missing-candidate causes.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the dataset audit sidecar and includes its outputs in artifacts, Google Drive sync, Telegram bundle, and cloud result commits.
+  - `tests/dataset_coverage_audit_smoke.py` ->adds fixture coverage for effective market cap and watchlist missing-candidate classification.
+  - `tests/workflow_artifact_smoke.py` ->checks dataset audit workflow wiring and candidate replay diagnostic export hooks.
+  - `CHANGELOG.md` ->records the dataset coverage audit route.
+- symbols_added:
+  - `tools.run_dataset_coverage_audit.repo_path(path_like)` ->normalizes repo-relative CLI paths.
+  - `tools.run_dataset_coverage_audit.read_csv(path)` ->defensive CSV loader.
+  - `tools.run_dataset_coverage_audit.read_json(path)` ->defensive JSON loader.
+  - `tools.run_dataset_coverage_audit.write_json(path, payload)` ->writes JSON audit outputs.
+  - `tools.run_dataset_coverage_audit.numeric_coverage(df, columns, scope)` ->computes per-column numeric/nonzero coverage.
+  - `tools.run_dataset_coverage_audit.effective_numeric_coverage(df, columns, scope, output_column)` ->computes coalesced coverage such as effective market cap from `market_cap_live`/`mktcap`.
+  - `tools.run_dataset_coverage_audit.value_counts_rows(df, col, scope, limit=20)` ->exports source/gate/sleeve distribution counts.
+  - `tools.run_dataset_coverage_audit.watchlist_rows(scored, book, tickers)` ->classifies selected watchlist names as absent, historical-only, rejected, or selected candidates.
+  - `tools.run_dataset_coverage_audit.render_report(payload, output_dir)` ->renders the markdown audit summary.
+  - `tools.run_dataset_coverage_audit.run(latest_run, output_dir, watchlist)` ->emits audit JSON/CSV/Markdown files.
+  - `test_dataset_coverage_audit_outputs_effective_cap_and_watchlist()` ->smoke test for audit outputs.
+- symbols_changed:
+  - `export_outputs._write_monthly_mandate_books()` ->preserves source/gate/fundamental diagnostic fields in the historical candidate replay book.
+  - `test_pipeline_exports_monthly_books()` ->also checks candidate replay diagnostic field preservation.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->also checks dataset audit sidecar wiring.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/dataset_coverage_audit.json` ->machine-readable dataset coverage, missing-column, watchlist, and effective market-cap audit.
+  - `outputs/reports/dataset_coverage_audit.md` ->human-readable dataset audit summary.
+  - `outputs/reports/dataset_coverage_audit_coverage.csv` ->per-column latest and historical coverage ratios.
+  - `outputs/reports/dataset_coverage_audit_watchlist.csv` ->watchlist inclusion/rejection diagnostics for names such as SNDK, INTC, STX, LITE, WDC, and CIEN.
+  - `outputs/reports/dataset_coverage_audit_distributions.csv` ->universe source, gate, sleeve, and sector distribution counts.
+- validation:
+  - `py -3 -m py_compile r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\dataset_coverage_audit_smoke.py tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\dataset_coverage_audit_smoke.py` ->passed.
+  - `py -3 tools\run_dataset_coverage_audit.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_dataset_audit_check3` ->passed; latest artifact shows 704 latest rows, 84 historical months, effective market cap 100% in latest and historical books, and missing source/gate/fundamental diagnostics in the pre-fix artifact.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 83/83.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not change production selection weights or model features.
+  - Existing cloud artifacts still show pre-fix historical replay gaps; the next full rebuild is needed to populate the expanded `candidate_replay_book.csv`.
+  - The current latest artifact confirms effective market cap is present via `mktcap`, but historical source/gate labels and raw fundamentals need the next export to become auditable.
+
+### 12:33 KST - strategic-global-hardware-universe
+
+- scope:
+  - Add a non-buy-list strategic semiconductor, AI hardware, memory/storage, optical, and datacenter infrastructure universe overlay so missing leaders remain visible to latest diagnostics and explicit research backtests.
+- files:
+  - `aggressive/universe.py` ->loads the same strategic hardware YAML in the shared aggressive/tactical universe loader so `global_alpha_universe` stays aligned across engines.
+  - `strategic_global_hardware_universe.yaml` ->adds the curated research universe records for INTC, AMD, ARM, ASML, TSM, AVGO, QCOM, MU, WDC, SNDK, STX, LITE, CIEN, GLW, and adjacent hardware leaders.
+  - `r1000_config.py` ->adds enable/path fields for the strategic global hardware universe overlay.
+  - `r1000_pipeline.py` ->loads the YAML overlay, injects it into `global_alpha_universe`, and treats overlay-only historical rows like leader-rescue rows under `leader_rescue_backtest_mode`.
+  - `tools/run_dataset_coverage_audit.py` ->expands the default watchlist to include semiconductor, AI hardware, memory/storage, optical, and datacenter infrastructure names.
+  - `tests/smoke_test.py` ->adds loader coverage and verifies strategic overlay-only rows obey latest-only/full-proxy/off backtest filtering.
+  - `CHANGELOG.md` ->records the strategic global hardware universe overlay.
+- symbols_added:
+  - `aggressive.universe.load_strategic_global_hardware_universe(include_skip=False)` ->loads the shared hardware overlay for aggressive/tactical research loaders.
+  - `load_strategic_global_hardware_universe_frame(cfg)` ->loads the strategic hardware YAML as a candidate-universe source without bypassing normal scoring or risk gates.
+  - `test_strategic_global_hardware_universe_loader()` ->guards the overlay loader and required diagnostic tickers.
+- symbols_changed:
+  - `aggressive.universe.load_universe(source, ...)` ->unions strategic hardware candidates into `global_alpha_universe` and records hardware metadata.
+  - `normalize_engine_universe_mode(mode)` ->adds hardware aliases into the shared `global_alpha_universe` path.
+  - `build_candidate_universe()` ->injects strategic hardware candidates into global-alpha candidate discovery and logs pre-dedup additions.
+  - `_leader_rescue_only_source_mask(df)` ->treats strategic hardware overlay-only rows as current-overlay rows for PIT-safer historical filtering.
+  - `test_leader_rescue_latest_only_filter()` ->verifies strategic overlay-only rows are latest-only by default, retained in `full_proxy`, and removed in `off`.
+- config_fields_added:
+  - `strategic_global_hardware_universe_enabled: bool = True` ->enables the diagnostic universe overlay in global-alpha runs.
+  - `strategic_global_hardware_universe_path: str = ""` ->optional override path for the strategic hardware YAML.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/dataset_coverage_audit_watchlist.csv` ->next full rebuild will classify the expanded hardware watchlist as selected, rejected, historical-only, or not in latest universe.
+  - `outputs/reports/leader_rescue_backtest_filter_summary.json` ->now counts strategic hardware overlay-only rows in the same latest-only/full-proxy/off safety filter.
+- validation:
+  - `py -3 -m py_compile aggressive\universe.py r1000_config.py r1000_pipeline.py tools\run_dataset_coverage_audit.py tests\smoke_test.py` ->passed.
+  - inline `load_strategic_global_hardware_universe_frame()` check ->passed; loaded 25 rows including INTC, AMD, ARM, ASML, STX, SNDK, WDC, LITE, and CIEN.
+  - `py -3 tests\dataset_coverage_audit_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 84/84.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is a candidate-universe overlay, not a ticker buy rule.
+  - Default historical production metrics remain PIT-safer because overlay-only rows are latest-only unless `leader_rescue_mode=full_proxy` is explicitly selected for biased research.
+  - Price history can be fetched for these tickers on the next collector run, but fundamentals, ADR data, and event/ownership coverage will vary by ticker, listing date, and source availability.
+
+### 13:15 KST - theme-chameleon-lifecycle-policy
+
+- scope:
+  - Add research-only theme half-life policy metadata so event/commodity beneficiaries can be reviewed faster while structural growth winners can tolerate valid shakeouts longer.
+- files:
+  - `themes.yaml` ->tags major structural, commodity, event, and product-cycle themes with holding profiles, event risk, target hold months, and max hold months; adds SNDK/ARM/INTC to relevant semiconductor theme memberships.
+  - `r1000_themes.py` ->loads theme policy metadata and attaches per-ticker horizon, event-risk, structural-growth, and short-cycle columns.
+  - `r1000_features.py` ->fills safe defaults for theme policy columns when theme data is missing.
+  - `r1000_config.py` ->adds research-only theme policy columns and bumps `ENGINE_REUSE_VERSION`.
+  - `r1000_pipeline.py` ->preserves theme policy metadata in feature store and `reports/candidate_replay_book.csv` without adding it to `DEFAULT_FEATURES`.
+  - `tools/run_monster_lifecycle_replay.py` ->adjusts research-only lifecycle thresholds by theme half-life; short-cycle themes trim/exit faster, structural themes get more shakeout patience.
+  - `tools/run_position_aware_risk_replay.py` ->uses theme half-life metadata to avoid protecting event-cycle winners while preserving stronger protection for structural long-hold winners.
+  - `tools/run_main_v2_backtest.py` ->passes theme policy metadata through monthly holdings for risk replay.
+  - `tests/historical_challenger_replays_smoke.py` ->adds fixture fields and output assertions for theme policy metadata through replay artifacts.
+  - `tests/smoke_test.py` ->adds regression coverage that FTI/oilfield services are short-cycle and NVDA/AI compute are structural growth.
+  - `CHANGELOG.md` ->records the theme chameleon lifecycle policy change.
+- symbols_added:
+  - `r1000_themes._theme_policy_defaults(theme_horizon)` ->returns default policy metadata for a theme horizon.
+  - `r1000_themes._coerce_policy_float(value, default)` ->NaN-safe numeric parser for theme policy fields.
+  - `tools.run_monster_lifecycle_replay.theme_event_risk(row)` ->reads max event-risk sensitivity from candidate rows.
+  - `tools.run_monster_lifecycle_replay.theme_structural_growth(row)` ->reads max structural-growth score from candidate rows.
+  - `tools.run_monster_lifecycle_replay.theme_short_cycle(row)` ->detects event/commodity short-cycle theme rows.
+  - `tools.run_monster_lifecycle_replay.theme_adjusted_policy(row, policy)` ->returns per-row lifecycle thresholds adjusted by theme half-life.
+  - `test_theme_policy_metadata_surface()` ->guards theme policy metadata surface and ticker examples.
+- symbols_changed:
+  - `r1000_themes.load_themes()` ->preserves optional theme policy metadata with safe defaults.
+  - `r1000_themes.attach_per_ticker_theme_features()` ->adds per-ticker theme horizon, event risk, structural growth, target-hold, max-hold, and short-cycle columns.
+  - `r1000_features.compute_theme_phase_features()` ->fills theme policy defaults alongside phase multipliers.
+  - `tools.run_monster_lifecycle_replay.entry_qualified()` ->blocks late-cycle event themes in peaking/ending/dead phase from new scout entry.
+  - `tools.run_monster_lifecycle_replay.classify_exit()` ->applies event half-life trims/time stops and structural shakeout patience.
+  - `tools.run_monster_lifecycle_replay.replay()` ->uses theme-adjusted policy for held winners and new scouts, and writes theme policy diagnostics.
+  - `tools.run_position_aware_risk_replay.is_long_hold_protected()` ->uses event/structural theme metadata in relative underperformance protection.
+  - `tools.run_main_v2_backtest.replay()` ->carries theme policy metadata into monthly holdings.
+- config_fields_added:
+  - `PHASE20_THEME_POLICY_COLUMNS: list[str] = [...]` ->research-only feature-store/candidate-book column list for theme half-life metadata.
+  - `ENGINE_REUSE_VERSION: str = "2026-05-07-theme-chameleon-policy"` ->forces feature-store rebuild for the new metadata columns.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/candidate_replay_book.csv` ->next rebuild includes theme horizon/event-risk/structural-growth fields for lifecycle backtests.
+  - `outputs/monster_lifecycle_replay/holdings.csv` ->includes theme policy diagnostics for each held ticker.
+  - `outputs/position_aware_risk_replay/defensive_holdings.csv` ->includes theme policy diagnostics for risk actions.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_features.py r1000_themes.py r1000_pipeline.py tools\run_monster_lifecycle_replay.py tools\run_lifecycle_review_overlay.py tools\run_position_aware_risk_replay.py tools\run_main_v2_backtest.py tests\historical_challenger_replays_smoke.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 85/85.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed; 245 features, no leakage.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not make event/oil/defense names automatic sells in production; it makes the replay layer test that policy explicitly.
+  - Theme horizon labels are human-curated metadata and should be reviewed when new themes emerge.
+  - Next full rebuild is required to populate the new `candidate_replay_book.csv` columns and measure CAGR/MDD impact.
+
+### 13:23 KST - market-style-regime-router
+
+- scope:
+  - Add research-only market style routing so full rebuilds can compare breakout-growth, turnaround-accumulation, quality-compounder, and cash-defense environments before changing production weights.
+- files:
+  - `r1000_config.py` ->adds style regime metadata columns and bumps `ENGINE_REUSE_VERSION`.
+  - `r1000_features.py` ->computes style regime preferences from market, liquidity, rate, inflation, overheat, benchmark, and calendar/month/quarter/weekday context.
+  - `r1000_pipeline.py` ->runs the style router after Phase 14/15 signals and preserves the columns in feature store plus candidate replay books.
+  - `tools/run_style_regime_report.py` ->new sidecar that summarizes monthly and latest style preferences and top breakout/turnaround/compounder candidates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, syncs, and commits `outputs/style_regime_report/`.
+  - `tools/run_main_v2_backtest.py` ->carries style metadata into monthly holdings for risk replay.
+  - `tools/run_position_aware_risk_replay.py` ->preserves style context in defensive action outputs.
+  - `tests/historical_challenger_replays_smoke.py` ->adds style fields and sidecar report coverage.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow wiring for the style regime sidecar.
+  - `tests/smoke_test.py` ->adds synthetic breakout-vs-turnaround style router coverage.
+  - `CHANGELOG.md` ->records the style regime router.
+- symbols_added:
+  - `compute_market_style_regime_features(df)` ->computes style preference, calendar, and row-level style fit columns.
+  - `tools.run_style_regime_report._mean(rows, col)` ->computes defensive averages for style report rows.
+  - `tools.run_style_regime_report._mode(rows, col, default="unknown")` ->computes dominant style label.
+  - `tools.run_style_regime_report._top(rows, col, limit=8)` ->extracts top candidates by style fit.
+  - `tools.run_style_regime_report.run(latest_run, output_dir)` ->writes style regime report artifacts.
+  - `tools.run_style_regime_report.render_report(payload)` ->renders markdown style summary.
+  - `test_market_style_regime_router()` ->guards breakout and turnaround style-fit behavior.
+- symbols_changed:
+  - `build_feature_store()` ->runs style-regime feature computation and whitelists research-only style metadata.
+  - `export_outputs._write_monthly_mandate_books()` ->preserves style-regime fields in `candidate_replay_book.csv`.
+  - `tools.run_main_v2_backtest.replay()` ->passes style metadata into `monthly_holdings.csv`.
+  - `tools.run_position_aware_risk_replay.replay()` ->writes style context in risk action/holding outputs.
+  - `test_historical_challenger_replays()` ->also validates the style regime sidecar.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->also checks style report workflow wiring.
+- config_fields_added:
+  - `PHASE21_STYLE_REGIME_COLUMNS: list[str] = [...]` ->research-only column list for style regime metadata including month, quarter, weekday, and cyclic encodings.
+  - `ENGINE_REUSE_VERSION: str = "2026-05-07-style-regime-router"` ->forces feature-store rebuild for the new metadata.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/style_regime_report/summary.json` ->latest style regime and preference snapshot.
+  - `outputs/style_regime_report/monthly.csv` ->monthly style regime history for A/B analysis.
+  - `outputs/style_regime_report/latest_top_breakout.csv` ->latest candidates best aligned with breakout-growth.
+  - `outputs/style_regime_report/latest_top_turnaround.csv` ->latest candidates best aligned with turnaround accumulation.
+  - `outputs/style_regime_report/latest_top_compounder.csv` ->latest candidates best aligned with quality compounder mode.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_features.py r1000_pipeline.py tools\run_style_regime_report.py tools\run_main_v2_backtest.py tools\run_position_aware_risk_replay.py tests\historical_challenger_replays_smoke.py tests\workflow_artifact_smoke.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 86/86.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed; 245 features, no leakage.
+  - inline style-router fixture ->passed; breakout-growth and turnaround-accumulation rows were separated correctly.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This is not a production style allocation switch yet; it is an evidence route for the next full rebuild.
+  - Calendar fields are not in `DEFAULT_FEATURES`; they are preserved for research/AutoLearning to test seasonality without introducing unvalidated production overfit.
+  - Macro and benchmark series can be studied over longer history than equity fundamentals once a dedicated macro-only regime learner is added.
+
+### 14:05 KST - main-v2-style-aware-selector
+
+- scope:
+  - Connect the research-only style regime router to Main v2 candidate selection so breakout, turnaround, compounder, and cash-defense environments alter sleeve scoring and slots in historical A/B replays.
+- files:
+  - `r1000_main_v2.py` ->adds style-aware sleeve capacity/target adjustments, style score bonuses, turnaround candidate admission, cash-defense event-risk blocking, and audit fields.
+  - `tools/run_main_v2_backtest.py` ->writes `monthly_returns.csv` and carries the Main v2 style regime into monthly holdings/returns.
+  - `tests/smoke_test.py` ->adds regression coverage that style-aware Main v2 selects breakout and turnaround candidates through the intended sleeves.
+  - `tests/historical_challenger_replays_smoke.py` ->checks style regime fields in Main v2 historical replay outputs.
+  - `CHANGELOG.md` ->records the style-aware selector wiring.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with the new Main v2 A/B route.
+- symbols_added:
+  - `infer_style_regime(rows, default="balanced")` ->infers the dominant style label from candidate rows.
+  - `_style_policy(policy)` ->returns enabled style-aware Main v2 policy settings.
+  - `_bounded_signal(value, upper=1.25)` ->clips style-fit signals before using them in scores.
+  - `_row_style_label(row, fallback="balanced")` ->reads a row-level style label safely.
+  - `_theme_event_risk(row)` ->reads max event-risk sensitivity for style-aware blocking.
+  - `_theme_structural_growth(row)` ->reads max structural-growth sensitivity for style-aware blocking.
+  - `_style_score_bonus(row, sleeve, style_regime, policy)` ->returns sleeve-specific style-fit score adjustments.
+  - `_apply_style_capacity_map(capacity_map, style_regime, policy)` ->applies research-only style capacity shifts.
+  - `_apply_style_target_map(target_map, style_regime, policy)` ->applies research-only style target-N shifts.
+  - `test_main_v2_style_aware_selector()` ->guards style-aware Main v2 selection behavior.
+- symbols_changed:
+  - `score_core(row, regime_state="neutral", style_regime=None, policy=None)` ->adds quality/cash-defense compounder style bonuses.
+  - `score_future(row, regime_state="neutral", style_regime=None, policy=None)` ->adds breakout-growth style bonuses and cash-defense penalties.
+  - `score_early(row, regime_state="neutral", style_regime=None, policy=None)` ->adds turnaround and breakout style bonuses.
+  - `candidate_passes(row, sleeve, regime_state, style_regime=None, policy=None)` ->admits qualified turnaround accumulation candidates and blocks event-risk future/early candidates in cash-defense regimes.
+  - `select_sleeve_candidates(rows, sleeve, regime_state, target_n, style_regime=None, policy=None)` ->scores candidates with style-aware policy context.
+  - `compose_main_sleeve_portfolio(candidate_rows, regime_state=None, policy=None)` ->infers style regime and applies style capacity/target adjustments before selecting sleeves.
+  - `result_to_rows(result)` ->includes `style_regime` in Main v2 output rows.
+  - `tools.run_main_v2_backtest.replay()` ->exports `monthly_returns.csv` and style regime context.
+  - `test_historical_challenger_replays()` ->validates style-aware Main v2 output columns.
+- config_fields_added:
+  - `MAIN_V2_STYLE_AWARE_POLICY: dict = {...}` ->research-only policy for style-aware sleeve capacity, target-N, score, and candidate-pass behavior.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_v2_backtest/monthly_returns.csv` ->monthly Main v2 return rows including `style_regime`.
+- validation:
+  - `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py tests\smoke_test.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 87/87.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed, 245 features and no leakage.
+- risks_or_notes:
+  - This still does not change production `DEFAULT_FEATURES` or production portfolio construction.
+  - Full rebuild evidence is required before promoting any style-aware Main v2 behavior beyond research-only A/B.
+
+### 16:00 KST - main-v2-opportunity-cost-swap
+
+- scope:
+  - Add a research-only opportunity-cost replacement score so Main v2 can prefer superior new leaders over stale/event-cycle incumbents when catalyst, macro, style, theme, and risk evidence align.
+- files:
+  - `r1000_main_v2.py` ->adds replacement component scoring, replacement tilt, event-cycle decay penalties, and selected-sleeve audit fields.
+  - `tools/run_main_v2_backtest.py` ->carries replacement score, catalyst score, and decay score into monthly holdings.
+  - `tests/smoke_test.py` ->adds regression coverage that a strong new leader beats a stale event-cycle incumbent through the future sleeve.
+  - `tests/historical_challenger_replays_smoke.py` ->checks replacement-score fields in Main v2 replay outputs.
+  - `CHANGELOG.md` ->records the opportunity-cost swap wiring.
+- symbols_added:
+  - `_opportunity_component_scores(row)` ->combines catalyst, style, alpha, macro/theme, stale/risk, relative weakness, and event-cycle decay signals into replacement components.
+  - `_replacement_score(row)` ->returns the combined opportunity-cost replacement score.
+  - `_replacement_tilt(row, policy)` ->turns strong/weak replacement scores into research-only sleeve score adjustments.
+  - `test_main_v2_opportunity_cost_replacement()` ->guards new-leader replacement behavior.
+- symbols_changed:
+  - `score_core(row, regime_state="neutral", style_regime=None, policy=None)` ->adds replacement tilt to core scoring.
+  - `score_future(row, regime_state="neutral", style_regime=None, policy=None)` ->adds amplified replacement tilt to future-winner scoring.
+  - `score_early(row, regime_state="neutral", style_regime=None, policy=None)` ->adds stronger replacement tilt to early-scout scoring.
+  - `candidate_passes(row, sleeve, regime_state, style_regime=None, policy=None)` ->lets strong replacement candidates pass future/early gates while still respecting risk and event-risk limits.
+  - `select_sleeve_candidates(rows, sleeve, regime_state, target_n, style_regime=None, policy=None)` ->attaches replacement component fields to selected candidates.
+  - `compose_main_sleeve_portfolio(candidate_rows, regime_state=None, policy=None)` ->surfaces replacement component fields in selected sleeve audits.
+  - `tools.run_main_v2_backtest.replay()` ->exports replacement component fields into `monthly_holdings.csv`.
+  - `test_historical_challenger_replays()` ->validates replacement-score fields in Main v2 replay artifacts.
+- config_fields_added:
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_enabled"]: bool = True` ->enables research-only opportunity-cost replacement tilt.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_bonus_scale"]: float = 0.22` ->score bonus scale for strong replacement candidates.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_penalty_scale"]: float = 0.18` ->score penalty scale for weak replacement candidates.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_strong_threshold"]: float = 0.60` ->minimum replacement score for strong-candidate treatment.
+  - `MAIN_V2_STYLE_AWARE_POLICY["replacement_weak_threshold"]: float = -0.25` ->replacement score below which decay penalties apply.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_v2_backtest/monthly_holdings.csv` ->now includes `main_v2_replacement_score`, `main_v2_replacement_catalyst_score`, and `main_v2_replacement_decay_score`.
+- validation:
+  - `py -3 -m py_compile r1000_main_v2.py tools\run_main_v2_backtest.py tests\smoke_test.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 88/88.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `$env:PYTHONIOENCODING='utf-8'; py -3 tests\audit_features.py --no-runtime` ->passed, 245 features and no leakage.
+- risks_or_notes:
+  - This is still research-only Main v2 behavior; production defaults remain unchanged.
+  - The active full rebuild `25477647771` was already running on commit `7ff739c`; this patch requires a new run after commit/push to measure the replacement-score effect.
+
+### 19:35 KST - concentrated-conviction-curve-wide-n-fix
+
+- scope:
+  - Fix concentrated comparison-grid failure for N>3 conviction-curve tests after run `25481291492` produced NaN concentrated metrics.
+- files:
+  - `r1000_pipeline.py` ->extended `concentrated_weight_map()` so `conviction_curve` preserves legacy N<=3 weights and generates a smooth decay curve for N=4/5/7/10.
+  - `tests/historical_challenger_replays_smoke.py` ->added regression coverage for N=4 conviction-curve weights summing to 100% under the 50% single-name cap.
+  - `CHANGELOG.md` ->records the fix and validation evidence.
+  - `SESSION_HANDOFF.md` ->updates the active handoff with run `25481291492` results and the follow-up rerun focus.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `concentrated_weight_map(cfg, selected, weighting_mode)` ->supports wider concentrated ladders without shape mismatch while keeping the old 1/2/3-name curve unchanged.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 -m py_compile r1000_pipeline.py tests\historical_challenger_replays_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 88/88.
+- risks_or_notes:
+  - Run `25481291492` used commit `eb99c97`, so it did not include the macro-policy sidecar commit `0c7f91d`.
+  - A follow-up full rebuild is required to verify concentrated metrics are finite and the new macro-policy sidecar is exported.
+
+### 19:36 KST - power-materials-theme-refresh
+
+- scope:
+  - Expand theme taxonomy and cycle-play coverage for nuclear fuel, SMR, fuel cells, gas turbines, renewable equipment, and critical minerals so theme/sector relative-strength changes can surface without ticker hardcoding.
+- files:
+  - `themes.yaml` ->adds `nuclear_fuel_cycle`, `fuel_cell_distributed_power`, `gas_turbine_power`, `renewable_power_equipment`, and `critical_minerals_rare_earths`; adds `LEU` to nuclear coverage.
+  - `cycle_play_universe.yaml` ->adds LEU/SMR/OKLO/UEC/MP/LAC/GTLS/NXT/FLNC to the global-alpha cycle overlay with long-duration versus tactical-cycle metadata.
+  - `tests/smoke_test.py` ->adds coverage that the new theme metadata and cycle-play overlay names parse and load.
+  - `CHANGELOG.md` ->records the theme/universe refresh.
+  - `SESSION_HANDOFF.md` ->notes that the active run does not include this theme refresh and the next run should.
+- symbols_added:
+  - `test_cycle_play_power_materials_universe_loader()` ->guards LEU/SMR/OKLO/GTLS/FLNC/NXT/MP/LAC cycle-play visibility.
+- symbols_changed:
+  - `test_theme_policy_metadata_surface()` ->now validates nuclear fuel-cycle, fuel-cell, and critical-mineral horizon/event-risk metadata.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - These are candidate-universe/theme metadata changes, not buy instructions.
+  - Full rebuild `25490280861` was already running on commit `ee8f0d1`; a later run is needed to measure this taxonomy refresh.
+
+## 2026-05-06
+
+### 09:12 KST - market-aware-monster-handoff
+
+- scope:
+  - Document the next market-aware handoff plan after the target-pass rebuild, with no new full run triggered.
+- files:
+  - `CHANGELOG.md` ->records the documentation-only handoff update and explicitly states that no run was started.
+  - `SESSION_HANDOFF.md` ->updates the active inbox for the next agent with market-context, PLTR/SNDK/LITE/INTC, and monster-early logic guidance.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - no full rebuild, smoke test, or target run was executed by request.
+- risks_or_notes:
+  - Main and concentrated target metrics passed in the latest cloud production artifacts, but concentrated managed-risk metadata is still not explicit in `concentrated_backtest_metrics.json`.
+  - Next coding agent should improve market-context preflight, stale-leader exits, and sparse-history monster admission before launching another run.
+
+### 11:02 KST - leader-rescue-stale-trim
+
+- scope:
+  - Add a generic leader-rescue universe and broaden stale former-leader trimming so new leaders can enter earlier and old leaders can be reduced without ticker hardcoding.
+- files:
+  - `r1000_config.py` ->bumps engine reuse version and adds leader-rescue universe, diagnostics, and broad stale-leader thresholds.
+  - `r1000_pipeline.py` ->preserves constituent source labels, injects S&P 500/Nasdaq-100 rescue candidates, and writes latest leader drop diagnostics.
+  - `r1000_signals.py` ->broadens stale core-leader detection beyond $1T mega caps and surfaces a stale-leader reason.
+  - `tests/smoke_test.py` ->adds a synthetic stale-leader versus new-monster regression test.
+  - `CHANGELOG.md` ->records the leader rescue and stale-trim change.
+- symbols_added:
+  - `_candidate_source_frame(df, source)` ->normalizes one candidate universe source while preserving source labels.
+  - `_combine_candidate_universe_sources(uni)` ->deduplicates candidates while joining source evidence.
+  - `_price_cache_latest_date(paths, ticker)` ->reads the latest cached price date for drop diagnostics.
+  - `write_leader_drop_diagnostics(cfg, paths, candidates, pre_filter_monthly, ranked_monthly, final_monthly, use_mktcap_filter)` ->writes current candidate inclusion/drop reasons.
+  - `test_defensive_rotation_trims_stale_broad_leaders()` ->guards broad stale-leader trim and monster promotion behavior.
+- symbols_changed:
+  - `build_candidate_universe()` ->adds generic leader rescue S&P 500/Nasdaq-100 sources independent of legacy Wikipedia-list mode.
+  - `build_universe_monthly()` ->emits leader drop diagnostics after base filters and rank-size selection.
+  - `compute_defensive_monster_rotation_overlay()` ->adds broad stale core-leader detection and `portfolio_stale_leader_reason`.
+- config_fields_added:
+  - `leader_rescue_universe_enabled: bool = True` ->turns on generic S&P/Nasdaq rescue candidates.
+  - `leader_rescue_include_sp500: bool = True` ->includes S&P 500 rescue candidates.
+  - `leader_rescue_include_nasdaq100: bool = True` ->includes Nasdaq-100 rescue candidates.
+  - `leader_rescue_diagnostics_enabled: bool = True` ->writes leader drop reason artifacts.
+  - `leader_rescue_price_stale_days: int = 14` ->marks price caches stale in diagnostics.
+  - `portfolio_stale_leader_mcap_min: float = 100000000000.0` ->broad stale-leader minimum size below the prior mega-cap threshold.
+  - `portfolio_stale_leader_rs_accel_max: float = -0.50` ->relative-strength acceleration threshold for stale-leader trim.
+  - `portfolio_stale_leader_rs_level_max: float = 1.25` ->relative-strength level threshold for stale-leader trim.
+  - `portfolio_stale_leader_near_high_max: float = -0.08` ->distance-from-high threshold for stale-leader trim.
+  - `portfolio_stale_leader_group_strength_max: float = 0.0` ->weak industry-group threshold for stale-leader trim.
+  - `portfolio_stale_leader_require_broken_ma: bool = True` ->requires moving-average/trend break confirmation for broad stale trim.
+- breaking_changes:
+  - Feature-store cache invalidates because `ENGINE_REUSE_VERSION` changes and current candidate universe membership can broaden on the next full rebuild.
+- outputs:
+  - `outputs/reports/leader_drop_diagnostics_latest.csv` ->per-candidate reason for current inclusion, rank/drop, missing price cache, stale cache, or blacklist.
+  - `outputs/reports/leader_drop_diagnostics_summary.json` ->drop reason and source-count summary.
+- validation:
+  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed: 82/82.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed; first CP949 console run failed before audit due Unicode output encoding only.
+  - inline synthetic `write_leader_drop_diagnostics()` smoke ->passed with `available_for_scoring` and `missing_price_cache` rows.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - This does not hardcode example tickers into selection; examples enter only if their source, price, liquidity, market-cap, leadership, and risk data pass.
+  - Broader universe candidates can change production selection and must be measured by full rebuild before merging to production.
+
+### 11:15 KST - stale-trim-confirmation-fix
+
+- scope:
+  - Tighten the broad stale-leader trim pre-run review so `portfolio_stale_leader_require_broken_ma=True` actually requires a moving-average or trend-template break.
+- files:
+  - `r1000_signals.py` ->changes broad stale-leader confirmation from weak group/leadership OR logic to explicit broken-price confirmation when required.
+  - `tests/smoke_test.py` ->extends the stale-leader regression fixture with a weak but unbroken core leader that must not be trimmed.
+  - `CHANGELOG.md` ->records the pre-run confirmation fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `compute_defensive_monster_rotation_overlay()` ->honors `portfolio_stale_leader_require_broken_ma` as a true confirmation gate.
+  - `test_defensive_rotation_trims_stale_broad_leaders()` ->adds a no-break negative control.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - synthetic `build_candidate_universe()` source-merge smoke ->passed with IWB+S&P/Nasdaq rescue source preservation.
+  - `py -3 -m py_compile r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed: 82/82.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+- risks_or_notes:
+  - Without this fix, broad stale trim could reduce old leaders on weak relative/industry data even before a price-trend break, which was more aggressive than the config name promised.
+
+### 11:50 KST - leader-rescue-validation-modes
+
+- scope:
+  - Make leader-rescue verification possible by separating PIT-safer latest-only use from intentionally biased full-proxy research A/B runs.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds `leader_rescue_mode` workflow input, passes it to `run_local.py`, and uploads leader-rescue diagnostics.
+  - `run_local.py` ->adds `--leader-rescue-mode` / `LEADER_RESCUE_MODE` runtime override wiring.
+  - `r1000_config.py` ->adds `leader_rescue_backtest_mode`.
+  - `r1000_pipeline.py` ->adds rescue-only historical filtering, filter summary output, config validation, and run-summary metadata.
+  - `CHANGELOG.md` ->records the validation-mode change.
+- symbols_added:
+  - `resolve_leader_rescue_mode(raw)` ->resolves CLI/env leader-rescue validation mode.
+  - `_leader_rescue_only_source_mask(df)` ->detects candidates added only by broad leader-rescue sources.
+  - `apply_leader_rescue_backtest_mode_filter(cfg, paths, monthly)` ->drops rescue-only historical rows in `latest_only`, keeps them in `full_proxy`, or drops them entirely in `off`.
+- symbols_changed:
+  - `parse_args()` ->adds `--leader-rescue-mode`.
+  - `main()` ->passes leader-rescue runtime overrides into collector and pipeline configs.
+  - `validate_config()` ->rejects invalid `leader_rescue_backtest_mode` values.
+  - `build_universe_monthly()` ->applies the leader-rescue backtest-mode filter before fundamentals and feature computation.
+  - `build_feature_store()` ->records leader-rescue mode and rescue-only row count in `feature_store_quality.json`.
+  - `export_outputs()` ->records leader-rescue mode in `run_summary.json`.
+- config_fields_added:
+  - `leader_rescue_backtest_mode: str = "latest_only"` ->PIT-safer default that keeps rescue-only rows out of historical OOS months.
+- breaking_changes:
+  - Default leader-rescue behavior changes from full historical proxy to `latest_only`, so rescue-only candidates affect latest recommendations/diagnostics but not historical backtest metrics unless `full_proxy` is selected.
+- outputs:
+  - `outputs/reports/leader_rescue_backtest_filter_summary.json` ->documents mode, rescue-only rows dropped, and latest rescue-only rows kept.
+- validation:
+  - `py -3 -m py_compile run_local.py r1000_config.py r1000_pipeline.py r1000_signals.py tests\smoke_test.py` ->passed.
+  - synthetic `apply_leader_rescue_backtest_mode_filter()` mode smoke ->passed for `latest_only`, `full_proxy`, and `off`.
+  - `py -3 run_local.py --help | Select-String -Pattern "leader-rescue-mode"` ->passed.
+  - workflow YAML parse smoke ->passed with `leader_rescue_mode` default `latest_only`.
+  - `py -3 tests\smoke_test.py` ->passed: 83/83.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - `full_proxy` is deliberately research-only because it uses today's broad index constituents historically.
+  - `latest_only` still does not solve all baseline current-constituent survivorship limits; it isolates only the incremental leader-rescue universe risk.
+
+### 03:01 KST - managed-position-risk-activation
+
+- scope:
+  - Connect the defensive monster and position-risk systems to actual main and concentrated portfolio metrics instead of leaving target-pass results only in proxy sidecars.
+- files:
+  - `r1000_config.py` ->adds managed monthly position-risk defaults and a separate main monster early threshold.
+  - `r1000_pipeline.py` ->applies monthly position-risk return capping inside main and concentrated backtests and exports raw versus risk-adjusted holding returns.
+  - `r1000_signals.py` ->uses the main monster threshold in portfolio candidate gates and carries monster/defense columns into `portfolio_latest.csv`.
+  - `CHANGELOG.md` ->records the managed-risk activation.
+- symbols_added:
+  - `_negative_stop_value(value, default_abs)` ->normalizes stop config values to negative stop percentages.
+  - `_managed_position_risk_exit_signal(row, period_return, cumulative_return, peak_return, hard_stop, trailing_stop, trailing_min_profit, distribution_threshold)` ->decides monthly hard-stop, trailing-stop, and distribution-risk exits for managed backtest metrics.
+- symbols_changed:
+  - `backtest_portfolio()` ->uses risk-adjusted monthly position returns for exported main metrics and holdings while preserving raw return columns.
+  - `backtest_concentrated_portfolio()` ->uses concentrated monthly hard-stop risk management for strategy grid metrics and latest concentrated summary selection.
+  - `apply_portfolio_candidate_gate_filter()` ->allows data-driven monster candidates through the main candidate gate using the main monster threshold.
+  - `compute_defensive_monster_rotation_overlay()` ->uses the main monster threshold for portfolio defensive rotation actions.
+  - `build_target_portfolio()` ->uses the main monster threshold for monster slots and preserves monster/defense diagnostics in materialized portfolio rows.
+- config_fields_added:
+  - `portfolio_monster_early_min_score: float = 0.58` ->main-specific monster candidate activation floor.
+  - `portfolio_position_risk_enabled: bool = True` ->turns managed monthly position-risk returns on for main metrics.
+  - `portfolio_position_risk_hard_stop: float = -0.08` ->caps main monthly position loss contribution at -8% when a hard-stop signal fires.
+  - `portfolio_position_risk_trailing_stop: float = -0.15` ->enables main peak-relative monthly trailing exit after sufficient profit.
+  - `portfolio_position_risk_trailing_min_profit: float = 0.15` ->requires at least 15% cumulative position profit before main trailing exits.
+  - `portfolio_position_risk_distribution_threshold: float = 0.85` ->distribution-risk threshold for main monthly exits.
+  - `concentrated_position_risk_enabled: bool = True` ->turns managed monthly position-risk returns on for concentrated metrics.
+  - `concentrated_position_risk_hard_stop: float = -0.08` ->caps concentrated monthly position loss contribution at -8%.
+  - `concentrated_position_risk_trailing_stop: float = 0.0` ->keeps concentrated replay aligned to the hard-stop proxy that passed the goal search.
+  - `concentrated_position_risk_trailing_min_profit: float = 0.15` ->reserved for future concentrated trailing-stop activation.
+  - `concentrated_position_risk_distribution_threshold: float = 2.0` ->disables concentrated distribution exits by default.
+- breaking_changes:
+  - Main and concentrated exported metrics now use managed monthly position-risk returns by default on this branch, so they are no longer directly comparable to prior raw monthly-return champion metrics without checking `position_risk_metric_mode`.
+- outputs:
+  - `outputs/backtest_metrics.json` ->will include `position_risk_*` fields and managed main metrics after the next full rebuild.
+  - `outputs/concentrated_backtest_metrics.json` ->will include managed concentrated strategy metrics after the next full rebuild.
+  - `outputs/portfolio_latest.csv` ->will include monster/defense diagnostics for selected main holdings after the next full rebuild.
+- validation:
+  - `git diff --check` ->passed with existing CRLF normalization warnings only.
+  - `python --version` ->not run; local Python is not installed in this desktop sandbox.
+  - `py -3 --version` ->not run; local Python launcher is not installed in this desktop sandbox.
+- risks_or_notes:
+  - Managed position-risk is monthly return capping, not intraday broker execution evidence; weekly/intramonth validation remains required before real capital automation.
+
+### 17:01 KST - active-run-handoff-refresh
+
+- scope:
+  - Refresh the agent handoff after stopping the stale full run, restarting on the latest leader-rescue plus historical journey commit, and pulling the completed result artifacts.
+- files:
+  - `SESSION_HANDOFF.md` ->updates the active inbox with branch `codex/leader-rescue-stale-trim`, code commit `b5d1ee1`, bot result commit `0903e14`, completed run `25416283891`, old canceled run `25415594156`, quick metrics, and next analysis checklist.
+  - `CHANGELOG.md` ->records the documentation-only handoff refresh for future agents.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `gh run view 25416283891 --json status,conclusion,headSha,jobs,url` ->passed; run completed successfully at head SHA `b5d1ee1`.
+  - no code validation rerun for this documentation-only update; prior `b5d1ee1` validations are listed in `SESSION_HANDOFF.md`.
+- risks_or_notes:
+  - Full rebuild `25416283891` completed on `b5d1ee1`; future agents should analyze `cloud_results/full_rebuild/latest_global_alpha_universe`.
+  - Historical trade journey outputs are available in this completed run and should be used to review past holdings, churn, and current-versus-history context.
+
+### 18:10 KST - relative-weakness-catalyst-diagnostics
+
+- scope:
+  - Add research-only relative-underperformance trim/exit diagnostics, governance catalyst surfacing, guaranteed leader diagnostics fallback, and explicit concentrated single-name cap enforcement.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs leader-drop fallback and governance catalyst sidecars and exports their artifacts to GitHub/GDrive/cloud-results bundles.
+  - `r1000_config.py` ->sets the concentrated single-name max to 50%.
+  - `r1000_pipeline.py` ->applies the concentrated cap consistently across winner-take-all, score-power, and conviction-curve weight modes without renormalizing away capped cash.
+  - `tools/run_position_aware_risk_replay.py` ->adds prior-window benchmark-relative trim/exit logic, 25/50/75bps cost sensitivity, and rolling 3-year validation outputs.
+  - `tools/run_leader_drop_diagnostics_sidecar.py` ->new fallback latest-scored diagnostic writer when the in-pipeline leader-drop report is absent.
+  - `tools/run_governance_catalyst_report.py` ->new report-only surface for ownership, insider, event, and revision catalyst columns already present in `scored_latest.csv`.
+  - `tests/historical_challenger_replays_smoke.py` ->covers new sidecars and concentrated cap enforcement.
+  - `tests/workflow_artifact_smoke.py` ->requires the new sidecars and artifact paths.
+- symbols_added:
+  - `load_benchmark_returns(path)` ->loads monthly benchmark returns from the exported equity curve.
+  - `is_long_hold_protected(row, cumulative_return, relative_return)` ->keeps true long-hold winners from being cut on one weak relative window.
+  - `relative_underperformance_action(row, cumulative_return, benchmark_cumulative_return, trim_threshold, exit_threshold)` ->chooses hold, 50% trim, or exit-to-cash from prior relative performance.
+  - `rolling_metric_rows(monthly_rows, window_months)` ->writes rolling 3-year replay validation rows.
+  - `cost_sensitivity_rows(monthly_rows, bps_values)` ->computes 25/50/75bps replay metrics from the same action stream.
+  - `tools.run_leader_drop_diagnostics_sidecar.run(args)` ->writes fallback leader diagnostics from latest scored/portfolio artifacts.
+  - `tools.run_governance_catalyst_report.run(args)` ->writes latest governance catalyst diagnostics.
+  - `test_latest_diagnostics_sidecars()` ->smoke-tests fallback leader and governance diagnostics.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->guards workflow sidecar wiring.
+- symbols_changed:
+  - `exit_signal()` ->returns action, reason, position multiplier, and proxy return cap so exits and trim-50 actions are distinguishable.
+  - `replay()` in `tools/run_position_aware_risk_replay.py` ->uses benchmark-relative prior state, cost bps, cost sensitivity, and rolling validation outputs.
+  - `concentrated_weight_map()` ->enforces `concentrated_max_single_name_weight` for every weighting mode and leaves infeasible excess as cash.
+  - `test_weight_caps_and_return_column_fallback()` ->checks production concentrated cap enforcement in addition to helper cap math.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Concentrated branch behavior changes on the next full rebuild because the default single-name cap is now 50%; existing target-pass evidence should be preserved as the pre-cap baseline.
+- outputs:
+  - `outputs/position_aware_risk_replay/cost_sensitivity.csv` ->25/50/75bps replay metrics.
+  - `outputs/position_aware_risk_replay/rolling_3y.csv` ->rolling 36-month replay metrics.
+  - `outputs/reports/leader_drop_diagnostics_latest.csv` ->guaranteed latest-scored fallback diagnostics if the primary pipeline diagnostic is absent.
+  - `outputs/reports/leader_drop_diagnostics_report.md` ->human-readable fallback diagnostic summary.
+  - `outputs/governance_catalyst/governance_catalyst_latest.csv` ->top ownership/insider/event/revision catalyst rows.
+  - `outputs/governance_catalyst/summary.json` ->governance catalyst counts and coverage.
+  - `outputs/governance_catalyst/report.md` ->human-readable catalyst report.
+- validation:
+  - `py -3 -m py_compile tools\run_position_aware_risk_replay.py tools\run_leader_drop_diagnostics_sidecar.py tools\run_governance_catalyst_report.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\historical_challenger_replays_smoke.py` ->passed.
+  - Real latest-run sidecar check for enhanced `position_aware_risk_replay` ->passed; 25bps CAGR 34.97%, Sharpe 1.729, MaxDD -8.63%, relative trims 20, relative exits 2.
+  - Real latest-run sidecar check for fallback leader diagnostics ->passed; 701 rows including watchlist missing rows.
+  - Real latest-run sidecar check for governance catalyst diagnostics ->passed; 82 output rows.
+- risks_or_notes:
+  - Relative-underperformance actions use prior monthly relative state, but hard-stop and trailing-stop pieces remain monthly proxy assumptions, not intraday execution.
+  - Governance catalyst reporting only surfaces existing engine columns; strategic government stake/news/8-K parsing remains a future data-layer task.
+  - The 50% concentrated cap can reduce CAGR if the prior winner-take-all concentration was the alpha source, so the next full rebuild must compare against the saved pre-cap 45.75% concentrated baseline.
+
+## 2026-05-05
+
+### 06:49 KST - defensive-list-risk-proxy
+
+- scope:
+  - Add explicit defensive list outputs for risk proxy replays so target-pass proxy results are not return-only summaries.
+- files:
+  - `tools/run_position_aware_risk_replay.py` ->writes risk-defended holdings lists that move proxy-exited positions to cash while preserving hold/exit reasons for each ticker.
+  - `tools/run_concentrated_position_risk_replay.py` ->writes defensive holdings and latest defensive lists for the best concentrated hard-stop proxy variant.
+  - `tools/run_portfolio_goal_search.py` ->carries list-defense metadata into candidate params for proxy candidates.
+  - `CHANGELOG.md` ->records the defensive-list output change.
+- symbols_added:
+  - `build_defensive_holdings(grouped, best_key, monthly_rows)` ->builds concentrated proxy defensive holdings and latest defensive list rows for the selected variant.
+- symbols_changed:
+  - `replay()` in `tools/run_position_aware_risk_replay.py` ->adds `defensive_holdings.csv`, `defensive_latest.csv`, and list-defense metadata.
+  - `replay()` in `tools/run_concentrated_position_risk_replay.py` ->adds defensive list outputs for the selected concentrated hard-stop proxy.
+  - `render_report()` in `tools/run_position_aware_risk_replay.py` ->reports list-defense mode and latest defensive output path.
+  - `render_report()` in `tools/run_concentrated_position_risk_replay.py` ->reports list-defense mode and latest defensive output path.
+  - `candidate_from_json()` ->includes proxy/list-defense paths and warnings in goal-search candidate params.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/position_aware_risk_replay/defensive_holdings.csv` ->all main proxy holdings with original weight, defended weight, action, reason, and cash rows for proxy exits.
+  - `outputs/position_aware_risk_replay/defensive_latest.csv` ->latest main proxy defensive list.
+  - `outputs/concentrated_position_risk_replay/defensive_holdings.csv` ->all concentrated hard-stop proxy holdings with original weight, defended weight, action, reason, and cash rows for proxy exits.
+  - `outputs/concentrated_position_risk_replay/defensive_latest.csv` ->latest concentrated proxy defensive list.
+- validation:
+  - `python -m py_compile tools/run_position_aware_risk_replay.py tools/run_concentrated_position_risk_replay.py tools/run_portfolio_goal_search.py` passed.
+  - `python tools/run_concentrated_position_risk_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\concentrated_position_risk_replay_defense_smoke` passed.
+  - `python tools/run_position_aware_risk_replay.py --holdings C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984\main_v2_backtest\monthly_holdings.csv --output-dir outputs\position_aware_risk_replay_defense_smoke` blocked locally because pandas is not installed in the current Windows Python environment; GitHub Actions installs the required dependencies.
+- risks_or_notes:
+  - Defensive lists are still monthly proxy artifacts, not execution-ready broker order lists.
+  - A ticker such as NVDA can remain in `defensive_latest.csv` when the proxy action is `hold`; the output now shows that explicitly instead of only showing return metrics.
+
+### 07:25 KST - defensive-monster-selection-path
+
+- scope:
+  - Wire defense and monster/extreme early candidate logic into the actual main and concentrated selection paths instead of only producing post-hoc proxy metrics.
+- files:
+  - `r1000_config.py` ->adds tunables for defensive monster rotation, stale mega-cap leader penalties, monster early slots, and concentrated risk candidate filtering.
+  - `r1000_signals.py` ->adds a generic data-driven monster/defense overlay and applies it inside `build_target_portfolio()`.
+  - `r1000_pipeline.py` ->applies the same overlay inside concentrated scoring and reserves concentrated monster-extreme early slots.
+  - `r1000_top30_institutional.py` ->re-exports the new signal helper with the rest of the signal layer.
+- symbols_added:
+  - `compute_defensive_monster_rotation_overlay(month_df, cfg)` ->creates `portfolio_monster_early_score`, `portfolio_stale_mega_leader_score`, `portfolio_risk_entry_block_score`, and `portfolio_defensive_rotation_action`.
+- symbols_changed:
+  - `apply_portfolio_candidate_gate_filter()` ->allows high-quality monster early candidates through the candidate gate when risk block score is acceptable.
+  - `build_target_portfolio()` ->boosts monster early candidates, penalizes stale mega-cap/core names, and reserves actual main selection slots for monster candidates.
+  - `prepare_concentrated_frame()` ->adds monster early score and fragile-entry penalties directly to `concentrated_score`.
+  - `select_concentrated_portfolio_topk()` ->adds `monster_extreme_early` reserved selection before normal preferred-sleeve ranking and blocks fragile high-risk entries.
+- config_fields_added:
+  - `portfolio_defensive_rotation_enabled`
+  - `portfolio_monster_early_weight`
+  - `portfolio_fill_monster_early_weight`
+  - `portfolio_utility_monster_early_weight`
+  - `portfolio_stale_mega_leader_penalty_weight`
+  - `portfolio_stale_mega_mcap_min`
+  - `portfolio_stale_mega_rs_accel_max`
+  - `portfolio_stale_mega_rs_level_max`
+  - `portfolio_stale_mega_near_high_max`
+  - `portfolio_monster_promote_unassigned_to_future`
+  - `portfolio_monster_early_min_slots`
+  - `concentrated_monster_early_min_slots`
+  - `concentrated_score_monster_early_weight`
+  - `concentrated_score_risk_entry_penalty_weight`
+  - `concentrated_risk_candidate_filter_enabled`
+  - `concentrated_risk_candidate_block_threshold`
+  - `concentrated_entry_quality_monster_early_override`
+  - `concentrated_entry_quality_monster_early_min`
+- breaking_changes:
+  - Main and concentrated latest holdings can now change materially because monster/defense logic is applied before selection, not after metrics.
+- validation:
+  - `python -m py_compile r1000_config.py r1000_signals.py r1000_pipeline.py r1000_top30_institutional.py` passed.
+  - `PYTHONIOENCODING=utf-8 python tests/smoke_test.py` passed: 81/81.
+  - Latest scored smoke showed main no longer selected NVDA under the defensive monster overlay and concentrated selected `WDC`, `CIEN`, and `SNDK` through `monster_extreme_early` slots.
+- risks_or_notes:
+  - The overlay is generic and does not whitelist tickers. SNDK/LITE-like names enter only when the data satisfies monster early conditions.
+  - Full-run metrics must be remeasured because this changes actual selection behavior, not only a sidecar replay.
+
+### 07:44 KST - monster-replay-policy-bridge
+
+- scope:
+  - Connect the defensive monster overlay to historical replay artifacts and align Main v2, concentrated policy replay, and monster lifecycle replay with the same candidate signals.
+- files:
+  - `r1000_pipeline.py` ->adds defensive monster overlay columns to `candidate_replay_book.csv` by applying the overlay month-by-month before sidecar replay exports.
+  - `r1000_main_v2.py` ->uses monster early, risk-entry block, and stale mega-cap scores in Main v2 sleeve scoring and gates.
+  - `r1000_concentrated_policy.py` ->adds row-level monster early and risk block helpers and uses them in concentrated conviction, entry gates, risk gates, and audit rows.
+  - `tools/run_main_v2_backtest.py` ->carries monster/defense columns into Main v2 monthly holdings for risk replay and inspection.
+  - `tools/run_concentrated_policy_replay.py` ->writes monster/defense scores into concentrated policy holdings.
+  - `tools/run_monster_lifecycle_replay.py` ->blends the shared monster early score into lifecycle onset scoring and exports the shared defense columns.
+  - `tests/concentrated_policy_smoke.py` ->adds a smoke check for monster early override behavior.
+  - `CHANGELOG.md` ->records the replay/policy bridge.
+- symbols_added:
+  - `mean01(values)` ->averages score-like values on a 0..1 scale.
+  - `monster_early_score(row)` ->returns the shared monster early score from replay columns or a fallback row-level proxy.
+  - `risk_entry_block_score(row)` ->returns the shared fragile-entry block score from replay columns or a fallback row-level proxy.
+  - `is_monster_early_candidate(row)` ->identifies price-confirmed monster early candidates that can pass concentrated gates despite low stale entry quality.
+- symbols_changed:
+  - `export_outputs()` ->applies `compute_defensive_monster_rotation_overlay()` to historical replay rows before writing `candidate_replay_book.csv`.
+  - `score_core()` ->penalizes stale mega-cap leaders in Main v2 core selection.
+  - `score_future()` ->boosts monster early candidates and penalizes fragile-entry blocks in Main v2 future selection.
+  - `score_early()` ->boosts monster early candidates and penalizes fragile-entry blocks in Main v2 early selection.
+  - `candidate_passes()` ->blocks fragile rows, rejects stale mega-cap core candidates, and allows price-confirmed monster early candidates into future/early sleeves.
+  - `concentrated_conviction_score()` ->adds monster early conviction and fragile-entry block terms.
+  - `entry_quality_proxy()` ->surfaces monster early setups as an entry-quality proxy when price confirmation exists.
+  - `entry_gate_flags()` ->allows monster early override through concentrated entry gates.
+  - `risk_gate_flags()` ->lets true monster early candidates bypass stale RS/fundamental fallback blockers while still respecting the block score.
+  - `audit_concentrated_portfolio()` ->reports monster early and risk block scores in audit rows.
+  - `replay()` in `tools/run_main_v2_backtest.py` ->adds monster/defense columns to Main v2 holdings.
+  - `run_variant()` ->adds monster/defense columns to concentrated policy replay holdings.
+  - `monster_onset_score()` ->uses `portfolio_monster_early_score` and `portfolio_risk_entry_block_score` when available.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/candidate_replay_book.csv` ->now includes `portfolio_monster_early_score`, `portfolio_stale_mega_leader_score`, `portfolio_risk_entry_block_score`, and `portfolio_defensive_rotation_action`.
+  - `outputs/main_v2_backtest/monthly_holdings.csv` ->now includes monster/defense columns for downstream risk replay.
+  - `outputs/concentrated_policy_replay/holdings.csv` ->now includes monster/defense columns for concentrated replay review.
+  - `outputs/monster_lifecycle_replay/holdings.csv` ->now includes monster/defense columns for lifecycle review.
+- validation:
+  - `python -m py_compile r1000_pipeline.py r1000_main_v2.py r1000_concentrated_policy.py tools\run_main_v2_backtest.py tools\run_concentrated_policy_replay.py tools\run_monster_lifecycle_replay.py tests\concentrated_policy_smoke.py` passed.
+  - `python tests\concentrated_policy_smoke.py` passed.
+  - `python tests\main_v2_policy_smoke.py` passed.
+  - `python tests\smoke_test.py` passed: 81/81.
+  - `python tools\run_main_v2_backtest.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\main_v2_backtest_connect_smoke` passed.
+  - `python tools\run_concentrated_policy_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\concentrated_policy_replay_connect_smoke` passed.
+  - `python tools\run_monster_lifecycle_replay.py --latest-run C:\Users\Andrew Cha\Documents\codex\.tmp_run_25327203984\full-rebuild-global_alpha_universe-25327203984 --output-dir outputs\monster_lifecycle_replay_connect_smoke` passed.
+- risks_or_notes:
+  - Local sidecar smoke used a prior run artifact whose candidate replay book did not yet contain the new overlay columns, so the new full run is required to measure the connected historical effect.
+  - Monster early selection remains ticker-agnostic; example names enter only when replay/book data satisfies the shared score and risk gates.
+
+### 21:39 KST - replay-sleeve-cloud-results-fix
+
+- scope:
+  - Fix two full-run integration gaps found after run 25347845703: historical replay rows lacked recomputed sleeve engines, and ignored `cloud_results/` directories prevented reports/sidecars from being committed.
+- files:
+  - `r1000_pipeline.py` ->recomputes portfolio sleeve columns month-by-month before writing `candidate_replay_book.csv`, then applies the defensive monster overlay to those recomputed historical rows.
+  - `.github/workflows/full_rebuild_manual.yml` ->force-adds `cloud_results/` so new reports and sidecar output directories are committed despite the repository ignore rule.
+  - `CHANGELOG.md` ->records the full-run integration fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `export_outputs()` ->now builds candidate replay rows from connected sleeve engines before monster/defense overlay scoring, enabling historical Main v2/concentrated/monster replays to see nonzero future/early engine scores.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv` ->future runs should include nonzero sleeve engine scores and monster/defense columns.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/main_v2_backtest/` ->future runs should be committed with the latest cloud results.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_policy_replay/` ->future runs should be committed with the latest cloud results.
+  - `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_goal_search/` ->future runs should be committed with the latest cloud results.
+- validation:
+  - `git diff --check` passed.
+  - Local Python validation was not run in the current sandbox because no Python interpreter is available; GitHub Actions full rebuild will run the repository smoke tests before the pipeline.
+- risks_or_notes:
+  - Run 25347845703 completed successfully but historical `candidate_replay_book.csv` had zero rows above the monster threshold because future/early sleeve engines were all zero in the replay book.
+  - Run 25347845703 artifacts contained the sidecars, but the cloud-results commit did not include new sidecar/report directories because `cloud_results/` is ignored unless force-added.
+
+## 2026-05-04
+
+### 13:48 KST - shakeout-breakdown-study
+
+- scope:
+  - Add report-only shakeout-vs-breakdown event labeling and connect those
+    labels into the separate AutoLearning winner challenger and daily scan.
+- files:
+  - `tools/run_shakeout_breakdown_study.py` ->adds drawdown event labeling, action replay, summary/report/policy outputs for shakeout, buyable reset, true breakdown, and dead theme events.
+  - `tests/shakeout_breakdown_study_smoke.py` ->adds synthetic shakeout and breakdown fixtures with action replay assertions.
+  - `tools/run_autolearning_winner_challenger.py` ->loads shakeout/breakdown action summaries and includes them in the combined challenger decision/report.
+  - `tests/autolearning_winner_challenger_smoke.py` ->extends the challenger smoke fixture with shakeout/breakdown artifacts.
+  - `.github/workflows/daily_autolearning_scan.yml` ->installs scan dependencies and runs lifecycle, onset, shakeout/breakdown, and combined challenger diagnostics as artifact-only daily scans.
+  - `.gitignore` ->ignores generated `outputs/shakeout_breakdown_study/` artifacts.
+- symbols_added:
+  - `DrawdownEvent` ->dataclass for one labeled drawdown event.
+  - `compute_event_features(hist, idx, spy_hist)` ->computes drawdown-date momentum, relative strength, trend, and volume features.
+  - `score_shakeout_quality(features, drawdown, recovery_6m, fwd6)` ->scores whether a drawdown resembles a recoverable shakeout.
+  - `score_breakdown_risk(features, drawdown, recovery_6m, fwd6, max_dd_6m)` ->scores whether a drawdown resembles a true breakdown.
+  - `classify_event(recovery_3m, recovery_6m, fwd6, max_forward_6m, max_dd_6m, features)` ->labels events as SHAKEOUT, BUYABLE_RESET, TRUE_BREAKDOWN, DEAD_THEME, or AMBIGUOUS.
+  - `detect_drawdown_events(ticker, hist, spy_hist, min_drop, lookback_days, min_gap_days)` ->detects first-threshold drawdown events per ticker.
+  - `action_return(row, action, horizon)` ->computes event-level counterfactual action returns.
+  - `build_action_replay(events_df)` ->builds hold/trim/add/exit/oracle action rows.
+  - `summarize_action_replay(action_df)` ->summarizes action returns by label/horizon/action.
+  - `summarize(events_df, action_df, args)` ->builds machine-readable study summary.
+  - `render_report(summary, events_df)` ->renders `shakeout_breakdown_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only shakeout/breakdown candidate rules.
+  - `load_tickers(args)` ->loads a filtered ticker universe for the study.
+  - `run(args)` ->runs the shakeout/breakdown study.
+  - `parse_args()` ->parses CLI arguments.
+  - `load_shakeout(shakeout_dir)` ->loads shakeout/breakdown artifacts into the combined AutoLearning challenger.
+- symbols_changed:
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, shakeout, shakeout_rows, replay_status)` ->includes shakeout/breakdown evidence.
+  - `decide_verdict(onset, lifecycle, shakeout, replay_status)` ->allows event-level readiness from either onset or shakeout evidence.
+  - `render_candidate_yaml(decision)` ->adds shakeout hold/add or breakdown exit components and sizing grids.
+  - `render_report(decision, event_rows)` ->adds shakeout/breakdown action backtest rows.
+  - `run(args)` ->accepts and loads a shakeout/breakdown artifact directory.
+  - `parse_args()` ->adds `--shakeout-dir`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/shakeout_breakdown_study/events.csv` ->labeled drawdown events.
+  - `outputs/shakeout_breakdown_study/action_replay.csv` ->event-level hold/trim/add/exit counterfactual returns.
+  - `outputs/shakeout_breakdown_study/action_summary.csv` ->action stats by label and horizon.
+  - `outputs/shakeout_breakdown_study/pattern_summary.json` ->machine-readable label and action summary.
+  - `outputs/shakeout_breakdown_study/shakeout_breakdown_report.md` ->human-readable event study report.
+  - `outputs/shakeout_breakdown_study/system_policy_candidates.yaml` ->proposal-only candidate rules and sizing grids.
+- validation:
+  - `py -3 -m py_compile tools\run_shakeout_breakdown_study.py tests\shakeout_breakdown_study_smoke.py tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\shakeout_breakdown_study_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_shakeout_breakdown_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\shakeout_breakdown_study` ->passed, generated 682 drawdown events.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level action replay is useful for policy discovery but not sufficient for production sizing.
+  - High single-name caps remain proposal-only until portfolio-level replay clears CAGR, MaxDD, turnover, and stress gates.
+
+### 13:35 KST - autolearning-winner-challenger
+
+- scope:
+  - Add a separate research-only challenger harness that connects AutoLearning
+    v2 hypotheses with winner lifecycle and winner onset outputs, producing
+    event-level backtest evidence and portfolio-replay readiness without
+    touching production behavior.
+- files:
+  - `tools/run_autolearning_winner_challenger.py` ->adds a standalone harness that reads AutoLearning, lifecycle, onset, and baseline artifacts and writes a proposal-only challenger package.
+  - `tests/autolearning_winner_challenger_smoke.py` ->adds a synthetic artifact smoke test for the separate challenger harness.
+  - `.gitignore` ->ignores generated `outputs/autolearning_winner_challenger/` artifacts.
+- symbols_added:
+  - `repo_path(path_like)` ->resolves repo-relative paths.
+  - `read_json(path, default)` ->loads JSON with a default fallback.
+  - `read_csv_rows(path)` ->loads CSV rows as dictionaries.
+  - `write_json(path, payload)` ->writes JSON artifacts.
+  - `write_csv(path, rows, fieldnames)` ->writes CSV artifacts.
+  - `write_text(path, text)` ->writes text artifacts.
+  - `safe_float(value, default)` ->normalizes numeric values.
+  - `pct(value)` ->formats percentages for reports.
+  - `load_baseline(latest_run)` ->loads main/concentrated baseline metrics.
+  - `load_autolearning(autolearning_dir)` ->loads AutoLearning v2 hypotheses and counterfactual metadata.
+  - `top_values(rows, col, n)` ->extracts top string values from report rows.
+  - `load_lifecycle(lifecycle_dir)` ->loads missed winner, stale winner, and rotation diagnostics.
+  - `return_stats(values)` ->computes event-level return distribution statistics.
+  - `load_onset(onset_dir)` ->loads onset study artifacts and event-level hold/exit stats.
+  - `replay_input_status(latest_run)` ->checks whether monthly books required for portfolio replay exist.
+  - `build_decision(baseline, autolearning, lifecycle, onset, event_rows, replay_status)` ->combines all evidence into one decision object.
+  - `decide_verdict(onset, lifecycle, replay_status)` ->classifies blocked/event-only/replay-ready state.
+  - `render_candidate_yaml(decision)` ->renders proposal-only experiment YAML.
+  - `render_report(decision, event_rows)` ->renders a Markdown challenger report.
+  - `run(args)` ->runs the separate challenger harness.
+  - `parse_args()` ->parses CLI arguments.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - `load_lifecycle(lifecycle_dir)` ->uses `held_ticker` from leadership rotation reports when rendering rotation pairs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/autolearning_winner_challenger/summary.json` ->combined decision and evidence object.
+  - `outputs/autolearning_winner_challenger/event_backtest.csv` ->event-level hold/exit stats from onset study outputs.
+  - `outputs/autolearning_winner_challenger/candidate_experiment.yaml` ->proposal-only experiment config for future portfolio replay.
+  - `outputs/autolearning_winner_challenger/challenger_report.md` ->human-readable separate challenger report.
+- validation:
+  - `py -3 -m py_compile tools\run_autolearning_winner_challenger.py tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tests\autolearning_winner_challenger_smoke.py` ->passed.
+  - `py -3 tools\run_winner_onset_study.py --scored cloud_results\full_rebuild\latest_global_alpha_universe\scored_latest.csv --top-tickers 80 --limit 40 --years 10 --sleep 0 --output-dir outputs\winner_onset_study` ->passed, generated 16 event-level onset cases.
+  - `py -3 tools\run_autolearning_winner_challenger.py` ->passed, verdict `EVENT_LEVEL_ONLY_WAIT_FOR_MONTHLY_BOOKS`.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - Event-level evidence prioritizes rules but is not a substitute for portfolio-level CAGR/MaxDD replay.
+  - Portfolio replay remains blocked until the current full rebuild produces monthly books on this branch.
+
+### 13:22 KST - winner-onset-study
+
+- scope:
+  - Add a report-only historical major-winner onset miner that labels early
+    multi-month advance starts, studies phase snapshots around the onset, and
+    proposes non-production candidate hold/exit rules.
+- files:
+  - `tools/run_winner_onset_study.py` ->adds ticker-agnostic historical onset detection, phase snapshots, hold diagnostics, summary report, and proposal-only policy output.
+  - `tests/winner_onset_study_smoke.py` ->adds a synthetic multi-bagger onset fixture that verifies detection, snapshots, hold diagnostics, and proposal-only policy rendering.
+  - `.gitignore` ->ignores generated `outputs/winner_onset_study/` artifacts.
+- symbols_added:
+  - `OnsetEvent` ->dataclass for one detected historical major-winner onset event.
+  - `finite_float(value, default)` ->normalizes numeric values for robust report generation.
+  - `safe_return(close, idx, days)` ->computes trailing returns.
+  - `forward_return(close, idx, days)` ->computes forward returns.
+  - `max_forward_return(close, idx, days)` ->computes future peak return and peak index.
+  - `max_drawdown_between(close, start_idx, end_idx)` ->computes window drawdown.
+  - `normalize_history(raw)` ->standardizes price history into close/volume columns.
+  - `fetch_history(ticker, start, end)` ->fetches yfinance history for CLI studies.
+  - `compute_features(hist, idx, spy_hist)` ->computes onset timing features.
+  - `entry_readiness_score(features)` ->scores whether a date has early advance confirmation.
+  - `detect_onset_events(ticker, hist, spy_hist, min_peak_return_12m, min_forward_6m, readiness_min, min_gap_days, max_events_per_ticker)` ->detects actionable onset events before large future moves.
+  - `nearest_index(index, target)` ->finds the nearest trading-date index.
+  - `build_phase_snapshots(events, histories, spy_hist)` ->writes pre/onset/post feature snapshots.
+  - `first_exit_return(close, onset_idx, kind)` ->evaluates simple trend exit candidates.
+  - `build_hold_diagnostics(events, histories)` ->compares fixed hold and trend-exit outcomes.
+  - `summarize_patterns(events_df, snapshots_df, hold_df)` ->summarizes median onset and hold patterns.
+  - `pct(value)` ->formats percentages for Markdown output.
+  - `render_report(summary, events_df, output_dir)` ->renders `winner_onset_report.md`.
+  - `render_policy_yaml(summary)` ->renders proposal-only candidate rules.
+  - `load_tickers_from_scored(path, top_n, min_current_mcap_usd, min_dollar_vol_20d)` ->loads and filters a ticker universe from `scored_latest.csv`.
+  - `load_tickers(args)` ->loads tickers from CLI inputs.
+  - `run(args)` ->runs the onset study CLI.
+  - `main()` ->CLI entry point.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/winner_onset_study/events.csv` ->detected major-winner onset events.
+  - `outputs/winner_onset_study/phase_snapshots.csv` ->feature snapshots from six months before to six months after onset.
+  - `outputs/winner_onset_study/hold_diagnostics.csv` ->fixed-hold and trend-exit diagnostics.
+  - `outputs/winner_onset_study/pattern_summary.json` ->machine-readable pattern summary.
+  - `outputs/winner_onset_study/winner_onset_report.md` ->human-readable report.
+  - `outputs/winner_onset_study/system_policy_candidates.yaml` ->proposal-only candidate rules, never production-active.
+- validation:
+  - `py -3 -m py_compile tools\run_winner_onset_study.py tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\winner_onset_study_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 81/81.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `git diff --check` ->passed with LF-to-CRLF warnings only.
+- risks_or_notes:
+  - yfinance CLI fetching can be rate-limited on large universes; start with targeted or top-ranked scored universes before broad mining.
+  - Scored-universe market-cap filtering defaults to current `market_cap_live`/`mktcap`, not point-in-time onset-date market cap; production use still requires challenger replay against monthly feature stores and costs.
+
+### 13:10 KST - winner-lifecycle-daily-scan
+
+- scope:
+  - Add report-only daily diagnostics for missed winners, stale holdings, and
+    leadership rotations so AutoLearning can propose system-level rules before
+    production behavior changes.
+- files:
+  - `.github/workflows/daily_autolearning_scan.yml` ->adds a scheduled/manual
+    artifact-only scan after the US market close.
+  - `.gitignore` ->keeps generated winner lifecycle outputs out of source
+    commits.
+  - `tools/run_winner_lifecycle_reports.py` ->generates missed winner, stale
+    winner, leadership rotation, markdown, JSON, and proposal-only YAML
+    artifacts from an existing latest run.
+  - `tests/winner_lifecycle_smoke.py` ->covers the SNDK/NVDA-style missed
+    winner, stale holder, and same-sector rotation diagnostics.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `build_missed_winners(scored_rows, held_tickers, top_n)` ->ranks strong
+    non-held leaders and diagnoses chase-penalty/ranking mismatches.
+  - `build_stale_winners(portfolio_rows, scored_by_ticker, top_n)` ->ranks held
+    names with weak recent momentum or poor relative strength.
+  - `build_leadership_rotations(portfolio_rows, scored_rows, held_tickers, top_n)` ->finds
+    same-sector challengers that may deserve replacement replay.
+  - `render_policy_yaml(summary)` ->writes proposal-only system policy
+    candidates for later historical replay.
+  - `run(latest_run, output_dir, top_n)` ->orchestrates artifact loading and
+    report writing.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is artifact-only and does not alter production selection,
+    DEFAULT_FEATURES, weights, or execution.
+- outputs:
+  - `outputs/winner_lifecycle/missed_winner_report.csv` ->non-held leaders that
+    deserve replay candidates.
+  - `outputs/winner_lifecycle/stale_winner_report.csv` ->current holdings that
+    may be dragging opportunity cost.
+  - `outputs/winner_lifecycle/leadership_rotation_report.csv` ->same-sector
+    held/challenger swap candidates.
+  - `outputs/winner_lifecycle/winner_lifecycle_report.md` ->human-readable
+    daily diagnostics.
+  - `outputs/winner_lifecycle/system_policy_candidates.yaml` ->proposal-only
+    candidate rules for later replay.
+- validation:
+  - PASS: `py -3 -m py_compile tools\run_winner_lifecycle_reports.py tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tests\winner_lifecycle_smoke.py`
+  - PASS: `py -3 tools\run_winner_lifecycle_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\winner_lifecycle --top-n 20`
+- risks_or_notes:
+  - The daily scan creates hypotheses only. It must feed historical replay,
+    shadow, and canary gates before any production rule can change.
+  - Current existing artifacts flag SNDK as a missed explosive leader and NVDA
+    as a stale/high-opportunity-cost holding candidate, which is the intended
+    diagnostic behavior.
+
+### 10:43 KST - pr3-historical-replay-foundation
+
+- scope:
+  - Convert PR #3 research infrastructure from snapshot-only toward replayable
+    historical evidence by preserving monthly mandate books and fixing a
+    concentrated entry-gate fallback bug.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds equity curve and monthly
+    mandate books to artifacts, Google Drive sync, Telegram bundles, and
+    cloud_results while avoiding nested copied directories.
+  - `r1000_concentrated_policy.py` ->adds entry-quality proxy fallback so
+    missing `entry_quality_score` does not block otherwise valid concentrated
+    sleeve candidates.
+  - `r1000_pipeline.py` ->exports main monthly weights, regime-by-month, sleeve
+    returns by month, and placeholder tactical/alpha-sprint monthly book
+    schemas from the existing backtest result.
+  - `tests/concentrated_policy_smoke.py` ->covers concentrated entry-quality
+    fallback and audit surfacing.
+  - `tests/workflow_artifact_smoke.py` ->covers full rebuild artifact/GDrive
+    export tokens and non-nested cloud_results directory copies.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `numeric_or_none(value)` ->returns a parsed float or `None` so missing
+    values can be distinguished from real zeros.
+  - `clip01(value, default)` ->bounds numeric scores to the 0..1 range.
+  - `entry_quality_proxy(row)` ->derives concentrated entry quality from direct
+    score, existing gate pass, or conservative technical fallback signals.
+  - `_write_monthly_mandate_books()` ->local export helper that writes raw
+    monthly mandate/replay CSVs from the main backtest result.
+- symbols_changed:
+  - `concentrated_conviction_score(row)` ->uses the entry-quality proxy instead
+    of treating missing `entry_quality_score` as zero.
+  - `entry_gate_flags(row, gate)` ->uses the entry-quality proxy for gate
+    evaluation.
+  - `audit_concentrated_portfolio(holdings, scored_rows, regime_state, policy)` ->surfaces
+    `entry_quality_proxy` and `entry_quality_source` in audit rows.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Production selection behavior, DEFAULT_FEATURES, and sleeve defaults
+    remain unchanged.
+- outputs:
+  - `outputs/reports/main_monthly_weights.csv` ->raw monthly main holdings for
+    historical orchestrator replay.
+  - `outputs/reports/tactical_monthly_weights.csv` ->schema placeholder until a
+    true tactical monthly book is wired.
+  - `outputs/reports/alpha_sprint_monthly_weights.csv` ->schema placeholder
+    until a true alpha-sprint monthly book is wired.
+  - `outputs/reports/regime_by_month.csv` ->monthly regime/allocation state
+    exported from the main backtest.
+  - `outputs/reports/sleeve_returns_by_month.csv` ->sleeve-level return proxy
+    aggregated from monthly holdings.
+- validation:
+  - PASS: `py -3 -m py_compile r1000_concentrated_policy.py r1000_pipeline.py tests\concentrated_policy_smoke.py tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\concentrated_policy_smoke.py`
+  - PASS: `py -3 tests\workflow_artifact_smoke.py`
+  - PASS: `py -3 tests\orchestrator_replay_smoke.py`
+  - PASS: `py -3 tests\portfolio_system_guard_smoke.py`
+  - PASS: `py -3 tests\aggressive_lab_smoke.py`
+  - PASS: `py -3 tests\smoke_test.py` (81/81)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - Tactical and alpha-sprint monthly files are explicit empty schemas for now;
+    they prevent silent missing artifacts but are not promotion evidence.
+  - This does not enable orchestrator/risk/alpha-sprint production behavior.
+    It only preserves the data needed for the next true replay layer.
+
+## 2026-05-01
+
+### 00:43 KST - regime-learned-support-guard
+
+- scope:
+  - Prevent low-sample learned regime sleeve policies from overriding exact
+    manual regime maps after the Phase 20 rebuild learned `core_only` from
+    only seven `growth_reentry_alert` months.
+- files:
+  - `r1000_config.py` ->adds the minimum learned-regime sample support config
+    field.
+  - `r1000_pipeline.py` ->filters learned regime maps below the support floor,
+    passes the floor through sleeve policy selection/comparison, validates the
+    new field, and fixes cash-aware guardrail math so cash is treated as a
+    separate sleeve.
+  - `r1000_signals.py` ->passes the learned-regime support floor into live
+    regime-conditioned sleeve override resolution.
+  - `tests/smoke_test.py` ->adds regression coverage for low-sample learned
+    fallback and cash-separate guardrail math.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_regime_policy_guardrails(live_label, selected_policy)` ->operates
+    on equity sleeve fractions instead of shrinking them by `(1 - cash)`.
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->filters learned exact/nearest labels with insufficient sample months before falling back to manual maps.
+  - `choose_sleeve_cap_policy(policy_compare, cfg)` ->uses
+    `regime_conditioned_min_learned_months` when attaching the learned
+    regime-conditioned map to the selected champion policy.
+  - `resolve_regime_conditioned_sleeve_override(cfg, month_df)` ->passes the
+    configured support floor into regime policy lookup.
+- config_fields_added:
+  - `regime_conditioned_min_learned_months: int = 12` ->minimum per-regime
+    months required before learned sleeve policy labels can override exact
+    manual regime maps.
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged; this affects
+    post-model portfolio sleeve policy resolution only.
+- outputs:
+  - none directly. The next full rebuild should avoid
+    `core_only_guardrailed` for seven-month `growth_reentry_alert` samples and
+    should surface the fallback through portfolio policy labels.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (76/76)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This is a conservative anti-overfit guard, not a blind weight tune. A later
+    A/B can raise or lower the 12-month floor, but unsupported learned maps
+    should not ship automatically.
+
+### 03:37 KST - learned-fallback-before-growth-manual
+
+- scope:
+  - Make regime fallback more data-driven after the rerun showed the
+    unsupported manual growth map worsened main CAGR and drawdown.
+- files:
+  - `r1000_pipeline.py` ->defers non-defensive manual regime maps until
+    high-support learned fallback labels have been checked; risk-off/systemic
+    manual safety maps still apply immediately.
+  - `tests/smoke_test.py` ->updates low-support growth fallback coverage and
+    adds a risk-off manual safety regression test.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...]` ->labels whose
+    exact manual safety maps can override learned fallback when learned support
+    is below the sample floor.
+- symbols_changed:
+  - `resolve_regime_policy_selection(live_label, *, learned_regime_map, manual_regime_map, min_learned_months)` ->prefers high-support learned fallback for non-defensive growth/neutral labels before using deferred manual maps.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. Feature-store schema and DEFAULT_FEATURES are unchanged.
+- outputs:
+  - none directly. The next full rebuild should prefer the high-support learned
+    balanced/ALL map over unvalidated manual `growth_reentry_alert` when the
+    exact learned growth label has fewer than 12 months.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (77/77)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This may improve the current growth-alert regression, but it still requires
+    a full rebuild verdict because regime fallback order is a portfolio
+    behavior change.
+
+### 05:25 KST - adr-mktcap-cache-date-normalization
+
+- scope:
+  - Fix the failed Phase 20 rebuild where `yf_mktcap_proxy.parquet` mixed
+    legacy ISO-string timestamps with pandas Timestamp rows and crashed while
+    sorting `updated_at`.
+- files:
+  - `r1000_pipeline.py` ->normalizes ADR market-cap proxy cache timestamps
+    before and after cache refresh concat, and stores new fetch rows as
+    Timestamp values.
+  - `tests/smoke_test.py` ->adds regression coverage for mixed cache
+    timestamp types.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `fetch_mktcap_proxy(ticker)` ->returns a pandas Timestamp for
+    `updated_at` instead of an ISO string.
+  - `ensure_mktcap_proxy(cfg, paths, tickers, max_new)` ->coerces
+    `updated_at` to datetime before concat, after concat, before sort, and
+    before returning.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is cache dtype normalization only; feature definitions and
+    portfolio behavior are unchanged.
+- outputs:
+  - none directly. The next full rebuild should pass the ADR market-cap proxy
+    cache refresh step instead of failing before feature-store construction.
+- validation:
+  - PASS: `py -3 tests\smoke_test.py` (78/78)
+  - PASS: `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - The failed run did not produce valid backtest metrics, so it cannot be used
+    as a strategy verdict.
+
+## 2026-04-30
+
+### 19:40 KST - workflow-cadence-consolidation
+
+- scope:
+  - Consolidate scheduled GitHub Actions around the current core /
+    concentrated / tactical system and require future system changes to update
+    the automation owner workflow and smoke topology guard in the same commit.
+- files:
+  - `.github/workflows/after_close_daily.yml` ->new consolidated daily
+    after-close workflow for scanner, macro pulse, ETF leadership,
+    explosive mover scan, tactical review, paper dry-run, and Layer 4
+    suggestions.
+  - `.github/workflows/weekly_data_refresh.yml` ->new weekly data refresh
+    workflow combining Finnhub substrate collection and theme discovery.
+  - `.github/workflows/monthly_research.yml` ->new monthly research workflow
+    combining cycle-play universe refresh, ADR/macro IC monitoring, tactical
+    sleeve backtest, and explosive pattern model retraining.
+  - `.github/workflows/quarterly_auto_learning.yml` ->new quarterly
+    auto-learning workflow combining trade insights, feature-gate proposal,
+    and promotion-gate dry-run/manual promotion.
+  - `.github/workflows/layer4_monthly_swap.yml` ->renamed behavior to
+    proposal-first, moved schedule to after-close UTC, and preserved manual
+    execute=true live-paper guard.
+  - `.github/workflows/unified_monthly.yml` ->moved schedule to after-close
+    UTC so legacy unified bridge no longer runs during the US session.
+  - `.github/workflows/* retired scheduled files` ->old duplicate daily,
+    weekly, monthly, and quarterly one-purpose workflows removed after
+    consolidation.
+  - `AUTOMATION_STRATEGY.md` ->new cadence matrix and rules for updating
+    automation whenever sleeves/features/data sources change.
+  - `tests/smoke_test.py` ->updated workflow guards from legacy filenames to
+    consolidated cadence topology and after-close scheduling.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_paper_executor_workflow()` ->now validates `after_close_daily.yml`
+    as the paper/tactical/scanner owner workflow.
+  - `test_paper_executor_weekday()` ->now validates after-close weekday and
+    weekend review schedules in `after_close_daily.yml`.
+  - `test_tactical_after_close_workflow()` ->now validates tactical review
+    inside the consolidated daily workflow.
+  - `test_monthly_ic_monitor()` ->now validates monthly IC monitoring inside
+    `monthly_research.yml`.
+  - `test_layer4_monthly_workflow()` ->now validates dry-run/proposal default
+    and after-close schedule.
+  - `test_workflow_topology_consolidated()` ->new smoke guard for the
+    consolidated workflow set and retired duplicate files.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Scheduled automation file names changed. Use `after_close_daily.yml`,
+    `weekly_data_refresh.yml`, `monthly_research.yml`, and
+    `quarterly_auto_learning.yml` instead of the retired one-purpose workflow
+    files.
+- outputs:
+  - `AUTOMATION_STRATEGY.md` ->owner matrix for workflow cadence and future
+    automation updates.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 73/73.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The currently running GitHub full_rebuild on the previous branch SHA is
+    unaffected. This change only updates future scheduled/manual workflow
+    behavior after the branch is pushed or merged.
+
+### 20:56 KST - full-rebuild-result-branch-and-learning-candidate
+
+- scope:
+  - Fix post-run full rebuild automation discovered from run 25154642964:
+    result commits must push to the dispatched branch, and auto-learning must
+    preserve an actual candidate gate artifact instead of only a dry-run log.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->generates
+    `outputs/auto_learning/auto_feature_gates_candidate.yaml`, evaluates the
+    promotion gate against that candidate in dry-run mode, and pushes
+    `cloud_results/` commits to the current dispatch branch with branch-aware
+    fetch/rebase retry.
+  - `.gitignore` ->ignores local `research/phase20_artifact/` GitHub artifact
+    downloads.
+  - `tests/smoke_test.py` ->updates auto-learning artifact assertions and adds
+    a guard that full rebuild result pushes do not rebase branch runs onto
+    master.
+- symbols_added:
+  - `test_full_rebuild_pushes_results_to_dispatch_branch()` ->guards the
+    branch-aware full rebuild result push path.
+- symbols_changed:
+  - `test_full_rebuild_preserves_auto_learning_artifacts()` ->now requires a
+    candidate feature-gate YAML artifact and candidate-aware promotion dry-run.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/auto_learning/auto_feature_gates_candidate.yaml` ->candidate
+    learned feature-gate proposal emitted by full rebuild diagnostics.
+- validation:
+  - `py -3 -c "import glob, yaml, pathlib; ..."` ->PASS, 8 workflow YAML
+    files parsed.
+  - `py -3 tests\smoke_test.py` ->PASS, 74/74.
+  - `PYTHONIOENCODING=utf-8 py -3 tests\audit_features.py --no-runtime`
+    ->PASS, no leakage detected.
+  - `git diff --check` ->PASS, no whitespace errors.
+- risks_or_notes:
+  - The candidate gate file is generated and evaluated in dry-run mode only;
+    live promotion still requires a separate tested challenger/promotion path.
+
 ## 2026-04-29
 
 ### 12:22 KST - phase15d-cycle-play-universe-and-chase-prevention

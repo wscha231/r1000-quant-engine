@@ -1,0 +1,82 @@
+{
+  "unified_weights": {
+    "GOOGL": 0.11443030626082598,
+    "NVDA": 0.061446844348695726,
+    "GLW": 0.05,
+    "VRT": 0.040333820063505756,
+    "FTI": 0.03952625475637356,
+    "GEV": 0.0389644321247935,
+    "FIX": 0.03395140478680838,
+    "AMAT": 0.030954231667339543,
+    "LRCX": 0.030954231667339543,
+    "CIEN": 0.03,
+    "ASML": 0.028117757823390866,
+    "TSM": 0.028044545100680593,
+    "FANG": 0.027631479083621343,
+    "DTM": 0.026000000000000006,
+    "MLI": 0.026000000000000006,
+    "PR": 0.026000000000000006,
+    "UMC": 0.026000000000000006,
+    "TER": 0.024060973165333982,
+    "ON": 0.020156462217054676,
+    "WDC": 0.020000000000000004
+  },
+  "cash_target": 0.27742725693423653,
+  "by_mandate_capacity": {
+    "main": 0.65,
+    "concentrated": 0.1,
+    "tactical": 0.0
+  },
+  "conflicts": [
+    {
+      "ticker": "GLW",
+      "mandates": [
+        "concentrated",
+        "main"
+      ],
+      "weights_per_mandate": {
+        "concentrated": 0.05,
+        "main": 0.027427256934236546
+      },
+      "max_weight_used": 0.05,
+      "winning_mandate": "concentrated"
+    }
+  ],
+  "regime_state": "neutral",
+  "audit": {
+    "input_weights_sum": {
+      "main": 1.0,
+      "concentrated": 1.0,
+      "tactical": 0
+    },
+    "scaled_weights_sum": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0
+    },
+    "policy_capacity": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0.0,
+      "expected_total_invested": 0.75,
+      "actual_total_invested_after_merge": 0.7225727430657635,
+      "merged_below_expected_due_to_conflicts": 0.027427256934236532
+    },
+    "merge_mode": "max",
+    "unified_single_name_cap": 1.0,
+    "n_unique_tickers": 20,
+    "n_conflicts": 1,
+    "generated_at": "2026-05-06T19:35:14Z"
+  },
+  "audit_checks": {
+    "weights_nonnegative": true,
+    "weights_at_most_one": true,
+    "cash_in_unit_range": true,
+    "invested_plus_cash_close_to_one": true,
+    "invested_amount": 0.7225727430657635,
+    "cash_amount": 0.27742725693423653,
+    "n_positions": 20,
+    "n_conflicts": 1,
+    "all_passed": true
+  }
+}

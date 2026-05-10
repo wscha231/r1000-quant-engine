@@ -1,0 +1,4 @@
+stress_window,status,reason
+2020,needs_monthly_equity_curve,baseline cloud artifact does not include equity_curve.csv
+2022,needs_monthly_equity_curve,baseline cloud artifact does not include equity_curve.csv
+2025-2026 momentum,needs_monthly_equity_curve,baseline cloud artifact does not include equity_curve.csv

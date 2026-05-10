@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_compounder_fit,market_style_regime_label
+UI,UBIQUITI INC,Information Technology,future_winner,1.0112491899946674,0.8678845386502235,balanced
+NVDA,NVIDIA CORP,Information Technology,core_compounder,5.232294881939139,0.8175660093629538,balanced
+NTES,NetEase,Internet,core_compounder,1.843514528897811,0.8022714164717683,balanced
+VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.248953977251034,0.7814741004281291,balanced
+CW,CURTISS WRIGHT CORP,Industrials,future_winner,1.5597765480728327,0.777205487128222,balanced
+COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,5.00564613781414,0.7751836415807749,balanced
+SPG,SIMON PROPERTY GROUP REIT INC,Real Estate,future_winner,2.5573825025612367,0.7615512603101772,balanced
+AAPL,APPLE INC,Information Technology,core_compounder,5.248009006046043,0.7569493556110833,balanced

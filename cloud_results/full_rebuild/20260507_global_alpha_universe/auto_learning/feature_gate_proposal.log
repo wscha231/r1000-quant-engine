@@ -1,0 +1,8 @@
+[gate-prop] thresholds: ic_disable=-0.05 ic_amplify=+0.1 ic_min_n=25 cluster_winrate_max=0.3 cluster_min_n=20
+[gate-prop] signal x regime proposals: 1
+[gate-prop] pattern block proposals:   0
+
+[gate-prop] proposed gates (preview):
+    signal_regime_disable    theme_phase_multiplier_primary   regime=neutral      factor=0.0  IC=-0.078  n=386
+[gate-prop] wrote /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/insights/proposal_diff.md
+[gate-prop] wrote outputs/auto_learning/auto_feature_gates_candidate.yaml

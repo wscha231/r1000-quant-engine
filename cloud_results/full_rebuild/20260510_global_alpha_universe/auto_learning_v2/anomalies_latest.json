@@ -1,0 +1,137 @@
+[
+  {
+    "breaks_assumption": "High alpha sources should be tested with dynamic risk budgets instead of permanently small fixed capacity.",
+    "category": "capital_allocation_mismatch",
+    "confidence": 0.8,
+    "evidence": {
+      "concentrated_cagr": 0.43243153809103063,
+      "concentrated_max_dd": -0.3903393641247158,
+      "concentrated_sharpe": 1.049198723582341,
+      "latest_concentrated_capacity": 0.1,
+      "main_cagr": 0.20254983739282295,
+      "main_max_dd": -0.3249678387996816,
+      "main_sharpe": 0.9652072769745561
+    },
+    "id": "concentrated_alpha_underallocated",
+    "observation": "Concentrated has materially stronger standalone return/Sharpe but the orchestrator keeps it small.",
+    "regime": null,
+    "severity": "high",
+    "severity_score": 3.0,
+    "suggested_hypothesis_types": [
+      "concentrated_neutral_20_25",
+      "bear_top2_survivor",
+      "dynamic_concentrated_n"
+    ]
+  },
+  {
+    "breaks_assumption": "A broad one-flow main portfolio is not guaranteed to be the best carrier for sleeve-specific alpha.",
+    "category": "portfolio_construction_drag",
+    "confidence": 0.78,
+    "evidence": {
+      "main_avg_stock_names": 24.72289156626506,
+      "main_avg_turnover_monthly": 0.5237195604954387,
+      "main_cagr": 0.20254983739282295,
+      "main_max_dd": -0.3249678387996816
+    },
+    "id": "main_broad_high_turnover",
+    "observation": "Main remains broad while monthly turnover is high, which can dilute future_winner alpha.",
+    "regime": null,
+    "severity": "high",
+    "severity_score": 3.0,
+    "suggested_hypothesis_types": [
+      "main_future_alpha_concentration",
+      "target_n_compression",
+      "sleeve_orchestrator_inside_main"
+    ]
+  },
+  {
+    "breaks_assumption": "Creative policy generation is unsafe without counterfactual replay for each capital-allocation change.",
+    "category": "research_infrastructure_gap",
+    "confidence": 0.76,
+    "evidence": {
+      "missing_count": 8,
+      "missing_replay": [
+        {
+          "experiment_id": "E4_concentrated_balanced",
+          "status": "standalone_sleeve_policy_audit"
+        },
+        {
+          "experiment_id": "E1_auto_feature_gates_on",
+          "status": "candidate_only"
+        },
+        {
+          "experiment_id": "E2_main_v2_balanced",
+          "status": "snapshot_report_only"
+        },
+        {
+          "experiment_id": "E3_main_v2_aggressive",
+          "status": "snapshot_report_only"
+        },
+        {
+          "experiment_id": "E5_orchestrator_balanced",
+          "status": "snapshot_report_only"
+        },
+        {
+          "experiment_id": "E7_tactical_bull_only",
+          "status": "sidecar_latest_only"
+        },
+        {
+          "experiment_id": "E8_alpha_sprint_sidecar",
+          "status": "sidecar_latest_only"
+        },
+        {
+          "experiment_id": "E9_kitchen_sink_all_on",
+          "status": "snapshot_discovery_only"
+        }
+      ]
+    },
+    "id": "sidecar_without_counterfactual_replay",
+    "observation": "Several high-impact sidecars produce snapshots but still lack historical challenger replay.",
+    "regime": null,
+    "severity": "high",
+    "severity_score": 3.0,
+    "suggested_hypothesis_types": [
+      "counterfactual_replay_priority",
+      "shadow_only_until_replay"
+    ]
+  },
+  {
+    "breaks_assumption": "A blunt portfolio breaker may protect capital but suppress upside without position-aware exits and swaps.",
+    "category": "risk_policy_tradeoff",
+    "confidence": 0.72,
+    "evidence": {
+      "cagr_delta_pp": -2.937219575004235,
+      "maxdd_delta_pp": 5.64744405347003,
+      "sharpe_delta": -0.0636541409809035,
+      "status": "simplified_layer2_backtest"
+    },
+    "id": "risk_sensing_defense_return_tradeoff",
+    "observation": "Simplified risk sensing improves drawdown but reduces CAGR/Sharpe in the aggressive matrix.",
+    "regime": null,
+    "severity": "medium",
+    "severity_score": 2.0,
+    "suggested_hypothesis_types": [
+      "risk_governor_layered_exit",
+      "better_replacement_swap",
+      "drawdown_kill_switch"
+    ]
+  },
+  {
+    "breaks_assumption": "Alpha Sprint cannot depend on explosion_* alone until the feature stack produces usable nonzero evidence.",
+    "category": "dormant_signal_stack",
+    "confidence": 0.68,
+    "evidence": {
+      "explosion_entry_n_all": 935,
+      "explosion_exit_n_all": 935
+    },
+    "id": "explosion_stack_dormant",
+    "observation": "Explosion entry/exit rows exist in the trade journal IC matrix but have no numeric IC evidence.",
+    "regime": null,
+    "severity": "medium",
+    "severity_score": 2.0,
+    "suggested_hypothesis_types": [
+      "alpha_sprint_breakout_fallback",
+      "explosion_feature_repair"
+    ]
+  }
+]

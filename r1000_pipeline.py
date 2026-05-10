@@ -85,6 +85,10 @@ from r1000_config import (
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
+    PHASE17_EXPLOSION_COLUMNS,
+    PHASE17_REGIME_STATE_COLUMNS,
+    PHASE20_THEME_POLICY_COLUMNS,
+    PHASE21_STYLE_REGIME_COLUMNS,
     CRISIS_SECTOR_BENEFICIARIES,
     CORE_FUNDAMENTAL_COLUMNS,
     MACRO_PRICE_TICKERS,
@@ -261,6 +265,7 @@ from r1000_features import (
     compute_event_regime_features,
     sector_indicator,
     compute_macro_interaction_features,
+    compute_market_style_regime_features,
     compute_market_adaptation_features,
     compute_dynamic_leadership_features,
     load_manual_moat_overrides,
@@ -276,6 +281,8 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    compute_explosion_likelihood_score,
+    compute_regime_state_classifier,
     compute_cycle_recovery_score,
     compute_eps_revision_score,
     compute_early_cycle_inflection_score,
@@ -283,6 +290,18 @@ from r1000_features import (
     compute_ml_technical_agreement_score,
     compute_sub_industry_rs_score,
     compute_insider_cluster_boost_score,
+    apply_phase18c_gates_to_frame,
+)
+
+# Phase 18a (2026-04-30): sidecar trade journal. The hook writes
+# outputs/trade_journal/ from already-computed backtest holdings; failures
+# are treated as non-fatal so production metrics are not blocked.
+from r1000_trade_journal import (
+    attach_signal_breakdown,
+    grade_trades,
+    pair_entries_with_exits,
+    persist_holdings_history,
+    summary_digest,
 )
 
 # Refactor Phase A Stage 4a (2026-04-20): sleeve composition +
@@ -292,6 +311,7 @@ from r1000_signals import (
     resolve_regime_sleeve_multipliers,
     add_historical_data_quality_columns,
     compute_portfolio_sleeve_columns,
+    compute_defensive_monster_rotation_overlay,
     compute_portfolio_sleeve_policy,
     compute_regime_portfolio_controls,
     compute_benchmark_beating_focus_overlay,
@@ -1397,6 +1417,7 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
     "run_concentrated_backtest_comparison",
     "run_ai_four_sleeve_comparison",
     "run_regime_map_method_comparison",
+    "regime_conditioned_min_learned_months",
     # Phase 15 post-ML composite gates (downstream of cached model predictions)
     "phase15_a1_drop_negative_features_enabled",
     "phase15_s1a_future_prune_enabled",
@@ -1465,6 +1486,8 @@ def validate_config(cfg: EngineConfig) -> None:
         raise ValueError("target_36m_days must be greater than target_24m_days.")
     if cfg.default_backtest_years < 1:
         raise ValueError("default_backtest_years must be >= 1.")
+    if str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")).strip() not in {"latest_only", "full_proxy", "off"}:
+        raise ValueError("leader_rescue_backtest_mode must be one of: latest_only, full_proxy, off.")
     if not cfg.backtest_window_comparison_years:
         raise ValueError("backtest_window_comparison_years must not be empty.")
     if any(int(x) < 1 for x in cfg.backtest_window_comparison_years):
@@ -1772,6 +1795,8 @@ def validate_config(cfg: EngineConfig) -> None:
         )
     if cfg.sector_adjusted_financial_min_fields < 1 or cfg.sector_adjusted_realasset_min_fields < 1 or cfg.sector_adjusted_resource_min_fields < 1:
         raise ValueError("sector-adjusted minimum field counts must be >= 1.")
+    if int(getattr(cfg, "regime_conditioned_min_learned_months", 0)) < 0:
+        raise ValueError("regime_conditioned_min_learned_months must be >= 0.")
     if cfg.partial_scout_min_fields < 1:
         raise ValueError("partial_scout_min_fields must be >= 1.")
     if not (0.0 <= cfg.partial_scout_confirmation_min <= 1.0):
@@ -2807,6 +2832,8 @@ def normalize_engine_universe_mode(mode: Any) -> str:
         "global-alpha": "global_alpha_universe",
         "global_alpha": "global_alpha_universe",
         "global+adr": "global_alpha_universe",
+        "global+hardware": "global_alpha_universe",
+        "global_hardware": "global_alpha_universe",
         # Phase 15-D (2026-04-29): cycle play overlays
         "r1000+adr+cycle": "global_alpha_universe",  # full overlay alias
         "r1000+cycle": "r1000+cycle",
@@ -2896,6 +2923,54 @@ def load_cycle_play_universe_frame(
             }
         )
     return pd.DataFrame(rows, columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+
+def load_strategic_global_hardware_universe_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load strategic semiconductor/AI hardware candidates from YAML.
+
+    This is a universe overlay only. It keeps names like global semis,
+    memory/storage, optical networking, and AI infrastructure visible to
+    diagnostics/latest scoring without bypassing normal score/risk gates.
+    """
+    path_raw = str(getattr(cfg, "strategic_global_hardware_universe_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "strategic_global_hardware_universe.yaml")
+    if not path.exists():
+        log(f"[INFO] strategic global hardware universe missing: {path}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] strategic global hardware universe requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] strategic global hardware universe load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    raw = payload.get("strategic_global_hardware_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Information Technology")),
+                "industry_group": str(rec.get("industry_group", rec.get("segment", "Strategic Hardware"))),
+                "cik10": np.nan,
+                "universe_source": "strategic_global_hardware",
+            }
+        )
+    out = pd.DataFrame(rows, columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
 
 
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
@@ -3264,6 +3339,76 @@ def write_market_adaptation_report(paths: dict[str, Path], df: pd.DataFrame, cfg
     return path
 
 
+def _candidate_source_frame(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Normalize one constituent source while preserving its origin label."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d = df.copy()
+    if "ticker" not in d.columns and "Ticker" in d.columns:
+        d = d.rename(columns={"Ticker": "ticker"})
+    if "ticker" not in d.columns:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    if "Name" not in d.columns:
+        d["Name"] = ""
+    if "sector" not in d.columns:
+        d["sector"] = d["Sector"].astype(str) if "Sector" in d.columns else "Unknown"
+    if "cik10" not in d.columns:
+        d["cik10"] = np.nan
+    d["universe_source"] = source
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    return d[["ticker", "Name", "sector", "cik10", "universe_source"]]
+
+
+def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate tickers without losing evidence that a name came from
+    IWB, S&P 500, Nasdaq-100, ADR, or cycle-play overlays.
+    """
+    if uni is None or uni.empty:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d = uni.copy()
+    for col, default in (("Name", ""), ("sector", "Unknown"), ("cik10", np.nan), ("universe_source", "unknown")):
+        if col not in d.columns:
+            d[col] = default
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    d["Name"] = d["Name"].fillna("").astype(str)
+    d["sector"] = d["sector"].fillna("Unknown").astype(str)
+    d["universe_source"] = d["universe_source"].fillna("unknown").astype(str)
+
+    def _first_nonempty(s: pd.Series, default: str = "") -> str:
+        vals = [str(x).strip() for x in s.tolist() if str(x).strip() and str(x).strip().lower() != "nan"]
+        return vals[0] if vals else default
+
+    def _first_sector(s: pd.Series) -> str:
+        vals = [str(x).strip() for x in s.tolist() if str(x).strip() and str(x).strip().lower() not in {"nan", "unknown"}]
+        return vals[0] if vals else "Unknown"
+
+    def _source_join(s: pd.Series) -> str:
+        seen: list[str] = []
+        for raw in s.astype(str).tolist():
+            for part in str(raw).split("+"):
+                val = part.strip()
+                if val and val not in seen:
+                    seen.append(val)
+        return "+".join(seen) if seen else "unknown"
+
+    def _first_cik(s: pd.Series) -> Any:
+        vals = s.dropna().tolist()
+        return vals[0] if vals else np.nan
+
+    return (
+        d.groupby("ticker", as_index=False)
+        .agg(
+            Name=("Name", _first_nonempty),
+            sector=("sector", _first_sector),
+            cik10=("cik10", _first_cik),
+            universe_source=("universe_source", _source_join),
+        )
+        .copy()
+    )
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3275,6 +3420,11 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     # below R1000 size threshold. r1000+adr stays clean (no cycle_play) for
     # legacy comparison; global_alpha_universe gets the full overlay.
     include_cycle_play = universe_mode in {"global_alpha_universe", "r1000+cycle"}
+    include_strategic_global_hardware = (
+        bool(getattr(cfg, "strategic_global_hardware_universe_enabled", True))
+        and universe_mode in {"global_alpha_universe"}
+    )
+    strategic_global_hardware_added_to_frames = False
     hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
         prev = pd.read_parquet(out_path) if out_path.exists() else pd.DataFrame()
@@ -3305,7 +3455,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             iwb["sector"] = iwb["Sector"].astype(str) if "Sector" in iwb.columns else "Unknown"
             iwb = iwb[iwb["ticker"].map(is_valid_ticker)]
             iwb = iwb[~iwb.apply(lambda r: looks_like_noncommon(r["ticker"], r.get("Name")), axis=1)]
-            frames.append(iwb[["ticker", "Name", "sector"]])
+            frames.append(_candidate_source_frame(iwb, "current_constituents_proxy"))
         except Exception as e:
             log(f"[WARN] IWB holdings fetch failed: {e}")
 
@@ -3317,7 +3467,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     ticker_col="Symbol",
                 )
                 sp500["sector"] = "Unknown"
-                frames.append(sp500[["ticker", "Name", "sector"]])
+                frames.append(_candidate_source_frame(sp500, "sp500_proxy"))
             except Exception as e:
                 log(f"[WARN] S&P500 fetch failed: {e}")
 
@@ -3328,15 +3478,65 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     ticker_col="Ticker",
                 )
                 ndx["sector"] = "Unknown"
-                frames.append(ndx[["ticker", "Name", "sector"]])
+                frames.append(_candidate_source_frame(ndx, "nasdaq100_proxy"))
             except Exception as e:
                 log(f"[WARN] Nasdaq-100 fetch failed: {e}")
+
+        if bool(getattr(cfg, "leader_rescue_universe_enabled", True)):
+            rescue_frames: list[pd.DataFrame] = []
+            if bool(getattr(cfg, "leader_rescue_include_sp500", True)):
+                try:
+                    sp500_rescue = fetch_wikipedia_tickers(
+                        "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                        table_idx=0,
+                        ticker_col="Symbol",
+                    )
+                    sp500_rescue["sector"] = "Unknown"
+                    rescue_frames.append(_candidate_source_frame(sp500_rescue, "leader_rescue_sp500"))
+                except Exception as e:
+                    log(f"[WARN] leader-rescue S&P500 fetch failed: {e}")
+            if bool(getattr(cfg, "leader_rescue_include_nasdaq100", True)):
+                try:
+                    ndx_rescue = fetch_wikipedia_tickers(
+                        "https://en.wikipedia.org/wiki/Nasdaq-100",
+                        table_idx=4,
+                        ticker_col="Ticker",
+                    )
+                    ndx_rescue["sector"] = "Unknown"
+                    rescue_frames.append(_candidate_source_frame(ndx_rescue, "leader_rescue_nasdaq100"))
+                except Exception as e:
+                    log(f"[WARN] leader-rescue Nasdaq-100 fetch failed: {e}")
+            if rescue_frames:
+                rescue = pd.concat(rescue_frames, ignore_index=True)
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(rescue["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(rescue)
+                log(
+                    "Leader rescue universe injection: "
+                    f"sources={len(rescue_frames)}, candidates={len(rescue)}, added_pre_dedup={len(added)}"
+                )
+
+        if include_strategic_global_hardware:
+            strategic_hw = load_strategic_global_hardware_universe_frame(cfg)
+            if not strategic_hw.empty:
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(strategic_hw["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(strategic_hw)
+                strategic_global_hardware_added_to_frames = True
+                log(
+                    "Strategic global hardware universe injection: "
+                    f"candidates={len(strategic_hw)}, added_pre_dedup={len(added)}"
+                )
 
         if not frames:
             raise RuntimeError("Unable to build candidate universe from sources.")
 
         uni = pd.concat(frames, ignore_index=True)
-        uni["universe_source"] = "current_constituents_proxy"
+        uni = _combine_candidate_universe_sources(uni)
 
     if include_adr and not adr_only:
         adr_frame = load_adr_universe_frame(
@@ -3374,9 +3574,21 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         else:
             log(f"[INFO] universe_mode={universe_mode} requested cycle_play injection, but cycle_play_universe.yaml was empty.")
 
+    if include_strategic_global_hardware and not adr_only and not strategic_global_hardware_added_to_frames:
+        strategic_hw = load_strategic_global_hardware_universe_frame(cfg)
+        if not strategic_hw.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            hw_add = strategic_hw[~strategic_hw["ticker"].astype(str).isin(before)].copy()
+            if not hw_add.empty:
+                uni = pd.concat([uni, hw_add], ignore_index=True, sort=False)
+            log(
+                "Strategic global hardware overlay: "
+                f"mode={universe_mode}, candidates={len(strategic_hw)}, added={len(hw_add)}"
+            )
+
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
-    uni = uni[~uni["ticker"].duplicated(keep="first")].copy()
+    uni = _combine_candidate_universe_sources(uni)
 
     sec_map = load_sec_company_tickers(cfg, paths)
     uni = uni.merge(sec_map, on="ticker", how="left")
@@ -3425,6 +3637,279 @@ def load_px(paths: dict[str, Path], ticker: str) -> Optional[pd.DataFrame]:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df
+
+
+def _price_cache_latest_date(paths: dict[str, Path], ticker: str) -> Optional[pd.Timestamp]:
+    p = paths["cache_prices"] / px_cache_name(str(ticker))
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_parquet(p)
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    for col in ("Date", "date", "datetime", "timestamp"):
+        if col in df.columns:
+            dt = pd.to_datetime(df[col], errors="coerce").max()
+            if pd.isna(dt):
+                return None
+            ts = pd.Timestamp(dt)
+            return ts.tz_convert(None) if ts.tzinfo else ts
+    try:
+        dt = pd.to_datetime(df.index, errors="coerce").max()
+        if pd.isna(dt):
+            return None
+        ts = pd.Timestamp(dt)
+        return ts.tz_convert(None) if ts.tzinfo else ts
+    except Exception:
+        return None
+
+
+def write_leader_drop_diagnostics(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    candidates: pd.DataFrame,
+    pre_filter_monthly: pd.DataFrame,
+    ranked_monthly: pd.DataFrame,
+    final_monthly: pd.DataFrame,
+    *,
+    use_mktcap_filter: bool,
+) -> dict[str, Path]:
+    """Explain why current broad leader candidates are not scoreable today.
+
+    This is ticker-agnostic by design: it diagnoses missing/stale price cache,
+    yfinance blacklist, base liquidity/volatility/market-cap filters, and
+    rank-size drops for every current candidate source.
+    """
+    detail_path = paths["reports"] / "leader_drop_diagnostics_latest.csv"
+    summary_path = paths["reports"] / "leader_drop_diagnostics_summary.json"
+    if not bool(getattr(cfg, "leader_rescue_diagnostics_enabled", True)):
+        return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+    cand = candidates.copy() if candidates is not None else pd.DataFrame()
+    if cand.empty or "ticker" not in cand.columns:
+        pd.DataFrame().to_csv(detail_path, index=False)
+        summary_path.write_text(json.dumps({"rows": 0}, indent=2), encoding="utf-8")
+        return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+    def _latest(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty or "rebalance_date" not in df.columns:
+            return pd.DataFrame()
+        dates = pd.to_datetime(df["rebalance_date"], errors="coerce")
+        dt = dates.max()
+        return df[dates.eq(dt)].copy() if pd.notna(dt) else pd.DataFrame()
+
+    pre = _latest(pre_filter_monthly)
+    ranked = _latest(ranked_monthly)
+    final = _latest(final_monthly)
+    pre_by_ticker = pre.drop_duplicates("ticker").set_index("ticker") if "ticker" in pre.columns and not pre.empty else pd.DataFrame()
+    ranked_by_ticker = ranked.drop_duplicates("ticker").set_index("ticker") if "ticker" in ranked.columns and not ranked.empty else pd.DataFrame()
+    final_tickers = set(final.get("ticker", pd.Series(dtype=str)).dropna().astype(str).map(normalize_ticker).tolist())
+    fail_tickers = {normalize_ticker(str(t)) for t in load_fail_tickers(paths)}
+    stale_days_cut = int(getattr(cfg, "leader_rescue_price_stale_days", 14))
+    run_end = pd.to_datetime(getattr(cfg, "end_date", None), errors="coerce")
+    if pd.isna(run_end):
+        run_end = pd.Timestamp.utcnow().tz_localize(None)
+    run_end = pd.Timestamp(run_end)
+    run_end = run_end.tz_convert(None) if run_end.tzinfo else run_end
+
+    def _num(row: Optional[pd.Series], col: str) -> float:
+        if row is None or col not in row.index:
+            return float("nan")
+        return float(pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0])
+
+    rows: list[dict[str, Any]] = []
+    for _, rec in cand.iterrows():
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        pre_row = pre_by_ticker.loc[ticker] if ticker in pre_by_ticker.index else None
+        ranked_row = ranked_by_ticker.loc[ticker] if ticker in ranked_by_ticker.index else None
+        cache_path = paths["cache_prices"] / px_cache_name(ticker)
+        cache_last = _price_cache_latest_date(paths, ticker)
+        stale_days = int((run_end.normalize() - cache_last.normalize()).days) if cache_last is not None else None
+        in_pre = pre_row is not None
+        in_ranked = ranked_row is not None
+        in_final = ticker in final_tickers
+
+        failed_min_price = bool(in_pre and _num(pre_row, "px") < float(getattr(cfg, "min_price", 5.0)))
+        failed_dollar_vol = bool(in_pre and _num(pre_row, "dollar_vol_20d") < float(getattr(cfg, "min_dollar_vol_20d", 20_000_000.0)))
+        failed_vol_252 = bool(in_pre and _num(pre_row, "vol_252d") > float(getattr(cfg, "max_vol_252", 0.60)))
+        failed_dd_1y = bool(in_pre and _num(pre_row, "dd_1y") > float(getattr(cfg, "max_dd_1y", 0.65)))
+        failed_mktcap = bool(use_mktcap_filter and in_pre and pd.isna(pre_row.get("mktcap")))
+        failed_rank_size = bool(in_ranked and not in_final and _num(ranked_row, "rank_size") > float(getattr(cfg, "universe_size", 1000)))
+
+        if in_final:
+            reason = "available_for_scoring"
+        elif failed_rank_size:
+            reason = "failed_rank_size"
+        elif in_pre:
+            failed = [
+                name
+                for name, flag in (
+                    ("failed_min_price", failed_min_price),
+                    ("failed_dollar_vol", failed_dollar_vol),
+                    ("failed_mktcap", failed_mktcap),
+                    ("failed_vol_252", failed_vol_252),
+                    ("failed_dd_1y", failed_dd_1y),
+                )
+                if flag
+            ]
+            reason = "+".join(failed) if failed else "filtered_before_final_unknown"
+        elif ticker in fail_tickers:
+            reason = "price_blacklisted"
+        elif not cache_path.exists():
+            reason = "missing_price_cache"
+        elif stale_days is not None and stale_days > stale_days_cut:
+            reason = "stale_price_cache"
+        else:
+            reason = "missing_latest_price_row"
+
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("Name", "")),
+                "sector": str(rec.get("sector", "Unknown")),
+                "universe_source": str(rec.get("universe_source", "")),
+                "in_latest_pre_filter": bool(in_pre),
+                "in_latest_ranked_pool": bool(in_ranked),
+                "in_latest_scoring_universe": bool(in_final),
+                "price_cache_exists": bool(cache_path.exists()),
+                "price_cache_last_date": str(cache_last.date()) if cache_last is not None else "",
+                "price_cache_stale_days": stale_days,
+                "blacklisted": bool(ticker in fail_tickers),
+                "px": _num(pre_row, "px"),
+                "dollar_vol_20d": _num(pre_row, "dollar_vol_20d"),
+                "mktcap": _num(pre_row, "mktcap"),
+                "vol_252d": _num(pre_row, "vol_252d"),
+                "dd_1y": _num(pre_row, "dd_1y"),
+                "rank_size": _num(ranked_row, "rank_size"),
+                "failed_min_price": failed_min_price,
+                "failed_dollar_vol": failed_dollar_vol,
+                "failed_mktcap": failed_mktcap,
+                "failed_vol_252": failed_vol_252,
+                "failed_dd_1y": failed_dd_1y,
+                "failed_rank_size": failed_rank_size,
+                "drop_reason": reason,
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values(["in_latest_scoring_universe", "drop_reason", "ticker"], ascending=[True, True, True])
+    out.to_csv(detail_path, index=False)
+    reason_counts = out["drop_reason"].value_counts().to_dict() if "drop_reason" in out.columns else {}
+    source_counts = out["universe_source"].value_counts().head(20).to_dict() if "universe_source" in out.columns else {}
+    summary = {
+        "rows": int(len(out)),
+        "available_for_scoring": int((out.get("drop_reason", pd.Series(dtype=str)) == "available_for_scoring").sum()) if not out.empty else 0,
+        "reason_counts": {str(k): int(v) for k, v in reason_counts.items()},
+        "source_counts": {str(k): int(v) for k, v in source_counts.items()},
+        "stale_days_cutoff": stale_days_cut,
+    }
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    log(
+        "Leader drop diagnostics: "
+        f"rows={summary['rows']}, available={summary['available_for_scoring']}, "
+        f"top_reasons={dict(list(summary['reason_counts'].items())[:4])}"
+    )
+    return {"leader_drop_diagnostics": detail_path, "leader_drop_diagnostics_summary": summary_path}
+
+
+def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows added only by broad current overlay lists.
+
+    If a ticker is also in the base IWB/current proxy, historical membership,
+    ADR whitelist, cycle whitelist, or the legacy explicit Wikipedia source,
+    keep that base justification. This filter only removes incremental current
+    overlay rows that would otherwise use today's S&P/Nasdaq/strategic hardware
+    candidates throughout historical backtests.
+    """
+    source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
+    has_rescue = source.str.contains("leader_rescue_", regex=False) | source.str.contains(
+        "strategic_global_hardware", regex=False
+    )
+    has_base = (
+        source.str.contains("historical_membership_file", regex=False)
+        | source.str.contains("current_constituents_proxy", regex=False)
+        | source.str.contains("adr_whitelist", regex=False)
+        | source.str.contains("cycle_play_whitelist", regex=False)
+        | source.str.contains("sp500_proxy", regex=False)
+        | source.str.contains("nasdaq100_proxy", regex=False)
+    )
+    return has_rescue & (~has_base)
+
+
+def apply_leader_rescue_backtest_mode_filter(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    monthly: pd.DataFrame,
+) -> pd.DataFrame:
+    """Apply PIT-safe validation mode for leader-rescue-only candidates.
+
+    Modes:
+      - latest_only: use rescue-only rows for latest recommendations and
+        diagnostics, but drop them from historical OOS months.
+      - full_proxy: keep rescue-only rows historically; research/proxy only.
+      - off: drop rescue-only rows from all months.
+    """
+    summary_path = paths["reports"] / "leader_rescue_backtest_filter_summary.json"
+    if monthly is None or monthly.empty or "rebalance_date" not in monthly.columns:
+        summary_path.write_text(json.dumps({"mode": "empty", "rows_before": 0, "rows_after": 0}, indent=2), encoding="utf-8")
+        return monthly
+
+    mode = str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")).strip() or "latest_only"
+    if not bool(getattr(cfg, "leader_rescue_universe_enabled", True)):
+        mode = "off"
+    if mode not in {"latest_only", "full_proxy", "off"}:
+        mode = "latest_only"
+
+    d = monthly.copy()
+    dates = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    latest_dt = dates.max()
+    rescue_only = _leader_rescue_only_source_mask(d)
+    rows_before = int(len(d))
+    rescue_rows_before = int(rescue_only.sum())
+    dropped = pd.Series(False, index=d.index)
+    if mode == "off":
+        dropped = rescue_only
+    elif mode == "latest_only" and pd.notna(latest_dt):
+        dropped = rescue_only & dates.lt(latest_dt)
+    elif mode == "full_proxy":
+        dropped = pd.Series(False, index=d.index)
+
+    out = d.loc[~dropped].copy()
+    rescue_latest_kept = 0
+    if pd.notna(latest_dt):
+        out_dates = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        rescue_latest_kept = int((_leader_rescue_only_source_mask(out) & out_dates.eq(latest_dt)).sum())
+
+    summary = {
+        "mode": mode,
+        "rows_before": rows_before,
+        "rows_after": int(len(out)),
+        "rescue_only_rows_before": rescue_rows_before,
+        "rescue_only_rows_dropped": int(dropped.sum()),
+        "rescue_only_latest_rows_kept": rescue_latest_kept,
+        "latest_rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
+        "source_counts_after": (
+            out.get("universe_source", pd.Series(dtype=str)).fillna("").astype(str).value_counts().head(20).astype(int).to_dict()
+            if not out.empty
+            else {}
+        ),
+        "pit_safety_note": (
+            "latest_only keeps broad current rescue names out of historical OOS months; "
+            "full_proxy intentionally allows a survivorship-biased research challenger."
+        ),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    log(
+        "Leader rescue backtest mode: "
+        f"mode={mode}, rescue_only_before={rescue_rows_before}, dropped={int(dropped.sum())}, "
+        f"latest_kept={rescue_latest_kept}"
+    )
+    return out
 
 
 def save_px(paths: dict[str, Path], ticker: str, df: pd.DataFrame) -> None:
@@ -4920,7 +5405,7 @@ def fetch_mktcap_proxy(ticker: str) -> dict[str, Any]:
         "financial_currency": financial_currency,
         "shares_outstanding_proxy": shares_outstanding,
         "implied_shares_outstanding_proxy": implied_shares_outstanding,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "updated_at": pd.Timestamp.utcnow().tz_localize(None),
     }
 
 
@@ -4938,9 +5423,20 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
             if i % 40 == 0:
                 time.sleep(1.0)
         add = pd.DataFrame(rows)
+        if "updated_at" in add.columns:
+            add["updated_at"] = pd.to_datetime(add["updated_at"], errors="coerce")
+        if not cache.empty and "updated_at" in cache.columns:
+            cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
         cache = pd.concat([cache, add], ignore_index=True) if not cache.empty else add
-        cache = cache.sort_values("updated_at").drop_duplicates("ticker", keep="last")
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
+        cache = (
+            cache.sort_values("updated_at", na_position="first")
+            .drop_duplicates("ticker", keep="last")
+            .reset_index(drop=True)
+        )
         save_mktcap_proxy_cache(paths, cache)
+    if "updated_at" in cache.columns and not cache.empty:
+        cache["updated_at"] = pd.to_datetime(cache["updated_at"], errors="coerce")
     return cache
 
 
@@ -6655,6 +7151,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         monthly["universe_source"] = "historical_membership_file" if not hist_membership.empty else "current_constituents_proxy"
     if not hist_membership.empty:
         monthly = apply_historical_membership_filter(monthly, hist_membership)
+    monthly = apply_leader_rescue_backtest_mode_filter(cfg, paths, monthly)
     monthly = asof_join_fundamentals(monthly, panel, cfg.fund_ttm_fallback_max_age_days)
     monthly = merge_trend_features_into_monthly(monthly, trend_panel)
     monthly = attach_fund_panel_join_diagnostics(monthly, panel)
@@ -6682,6 +7179,7 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         log(f"[WARN] mktcap coverage too low ({mktcap_cov:.2%}); falling back to dollar-vol size metric.")
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
 
+    leader_diag_pre_filter = monthly.copy()
     base_mask = (
         (monthly["px"].fillna(0) >= cfg.min_price)
         & (monthly["dollar_vol_20d"].fillna(0) >= cfg.min_dollar_vol_20d)
@@ -6693,7 +7191,17 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     monthly = monthly[base_mask].copy()
     monthly = monthly.sort_values(["rebalance_date", "size_metric"], ascending=[True, False])
     monthly["rank_size"] = monthly.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
+    leader_diag_ranked = monthly.copy()
     monthly = monthly[monthly["rank_size"] <= cfg.universe_size].copy()
+    write_leader_drop_diagnostics(
+        cfg,
+        paths,
+        candidates,
+        leader_diag_pre_filter,
+        leader_diag_ranked,
+        monthly,
+        use_mktcap_filter=use_mktcap_filter,
+    )
 
     for _rs_period, _rs_col in [("mom_1m", "rs_sector_1m"), ("mom_3m", "rs_sector_3m"), ("mom_6m", "rs_sector_6m"), ("mom_12m", "rs_sector_12m")]:
         if _rs_period in monthly.columns:
@@ -7543,6 +8051,20 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p15_col in PHASE15_ALPHA_COLUMNS:
             universe[_p15_col] = 0.0
 
+    universe = compute_market_style_regime_features(universe)
+
+    # Phase 17 v3 sidecar features. These columns are surfaced in
+    # feature_store/scored outputs for scanners, journal analysis, and future
+    # A/B tests. They are not appended to DEFAULT_FEATURES in this integration
+    # pass, so the current production model/selection behavior is preserved.
+    universe = compute_explosion_likelihood_score(universe, cfg)
+    universe = compute_regime_state_classifier(universe)
+    # Phase 18c automatic learning hook. No-op unless
+    # research/auto_feature_gates.yaml exists and has not expired. When a
+    # challenger is auto-promoted, learned signal/regime gates apply before
+    # scoring across both historical walk-forward rows and latest scoring rows.
+    universe = apply_phase18c_gates_to_frame(universe)
+
     keep_cols = list(
         dict.fromkeys(
             [
@@ -7607,6 +8129,11 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + PHASE15_ALPHA_COLUMNS
+            + PHASE17_EXPLOSION_COLUMNS
+            + PHASE17_REGIME_STATE_COLUMNS
+            + PHASE20_THEME_POLICY_COLUMNS
+            + PHASE21_STYLE_REGIME_COLUMNS
+            + ["applied_gates_count", "pattern_blocked"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -7638,6 +8165,16 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
         + PHASE15_ALPHA_COLUMNS
+        + PHASE17_EXPLOSION_COLUMNS
+        + [
+            c for c in PHASE20_THEME_POLICY_COLUMNS
+            if c not in ("theme_horizon_primary", "theme_holding_profile_primary")
+        ]
+        + [
+            c for c in PHASE21_STYLE_REGIME_COLUMNS
+            if c != "market_style_regime_label"
+        ]
+        + ["regime_state_score", "applied_gates_count", "pattern_blocked"]
         + ["r_1m", "r_3m", "r_6m", "r_12m", "r_24m", "r_36m", "bench_r_1m", "bench_r_3m", "bench_r_6m", "bench_r_12m", "bench_r_24m", "bench_r_36m", "mktcap"],
         clip=1e14,
     )
@@ -7652,6 +8189,9 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "label_notna": int((fs["r_1m"].notna() | fs["r_3m"].notna() | fs["r_6m"].notna()).sum()),
                 "mktcap_notna": int(fs["mktcap"].notna().sum()),
                 "universe_mode": summarize_universe_source(fs),
+                "leader_rescue_backtest_mode": str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")),
+                "leader_rescue_universe_enabled": bool(getattr(cfg, "leader_rescue_universe_enabled", True)),
+                "leader_rescue_only_rows": int(_leader_rescue_only_source_mask(fs).sum()) if "universe_source" in fs.columns else 0,
             },
             indent=2,
         )
@@ -8016,6 +8556,11 @@ _PRUNE_EXPORT_KEEP_COLUMNS: set[str] = {
     "rs_acceleration_score", "h1_oversold_value_score",
     "h6_dynamic_leader_score", "stage2_overext_penalty",
     "theme_phase_multiplier_primary", "theme_phase_multiplier_max",
+    # Phase 17/18 auto-learning diagnostics. Keep even when all-zero so
+    # scanner and trade-journal jobs can rely on a stable scored_latest schema.
+    "explosion_entry_score", "explosion_exit_score", "explosion_net_score",
+    "regime_state", "regime_state_score", "applied_gates_count",
+    "pattern_blocked",
     # Phase 15 alpha (always keep — even if currently sparse)
     "cycle_recovery_score", "eps_revision_score",
     "early_cycle_inflection_score", "entry_quality_score",
@@ -8068,6 +8613,37 @@ def _prune_export_columns(df: pd.DataFrame) -> pd.DataFrame:
                 drop.append(c)
         except Exception:
             pass
+    if not drop:
+        return df
+    return df.drop(columns=drop)
+
+
+_ACTIONABLE_LEAKAGE_EXACT_COLUMNS = {
+    "period_forward_return",
+    "weighted_forward_return",
+    "raw_period_forward_return",
+    "raw_weighted_forward_return",
+    "risk_adjusted_forward_return",
+    "future_return",
+    "forward_return",
+}
+
+
+def drop_actionable_leakage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove future-return labels from orderable portfolio CSV exports."""
+    if df is None or df.empty:
+        return df
+    drop: list[str] = []
+    for col in df.columns:
+        c = str(col)
+        lower = c.lower()
+        if (
+            lower in _ACTIONABLE_LEAKAGE_EXACT_COLUMNS
+            or lower.startswith("bench_r_")
+            or lower.endswith("_forward_return")
+            or re.match(r"^r_\d+[mdy]$", lower)
+        ):
+            drop.append(c)
     if not drop:
         return df
     return df.drop(columns=drop)
@@ -10233,6 +10809,51 @@ def merge_partial_sleeve_rebalance_state(
     return combined_portfolio, combined_weights, combined_sleeve_map
 
 
+def _negative_stop_value(value: Any, default_abs: float) -> float:
+    raw = safe_float(value, np.nan)
+    if not np.isfinite(raw):
+        raw = float(default_abs)
+    if abs(raw) <= 1e-12:
+        return 0.0
+    return -abs(float(raw))
+
+
+def _managed_position_risk_exit_signal(
+    row: Mapping[str, Any],
+    period_return: float,
+    cumulative_return: float,
+    peak_return: float,
+    *,
+    hard_stop: float,
+    trailing_stop: float,
+    trailing_min_profit: float,
+    distribution_threshold: float,
+) -> tuple[bool, str]:
+    """Monthly position-risk action used by actual portfolio metrics."""
+    if str(row.get("ticker", "")).upper() == CASH_PROXY_TICKER:
+        return False, "cash"
+    if hard_stop < 0 and period_return <= hard_stop:
+        return True, "hard_stop"
+    if trailing_stop < 0:
+        drawdown_from_peak = (1.0 + cumulative_return) / max(1.0 + peak_return, 1e-8) - 1.0
+        if drawdown_from_peak <= trailing_stop and cumulative_return > max(trailing_min_profit, 0.0):
+            return True, "trailing_stop_after_profit"
+    exit_risk = max(
+        safe_float(row.get("explosion_exit_score"), 0.0),
+        safe_float(row.get("stage2_overext_penalty"), 0.0),
+        safe_float(row.get("risk_penalty"), 0.0),
+        safe_float(row.get("portfolio_hold_policy_exit_risk"), 0.0),
+        safe_float(row.get("portfolio_risk_entry_block_score"), 0.0),
+    )
+    if (
+        distribution_threshold < 1.5
+        and exit_risk >= distribution_threshold
+        and safe_float(row.get("rs_acceleration_score"), 0.0) < 0.0
+    ):
+        return True, "distribution_risk_decay"
+    return False, "hold"
+
+
 def backtest_portfolio(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -10336,6 +10957,18 @@ def backtest_portfolio(
     _p15r1_cc_pct = float(getattr(cfg, "trailing_stop_core_compounder_pct", 0.0))
     trailing_position_cum_ret: dict[str, float] = {}
     trailing_position_peak_ret: dict[str, float] = {}
+    position_risk_enabled = bool(getattr(cfg, "portfolio_position_risk_enabled", False))
+    position_risk_hard_stop = _negative_stop_value(getattr(cfg, "portfolio_position_risk_hard_stop", -0.08), 0.08)
+    position_risk_trailing_stop = _negative_stop_value(getattr(cfg, "portfolio_position_risk_trailing_stop", -0.15), 0.15)
+    position_risk_trailing_min_profit = float(
+        max(safe_float(getattr(cfg, "portfolio_position_risk_trailing_min_profit", 0.15), 0.15), 0.0)
+    )
+    position_risk_distribution_threshold = float(
+        max(safe_float(getattr(cfg, "portfolio_position_risk_distribution_threshold", 0.85), 0.85), 0.0)
+    )
+    position_risk_state: dict[str, dict[str, float]] = {}
+    position_risk_exit_count_total = 0
+    position_risk_position_count_total = 0
     # -----------------------------------------------------------------
     # Phase 15-R2 (2026-04-22): exit a position when analyst revision is
     # negative for N consecutive months. Default OFF.
@@ -10671,11 +11304,22 @@ def backtest_portfolio(
         if not current_w:
             continue
 
+        period_start_cash_weight = float(current_w.get(CASH_PROXY_TICKER, 0.0))
+        period_start_stock_weight = float(
+            sum(
+                float(v)
+                for k, v in current_w.items()
+                if str(k).upper() != CASH_PROXY_TICKER and pd.notna(v)
+            )
+        )
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
+        position_risk_source_by_ticker: dict[str, dict[str, Any]] = {}
         due_sleeves_value = ",".join(sorted({str(x) for x in due_sleeves})) if rebalance_due and due_sleeves else ""
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"] == tkr]
+            row_payload = row.iloc[0].to_dict() if not row.empty else {"ticker": tkr}
+            position_risk_source_by_ticker[str(tkr)] = row_payload
             if str(tkr).upper() == CASH_PROXY_TICKER:
                 sec = "Cash"
                 nm = "Cash"
@@ -10714,7 +11358,14 @@ def backtest_portfolio(
                         else ""
                     ),
                     "period_forward_return": np.nan,
+                    "raw_period_forward_return": np.nan,
+                    "risk_adjusted_forward_return": np.nan,
                     "weighted_forward_return": np.nan,
+                    "raw_weighted_forward_return": np.nan,
+                    "position_risk_action": "",
+                    "position_risk_reason": "",
+                    "position_risk_hard_stop": float(position_risk_hard_stop),
+                    "position_risk_enabled": bool(position_risk_enabled),
                     "target_n": int(current_meta.get("target_n", 0)),
                     "weight_cap": float(current_meta.get("weight_cap", cfg.stock_weight_max)),
                     "cash_target": float(current_meta.get("cash_target", 0.0)),
@@ -10727,25 +11378,76 @@ def backtest_portfolio(
                         sleeve_interval_map.get(sleeve_label_value, active_interval_months)
                     ),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                    "entry_signal_breakdown": json.dumps(
+                        attach_signal_breakdown(mm, str(tkr)),
+                        default=str,
+                    ),
+                    "regime_state": str(row["regime_state"].iloc[0]) if not row.empty and "regime_state" in row.columns else "neutral",
+                    "regime_state_score": int(row["regime_state_score"].iloc[0]) if not row.empty and "regime_state_score" in row.columns and pd.notna(row["regime_state_score"].iloc[0]) else 0,
+                    "portfolio_monster_early_score": float(row["portfolio_monster_early_score"].iloc[0]) if not row.empty and "portfolio_monster_early_score" in row.columns and pd.notna(row["portfolio_monster_early_score"].iloc[0]) else np.nan,
+                    "portfolio_stale_mega_leader_score": float(row["portfolio_stale_mega_leader_score"].iloc[0]) if not row.empty and "portfolio_stale_mega_leader_score" in row.columns and pd.notna(row["portfolio_stale_mega_leader_score"].iloc[0]) else np.nan,
+                    "portfolio_risk_entry_block_score": float(row["portfolio_risk_entry_block_score"].iloc[0]) if not row.empty and "portfolio_risk_entry_block_score" in row.columns and pd.notna(row["portfolio_risk_entry_block_score"].iloc[0]) else np.nan,
+                    "portfolio_defensive_rotation_action": str(row["portfolio_defensive_rotation_action"].iloc[0]) if not row.empty and "portfolio_defensive_rotation_action" in row.columns else "",
                 }
             )
 
         month_ret = 0.0
+        raw_month_ret = 0.0
         missing = 0
         ticker_month_returns: dict[str, float] = {}
+        ticker_effective_month_returns: dict[str, float] = {}
+        position_risk_exited_tickers: set[str] = set()
+        position_risk_exit_count_month = 0
         for tkr, ww in current_w.items():
             ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
             if ri is None:
                 missing += 1
                 continue
-            month_ret += ww * ri
-            ticker_month_returns[tkr] = float(ri)
+            raw_ri = float(ri)
+            effective_ri = raw_ri
+            risk_action = "hold"
+            risk_reason = "hold"
+            if position_risk_enabled and str(tkr).upper() != CASH_PROXY_TICKER:
+                prior = position_risk_state.get(str(tkr), {"cum": 0.0, "peak": 0.0})
+                should_exit, risk_reason = _managed_position_risk_exit_signal(
+                    position_risk_source_by_ticker.get(str(tkr), {"ticker": tkr}),
+                    raw_ri,
+                    prior.get("cum", 0.0),
+                    prior.get("peak", 0.0),
+                    hard_stop=position_risk_hard_stop,
+                    trailing_stop=position_risk_trailing_stop,
+                    trailing_min_profit=position_risk_trailing_min_profit,
+                    distribution_threshold=position_risk_distribution_threshold,
+                )
+                new_cum = (1.0 + prior.get("cum", 0.0)) * (1.0 + raw_ri) - 1.0
+                position_risk_state[str(tkr)] = {"cum": new_cum, "peak": max(prior.get("peak", 0.0), new_cum)}
+                position_risk_position_count_total += 1
+                if should_exit:
+                    effective_ri = max(raw_ri, position_risk_hard_stop) if position_risk_hard_stop < 0 else raw_ri
+                    position_risk_exited_tickers.add(str(tkr))
+                    position_risk_exit_count_month += 1
+                    position_risk_exit_count_total += 1
+                    risk_action = "risk_exit"
+            raw_month_ret += ww * raw_ri
+            month_ret += ww * effective_ri
+            ticker_month_returns[tkr] = raw_ri
+            ticker_effective_month_returns[tkr] = float(effective_ri)
+            if position_risk_enabled:
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_action"] = risk_action
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_reason"] = risk_reason
         for row_idx in month_holding_row_indices:
             held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
             held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            effective_return = ticker_effective_month_returns.get(held_ticker, held_return)
+            holdings_rows[row_idx]["raw_period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["period_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
+            holdings_rows[row_idx]["risk_adjusted_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
             held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["raw_weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(effective_return) if pd.notna(effective_return) else np.nan
+            risk_payload = position_risk_source_by_ticker.get(held_ticker, {})
+            holdings_rows[row_idx]["position_risk_action"] = str(risk_payload.get("_position_risk_action", "hold" if position_risk_enabled else "disabled"))
+            holdings_rows[row_idx]["position_risk_reason"] = str(risk_payload.get("_position_risk_reason", "hold" if position_risk_enabled else "disabled"))
         net_ret = month_ret - cost
         running_equity = running_equity * (1.0 + net_ret)
         portfolio_peak = max(portfolio_peak, running_equity)
@@ -10757,7 +11459,13 @@ def backtest_portfolio(
         if len(recent_returns) > max(int(_p6c_lookback), 12):
             # cap memory to at most 12 months to avoid unbounded growth.
             recent_returns = recent_returns[-12:]
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        current_w = drift_weights_by_period_returns(current_w, ticker_effective_month_returns or ticker_month_returns)
+        if position_risk_enabled and position_risk_exited_tickers:
+            for tkr in sorted(position_risk_exited_tickers):
+                if tkr in current_w:
+                    released = float(current_w.pop(tkr, 0.0))
+                    current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + released
+                position_risk_state.pop(tkr, None)
 
         # Hard stop-loss: track speculative positions and force-exit at -25%
         if stop_loss_pct > 0:
@@ -10902,6 +11610,10 @@ def backtest_portfolio(
             current_total = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if current_total > 0 and abs(current_total - 1.0) > 1e-8:
                 current_w = {str(k): float(v / current_total) for k, v in current_w.items() if pd.notna(v) and float(v) > 1e-10}
+        if position_risk_enabled:
+            for tkr in list(position_risk_state.keys()):
+                if tkr not in current_w:
+                    position_risk_state.pop(tkr, None)
         if not current_portfolio.empty and "ticker" in current_portfolio.columns:
             keep_tickers = {
                 str(k)
@@ -10912,16 +11624,37 @@ def backtest_portfolio(
                 current_portfolio["ticker"].astype(str).isin(keep_tickers)
             ].copy()
         sleeve_policy_snapshot = current_meta.get("sleeve_policy", {}) if isinstance(current_meta, dict) else {}
+        period_end_cash_weight = float(current_w.get(CASH_PROXY_TICKER, 0.0))
+        period_end_stock_weight = float(
+            sum(
+                float(v)
+                for k, v in current_w.items()
+                if str(k).upper() != CASH_PROXY_TICKER and pd.notna(v)
+            )
+        )
         ret_rows.append(
             {
                 "rebalance_date": dt,
                 "next_rebalance_date": next_dt,
                 "gross_return": month_ret,
+                "raw_gross_return": raw_month_ret,
+                "position_risk_return_delta": month_ret - raw_month_ret,
+                "position_risk_exit_count": int(position_risk_exit_count_month),
+                "position_risk_enabled": bool(position_risk_enabled),
+                "position_risk_hard_stop": float(position_risk_hard_stop),
+                "position_risk_trailing_stop": float(position_risk_trailing_stop),
                 "cost": cost,
                 "net_return": net_ret,
                 "turnover": turn,
                 "missing_tickers": missing,
-                "cash_weight": float(current_w.get(CASH_PROXY_TICKER, 0.0)),
+                # Backward-compatible `cash_weight` is end-of-period cash after
+                # drift and managed exits. `cash_weight_start` is the actual
+                # target-book cash used for the next-close/weekly ledger replays.
+                "cash_weight": period_end_cash_weight,
+                "cash_weight_start": period_start_cash_weight,
+                "cash_weight_end": period_end_cash_weight,
+                "stock_weight_start": period_start_stock_weight,
+                "stock_weight_end": period_end_stock_weight,
                 "rebalance_action": rebalance_action,
                 "due_sleeves": due_sleeves_value,
                 "active_rebalance_interval_months": int(active_interval_months),
@@ -10984,9 +11717,27 @@ def backtest_portfolio(
     metrics = performance_metrics(ret_df["net_return"], benchmark=ret_df["bench_return"])
     metrics["avg_turnover_monthly"] = float(ret_df["turnover"].mean())
     metrics["avg_cash_weight"] = float(ret_df["cash_weight"].mean()) if "cash_weight" in ret_df.columns else 0.0
+    metrics["avg_cash_weight_start"] = (
+        float(ret_df["cash_weight_start"].mean()) if "cash_weight_start" in ret_df.columns else np.nan
+    )
+    metrics["avg_cash_weight_end"] = (
+        float(ret_df["cash_weight_end"].mean()) if "cash_weight_end" in ret_df.columns else metrics["avg_cash_weight"]
+    )
+    metrics["avg_stock_weight_start"] = (
+        float(ret_df["stock_weight_start"].mean()) if "stock_weight_start" in ret_df.columns else np.nan
+    )
+    metrics["avg_stock_weight_end"] = (
+        float(ret_df["stock_weight_end"].mean()) if "stock_weight_end" in ret_df.columns else np.nan
+    )
     metrics["trade_cost_bps_per_side"] = float(effective_roundtrip_cost_bps / 2.0)
     metrics["cost_bps_roundtrip"] = float(effective_roundtrip_cost_bps)
     metrics["months"] = int(len(ret_df))
+    metrics["position_risk_enabled"] = bool(position_risk_enabled)
+    metrics["position_risk_hard_stop"] = float(position_risk_hard_stop)
+    metrics["position_risk_trailing_stop"] = float(position_risk_trailing_stop)
+    metrics["position_risk_exit_count"] = int(position_risk_exit_count_total)
+    metrics["position_risk_exit_rate"] = float(position_risk_exit_count_total / max(position_risk_position_count_total, 1))
+    metrics["position_risk_metric_mode"] = "monthly_managed_position_risk" if position_risk_enabled else "raw_monthly_returns"
     metrics["target_n_override"] = int(target_n_override) if target_n_override is not None else None
     rebalance_intervals = (
         [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
@@ -11065,10 +11816,45 @@ def backtest_portfolio(
         "vol_target_active",
         "vol_cash_floor_p6c",
         "recent_returns_len",
+        "raw_gross_return",
+        "position_risk_return_delta",
+        "position_risk_exit_count",
+        "position_risk_enabled",
+        "position_risk_hard_stop",
+        "position_risk_trailing_stop",
+        "cash_weight",
+        "cash_weight_start",
+        "cash_weight_end",
+        "stock_weight_start",
+        "stock_weight_end",
     ):
         if _diag_col in ret_df.columns and _diag_col not in _equity_cols:
             _equity_cols.append(_diag_col)
     equity_df = ret_df[_equity_cols].copy()
+
+    try:
+        if not holdings_df.empty:
+            persist_holdings_history(holdings_df, paths, ENGINE_REUSE_VERSION)
+            benchmark_returns = ret_df[["rebalance_date", "bench_return"]].copy() if "bench_return" in ret_df.columns else None
+            trades_df = pair_entries_with_exits(
+                holdings_df,
+                paths,
+                ENGINE_REUSE_VERSION,
+                benchmark_returns=benchmark_returns,
+            )
+            if trades_df is not None and not trades_df.empty:
+                grades_df = grade_trades(trades_df, paths)
+                digest = summary_digest(grades_df)
+                log(
+                    "[trade-journal] "
+                    f"{digest.get('n_trades')} trades graded; "
+                    f"win_rate={digest.get('win_rate')} "
+                    f"loss_rate={digest.get('loss_rate')} "
+                    f"label_counts={digest.get('label_counts')}"
+                )
+    except Exception as journal_exc:
+        log(f"[trade-journal] persist failed (non-fatal): {journal_exc}")
+
     return BacktestResult(holdings=holdings_df, monthly_returns=ret_df, metrics=metrics, equity_curve=equity_df)
 
 
@@ -11991,6 +12777,7 @@ def compare_sleeve_cap_policy_backtests(
                 live_label,
                 learned_regime_map=regime_map,
                 manual_regime_map=manual_regime_map,
+                min_learned_months=int(getattr(champion_cfg, "regime_conditioned_min_learned_months", 0)),
             )
             out.attrs["sleeve_regime_grid"] = regime_grid
             out.attrs["sleeve_regime_best"] = regime_best
@@ -12109,6 +12896,15 @@ REGIME_EXPLORATORY_GUARDRAILS: dict[str, dict[str, float]] = {
 }
 
 
+DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS: tuple[str, ...] = (
+    "risk_off",
+    "systemic",
+    "war_oil_rate",
+    "stagflation",
+    "carry_unwind",
+)
+
+
 def apply_regime_policy_guardrails(
     live_label: Optional[str],
     selected_policy: Optional[dict[str, Any]],
@@ -12128,18 +12924,21 @@ def apply_regime_policy_guardrails(
     cash = float(np.clip(safe_float(payload.get("cash"), 0.0), 0.0, 1.0))
     original = {"core": core, "future": future, "early": early, "cash": cash}
 
+    # core/future/early are equity-sleeve fractions. Cash is stored as a
+    # separate portfolio-level sleeve, and build_target_portfolio applies it
+    # later. Guardrails therefore operate in equity space instead of shrinking
+    # equity weights by (1 - cash).
     future = max(future, float(guard.get("future_min", 0.0)))
     early = max(early, float(guard.get("early_min", 0.0)))
     cash = min(cash, float(guard.get("cash_max", 1.0)))
-    invested_share = max(1.0 - cash, 0.0)
     exploratory_total = future + early
-    if exploratory_total > invested_share and exploratory_total > 1e-8:
-        scale = invested_share / exploratory_total
+    if exploratory_total > 1.0 and exploratory_total > 1e-8:
+        scale = 1.0 / exploratory_total
         future *= scale
         early *= scale
         core = 0.0
     else:
-        core = max(invested_share - future - early, 0.0)
+        core = max(1.0 - future - early, 0.0)
 
     updated = {
         "core": float(core),
@@ -12187,9 +12986,17 @@ def resolve_regime_policy_selection(
     *,
     learned_regime_map: Optional[dict[str, Any]] = None,
     manual_regime_map: Optional[dict[str, Any]] = None,
+    min_learned_months: int = 0,
 ) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
     learned = normalize_regime_conditioned_sleeve_map(learned_regime_map, fallback_source="learned")
     manual = normalize_regime_conditioned_sleeve_map(manual_regime_map, fallback_source="manual")
+    min_months = max(int(min_learned_months), 0)
+    if min_months > 0 and learned:
+        learned = {
+            label: payload
+            for label, payload in learned.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_months
+        }
     lookup_chain = build_regime_label_lookup_chain(live_label)
     normalized_live_label = str(live_label or "").strip() or "balanced"
     meta = {
@@ -12198,24 +13005,52 @@ def resolve_regime_policy_selection(
         "lookup_source": "",
         "lookup_label": "",
         "fallback_used": False,
+        "min_learned_months": int(min_months),
+        "manual_fallback_deferred": False,
     }
+    deferred_manual: list[tuple[str, dict[str, Any]]] = []
+    defensive_manual_ok = any(token in normalized_live_label for token in DEFENSIVE_MANUAL_REGIME_LABEL_TOKENS)
     for lookup_label in lookup_chain:
-        for lookup_source, regime_map in (("learned", learned), ("manual", manual)):
-            if not regime_map:
-                continue
-            selected = regime_map.get(lookup_label)
-            if not isinstance(selected, dict):
-                continue
-            payload = dict(selected)
+        learned_selected = learned.get(lookup_label) if learned else None
+        if isinstance(learned_selected, dict):
+            payload = dict(learned_selected)
             payload.setdefault("source_regime", lookup_label)
             meta.update(
                 {
-                    "lookup_source": lookup_source,
+                    "lookup_source": "learned",
                     "lookup_label": lookup_label,
-                    "fallback_used": lookup_source != "learned" or lookup_label != normalized_live_label,
+                    "fallback_used": lookup_label != normalized_live_label,
+                    "manual_fallback_deferred": bool(deferred_manual),
                 }
             )
             return payload, meta
+
+        manual_selected = manual.get(lookup_label) if manual else None
+        if isinstance(manual_selected, dict):
+            payload = dict(manual_selected)
+            payload.setdefault("source_regime", lookup_label)
+            if defensive_manual_ok:
+                meta.update(
+                    {
+                        "lookup_source": "manual",
+                        "lookup_label": lookup_label,
+                        "fallback_used": lookup_label != normalized_live_label,
+                    }
+                )
+                return payload, meta
+            deferred_manual.append((lookup_label, payload))
+            continue
+    if deferred_manual:
+        lookup_label, payload = deferred_manual[0]
+        meta.update(
+            {
+                "lookup_source": "manual",
+                "lookup_label": lookup_label,
+                "fallback_used": lookup_label != normalized_live_label,
+                "manual_fallback_deferred": True,
+            }
+        )
+        return payload, meta
     return None, meta
 
 
@@ -12255,6 +13090,7 @@ def compare_regime_conditioned_sleeve_map_methods(
             live_label,
             learned_regime_map=regime_map if method_label == "learned_regime_map" else None,
             manual_regime_map=regime_map if method_label != "learned_regime_map" else None,
+            min_learned_months=int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)),
         )
         selected = dict(selected or {})
         policy_cfg = clone_cfg_with_updates(
@@ -12388,9 +13224,10 @@ def sleeve_regime_policy_objective(row: dict[str, Any]) -> float:
     )
 
 
-def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str, Any]:
+def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame], cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     if policy_compare is None or policy_compare.empty or "policy_status" not in policy_compare.columns:
         return {}
+    cfg_obj = to_cfg(cfg) if cfg is not None else EngineConfig()
     ok = policy_compare[policy_compare["policy_status"].astype(str).eq("ok")].copy()
     if ok.empty:
         return {}
@@ -12401,6 +13238,13 @@ def choose_sleeve_cap_policy(policy_compare: Optional[pd.DataFrame]) -> dict[str
         dict((policy_compare.attrs or {}).get("regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="learned",
     )
+    min_learned_months = max(int(getattr(cfg_obj, "regime_conditioned_min_learned_months", 0)), 0)
+    if min_learned_months > 0 and learned_regime_map:
+        learned_regime_map = {
+            label: payload
+            for label, payload in learned_regime_map.items()
+            if label == "ALL" or int(safe_float(payload.get("months"), 0.0)) >= min_learned_months
+        }
     manual_regime_map = normalize_regime_conditioned_sleeve_map(
         dict((policy_compare.attrs or {}).get("manual_regime_conditioned_sleeve_map", {}) or {}),
         fallback_source="manual",
@@ -13004,6 +13848,9 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     d = prepare_standalone_sleeve_frame(cfg, frame)
     if d.empty:
         return d
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+        # Defined in r1000_signals.py and already imported into this module.
+        d = compute_defensive_monster_rotation_overlay(d, cfg)
     labels = d.get("portfolio_sleeve_label", pd.Series("core_compounder", index=d.index, dtype=object)).fillna("core_compounder").astype(str)
     raw_labels = d.get("portfolio_sleeve_label_raw", labels).fillna(labels).astype(str)
     sleeve_bonus = labels.map(
@@ -13042,8 +13889,12 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
             * numeric_series_or_default(d, "early_cycle_inflection_score", 0.0),
             float(getattr(cfg, "concentrated_score_entry_quality_weight", 0.25))
             * numeric_series_or_default(d, "entry_quality_score", 0.5),
+            float(getattr(cfg, "concentrated_score_monster_early_weight", 0.0))
+            * numeric_series_or_default(d, "portfolio_monster_early_score", 0.0),
             -float(getattr(cfg, "concentrated_score_exit_risk_penalty", 0.40))
             * numeric_series_or_default(d, "portfolio_hold_policy_exit_risk", 0.0),
+            -float(getattr(cfg, "concentrated_score_risk_entry_penalty_weight", 0.0))
+            * numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0),
             -0.20 * numeric_series_or_default(d, "broken_momentum_penalty", 0.0),
         ],
         d.index,
@@ -13087,7 +13938,14 @@ def select_concentrated_portfolio_topk(
     selected_parts: list[pd.DataFrame] = []
     selected_tickers: set[str] = set()
 
-    def _take(mask: pd.Series, source: str, limit: int, *, enforce_confirmation: bool = True) -> None:
+    def _take(
+        mask: pd.Series,
+        source: str,
+        limit: int,
+        *,
+        enforce_confirmation: bool = True,
+        sort_cols: Optional[list[str]] = None,
+    ) -> None:
         nonlocal selected_tickers
         if limit <= 0:
             return
@@ -13103,12 +13961,28 @@ def select_concentrated_portfolio_topk(
             pool = pool.loc[
                 pd.to_numeric(pool.get("selection_confirmation_score"), errors="coerce").fillna(0.0) >= min_confirmation
             ].copy()
+        if bool(getattr(cfg, "concentrated_risk_candidate_filter_enabled", True)) and "portfolio_risk_entry_block_score" in pool.columns:
+            block_threshold = float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+            block_score = numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
+            # Keep genuine monsters with confirming RS/breakout even when one
+            # risk input is noisy; block fragile high-risk early entries.
+            monster_override = (
+                numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
+                >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+            ) & (
+                numeric_series_or_default(pool, "breakout_setup_quality_score", 0.0) >= 0.45
+            ) & (
+                numeric_series_or_default(pool, "rs_acceleration_score", 0.0) >= 0.0
+            )
+            pool["concentrated_risk_candidate_gate_pass"] = ((block_score < block_threshold) | monster_override).astype(bool)
+            pool = pool.loc[pool["concentrated_risk_candidate_gate_pass"]].copy()
         # Phase 15-D2b: chase-prevention gate with continuation-winner override.
         # Skip when entry_quality_score column is absent (older feature_store).
         if "entry_quality_score" in pool.columns and min_entry_quality > 0:
             entry_quality = numeric_series_or_default(pool, "entry_quality_score", 0.5)
             entry_ok = entry_quality >= min_entry_quality
             continuation_ok = pd.Series(False, index=pool.index, dtype=bool)
+            monster_reentry_ok = pd.Series(False, index=pool.index, dtype=bool)
             if bool(getattr(cfg, "concentrated_entry_quality_continuation_override", True)):
                 continuation_quantile = float(
                     min(max(getattr(cfg, "concentrated_entry_quality_continuation_quantile", 0.90), 0.50), 0.99)
@@ -13126,16 +14000,28 @@ def select_concentrated_portfolio_topk(
                     & numeric_series_or_default(pool, "broken_momentum_penalty", 0.0)
                     .le(float(getattr(cfg, "concentrated_entry_quality_continuation_max_broken", 0.30)))
                 )
-            pool["concentrated_entry_quality_gate_pass"] = (entry_ok | continuation_ok).astype(bool)
-            pool["concentrated_entry_quality_override"] = ((~entry_ok) & continuation_ok).astype(bool)
+            if bool(getattr(cfg, "concentrated_entry_quality_monster_early_override", True)):
+                monster_reentry_ok = (
+                    numeric_series_or_default(pool, "portfolio_monster_early_score", 0.0)
+                    .ge(float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62)))
+                    & numeric_series_or_default(pool, "price_above_ma50", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "price_above_ma200", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "trend_template_full", 0.0).ge(1.0)
+                    & numeric_series_or_default(pool, "portfolio_risk_entry_block_score", 0.0)
+                    .lt(float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55)))
+                )
+            pool["concentrated_entry_quality_gate_pass"] = (entry_ok | continuation_ok | monster_reentry_ok).astype(bool)
+            pool["concentrated_entry_quality_override"] = ((~entry_ok) & (continuation_ok | monster_reentry_ok)).astype(bool)
+            pool["concentrated_monster_early_override"] = ((~entry_ok) & monster_reentry_ok).astype(bool)
             pool = pool.loc[pool["concentrated_entry_quality_gate_pass"]].copy()
         if pool.empty:
             return
-        pool = pool.sort_values(
-            ["concentrated_score", "selection_confirmation_score", "score"],
-            ascending=False,
-        )
-        pool = dedupe_same_company_rows(pool, score_col="concentrated_score").head(limit).copy()
+        rank_cols = sort_cols or ["concentrated_score", "selection_confirmation_score", "score"]
+        rank_cols = [c for c in rank_cols if c in pool.columns]
+        if not rank_cols:
+            rank_cols = ["concentrated_score", "score"]
+        pool = pool.sort_values(rank_cols, ascending=[False] * len(rank_cols))
+        pool = dedupe_same_company_rows(pool, score_col=rank_cols[0]).head(limit).copy()
         if pool.empty:
             return
         pool["concentrated_selection_source"] = source
@@ -13143,7 +14029,34 @@ def select_concentrated_portfolio_topk(
         if "ticker" in pool.columns:
             selected_tickers.update(pool["ticker"].astype(str).tolist())
 
-    _take(pd.Series(d["concentrated_preferred_sleeve"], index=d.index), "preferred_final_label", top_n)
+    monster_slots = int(max(0, min(top_n, getattr(cfg, "concentrated_monster_early_min_slots", 0))))
+    if monster_slots > 0 and "portfolio_monster_early_score" in d.columns:
+        monster_mask = (
+            numeric_series_or_default(d, "portfolio_monster_early_score", 0.0)
+            >= float(getattr(cfg, "concentrated_entry_quality_monster_early_min", 0.62))
+        ) & (
+            numeric_series_or_default(d, "portfolio_risk_entry_block_score", 0.0)
+            < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.45))
+        ) & (
+            numeric_series_or_default(d, "price_above_ma50", 0.0).ge(1.0)
+        ) & (
+            numeric_series_or_default(d, "price_above_ma200", 0.0).ge(1.0)
+        )
+        _take(
+            monster_mask,
+            "monster_extreme_early",
+            monster_slots,
+            enforce_confirmation=False,
+            sort_cols=[
+                "portfolio_monster_early_score",
+                "concentrated_score",
+                "relative_strength_composite",
+                "score",
+            ],
+        )
+
+    remaining = top_n - sum(len(x) for x in selected_parts)
+    _take(pd.Series(d["concentrated_preferred_sleeve"], index=d.index), "preferred_final_label", remaining)
     remaining = top_n - sum(len(x) for x in selected_parts)
     if remaining > 0:
         _take(pd.Series(d["concentrated_preferred_sleeve_raw"], index=d.index), "preferred_raw_label", remaining)
@@ -13192,26 +14105,34 @@ def concentrated_weight_map(
     elif mode == "score_power":
         raw = pd.to_numeric(ranked.get("concentrated_score"), errors="coerce").fillna(0.0)
         shifted = (raw - float(raw.min()) + 0.25).clip(lower=1e-6)
-        weights = normalize_with_limits(
-            pd.Series(np.power(shifted.to_numpy(dtype=float), 2.0), index=ranked.index, dtype=float),
-            wmin=0.0,
-            wmax=float(getattr(cfg, "concentrated_max_single_name_weight", 1.0)),
-        ).to_numpy(dtype=float)
+        weights = pd.Series(np.power(shifted.to_numpy(dtype=float), 2.0), index=ranked.index, dtype=float).to_numpy(dtype=float)
     else:
         curve = {
             1: np.array([1.0], dtype=float),
             2: np.array([0.70, 0.30], dtype=float),
             3: np.array([0.50, 0.30, 0.20], dtype=float),
         }
-        weights = curve.get(n, curve[3][:n]).astype(float)
+        if n in curve:
+            weights = curve[n].astype(float)
+        else:
+            # Concentrated Expansion tests N>3. Keep the legacy N<=3 curve
+            # intact, but use a smooth conviction decay for wider ladders so
+            # the grid can evaluate 4/5/7/10 names without shape mismatch.
+            ranks = np.arange(n, dtype=float)
+            weights = np.power(0.72, ranks).astype(float)
         weights = weights / max(float(weights.sum()), 1e-8)
+    weights = normalize_with_limits(
+        pd.Series(weights, index=ranked.index, dtype=float),
+        wmin=0.0,
+        wmax=float(getattr(cfg, "concentrated_max_single_name_weight", 1.0)),
+    ).to_numpy(dtype=float)
     out = {
         str(t): float(w)
         for t, w in zip(tickers, weights.tolist())
         if pd.notna(w) and float(w) > 1e-10
     }
     total = float(sum(out.values()))
-    if total > 0:
+    if total > 1.0 + 1e-8:
         out = {k: float(v / total) for k, v in out.items()}
     return out
 
@@ -13256,6 +14177,18 @@ def backtest_concentrated_portfolio(
     rebalance_dates_taken: list[pd.Timestamp] = []
     holdings_rows: list[dict[str, Any]] = []
     ret_rows: list[dict[str, Any]] = []
+    position_risk_enabled = bool(getattr(cfg_obj, "concentrated_position_risk_enabled", False))
+    position_risk_hard_stop = _negative_stop_value(getattr(cfg_obj, "concentrated_position_risk_hard_stop", -0.08), 0.08)
+    position_risk_trailing_stop = _negative_stop_value(getattr(cfg_obj, "concentrated_position_risk_trailing_stop", 0.0), 0.0)
+    position_risk_trailing_min_profit = float(
+        max(safe_float(getattr(cfg_obj, "concentrated_position_risk_trailing_min_profit", 0.15), 0.15), 0.0)
+    )
+    position_risk_distribution_threshold = float(
+        max(safe_float(getattr(cfg_obj, "concentrated_position_risk_distribution_threshold", 2.0), 2.0), 0.0)
+    )
+    position_risk_state: dict[str, dict[str, float]] = {}
+    position_risk_exit_count_total = 0
+    position_risk_position_count_total = 0
 
     def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
         return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
@@ -13289,8 +14222,11 @@ def backtest_concentrated_portfolio(
 
         holdings_source = current_portfolio if not current_portfolio.empty else mm
         month_holding_row_indices: list[int] = []
+        position_risk_source_by_ticker: dict[str, dict[str, Any]] = {}
         for tkr, ww in current_w.items():
             row = holdings_source[holdings_source["ticker"].astype(str).eq(str(tkr))] if "ticker" in holdings_source.columns else pd.DataFrame()
+            row_payload = row.iloc[0].to_dict() if not row.empty else {"ticker": tkr}
+            position_risk_source_by_ticker[str(tkr)] = row_payload
             month_holding_row_indices.append(len(holdings_rows))
             holdings_rows.append(
                 {
@@ -13304,33 +14240,94 @@ def backtest_concentrated_portfolio(
                     "portfolio_sleeve_label": "cash" if str(tkr).upper() == CASH_PROXY_TICKER else str(row["portfolio_sleeve_label"].iloc[0]) if not row.empty and "portfolio_sleeve_label" in row.columns else "unknown",
                     "concentrated_selection_source": str(row["concentrated_selection_source"].iloc[0]) if not row.empty and "concentrated_selection_source" in row.columns else "",
                     "period_forward_return": np.nan,
+                    "raw_period_forward_return": np.nan,
+                    "risk_adjusted_forward_return": np.nan,
                     "weighted_forward_return": np.nan,
+                    "raw_weighted_forward_return": np.nan,
+                    "position_risk_action": "",
+                    "position_risk_reason": "",
+                    "position_risk_hard_stop": float(position_risk_hard_stop),
+                    "position_risk_enabled": bool(position_risk_enabled),
                     "target_n": int(top_n),
                     "weighting_mode": str(weighting_mode),
                     "rebalance_action": rebalance_action,
                     "active_rebalance_interval_months": int(interval_months),
                     "next_scheduled_rebalance_date": str(pd.Timestamp(next_scheduled_dt).date()) if pd.notna(next_scheduled_dt) else None,
+                    "portfolio_monster_early_score": float(row["portfolio_monster_early_score"].iloc[0]) if not row.empty and "portfolio_monster_early_score" in row.columns and pd.notna(row["portfolio_monster_early_score"].iloc[0]) else np.nan,
+                    "portfolio_risk_entry_block_score": float(row["portfolio_risk_entry_block_score"].iloc[0]) if not row.empty and "portfolio_risk_entry_block_score" in row.columns and pd.notna(row["portfolio_risk_entry_block_score"].iloc[0]) else np.nan,
+                    "portfolio_defensive_rotation_action": str(row["portfolio_defensive_rotation_action"].iloc[0]) if not row.empty and "portfolio_defensive_rotation_action" in row.columns else "",
                 }
             )
 
         month_ret = 0.0
+        raw_month_ret = 0.0
         missing = 0
         ticker_month_returns: dict[str, float] = {}
+        ticker_effective_month_returns: dict[str, float] = {}
+        position_risk_exited_tickers: set[str] = set()
+        position_risk_exit_count_month = 0
         for tkr, ww in current_w.items():
             ri = month_forward_return_open(paths, tkr, dt + pd.Timedelta(days=1), next_dt + pd.Timedelta(days=1))
             if ri is None:
                 missing += 1
                 continue
-            month_ret += float(ww) * float(ri)
-            ticker_month_returns[str(tkr)] = float(ri)
+            raw_ri = float(ri)
+            effective_ri = raw_ri
+            risk_action = "hold"
+            risk_reason = "hold"
+            if position_risk_enabled and str(tkr).upper() != CASH_PROXY_TICKER:
+                prior = position_risk_state.get(str(tkr), {"cum": 0.0, "peak": 0.0})
+                should_exit, risk_reason = _managed_position_risk_exit_signal(
+                    position_risk_source_by_ticker.get(str(tkr), {"ticker": tkr}),
+                    raw_ri,
+                    prior.get("cum", 0.0),
+                    prior.get("peak", 0.0),
+                    hard_stop=position_risk_hard_stop,
+                    trailing_stop=position_risk_trailing_stop,
+                    trailing_min_profit=position_risk_trailing_min_profit,
+                    distribution_threshold=position_risk_distribution_threshold,
+                )
+                new_cum = (1.0 + prior.get("cum", 0.0)) * (1.0 + raw_ri) - 1.0
+                position_risk_state[str(tkr)] = {"cum": new_cum, "peak": max(prior.get("peak", 0.0), new_cum)}
+                position_risk_position_count_total += 1
+                if should_exit:
+                    effective_ri = max(raw_ri, position_risk_hard_stop) if position_risk_hard_stop < 0 else raw_ri
+                    position_risk_exited_tickers.add(str(tkr))
+                    position_risk_exit_count_month += 1
+                    position_risk_exit_count_total += 1
+                    risk_action = "risk_exit"
+            raw_month_ret += float(ww) * raw_ri
+            month_ret += float(ww) * effective_ri
+            ticker_month_returns[str(tkr)] = raw_ri
+            ticker_effective_month_returns[str(tkr)] = float(effective_ri)
+            if position_risk_enabled:
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_action"] = risk_action
+                position_risk_source_by_ticker.setdefault(str(tkr), {"ticker": tkr})["_position_risk_reason"] = risk_reason
         for row_idx in month_holding_row_indices:
             held_ticker = str(holdings_rows[row_idx].get("ticker", ""))
             held_return = ticker_month_returns.get(held_ticker, 0.0 if held_ticker.upper() == CASH_PROXY_TICKER else np.nan)
-            holdings_rows[row_idx]["period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            effective_return = ticker_effective_month_returns.get(held_ticker, held_return)
+            holdings_rows[row_idx]["raw_period_forward_return"] = float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["period_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
+            holdings_rows[row_idx]["risk_adjusted_forward_return"] = float(effective_return) if pd.notna(effective_return) else np.nan
             held_weight = float(holdings_rows[row_idx].get("weight", 0.0))
-            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["raw_weighted_forward_return"] = held_weight * float(held_return) if pd.notna(held_return) else np.nan
+            holdings_rows[row_idx]["weighted_forward_return"] = held_weight * float(effective_return) if pd.notna(effective_return) else np.nan
+            risk_payload = position_risk_source_by_ticker.get(held_ticker, {})
+            holdings_rows[row_idx]["position_risk_action"] = str(risk_payload.get("_position_risk_action", "hold" if position_risk_enabled else "disabled"))
+            holdings_rows[row_idx]["position_risk_reason"] = str(risk_payload.get("_position_risk_reason", "hold" if position_risk_enabled else "disabled"))
         net_ret = month_ret - cost
-        current_w = drift_weights_by_period_returns(current_w, ticker_month_returns)
+        current_w = drift_weights_by_period_returns(current_w, ticker_effective_month_returns or ticker_month_returns)
+        if position_risk_enabled and position_risk_exited_tickers:
+            for tkr in sorted(position_risk_exited_tickers):
+                if tkr in current_w:
+                    released = float(current_w.pop(tkr, 0.0))
+                    current_w[CASH_PROXY_TICKER] = float(current_w.get(CASH_PROXY_TICKER, 0.0)) + released
+                position_risk_state.pop(tkr, None)
+        if position_risk_enabled:
+            for tkr in list(position_risk_state.keys()):
+                if tkr not in current_w:
+                    position_risk_state.pop(tkr, None)
         if current_w:
             total_w = float(sum(float(v) for v in current_w.values() if pd.notna(v)))
             if total_w > 0 and abs(total_w - 1.0) > 1e-8:
@@ -13351,6 +14348,11 @@ def backtest_concentrated_portfolio(
                 "target_n": int(top_n),
                 "weighting_mode": str(weighting_mode),
                 "portfolio_mode": "concentrated_alpha",
+                "raw_gross_return": float(raw_month_ret),
+                "position_risk_return_delta": float(month_ret - raw_month_ret),
+                "position_risk_exit_count": int(position_risk_exit_count_month),
+                "position_risk_enabled": bool(position_risk_enabled),
+                "position_risk_hard_stop": float(position_risk_hard_stop),
             }
         )
 
@@ -13384,6 +14386,12 @@ def backtest_concentrated_portfolio(
     metrics["target_n_override"] = int(top_n)
     metrics["weighting_mode"] = str(weighting_mode)
     metrics["rebalance_interval_months"] = int(interval_months)
+    metrics["position_risk_enabled"] = bool(position_risk_enabled)
+    metrics["position_risk_hard_stop"] = float(position_risk_hard_stop)
+    metrics["position_risk_trailing_stop"] = float(position_risk_trailing_stop)
+    metrics["position_risk_exit_count"] = int(position_risk_exit_count_total)
+    metrics["position_risk_exit_rate"] = float(position_risk_exit_count_total / max(position_risk_position_count_total, 1))
+    metrics["position_risk_metric_mode"] = "monthly_managed_position_risk" if position_risk_enabled else "raw_monthly_returns"
     rebalance_intervals = (
         [_month_gap(later, earlier) for earlier, later in zip(rebalance_dates_taken[:-1], rebalance_dates_taken[1:])]
         if len(rebalance_dates_taken) >= 2
@@ -13471,6 +14479,66 @@ def concentrated_strategy_objective(row: Mapping[str, Any]) -> float:
     return float(1.10 * cagr + 0.08 * sharpe + 0.04 * beat_ratio - 0.45 * abs(max_dd))
 
 
+def select_concentrated_champion_comparison(
+    cfg: dict | EngineConfig,
+    concentrated_compare: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Return valid concentrated comparison rows, sorted with the champion first.
+
+    The latest concentrated portfolio must be driven by a full historical
+    comparison row, not by a fallback N=1/NaN artifact. If one or more rows meet
+    the explicit CAGR/MaxDD goal, prefer that production-goal pool before the
+    objective sort.
+    """
+    cfg_obj = to_cfg(cfg)
+    compare = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
+    if compare.empty:
+        return pd.DataFrame()
+    if "portfolio_mode" in compare.columns:
+        compare = compare[compare["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+    if compare.empty:
+        return pd.DataFrame()
+
+    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
+    for col in ("target_stock_names", "strategy_cagr", "sharpe", "max_dd", "comparison_objective"):
+        if col not in compare.columns:
+            compare[col] = np.nan
+        compare[col] = pd.to_numeric(compare[col], errors="coerce")
+    if "weighting_mode" not in compare.columns:
+        compare["weighting_mode"] = str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
+    if "rebalance_interval_months" not in compare.columns:
+        compare["rebalance_interval_months"] = 1
+    compare["rebalance_interval_months"] = pd.to_numeric(compare["rebalance_interval_months"], errors="coerce").fillna(1).astype(int)
+
+    valid = compare[
+        compare["target_stock_names"].ge(min_names)
+        & np.isfinite(compare["strategy_cagr"])
+        & np.isfinite(compare["sharpe"])
+        & np.isfinite(compare["max_dd"])
+    ].copy()
+    if valid.empty:
+        return pd.DataFrame()
+    missing_objective = ~np.isfinite(valid["comparison_objective"])
+    if bool(missing_objective.any()):
+        valid.loc[missing_objective, "comparison_objective"] = valid.loc[missing_objective].apply(
+            lambda row: concentrated_strategy_objective(row.to_dict()),
+            axis=1,
+        )
+
+    target_cagr = float(getattr(cfg_obj, "concentrated_target_cagr", 0.40))
+    target_max_dd = float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22))
+    valid["concentrated_goal_pass"] = (
+        valid["strategy_cagr"].ge(target_cagr)
+        & valid["max_dd"].ge(target_max_dd)
+    )
+    if bool(getattr(cfg_obj, "concentrated_latest_prefer_goal_passing", True)) and bool(valid["concentrated_goal_pass"].any()):
+        valid = valid[valid["concentrated_goal_pass"]].copy()
+    return valid.sort_values(
+        ["comparison_objective", "strategy_cagr", "sharpe", "max_dd"],
+        ascending=[False, False, False, False],
+    ).reset_index(drop=True)
+
+
 def compare_concentrated_portfolio_backtests(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -13552,12 +14620,26 @@ def build_latest_concentrated_holdings(
         return pd.DataFrame(), {}
 
     compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
-    if not compare_df.empty and "portfolio_mode" in compare_df.columns:
-        compare_df = compare_df[compare_df["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+    compare_source = "artifact"
+    compare_df = select_concentrated_champion_comparison(cfg_obj, compare_df)
+    if compare_df.empty:
+        compare_path = get_paths(cfg_obj)["reports"] / "concentrated_strategy_comparison.csv"
+        if compare_path.exists():
+            try:
+                compare_df = select_concentrated_champion_comparison(cfg_obj, pd.read_csv(compare_path))
+                compare_source = str(compare_path)
+            except Exception:
+                compare_df = pd.DataFrame()
     # Phase 9 CE: latest-holdings picker clamp bumped 3 -> 30 so the
     # winning N from the concentrated grid can drive the live recommendation
     # regardless of size (was silently clipping N=5 winners back to 3).
-    top_n = int(max(1, min(30, safe_float(compare_df["target_stock_names"].iloc[0], 3.0)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(1, min(30, getattr(cfg_obj, "concentrated_top_n_candidates", [3])[0])))
+    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
+    fallback_candidates = [
+        int(x) for x in getattr(cfg_obj, "concentrated_top_n_candidates", [min_names])
+        if int(max(1, min(int(x), 30))) >= min_names
+    ]
+    fallback_n = int(fallback_candidates[0]) if fallback_candidates else int(min_names)
+    top_n = int(max(min_names, min(30, safe_float(compare_df["target_stock_names"].iloc[0], fallback_n)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(min_names, min(30, fallback_n)))
     weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
     interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
     best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
@@ -13571,6 +14653,9 @@ def build_latest_concentrated_holdings(
             "weighting_mode": str(weighting_mode),
             "recommended_rebalance_interval_months": int(interval),
             "monitoring_review_days": int(getattr(cfg_obj, "concentrated_monitoring_review_days", 7)),
+            "comparison_source": str(compare_source),
+            "metrics_valid": False,
+            "production_valid": False,
         }
     selected = selected.sort_values(["concentrated_score", "score"], ascending=[False, False]).reset_index(drop=True).copy()
     weight_map = concentrated_weight_map(cfg_obj, selected, weighting_mode=weighting_mode)
@@ -13587,6 +14672,12 @@ def build_latest_concentrated_holdings(
     selected["concentrated_strategy_sharpe"] = float(safe_float(best_metrics.get("sharpe"), np.nan))
     selected["concentrated_strategy_max_dd"] = float(safe_float(best_metrics.get("max_dd"), np.nan))
     selected["concentrated_strategy_objective"] = float(safe_float(best_metrics.get("comparison_objective"), np.nan))
+    metrics_valid = bool(
+        np.isfinite(safe_float(best_metrics.get("strategy_cagr"), np.nan))
+        and np.isfinite(safe_float(best_metrics.get("sharpe"), np.nan))
+        and np.isfinite(safe_float(best_metrics.get("max_dd"), np.nan))
+    )
+    goal_pass = bool(best_metrics.get("concentrated_goal_pass", False))
     summary = {
         "portfolio_mode": "concentrated_alpha",
         "rebalance_date": str(pd.Timestamp(latest_dt).date()) if pd.notna(latest_dt) else None,
@@ -13599,6 +14690,12 @@ def build_latest_concentrated_holdings(
         "sharpe": float(safe_float(best_metrics.get("sharpe"), np.nan)),
         "max_dd": float(safe_float(best_metrics.get("max_dd"), np.nan)),
         "comparison_objective": float(safe_float(best_metrics.get("comparison_objective"), np.nan)),
+        "comparison_source": str(compare_source),
+        "metrics_valid": bool(metrics_valid),
+        "target_cagr": float(getattr(cfg_obj, "concentrated_target_cagr", 0.40)),
+        "target_max_dd": float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22)),
+        "target_pass": bool(goal_pass),
+        "production_valid": bool(metrics_valid and len(selected) >= min_names),
         "operating_notes": [
             "Run a full rebalance monthly.",
             f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",
@@ -13624,18 +14721,18 @@ _SLEEVE_POLICY_CANDIDATES: list[dict] = [
 def generate_ai_four_sleeve_policy_candidates(cfg: dict | EngineConfig) -> list[dict[str, Any]]:
     cfg_obj = to_cfg(cfg)
     candidates = [
-        {"label": "ai_bal_24_42_22_cash12", "core": 0.24, "future": 0.42, "early": 0.22, "cash": 0.12},
-        {"label": "ai_bal_20_46_22_cash12", "core": 0.20, "future": 0.46, "early": 0.22, "cash": 0.12},
-        {"label": "ai_growth_16_48_26_cash10", "core": 0.16, "future": 0.48, "early": 0.26, "cash": 0.10},
-        {"label": "ai_growth_14_48_30_cash08", "core": 0.14, "future": 0.48, "early": 0.30, "cash": 0.08},
-        {"label": "ai_growth_10_52_28_cash10", "core": 0.10, "future": 0.52, "early": 0.28, "cash": 0.10},
-        {"label": "ai_barbell_12_42_32_cash14", "core": 0.12, "future": 0.42, "early": 0.32, "cash": 0.14},
-        {"label": "ai_barbell_08_46_32_cash14", "core": 0.08, "future": 0.46, "early": 0.32, "cash": 0.14},
-        {"label": "ai_early_08_42_38_cash12", "core": 0.08, "future": 0.42, "early": 0.38, "cash": 0.12},
-        {"label": "ai_hot_06_52_34_cash08", "core": 0.06, "future": 0.52, "early": 0.34, "cash": 0.08},
-        {"label": "ai_reentry_12_44_34_cash10", "core": 0.12, "future": 0.44, "early": 0.34, "cash": 0.10},
-        {"label": "ai_risk_12_36_22_cash30", "core": 0.12, "future": 0.36, "early": 0.22, "cash": 0.30},
-        {"label": "ai_risk_10_40_18_cash32", "core": 0.10, "future": 0.40, "early": 0.18, "cash": 0.32},
+        {"label": "ai_bal_25_45_25_cash05", "core": 0.25, "future": 0.45, "early": 0.25, "cash": 0.05},
+        {"label": "ai_bal_20_48_27_cash05", "core": 0.20, "future": 0.48, "early": 0.27, "cash": 0.05},
+        {"label": "ai_growth_16_50_29_cash05", "core": 0.16, "future": 0.50, "early": 0.29, "cash": 0.05},
+        {"label": "ai_growth_14_50_32_cash04", "core": 0.14, "future": 0.50, "early": 0.32, "cash": 0.04},
+        {"label": "ai_growth_10_54_31_cash05", "core": 0.10, "future": 0.54, "early": 0.31, "cash": 0.05},
+        {"label": "ai_barbell_12_44_39_cash05", "core": 0.12, "future": 0.44, "early": 0.39, "cash": 0.05},
+        {"label": "ai_barbell_08_49_38_cash05", "core": 0.08, "future": 0.49, "early": 0.38, "cash": 0.05},
+        {"label": "ai_early_08_44_45_cash03", "core": 0.08, "future": 0.44, "early": 0.45, "cash": 0.03},
+        {"label": "ai_hot_06_54_37_cash03", "core": 0.06, "future": 0.54, "early": 0.37, "cash": 0.03},
+        {"label": "ai_reentry_12_46_37_cash05", "core": 0.12, "future": 0.46, "early": 0.37, "cash": 0.05},
+        {"label": "ai_risk_14_42_26_cash18", "core": 0.14, "future": 0.42, "early": 0.26, "cash": 0.18},
+        {"label": "ai_risk_12_44_24_cash20", "core": 0.12, "future": 0.44, "early": 0.24, "cash": 0.20},
     ]
     max_candidates = max(int(getattr(cfg_obj, "ai_four_sleeve_max_candidates", len(candidates))), 1)
     return candidates[:max_candidates]
@@ -13747,7 +14844,7 @@ def compare_ai_four_sleeve_adaptive_model(
     candidates = generate_ai_four_sleeve_policy_candidates(cfg_obj)
     if not candidates:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, None
-    regime_cash_max = max(float(getattr(cfg_obj, "sleeve_regime_comparison_cash_max", 0.02)), 0.08)
+    regime_cash_max = float(np.clip(getattr(cfg_obj, "sleeve_regime_comparison_cash_max", 0.02), 0.0, 0.20))
     grid_df, best_df = compare_sleeve_policy_per_regime(
         cfg_obj,
         signals,
@@ -14404,7 +15501,7 @@ def build_latest_portfolio(cfg: dict | EngineConfig, latest_recommendations: pd.
         elif live_growth_on:
             cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.12), 0.14)
         else:
-            cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.10), 0.12)
+            cfg_port.stock_weight_max = min(max(cfg_port.stock_weight_max, 0.14), 0.16)
         latest["portfolio_seed_overheat_penalty"] = 0.0
         latest["portfolio_seed_score"] = (
             pd.to_numeric(latest["score"], errors="coerce").fillna(0.0)
@@ -15092,6 +16189,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
             "portfolio_core_compounder_engine_score",
             "portfolio_future_winner_engine_score",
             "portfolio_early_scout_engine_score",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+            "portfolio_monster_slot",
             "sage_sector",
             "sage_composite_score",
             "sage_g_score",
@@ -15531,6 +16634,15 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     ai_four_sleeve_regime_grid_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_grid.csv"
     ai_four_sleeve_regime_best_path = paths["reports"] / "ai_four_sleeve_adaptive_regime_best.csv"
     ai_four_sleeve_selected_map_path = paths["reports"] / "ai_four_sleeve_adaptive_selected_map.json"
+    main_monthly_weights_path = paths["reports"] / "main_monthly_weights.csv"
+    tactical_monthly_weights_path = paths["reports"] / "tactical_monthly_weights.csv"
+    alpha_sprint_monthly_weights_path = paths["reports"] / "alpha_sprint_monthly_weights.csv"
+    regime_by_month_path = paths["reports"] / "regime_by_month.csv"
+    sleeve_returns_by_month_path = paths["reports"] / "sleeve_returns_by_month.csv"
+    candidate_replay_book_path = paths["reports"] / "candidate_replay_book.csv"
+    concentrated_compare_path = paths["reports"] / "concentrated_strategy_comparison.csv"
+    concentrated_monthly_path = paths["reports"] / "concentrated_strategy_monthly.csv"
+    concentrated_holdings_path = paths["reports"] / "concentrated_strategy_holdings.csv"
     run_identity = build_run_identity(cfg)
 
     def _safe_unlink(path: Path) -> None:
@@ -15540,8 +16652,348 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         except Exception:
             pass
 
+    def _write_concentrated_grid_artifacts(*, prune_missing: bool = False) -> None:
+        """Persist concentrated grid artifacts before dependent latest exports."""
+        if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
+            concentrated_compare.to_csv(concentrated_compare_path, index=False)
+            concentrated_monthly.to_csv(concentrated_monthly_path, index=False)
+            concentrated_holdings.to_csv(concentrated_holdings_path, index=False)
+        elif prune_missing:
+            _safe_unlink(concentrated_compare_path)
+            _safe_unlink(concentrated_monthly_path)
+            _safe_unlink(concentrated_holdings_path)
+
+    def _write_monthly_mandate_books() -> None:
+        """Persist raw monthly books needed by historical orchestrator replays."""
+        main_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "weight",
+            "raw_score",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_role",
+            "portfolio_selection_path",
+            "period_forward_return",
+            "weighted_forward_return",
+            "target_n",
+            "cash_target",
+            "regime_state",
+            "regime_state_score",
+        ]
+        holdings = bt.holdings.copy() if bt.holdings is not None else pd.DataFrame()
+        if holdings.empty:
+            main_weights = pd.DataFrame(columns=main_cols)
+        else:
+            main_weights = holdings.copy()
+            for col in main_cols:
+                if col not in main_weights.columns:
+                    main_weights[col] = np.nan
+            main_weights = main_weights[main_cols].copy()
+        main_weights.to_csv(main_monthly_weights_path, index=False)
+
+        regime_cols = [
+            "rebalance_date",
+            "next_rebalance_date",
+            "regime_label",
+            "core_target",
+            "future_target",
+            "early_target",
+            "cash_target_used",
+            "cash_weight",
+            "cash_weight_start",
+            "cash_weight_end",
+            "stock_weight_start",
+            "stock_weight_end",
+            "rebalance_action",
+            "due_sleeves",
+            "active_rebalance_interval_months",
+            "target_n",
+            "drawdown_before_month",
+            "drawdown_after_month",
+            "equity_after_month",
+        ]
+        monthly_returns = bt.monthly_returns.copy() if bt.monthly_returns is not None else pd.DataFrame()
+        if monthly_returns.empty:
+            regime_by_month = pd.DataFrame(columns=regime_cols)
+        else:
+            regime_by_month = monthly_returns.copy()
+            for col in regime_cols:
+                if col not in regime_by_month.columns:
+                    regime_by_month[col] = np.nan
+            regime_by_month = regime_by_month[regime_cols].copy()
+        regime_by_month.to_csv(regime_by_month_path, index=False)
+
+        sleeve_cols = [
+            "rebalance_date",
+            "portfolio_sleeve_label",
+            "sleeve_weight",
+            "sleeve_weighted_forward_return",
+            "sleeve_return_proxy",
+            "ticker_count",
+        ]
+        if holdings.empty or "rebalance_date" not in holdings.columns:
+            sleeve_returns = pd.DataFrame(columns=sleeve_cols)
+        else:
+            sleeve_frame = holdings.copy()
+            if "ticker" not in sleeve_frame.columns:
+                sleeve_frame["ticker"] = ""
+            sleeve_label = (
+                sleeve_frame.get("portfolio_sleeve_label", pd.Series("unknown", index=sleeve_frame.index))
+                .fillna("unknown")
+                .astype(str)
+            )
+            sleeve_frame["_sleeve_label"] = sleeve_label.replace("", "unknown")
+            sleeve_frame["_weight"] = pd.to_numeric(
+                sleeve_frame.get("weight", pd.Series(0.0, index=sleeve_frame.index)),
+                errors="coerce",
+            ).fillna(0.0)
+            weighted_forward = (
+                pd.to_numeric(sleeve_frame["weighted_forward_return"], errors="coerce")
+                if "weighted_forward_return" in sleeve_frame.columns
+                else pd.Series(np.nan, index=sleeve_frame.index)
+            )
+            if weighted_forward.isna().all() and "period_forward_return" in sleeve_frame.columns:
+                weighted_forward = (
+                    pd.to_numeric(sleeve_frame["period_forward_return"], errors="coerce")
+                    * sleeve_frame["_weight"]
+                )
+            sleeve_frame["_weighted_forward_return"] = weighted_forward.fillna(0.0)
+            grouped = (
+                sleeve_frame.groupby(["rebalance_date", "_sleeve_label"], dropna=False)
+                .agg(
+                    sleeve_weight=("_weight", "sum"),
+                    sleeve_weighted_forward_return=("_weighted_forward_return", "sum"),
+                    ticker_count=("ticker", "nunique"),
+                )
+                .reset_index()
+                .rename(columns={"_sleeve_label": "portfolio_sleeve_label"})
+            )
+            grouped["sleeve_return_proxy"] = np.where(
+                grouped["sleeve_weight"].abs() > 1e-12,
+                grouped["sleeve_weighted_forward_return"] / grouped["sleeve_weight"],
+                0.0,
+            )
+            sleeve_returns = grouped[sleeve_cols].copy()
+        sleeve_returns.to_csv(sleeve_returns_by_month_path, index=False)
+
+        empty_sleeve_cols = ["rebalance_date", "ticker", "weight", "source", "data_available"]
+        pd.DataFrame(columns=empty_sleeve_cols).to_csv(tactical_monthly_weights_path, index=False)
+        pd.DataFrame(columns=empty_sleeve_cols).to_csv(alpha_sprint_monthly_weights_path, index=False)
+
+        replay_cols = [
+            "rebalance_date",
+            "ticker",
+            "Name",
+            "sector",
+            "industry_group",
+            "source_universe",
+            "score",
+            "r_1m",
+            "y_blend",
+            "mom_1m",
+            "mom_3m",
+            "mom_6m",
+            "mom_12m",
+            "mom_24m",
+            "mom_36m",
+            "relative_strength_composite",
+            "rs_sector_1m",
+            "rs_sector_3m",
+            "rs_sector_6m",
+            "rs_sector_12m",
+            "rs_industry_12m",
+            "rs_benchmark_3m",
+            "rs_benchmark_6m",
+            "rs_benchmark_12m",
+            "portfolio_sleeve_label",
+            "portfolio_sleeve_role",
+            "portfolio_core_compounder_engine_score",
+            "portfolio_future_winner_engine_score",
+            "portfolio_early_scout_engine_score",
+            "portfolio_monster_early_score",
+            "portfolio_stale_mega_leader_score",
+            "portfolio_stale_leader_reason",
+            "portfolio_risk_entry_block_score",
+            "portfolio_defensive_rotation_action",
+            "portfolio_sleeve_promoted",
+            "portfolio_sleeve_promotion_signal",
+            "portfolio_candidate_gate_label",
+            "portfolio_candidate_minimum_pass",
+            "long_hold_compounder_score",
+            "capital_efficiency_score",
+            "sector_adjusted_quality_score",
+            "multi_year_winner_score",
+            "fundamental_reliability_score",
+            "risk_penalty",
+            "stage2_overext_penalty",
+            "overheat_penalty",
+            "price_above_ma200",
+            "price_above_ma50",
+            "near_52w_high_pct",
+            "rs_acceleration_score",
+            "h1_oversold_value_score",
+            "theme_phase_multiplier_primary",
+            "theme_phase_multiplier_max",
+            "theme_phase_primary",
+            "theme_horizon_primary",
+            "theme_holding_profile_primary",
+            "theme_event_risk_sensitivity_primary",
+            "theme_event_risk_sensitivity_max",
+            "theme_structural_growth_primary",
+            "theme_structural_growth_max",
+            "theme_target_hold_months_primary",
+            "theme_max_hold_months_primary",
+            "theme_short_cycle_flag_primary",
+            "theme_short_cycle_flag_max",
+            "market_style_regime_label",
+            "style_breakout_preference",
+            "style_turnaround_preference",
+            "style_quality_compounder_preference",
+            "style_cash_defense_preference",
+            "style_liquidity_tailwind_score",
+            "style_rate_pressure_score",
+            "style_inflation_pressure_score",
+            "style_overheat_risk_score",
+            "style_calendar_month",
+            "style_calendar_quarter",
+            "style_calendar_weekday",
+            "style_calendar_years_since_start",
+            "style_calendar_month_sin",
+            "style_calendar_month_cos",
+            "style_calendar_quarter_sin",
+            "style_calendar_quarter_cos",
+            "style_calendar_weekday_sin",
+            "style_calendar_weekday_cos",
+            "style_row_breakout_fit",
+            "style_row_turnaround_fit",
+            "style_row_compounder_fit",
+            "oneil_leadership_score",
+            "industry_group_strength_score",
+            "future_winner_scout_score",
+            "profitability_inflection_score",
+            "cashflow_inflection_under_loss_score",
+            "profit_turn_positive_4q",
+            "cashflow_turn_positive_4q",
+            "ni_loss_narrowing_4q",
+            "any_profit_sign_flip_pos",
+            "breakout_fresh_20d",
+            "post_breakout_hold_score",
+            "entry_quality_score",
+            "concentrated_entry_quality_gate_pass",
+            "concentrated_score",
+            "selection_confirmation_score",
+            "ml_technical_agreement_score",
+            "trend_template_full",
+            "breakout_setup_quality_score",
+            "volatility_contraction_score",
+            "explosion_entry_score",
+            "explosion_exit_score",
+            "explosion_net_score",
+            "h6_dynamic_leader_score",
+            "eps_revision_score",
+            "revision_score",
+            "eps_revision_proxy",
+            "actual_results_score",
+            "event_reaction_score",
+            "revenues_ttm",
+            "gross_profit_ttm",
+            "op_income_ttm",
+            "net_income_ttm",
+            "ocf_ttm",
+            "capex_ttm",
+            "gross_margins",
+            "operating_margins",
+            "roe_proxy",
+            "sales_growth_yoy",
+            "eps_growth_yoy",
+            "op_income_growth_yoy",
+            "ocf_growth_yoy",
+            "revenue_growth_final",
+            "rev_growth_accel_4q",
+            "live_event_risk_score",
+            "atr14_pct",
+            "rsi14",
+            "dollar_vol_20d",
+            "market_cap_live",
+            "mktcap",
+            "current_price_live",
+            "px",
+            "regime_state",
+            "regime_state_score",
+        ]
+        replay_source = scored.copy() if scored is not None else pd.DataFrame()
+        if replay_source.empty:
+            pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
+        else:
+            try:
+                if "rebalance_date" in replay_source.columns:
+                    replay_source = pd.concat(
+                        [
+                            compute_portfolio_sleeve_columns(month.copy(), cfg)
+                            for _, month in replay_source.groupby("rebalance_date", sort=False)
+                        ],
+                        ignore_index=True,
+                    )
+                else:
+                    replay_source = compute_portfolio_sleeve_columns(replay_source.copy(), cfg)
+            except Exception as exc:
+                print(f"[candidate_replay_book] WARN sleeve column recompute skipped: {exc}")
+            if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+                try:
+                    if "rebalance_date" in replay_source.columns:
+                        replay_source = pd.concat(
+                            [
+                                compute_defensive_monster_rotation_overlay(month.copy(), cfg)
+                                for _, month in replay_source.groupby("rebalance_date", sort=False)
+                            ],
+                            ignore_index=True,
+                        )
+                    else:
+                        replay_source = compute_defensive_monster_rotation_overlay(replay_source.copy(), cfg)
+                except Exception as exc:
+                    print(f"[candidate_replay_book] WARN defensive monster overlay skipped: {exc}")
+            if "universe_source" in replay_source.columns:
+                source_values = replay_source["universe_source"].fillna("").astype(str)
+                existing_source = (
+                    replay_source.get("source_universe", pd.Series("", index=replay_source.index))
+                    .fillna("")
+                    .astype(str)
+                )
+                if "source_universe" not in replay_source.columns or existing_source.str.strip().eq("").all():
+                    replay_source["source_universe"] = source_values
+            try:
+                replay_source = add_core_fundamental_minimum_flags(replay_source.copy(), cfg)
+                replay_source = annotate_portfolio_candidate_gate(replay_source.copy(), cfg)
+            except Exception as exc:
+                print(f"[candidate_replay_book] WARN candidate gate annotation skipped: {exc}")
+                if "portfolio_candidate_minimum_pass" not in replay_source.columns:
+                    replay_source["portfolio_candidate_minimum_pass"] = True
+                if "portfolio_candidate_gate_label" not in replay_source.columns:
+                    replay_source["portfolio_candidate_gate_label"] = "audit_fallback"
+            for col in replay_cols:
+                if col not in replay_source.columns:
+                    replay_source[col] = np.nan
+            replay_book = replay_source[replay_cols].copy()
+            return_source = None
+            for col in ("r_1m", "y_blend"):
+                values = pd.to_numeric(replay_book[col] if col in replay_book.columns else np.nan, errors="coerce")
+                if values.notna().any():
+                    return_source = values
+                    break
+            replay_book["period_forward_return"] = pd.to_numeric(
+                return_source if return_source is not None else np.nan,
+                errors="coerce",
+            )
+            replay_book.to_csv(candidate_replay_book_path, index=False)
+
+    _write_monthly_mandate_books()
+    _write_concentrated_grid_artifacts(prune_missing=False)
+
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
+    portfolio_operational = drop_actionable_leakage_columns(portfolio_operational)
     portfolio_operational.to_csv(portfolio_path, index=False)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the
@@ -15608,6 +17060,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         # second yaml `manual_positions_concentrated.yaml` (Option B) would
         # be wired here if/when split-yaml mode is adopted.
         concentrated_latest_holdings = _enrich_with_live_state(concentrated_latest_holdings)
+        concentrated_latest_holdings = drop_actionable_leakage_columns(concentrated_latest_holdings)
         concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
         concentrated_top1_path.write_text(
             concentrated_latest_holdings.head(1).to_csv(index=False),
@@ -15775,9 +17228,6 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     standalone_sleeve_compare_path = paths["reports"] / "portfolio_sleeve_top7_standalone_comparison.csv"
     standalone_sleeve_monthly_path = paths["reports"] / "portfolio_sleeve_top7_standalone_monthly.csv"
     standalone_sleeve_holdings_path = paths["reports"] / "portfolio_sleeve_top7_standalone_holdings.csv"
-    concentrated_compare_path = paths["reports"] / "concentrated_strategy_comparison.csv"
-    concentrated_monthly_path = paths["reports"] / "concentrated_strategy_monthly.csv"
-    concentrated_holdings_path = paths["reports"] / "concentrated_strategy_holdings.csv"
     run_standalone_sleeve_compare = bool(getattr(cfg, "run_standalone_sleeve_backtest_comparison", True))
     if run_standalone_sleeve_compare and not standalone_sleeve_compare.empty:
         standalone_sleeve_compare.to_csv(standalone_sleeve_compare_path, index=False)
@@ -15787,14 +17237,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         _safe_unlink(standalone_sleeve_compare_path)
         _safe_unlink(standalone_sleeve_monthly_path)
         _safe_unlink(standalone_sleeve_holdings_path)
-    if bool(getattr(cfg, "run_concentrated_backtest_comparison", True)) and not concentrated_compare.empty:
-        concentrated_compare.to_csv(concentrated_compare_path, index=False)
-        concentrated_monthly.to_csv(concentrated_monthly_path, index=False)
-        concentrated_holdings.to_csv(concentrated_holdings_path, index=False)
-    else:
-        _safe_unlink(concentrated_compare_path)
-        _safe_unlink(concentrated_monthly_path)
-        _safe_unlink(concentrated_holdings_path)
+    _write_concentrated_grid_artifacts(prune_missing=True)
     if bool(getattr(cfg, "run_ai_four_sleeve_comparison", True)) and not ai_four_sleeve_compare.empty:
         ai_four_sleeve_compare.to_csv(ai_four_sleeve_compare_path, index=False)
         ai_four_sleeve_regime_grid.to_csv(ai_four_sleeve_regime_grid_path, index=False)
@@ -16456,6 +17899,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest.json": str(weights_path),
         "backtest_metrics.json": str(bt_metrics_path),
         "equity_curve.csv": str(equity_path),
+        "main_monthly_weights.csv": str(main_monthly_weights_path),
+        "tactical_monthly_weights.csv": str(tactical_monthly_weights_path),
+        "alpha_sprint_monthly_weights.csv": str(alpha_sprint_monthly_weights_path),
+        "regime_by_month.csv": str(regime_by_month_path),
+        "sleeve_returns_by_month.csv": str(sleeve_returns_by_month_path),
+        "candidate_replay_book.csv": str(candidate_replay_book_path),
         "fundamental_coverage_latest.csv": str(coverage_path),
         "fundamental_comprehensive_coverage_latest.csv": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest.csv": str(live_coverage_path),
@@ -16607,6 +18056,8 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "ending_capital_usd": float(bt.metrics.get("ending_capital_usd", np.nan)),
         "benchmark_ending_capital_usd": float(bt.metrics.get("benchmark_ending_capital_usd", np.nan)),
         "universe_mode": summarize_universe_source(scored_latest),
+        "leader_rescue_universe_enabled": bool(getattr(cfg, "leader_rescue_universe_enabled", True)),
+        "leader_rescue_backtest_mode": str(getattr(cfg, "leader_rescue_backtest_mode", "latest_only")),
         "portfolio_export_blocked": portfolio_export_blocked,
         "metrics": bt.metrics,
         "benchmark_comparison": benchmark_compare,
@@ -16709,6 +18160,12 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         "weights_latest": str(weights_path),
         "backtest_metrics": str(bt_metrics_path),
         "equity_curve": str(equity_path),
+        "main_monthly_weights": str(main_monthly_weights_path),
+        "tactical_monthly_weights": str(tactical_monthly_weights_path),
+        "alpha_sprint_monthly_weights": str(alpha_sprint_monthly_weights_path),
+        "regime_by_month": str(regime_by_month_path),
+        "sleeve_returns_by_month": str(sleeve_returns_by_month_path),
+        "candidate_replay_book": str(candidate_replay_book_path),
         "fundamental_coverage_latest": str(coverage_path),
         "fundamental_comprehensive_coverage_latest": str(comprehensive_coverage_path),
         "live_fundamental_coverage_latest": str(live_coverage_path),
@@ -16797,6 +18254,27 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         result_outputs["historical_data_quality_by_sleeve"] = str(historical_quality_sleeve_path)
         result_outputs["historical_data_quality_latest"] = str(historical_quality_latest_path)
     result_outputs.update(output_files)
+    try:
+        from r1000_alphaops_reporting import write_alphaops_report_pack
+
+        alphaops_outputs = write_alphaops_report_pack(
+            cfg,
+            paths,
+            run_identity=run_identity,
+            backtest_metrics=bt.metrics,
+            concentrated_metrics=concentrated_metrics_payload,
+            scored_latest=scored_latest,
+            portfolio_latest=portfolio_latest,
+            concentrated_latest=concentrated_latest_holdings,
+            backtest_window_compare=backtest_window_compare,
+            output_files=result_outputs,
+        )
+        result_outputs.update(alphaops_outputs)
+        output_files.update(alphaops_outputs)
+        summary["alphaops_reports"] = alphaops_outputs
+    except Exception as exc:
+        summary["alphaops_reports"] = {"error": str(exc)}
+        log(f"[WARN] AlphaOps report pack failed: {exc}")
     result_outputs["run_summary.json"] = str(summary_path)
     manifest = {
         "run_id": run_identity["run_id"],
@@ -17039,7 +18517,7 @@ def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
         log("Phase 5c: running sleeve/cap policy comparison ...")
         try:
             sleeve_cap_policy_compare = compare_sleeve_cap_policy_backtests(cfg, scored)
-            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare)
+            selected_sleeve_cap_policy = choose_sleeve_cap_policy(sleeve_cap_policy_compare, cfg)
             if bool(getattr(cfg, "sleeve_cap_policy_apply_champion", True)) and selected_sleeve_cap_policy:
                 cfg = apply_sleeve_cap_policy_to_cfg(cfg, selected_sleeve_cap_policy)
                 log(f"[INFO] Applied champion sleeve/cap policy: {selected_sleeve_cap_policy.get('sleeve_cap_policy_name', '?')}")

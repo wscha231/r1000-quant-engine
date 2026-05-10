@@ -4,7 +4,7 @@ name: Unified Universe Monthly Rebuild
 #   - 정석 engine scored_latest.csv (from gdrive, manually synced to repo)
 #   - Finnhub synthesized rows for the 402 R1000 names not in scored_latest
 #
-# Schedule: 1st and 15th of each month at 14:30 UTC (23:30 KST)
+# Schedule: 1st and 15th of each month after the US close.
 # Rationale: 정석 engine typically runs monthly locally; unified should refresh
 # shortly after to reflect latest model scores.
 #
@@ -12,8 +12,8 @@ name: Unified Universe Monthly Rebuild
 
 on:
   schedule:
-    # 1st and 15th of each month at 14:30 UTC (23:30 KST)
-    - cron: '30 14 1,15 * *'
+    # 1st and 15th of each month after US close.
+    - cron: '45 22 1,15 * *'
   workflow_dispatch:
     inputs:
       force_rebuild:

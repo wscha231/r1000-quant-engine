@@ -1,0 +1,46 @@
+{
+  "control": false,
+  "deltas": {
+    "cagr_improvement_pp": 13.445809942687514,
+    "maxdd_improvement_pp": 4.332503511417363,
+    "sharpe_improvement": 0.245547238427817,
+    "turnover_worsening_pp": null
+  },
+  "experiment_id": "E4_concentrated_balanced",
+  "passed_discovery": true,
+  "primary_checks": {
+    "cagr": true,
+    "maxdd": true,
+    "sharpe": true
+  },
+  "reason": "passed",
+  "required_outputs": {
+    "equity_curve.csv": true,
+    "experiment_report.md": true,
+    "metrics.json": true,
+    "monthly_allocations.csv": true,
+    "regression_attribution.md": true,
+    "sleeve_returns.csv": true,
+    "stress_windows.csv": true,
+    "trade_journal_summary.md": true,
+    "turnover.csv": true
+  },
+  "safety_checks": {
+    "required_outputs_exist": true,
+    "turnover_ok": true
+  },
+  "thresholds": {
+    "primary_improvements": {
+      "cagr_improvement_pp_min": 2.0,
+      "maxdd_improvement_pp_min": 2.0,
+      "sharpe_improvement_min": 0.08
+    },
+    "required_safety_checks": {
+      "active_gate_files_unchanged": true,
+      "min_trades": 250,
+      "production_defaults_unchanged": true,
+      "required_outputs_exist": true,
+      "turnover_worsening_pp_max": 10.0
+    }
+  }
+}

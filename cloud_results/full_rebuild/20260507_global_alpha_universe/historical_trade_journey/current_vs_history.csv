@@ -1,0 +1,22 @@
+current_book,ticker,name,sector,current_weight,history_status,first_seen,last_seen,total_months_held,run_count,current_run_months,current_run_return,current_run_recent_3m_return,current_run_tag,historical_weighted_contribution
+current_concentrated,GLW,nan,nan,0.4166093379296759,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.36447612122919,open_history,2025-08-29,2026-03-31,17.0,4.0,8.0,3.6944852292068475,0.46264674646838877,open_winner_hold,0.340622065330691
+current_concentrated,SNDK,nan,nan,0.218914540841134,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,NVDA,NVIDIA CORP,Information Technology,0.0962466365939673,open_history,2019-11-29,2026-02-27,152.0,19.0,9.0,0.19887681947948854,-0.09778232561878275,open_stale_watch,1.5003639823750465
+current_main,GEV,nan,nan,0.0699999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.0699999999999999,open_history,2024-03-28,2026-02-27,14.0,6.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.04618658186315669
+current_main,FIX,nan,nan,0.0699999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,WELL,nan,nan,0.0699999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,FTI,TECHNIPFMC PLC,Energy,0.0699999999999999,returning_after_gap,2026-01-30,2026-01-30,1.0,1.0,1.0,0.22554593379554877,0.22554593379554877,short_big_win_review,0.0048067020887287
+current_main,ENB,nan,nan,0.0699999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.0399999999999999,open_history,2024-02-29,2026-02-27,14.0,8.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.040426362570065065
+current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.0399999999999999,returning_after_gap,2023-07-31,2026-01-30,11.0,6.0,3.0,0.14318400183269064,0.14318400183269064,normal,0.027170349640664795
+current_main,ECG,nan,nan,0.0399999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,TKR,nan,nan,0.0399999999999999,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,LRCX,LAM RESEARCH CORP,Information Technology,0.0363568326028146,open_history,2019-08-30,2026-02-27,144.0,31.0,6.0,0.6317744522138637,0.21286542156086252,open_winner_hold,1.2623699251740208
+current_main,GLW,nan,nan,0.0363568326028146,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,TER,TERADYNE INC,Information Technology,0.026236225498894,returning_after_gap,2019-07-31,2025-12-31,38.0,14.0,1.0,0.2953987782437737,0.2953987782437737,short_big_win_review,-0.00927551295835929
+current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.026236225498894,returning_after_gap,2021-12-31,2023-09-29,16.0,6.0,3.0,-0.19767943470671157,-0.19767943470671157,normal,-0.012814757346795016
+current_main,AMKR,AMKOR TECHNOLOGY INC,Information Technology,0.026236225498894,returning_after_gap,2023-01-31,2023-01-31,1.0,1.0,1.0,-0.10747408605222453,-0.10747408605222453,quick_loss,-0.0060902429065427
+current_main,ONTO,ONTO INNOVATION INC,Information Technology,0.02621489126706,returning_after_gap,2021-05-28,2023-07-31,3.0,3.0,1.0,0.05963825828764291,0.05963825828764291,normal,0.0090557205091509
+current_main,ENTG,ENTEGRIS INC,Information Technology,0.0261161304366609,returning_after_gap,2019-04-30,2022-01-31,16.0,4.0,12.0,0.1781468153082857,-0.07710413610509792,normal,0.003102277456511201

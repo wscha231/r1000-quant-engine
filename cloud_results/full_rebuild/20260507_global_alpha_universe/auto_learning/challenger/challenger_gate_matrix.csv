@@ -1,0 +1,19 @@
+gate,check,passed,severity,observed,threshold,reason,evidence
+schema,policy_valid,True,hard,[],valid proposal-only schema,Policy must be proposal-only and keep production activation disabled.,
+schema,production_activation_disabled,True,hard,False,False,AutoLearning policy cannot directly change production.,
+schema,human_approval_required,True,hard,True,True,Capital allocation and execution policies require human approval.,
+main,feature_gate_candidate_backtest_executed,False,hard,candidate_only,full candidate rebuild/backtest,Feature-gate candidate currently has dry-run/proxy metrics only.,outputs/experiments/E1_auto_feature_gates_on/metrics.json
+main,main_cagr_floor,False,hard,0.20165834588806963,0.28417256880004693,Candidate main CAGR must not regress beyond the policy gate.,outputs/experiments/E1_auto_feature_gates_on/metrics.json
+main,main_sharpe_floor,False,hard,1.0971959712745438,1.6335178432451776,Candidate main Sharpe must not regress beyond the policy gate.,outputs/experiments/E1_auto_feature_gates_on/metrics.json
+main,main_max_dd_floor,False,hard,-0.27307967491398366,-0.17251050332898243,Candidate main MaxDD must not worsen beyond the policy gate.,outputs/experiments/E1_auto_feature_gates_on/metrics.json
+main_v2,main_v2_historical_backtest_exists,False,hard,latest_snapshot_only,83-month main_v2 backtest,"Main v2 currently has latest shadow output, not historical performance.",outputs/main_v2/main_v2_audit_latest.json
+main_v2,main_v2_cap_audit,True,soft,"{'positions': 11, 'cash': 0.07820306303913749}","cap<=15%, positions>0",Latest shadow construction is internally useful but not enough for promotion.,outputs/main_v2/main_v2_audit_latest.json
+concentrated,concentrated_cagr_floor,True,hard,0.4720314484961432,0.3,Standalone concentrated historical CAGR must clear the policy floor.,cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json
+concentrated,concentrated_max_dd_floor,True,hard,-0.2009632070463695,-0.25,Standalone concentrated MaxDD must clear the policy floor.,cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json
+concentrated,single_name_and_sector_cap_audit,False,hard,2,0,Latest concentrated policy audit found cap violations that must be resolved before more capital.,outputs/concentrated_policy/policy_audit_latest.json
+orchestrator,orchestrator_historical_backtest_exists,False,hard,snapshot_report_only,83-month orchestrator backtest,Orchestrator balanced currently reports latest snapshot only.,outputs/experiments/E5_orchestrator_balanced/metrics.json
+orchestrator,snapshot_cash_floor,True,soft,0.19999999999999996,0.25,"Latest snapshot cash is within the proposed max average cash threshold, but historical cash drag is unknown.",outputs/experiments/E5_orchestrator_balanced/metrics.json
+alpha_sprint,alpha_sprint_historical_backtest_exists,False,hard,not_backtested_missing_historical_scored_snapshot,weekly/historical alpha sprint backtest,Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.,outputs/alpha_sprint/backtest_metrics.json
+stress,stress_windows_backtested,False,hard,not_available,2020/2022/momentum/rate/vix stress windows,Policy challenger needs monthly equity and allocation series before stress gates can pass.,
+cost,cost_sensitivity_backtested,False,hard,not_available,"[25, 50, 75]",Cost sensitivity has not been run for the full candidate policy.,
+stability,rolling_3y_5y_backtested,False,hard,not_available,rolling 3y and 5y pass,Rolling stability cannot pass until full challenger return series exists.,

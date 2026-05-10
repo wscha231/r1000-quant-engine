@@ -1,0 +1,21 @@
+{
+  "artifact_mode": "tactical_latest_sidecar",
+  "avg_turnover_monthly": null,
+  "backtest_executed": false,
+  "cagr": null,
+  "candidate_count": 153,
+  "control": false,
+  "experiment_id": "E7_tactical_bull_only",
+  "generated_at_utc": "2026-05-03T19:23:13.532403+00:00",
+  "matrix_version": "aggressive_lab_202605_v1",
+  "max_dd": null,
+  "metric_mode": "no_historical_performance",
+  "production_activation_allowed": false,
+  "production_defaults_mutable": false,
+  "requires_tactical_historical_backtest": true,
+  "selected_count": 5,
+  "sharpe": null,
+  "status": "sidecar_latest_only",
+  "target_n": 5,
+  "trade_count": 0
+}

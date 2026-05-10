@@ -56,6 +56,7 @@ SIGNALS_PATH = ROOT / "r1000_signals.py"  # Refactor Phase A Stage 4a onwards
 PIPELINE_PATH = ROOT / "r1000_pipeline.py"  # Refactor Phase A Stage 5 onwards
 COLLECTOR_PATH = ROOT / "r1000_data_collector.py"
 TACTICAL_PATH = ROOT / "r1000_tactical_alpha.py"
+ALPHAOPS_REPORTING_PATH = ROOT / "r1000_alphaops_reporting.py"
 NOTEBOOK_PATH = ROOT / "colab_run.ipynb"
 
 # --- tiny test framework ---
@@ -117,6 +118,12 @@ def test_run_local_syntax() -> None:
 @_test("syntax.tactical_alpha_py_parses")
 def test_tactical_alpha_syntax() -> None:
     src = TACTICAL_PATH.read_text(encoding="utf-8")
+    ast.parse(src)
+
+
+@_test("syntax.alphaops_reporting_py_parses")
+def test_alphaops_reporting_syntax() -> None:
+    src = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
     ast.parse(src)
 
 
@@ -691,6 +698,140 @@ def test_hard_sanitize_overlap() -> None:
     assert result["a"].abs().max() <= 1e12
 
 
+@_test("logic.defensive_rotation_trims_stale_broad_leaders")
+def test_defensive_rotation_trims_stale_broad_leaders() -> None:
+    """Former leaders should be reduced when relative leadership breaks,
+    while confirmed new monster leaders remain eligible.
+    """
+    if _args.quick:
+        return
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_signals import compute_defensive_monster_rotation_overlay
+
+    cfg = EngineConfig()
+    df = pd.DataFrame(
+        {
+            "ticker": ["OLD", "NEW", "WEAK_NO_BREAK"],
+            "portfolio_sleeve_label": ["core_compounder", "core_compounder", "core_compounder"],
+            "market_cap_live": [300_000_000_000.0, 200_000_000_000.0, 300_000_000_000.0],
+            "mktcap": [300_000_000_000.0, 200_000_000_000.0, 300_000_000_000.0],
+            "rs_acceleration_score": [-0.80, 1.25, -0.90],
+            "relative_strength_composite": [0.70, 5.0, 0.70],
+            "near_52w_high_pct": [-0.20, 0.01, -0.20],
+            "oneil_leadership_score": [-0.20, 1.5, -0.20],
+            "industry_group_strength_score": [-0.25, 3.0, -0.25],
+            "price_above_ma50": [0.0, 1.0, 1.0],
+            "price_above_ma200": [0.0, 1.0, 1.0],
+            "trend_template_relaxed": [0.0, 1.0, 1.0],
+            "portfolio_future_winner_engine_score": [0.0, 1.0, 0.0],
+            "portfolio_early_scout_engine_score": [0.0, 0.8, 0.0],
+            "selection_confirmation_score": [0.0, 1.0, 0.0],
+            "risk_penalty": [0.0, 0.0, 0.0],
+            "broken_momentum_penalty": [0.8, 0.0, 0.0],
+            "breakout_setup_quality_score": [0.0, 1.0, 0.0],
+        }
+    )
+    out = compute_defensive_monster_rotation_overlay(df, cfg)
+    old = out.loc[out["ticker"].eq("OLD")].iloc[0]
+    new = out.loc[out["ticker"].eq("NEW")].iloc[0]
+    weak_no_break = out.loc[out["ticker"].eq("WEAK_NO_BREAK")].iloc[0]
+    assert float(old["portfolio_stale_mega_leader_score"]) > 0.0
+    assert str(old["portfolio_defensive_rotation_action"]) == "rotate_out_stale_core"
+    assert str(old["portfolio_stale_leader_reason"]) == "broad_relative_breakdown"
+    assert float(new["portfolio_stale_mega_leader_score"]) == 0.0
+    assert str(new["portfolio_defensive_rotation_action"]) == "promote_monster_early"
+    assert float(weak_no_break["portfolio_stale_mega_leader_score"]) == 0.0
+    assert str(weak_no_break["portfolio_defensive_rotation_action"]) != "rotate_out_stale_core"
+
+
+@_test("logic.leader_rescue_latest_only_filters_historical_proxy")
+def test_leader_rescue_latest_only_filter() -> None:
+    """Leader rescue latest_only must not leak today's broad constituents
+    into historical OOS months, while full_proxy keeps them for research.
+    """
+    if _args.quick:
+        return
+    import tempfile
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_helpers import get_paths
+    from r1000_pipeline import apply_leader_rescue_backtest_mode_filter
+
+    monthly = pd.DataFrame(
+        {
+            "rebalance_date": pd.to_datetime(["2026-03-31", "2026-04-30", "2026-03-31", "2026-04-30", "2026-03-31"]),
+            "ticker": ["RSQ", "RSQ", "HW", "HW", "BASE"],
+            "universe_source": [
+                "leader_rescue_sp500",
+                "leader_rescue_sp500",
+                "strategic_global_hardware",
+                "strategic_global_hardware",
+                "current_constituents_proxy+leader_rescue_sp500",
+            ],
+        }
+    )
+    with tempfile.TemporaryDirectory() as td:
+        cfg = EngineConfig(base_dir=td)
+        cfg.leader_rescue_backtest_mode = "latest_only"
+        out = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out["ticker"]) == {"RSQ", "HW", "BASE"}
+        assert len(out[out["ticker"].eq("RSQ")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("RSQ")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+        assert len(out[out["ticker"].eq("HW")]) == 1
+        assert pd.Timestamp(out[out["ticker"].eq("HW")]["rebalance_date"].iloc[0]) == pd.Timestamp("2026-04-30")
+
+        cfg.leader_rescue_backtest_mode = "full_proxy"
+        out_full = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert len(out_full) == 5
+
+        cfg.leader_rescue_backtest_mode = "off"
+        out_off = apply_leader_rescue_backtest_mode_filter(cfg, get_paths(cfg), monthly)
+        assert set(out_off["ticker"]) == {"BASE"}
+
+
+@_test("logic.strategic_global_hardware_universe_loader")
+def test_strategic_global_hardware_universe_loader() -> None:
+    """Strategic hardware overlay is a data-backed universe source, not a
+    portfolio instruction, and must include the missing-name diagnostics set.
+    """
+    if _args.quick:
+        return
+    from r1000_config import EngineConfig
+    from r1000_pipeline import load_strategic_global_hardware_universe_frame
+    from aggressive.universe import load_strategic_global_hardware_universe
+
+    out = load_strategic_global_hardware_universe_frame(EngineConfig())
+    tickers = set(out["ticker"].astype(str).str.upper().tolist())
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in tickers, ticker
+    assert set(out["universe_source"].astype(str)) == {"strategic_global_hardware"}
+    aggressive_tickers, aggressive_meta = load_strategic_global_hardware_universe()
+    aggressive_set = set(aggressive_tickers)
+    for ticker in ("INTC", "AMD", "ARM", "ASML", "STX", "SNDK", "WDC", "LITE", "CIEN"):
+        assert ticker in aggressive_set, ticker
+    assert aggressive_meta
+
+
+@_test("logic.cycle_play_power_materials_universe_loader")
+def test_cycle_play_power_materials_universe_loader() -> None:
+    """Cycle overlay must include power/materials names that may be outside R1000.
+
+    These are not buy instructions; they keep nuclear fuel-cycle, fuel-cell,
+    renewable equipment, and critical-mineral candidates visible for scoring
+    and theme-relative-strength diagnostics.
+    """
+    if _args.quick:
+        return
+    from aggressive.universe import load_cycle_play_universe
+
+    tickers, meta = load_cycle_play_universe()
+    ticker_set = set(tickers)
+    for ticker in ("LEU", "SMR", "OKLO", "GTLS", "FLNC", "NXT", "MP", "LAC"):
+        assert ticker in ticker_set, ticker
+    assert meta
+
+
 @_test("logic.phase_is_enabled_env_precedence")
 def test_phase_is_enabled_env() -> None:
     """phase_is_enabled honours PHASE_{KEY}_ENABLED env var overrides.
@@ -780,6 +921,55 @@ def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
     assert abs(float(tsm["mktcap"]) - 2.0e12) < 1e6, f"TSM mktcap not normalized: {tsm['mktcap']}"
     assert abs(float(nvda["mktcap"]) - 5.0e12) < 1e6, "non-ADR mktcap should not change"
     assert str(tsm["mktcap_source"]) == "adr_yf_usd_proxy_ratio"
+
+
+@_test("logic.adr_mktcap_proxy_cache_dates_are_normalized")
+def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
+    """Legacy ISO-string cache rows must coexist with new Timestamp rows.
+
+    Regression: GitHub full rebuild 25182904974 crashed while sorting
+    `yf_mktcap_proxy.parquet` because `updated_at` contained both strings and
+    pandas Timestamps after a cache refresh.
+    """
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+    from pandas.api.types import is_datetime64_any_dtype
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        seed = pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": [pd.Timestamp.utcnow().tz_localize(None)],
+            }
+        )
+        seed.to_parquet(cache_dir / "yf_mktcap_proxy.parquet", index=False)
+
+        original = pipe.fetch_mktcap_proxy
+        try:
+            pipe.fetch_mktcap_proxy = lambda ticker: {
+                "ticker": ticker,
+                "mktcap_proxy": 1.5e12,
+                "price_currency": "USD",
+                "financial_currency": "USD",
+                "shares_outstanding_proxy": 1.0e9,
+                "implied_shares_outstanding_proxy": 1.0e9,
+                "updated_at": "2026-04-30T00:00:00",
+            }
+            out = pipe.ensure_mktcap_proxy(EngineConfig(), paths, ["TSM", "ASML"], max_new=5)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+
+    assert set(out["ticker"].astype(str)) == {"TSM", "ASML"}
+    assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
 
 
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
@@ -1228,60 +1418,65 @@ def test_paper_executor_layer3_preflight() -> None:
     assert "skip-regime-check" in pe_src, (
         "paper_executor missing --skip-regime-check escape flag"
     )
+    assert "allow-legacy-execute" in pe_src, (
+        "paper_executor missing --allow-legacy-execute lock for old Alpaca executor"
+    )
 
 
-@_test("regression.paper_executor_workflow_yaml_valid")
+@_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
-    """The cloud workflow that runs r1000_paper_executor.py must exist with
-    workflow_dispatch + schedule, properly wire ALPACA secrets, and call
-    smoke_test as a pre-flight check.
-
-    History:
-      45d80f5 spam fix in data_alpaca
-      this    paper_executor_dryrun.yml — cloud-side dry-run / execute
-
-    Without this guard, a refactor that drops the workflow file silently
-    disables cloud paper trading.
+    """The consolidated daily cloud workflow must run paper execution
+    dry-runs plus scanner, tactical, macro, ETF, explosive, and Layer 4
+    review surfaces.
     """
-    wf_path = ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml"
-    assert wf_path.exists(), "paper_executor_dryrun.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
     assert "workflow_dispatch" in wf, "manual trigger missing in paper_executor workflow"
     assert "secrets.ALPACA_API_KEY" in wf, "ALPACA_API_KEY secret not wired"
     assert "secrets.ALPACA_API_SECRET" in wf, "ALPACA_API_SECRET secret not wired"
-    assert "tests/smoke_test.py" in wf, (
+    assert "tests/smoke_test.py --quick" in wf, (
         "smoke_test pre-flight missing — workflow could ship code that fails guards"
     )
     assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    for token in (
+        "tests/audit_features.py --no-runtime",
+        "aggressive/scanner.py",
+        "tools/macro_daily_snapshot.py",
+        "tools/etf_leadership_snapshot.py",
+        "tools/run_theme_leadership_tape.py",
+        "tools/explosive_mover_scan_daily.py",
+        "r1000_tactical_alpha.py",
+        "r1000_layer4_swap.py",
+    ):
+        assert token in wf, f"after_close_daily.yml missing: {token}"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
 
 
-@_test("regression.paper_executor_weekday_schedule")
+@_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """paper_executor_dryrun.yml must have weekday schedule (Mon-Fri 23:30 KST)
-    in addition to Saturday 15:00 KST. Phase 5 J — daily review enables user
-    to see regime + plan via Telegram each weekday before --execute decision.
+    """after_close_daily.yml must have weekday after-close schedule plus a
+    Saturday review pass. Live execution remains manual only.
     """
-    wf = (ROOT / ".github" / "workflows" / "paper_executor_dryrun.yml").read_text(encoding="utf-8")
-    assert "30 14 * * 1-5" in wf, (
-        "weekday Mon-Fri 14:30 UTC schedule missing in paper_executor_dryrun.yml"
-    )
+    wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
+    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
     assert "0 6 * * 6" in wf, (
         "Saturday 06:00 UTC schedule must remain"
     )
+    assert "execute=true" in wf, "manual live execution guard not documented"
 
 
 @_test("regression.tactical_after_close_workflow")
 def test_tactical_after_close_workflow() -> None:
-    """Daily tactical alpha review must run after the US close and call the
-    separate tactical engine, not the core monthly rebuild.
+    """Daily tactical alpha review must remain in the after-close workflow and
+    call the separate tactical engine, not the core monthly rebuild.
     """
-    wf_path = ROOT / ".github" / "workflows" / "tactical_after_close.yml"
-    assert wf_path.exists(), "tactical_after_close.yml workflow missing"
+    wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
+    assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
-    assert "30 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
     assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
     assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
     req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
@@ -1317,8 +1512,8 @@ def test_advisor_v3_layer4_info() -> None:
 
 @_test("regression.monthly_ic_monitor_exists")
 def test_monthly_ic_monitor() -> None:
-    """Phase 6 L: tools/monthly_ic_monitor.py + workflow must exist with
-    monthly cadence (cron 0 2 1 * *) and Telegram alerting on threshold trips.
+    """Phase 6 L: tools/monthly_ic_monitor.py must remain wired through the
+    consolidated monthly research workflow.
 
     User mandate (2026-04-25): "1-2개월 cadence가 훨씬 합리적".
     Threshold trips: ADR avg IC < 0.01, China-IC > US-IC by 0.05+.
@@ -1331,12 +1526,60 @@ def test_monthly_ic_monitor() -> None:
                 "load_adr_universe"):
         assert tok in src, f"monthly_ic_monitor.py missing: {tok}"
 
-    wf = ROOT / ".github" / "workflows" / "monthly_ic_monitor.yml"
-    assert wf.exists(), "monthly_ic_monitor.yml workflow missing"
+    wf = ROOT / ".github" / "workflows" / "monthly_research.yml"
+    assert wf.exists(), "monthly_research.yml workflow missing"
     wf_src = wf.read_text(encoding="utf-8")
-    for tok in ("0 2 1 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
-                "FRED_API_KEY", "tests/smoke_test.py"):
-        assert tok in wf_src, f"monthly_ic_monitor.yml missing: {tok}"
+    for tok in ("45 22 15 * *", "monthly_ic_monitor.py", "TELEGRAM_BOT_TOKEN",
+                "FRED_API_KEY", "tests/smoke_test.py --quick",
+                "refresh_cycle_play_universe.py", "r1000_tactical_backtest.py",
+                "build_explosive_pattern_db.py", "train_explosion_classifier.py"):
+        assert tok in wf_src, f"monthly_research.yml missing: {tok}"
+
+
+@_test("regression.workflow_topology_consolidated")
+def test_workflow_topology_consolidated() -> None:
+    """Scheduled automation is compressed by cadence so future system changes
+    update one owner workflow instead of several stale duplicates.
+    """
+    wf_dir = ROOT / ".github" / "workflows"
+    expected = {
+        "after_close_daily.yml",
+        "weekly_data_refresh.yml",
+        "monthly_research.yml",
+        "quarterly_auto_learning.yml",
+        "full_rebuild_manual.yml",
+        "unified_monthly.yml",
+        "layer4_monthly_swap.yml",
+        "gdrive_smoke_test.yml",
+    }
+    missing = sorted(name for name in expected if not (wf_dir / name).exists())
+    assert not missing, f"missing consolidated workflows: {missing}"
+
+    retired = {
+        "daily_review.yml",
+        "paper_executor_dryrun.yml",
+        "tactical_after_close.yml",
+        "macro_daily_snapshot.yml",
+        "etf_leadership_daily.yml",
+        "explosive_mover_daily.yml",
+        "finnhub_weekly.yml",
+        "theme_discovery.yml",
+        "cycle_play_refresh.yml",
+        "monthly_ic_monitor.yml",
+        "tactical_backtest_monthly.yml",
+        "explosive_pattern_train_monthly.yml",
+        "quarterly_trade_insights.yml",
+        "auto_feature_gate_proposal_quarterly.yml",
+    }
+    still_present = sorted(name for name in retired if (wf_dir / name).exists())
+    assert not still_present, f"retired duplicate workflows still present: {still_present}"
+
+    strategy = ROOT / "AUTOMATION_STRATEGY.md"
+    assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
+    text = strategy.read_text(encoding="utf-8")
+    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
+                  "update `tests/smoke_test.py`"):
+        assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
 
 
 @_test("regression.helpers_imports_requests")
@@ -1426,6 +1669,236 @@ def test_full_rebuild_commits_portfolios() -> None:
         assert needed in wf, f"full_rebuild_manual.yml missing: {needed}"
 
 
+@_test("regression.full_rebuild_preserves_auto_learning_artifacts")
+def test_full_rebuild_preserves_auto_learning_artifacts() -> None:
+    """Phase 20: full rebuild must preserve the training substrate for
+    automatic learning. If trade_journal/insights or the candidate gate YAML
+    disappear after a cloud run, challenger promotion has no data to learn from.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for needed in (
+        "outputs/trade_journal/",
+        "outputs/auto_learning/",
+        "auto_feature_gates_candidate.yaml",
+        "tools/trade_insights.py",
+        'tools/feature_gate_proposal.py --gates-out "$CANDIDATE_GATES"',
+        'tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES"',
+        "copy_if_exists",
+    ):
+        assert needed in wf, f"full_rebuild_manual.yml missing auto-learning artifact token: {needed}"
+
+
+@_test("regression.full_rebuild_pushes_results_to_dispatch_branch")
+def test_full_rebuild_pushes_results_to_dispatch_branch() -> None:
+    """Full rebuild result commits must target the dispatched branch.
+
+    The Phase 20 branch rebuild succeeded but its cloud_results commit failed
+    because the workflow retried by rebasing a branch run onto master. That is
+    wrong for branch validation and can also mask the failure because the step
+    is intentionally best-effort.
+    """
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert 'RESULT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"' in wf
+    assert "refs/heads/${RESULT_BRANCH}:refs/remotes/origin/${RESULT_BRANCH}" in wf
+    assert 'git push origin "HEAD:$RESULT_BRANCH"' in wf
+    commit_section = wf.split("Commit verdict + portfolio CSVs", 1)[-1]
+    assert "git fetch origin master" not in commit_section
+    assert "git pull --rebase origin master" not in commit_section
+
+
+@_test("regression.phase18c_auto_learning_gate_wired")
+def test_phase18c_auto_learning_gate_wired() -> None:
+    """Phase 20: learned gates should apply automatically only when the
+    auto-promoted YAML exists; no YAML remains a no-op. scored_latest must keep
+    explosion/regime audit columns even when they are all zero.
+    """
+    pipe_src = _pipeline_src()
+    for token in (
+        "apply_phase18c_gates_to_frame",
+        "explosion_entry_score",
+        "explosion_exit_score",
+        "explosion_net_score",
+        "applied_gates_count",
+        "pattern_blocked",
+    ):
+        assert token in pipe_src, f"r1000_pipeline.py missing auto-learning wiring: {token}"
+    promote = ROOT / "tools" / "auto_learning_promote.py"
+    assert promote.exists(), "tools/auto_learning_promote.py missing"
+    promote_src = promote.read_text(encoding="utf-8")
+    for token in ("candidate_gates", "active_gates", "concentrated_cagr_floor", "min_trades"):
+        assert token in promote_src, f"auto_learning_promote.py missing gate token: {token}"
+
+
+@_test("regression.alphaops_report_only_outputs_wired")
+def test_alphaops_report_only_outputs_wired() -> None:
+    """AlphaOps Stage 0-2 must remain report-only.
+
+    The reports provide baseline registry, config audit, and orchestrator shadow
+    targets for A/B governance. They must be exported and preserved by the full
+    rebuild workflow, but they must not replace portfolio_latest.csv.
+    """
+    reporting = ALPHAOPS_REPORTING_PATH.read_text(encoding="utf-8")
+    for token in (
+        "write_baseline_registry",
+        "write_config_audit",
+        "write_orchestrator_shadow_outputs",
+        "write_alphaops_report_pack",
+        "active_auto_feature_gates_exists",
+    ):
+        assert token in reporting, f"r1000_alphaops_reporting.py missing: {token}"
+
+    orchestrator = (ROOT / "r1000_orchestrator.py").read_text(encoding="utf-8")
+    for token in ("write_orchestrator_output_bundle", "orchestrator_result_to_frame", "row_type"):
+        assert token in orchestrator, f"r1000_orchestrator.py missing CSV bundle token: {token}"
+
+    pipe_src = _pipeline_src()
+    assert "write_alphaops_report_pack" in pipe_src, "pipeline does not write AlphaOps reports"
+    assert "portfolio_latest.to_csv" not in reporting, "AlphaOps reporting must not write production portfolio_latest.csv"
+
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for token in (
+        "outputs/orchestrator/",
+        "outputs/reports/baseline_registry.*",
+        "outputs/reports/config_audit.*",
+        "outputs/orchestrator",
+    ):
+        assert token in wf, f"full_rebuild_manual.yml missing AlphaOps artifact token: {token}"
+
+
+@_test("logic.alphaops_adr_diagnostics_detect_universe_source")
+def test_alphaops_adr_diagnostics() -> None:
+    """AlphaOps baseline registry must count ADR rows from universe_source.
+
+    Cloud scored_latest currently exposes ADR membership through
+    universe_source=adr_whitelist and adr_global_alpha_fallback_pass, not a
+    generic is_adr column.
+    """
+    import pandas as pd
+    from r1000_alphaops_reporting import _scored_diagnostics
+
+    scored = pd.DataFrame({
+        "ticker": ["TSM", "NVDA", "ZTO"],
+        "universe_source": ["adr_whitelist", "current_constituents_proxy", "adr_whitelist"],
+        "adr_global_alpha_fallback_pass": [True, False, True],
+        "regime_state": ["neutral", "neutral", "neutral"],
+    })
+    portfolio = pd.DataFrame({"ticker": ["TSM", "NVDA"], "weight": [0.08, 0.12]})
+    diag = _scored_diagnostics(scored, portfolio)
+    assert diag["adr_rows"] == 2, diag
+    assert diag["adr_selected_count"] == 1, diag
+    assert "adr_global_alpha_fallback_pass" in diag["adr_indicator_columns"], diag
+
+
+@_test("regression.regime_low_support_growth_prefers_learned_fallback")
+def test_regime_low_support_growth_prefers_learned_fallback() -> None:
+    """Low-sample learned growth winners fall back to high-support learned maps.
+
+    Regression: a 7-month growth_reentry_alert sample learned core_only and
+    overrode the manual growth map, cutting future/early exposure in live runs.
+    The exact learned map is too small to trust, but the untested manual growth
+    map should not beat a high-support learned balanced fallback.
+    """
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    assert int(cfg.regime_conditioned_min_learned_months) >= 12
+    learned = {
+        "growth_reentry_alert": {
+            "core": 1.0,
+            "future": 0.0,
+            "early": 0.0,
+            "cash": 0.0,
+            "policy_label": "core_only",
+            "months": 7,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+        "ALL": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 83,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "growth_reentry_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]) == "aggr_35_30_35", selected
+    assert meta["lookup_source"] == "learned", meta
+    assert meta["lookup_label"] == "balanced", meta
+    assert meta["manual_fallback_deferred"], meta
+
+
+@_test("regression.regime_low_support_risk_uses_manual_safety")
+def test_regime_low_support_risk_uses_manual_safety() -> None:
+    """Risk-off labels keep manual safety maps when learned samples are thin."""
+    import r1000_pipeline as pipe
+    from r1000_config import EngineConfig, default_manual_regime_conditioned_sleeve_map
+
+    cfg = EngineConfig()
+    learned = {
+        "risk_off_alert": {
+            "core": 0.40,
+            "future": 0.40,
+            "early": 0.20,
+            "cash": 0.0,
+            "policy_label": "growth_40_40_20",
+            "months": 9,
+        },
+        "balanced": {
+            "core": 0.35,
+            "future": 0.30,
+            "early": 0.35,
+            "cash": 0.0,
+            "policy_label": "aggr_35_30_35",
+            "months": 64,
+        },
+    }
+    selected, meta = pipe.resolve_regime_policy_selection(
+        "risk_off_alert",
+        learned_regime_map=learned,
+        manual_regime_map=default_manual_regime_conditioned_sleeve_map(),
+        min_learned_months=cfg.regime_conditioned_min_learned_months,
+    )
+    assert selected is not None
+    assert str(selected["policy_label"]).startswith("manual_riskoff"), selected
+    assert meta["lookup_source"] == "manual", meta
+    assert meta["lookup_label"] == "risk_off_alert", meta
+
+
+@_test("regression.regime_guardrail_treats_cash_as_separate_sleeve")
+def test_regime_guardrail_treats_cash_as_separate_sleeve() -> None:
+    """Guardrails operate on equity sleeve fractions, not equity * (1-cash)."""
+    import r1000_pipeline as pipe
+    from r1000_config import default_manual_regime_conditioned_sleeve_map
+
+    manual = pipe.normalize_regime_conditioned_sleeve_map(
+        default_manual_regime_conditioned_sleeve_map(),
+        fallback_source="manual",
+    )
+    selected = manual["growth_reentry_alert"]
+    guarded, meta = pipe.apply_regime_policy_guardrails("growth_reentry_alert", selected)
+    assert guarded is not None
+    assert not meta["guardrail_applied"], (guarded, meta)
+    assert abs(float(guarded["core"]) - float(selected["core"])) < 1e-12
+    assert abs(float(guarded["future"]) - float(selected["future"])) < 1e-12
+    assert abs(float(guarded["early"]) - float(selected["early"])) < 1e-12
+    assert abs(float(guarded["cash"]) - float(selected["cash"])) < 1e-12
+
+
 @_test("regression.paper_executor_advisor_path_fallbacks")
 def test_paper_executor_path_fallbacks() -> None:
     """ADVISOR_PATHS for concentrated/core must accept fallback paths so the
@@ -1480,17 +1953,17 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml workflow runs Layer 4 swap on 5th of each month.
-    Schedule + workflow_dispatch + ALPACA secrets + Telegram secrets must all
-    be wired or the auto-apply doesn't actually happen.
+    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
+    preserving manual execution wiring.
     """
     wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
     assert wf_path.exists(), "layer4_monthly_swap.yml missing"
     wf = wf_path.read_text(encoding="utf-8")
     for token in (
         "schedule:",
-        "0 14 5 * *",                  # 5th of month, 23:00 KST
+        "45 22 5 * *",
         "workflow_dispatch:",
+        "default: false",
         "secrets.ALPACA_API_KEY",
         "secrets.TELEGRAM_BOT_TOKEN",
         "r1000_layer4_swap.py",
@@ -1516,13 +1989,16 @@ def test_full_rebuild_workflow() -> None:
         "universe_mode",
         "backtest_years",
         "skip_collector",
+        "leader_rescue_mode",
         "UNIVERSE_MODE",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         "PHASE_PHASE14_HYBRID_ALPHA_ENABLED",
         "secrets.ALPACA_API_KEY",
         "secrets.FINNHUB_API_KEY",
         "tests/smoke_test.py",
         "ENGINE_REUSE_VERSION",
+        "leader_rescue_backtest_filter_summary.json",
         "run_local.py --full",
     ):
         assert token in wf, f"full_rebuild_manual.yml missing required token: {token}"
@@ -1632,6 +2108,224 @@ def test_theme_phase_multiplier_constant() -> None:
     )
     for phase in ("early", "maturing", "peaking", "ending", "dead", "unknown"):
         assert f'"{phase}"' in src, f"THEME_PHASE_MULTIPLIER missing phase: {phase}"
+
+
+@_test("regression.theme_policy_metadata_surface")
+def test_theme_policy_metadata_surface() -> None:
+    """Theme metadata must distinguish structural growth from short-cycle events.
+
+    This guards the chameleon/lifecycle replay route: commodity/event themes
+    should be reviewed faster, while structural growth themes can tolerate
+    valid shakeouts in research-only replays.
+    """
+    from r1000_themes import attach_per_ticker_theme_features, load_themes
+    import pandas as pd
+
+    themes = load_themes(ROOT / "themes.yaml")
+    assert themes["oil_gas_services"]["theme_horizon"] == "commodity_cycle"
+    assert themes["ai_compute"]["theme_horizon"] == "structural_growth"
+    assert "LEU" in themes["nuclear_fuel_cycle"]["tickers"]
+    assert themes["nuclear_fuel_cycle"]["theme_horizon"] == "structural_growth"
+    assert themes["fuel_cell_distributed_power"]["theme_horizon"] == "product_cycle"
+    assert themes["critical_minerals_rare_earths"]["theme_horizon"] == "commodity_cycle"
+    df = pd.DataFrame(
+        [
+            {"ticker": "FTI", "mom_6m": 0.20},
+            {"ticker": "NVDA", "mom_6m": 0.10},
+            {"ticker": "LEU", "mom_6m": 0.30},
+            {"ticker": "BE", "mom_6m": 0.15},
+            {"ticker": "MP", "mom_6m": 0.05},
+        ]
+    )
+    out = attach_per_ticker_theme_features(df, themes)
+    by_ticker = {row["ticker"]: row for row in out.to_dict("records")}
+    assert by_ticker["FTI"]["theme_event_risk_sensitivity_max"] >= 0.75
+    assert by_ticker["FTI"]["theme_short_cycle_flag_max"] >= 0.5
+    assert by_ticker["NVDA"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["LEU"]["theme_structural_growth_max"] >= 0.85
+    assert by_ticker["BE"]["theme_event_risk_sensitivity_max"] >= 0.55
+    assert by_ticker["MP"]["theme_short_cycle_flag_max"] >= 0.5
+
+
+@_test("regression.market_style_regime_router")
+def test_market_style_regime_router() -> None:
+    """Market style router must expose breakout/turnaround/cash preferences."""
+    from r1000_features import compute_market_style_regime_features
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.8,
+                "liquidity_regime_score": 0.8,
+                "growth_liquidity_reentry_score": 0.7,
+                "macro_risk_off_score": 0.1,
+                "market_breadth_regime_score": 0.7,
+                "market_sector_participation": 0.6,
+                "bench_above_ma200": 1.0,
+                "qqq_rel_spy_1m": 0.05,
+                "breakout_fresh_20d": 1.0,
+                "post_breakout_hold_score": 0.8,
+                "h6_dynamic_leader_score": 0.8,
+                "near_52w_high_pct": -0.03,
+            },
+            {
+                "ticker": "BBB",
+                "rebalance_date": "2024-01-31",
+                "market_regime_score": 0.2,
+                "liquidity_regime_score": 0.7,
+                "growth_liquidity_reentry_score": 0.6,
+                "macro_risk_off_score": 0.2,
+                "market_breadth_regime_score": 0.2,
+                "market_sector_participation": 0.2,
+                "bench_above_ma200": 1.0,
+                "value_inflection_score": 1.0,
+                "fundamental_turnaround_acceleration_score": 0.8,
+                "h1_oversold_value_score": 0.7,
+                "industry_rotation_signal": 0.6,
+            },
+        ]
+    )
+    out = compute_market_style_regime_features(df)
+    assert "market_style_regime_label" in out.columns
+    assert out.loc[0, "style_row_breakout_fit"] > out.loc[0, "style_row_turnaround_fit"]
+    assert out.loc[1, "style_row_turnaround_fit"] > out.loc[1, "style_row_breakout_fit"]
+    assert out.loc[0, "style_calendar_month"] == 1
+    assert out.loc[0, "style_calendar_weekday"] == 2
+
+
+@_test("regression.main_v2_style_aware_selector")
+def test_main_v2_style_aware_selector() -> None:
+    """Main v2 must use style regime metadata in research-only selection."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    breakout_rows = [
+        {
+            "ticker": "BREAK",
+            "score": 1.5,
+            "portfolio_future_winner_engine_score": 0.8,
+            "future_winner_scout_score": 0.8,
+            "multi_year_winner_score": 0.5,
+            "oneil_leadership_score": 0.8,
+            "industry_group_strength_score": 0.8,
+            "portfolio_monster_early_score": 0.4,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 1,
+            "price_above_ma50": 1,
+            "market_style_regime_label": "breakout_growth",
+            "style_row_breakout_fit": 0.85,
+            "style_row_turnaround_fit": 0.05,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.85,
+            "style_turnaround_preference": 0.1,
+            "style_quality_compounder_preference": 0.2,
+            "style_cash_defense_preference": 0.05,
+        }
+    ]
+    breakout = compose_main_sleeve_portfolio(breakout_rows, regime_state="bull")
+    assert breakout["audit"]["style_aware_selection_enabled"] is True
+    assert breakout["style_regime"] == "breakout_growth"
+    assert breakout["audit"]["style_adjusted_capacity_by_sleeve"]["future"] > breakout["audit"]["base_capacity_by_sleeve"]["future"]
+    assert any(row["ticker"] == "BREAK" for row in breakout["selected_by_sleeve"]["future"])
+
+    turnaround_rows = [
+        {
+            "ticker": "TURN",
+            "score": 0.5,
+            "portfolio_early_scout_engine_score": 0.7,
+            "profitability_inflection_score": 0.8,
+            "cashflow_inflection_under_loss_score": 0.8,
+            "profit_turn_positive_4q": 1,
+            "cashflow_turn_positive_4q": 1,
+            "ni_loss_narrowing_4q": 1,
+            "any_profit_sign_flip_pos": 1,
+            "rs_acceleration_score": -0.05,
+            "h1_oversold_value_score": 0.8,
+            "fundamental_reliability_score": 0.8,
+            "portfolio_risk_entry_block_score": 0.1,
+            "price_above_ma200": 0,
+            "price_above_ma50": 0,
+            "market_style_regime_label": "turnaround_accumulation",
+            "style_row_breakout_fit": 0.05,
+            "style_row_turnaround_fit": 0.9,
+            "style_row_compounder_fit": 0.2,
+            "style_breakout_preference": 0.1,
+            "style_turnaround_preference": 0.9,
+            "style_quality_compounder_preference": 0.3,
+            "style_cash_defense_preference": 0.1,
+            "theme_event_risk_sensitivity_max": 0.2,
+        }
+    ]
+    turnaround = compose_main_sleeve_portfolio(turnaround_rows, regime_state="neutral")
+    assert turnaround["style_regime"] == "turnaround_accumulation"
+    assert turnaround["audit"]["style_adjusted_capacity_by_sleeve"]["early"] > turnaround["audit"]["base_capacity_by_sleeve"]["early"]
+    assert any(row["ticker"] == "TURN" for row in turnaround["selected_by_sleeve"]["early"])
+
+
+@_test("regression.main_v2_opportunity_cost_replacement")
+def test_main_v2_opportunity_cost_replacement() -> None:
+    """Main v2 must reward superior new leaders and penalize stale event-cycle names."""
+    from r1000_main_v2 import compose_main_sleeve_portfolio
+
+    rows = [
+        {
+            "ticker": "NEW",
+            "score": 1.2,
+            "portfolio_future_winner_engine_score": 0.95,
+            "portfolio_early_scout_engine_score": 0.85,
+            "future_winner_scout_score": 1.2,
+            "portfolio_monster_early_score": 0.58,
+            "portfolio_risk_entry_block_score": 0.12,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 1.2,
+            "event_reaction_score": 3.0,
+            "eps_revision_score": 1.0,
+            "live_event_growth_reentry_score": 0.8,
+            "macro_semis_cycle_interaction": 0.9,
+            "style_row_breakout_fit": 0.8,
+            "style_row_turnaround_fit": 0.2,
+            "style_row_compounder_fit": 0.3,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_structural_growth_max": 0.9,
+            "theme_event_risk_sensitivity_max": 0.15,
+            "industry_group_strength_score": 1.2,
+            "oneil_leadership_score": 0.7,
+            "sub_industry_rs_score": 0.9,
+        },
+        {
+            "ticker": "OLD",
+            "score": 2.4,
+            "portfolio_future_winner_engine_score": 0.65,
+            "future_winner_scout_score": 0.2,
+            "portfolio_monster_early_score": 0.2,
+            "portfolio_risk_entry_block_score": 0.55,
+            "portfolio_stale_mega_leader_score": 0.9,
+            "price_above_ma50": 1,
+            "price_above_ma200": 1,
+            "event_revision_pillar_score": 0.0,
+            "event_reaction_score": 0.0,
+            "eps_revision_score": 0.0,
+            "rs_acceleration_score": -2.0,
+            "risk_penalty": 1.0,
+            "stage2_overext_penalty": 0.5,
+            "style_row_breakout_fit": 0.1,
+            "market_style_regime_label": "breakout_growth",
+            "style_breakout_preference": 0.8,
+            "theme_event_risk_sensitivity_max": 0.85,
+            "theme_structural_growth_max": 0.2,
+        },
+    ]
+    out = compose_main_sleeve_portfolio(rows, regime_state="bull")
+    future = out["selected_by_sleeve"]["future"]
+    assert any(row["ticker"] == "NEW" for row in future)
+    assert not any(row["ticker"] == "OLD" for row in future)
+    new_row = next(row for row in future if row["ticker"] == "NEW")
+    assert new_row["main_v2_replacement_score"] > 0.60
+    assert new_row["main_v2_replacement_catalyst_score"] > new_row["main_v2_replacement_decay_score"]
 
 
 @_test("regression.scanner_has_stage2_breakout_guard")
@@ -1854,14 +2548,19 @@ def test_global_alpha_universe_window_audit_wired() -> None:
     for token in (
         "global_alpha_universe",
         "--backtest-years",
+        "--leader-rescue-mode",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         'runtime_overrides["default_backtest_years"]',
         'runtime_overrides["backtest_window_comparison_years"]',
+        'runtime_overrides["leader_rescue_backtest_mode"]',
     ):
         assert token in run_src, f"run_local.py missing global-alpha/window wiring: {token}"
 
     for token in (
         "default_backtest_years: int = 8",
+        'leader_rescue_backtest_mode: str = "latest_only"',
+        "strategic_global_hardware_universe_enabled: bool = True",
         "[5, 8, 10]",
     ):
         assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
@@ -1871,15 +2570,23 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "build_global_alpha_sleeve_audit_frames",
         "global_alpha_sleeve_audit_by_month.csv",
         "global_alpha_sleeve_audit_summary.csv",
+        "apply_leader_rescue_backtest_mode_filter",
+        "load_strategic_global_hardware_universe_frame",
+        "strategic_global_hardware",
+        "leader_rescue_backtest_filter_summary.json",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
 
     for token in (
         "global_alpha_universe",
         "backtest_years",
+        "leader_rescue_mode",
         "BACKTEST_YEARS",
+        "LEADER_RESCUE_MODE",
         "--backtest-years",
+        "--leader-rescue-mode",
         "outputs/reports/global_alpha_sleeve_audit_*.csv",
+        "outputs/reports/leader_rescue_backtest_filter_summary.json",
     ):
         assert token in wf_src, f"full_rebuild_manual.yml missing global-alpha/window token: {token}"
 

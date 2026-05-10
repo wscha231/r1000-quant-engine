@@ -1,0 +1,21 @@
+{
+  "avg_cash_weight": 2.64338815386942e-18,
+  "avg_turnover_monthly": 0.8650682433124838,
+  "cagr": 0.15835233317743147,
+  "calmar": 0.33072940393782957,
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "data_mode": "historical_candidate_replay_book",
+  "ending_equity": 2.7982386081049966,
+  "experiment_id": "concentrated_policy_replay",
+  "max_dd": -0.47879726232989706,
+  "max_single_cap_tested": 0.5,
+  "months": 84,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "return_column": "period_forward_return",
+  "sharpe": 0.6358119341494147,
+  "single_name_cap": 0.5,
+  "status": "completed",
+  "target_n": 3,
+  "vol_ann": 0.30514319795377787
+}

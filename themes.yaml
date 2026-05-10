@@ -16,23 +16,33 @@ themes:
   # ============== AI / Semi ==============
   ai_compute:
     description: "AI training/inference compute (GPU + server + rack-level)"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [NVDA, AMD, AVGO, SMCI, DELL, HPE, VRT, ANET, TSM]
 
   optical_communications:
     description: "Fiber optics / optical transceivers for data center interconnect"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [LITE, COHR, CIEN, VIAV, FN, ANET, CSCO]
 
   semi_memory:
     description: "Memory + storage semi (DRAM/NAND/HDD)"
-    tickers: [MU, WDC, STX]
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    tickers: [MU, WDC, STX, SNDK]
     # Add SKHY here when SK Hynix ADR lists Oct 2026 (see adr_universe.yaml watchlist)
 
   networking_infra:
     description: "Network infra + switches (legacy stack)"
+    theme_horizon: structural_growth
+    holding_profile: medium_cycle
     tickers: [CSCO, ANET, JNPR, NTAP, HPE]
 
   ai_software:
     description: "AI-native or AI-heavy software platforms"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [MSFT, GOOGL, GOOG, META, PLTR, CRM, NOW, ADBE, DUOL, SNOW, DDOG, SAP, BIDU]
 
   consumer_tech_mega:
@@ -65,11 +75,15 @@ themes:
 
   semi_equipment:
     description: "Wafer fab equipment + photonics"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [LRCX, AMAT, KLAC, TER, ACLS, ENTG, MKSI, UCTT, ASML, ASMI]
 
   semi_design_memory:
     description: "Fabless design + memory"
-    tickers: [NVDA, AMD, AVGO, MRVL, QCOM, MU, WDC, MPWR, MCHP, "ON", TSM, UMC]
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    tickers: [NVDA, AMD, ARM, INTC, AVGO, MRVL, QCOM, MU, WDC, SNDK, MPWR, MCHP, "ON", TSM, UMC]
     # Add SKHY here when SK Hynix ADR lists Oct 2026 (see adr_universe.yaml watchlist)
 
   china_tech_adr:
@@ -90,40 +104,104 @@ themes:
 
   cloud_hyperscale:
     description: "Cloud infrastructure giants"
+    theme_horizon: compounder
+    holding_profile: long_duration
     tickers: [AMZN, MSFT, GOOGL, GOOG, ORCL, CRM]
 
   data_center_infra:
     description: "Physical data center REITs + power/cooling"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [EQIX, DLR, VRT, ETN, PWR]
 
   # ============== Energy / Power ==============
   oil_gas_ep:
     description: "Oil & gas exploration + production"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.82
+    target_hold_months: 4
+    max_hold_months: 12
     tickers: [XOM, CVX, COP, EOG, OXY, PXD, FANG, DVN, MRO, OVV, CTRA, CHRD, PR, MTDR]
 
   oil_gas_services:
     description: "Oilfield services + equipment"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.85
+    target_hold_months: 3
+    max_hold_months: 10
     tickers: [SLB, HAL, BKR, FTI, NOV, CHX, WFRD]
 
   lng_midstream:
     description: "Natural gas LNG export + midstream"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.65
+    target_hold_months: 6
+    max_hold_months: 18
     tickers: [LNG, TRGP, OKE, WMB, ET, EPD, KMI]
 
   nuclear_smr:
     description: "Nuclear power + small modular reactors"
-    tickers: [CEG, VST, NRG, PEG, DUK, SMR, OKLO, BWXT]
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    tickers: [CEG, VST, NRG, PEG, DUK, SMR, OKLO, BWXT, LEU]
+
+  nuclear_fuel_cycle:
+    description: "Uranium enrichment, fuel cycle, and nuclear supply chain"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.42
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [LEU, CCJ, UEC, URG, BWXT]
 
   power_grid_infra:
     description: "Power grid equipment + construction"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
     tickers: [GEV, ETN, PWR, EME, MMM, HUBB, MYRG, PRIM, AECOM]
+
+  gas_turbine_power:
+    description: "Gas turbines, backup power, and dispatchable power generation"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.35
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [GEV, CAT, CMI, GTLS]
+
+  fuel_cell_distributed_power:
+    description: "Fuel cells, distributed power, and hydrogen power infrastructure"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
+    event_risk_sensitivity: 0.58
+    target_hold_months: 6
+    max_hold_months: 24
+    tickers: [BE, PLUG, FCEL, BLDP, GTLS]
+
+  renewable_power_equipment:
+    description: "Solar, storage, and renewable power equipment"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
+    event_risk_sensitivity: 0.62
+    target_hold_months: 6
+    max_hold_months: 18
+    tickers: [FSLR, ENPH, NXT, ARRY, FLNC, RUN]
 
   # ============== Healthcare / Biotech ==============
   weight_loss_drugs:
     description: "GLP-1 / obesity drugs"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
     tickers: [LLY, NVO, VKTX, ALT, TERN, AMGN]
 
   oncology_mrna:
     description: "Oncology + mRNA platforms"
+    theme_horizon: product_cycle
+    holding_profile: medium_cycle
+    event_risk_sensitivity: 0.60
     tickers: [MRNA, BNTX, VRTX, REGN, AZN]
 
   medtech_devices:
@@ -168,6 +246,11 @@ themes:
   # ============== Industrial / Defense ==============
   defense_drones:
     description: "Defense prime + drone + sats"
+    theme_horizon: event_shock
+    holding_profile: tactical_event
+    event_risk_sensitivity: 0.78
+    target_hold_months: 4
+    max_hold_months: 14
     tickers: [LMT, RTX, NOC, GD, LHX, BA, RKLB, KTOS, CSGS, PLTR]
 
   industrial_reshoring:
@@ -181,11 +264,30 @@ themes:
   # ============== REIT / Financial ==============
   crypto_blockchain:
     description: "Crypto-adjacent equities"
+    theme_horizon: event_shock
+    holding_profile: tactical_event
+    event_risk_sensitivity: 0.90
+    target_hold_months: 2
+    max_hold_months: 8
     tickers: [COIN, MSTR, MARA, RIOT, CLSK, HIVE]
 
   uranium_materials:
     description: "Uranium + strategic materials"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.72
+    target_hold_months: 6
+    max_hold_months: 18
     tickers: [CCJ, UEC, URG, MP, LAC]
+
+  critical_minerals_rare_earths:
+    description: "Rare earths, lithium, copper, and strategic battery/grid materials"
+    theme_horizon: commodity_cycle
+    holding_profile: tactical_cycle
+    event_risk_sensitivity: 0.70
+    target_hold_months: 6
+    max_hold_months: 18
+    tickers: [MP, LAC, ALB, SQM, FCX, SCCO, TECK, BHP, RIO]
 
   # ============== Meta grouping ==============
   # These aren't themes per se but lifecycle metadata — will populate

@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_turnaround_fit,market_style_regime_label
+PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,1.966715633381101,0.3545124535706612,balanced
+APP,APPLOVIN CORP CLASS A,Information Technology,core_compounder,1.588110638706025,0.1992592959612641,balanced
+AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,4.922336919332714,0.1905680763296386,balanced
+NTES,NetEase,Internet,core_compounder,1.843514528897811,0.1827607408864673,balanced
+MELI,MercadoLibre,Internet,unassigned,1.0063898102076174,0.1781069483233785,balanced
+PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,4.446609151600414,0.1762179871090455,balanced
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.748142275343269,0.1717402254258486,balanced
+UDR,UDR REIT INC,Real Estate,early_scout,1.5864965788577232,0.1690912503631262,balanced

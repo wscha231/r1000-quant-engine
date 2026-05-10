@@ -1,0 +1,66 @@
+{
+  "balanced_policy": {
+    "capacity": {
+      "bear": 0.05,
+      "bull": 0.25,
+      "deep_bear": 0.0,
+      "neutral": 0.2,
+      "strong_bull": 0.3
+    },
+    "entry": {
+      "block_if_theme_ending": true,
+      "min_entry_quality_score": 0.7,
+      "require_price_above_ma200": true,
+      "require_price_above_ma50": true
+    },
+    "exit": {
+      "enable_better_replacement_swap": true,
+      "hard_stop": -0.1,
+      "review_days": 7,
+      "rs_decay_pp": -30,
+      "trailing_stop": -0.15
+    },
+    "risk": {
+      "high_conviction_cap": 0.3,
+      "sector_cap": 0.55,
+      "single_name_cap": 0.25,
+      "sleeve_dd_disable": -0.15,
+      "sleeve_dd_scale_down": -0.08,
+      "theme_cap": 0.45,
+      "unified_single_name_cap": 0.18,
+      "unified_theme_cap": 0.4
+    },
+    "target_n": {
+      "bear": 3,
+      "bull": 5,
+      "deep_bear": 0,
+      "neutral": 5,
+      "strong_bull": 3
+    }
+  },
+  "capacity_maps": {
+    "aggressive": {
+      "bear": 0.05,
+      "bull": 0.35,
+      "deep_bear": 0.0,
+      "neutral": 0.25,
+      "strong_bull": 0.4
+    },
+    "balanced": {
+      "bear": 0.05,
+      "bull": 0.25,
+      "deep_bear": 0.0,
+      "neutral": 0.2,
+      "strong_bull": 0.3
+    },
+    "conservative": {
+      "bear": 0.05,
+      "bull": 0.15,
+      "deep_bear": 0.0,
+      "neutral": 0.1,
+      "strong_bull": 0.2
+    }
+  },
+  "production_activation_allowed": false,
+  "research_only": true
+}

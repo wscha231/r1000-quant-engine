@@ -1,0 +1,227 @@
+name: Free Data Lake Bootstrap
+
+# If Drive credentials changed, run gdrive_smoke_test.yml before this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      latest_run:
+        description: 'Latest full rebuild mirror used for target books and baseline metrics'
+        type: string
+        default: cloud_results/full_rebuild/latest_global_alpha_universe
+      sec_companyfacts:
+        description: 'Download/refresh SEC companyfacts.zip into data_raw/free/sec (large, 1GB+)'
+        type: boolean
+        default: false
+      price_mode:
+        description: 'none | dry_run | target_books'
+        type: choice
+        options:
+          - dry_run
+          - target_books
+          - none
+        default: dry_run
+      max_price_tickers:
+        description: '0 = all required tickers; start small until Drive restore is confirmed'
+        type: string
+        default: '80'
+      run_proxy_replay:
+        description: 'Run broker-ledger proxy replay after price bootstrap when target books are available'
+        type: boolean
+        default: true
+      sync_to_gdrive:
+        description: 'Restore/sync free data lake paths with Google Drive when auth is configured'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  free_data_lake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Restore GitHub cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache_prices
+            data_raw/free
+            data_pit/free
+          key: free-data-lake-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            free-data-lake-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+
+      - name: Configure rclone
+        if: ${{ inputs.sync_to_gdrive }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[gdrive] no auth configured; Drive restore/sync will be skipped"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore free data from Google Drive
+        if: ${{ inputs.sync_to_gdrive }}
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          restore_dir() {
+            local remote="$1"
+            local local_dir="$2"
+            mkdir -p "$local_dir"
+            if rclone lsf "$BASE$remote" >/dev/null 2>&1; then
+              echo "[gdrive] restoring $BASE$remote -> $local_dir"
+              rclone copy "$BASE$remote" "$local_dir/"
+            else
+              echo "[gdrive] skip missing remote $BASE$remote"
+            fi
+          }
+          restore_dir data_raw/free data_raw/free
+          restore_dir data_pit/free data_pit/free
+          restore_dir manifests/free_data manifests/free_data
+          restore_dir cache_prices cache_prices
+
+      - name: Bootstrap free data lake
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --latest-run "${{ inputs.latest_run }}"
+            --price-mode "${{ inputs.price_mode }}"
+            --max-price-tickers "${{ inputs.max_price_tickers }}"
+            --pit-label pit_proxy_universe
+          )
+          if [ "${{ inputs.sec_companyfacts }}" = "true" ]; then
+            ARGS+=(--sec-companyfacts)
+          fi
+          python tools/run_free_data_lake_bootstrap.py "${ARGS[@]}" 2>&1 | tee free_data_lake_bootstrap.log
+
+      - name: Run free-data proxy broker replay
+        if: ${{ inputs.run_proxy_replay }}
+        run: |
+          set -euo pipefail
+          LATEST="${{ inputs.latest_run }}"
+          mkdir -p outputs/free_data_proxy_backtest/main outputs/free_data_proxy_backtest/concentrated outputs/full_rebuild_logs
+          if [ ! -s "$LATEST/reports/main_monthly_weights.csv" ] || [ ! -s "$LATEST/reports/concentrated_strategy_holdings.csv" ]; then
+            echo "[proxy-replay] missing target books; skipping"
+            exit 0
+          fi
+          python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_proxy_replay_main.log || true
+          python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_proxy_replay_concentrated.log || true
+
+      - name: Validate free-data engine performance
+        if: always()
+        run: |
+          set -euo pipefail
+          python tools/run_free_data_engine_validation.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
+
+      - name: Upload bootstrap artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-data-lake-bootstrap-${{ github.run_id }}
+          path: |
+            free_data_lake_bootstrap.log
+            outputs/free_data_lake_bootstrap/
+            outputs/free_data_proxy_backtest/
+            outputs/free_data_engine_validation/
+            outputs/full_rebuild_logs/free_data_proxy_replay_*.log
+            outputs/full_rebuild_logs/free_data_engine_validation.log
+            data_pit/free/coverage_audit.json
+            manifests/free_data/latest_manifest.json
+            data_raw/free/prices/replay_price_cache_manifest.json
+          retention-days: 90
+
+      - name: Sync free data lake to Google Drive
+        if: ${{ always() && inputs.sync_to_gdrive }}
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            echo "[gdrive] auth unavailable; skipping sync"
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-manual}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
+          if [ -z "$SAFE_BRANCH" ]; then
+            SAFE_BRANCH="manual"
+          fi
+          sync_dir() {
+            local local_dir="$1"
+            local remote="$2"
+            if [ -e "$local_dir" ]; then
+              echo "[gdrive] syncing $local_dir -> $BASE$remote"
+              rclone copy "$local_dir" "$BASE$remote/"
+            fi
+          }
+          sync_dir data_raw/free data_raw/free
+          sync_dir data_pit/free data_pit/free
+          sync_dir manifests/free_data manifests/free_data
+          sync_dir cache_prices cache_prices
+          sync_dir outputs/free_data_lake_bootstrap research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap
+          sync_dir outputs/free_data_proxy_backtest research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest
+          sync_dir outputs/free_data_engine_validation research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation

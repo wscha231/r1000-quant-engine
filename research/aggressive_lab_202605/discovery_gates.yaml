@@ -1,0 +1,42 @@
+version: aggressive_lab_discovery_gates_v1
+mode: research_only
+description: >
+  Discovery gates decide whether an experiment deserves more research. They do
+  not authorize production activation.
+
+baseline:
+  experiment_id: E0_baseline_latest
+  metrics_source: outputs/experiments/E0_baseline_latest/metrics.json
+
+pass_logic:
+  any_primary_improvement_required: true
+  primary_improvements:
+    cagr_improvement_pp_min: 2.0
+    maxdd_improvement_pp_min: 2.0
+    sharpe_improvement_min: 0.08
+  required_safety_checks:
+    turnover_worsening_pp_max: 10.0
+    min_trades: 250
+    required_outputs_exist: true
+    production_defaults_unchanged: true
+    active_gate_files_unchanged: true
+
+required_outputs:
+  - metrics.json
+  - equity_curve.csv
+  - monthly_allocations.csv
+  - sleeve_returns.csv
+  - turnover.csv
+  - stress_windows.csv
+  - trade_journal_summary.md
+  - regression_attribution.md
+  - experiment_report.md
+
+failure_handling:
+  write_failure_report: true
+  failed_experiments_are_kept: true
+  failure_report_path: outputs/experiments/{experiment_id}/experiment_report.md
+
+non_promotion_clause:
+  discovery_pass_is_not_production_approval: true
+  human_approval_required_for_next_stage: true

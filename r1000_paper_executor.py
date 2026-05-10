@@ -162,6 +162,8 @@ def main() -> int:
                    help="limit price = entry × (1 + margin/100)")
     p.add_argument("--allow-deprecated-v4", action="store_true",
                    help="explicit ack required to use --advisor v4 (deprecated)")
+    p.add_argument("--allow-legacy-execute", action="store_true",
+                   help="required with --execute because this legacy executor bypasses account-ledger safety audit")
     p.add_argument("--override-regime-halt", action="store_true",
                    help="proceed with --execute even when Layer 3 emits HALT_NEW "
                         "(VIX>=30 or other regime block). Use only with deliberate intent.")
@@ -183,6 +185,14 @@ def main() -> int:
         print("  --advisor v1             정석 quality, top 12 names", file=sys.stderr)
         print("", file=sys.stderr)
         print("Pass --allow-deprecated-v4 to override (research only, not for live).", file=sys.stderr)
+        return 1
+
+    if args.execute and not args.allow_legacy_execute:
+        print("=" * 70, file=sys.stderr)
+        print("REFUSING --execute: legacy paper executor is locked", file=sys.stderr)
+        print("=" * 70, file=sys.stderr)
+        print("Use account-ledger order previews plus live_trading_safety audit for the current system.", file=sys.stderr)
+        print("To intentionally use this old Alpaca paper executor, pass --allow-legacy-execute.", file=sys.stderr)
         return 1
 
     print("=" * 70)

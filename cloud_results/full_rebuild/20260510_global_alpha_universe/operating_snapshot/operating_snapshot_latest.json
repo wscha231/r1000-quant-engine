@@ -1,0 +1,40 @@
+{
+  "account_source": "simulated_broker_replay",
+  "account_source_note": "Current holdings come from broker replay account_state_latest.json, not a live broker account snapshot.",
+  "approval_note": "Simulated broker-ledger account mode is active; this is a paper/live-like replay, not a real broker account.",
+  "approval_status": "simulation_ready_preview_only",
+  "as_of_date": "2026-05-08",
+  "cash_usd": 93571.397704071,
+  "current_cash_weight": 0.08982823789183535,
+  "equity_row_count": 42,
+  "error_count": 0,
+  "generated_at_utc": "2026-05-10T11:02:11.361892+00:00",
+  "issue_count": 1,
+  "issues": [
+    {
+      "check_id": "simulated_broker_account",
+      "details": "{}",
+      "message": "simulated broker-ledger account is the intended account source; live broker snapshot reconciliation was intentionally skipped",
+      "path": "",
+      "severity": "info",
+      "source": "live_trading_risk_controls"
+    }
+  ],
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "monster_recommendation_count": 32,
+  "outputs": {
+    "csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.csv",
+    "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.json",
+    "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_report.md"
+  },
+  "preview_order_count": 35,
+  "risk_controls_status": "pass",
+  "row_count": 43,
+  "safety_audit_status": "pass",
+  "schema_version": "operating-snapshot-v1",
+  "status": "simulation",
+  "target_cash_weight": 0.2759999999999999,
+  "target_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv",
+  "total_equity_usd": 1041670.1908006133,
+  "warning_count": 0
+}

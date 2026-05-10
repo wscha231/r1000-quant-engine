@@ -1,0 +1,18 @@
+ticker,target_weight,Name,sector,portfolio_sleeve_label
+GOOGL,0.18,ALPHABET INC CLASS A,Communication,core_compounder
+GLW,0.0612982234974706,CORNING INC,Information Technology,future_winner
+AMAT,0.0612982234974706,APPLIED MATERIAL INC,Information Technology,core_compounder
+VRT,0.0612982234974706,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
+LRCX,0.0591251033644044,LAM RESEARCH CORP,Information Technology,core_compounder
+FIX,0.0574018108388622,COMFORT SYSTEMS USA INC,Industrials,core_compounder
+PWR,0.0564894922834731,QUANTA SERVICES INC,Industrials,future_winner
+FTI,0.0563253764868764,TECHNIPFMC PLC,Energy,future_winner
+UMC,0.0560163607834233,United Microelectronics,Semiconductors,future_winner
+NXPI,0.0555358569436183,NXP Semiconductors,Semiconductors,future_winner
+ETR,0.0552113288069301,ENTERGY CORP,Utilities,future_winner
+AKAM,0.04,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
+MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
+PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
+ON,0.04,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+TKR,0.04,TIMKEN,Industrials,early_scout
+STM,0.04,STMicroelectronics,Semiconductors,future_winner
