@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-10 16:49 KST (Macro policy latest scored snapshot)
+# Session Handoff - 2026-05-11 00:55 KST (Current portfolio snapshot)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,66 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-10 16:49 KST) - Macro policy latest scored snapshot
+## ACTIVE INBOX (2026-05-11 00:55 KST) - Current portfolio snapshot
+
+User clarified the intended operating model:
+
+- The system should not present `portfolio_latest.csv` as the current account.
+- Main and concentrated should be shown as broker-like current holdings
+  snapshots, checked daily against latest close data.
+- Trading should be market-responsive but not churn-heavy: hold monster winners
+  as long as they remain valid, trim/replace only when they break down or lose
+  leadership.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- `tools/run_operating_snapshot.py`
+  - Adds `current_portfolio_snapshot_latest.csv`.
+  - Adds `current_portfolio_snapshot_summary.json`.
+  - Adds `current_portfolio_snapshot_report.md`.
+  - The snapshot is built from:
+    - `broker_replay/<portfolio>/positions_latest.csv`
+    - `broker_replay/<portfolio>/equity_curve.csv`
+    - `broker_trade_journal/<portfolio>/open_positions.csv`
+    - `account_ledger_preview/<portfolio>/target_weights.csv`
+    - `account_ledger_preview/<portfolio>/orders_preview.csv`
+    - `monster_recommendations/unified_recommendations.csv`
+  - It records per-portfolio current shares, latest close price, value, weight,
+    cost basis, realized/unrealized PnL, first entry date, holding days, target
+    gaps, raw preview action, and a monster-aware `review_action`.
+  - `review_action` is deliberately not a blind BUY/SELL field. It separates
+    raw preview orders from operating decisions such as
+    `SCALE_OR_HOLD_MONSTER_REVIEW`, `HOLD_OR_TRIM_REVIEW`, `ROTATION_REVIEW`,
+    and `EXIT_REVIEW`.
+- `tests/operating_snapshot_smoke.py`
+  - Covers the new current snapshot output, open-lot entry date, per-portfolio
+    target weight, and cash rows.
+- `CHANGELOG.md`
+  - Records the patch under `2026-05-11`.
+
+Validation:
+
+- `py -3 -m py_compile tools\run_operating_snapshot.py`
+- `py -3 tests\operating_snapshot_smoke.py`
+- Manual latest-run check:
+  - `py -3 tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check`
+  - Produced a 23-row current portfolio snapshot dated `2026-05-08`:
+    - concentrated: 3 equity rows + cash
+    - main: 18 equity rows + cash
+    - GOOGL raw preview action `BUY` became
+      `SCALE_OR_HOLD_MONSTER_REVIEW` because monster bridge said defend/hold.
+
+Next recommended actions:
+
+- Commit and push this patch.
+- Run replay sidecars or a full rebuild so `outputs/operating_snapshot/` in
+  the next cloud artifact includes the new current snapshot files.
+- Longer-term: build true daily/weekly scored selection so daily checks can
+  generate new targets without waiting for monthly holding books.
+
+---
+
+## PREVIOUS INBOX (2026-05-10 16:49 KST) - Macro policy latest scored snapshot
 
 GitHub Actions run `25619398127` completed successfully on commit `78f5320`
 and committed full rebuild outputs as `e0e750c chore(bot): full rebuild

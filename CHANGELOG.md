@@ -51,6 +51,43 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-11
+
+### 00:55 KST - operating-current-portfolio-snapshot
+
+- scope:
+  - Add an operator-facing current holdings snapshot so agents and users do not confuse target recommendation books with the live-like broker-ledger portfolio state.
+- files:
+  - `tools/run_operating_snapshot.py` ->emits current portfolio snapshots from broker replay positions, open lots, order previews, targets, and monster recommendations.
+  - `tests/operating_snapshot_smoke.py` ->covers current holdings snapshot output with entry dates and cash rows.
+  - `CHANGELOG.md` ->records the operating snapshot change.
+  - `SESSION_HANDOFF.md` ->updates the active handoff so future agents know the current snapshot semantics and next action.
+- symbols_added:
+  - `aggregate_orders_by_portfolio(latest_run)` ->summarizes preview order actions per portfolio and ticker.
+  - `load_portfolio_targets(latest_run)` ->loads per-portfolio target weights from account preview target files.
+  - `load_open_lot_summary(latest_run)` ->summarizes broker trade journal open lots by portfolio and ticker.
+  - `load_broker_cash(latest_run)` ->loads latest broker replay cash and equity rows by portfolio.
+  - `holding_days(as_of_date, first_entry_date)` ->calculates open holding age for the current snapshot.
+  - `operating_review_decision(preview_action, monster_recommendation, monster_stage)` ->separates raw order preview actions from monster-aware operating review actions.
+  - `write_current_portfolio_snapshot(latest_run, output_dir, target_map, monster_map, approval, account_source, macro_state)` ->writes the current broker-ledger portfolio snapshot CSV, JSON, and report.
+  - `render_current_snapshot_report(payload)` ->renders the current snapshot report.
+- symbols_changed:
+  - `build_snapshot(args)` ->now writes the current portfolio snapshot alongside the existing operating snapshot and exposes paths in the summary JSON.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_portfolio_snapshot_latest.csv` ->current broker-ledger holdings by portfolio with entry, price, value, weight, PnL, target, and review action fields.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_summary.json` ->summary of the current holdings snapshot.
+  - `outputs/operating_snapshot/current_portfolio_snapshot_report.md` ->human-readable explanation of target-vs-current semantics.
+- validation:
+  - `py -3 -m py_compile tools\run_operating_snapshot.py` ->passed.
+  - `py -3 tests\operating_snapshot_smoke.py` ->passed.
+  - `py -3 tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check` ->passed and produced a 23-row current portfolio snapshot dated 2026-05-08.
+- risks_or_notes:
+  - This does not yet create true daily scored selection; it exposes the daily mark-to-market operating state from the current broker-ledger replay.
+
 ## 2026-05-10
 
 ### 16:49 KST - macro-policy-latest-scored-snapshot

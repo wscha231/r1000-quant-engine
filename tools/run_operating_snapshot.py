@@ -261,6 +261,339 @@ def aggregate_orders(latest_run: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
+def aggregate_orders_by_portfolio(latest_run: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        frame = read_csv(latest_run / "account_ledger_preview" / portfolio / "orders_preview.csv")
+        if frame.empty or "ticker" not in frame.columns:
+            continue
+        frame = frame.copy()
+        frame["ticker"] = frame["ticker"].map(normalize_ticker)
+        for col in ["quantity", "gross_value_usd"]:
+            if col not in frame.columns:
+                frame[col] = 0.0
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+        for col in ["side", "status"]:
+            if col not in frame.columns:
+                frame[col] = ""
+            frame[col] = frame[col].astype(str)
+        for ticker, group in frame.groupby("ticker"):
+            sides = sorted({str(x).upper() for x in group["side"] if str(x).strip()})
+            statuses = sorted({str(x) for x in group["status"] if str(x).strip()})
+            qty_delta = 0.0
+            signed_gross = 0.0
+            for row in group.to_dict("records"):
+                side = str(row.get("side", "")).upper()
+                sign = 1.0 if side == "BUY" else -1.0 if side == "SELL" else 0.0
+                qty_delta += sign * clean_float(row.get("quantity"))
+                signed_gross += sign * clean_float(row.get("gross_value_usd"))
+            action = "HOLD"
+            if len(sides) > 1:
+                action = "MIXED_REVIEW"
+            elif sides:
+                action = sides[0]
+            out[(portfolio, str(ticker))] = {
+                "suggested_action": action,
+                "suggested_quantity_delta": qty_delta,
+                "preview_trade_value_delta_usd": signed_gross,
+                "preview_order_count": int(len(group)),
+                "preview_order_status": ",".join(statuses),
+            }
+    return out
+
+
+def load_portfolio_targets(latest_run: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        frame = read_csv(latest_run / "account_ledger_preview" / portfolio / "target_weights.csv")
+        if frame.empty or "ticker" not in frame.columns:
+            continue
+        frame = frame.copy()
+        frame["ticker"] = frame["ticker"].map(normalize_ticker)
+        if "target_weight" not in frame.columns:
+            frame["target_weight"] = 0.0
+        frame["target_weight"] = pd.to_numeric(frame["target_weight"], errors="coerce").fillna(0.0)
+        grouped = frame.groupby("ticker", as_index=False).agg({"target_weight": "sum"})
+        for row in grouped.to_dict("records"):
+            ticker = normalize_ticker(row.get("ticker"))
+            if ticker:
+                out[(portfolio, ticker)] = {"target_portfolio_weight": clean_float(row.get("target_weight"))}
+    return out
+
+
+def load_open_lot_summary(latest_run: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        frame = read_csv(latest_run / "broker_trade_journal" / portfolio / "open_positions.csv")
+        if frame.empty or "ticker" not in frame.columns:
+            continue
+        frame = frame.copy()
+        frame["ticker"] = frame["ticker"].map(normalize_ticker)
+        for col in [
+            "quantity_open",
+            "entry_price",
+            "entry_target_weight",
+            "entry_monster_early_score",
+            "entry_stale_mega_leader_score",
+            "entry_risk_entry_block_score",
+        ]:
+            if col not in frame.columns:
+                frame[col] = 0.0
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+        for ticker, group in frame.groupby("ticker"):
+            qty = float(group["quantity_open"].sum())
+            weighted_entry = 0.0
+            if abs(qty) > 1e-12:
+                weighted_entry = float((group["quantity_open"] * group["entry_price"]).sum() / qty)
+            entry_dates = sorted({str(x) for x in group.get("entry_date", pd.Series(dtype=str)) if str(x).strip()})
+            signal_dates = sorted({str(x) for x in group.get("entry_signal_date", pd.Series(dtype=str)) if str(x).strip()})
+            reasons = sorted({str(x) for x in group.get("entry_reason", pd.Series(dtype=str)) if str(x).strip()})
+            sleeves = sorted({str(x) for x in group.get("entry_sleeve", pd.Series(dtype=str)) if str(x).strip()})
+            out[(portfolio, str(ticker))] = {
+                "first_entry_date": entry_dates[0] if entry_dates else "",
+                "latest_entry_date": entry_dates[-1] if entry_dates else "",
+                "first_signal_date": signal_dates[0] if signal_dates else "",
+                "latest_signal_date": signal_dates[-1] if signal_dates else "",
+                "open_lot_count": int(len(group)),
+                "open_lot_quantity": qty,
+                "avg_entry_price": weighted_entry,
+                "entry_reasons": ",".join(reasons),
+                "entry_sleeves": ",".join(sleeves),
+                "entry_target_weight_max": float(group["entry_target_weight"].max()) if not group.empty else 0.0,
+                "entry_monster_early_score_max": float(group["entry_monster_early_score"].max()) if not group.empty else 0.0,
+                "entry_stale_mega_leader_score_max": float(group["entry_stale_mega_leader_score"].max()) if not group.empty else 0.0,
+                "entry_risk_entry_block_score_max": float(group["entry_risk_entry_block_score"].max()) if not group.empty else 0.0,
+            }
+    return out
+
+
+def load_broker_cash(latest_run: Path) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for portfolio in PORTFOLIOS:
+        frame = read_csv(latest_run / "broker_replay" / portfolio / "equity_curve.csv")
+        if frame.empty:
+            continue
+        row = frame.iloc[-1].to_dict()
+        out[portfolio] = {
+            "as_of_date": str(row.get("date") or ""),
+            "cash_usd": clean_float(row.get("cash_usd")),
+            "cash_weight": clean_float(row.get("cash_weight")),
+            "equity_usd": clean_float(row.get("equity_usd")),
+        }
+    return out
+
+
+def holding_days(as_of_date: str, first_entry_date: str) -> int | str:
+    if not as_of_date or not first_entry_date:
+        return ""
+    start = pd.to_datetime(first_entry_date, errors="coerce")
+    end = pd.to_datetime(as_of_date, errors="coerce")
+    if pd.isna(start) or pd.isna(end):
+        return ""
+    return int((end - start).days)
+
+
+def operating_review_decision(preview_action: str, monster_recommendation: str, monster_stage: str) -> tuple[str, str]:
+    preview = str(preview_action or "HOLD").upper()
+    recommendation = str(monster_recommendation or "").lower()
+    stage = str(monster_stage or "").lower()
+    if "defend_or_hold_monster" in recommendation:
+        if preview == "BUY":
+            return "SCALE_OR_HOLD_MONSTER_REVIEW", "Monster bridge says defend/hold and target preview wants more; scale only after gates remain valid."
+        return "HOLD_MONSTER_REVIEW", "Monster bridge says defend/hold; do not sell only because a target book rotated."
+    if "hold_target" in recommendation and preview == "SELL":
+        return "HOLD_OR_TRIM_REVIEW", "Target changed but monster bridge still marks the name as a hold target."
+    if "review_trim_or_replace" in recommendation or "review_rotation" in recommendation:
+        return "ROTATION_REVIEW", "Candidate should be reviewed for trim or replacement before acting."
+    if preview == "BUY":
+        if "monster" in stage or "monster" in recommendation:
+            return "SCALE_MONSTER_REVIEW", "Potential monster add; scale only after market and risk gates remain valid."
+        return "BUY_REVIEW", "Target preview wants more exposure; validate against portfolio and market gates."
+    if preview == "SELL":
+        return "EXIT_REVIEW", "Target preview wants lower exposure; validate stale-leader, hard-stop, and distribution evidence."
+    if preview == "MIXED_REVIEW":
+        return "MIXED_REVIEW", "Main and concentrated instructions conflict or offset; review at combined-account level."
+    return "HOLD", "No preview order or no material target gap."
+
+
+def write_current_portfolio_snapshot(
+    *,
+    latest_run: Path,
+    output_dir: Path,
+    target_map: dict[str, dict[str, Any]],
+    monster_map: dict[str, dict[str, Any]],
+    approval: str,
+    account_source: str,
+    macro_state: str,
+) -> dict[str, Any]:
+    portfolio_targets = load_portfolio_targets(latest_run)
+    portfolio_orders = aggregate_orders_by_portfolio(latest_run)
+    lots = load_open_lot_summary(latest_run)
+    cash = load_broker_cash(latest_run)
+    rows: list[dict[str, Any]] = []
+    portfolio_counts: dict[str, int] = {}
+    as_of_dates: list[str] = []
+
+    for portfolio in PORTFOLIOS:
+        positions = read_csv(latest_run / "broker_replay" / portfolio / "positions_latest.csv")
+        if positions.empty or "ticker" not in positions.columns:
+            continue
+        positions = positions.copy()
+        positions["ticker"] = positions["ticker"].map(normalize_ticker)
+        for col in ["shares", "price", "market_value_usd", "weight", "cost_basis", "unrealized_pnl_usd", "realized_pnl_usd"]:
+            if col not in positions.columns:
+                positions[col] = 0.0
+            positions[col] = pd.to_numeric(positions[col], errors="coerce").fillna(0.0)
+        portfolio_counts[portfolio] = int(len(positions))
+        for row in positions.to_dict("records"):
+            ticker = normalize_ticker(row.get("ticker"))
+            if not ticker:
+                continue
+            lot = lots.get((portfolio, ticker), {})
+            target = portfolio_targets.get((portfolio, ticker), {})
+            order = portfolio_orders.get((portfolio, ticker), {})
+            monster = monster_map.get(ticker, {})
+            as_of_date = str(row.get("as_of_date") or cash.get(portfolio, {}).get("as_of_date") or "")
+            if as_of_date:
+                as_of_dates.append(as_of_date)
+            target_combined_weight = clean_float((target_map.get(ticker) or {}).get("target_weight"))
+            current_weight = clean_float(row.get("weight"))
+            target_portfolio_weight = clean_float(target.get("target_portfolio_weight"))
+            preview_action = str(order.get("suggested_action") or "HOLD")
+            operating_action, operating_reason = operating_review_decision(
+                preview_action,
+                str(monster.get("monster_recommendation") or ""),
+                str(monster.get("monster_stage") or ""),
+            )
+            rows.append(
+                {
+                    "as_of_date": as_of_date,
+                    "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                    "portfolio_kind": portfolio,
+                    "row_type": "equity",
+                    "ticker": ticker,
+                    "current_shares": clean_float(row.get("shares")),
+                    "current_price": clean_float(row.get("price")),
+                    "current_value_usd": clean_float(row.get("market_value_usd")),
+                    "current_weight": current_weight,
+                    "cost_basis": clean_float(row.get("cost_basis")),
+                    "unrealized_pnl_usd": clean_float(row.get("unrealized_pnl_usd")),
+                    "realized_pnl_usd": clean_float(row.get("realized_pnl_usd")),
+                    "first_entry_date": str(lot.get("first_entry_date") or ""),
+                    "latest_entry_date": str(lot.get("latest_entry_date") or ""),
+                    "holding_days": holding_days(as_of_date, str(lot.get("first_entry_date") or "")),
+                    "open_lot_count": int(lot.get("open_lot_count") or 0),
+                    "open_lot_quantity": clean_float(lot.get("open_lot_quantity")),
+                    "avg_entry_price": clean_float(lot.get("avg_entry_price")),
+                    "entry_reasons": str(lot.get("entry_reasons") or ""),
+                    "entry_sleeves": str(lot.get("entry_sleeves") or ""),
+                    "target_portfolio_weight": target_portfolio_weight,
+                    "target_combined_weight": target_combined_weight,
+                    "delta_portfolio_weight": target_portfolio_weight - current_weight,
+                    "preview_action": preview_action,
+                    "review_action": operating_action,
+                    "review_reason": operating_reason,
+                    "review_quantity_delta": clean_float(order.get("suggested_quantity_delta")),
+                    "review_trade_value_delta_usd": clean_float(order.get("preview_trade_value_delta_usd")),
+                    "review_order_count": int(order.get("preview_order_count") or 0),
+                    "review_order_status": str(order.get("preview_order_status") or ""),
+                    "monster_recommendation": str(monster.get("monster_recommendation") or ""),
+                    "monster_stage": str(monster.get("monster_stage") or ""),
+                    "monster_priority_score": clean_float(monster.get("monster_priority_score")),
+                    "monster_reason": str(monster.get("monster_reason") or ""),
+                    "entry_monster_early_score_max": clean_float(lot.get("entry_monster_early_score_max")),
+                    "entry_stale_mega_leader_score_max": clean_float(lot.get("entry_stale_mega_leader_score_max")),
+                    "entry_risk_entry_block_score_max": clean_float(lot.get("entry_risk_entry_block_score_max")),
+                    "account_source": account_source,
+                    "approval_status": approval,
+                    "risk_state": macro_state,
+                }
+            )
+
+    for portfolio, row in cash.items():
+        as_of_date = str(row.get("as_of_date") or "")
+        if as_of_date:
+            as_of_dates.append(as_of_date)
+        cash_preview_action = "RESERVE_CASH" if clean_float((target_map.get("CASH") or {}).get("target_weight")) > clean_float(row.get("cash_weight")) else "HOLD"
+        rows.append(
+            {
+                "as_of_date": as_of_date,
+                "snapshot_semantics": "current_broker_ledger_mark_to_market",
+                "portfolio_kind": portfolio,
+                "row_type": "cash",
+                "ticker": "CASH",
+                "current_shares": 0.0,
+                "current_price": 1.0,
+                "current_value_usd": clean_float(row.get("cash_usd")),
+                "current_weight": clean_float(row.get("cash_weight")),
+                "cost_basis": 1.0,
+                "unrealized_pnl_usd": 0.0,
+                "realized_pnl_usd": 0.0,
+                "first_entry_date": "",
+                "latest_entry_date": "",
+                "holding_days": "",
+                "open_lot_count": 0,
+                "open_lot_quantity": 0.0,
+                "avg_entry_price": 0.0,
+                "entry_reasons": "",
+                "entry_sleeves": "",
+                "target_portfolio_weight": 0.0,
+                "target_combined_weight": clean_float((target_map.get("CASH") or {}).get("target_weight")),
+                "delta_portfolio_weight": clean_float((target_map.get("CASH") or {}).get("target_weight")) - clean_float(row.get("cash_weight")),
+                "preview_action": cash_preview_action,
+                "review_action": cash_preview_action,
+                "review_reason": "Cash reserve target is above current cash weight." if cash_preview_action == "RESERVE_CASH" else "Cash is already at or above target.",
+                "review_quantity_delta": 0.0,
+                "review_trade_value_delta_usd": 0.0,
+                "review_order_count": 0,
+                "review_order_status": "",
+                "monster_recommendation": "",
+                "monster_stage": "",
+                "monster_priority_score": 0.0,
+                "monster_reason": "",
+                "entry_monster_early_score_max": 0.0,
+                "entry_stale_mega_leader_score_max": 0.0,
+                "entry_risk_entry_block_score_max": 0.0,
+                "account_source": account_source,
+                "approval_status": approval,
+                "risk_state": macro_state,
+            }
+        )
+
+    frame = pd.DataFrame(rows)
+    if not frame.empty:
+        frame["_row_type_rank"] = frame["row_type"].map({"equity": 0, "cash": 1}).fillna(2)
+        frame = frame.sort_values(["portfolio_kind", "_row_type_rank", "current_weight"], ascending=[True, True, False])
+        frame = frame.drop(columns=["_row_type_rank"])
+    csv_path = output_dir / "current_portfolio_snapshot_latest.csv"
+    frame.to_csv(csv_path, index=False)
+    summary = {
+        "status": "completed" if rows else "missing_positions",
+        "schema_version": "current-portfolio-snapshot-v1",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "latest_run": str(latest_run),
+        "as_of_date": latest_non_empty(as_of_dates),
+        "snapshot_semantics": "current_broker_ledger_mark_to_market",
+        "portfolio_position_counts": portfolio_counts,
+        "row_count": int(len(frame)),
+        "cash_row_count": int((frame.get("row_type", pd.Series(dtype=str)) == "cash").sum()) if not frame.empty else 0,
+        "monster_recommendation_count": int((frame.get("monster_recommendation", pd.Series(dtype=str)).astype(str).str.strip() != "").sum()) if not frame.empty else 0,
+        "outputs": {
+            "csv": str(csv_path),
+            "json": str(output_dir / "current_portfolio_snapshot_summary.json"),
+            "report": str(output_dir / "current_portfolio_snapshot_report.md"),
+        },
+        "notes": [
+            "This is the current simulated broker-ledger account state marked to the latest available close.",
+            "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
+            "Review actions are suggestions from the order preview; this tool does not place orders.",
+        ],
+    }
+    write_json(output_dir / "current_portfolio_snapshot_summary.json", summary)
+    (output_dir / "current_portfolio_snapshot_report.md").write_text(render_current_snapshot_report(summary), encoding="utf-8")
+    return summary
+
+
 def load_control_status(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     risk = read_json(latest_run / "live_trading_risk_controls" / "risk_controls_summary.json")
     safety = read_json(latest_run / "live_trading_safety" / "safety_audit_summary.json")
@@ -409,6 +742,15 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         frame = frame.sort_values(["row_type", "target_weight", "current_weight"], ascending=[True, False, False])
     csv_path = output_dir / "operating_snapshot_latest.csv"
     frame.to_csv(csv_path, index=False)
+    current_snapshot = write_current_portfolio_snapshot(
+        latest_run=latest_run,
+        output_dir=output_dir,
+        target_map=target_map,
+        monster_map=monster_map,
+        approval=approval,
+        account_source=account_source,
+        macro_state=macro_state,
+    )
 
     error_count = sum(1 for row in issues if str(row.get("severity")) == "error")
     warning_count = sum(1 for row in issues if str(row.get("severity")) == "warning")
@@ -441,7 +783,11 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
             "csv": str(csv_path),
             "json": str(output_dir / "operating_snapshot_latest.json"),
             "report": str(output_dir / "operating_snapshot_report.md"),
+            "current_portfolio_snapshot_csv": str(output_dir / "current_portfolio_snapshot_latest.csv"),
+            "current_portfolio_snapshot_json": str(output_dir / "current_portfolio_snapshot_summary.json"),
+            "current_portfolio_snapshot_report": str(output_dir / "current_portfolio_snapshot_report.md"),
         },
+        "current_portfolio_snapshot": current_snapshot,
     }
     write_json(output_dir / "operating_snapshot_latest.json", payload)
     (output_dir / "operating_snapshot_report.md").write_text(render_report(payload), encoding="utf-8")
@@ -467,6 +813,30 @@ def render_report(payload: dict[str, Any]) -> str:
     ]
     if payload.get("approval_note"):
         lines.extend(["## Approval Note", "", str(payload["approval_note"]), ""])
+    return "\n".join(lines)
+
+
+def render_current_snapshot_report(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Current Portfolio Snapshot",
+        "",
+        f"- Status: `{payload.get('status')}`",
+        f"- As-of date: `{payload.get('as_of_date')}`",
+        f"- Semantics: `{payload.get('snapshot_semantics')}`",
+        f"- Rows: {payload.get('row_count')}",
+        f"- Cash rows: {payload.get('cash_row_count')}",
+        f"- Monster recommendation rows: {payload.get('monster_recommendation_count')}",
+        "",
+        "This file answers what the simulated broker-ledger portfolios currently hold after historical trades and latest close mark-to-market.",
+        "It is different from `portfolio_latest.csv` and `concentrated_portfolio_latest.csv`, which are target recommendation books.",
+        "",
+    ]
+    counts = payload.get("portfolio_position_counts") or {}
+    if counts:
+        lines.extend(["## Portfolio Rows", ""])
+        for portfolio, count in sorted(counts.items()):
+            lines.append(f"- {portfolio}: {count} equity positions")
+        lines.append("")
     return "\n".join(lines)
 
 

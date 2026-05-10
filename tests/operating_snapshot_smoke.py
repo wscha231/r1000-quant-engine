@@ -62,6 +62,71 @@ def _write_preview(root: Path, portfolio: str, account_path: str, equity: float,
     ).to_csv(out / "orders_preview.csv", index=False)
 
 
+def _write_broker_snapshot(root: Path, portfolio: str, equity: float, cash: float) -> None:
+    out = root / "broker_replay" / portfolio
+    out.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "as_of_date": "2026-01-09",
+                "ticker": "AAA",
+                "shares": 100,
+                "price": 100,
+                "market_value_usd": 10000,
+                "weight": 10000 / equity,
+                "cost_basis": 90,
+                "unrealized_pnl_usd": 1000,
+                "realized_pnl_usd": 25,
+            },
+            {
+                "as_of_date": "2026-01-09",
+                "ticker": "CCC",
+                "shares": 50,
+                "price": 200,
+                "market_value_usd": 10000,
+                "weight": 10000 / equity,
+                "cost_basis": 180,
+                "unrealized_pnl_usd": 1000,
+                "realized_pnl_usd": 0,
+            },
+        ]
+    ).to_csv(out / "positions_latest.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "date": "2026-01-09",
+                "equity_usd": equity,
+                "cash_usd": cash,
+                "cash_weight": cash / equity,
+                "stock_value_usd": equity - cash,
+                "position_count": 2,
+                "fill_mode": "next_close",
+            }
+        ]
+    ).to_csv(out / "equity_curve.csv", index=False)
+
+    journal = root / "broker_trade_journal" / portfolio
+    journal.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "portfolio_kind": portfolio,
+                "ticker": "AAA",
+                "entry_date": "2025-12-31",
+                "entry_signal_date": "2025-12-30",
+                "entry_reason": "target_rebalance",
+                "quantity_open": 100,
+                "entry_price": 90,
+                "entry_target_weight": 0.30,
+                "entry_sleeve": "future_winner",
+                "entry_monster_early_score": 0.72,
+                "entry_stale_mega_leader_score": 0.0,
+                "entry_risk_entry_block_score": 0.1,
+            }
+        ]
+    ).to_csv(journal / "open_positions.csv", index=False)
+
+
 def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -80,6 +145,8 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         )
         _write_preview(root, "main", "outputs/broker_replay/main/account_state_latest.json", 100000, 20000)
         _write_preview(root, "concentrated", "outputs/broker_replay/concentrated/account_state_latest.json", 50000, 10000)
+        _write_broker_snapshot(root, "main", 100000, 20000)
+        _write_broker_snapshot(root, "concentrated", 50000, 10000)
         risk_dir = root / "live_trading_risk_controls"
         risk_dir.mkdir()
         (risk_dir / "risk_controls_summary.json").write_text(
@@ -114,6 +181,17 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         aaa = frame[frame["ticker"] == "AAA"].iloc[0]
         assert aaa["target_weight"] == 0.40
         assert "portfolio_latest" not in str(aaa["source_target"])
+        current = pd.read_csv(root / "operating_snapshot" / "current_portfolio_snapshot_latest.csv")
+        main_aaa = current[(current["portfolio_kind"] == "main") & (current["ticker"] == "AAA")].iloc[0]
+        assert main_aaa["snapshot_semantics"] == "current_broker_ledger_mark_to_market"
+        assert main_aaa["first_entry_date"] == "2025-12-31"
+        assert main_aaa["target_portfolio_weight"] == 0.30
+        assert main_aaa["review_action"] == "HOLD"
+        cash_rows = current[current["row_type"] == "cash"]
+        assert set(cash_rows["portfolio_kind"]) == {"main", "concentrated"}
+        summary = json.loads((root / "operating_snapshot" / "current_portfolio_snapshot_summary.json").read_text())
+        assert summary["status"] == "completed"
+        assert summary["portfolio_position_counts"]["main"] == 2
 
 
 def main() -> int:
