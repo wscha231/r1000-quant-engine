@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 04:58 KST - portable-data-readiness
+
+- scope:
+  - Add a portable data strategy and local readiness audit so the system can be restored on a different computer without confusing durable data, run artifacts, and disposable caches.
+- files:
+  - `docs/PORTABLE_DATA_STRATEGY.md` ->documents what belongs in GitHub, Google Drive/object storage, local caches, and run outputs.
+  - `tools/check_portable_data_readiness.py` ->audits required/optional portable paths and emits a JSON manifest.
+  - `CHANGELOG.md` ->records the portability support.
+  - `SESSION_HANDOFF.md` ->updates active handoff for future agents.
+- symbols_added:
+  - `PathSpec` ->declares portable data path expectations.
+  - `audit_path(spec)` ->summarizes existence, size, file count, and portability status.
+  - `build_payload(root)` ->builds the portable readiness manifest.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portable_data_readiness.json` ->machine-readable readiness manifest.
+- validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py` ->passed.
+  - `py -3 tools\check_portable_data_readiness.py` ->passed with `status=ready_minimum`, `missing_required_count=0`, and optional gaps for `data_raw`, `data_pit`, `cache_prices`, SEC bulk archive, and local Drive manifests.
+- risks_or_notes:
+  - This does not upload large PIT datasets by itself; it makes restore requirements explicit and checkable.
+
 ### 04:19 KST - operating-cash-policy-review
 
 - scope:

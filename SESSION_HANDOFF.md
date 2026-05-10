@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-11 04:19 KST (Cash policy review)
+# Session Handoff - 2026-05-11 04:58 KST (Portable data readiness)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,47 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-11 04:19 KST) - Cash policy review
+## ACTIVE INBOX (2026-05-11 04:58 KST) - Portable data readiness
+
+User wants the system usable after changing computers. Latest patch adds:
+
+- `docs/PORTABLE_DATA_STRATEGY.md`
+  - Defines GitHub as code/small manifest storage.
+  - Defines Google Drive/object storage as durable home for large data and run
+    bundles.
+  - Defines local checkout as replaceable cache/run workspace.
+  - Documents restore steps for a new computer.
+- `tools/check_portable_data_readiness.py`
+  - Audits required local paths for minimum operation:
+    - `cloud_results/full_rebuild/latest_global_alpha_universe`
+    - `operating_snapshot`
+    - `broker_replay`
+    - `macro_policy_engine`
+  - Audits optional but important paths:
+    - `data_raw`
+    - `data_pit`
+    - `cache_prices`
+    - `outputs/companyfacts.zip`
+    - Drive sync manifests
+  - Writes `outputs/portable_data_readiness.json` by default; use
+    `--no-write` for read-only checks.
+- Validation:
+  - `py -3 -m py_compile tools\check_portable_data_readiness.py`
+  - `py -3 tools\check_portable_data_readiness.py`
+  - Current machine returned `status=ready_minimum` with no missing required
+    paths. Optional durable data folders/caches are missing locally and should
+    be restored from Drive/object storage or regenerated.
+
+Next recommended action:
+
+- Commit and push the portability docs/checker.
+- Later, add a GitHub workflow step that uploads durable `data_pit/` manifests
+  and cache bundle manifests to Drive/object storage when those datasets are
+  created.
+
+---
+
+## PREVIOUS INBOX (2026-05-11 04:19 KST) - Cash policy review
 
 User noticed the cash weight looked too high. The important distinction:
 
