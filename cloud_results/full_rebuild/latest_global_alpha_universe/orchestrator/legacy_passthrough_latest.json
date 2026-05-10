@@ -1,27 +1,26 @@
 {
   "unified_weights": {
-    "GEV": 0.15189241557352195,
-    "GOOG": 0.11314923645846613,
-    "MRVL": 0.06444458864096714,
-    "GLW": 0.06444458864096714,
-    "VRT": 0.06402265103492115,
-    "LRCX": 0.05560822773945213,
-    "FIX": 0.04415281440666471,
-    "FTI": 0.04224435321626265,
-    "PWR": 0.0418794698948066,
-    "STM": 0.040612620627545545,
-    "AKAM": 0.04,
-    "PR": 0.04,
-    "MLI": 0.04,
-    "TKR": 0.04,
-    "CBOE": 0.0399666158727048,
-    "NXPI": 0.03996471698842886,
-    "SU": 0.03957977156124995,
-    "ON": 0.0380379293440414
+    "GOOGL": 0.18000000000000002,
+    "AMAT": 0.0612982234974706,
+    "GLW": 0.0612982234974706,
+    "VRT": 0.0612982234974706,
+    "LRCX": 0.059125103364404435,
+    "FIX": 0.05740181083886228,
+    "PWR": 0.056489492283473164,
+    "FTI": 0.05632537648687641,
+    "UMC": 0.05601636078342339,
+    "NXPI": 0.05553585694361837,
+    "ETR": 0.05521132880693019,
+    "ON": 0.04000000000000001,
+    "AKAM": 0.04000000000000001,
+    "STM": 0.04000000000000001,
+    "PR": 0.04000000000000001,
+    "MLI": 0.04000000000000001,
+    "TKR": 0.04000000000000001
   },
   "cash_target": 0.0,
   "by_mandate_capacity": {
-    "main": 1.0000000000000002,
+    "main": 1.0,
     "concentrated": 0.0,
     "tactical": 0.0
   },
@@ -29,17 +28,17 @@
   "regime_state": "neutral",
   "audit": {
     "mode": "legacy_passthrough",
-    "n_unique_tickers": 18,
-    "generated_at": "2026-05-09T11:07:12Z"
+    "n_unique_tickers": 17,
+    "generated_at": "2026-05-10T07:06:06Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,
     "weights_at_most_one": true,
     "cash_in_unit_range": true,
     "invested_plus_cash_close_to_one": true,
-    "invested_amount": 1.0000000000000002,
+    "invested_amount": 1.0,
     "cash_amount": 0.0,
-    "n_positions": 18,
+    "n_positions": 17,
     "n_conflicts": 0,
     "all_passed": true
   }
