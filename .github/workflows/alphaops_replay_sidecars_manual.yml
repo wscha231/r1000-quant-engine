@@ -1,4 +1,4 @@
-name: AlphaOps Replay Sidecars (Manual / Fast)
+﻿name: AlphaOps Replay Sidecars (Manual / Fast)
 
 # Fast artifact-only replay. Use this after a successful full rebuild when the
 # research question is portfolio accounting, weekly validation, broker ledger

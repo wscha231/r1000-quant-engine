@@ -1,4 +1,4 @@
-# cycle_play_universe.yaml — Curated small-mid cap cycle plays (NYSE/NASDAQ).
+﻿# cycle_play_universe.yaml — Curated small-mid cap cycle plays (NYSE/NASDAQ).
 #
 # Why a separate file (not in adr_universe.yaml):
 #   - adr_universe.yaml is foreign-issuer ADR overlay (TSM, BABA, NVO, etc.)
