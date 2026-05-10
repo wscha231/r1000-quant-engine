@@ -62,7 +62,7 @@ def _write_preview(root: Path, portfolio: str, account_path: str, equity: float,
     ).to_csv(out / "orders_preview.csv", index=False)
 
 
-def test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_target() -> None:
+def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         orch = root / "orchestrator"
@@ -86,11 +86,12 @@ def test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_targ
             json.dumps(
                 {
                     "status": "pass",
+                    "account_mode": "simulated",
                     "issues": [
                         {
-                            "severity": "warning",
-                            "check_id": "broker_snapshot_not_supplied",
-                            "message": "broker snapshot not supplied",
+                            "severity": "info",
+                            "check_id": "simulated_broker_account",
+                            "message": "simulated broker account",
                         }
                     ],
                 }
@@ -102,8 +103,8 @@ def test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_targ
         (safety_dir / "safety_audit_summary.json").write_text(json.dumps({"status": "pass", "issues": []}), encoding="utf-8")
 
         payload = build_snapshot(_args(root))
-        assert payload["status"] == "blocked"
-        assert payload["approval_status"] == "blocked_missing_broker_snapshot"
+        assert payload["status"] == "simulation"
+        assert payload["approval_status"] == "simulation_ready_preview_only"
         assert payload["account_source"] == "simulated_broker_replay"
         assert payload["target_cash_weight"] == 0.40
         frame = pd.read_csv(root / "operating_snapshot" / "operating_snapshot_latest.csv")
@@ -116,7 +117,7 @@ def test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_targ
 
 
 def main() -> int:
-    test_operating_snapshot_blocks_without_broker_snapshot_and_uses_unified_target()
+    test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target()
     print("operating_snapshot_smoke: PASS")
     return 0
 

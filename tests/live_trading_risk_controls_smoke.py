@@ -26,6 +26,7 @@ def _args(root: Path, previous_manifest: str = "", strict_live: bool = False) ->
     args.price_cache = str(root / "cache_prices")
     args.broker_snapshot_dir = ""
     args.previous_manifest = previous_manifest
+    args.account_mode = "simulated"
     args.strict_live = strict_live
     args.max_stale_days = 1000
     args.share_tolerance = 1e-8
@@ -89,6 +90,8 @@ def test_live_trading_risk_controls_writes_manifest() -> None:
         _write_preview(root, "concentrated", "r1k-C-20260109-B-BBB-bbb")
         payload = run(_args(root))
         assert payload["status"] == "pass", payload
+        assert payload["account_mode"] == "simulated"
+        assert any(row["check_id"] == "simulated_broker_account" for row in payload["issues"])
         manifest = pd.read_csv(root / "live_trading_risk_controls" / "order_manifest.csv")
         fills = pd.read_csv(root / "live_trading_risk_controls" / "fill_reconciliation_template.csv")
         assert len(manifest) == 2
@@ -121,7 +124,9 @@ def test_strict_live_requires_broker_snapshot() -> None:
         root = Path(tmp)
         _write_preview(root, "main", "r1k-M-20260109-B-BBB-aaa")
         _write_preview(root, "concentrated", "r1k-C-20260109-B-BBB-bbb")
-        payload = run(_args(root, strict_live=True))
+        args = _args(root, strict_live=True)
+        args.account_mode = "live"
+        payload = run(args)
         assert payload["status"] == "blocked"
         assert any(row["check_id"] == "broker_snapshot_required" for row in payload["issues"])
 

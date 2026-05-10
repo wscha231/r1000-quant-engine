@@ -77,6 +77,7 @@ SYNC_DIRS = [
     "broker_gap_attribution",
     "live_trading_safety",
     "live_trading_risk_controls",
+    "monster_recommendations",
     "operating_snapshot",
 ]
 

@@ -278,7 +278,8 @@ def load_control_status(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any
 
 def approval_status(*, risk: dict[str, Any], safety: dict[str, Any], issues: list[dict[str, Any]]) -> tuple[str, str]:
     check_ids = {str(row.get("check_id") or "") for row in issues}
-    if check_ids & MISSING_BROKER_CHECKS:
+    account_mode = str(risk.get("account_mode") or "live").lower() if risk else "missing"
+    if check_ids & MISSING_BROKER_CHECKS and account_mode != "simulated":
         return "blocked_missing_broker_snapshot", "Live broker/account/open-order snapshot was not reconciled."
     if risk and risk.get("status") != "pass":
         return "blocked_by_risk_controls", "Live trading risk controls did not pass."
@@ -288,7 +289,32 @@ def approval_status(*, risk: dict[str, Any], safety: dict[str, Any], issues: lis
         return "review_missing_risk_controls", "Risk controls summary is missing."
     if not safety:
         return "review_missing_safety_audit", "Safety audit summary is missing."
+    if account_mode == "simulated":
+        return "simulation_ready_preview_only", "Simulated broker-ledger account mode is active; this is a paper/live-like replay, not a real broker account."
     return "review_ready_preview_only", "Preview artifacts are internally reviewable but still do not place orders."
+
+
+def load_monster_recommendations(latest_run: Path) -> dict[str, dict[str, Any]]:
+    frame = read_csv(latest_run / "monster_recommendations" / "unified_recommendations.csv")
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    frame = frame.copy()
+    frame["ticker"] = frame["ticker"].map(normalize_ticker)
+    out: dict[str, dict[str, Any]] = {}
+    for ticker, group in frame.groupby("ticker"):
+        actions = sorted({str(x) for x in group.get("monster_recommendation", pd.Series(dtype=str)) if str(x).strip()})
+        stages = sorted({str(x) for x in group.get("monster_stage", pd.Series(dtype=str)) if str(x).strip()})
+        reasons = sorted({str(x) for x in group.get("monster_reason", pd.Series(dtype=str)) if str(x).strip()})
+        portfolios = sorted({str(x) for x in group.get("portfolio", pd.Series(dtype=str)) if str(x).strip()})
+        priority = pd.to_numeric(group.get("monster_priority_score", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+        out[str(ticker)] = {
+            "monster_recommendation": ",".join(actions),
+            "monster_stage": ",".join(stages),
+            "monster_reason": "; ".join(reasons[:3]),
+            "monster_portfolios": ",".join(portfolios),
+            "monster_priority_score": float(priority.max()) if not priority.empty else 0.0,
+        }
+    return out
 
 
 def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
@@ -305,13 +331,14 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     current_map = aggregate_current(current, total_equity)
     target_map = aggregate_target(target)
     order_map = aggregate_orders(latest_run)
+    monster_map = load_monster_recommendations(latest_run)
     risk, safety, issues = load_control_status(latest_run)
     approval, approval_note = approval_status(risk=risk, safety=safety, issues=issues)
 
     as_of_dates = [str((payload or {}).get("as_of_date") or "") for payload in preview_metrics.values()]
     as_of_date = args.as_of_date or latest_non_empty(as_of_dates)
     macro_state = str(orchestrator_payload.get("regime_state") or orchestrator_payload.get("macro_state") or "")
-    all_tickers = sorted(set(current_map) | set(target_map) | set(order_map))
+    all_tickers = sorted(set(current_map) | set(target_map) | set(order_map) | set(monster_map))
     if "CASH" not in all_tickers:
         all_tickers.append("CASH")
 
@@ -321,6 +348,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         cur = current_map.get(ticker, {})
         target_info = target_map.get(ticker, {})
         order = order_map.get(ticker, {})
+        monster = monster_map.get(ticker, {})
         current_value = clean_float(cur.get("current_value_usd"))
         current_shares = clean_float(cur.get("current_shares"))
         current_price = clean_float(cur.get("current_price"))
@@ -364,6 +392,10 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
                 "preview_trade_value_delta_usd": clean_float(order.get("preview_trade_value_delta_usd")),
                 "preview_order_count": int(order.get("preview_order_count") or 0),
                 "preview_order_status": str(order.get("preview_order_status") or ""),
+                "monster_recommendation": str(monster.get("monster_recommendation") or ""),
+                "monster_stage": str(monster.get("monster_stage") or ""),
+                "monster_priority_score": clean_float(monster.get("monster_priority_score")),
+                "monster_reason": str(monster.get("monster_reason") or ""),
                 "portfolio_sources": str(cur.get("portfolio_sources") or order.get("order_portfolio_sources") or ""),
                 "source_current": "account_ledger_preview/*/positions_current.csv",
                 "source_target": target_source,
@@ -381,7 +413,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     error_count = sum(1 for row in issues if str(row.get("severity")) == "error")
     warning_count = sum(1 for row in issues if str(row.get("severity")) == "warning")
     payload = {
-        "status": "blocked" if approval.startswith("blocked") else "review",
+        "status": "blocked" if approval.startswith("blocked") else "simulation" if approval.startswith("simulation") else "review",
         "schema_version": "operating-snapshot-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
@@ -400,6 +432,7 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "row_count": int(len(frame)),
         "equity_row_count": int((frame.get("row_type", pd.Series(dtype=str)) == "equity").sum()) if not frame.empty else 0,
         "preview_order_count": int(frame.get("preview_order_count", pd.Series(dtype=float)).sum()) if not frame.empty else 0,
+        "monster_recommendation_count": int((frame.get("monster_recommendation", pd.Series(dtype=str)).astype(str).str.strip() != "").sum()) if not frame.empty else 0,
         "issue_count": int(len(issues)),
         "error_count": int(error_count),
         "warning_count": int(warning_count),

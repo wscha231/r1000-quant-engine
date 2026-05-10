@@ -399,6 +399,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "# Live Trading Risk Controls",
         "",
         f"- Status: `{payload.get('status')}`",
+        f"- Account mode: `{payload.get('account_mode')}`",
         f"- Error count: {payload.get('error_count')}",
         f"- Warning count: {payload.get('warning_count')}",
         f"- Manifest orders: {payload.get('manifest_order_count')}",
@@ -428,8 +429,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     manifest_rows: list[dict[str, Any]] = []
     fill_rows: list[dict[str, Any]] = []
+    account_mode = str(getattr(args, "account_mode", "simulated") or "simulated").strip().lower()
     if bool(args.strict_live) and snapshot_dir is None:
         issue(issues, "error", "broker_snapshot_required", "strict live mode requires --broker-snapshot-dir for account/open-order reconciliation")
+    elif snapshot_dir is None and account_mode == "simulated":
+        issue(issues, "info", "simulated_broker_account", "simulated broker-ledger account is the intended account source; live broker snapshot reconciliation was intentionally skipped")
     elif snapshot_dir is None:
         issue(issues, "warning", "broker_snapshot_not_supplied", "broker snapshot not supplied; account/open-order reconciliation was skipped")
 
@@ -521,6 +525,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": "live-trading-risk-controls-v1",
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "account_mode": account_mode,
         "strict_live": bool(args.strict_live),
         "error_count": int(error_count),
         "warning_count": int(warning_count),
@@ -541,6 +546,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--broker-snapshot-dir", default="")
     parser.add_argument("--previous-manifest", default="")
+    parser.add_argument("--account-mode", choices=["simulated", "live"], default="simulated")
     parser.add_argument("--strict-live", action="store_true")
     parser.add_argument("--max-stale-days", type=int, default=5)
     parser.add_argument("--share-tolerance", type=float, default=1e-8)

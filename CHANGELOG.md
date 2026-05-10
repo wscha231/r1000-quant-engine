@@ -53,6 +53,71 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-10
 
+### 12:12 KST - simulated-account-monster-overlay
+
+- scope:
+  - Treat broker-ledger replay as the intended simulated account mode and attach monster lifecycle evidence to main/concentrated recommendation overlays.
+- files:
+  - `tools/run_live_trading_risk_controls.py` ->adds `--account-mode simulated|live` and records simulated broker-ledger accounts as an intentional non-live mode instead of a missing broker warning.
+  - `tools/run_operating_snapshot.py` ->accepts simulated account mode as `simulation_ready_preview_only` and merges monster recommendation fields into the canonical operating snapshot.
+  - `tools/run_monster_recommendation_bridge.py` ->adds a recommendation-only bridge that annotates main/concentrated targets with missed-winner, stale-winner, rotation, and monster lifecycle evidence.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs risk controls in simulated mode, generates monster recommendations after lifecycle sidecars, then writes the final operating snapshot.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs simulated risk controls and the monster recommendation bridge before the operating snapshot.
+  - `tools/sync_cloud_to_drive.py` ->syncs `monster_recommendations/` into the local Drive mirror.
+  - `tests/live_trading_risk_controls_smoke.py` ->expects simulated account mode to pass with an informational issue.
+  - `tests/operating_snapshot_smoke.py` ->expects simulated account mode to produce a simulation-ready snapshot.
+  - `tests/monster_recommendation_bridge_smoke.py` ->covers main/concentrated monster recommendation attachment.
+  - `tests/workflow_artifact_smoke.py` ->requires simulated mode, monster recommendation workflow commands, logs, and artifacts.
+  - `CHANGELOG.md` ->records the simulated account and monster overlay patch.
+  - `SESSION_HANDOFF.md` ->updates the active handoff for the intended simulated account mode.
+- symbols_added:
+  - `read_json(path)` ->loads optional JSON payloads for the monster recommendation bridge.
+  - `read_csv(path)` ->loads optional CSV payloads for the monster recommendation bridge.
+  - `write_json(path, payload)` ->writes monster recommendation summary metadata.
+  - `normalize_ticker(value)` ->normalizes ticker keys across target and sidecar sources.
+  - `clean_float(value)` ->coerces finite numeric bridge scores.
+  - `latest_rows(frame, date_col)` ->keeps the latest monster lifecycle holding rows.
+  - `load_target(latest_run, portfolio)` ->loads main or concentrated current target rows.
+  - `load_scored(latest_run)` ->loads latest scored metadata for recommendation scoring.
+  - `load_lifecycle_maps(latest_run)` ->loads missed, stale, and rotation lifecycle reports.
+  - `load_monster_holdings(latest_run, portfolio)` ->loads latest monster lifecycle replay holdings for a portfolio.
+  - `score_lookup(scored, ticker, *cols)` ->extracts supplemental scored signal strength.
+  - `build_recommendations_for_portfolio(...)` ->creates main or concentrated monster recommendation rows.
+  - `render_report(payload)` ->renders monster recommendation bridge markdown.
+  - `run(args)` ->writes monster recommendation CSV/JSON/report outputs.
+  - `parse_args()` ->parses monster recommendation bridge CLI arguments.
+  - `main()` ->runs the monster recommendation bridge CLI.
+  - `load_monster_recommendations(latest_run)` ->loads unified monster recommendations for operating snapshot annotation.
+  - `test_monster_recommendations_attach_to_main_and_concentrated()` ->regresses bridge attachment behavior.
+- symbols_changed:
+  - `run(args)` ->adds account-mode semantics to live trading risk controls.
+  - `render_report(payload)` ->prints account mode in risk-control reports.
+  - `approval_status(risk, safety, issues)` ->treats simulated broker-ledger mode as an accepted preview/simulation state.
+  - `build_snapshot(args)` ->adds monster recommendation columns and simulation status to operating snapshots.
+- config_fields_added:
+  - `--account-mode: choice = simulated` ->selects simulated broker-ledger account mode or live broker reconciliation mode.
+  - `--max-candidates: int = 12` ->limits non-held monster recommendation candidates per portfolio.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/monster_recommendations/main_recommendations.csv` ->main target and candidate rows annotated with monster recommendation evidence.
+  - `outputs/monster_recommendations/concentrated_recommendations.csv` ->concentrated target and candidate rows annotated with monster recommendation evidence.
+  - `outputs/monster_recommendations/unified_recommendations.csv` ->combined main/concentrated monster recommendation overlay.
+  - `outputs/monster_recommendations/monster_recommendation_summary.json` ->bridge summary and output paths.
+  - `outputs/monster_recommendations/monster_recommendation_report.md` ->human-readable bridge summary.
+  - `outputs/operating_snapshot/operating_snapshot_latest.csv` ->now includes monster recommendation, stage, priority score, and reason columns when available.
+- validation:
+  - `py -3 -m py_compile tools\run_live_trading_risk_controls.py tools\run_operating_snapshot.py tools\run_monster_recommendation_bridge.py` passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` passed.
+  - `py -3 tests\operating_snapshot_smoke.py` passed.
+  - `py -3 tests\monster_recommendation_bridge_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tests\account_order_preview_smoke.py` passed.
+  - `py -3 tests\live_trading_safety_audit_smoke.py` passed.
+- risks_or_notes:
+  - The running full rebuild `25617706497` started from commit `8b3baaf` and will not include this patch; trigger a new full rebuild after this commit lands to get simulated-mode monster overlays.
+  - Monster recommendations remain recommendation-only and do not mutate main/concentrated portfolio construction.
+
 ### 11:25 KST - operating-snapshot-live-gate
 
 - scope:

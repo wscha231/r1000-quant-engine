@@ -1,4 +1,4 @@
-# Session Handoff - 2026-05-10 11:25 KST (Operating snapshot + strict live gate)
+# Session Handoff - 2026-05-10 12:12 KST (Simulated account + monster overlay)
 
 > **WHO AM I**: r1000 Quant Engine project (Russell 1000 Top-30 institutional).
 > **PURPOSE OF THIS FILE**: shortest possible "pick-up-where-we-left-off" brief for a new Claude / Codex / GPT chat session on a different machine.
@@ -6,7 +6,66 @@
 
 ---
 
-## ACTIVE INBOX (2026-05-10 11:25 KST) - Operating snapshot + strict live gate
+## ACTIVE INBOX (2026-05-10 12:12 KST) - Simulated account + monster overlay
+
+User clarified that the desired account environment is not a real broker
+connection. The goal is a conservative broker-like simulated account that can
+evaluate from history and produce paper/live-like recommendations.
+
+Latest patch on branch `codex/broker-ledger-replay-foundation`:
+
+- Simulated account mode is now explicit:
+  - `tools/run_live_trading_risk_controls.py --account-mode simulated`
+    records `account_mode=simulated`.
+  - Missing live broker snapshots are no longer treated as a problem in this
+    mode; the artifact records `simulated_broker_account` as an informational
+    issue.
+  - `--account-mode live --strict-live --strict` remains available if a future
+    operator really wants live broker/account reconciliation.
+- Operating snapshot semantics:
+  - `tools/run_operating_snapshot.py` now reports
+    `approval_status=simulation_ready_preview_only` when simulated mode passes.
+  - The top-level status becomes `simulation`, not `blocked`, for the intended
+    simulated broker-ledger account path.
+- Monster recommendation bridge:
+  - New tool: `tools/run_monster_recommendation_bridge.py`.
+  - Writes:
+    - `outputs/monster_recommendations/main_recommendations.csv`
+    - `outputs/monster_recommendations/concentrated_recommendations.csv`
+    - `outputs/monster_recommendations/unified_recommendations.csv`
+    - `outputs/monster_recommendations/monster_recommendation_summary.json`
+    - `outputs/monster_recommendations/monster_recommendation_report.md`
+  - It does not create a separate tradable portfolio. It annotates the existing
+    main and concentrated targets with:
+    - missed-winner candidates
+    - stale-winner trim/replace candidates
+    - same-sector leadership rotation candidates
+    - latest monster lifecycle stages from replay sidecars
+  - `operating_snapshot_latest.csv` now includes monster recommendation fields
+    when this bridge output exists.
+- Workflow ordering:
+  - Full rebuild now runs monster lifecycle/autolearning sidecars first, then
+    `run_monster_recommendation_bridge.py`, then final
+    `run_operating_snapshot.py`.
+  - Replay sidecars also run the bridge and final operating snapshot, but they
+    may have fewer monster inputs if the replay artifact did not include full
+    lifecycle folders.
+- Current run caveat:
+  - GitHub Actions run `25617706497` is still running from commit `8b3baaf`.
+  - It will not include the simulated account/monster overlay patch. Trigger a
+    new full rebuild after this patch is pushed if those new outputs are needed.
+- Latest validation:
+  - `py -3 -m py_compile tools\run_live_trading_risk_controls.py tools\run_operating_snapshot.py tools\run_monster_recommendation_bridge.py`
+  - `py -3 tests\live_trading_risk_controls_smoke.py`
+  - `py -3 tests\operating_snapshot_smoke.py`
+  - `py -3 tests\monster_recommendation_bridge_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\account_order_preview_smoke.py`
+  - `py -3 tests\live_trading_safety_audit_smoke.py`
+
+---
+
+## PREVIOUS INBOX (2026-05-10 11:25 KST) - Operating snapshot + strict live gate
 
 Latest patch on branch `codex/broker-ledger-replay-foundation` after the user
 clarified that the desired output is an operating portfolio snapshot, not a
