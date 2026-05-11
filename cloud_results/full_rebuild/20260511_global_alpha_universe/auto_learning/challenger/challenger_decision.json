@@ -2,19 +2,19 @@
   "approved_for_promotion": false,
   "baseline": {
     "concentrated": {
-      "cagr": 0.39863649261493617,
-      "max_dd": -0.16584753860984158,
-      "selected_names": 5,
-      "sharpe": 1.7049580372452717
+      "cagr": 0.4352259081975951,
+      "max_dd": -0.1251288170364555,
+      "selected_names": 4,
+      "sharpe": 1.7435623649459715
     },
     "main": {
-      "avg_cash_weight": 0.19373510762012058,
-      "avg_stock_names": 23.867924528301888,
-      "avg_turnover_monthly": 0.5228164477298215,
-      "cagr": 0.273199775790429,
-      "max_dd": -0.178652713102062,
-      "months": 106,
-      "sharpe": 1.6397079003602735
+      "avg_cash_weight": 0.20627270234818515,
+      "avg_stock_names": 23.698795180722893,
+      "avg_turnover_monthly": 0.5301673508759183,
+      "cagr": 0.29661380780480173,
+      "max_dd": -0.1565521458123409,
+      "months": 83,
+      "sharpe": 1.7776333218625067
     }
   },
   "gate_rows": [
@@ -66,7 +66,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.26319977579042897
+      "threshold": 0.2866138078048017
     },
     {
       "check": "main_sharpe_floor",
@@ -76,7 +76,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.5597079003602734
+      "threshold": 1.6976333218625066
     },
     {
       "check": "main_max_dd_floor",
@@ -86,7 +86,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.188652713102062
+      "threshold": -0.1665521458123409
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -115,7 +115,7 @@
       "check": "concentrated_cagr_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": 0.39863649261493617,
+      "observed": 0.4352259081975951,
       "passed": true,
       "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
       "severity": "hard",
@@ -125,7 +125,7 @@
       "check": "concentrated_max_dd_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": -0.16584753860984158,
+      "observed": -0.1251288170364555,
       "passed": true,
       "reason": "Standalone concentrated MaxDD must clear the policy floor.",
       "severity": "hard",
@@ -206,7 +206,7 @@
       "threshold": "rolling 3y and 5y pass"
     }
   ],
-  "generated_at_utc": "2026-05-11T07:47:07Z",
+  "generated_at_utc": "2026-05-11T11:59:14Z",
   "hard_failures": [
     {
       "check": "feature_gate_candidate_backtest_executed",
@@ -226,7 +226,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.26319977579042897
+      "threshold": 0.2866138078048017
     },
     {
       "check": "main_sharpe_floor",
@@ -236,7 +236,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.5597079003602734
+      "threshold": 1.6976333218625066
     },
     {
       "check": "main_max_dd_floor",
@@ -246,7 +246,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.188652713102062
+      "threshold": -0.1665521458123409
     },
     {
       "check": "main_v2_historical_backtest_exists",

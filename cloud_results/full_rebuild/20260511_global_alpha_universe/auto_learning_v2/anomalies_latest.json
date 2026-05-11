@@ -4,13 +4,13 @@
     "category": "capital_allocation_mismatch",
     "confidence": 0.8,
     "evidence": {
-      "concentrated_cagr": 0.39863649261493617,
-      "concentrated_max_dd": -0.39175635517512386,
-      "concentrated_sharpe": 0.9646754324669015,
+      "concentrated_cagr": 0.4352259081975951,
+      "concentrated_max_dd": -0.3923096979843662,
+      "concentrated_sharpe": 1.0506311027845716,
       "latest_concentrated_capacity": 0.1,
-      "main_cagr": 0.18393144418245622,
-      "main_max_dd": -0.33750149873957536,
-      "main_sharpe": 0.9064139751532126
+      "main_cagr": 0.21091695275130307,
+      "main_max_dd": -0.31687963309928746,
+      "main_sharpe": 1.0028760256935103
     },
     "id": "concentrated_alpha_underallocated",
     "observation": "Concentrated has materially stronger standalone return/Sharpe but the orchestrator keeps it small.",
@@ -28,10 +28,10 @@
     "category": "portfolio_construction_drag",
     "confidence": 0.78,
     "evidence": {
-      "main_avg_stock_names": 23.867924528301888,
-      "main_avg_turnover_monthly": 0.5228164477298215,
-      "main_cagr": 0.18393144418245622,
-      "main_max_dd": -0.33750149873957536
+      "main_avg_stock_names": 23.698795180722893,
+      "main_avg_turnover_monthly": 0.5301673508759183,
+      "main_cagr": 0.21091695275130307,
+      "main_max_dd": -0.31687963309928746
     },
     "id": "main_broad_high_turnover",
     "observation": "Main remains broad while monthly turnover is high, which can dilute future_winner alpha.",
@@ -117,12 +117,37 @@
     ]
   },
   {
+    "breaks_assumption": "Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps.",
+    "category": "trade_pattern_asymmetry",
+    "confidence": 0.7,
+    "evidence": {
+      "strong_clusters": [
+        {
+          "avg_realized_return": 0.08714562512847117,
+          "cluster_id": "5",
+          "n": 109,
+          "win_rate": 0.6697247706422018
+        }
+      ],
+      "weak_clusters": []
+    },
+    "id": "cluster_conviction_asymmetry",
+    "observation": "Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns.",
+    "regime": null,
+    "severity": "medium",
+    "severity_score": 2.0,
+    "suggested_hypothesis_types": [
+      "cluster_conviction_router",
+      "pattern_block_or_amplify"
+    ]
+  },
+  {
     "breaks_assumption": "Alpha Sprint cannot depend on explosion_* alone until the feature stack produces usable nonzero evidence.",
     "category": "dormant_signal_stack",
     "confidence": 0.68,
     "evidence": {
-      "explosion_entry_n_all": 1216,
-      "explosion_exit_n_all": 1216
+      "explosion_entry_n_all": 967,
+      "explosion_exit_n_all": 967
     },
     "id": "explosion_stack_dormant",
     "observation": "Explosion entry/exit rows exist in the trade journal IC matrix but have no numeric IC evidence.",

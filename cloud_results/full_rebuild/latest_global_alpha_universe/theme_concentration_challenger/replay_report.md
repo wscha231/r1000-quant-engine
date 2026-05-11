@@ -3,10 +3,10 @@
 Research-only replay: select the strongest current theme each month and hold at most three liquid leaders.
 
 - Status: `completed`
-- Months: 107
-- CAGR: 13.76%
-- Sharpe: 0.580
-- MaxDD: -43.81%
+- Months: 84
+- CAGR: 24.09%
+- Sharpe: 0.835
+- MaxDD: -29.64%
 - Average positions: 2.99
 - Average invested: 100.00%
 

@@ -8,7 +8,7 @@
   "ending_equity": 1.0,
   "experiment_id": "alpha_sprint_historical_sidecar",
   "max_dd": 0.0,
-  "months": 107,
+  "months": 84,
   "production_activation_allowed": false,
   "research_only": true,
   "return_column": "period_forward_return",

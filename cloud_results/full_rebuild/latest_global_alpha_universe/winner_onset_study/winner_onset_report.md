@@ -7,19 +7,19 @@ Report-only historical study. No production behavior is changed.
 
 ## Winner Tiers
 
-- `major_2_5x`: 24
-- `super_5x`: 3
+- `major_2_5x`: 23
+- `super_5x`: 4
 - `monster_10x`: 1
 
 ## Median Onset Pattern
 
 - readiness score: 0.627
-- 1m momentum: 6.8%
-- 3m momentum: 10.9%
-- 6m momentum: 4.8%
-- RS vs SPY 3m: 9.0%
+- 1m momentum: 7.8%
+- 3m momentum: 12.0%
+- 6m momentum: 3.0%
+- RS vs SPY 3m: 9.2%
 - volume surge: 1.06x
-- distance to 52w high: -20.7%
+- distance to 52w high: -21.0%
 - first 3m max drawdown: -16.3%
 
 ## Top Events
@@ -30,17 +30,17 @@ Report-only historical study. No production behavior is changed.
 | STX | 2025-05-05 | 2026-05-06 | super_5x | 751.2% | 8.51x | 186.2% | 0.573 |
 | LITE | 2025-02-11 | 2026-02-12 | super_5x | 633.0% | 7.33x | 51.0% | 0.591 |
 | PLTR | 2024-08-09 | 2025-08-12 | super_5x | 523.0% | 6.23x | 275.3% | 1.000 |
+| PR | 2020-06-19 | 2021-06-15 | super_5x | 508.0% | 6.08x | 54.0% | 0.591 |
 | APP | 2024-10-10 | 2025-09-30 | major_2_5x | 396.1% | 4.96x | 63.0% | 1.000 |
 | APP | 2023-04-17 | 2024-04-11 | major_2_5x | 378.8% | 4.79x | 138.0% | 0.591 |
 | MU | 2025-03-14 | 2026-03-17 | major_2_5x | 359.6% | 4.60x | 56.9% | 0.618 |
-| UMC | 2020-01-29 | 2021-01-22 | major_2_5x | 318.5% | 4.18x | 50.8% | 0.591 |
+| FCX | 2020-06-05 | 2021-05-11 | major_2_5x | 313.4% | 4.13x | 124.6% | 0.709 |
 | VRT | 2022-12-07 | 2023-12-08 | major_2_5x | 245.3% | 3.45x | 55.1% | 0.727 |
 | GLW | 2025-03-19 | 2026-02-25 | major_2_5x | 233.4% | 3.33x | 64.9% | 0.682 |
 | LRCX | 2025-03-12 | 2026-02-25 | major_2_5x | 227.7% | 3.28x | 51.3% | 0.591 |
 | GEV | 2025-04-09 | 2026-04-10 | major_2_5x | 204.2% | 3.04x | 94.3% | 0.591 |
 | PLTR | 2023-02-08 | 2024-02-08 | major_2_5x | 198.2% | 2.98x | 87.5% | 0.709 |
 | NVDA | 2022-11-30 | 2023-11-20 | major_2_5x | 198.0% | 2.98x | 132.4% | 0.709 |
-| NEM | 2025-03-13 | 2026-01-28 | major_2_5x | 192.2% | 2.92x | 75.0% | 0.664 |
 
 ## Monster Winner Archive
 
@@ -50,6 +50,7 @@ Report-only historical study. No production behavior is changed.
 | STX | 2025-05-05 | 2026-05-06 | super_5x | 751.2% | 8.51x | 0.573 |
 | LITE | 2025-02-11 | 2026-02-12 | super_5x | 633.0% | 7.33x | 0.591 |
 | PLTR | 2024-08-09 | 2025-08-12 | super_5x | 523.0% | 6.23x | 1.000 |
+| PR | 2020-06-19 | 2021-06-15 | super_5x | 508.0% | 6.08x | 0.591 |
 
 ## Files
 

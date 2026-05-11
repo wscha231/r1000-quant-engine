@@ -1,8 +1,8 @@
 # Novel Regime Report
 
 - Status: `novel_regime_watch`
-- Novelty score: 16.74
-- Known-regime confidence: 0.48
+- Novelty score: 19.44
+- Known-regime confidence: 0.39
 - Recommended mode: `shadow_only`
 - Production activation allowed: `false`
 
@@ -19,3 +19,4 @@ Category counts:
 - `portfolio_construction_drag`: 1
 - `research_infrastructure_gap`: 1
 - `risk_policy_tradeoff`: 1
+- `trade_pattern_asymmetry`: 1

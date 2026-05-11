@@ -1,18 +1,18 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-GOOGL,0.18,ALPHABET INC CLASS A,Communication,core_compounder
-TXN,0.0612752991401531,TEXAS INSTRUMENT INC,Information Technology,core_compounder
-LRCX,0.0612752991401531,LAM RESEARCH CORP,Information Technology,core_compounder
-VRT,0.0612752991401531,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
-GLW,0.0602756843700792,CORNING INC,Information Technology,future_winner
-FIX,0.0574261154684388,COMFORT SYSTEMS USA INC,Industrials,core_compounder
-PWR,0.0562904372513211,QUANTA SERVICES INC,Industrials,future_winner
-FTI,0.0560226496714435,TECHNIPFMC PLC,Energy,future_winner
-UMC,0.0558431309377165,United Microelectronics,Semiconductors,future_winner
-CBOE,0.0551988748689995,CBOE GLOBAL MARKETS INC,Financials,future_winner
-NXPI,0.0551172100115416,NXP Semiconductors,Semiconductors,future_winner
-AKAM,0.04,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
-MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
-STM,0.04,STMicroelectronics,Semiconductors,future_winner
-PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
-ON,0.04,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+GEV,0.12,GE VERNOVA INC,Industrials,core_compounder
+GOOGL,0.12,ALPHABET INC CLASS A,Communication,core_compounder
+VRT,0.0688566291109989,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
+FTI,0.0679685158678421,TECHNIPFMC PLC,Energy,future_winner
+PWR,0.0679661281526174,QUANTA SERVICES INC,Industrials,future_winner
+UMC,0.0676946497298916,United Microelectronics,Semiconductors,future_winner
+NXPI,0.0675140771386498,NXP Semiconductors,Semiconductors,future_winner
+TXN,0.0527781308027713,TEXAS INSTRUMENT INC,Information Technology,core_compounder
+LRCX,0.0522599584491848,LAM RESEARCH CORP,Information Technology,core_compounder
+GLW,0.0512009590695884,CORNING INC,Information Technology,future_winner
 TKR,0.04,TIMKEN,Industrials,early_scout
+MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
+PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
+AKAM,0.0359402379196138,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
+ENTG,0.0359402379196138,ENTEGRIS INC,Information Technology,early_scout
+HPE,0.0359402379196138,HEWLETT PACKARD ENTERPRISE,Information Technology,early_scout
+ON,0.0359402379196138,ON SEMICONDUCTOR CORP,Information Technology,early_scout

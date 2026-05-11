@@ -3,31 +3,23 @@
 # instead edit the proposal tool's thresholds and re-run.
 # Empty `gates: []` is the safe default (no behavior change).
 
-generated_at: '2026-05-11T07:47:06Z'
+generated_at: '2026-05-11T11:59:13Z'
 expires_at: '2026-08-09'
-n_proposals: 3
+n_proposals: 2
 
 gates:
   - kind: signal_regime_disable
-    signal: h6_dynamic_leader_score
-    regime: bear
-    factor: 0.0
-    ic: -0.1687
-    n: 163
-    rationale: "IC -0.169 in bear (n=163) <= disable threshold -0.05"
-
-  - kind: signal_regime_amplify
-    signal: h6_dynamic_leader_score
+    signal: theme_phase_multiplier_primary
     regime: bull
-    factor: 1.3
-    ic: 0.126
-    n: 211
-    rationale: "IC +0.126 in bull (n=211) >= amplify threshold +0.1"
+    factor: 0.0
+    ic: -0.0603
+    n: 203
+    rationale: "IC -0.060 in bull (n=203) <= disable threshold -0.05"
 
   - kind: signal_regime_disable
-    signal: selection_confirmation_score
+    signal: entry_quality_score
     regime: bear
     factor: 0.0
-    ic: -0.1034
-    n: 163
-    rationale: "IC -0.103 in bear (n=163) <= disable threshold -0.05"
+    ic: -0.069
+    n: 153
+    rationale: "IC -0.069 in bear (n=153) <= disable threshold -0.05"

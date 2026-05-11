@@ -5,11 +5,11 @@
 - Account source: `simulated_broker_replay`
 - Target source: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv`
 - As-of date: `2026-05-08`
-- Total equity: $1,302,291.82
-- Current cash: 8.95%
-- Target cash: 30.13%
+- Total equity: $1,059,834.31
+- Current cash: 9.51%
+- Target cash: 27.34%
 - Cash policy review: `CASH_POLICY_REVIEW`
-- Preview orders represented: 52
+- Preview orders represented: 48
 
 This file is the canonical operator snapshot. Raw portfolio_latest files are model targets, not account holdings.
 

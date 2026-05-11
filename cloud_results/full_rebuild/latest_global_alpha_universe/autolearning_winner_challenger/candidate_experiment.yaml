@@ -5,11 +5,11 @@ requires_historical_replay: true
 requires_human_approval: true
 verdict: READY_FOR_PORTFOLIO_CHALLENGER_REPLAY
 inputs:
-  auto_learning_hypotheses: 5
+  auto_learning_hypotheses: 6
   lifecycle_missed_count: 30
-  lifecycle_stale_count: 0
+  lifecycle_stale_count: 1
   onset_event_count: 28
-  shakeout_event_count: 1327
+  shakeout_event_count: 1330
 candidate_rules:
   - id: autolearning_winner_onset_overlay
     status: proposal_only
@@ -22,7 +22,7 @@ candidate_rules:
       - shakeout_hold_add_or_breakdown_exit
     suggested_event_hold_rule:
       strategy: hold_18m_return
-      median_return: 2.1719156279993137
+      median_return: 2.217964706727626
     limits:
       max_shadow_capacity: 0.10
       max_single_name_weight: 0.05

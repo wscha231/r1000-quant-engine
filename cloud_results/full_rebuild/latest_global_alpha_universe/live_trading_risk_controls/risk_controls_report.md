@@ -4,7 +4,7 @@
 - Account mode: `simulated`
 - Error count: 0
 - Warning count: 0
-- Manifest orders: 52
+- Manifest orders: 48
 
 This is preview/reconciliation only. It does not submit broker orders.
 

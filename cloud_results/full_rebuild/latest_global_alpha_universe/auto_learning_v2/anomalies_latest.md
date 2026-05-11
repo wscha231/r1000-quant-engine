@@ -15,13 +15,13 @@ Evidence:
 
 ```json
 {
-  "concentrated_cagr": 0.39863649261493617,
-  "concentrated_max_dd": -0.39175635517512386,
-  "concentrated_sharpe": 0.9646754324669015,
+  "concentrated_cagr": 0.4352259081975951,
+  "concentrated_max_dd": -0.3923096979843662,
+  "concentrated_sharpe": 1.0506311027845716,
   "latest_concentrated_capacity": 0.1,
-  "main_cagr": 0.18393144418245622,
-  "main_max_dd": -0.33750149873957536,
-  "main_sharpe": 0.9064139751532126
+  "main_cagr": 0.21091695275130307,
+  "main_max_dd": -0.31687963309928746,
+  "main_sharpe": 1.0028760256935103
 }
 ```
 
@@ -38,10 +38,10 @@ Evidence:
 
 ```json
 {
-  "main_avg_stock_names": 23.867924528301888,
-  "main_avg_turnover_monthly": 0.5228164477298215,
-  "main_cagr": 0.18393144418245622,
-  "main_max_dd": -0.33750149873957536
+  "main_avg_stock_names": 23.698795180722893,
+  "main_avg_turnover_monthly": 0.5301673508759183,
+  "main_cagr": 0.21091695275130307,
+  "main_max_dd": -0.31687963309928746
 }
 ```
 
@@ -116,7 +116,32 @@ Evidence:
 }
 ```
 
-## 5. explosion_stack_dormant
+## 5. cluster_conviction_asymmetry
+
+- Category: `trade_pattern_asymmetry`
+- Severity: `medium`
+- Confidence: 0.70
+- Observation: Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns.
+- Broken assumption: Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps.
+- Suggested hypothesis types: cluster_conviction_router, pattern_block_or_amplify
+
+Evidence:
+
+```json
+{
+  "strong_clusters": [
+    {
+      "avg_realized_return": 0.08714562512847117,
+      "cluster_id": "5",
+      "n": 109,
+      "win_rate": 0.6697247706422018
+    }
+  ],
+  "weak_clusters": []
+}
+```
+
+## 6. explosion_stack_dormant
 
 - Category: `dormant_signal_stack`
 - Severity: `medium`
@@ -129,7 +154,7 @@ Evidence:
 
 ```json
 {
-  "explosion_entry_n_all": 1216,
-  "explosion_exit_n_all": 1216
+  "explosion_entry_n_all": 967,
+  "explosion_exit_n_all": 967
 }
 ```

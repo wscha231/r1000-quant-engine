@@ -1,6 +1,5 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-ON,0.2585110885486117,ON SEMICONDUCTOR CORP,Information Technology,early_scout
-AKAM,0.2549331059323249,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
-WDC,0.2088026270470424,WESTERN DIGITAL CORP,Information Technology,future_winner
-MU,0.172082750265555,MICRON TECHNOLOGY INC,Information Technology,future_winner
-SNDK,0.1056704282064657,SANDISK CORP,Information Technology,future_winner
+ON,0.3212325152022438,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+MU,0.2654902385193139,MICRON TECHNOLOGY INC,Information Technology,future_winner
+WDC,0.2614368475882838,WESTERN DIGITAL CORP,Information Technology,future_winner
+SNDK,0.1518403986901584,SANDISK CORP,Information Technology,future_winner

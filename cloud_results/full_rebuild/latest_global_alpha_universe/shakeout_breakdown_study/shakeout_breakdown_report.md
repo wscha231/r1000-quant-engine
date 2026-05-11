@@ -2,41 +2,41 @@
 
 Report-only event study. No production behavior is changed.
 
-- events: 1327
+- events: 1330
 - production_activation_allowed: `False`
 
 ## Label Counts
 
-- `DISTRIBUTION`: 433
-- `TRUE_BREAKDOWN`: 124
-- `AMBIGUOUS`: 342
-- `SHAKEOUT`: 428
+- `DISTRIBUTION`: 443
+- `TRUE_BREAKDOWN`: 130
+- `AMBIGUOUS`: 332
+- `SHAKEOUT`: 425
 
 ## Label Medians
 
 | Label | N | Median DD | Median 6m Return | Recovery 6m | Half Recovery 6m | Lower Low After Half | Shakeout Quality | Distribution Risk | Breakdown Risk |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| AMBIGUOUS | 342 | -12.90% | 10.31% | 69.59% | 81.87% | 1.75% | 0.618 | 0.327 | 0.130 |
-| DISTRIBUTION | 433 | -12.84% | -1.19% | 59.58% | 90.53% | 88.22% | 0.545 | 0.545 | 0.200 |
-| SHAKEOUT | 428 | -13.04% | 35.90% | 100.00% | 100.00% | 10.05% | 0.800 | 0.273 | 0.000 |
-| TRUE_BREAKDOWN | 124 | -13.19% | -17.90% | 4.03% | 8.06% | 0.00% | 0.436 | 0.318 | 0.370 |
+| AMBIGUOUS | 332 | -12.92% | 9.84% | 69.58% | 81.33% | 2.71% | 0.618 | 0.336 | 0.130 |
+| DISTRIBUTION | 443 | -12.88% | -1.28% | 57.56% | 90.52% | 88.26% | 0.545 | 0.545 | 0.200 |
+| SHAKEOUT | 425 | -13.08% | 35.88% | 100.00% | 100.00% | 10.12% | 0.800 | 0.273 | 0.000 |
+| TRUE_BREAKDOWN | 130 | -13.16% | -17.90% | 3.85% | 7.69% | 0.00% | 0.436 | 0.318 | 0.370 |
 
 ## Best Event-Level Actions By Label/Horizon
 
 | Label | Horizon | Best Action | N | Median Return | Hit Rate |
 |---|---|---|---:|---:|---:|
-| AMBIGUOUS | 1m | add25 | 342 | 0.53% | 51.75% |
-| AMBIGUOUS | 3m | add25 | 342 | 8.19% | 69.30% |
-| AMBIGUOUS | 6m | add25 | 342 | 12.88% | 85.67% |
-| DISTRIBUTION | 1m | add25 | 433 | 2.86% | 63.05% |
-| DISTRIBUTION | 3m | add25 | 433 | 0.97% | 52.42% |
-| DISTRIBUTION | 6m | exit_to_cash | 433 | 0.00% | 0.00% |
-| SHAKEOUT | 1m | add25 | 428 | 7.71% | 74.53% |
-| SHAKEOUT | 3m | add25 | 428 | 23.32% | 91.12% |
-| SHAKEOUT | 6m | add25 | 428 | 44.88% | 100.00% |
-| TRUE_BREAKDOWN | 1m | exit_to_cash | 124 | 0.00% | 0.00% |
-| TRUE_BREAKDOWN | 3m | exit_to_cash | 124 | 0.00% | 0.00% |
-| TRUE_BREAKDOWN | 6m | exit_to_cash | 124 | 0.00% | 0.00% |
+| AMBIGUOUS | 1m | add25 | 332 | 1.06% | 52.41% |
+| AMBIGUOUS | 3m | add25 | 332 | 7.64% | 68.07% |
+| AMBIGUOUS | 6m | add25 | 332 | 12.30% | 85.24% |
+| DISTRIBUTION | 1m | add25 | 443 | 2.82% | 62.30% |
+| DISTRIBUTION | 3m | add25 | 443 | 0.87% | 52.37% |
+| DISTRIBUTION | 6m | exit_to_cash | 443 | 0.00% | 0.00% |
+| SHAKEOUT | 1m | add25 | 425 | 7.72% | 74.35% |
+| SHAKEOUT | 3m | add25 | 425 | 23.73% | 91.53% |
+| SHAKEOUT | 6m | add25 | 425 | 44.85% | 100.00% |
+| TRUE_BREAKDOWN | 1m | exit_to_cash | 130 | 0.00% | 0.00% |
+| TRUE_BREAKDOWN | 3m | exit_to_cash | 130 | 0.00% | 0.00% |
+| TRUE_BREAKDOWN | 6m | exit_to_cash | 130 | 0.00% | 0.00% |
 
 ## Recent / Largest Events
 

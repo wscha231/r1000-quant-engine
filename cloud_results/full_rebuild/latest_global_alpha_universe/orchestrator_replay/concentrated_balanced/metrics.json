@@ -28,9 +28,9 @@
   },
   "concentrated_audit": {
     "interval": 1,
-    "matched_rows": 106,
+    "matched_rows": 83,
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_monthly.csv",
-    "rows": 6678,
+    "rows": 5229,
     "target_n": 5,
     "weighting_mode": "score_power"
   },
@@ -41,48 +41,48 @@
     "Production remains blocked until target gates and human approval pass."
   ],
   "main_audit": {
-    "months": 106,
+    "months": 83,
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/holdings_history.csv",
-    "rows": 2549
+    "rows": 1985
   },
   "metrics": {
     "concentrated": {
-      "cagr": 0.39863649261493617,
-      "calmar": 2.403632251381997,
-      "ending_equity": 19.366875321322297,
-      "max_dd": -0.16584753860984158,
-      "months": 106,
-      "sharpe": 1.7049580372533164,
-      "vol_ann": 0.21193651831220633
+      "cagr": 0.42855624522640334,
+      "calmar": 3.3697374408040246,
+      "ending_equity": 11.786186174002712,
+      "max_dd": -0.12717793381675135,
+      "months": 83,
+      "sharpe": 1.777111181301903,
+      "vol_ann": 0.21603614141783276
     },
     "main_proxy": {
-      "cagr": 0.31290603833979236,
-      "calmar": 1.9944436576267404,
-      "ending_equity": 11.07636360885986,
-      "max_dd": -0.1568888833451081,
-      "months": 106,
-      "sharpe": 1.8388332763447144,
-      "vol_ann": 0.15623624081432952
+      "cagr": 0.33755938711108113,
+      "calmar": 2.5325597326265785,
+      "ending_equity": 7.4759334367813866,
+      "max_dd": -0.13328782842211195,
+      "months": 83,
+      "sharpe": 1.9815042113363863,
+      "vol_ann": 0.15445946130130242
     },
     "unified_balanced": {
-      "cagr": 0.2438937203398952,
-      "calmar": 2.081773952968363,
-      "ending_equity": 6.8746764839788455,
-      "max_dd": -0.11715667783821182,
-      "months": 106,
-      "sharpe": 1.8465253456275852,
-      "vol_ann": 0.1233099003560144
+      "cagr": 0.2653064321200471,
+      "calmar": 2.6154531430011905,
+      "ending_equity": 5.091593233612412,
+      "max_dd": -0.10143803678150098,
+      "months": 83,
+      "sharpe": 1.995605868328271,
+      "vol_ann": 0.12277236014570597
     }
   },
   "production_activation_allowed": false,
   "status": "completed",
   "target_status": [
     {
-      "cagr": 0.31290603833979236,
+      "cagr": 0.33755938711108113,
       "cagr_gap_pp": 0.0,
       "cagr_pass": true,
       "cagr_target": 0.25,
-      "max_dd": -0.1568888833451081,
+      "max_dd": -0.13328782842211195,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.2,
@@ -90,23 +90,23 @@
       "target_pass": true
     },
     {
-      "cagr": 0.39863649261493617,
-      "cagr_gap_pp": 0.13635073850638557,
-      "cagr_pass": false,
+      "cagr": 0.42855624522640334,
+      "cagr_gap_pp": 0.0,
+      "cagr_pass": true,
       "cagr_target": 0.4,
-      "max_dd": -0.16584753860984158,
+      "max_dd": -0.12717793381675135,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.22,
       "portfolio": "concentrated",
-      "target_pass": false
+      "target_pass": true
     },
     {
-      "cagr": 0.2438937203398952,
-      "cagr_gap_pp": 3.6106279660104823,
+      "cagr": 0.2653064321200471,
+      "cagr_gap_pp": 1.4693567879952907,
       "cagr_pass": false,
       "cagr_target": 0.28,
-      "max_dd": -0.11715667783821182,
+      "max_dd": -0.10143803678150098,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.22,

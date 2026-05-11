@@ -1,6 +1,3 @@
 rebalance_date,ticker,Name,sector,original_weight,defended_weight,cash_after_defense,list_action,reason,period_forward_return,risk_adjusted_return,hard_stop,risk_exit_proxy,target_n,weighting_mode,active_rebalance_interval_months,raw_score,concentrated_score,portfolio_sleeve_label
-2026-02-27,ETR,ENTERGY CORP,Utilities,0.5,0.5,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,5,winner_take_all,1,3.583454335696507,0.7012561125077796,early_scout
-2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.125,0.125,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,5,winner_take_all,1,2.8074120431500833,0.6942135618155516,early_scout
-2026-02-27,PEG,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,0.125,0.125,,hold,hold,-0.05657827013290484,-0.05657827013290484,-0.08,False,5,winner_take_all,1,2.46535387964104,0.615559899142359,early_scout
-2026-02-27,BKNG,BOOKING HOLDINGS INC,Consumer Discretionary,0.125,0.125,,hold,hold,0.04356784208919762,0.04356784208919762,-0.08,False,5,winner_take_all,1,4.936289719013552,0.6051694830236465,early_scout
-2026-02-27,THC,TENET HEALTHCARE CORP,Health Care,0.125,0.125,,hold,hold,-0.08,-0.08,-0.08,False,5,winner_take_all,1,1.7547141651728677,0.590204470733648,early_scout
+2026-02-27,ETR,ENTERGY CORP,Utilities,0.5,0.5,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,2,winner_take_all,1,3.6992991509448214,0.7092979552805547,early_scout
+2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.5,0.5,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,2,winner_take_all,1,2.7640366532358427,0.6949127221545058,early_scout

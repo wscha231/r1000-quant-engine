@@ -6,22 +6,22 @@
   "as_of_date": "2026-05-08",
   "cash_policy_flag": "target_cash_above_macro_floor_without_confirmation",
   "cash_policy_review_action": "CASH_POLICY_REVIEW",
-  "cash_usd": 116538.42692211033,
-  "current_cash_weight": 0.0894871831053396,
+  "cash_usd": 100751.21444790502,
+  "current_cash_weight": 0.09506317513153321,
   "current_portfolio_snapshot": {
     "as_of_date": "2026-05-08",
     "cash_policy_flag": "target_cash_above_macro_floor_without_confirmation",
     "cash_policy_review_action": "CASH_POLICY_REVIEW",
     "cash_row_count": 2,
-    "combined_cash_gap_weight": 0.211857236342754,
-    "combined_current_cash_weight": 0.0894871831053396,
-    "combined_target_cash_weight": 0.3013444194480936,
-    "generated_at_utc": "2026-05-11T07:54:09.050781+00:00",
+    "combined_cash_gap_weight": 0.17829797951621568,
+    "combined_current_cash_weight": 0.09506317513153321,
+    "combined_target_cash_weight": 0.2733611546477489,
+    "generated_at_utc": "2026-05-11T12:05:54.081356+00:00",
     "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
     "macro_cash_raise_confirmation_count": 0.0,
     "macro_cash_raise_gate": "reentry_holdback_only",
     "macro_recommended_cash_floor": 0.05,
-    "monster_recommendation_count": 8,
+    "monster_recommendation_count": 6,
     "notes": [
       "This is the current simulated broker-ledger account state marked to the latest available close.",
       "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
@@ -35,16 +35,16 @@
     },
     "portfolio_position_counts": {
       "concentrated": 3,
-      "main": 34
+      "main": 28
     },
-    "row_count": 39,
+    "row_count": 33,
     "schema_version": "current-portfolio-snapshot-v1",
     "snapshot_semantics": "current_broker_ledger_mark_to_market",
     "status": "completed"
   },
-  "equity_row_count": 60,
+  "equity_row_count": 56,
   "error_count": 0,
-  "generated_at_utc": "2026-05-11T07:54:09.051878+00:00",
+  "generated_at_utc": "2026-05-11T12:05:54.082507+00:00",
   "issue_count": 1,
   "issues": [
     {
@@ -69,14 +69,14 @@
     "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.json",
     "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_report.md"
   },
-  "preview_order_count": 52,
+  "preview_order_count": 48,
   "risk_controls_status": "pass",
-  "row_count": 61,
+  "row_count": 57,
   "safety_audit_status": "pass",
   "schema_version": "operating-snapshot-v1",
   "status": "simulation",
-  "target_cash_weight": 0.3013444194480936,
+  "target_cash_weight": 0.2733611546477489,
   "target_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv",
-  "total_equity_usd": 1302291.8241255558,
+  "total_equity_usd": 1059834.3081692948,
   "warning_count": 0
 }

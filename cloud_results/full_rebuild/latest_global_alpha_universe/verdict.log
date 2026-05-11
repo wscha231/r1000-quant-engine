@@ -1,8 +1,8 @@
 ======================================================================
 r1000 Quant Engine -- local run
 ======================================================================
-  commit:        1361ad1 (DIRTY)
-  started:       2026-05-11 16:47:00 KST
+  commit:        e237b4b (DIRTY)
+  started:       2026-05-11 20:59:07 KST
   base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
   end_date:      2026-05-11
   mode:          QUICK_RESCORE
@@ -17,7 +17,7 @@ r1000 Quant Engine -- local run
   Phase 9 C3:    auto
   Phase 14:      auto
 ======================================================================
-OK: companyfacts.zip 2.0d old, 1315 MB
+OK: companyfacts.zip 2.2d old, 1315 MB
 
 ======================================================================
 CELL E -- PHASE 9 C1+C2 DIAGNOSTIC
@@ -41,53 +41,53 @@ Phase 9 diagnostic columns (expect populated if C2 active):
   phase9_mktcap_percentile                  mean=0.501  sum=366
 
 Final portfolio: 17 positions
-  Sleeve dist: {'core_compounder': 5, 'early_scout': 4, 'future_winner': 8}
+  Sleeve dist: {'core_compounder': 5, 'early_scout': 6, 'future_winner': 6}
   Top 10 by weight:
 ticker portfolio_sleeve_label   weight
- GOOGL        core_compounder 0.180000
-  LRCX        core_compounder 0.061275
-   TXN        core_compounder 0.061275
-   VRT        core_compounder 0.061275
-   GLW          future_winner 0.060276
-   FIX        core_compounder 0.057426
-   PWR          future_winner 0.056290
-   FTI          future_winner 0.056023
-   UMC          future_winner 0.055843
-  CBOE          future_winner 0.055199
+ GOOGL        core_compounder 0.120000
+   GEV        core_compounder 0.120000
+   VRT        core_compounder 0.068857
+   FTI          future_winner 0.067969
+   PWR          future_winner 0.067966
+   UMC          future_winner 0.067695
+  NXPI          future_winner 0.067514
+   TXN        core_compounder 0.052778
+  LRCX        core_compounder 0.052260
+   GLW          future_winner 0.051201
 
 ======================================================================
 METRICS vs baseline: Phase 15-D global_alpha_universe (SHIPPED 2026-04-29)
 ======================================================================
   metric                          new   baseline          delta
-  cagr                         0.2732     0.2451        +2.81pp
-  sharpe                       1.6397     1.2453        +0.3944
-  max_dd                      -0.1787    -0.2579        +7.92pp
-  ir                           1.2253     1.0244        +0.2009
-  avg_turnover_monthly         0.5228     0.4854        +3.74pp
-  avg_stock_names             23.8679    24.3300        -0.4621
-  beat_month_ratio             0.6038     0.5663        +0.0375
-  excess_cagr                  0.1539     0.1102        +4.37pp
+  cagr                         0.2966     0.2451        +5.15pp
+  sharpe                       1.7776     1.2453        +0.5323
+  max_dd                      -0.1566    -0.2579       +10.13pp
+  ir                           1.3360     1.0244        +0.3116
+  avg_turnover_monthly         0.5302     0.4854        +4.48pp
+  avg_stock_names             23.6988    24.3300        -0.6312
+  beat_month_ratio             0.6506     0.5663        +0.0843
+  excess_cagr                  0.1723     0.1102        +6.21pp
 
 === SLEEVE ALLOCATION ===
-  target:  {'core_compounder': 0.25, 'future_winner': 0.45, 'early_scout': 0.3}
-  actual:  {'core_compounder': 0.42125201288889835, 'future_winner': 0.4187479871111016, 'early_scout': 0.16}
-  counts:  {'core_compounder': 5, 'future_winner': 8, 'early_scout': 4}
+  target:  {'core_compounder': 0.25, 'future_winner': 0.35, 'early_scout': 0.4}
+  actual:  {'core_compounder': 0.41389471836295516, 'future_winner': 0.3623443299585895, 'early_scout': 0.22376095167845542}
+  counts:  {'core_compounder': 5, 'future_winner': 6, 'early_scout': 6}
 
 === VERDICT ===
-  dCAGR    +2.81pp   (gate >= +0.5pp)
-  dSharpe  +0.3944    (gate >= -0.05)
-  dMaxDD   +7.92pp   (gate >= -3pp; positive better)
-  early_scout selected: 4    (gate >= 4)
+  dCAGR    +5.15pp   (gate >= +0.5pp)
+  dSharpe  +0.5323    (gate >= -0.05)
+  dMaxDD   +10.13pp   (gate >= -3pp; positive better)
+  early_scout selected: 6    (gate >= 4)
 
   --> SHIP vs Phase 15-D global_alpha_universe (SHIPPED 2026-04-29). Rotate baseline + next phase.
 
 ======================================================================
 LIFETIME PERFORMANCE (backtest + live, Phase 12D)
 ======================================================================
-  Backtest anchor: 2026-02-27 at equity 8.4447
-  Lifetime CAGR:   27.65% over 8.74 years
-  Lifetime total:  745.59%
-  vs baseline CAGR (24.51%): +3.14pp
+  Backtest anchor: 2026-02-27 at equity 6.0294
+  Lifetime CAGR:   30.34% over 6.83 years
+  Lifetime total:  511.13%
+  vs baseline CAGR (24.51%): +5.83pp
   Live extension:  method=no_live_data (no live data yet)
   HINT: edit base_dir/manual_positions.yaml with real broker holdings
         (avg_cost, shares, entry_date) to activate lifetime CAGR.

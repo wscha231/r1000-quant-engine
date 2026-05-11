@@ -1,23 +1,23 @@
 {
   "diagnostic_counts": {
-    "balanced_under_drawdown": 16,
-    "late_risk_alert": 13,
-    "possible_cash_drag": 6,
+    "balanced_under_drawdown": 10,
+    "late_risk_alert": 11,
+    "possible_cash_drag": 7,
     "premature_growth_reentry": 1,
     "unconfirmed_cash_raise": 17
   },
   "experiment_id": "macro_policy_engine",
   "latest": {
-    "breadth_credit_stress_score": 0.017821913915491556,
+    "breadth_credit_stress_score": 0.051164341658538746,
     "cash_raise_confirmation_count": 0,
     "cash_raise_gate": "reentry_holdback_only",
     "confirmed_cash_raise": false,
     "event_shock_score": 0.0,
     "index_trend_damage_score": 0.1,
-    "liquidity_drain_score": 0.12221913126228054,
+    "liquidity_drain_score": 0.08644931440485451,
     "macro_risk_state": "recovery",
     "macro_snapshot_source": "scored_latest",
-    "macro_style_state": "breakout_growth",
+    "macro_style_state": "quality_compounder",
     "monster_exception_allowed": true,
     "rebalance_date": "2026-05-11",
     "recommended_action": "staged_reentry_scout_then_scale_confirmed_new_leaders",
@@ -27,22 +27,22 @@
     "recommended_target_n": 14,
     "recommended_trim_policy": "keep_cash_until_confirmation"
   },
-  "months": 107,
+  "months": 84,
   "production_activation_allowed": false,
   "research_only": true,
   "risk_state_counts": {
     "crisis": 5,
-    "green": 63,
+    "green": 45,
     "recovery": 9,
-    "red": 12,
-    "yellow": 18
+    "red": 9,
+    "yellow": 16
   },
   "source_regime_by_month": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/regime_by_month.csv",
   "status": "completed",
   "style_state_counts": {
-    "breakout_growth": 14,
-    "cash_defense": 21,
-    "quality_compounder": 64,
-    "turnaround_accumulation": 8
+    "breakout_growth": 12,
+    "cash_defense": 16,
+    "quality_compounder": 49,
+    "turnaround_accumulation": 7
   }
 }
