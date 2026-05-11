@@ -106,6 +106,59 @@ All entries must be written in English. Entries must be predictable and machine-
   - Full rebuild remains deferred by request; this commit only prepares the next run path.
   - This enables arbitrary-date operating decisions for latest targets, but true 10-year daily decision backtesting still requires historical daily or event-time feature snapshots.
 
+### 00:23 KST - operating-event-backtest-verification
+
+- scope:
+  - Add explicit operating event backtest verification so non-monthly daily risk actions are visible and full non-monthly entry/replacement gaps are not hidden.
+- files:
+  - `tools/run_operating_event_backtest.py` ->will summarize broker ledger, daily position-risk replay, and execution-policy replay evidence for main/concentrated portfolios.
+  - `.github/workflows/full_rebuild_manual.yml` ->will run and publish the operating event backtest verification sidecar.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->will run and publish the same verification in fast replay sidecars.
+  - `tools/run_portfolio_system_guard.py` ->will surface availability and entry/replacement validation status from the operating event backtest summary.
+  - `tests/operating_event_backtest_smoke.py` ->will cover explicit partial-vs-full non-monthly validation status.
+  - `tests/workflow_artifact_smoke.py` ->will cover workflow wiring for the operating event backtest outputs.
+  - `CHANGELOG.md` ->records the operating event backtest verification work.
+- symbols_added:
+  - `run_operating_event_backtest.repo_path(path_like)` ->resolves repository-relative paths.
+  - `run_operating_event_backtest.safe_float(value, default)` ->normalizes numeric metrics defensively.
+  - `run_operating_event_backtest.read_json(path)` ->loads optional JSON artifacts defensively.
+  - `run_operating_event_backtest.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `run_operating_event_backtest.write_json(path, payload)` ->writes JSON diagnostics.
+  - `run_operating_event_backtest.write_csv(path, rows)` ->writes tabular verification outputs.
+  - `run_operating_event_backtest.date_text(value)` ->normalizes dates to ISO text.
+  - `run_operating_event_backtest.target_book_path(latest_run, portfolio)` ->chooses operating target books when present, falling back to historical books.
+  - `run_operating_event_backtest.target_decision_profile(path)` ->profiles target decision dates and detects sub-monthly target decisions.
+  - `run_operating_event_backtest.csv_count(path)` ->counts rows in optional CSV artifacts.
+  - `run_operating_event_backtest.metrics_subset(metrics, prefix)` ->extracts comparable metric fields.
+  - `run_operating_event_backtest.nonmonthly_risk_evidence(portfolio, latest_run, target_dates)` ->finds risk actions whose signal dates are not target-book decision dates.
+  - `run_operating_event_backtest.summarize_portfolio(latest_run, portfolio)` ->summarizes one portfolio's event-backtest evidence.
+  - `run_operating_event_backtest.render_report(payload)` ->renders a markdown verification report.
+  - `run_operating_event_backtest.run(args)` ->builds the operating event backtest verification artifacts.
+  - `run_operating_event_backtest.parse_args()` ->parses CLI arguments.
+  - `run_operating_event_backtest.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `run_portfolio_system_guard.load_inputs(latest_run)` ->loads operating event backtest summaries when available.
+  - `run_portfolio_system_guard.error_checks(inputs, latest_run, require_latest_artifacts)` ->warns separately for missing operating event verification, missing daily-risk backtest validation, and missing full non-monthly entry/replacement validation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_event_backtest/operating_event_backtest_summary.json` ->portfolio-level evidence for daily risk actions and full non-monthly entry/replacement validation.
+  - `outputs/operating_event_backtest/portfolio_event_backtest_status.csv` ->tabular portfolio validation status.
+  - `outputs/operating_event_backtest/nonmonthly_trade_evidence.csv` ->risk-action rows whose signal dates are not target-book decision dates.
+  - `outputs/operating_event_backtest/operating_event_backtest_report.md` ->human-readable verification report.
+- validation:
+  - `python tests\operating_event_backtest_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python -m py_compile tools\run_operating_event_backtest.py tools\run_portfolio_system_guard.py` ->passed.
+  - `python tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `python tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `python tests\operating_target_books_smoke.py` ->passed.
+- risks_or_notes:
+  - This verification can prove daily risk exits/trims when artifacts contain those actions, but it intentionally marks full non-monthly entry/replacement as not validated until historical daily/event target books exist.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

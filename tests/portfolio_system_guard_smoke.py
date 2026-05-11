@@ -62,6 +62,15 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         )
         write_json(latest / "backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(latest / "concentrated_backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
+        write_json(
+            latest / "operating_event_backtest" / "operating_event_backtest_summary.json",
+            {
+                "status": "completed",
+                "daily_risk_overlay_validated": True,
+                "daily_risk_action_evidence_count": 2,
+                "full_nonmonthly_entry_replacement_validated": False,
+            },
+        )
         write_csv(latest / "reports" / "main_monthly_weights.csv", [{"rebalance_date": "2025-12-31", "ticker": "AAA", "weight": 1.0}])
         write_csv(
             latest / "reports" / "concentrated_strategy_holdings.csv",
@@ -114,6 +123,9 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["main_historical_research_book_reaches_broker_end"]["severity"] == "warn"
         assert checks["main_broker_replay_uses_operating_target_book"]["passed"] is True
         assert checks["concentrated_broker_replay_uses_operating_target_book"]["passed"] is True
+        assert checks["operating_event_backtest_available"]["passed"] is True
+        assert checks["daily_risk_overlay_backtest_validated"]["passed"] is True
+        assert checks["full_nonmonthly_entry_replacement_backtest_validated"]["severity"] == "warn"
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True

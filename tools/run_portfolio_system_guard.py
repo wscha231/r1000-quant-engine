@@ -246,6 +246,8 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         or read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
         "account_evaluation": read_json(latest_run / "account_evaluation" / "account_evaluation_summary.json")
         or read_json(REPO_ROOT / "outputs" / "account_evaluation" / "account_evaluation_summary.json"),
+        "operating_event_backtest": read_json(latest_run / "operating_event_backtest" / "operating_event_backtest_summary.json")
+        or read_json(REPO_ROOT / "outputs" / "operating_event_backtest" / "operating_event_backtest_summary.json"),
         "workflows": existing_workflows(),
     }
 
@@ -388,6 +390,35 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
             "detail": f"production_ready_count={production_ready}",
         }
     )
+    operating_event = inputs.get("operating_event_backtest") or {}
+    out.append(
+        {
+            "check": "operating_event_backtest_available",
+            "passed": bool(operating_event),
+            "severity": "warn" if not operating_event else "ok",
+            "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+        }
+    )
+    if operating_event:
+        daily_risk = bool(operating_event.get("daily_risk_overlay_validated"))
+        full_entries = bool(operating_event.get("full_nonmonthly_entry_replacement_validated"))
+        action_count = int(safe_float(operating_event.get("daily_risk_action_evidence_count"), 0))
+        out.append(
+            {
+                "check": "daily_risk_overlay_backtest_validated",
+                "passed": daily_risk,
+                "severity": "warn" if not daily_risk else "ok",
+                "detail": f"daily_risk_overlay_validated={daily_risk}; nonmonthly_risk_action_count={action_count}",
+            }
+        )
+        out.append(
+            {
+                "check": "full_nonmonthly_entry_replacement_backtest_validated",
+                "passed": full_entries,
+                "severity": "warn" if not full_entries else "ok",
+                "detail": f"full_nonmonthly_entry_replacement_validated={full_entries}; daily_risk_action_evidence_count={action_count}",
+            }
+        )
     replay = inputs.get("orchestrator_replay") or {}
     replay_valid = bool(replay.get("valid_for_promotion"))
     out.append(
