@@ -21,6 +21,7 @@ outputs/regime_snapshot_cache.json
 outputs/free_data_lake_bootstrap/
 outputs/free_data_proxy_backtest/
 outputs/free_data_engine_validation/
+outputs/ten_year_backtest_readiness/
 outputs/winner_lifecycle/
 outputs/winner_onset_study/
 outputs/autolearning_winner_challenger/

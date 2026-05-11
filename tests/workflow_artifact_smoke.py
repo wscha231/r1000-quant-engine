@@ -267,10 +267,12 @@ def test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay() -> None:
         "Free Data Lake Bootstrap",
         "tools/run_free_data_lake_bootstrap.py",
         "tools/run_free_data_engine_validation.py",
+        "tools/check_10y_backtest_readiness.py",
         "data_raw/free",
         "data_pit/free",
         "manifests/free_data",
         "cache_prices",
+        "companyfacts.zip",
         "GOOGLE_SERVICE_ACCOUNT_KEY",
         "RCLONE_CONFIG_GDRIVE",
         "gdrive_smoke_test",
@@ -278,10 +280,12 @@ def test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay() -> None:
         "tools/run_broker_ledger_replay.py",
         "outputs/free_data_proxy_backtest/",
         "outputs/free_data_engine_validation/",
+        "outputs/ten_year_backtest_readiness/",
         "data_pit/free/coverage_audit.json",
         "manifests/free_data/latest_manifest.json",
         "SAFE_BRANCH",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap",
+        "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness",
     ]:
         assert token in text, token
     for forbidden in [
@@ -305,7 +309,9 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         "tools/run_broker_ledger_replay.py",
         "outputs/free_data_proxy_backtest/",
         "tools/run_free_data_engine_validation.py",
+        "tools/check_10y_backtest_readiness.py",
         "outputs/free_data_engine_validation/",
+        "outputs/ten_year_backtest_readiness/",
         "CAGR",
         "MaxDD",
     ]:

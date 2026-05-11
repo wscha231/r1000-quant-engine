@@ -53,6 +53,59 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 13:10 KST - ten-year-readiness-audit
+
+- scope:
+  - Add an explicit 10-year backtest readiness audit so agents can distinguish proxy price-cache readiness from official broker-ledger readiness before launching expensive full rebuilds.
+- files:
+  - `tools/check_10y_backtest_readiness.py` ->audits free-data coverage, price cache manifest range, target-book date ranges, broker-ledger replay ranges, SEC companyfacts availability, PIT/proxy labels, blockers, and next actions.
+  - `.github/workflows/free_data_lake_bootstrap.yml` ->restores root `companyfacts.zip` into `data_raw/free/sec/companyfacts.zip` when available, runs the 10-year readiness audit, uploads it, and syncs it to Drive.
+  - `.github/workflows/free_data_daily_update.yml` ->runs the same readiness audit after the recurring free-data proxy replay and syncs the report to Drive.
+  - `.gitignore` ->keeps generated 10-year readiness reports out of source control.
+  - `tests/ten_year_backtest_readiness_smoke.py` ->covers proxy-price-ready versus official-10-year-ready cases.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow wiring for 10-year readiness artifacts and root companyfacts restore.
+  - `docs/FREE_BACKTEST_LEARNING_PLAN.md` ->documents the readiness states and execution sequence.
+  - `CHANGELOG.md` ->records the 10-year readiness audit.
+- symbols_added:
+  - `check_10y_backtest_readiness.repo_path(path_like)` ->resolves repo-relative paths.
+  - `check_10y_backtest_readiness.read_json(path, default)` ->loads optional JSON inputs safely.
+  - `check_10y_backtest_readiness.write_json(path, payload)` ->writes deterministic JSON outputs.
+  - `check_10y_backtest_readiness.parse_date(value)` ->normalizes ISO-like date values.
+  - `check_10y_backtest_readiness.safe_float(value)` ->normalizes finite numeric metrics.
+  - `check_10y_backtest_readiness.count_price_files(path)` ->counts local price parquet files.
+  - `check_10y_backtest_readiness.csv_date_range(path, columns)` ->summarizes target-book date coverage.
+  - `check_10y_backtest_readiness.metric_summary(path)` ->summarizes broker-ledger replay metrics.
+  - `check_10y_backtest_readiness.years_ready(start, end, min_years)` ->checks date-range sufficiency.
+  - `check_10y_backtest_readiness.build_payload(args)` ->builds the readiness decision payload.
+  - `check_10y_backtest_readiness.next_actions(status, blockers, warnings)` ->maps readiness state to next actions.
+  - `check_10y_backtest_readiness.render_report(payload)` ->renders the Markdown readiness report.
+  - `check_10y_backtest_readiness.run(args)` ->writes readiness JSON and Markdown outputs.
+  - `check_10y_backtest_readiness.parse_args()` ->parses CLI arguments.
+  - `check_10y_backtest_readiness.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()` ->requires 10-year readiness workflow artifacts and root companyfacts restore.
+  - `test_free_data_daily_workflow_updates_metrics_after_close()` ->requires recurring 10-year readiness output.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ten_year_backtest_readiness/summary.json` ->machine-readable 10-year readiness state, blockers, warnings, price coverage, target-book range, and broker replay range.
+  - `outputs/ten_year_backtest_readiness/report.md` ->human-readable readiness report.
+- validation:
+  - `py -3 -m py_compile tools\check_10y_backtest_readiness.py` ->passed.
+  - `py -3 tests\ten_year_backtest_readiness_smoke.py` ->passed.
+  - `py -3 tests\free_data_lake_bootstrap_smoke.py` ->passed.
+  - `py -3 tests\free_data_engine_validation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml']]; print('yaml ok')"` ->passed.
+  - `py -3 tools\check_10y_backtest_readiness.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe` ->passed with `status=proxy_10y_price_ready`, because price cache coverage starts at 2016-01-01 but target books and broker replay still start in 2019.
+- risks_or_notes:
+  - `proxy_10y_price_ready` is not official 10-year performance evidence. It means the price/cache layer can support a 10-year rebuild.
+  - Official 10-year readiness remains blocked until target books and broker-ledger replay cover the full window, SEC companyfacts is restored under `data_raw/free/sec`, and PIT/proxy labels are resolved or explicitly accepted.
+
 ### 05:29 KST - free-data-bootstrap-workflow
 
 - scope:
