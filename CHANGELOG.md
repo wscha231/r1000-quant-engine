@@ -106,6 +106,35 @@ All entries must be written in English. Entries must be predictable and machine-
   - `proxy_10y_price_ready` is not official 10-year performance evidence. It means the price/cache layer can support a 10-year rebuild.
   - Official 10-year readiness remains blocked until target books and broker-ledger replay cover the full window, SEC companyfacts is restored under `data_raw/free/sec`, and PIT/proxy labels are resolved or explicitly accepted.
 
+### 17:20 KST - full-rebuild-ten-year-readiness-export
+
+- scope:
+  - Wire the 10-year backtest readiness audit into the expensive full rebuild workflow so every full rebuild artifact, Google Drive export, and mobile bundle reports whether broker-ledger evidence is official 10-year ready.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs `tools/check_10y_backtest_readiness.py` after dataset coverage diagnostics and exports `outputs/ten_year_backtest_readiness/` through artifacts, Drive sync, and mobile bundles.
+  - `tests/workflow_artifact_smoke.py` ->requires full rebuild workflow wiring for the 10-year readiness sidecar and log file.
+  - `CHANGELOG.md` ->records the workflow export fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/ten_year_backtest_readiness/` in full rebuild artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the 10-year readiness checker and log export in full rebuild.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ten_year_backtest_readiness/summary.json` ->now expected from full rebuild runs, not only free-data bootstrap and daily update runs.
+  - `outputs/ten_year_backtest_readiness/report.md` ->now expected from full rebuild runs, not only free-data bootstrap and daily update runs.
+  - `outputs/full_rebuild_logs/ten_year_backtest_readiness.log` ->captures the audit execution log.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.github/workflows/full_rebuild_manual.yml').read_text(encoding='utf-8')); print('yaml ok')"` ->passed.
+  - `py -3 tools\check_10y_backtest_readiness.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir H:\codex\_tmp\r1000_latest_10y_readiness` ->passed with `status=proxy_10y_price_ready`.
+- risks_or_notes:
+  - Run 25649941612 succeeded before this workflow export fix, so its artifact lacks `outputs/ten_year_backtest_readiness/`; the same latest result audited locally still reports `proxy_10y_price_ready`.
+  - Latest full rebuild target books and broker-ledger replay cover 2017-06-01 to 2026-05-08, about 8.93 years, so official 10-year performance evidence is still not ready.
+
 ### 05:29 KST - free-data-bootstrap-workflow
 
 - scope:
