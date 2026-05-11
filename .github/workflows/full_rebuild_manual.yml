@@ -319,6 +319,7 @@ jobs:
           python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
           python tools/run_main_cash_drag_replay.py --latest-run outputs --output-dir outputs/main_cash_drag_replay 2>&1 | tee outputs/full_rebuild_logs/main_cash_drag_replay.log || true
           python tools/run_crisis_reentry_replay.py --latest-run outputs --output-dir outputs/crisis_reentry_replay 2>&1 | tee outputs/full_rebuild_logs/crisis_reentry_replay.log || true
+          python tools/run_broker_crisis_reentry_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/broker_crisis_reentry_replay/main --policy-id fast_reentry --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_crisis_reentry_replay.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
@@ -396,6 +397,7 @@ jobs:
             outputs/cash_policy/
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
+            outputs/broker_crisis_reentry_replay/
             outputs/monster_lifecycle_replay/
             outputs/lifecycle_review_overlay_main/
             outputs/monster_lifecycle_review_main/
@@ -594,7 +596,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -745,6 +747,7 @@ jobs:
           copy_dir_clean outputs/cash_policy /tmp/bundle/cash_policy
           copy_dir_clean outputs/main_cash_drag_replay /tmp/bundle/main_cash_drag_replay
           copy_dir_clean outputs/crisis_reentry_replay /tmp/bundle/crisis_reentry_replay
+          copy_dir_clean outputs/broker_crisis_reentry_replay /tmp/bundle/broker_crisis_reentry_replay
           copy_dir_clean outputs/monster_lifecycle_replay /tmp/bundle/monster_lifecycle_replay
           copy_dir_clean outputs/lifecycle_review_overlay_main /tmp/bundle/lifecycle_review_overlay_main
           copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
@@ -886,6 +889,7 @@ jobs:
           copy_dir_clean outputs/cash_policy "$DEST/cash_policy"
           copy_dir_clean outputs/main_cash_drag_replay "$DEST/main_cash_drag_replay"
           copy_dir_clean outputs/crisis_reentry_replay "$DEST/crisis_reentry_replay"
+          copy_dir_clean outputs/broker_crisis_reentry_replay "$DEST/broker_crisis_reentry_replay"
           copy_dir_clean outputs/monster_lifecycle_replay "$DEST/monster_lifecycle_replay"
           copy_dir_clean outputs/lifecycle_review_overlay_main "$DEST/lifecycle_review_overlay_main"
           copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"

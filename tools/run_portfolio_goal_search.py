@@ -463,6 +463,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with no-trade bands, staged entries, minimum holding, and winner trim deferral.",
     )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_crisis_reentry_fast_reentry",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger conversion of the crisis cash ladder / bargain re-entry target book.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
         portfolio="concentrated",

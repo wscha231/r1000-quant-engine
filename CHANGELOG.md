@@ -185,6 +185,63 @@ All entries must be written in English. Entries must be predictable and machine-
   - Latest official broker-ledger metrics remain below the production targets: main CAGR 18.39% / MaxDD -33.75%, concentrated CAGR 27.07% / MaxDD -39.18%.
   - The next performance work should improve broker-ledger fills, turnover, stale-leader exits, staged monster sizing, and crisis cash ladders instead of optimizing the deprecated monthly metric.
 
+### 17:45 KST - broker-crisis-reentry-challenger
+
+- scope:
+  - Convert the crisis cash ladder / bargain re-entry research proxy into a broker-ledger challenger and remove future-month drawdown use from macro/cash policy decisions.
+- files:
+  - `tools/run_macro_policy_engine.py` ->uses only pre-month drawdown for risk-state decisions while keeping later drawdown only for diagnostics.
+  - `tools/run_crisis_reentry_replay.py` ->prevents green re-entry decisions from using `drawdown_after_month`.
+  - `tools/run_broker_crisis_reentry_replay.py` ->adds a broker-ledger conversion runner for crisis-reentry policy target books.
+  - `tools/run_portfolio_goal_search.py` ->adds the broker crisis-reentry challenger to main production-compatible candidate ranking.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/broker_crisis_reentry_replay/`.
+  - `tests/broker_crisis_reentry_replay_smoke.py` ->covers next-close broker-ledger conversion of a crisis-reentry target book.
+  - `tests/crisis_reentry_policy_smoke.py` ->verifies future-month drawdown does not block re-entry.
+  - `tests/macro_policy_engine_smoke.py` ->verifies future drawdown alone does not force red/crisis macro risk.
+  - `tests/workflow_artifact_smoke.py` ->requires full rebuild workflow wiring for the new broker crisis-reentry sidecar.
+  - `CHANGELOG.md` ->records the broker-compatible challenger patch.
+- symbols_added:
+  - `run_broker_crisis_reentry_replay.repo_path(path_like)` ->resolves repo-relative paths.
+  - `run_broker_crisis_reentry_replay.safe_float(value, default)` ->normalizes optional numeric values.
+  - `run_broker_crisis_reentry_replay.write_json(path, payload)` ->writes deterministic JSON outputs.
+  - `run_broker_crisis_reentry_replay.render_report(metrics)` ->renders a Markdown broker challenger report.
+  - `run_broker_crisis_reentry_replay.build_target_book(latest_run, output_dir, policy_id)` ->filters crisis-reentry holdings into a broker target book.
+  - `run_broker_crisis_reentry_replay.run(...)` ->runs the filtered target book through broker-ledger next-close replay.
+  - `run_broker_crisis_reentry_replay.parse_args()` ->parses CLI arguments.
+  - `run_broker_crisis_reentry_replay.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `run_macro_policy_engine._long_trend_damage_score()` ->does not use `drawdown_after_month` for decision scoring.
+  - `run_macro_policy_engine._cash_raise_confirmation_count()` ->does not count later-month drawdown as a cash-raise confirmation.
+  - `run_macro_policy_engine._risk_state()` ->does not use future drawdown to escalate to crisis/red or block recovery.
+  - `run_crisis_reentry_replay.target_cash_for_month()` ->keeps `drawdown_after_month` diagnostic-only and uses observable pre-month drawdown for re-entry.
+  - `run_portfolio_goal_search.collect_candidates()` ->includes `broker_crisis_reentry_replay/main/metrics.json`.
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/broker_crisis_reentry_replay/`.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the new runner and log output.
+  - `macro_policy_engine_smoke.main()` ->asserts future drawdown alone does not make a balanced month red/crisis.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_crisis_reentry_replay/main/target_book.csv` ->crisis-reentry policy target book filtered to one policy.
+  - `outputs/broker_crisis_reentry_replay/main/metrics.json` ->broker-ledger next-close account replay of the filtered crisis-reentry policy.
+  - `outputs/broker_crisis_reentry_replay/main/equity_curve.csv` ->daily account equity for the challenger.
+  - `outputs/broker_crisis_reentry_replay/main/trades.csv` ->integer-share next-close fills for the challenger.
+  - `outputs/full_rebuild_logs/broker_crisis_reentry_replay.log` ->full rebuild execution log for the challenger.
+- validation:
+  - `py -3 tests\broker_crisis_reentry_replay_smoke.py` ->passed.
+  - `py -3 tests\crisis_reentry_policy_smoke.py` ->passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+- risks_or_notes:
+  - This is still a challenger, not an automatic production policy.
+  - Full rebuild is required to learn whether broker-ledger crisis re-entry improves CAGR/MaxDD after next-close fills and costs.
+  - Macro diagnostics may still use later-month drawdown to flag late risk detection, but portfolio decisions no longer use it.
+
 ### 05:29 KST - free-data-bootstrap-workflow
 
 - scope:

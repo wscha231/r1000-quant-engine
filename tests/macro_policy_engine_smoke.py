@@ -147,6 +147,10 @@ def main() -> int:
         }, summary
         assert (out_dir / "macro_policy_by_month.csv").exists()
         assert (out_dir / "regime_speed_audit.csv").exists()
+        with (out_dir / "macro_policy_by_month.csv").open(encoding="utf-8", newline="") as f:
+            policy_rows = list(csv.DictReader(f))
+        first = next(row for row in policy_rows if row["rebalance_date"] == "2022-01-31")
+        assert first["macro_risk_state"] not in {"red", "crisis"}, first
         policy_text = (out_dir / "macro_policy_by_month.csv").read_text(encoding="utf-8")
         assert "liquidity_drain_score" in policy_text
         assert "monster_exception_allowed" in policy_text
