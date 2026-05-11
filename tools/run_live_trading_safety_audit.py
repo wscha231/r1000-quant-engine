@@ -40,6 +40,7 @@ FORWARD_EXACT = {
     "risk_adjusted_forward_return",
     "future_return",
     "forward_return",
+    "forward_return_coverage_score",
 }
 FORWARD_PREFIXES = ("bench_r_",)
 FORWARD_SUFFIXES = ("_forward_return",)

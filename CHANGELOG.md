@@ -1182,6 +1182,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - Without a broker snapshot, risk controls emit a warning because real account/open-order reconciliation is skipped. With `--strict-live`, broker snapshot absence is a blocking error.
   - Partial-fill handling is still a reconciliation template, not a broker adapter. The next live step is to import real broker fills into this template and reconcile post-trade account state.
 
+### 10:13 KST - actionable-forward-coverage-guard
+
+- scope:
+  - Treat forward-return coverage diagnostics as non-actionable and strip/block them from orderable portfolio exports.
+- files:
+  - `r1000_pipeline.py` ->adds `forward_return_coverage_score` to actionable export leakage stripping.
+  - `tools/run_live_trading_safety_audit.py` ->blocks `forward_return_coverage_score` if it appears in orderable target CSVs.
+  - `tests/live_trading_safety_audit_smoke.py` ->covers stripping and blocking of the forward-return coverage diagnostic column.
+  - `CHANGELOG.md` ->records the actionable forward coverage guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `drop_actionable_leakage_columns(df)` ->now removes `forward_return_coverage_score` from orderable exports.
+  - `run_live_trading_safety_audit.run(args)` ->now reports target leakage if `forward_return_coverage_score` reaches orderable CSV inputs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - The column was not part of `DEFAULT_FEATURES`, but it is derived from future-label availability and should never be visible in actionable order files.
+  - This is an export/audit hardening fix, not a strategy tuning change.
+
 ## 2026-05-08
 
 ### 15:17 KST - weekly-evaluation-freshness-sidecar

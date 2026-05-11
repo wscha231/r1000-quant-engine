@@ -8626,6 +8626,7 @@ _ACTIONABLE_LEAKAGE_EXACT_COLUMNS = {
     "risk_adjusted_forward_return",
     "future_return",
     "forward_return",
+    "forward_return_coverage_score",
 }
 
 
