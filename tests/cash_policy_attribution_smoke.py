@@ -51,7 +51,9 @@ def main() -> int:
                 {
                     "rebalance_date": "2026-01-31",
                     "regime_label": "war_shock_alert",
+                    "cash_weight_start": 0.20,
                     "cash_weight": 0.20,
+                    "cash_weight_end": 0.20,
                     "cash_target_used": 0.15,
                     "drawdown_before_month": -0.03,
                     "drawdown_after_month": -0.04,
@@ -59,7 +61,9 @@ def main() -> int:
                 {
                     "rebalance_date": "2026-02-28",
                     "regime_label": "risk_off_alert",
+                    "cash_weight_start": 0.30,
                     "cash_weight": 0.30,
+                    "cash_weight_end": 0.30,
                     "cash_target_used": 0.28,
                     "drawdown_before_month": -0.12,
                     "drawdown_after_month": -0.16,
@@ -67,7 +71,9 @@ def main() -> int:
                 {
                     "rebalance_date": "2026-03-31",
                     "regime_label": "balanced",
-                    "cash_weight": 0.12,
+                    "cash_weight_start": 0.12,
+                    "cash_weight": 0.80,
+                    "cash_weight_end": 0.80,
                     "cash_target_used": 0.00,
                     "drawdown_before_month": -0.01,
                     "drawdown_after_month": -0.01,
@@ -81,6 +87,8 @@ def main() -> int:
         assert reasons.get("event_shock_cash_to_review", 0) == 1, summary
         assert reasons.get("confirmed_macro_defense_cash", 0) == 1, summary
         assert reasons.get("idle_cash_candidate", 0) == 1, summary
+        assert summary["months_cash_export_mismatch_gt_2pct"] == 0, summary
+        assert round(summary["avg_period_end_cash_weight"], 2) == 0.43, summary
         rows = (out_dir / "cash_drag_attribution.csv").read_text(encoding="utf-8")
         assert "confirmed_macro_defense" in rows
         assert "event_shock_without_confirmation" in rows

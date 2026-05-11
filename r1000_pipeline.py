@@ -14696,9 +14696,17 @@ def build_latest_concentrated_holdings(
         "target_cagr": float(getattr(cfg_obj, "concentrated_target_cagr", 0.40)),
         "target_max_dd": float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22)),
         "target_pass": bool(goal_pass),
-        "production_valid": bool(metrics_valid and len(selected) >= min_names),
+        "legacy_metric_mode": "weight_level_research_deprecated",
+        "official_metric_required": "broker_ledger_next_close",
+        "production_valid": False,
+        "production_valid_reason": (
+            "deprecated_weight_level_monthly_metric; official production evidence must come from "
+            "broker_replay/concentrated/metrics.json or account_evaluation/official_metrics.json"
+        ),
         "operating_notes": [
-            "Run a full rebalance monthly.",
+            "Research-only monthly comparison. Do not use these metrics as a production SHIP gate.",
+            "Official performance must be judged by broker-ledger replay with next-close fills, integer shares, cash, and costs.",
+            "Run a full rebalance monthly only if the broker-ledger/account evaluation also passes.",
             f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",
             "Use concentrated holdings as a separate sleeve from the main portfolio.",
             "Allow immediate review if exit risk spikes or breakout support fails.",

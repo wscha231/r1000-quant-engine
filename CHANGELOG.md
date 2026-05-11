@@ -135,6 +135,56 @@ All entries must be written in English. Entries must be predictable and machine-
   - Run 25649941612 succeeded before this workflow export fix, so its artifact lacks `outputs/ten_year_backtest_readiness/`; the same latest result audited locally still reports `proxy_10y_price_ready`.
   - Latest full rebuild target books and broker-ledger replay cover 2017-06-01 to 2026-05-08, about 8.93 years, so official 10-year performance evidence is still not ready.
 
+### 17:36 KST - broker-ledger-official-metric-gate
+
+- scope:
+  - Demote monthly/weight-level SHIP verdicts to research-only and make broker-ledger account replay the only official performance gate for production promotion.
+- files:
+  - `r1000_pipeline.py` ->marks concentrated monthly weight-level metrics as deprecated research context and forces `production_valid=false` until broker-ledger evidence passes.
+  - `tools/auto_verdict_summary.py` ->rewrites the Telegram/verdict summary to read `account_evaluation/official_metrics.json` first and refuse baseline rotation from legacy metrics.
+  - `tools/run_account_evaluation.py` ->states explicitly that legacy weight-level metrics cannot produce a production SHIP verdict.
+  - `tools/run_cash_policy_attribution.py` ->uses `regime_by_month.cash_weight_start` as target-book cash, tracks period-end cash separately, and avoids false cash-export mismatch flags.
+  - `tests/auto_verdict_summary_smoke.py` ->covers the case where legacy metrics look great but broker-ledger official metrics fail.
+  - `tests/cash_policy_attribution_smoke.py` ->covers start-cash versus period-end-cash separation.
+  - `CHANGELOG.md` ->records the official metric gate patch.
+- symbols_added:
+  - `auto_verdict_summary.fnum(value, default)` ->normalizes optional numeric values for summary rendering.
+  - `auto_verdict_summary.pct(value)` ->formats decimal performance metrics as percentages.
+  - `auto_verdict_summary.fmt_money(value)` ->formats account equity in USD.
+  - `auto_verdict_summary.official_rows(official)` ->normalizes official broker-ledger portfolio metrics.
+  - `auto_verdict_summary.legacy_metric(metrics, *names)` ->reads legacy metric aliases for research-only display.
+  - `auto_verdict_summary.render_portfolio_snapshot(lines, portfolio)` ->adds latest target snapshot context without changing verdict logic.
+  - `test_auto_verdict_summary_ignores_legacy_ship_as_official()` ->verifies official broker-ledger failure cannot be overridden by strong legacy metrics.
+- symbols_changed:
+  - `build_latest_concentrated_holdings()` ->sets `legacy_metric_mode=weight_level_research_deprecated`, requires broker-ledger official metrics, and prevents monthly concentrated metrics from being production-valid.
+  - `auto_verdict_summary.main()` ->renders broker-ledger official metrics first, reports `NO PRODUCTION SHIP` on official failure, and removes `CURRENT_BASELINE` rotation advice from legacy verdicts.
+  - `run_account_evaluation.render_report()` ->documents that legacy metrics are comparison-only.
+  - `run_cash_policy_attribution._rows_by_month()` ->uses `cash_weight_start` for target-book cash and records `period_end_cash_weight` separately.
+  - `run_cash_policy_attribution._summary()` ->adds `avg_period_end_cash_weight` and keeps mismatch checks tied to starting target cash.
+  - `run_cash_policy_attribution._render_report()` ->prints period-end cash separately from target-book reported cash.
+  - `cash_policy_attribution_smoke.main()` ->asserts no false mismatch when period-end cash differs from starting cash.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Legacy monthly/weight-level metrics can no longer produce a production SHIP verdict or baseline rotation recommendation.
+- outputs:
+  - `outputs/account_evaluation/official_metrics.json` ->now treated as the official production performance source for summaries.
+  - `outputs/cash_policy/cash_drag_summary.json` ->now separates `avg_reported_cash_weight` from `avg_period_end_cash_weight`.
+  - `outputs/cash_policy/cash_drag_report.md` ->now labels period-end cash as a separate diagnostic.
+- validation:
+  - `py -3 tests\auto_verdict_summary_smoke.py` ->passed.
+  - `py -3 tests\cash_policy_attribution_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tools\run_cash_policy_attribution.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir H:\codex\_tmp\r1000_cash_policy_recheck` ->passed with `avg_reported_cash_weight=3.65%` and `months_cash_export_mismatch_gt_2pct=0`.
+  - `py -3 tools\auto_verdict_summary.py --base cloud_results\full_rebuild\latest_global_alpha_universe` ->passed and reported official broker-ledger `NO PRODUCTION SHIP`.
+- risks_or_notes:
+  - The latest research-only monthly result remains useful for idea ranking, but it is no longer official performance evidence.
+  - Latest official broker-ledger metrics remain below the production targets: main CAGR 18.39% / MaxDD -33.75%, concentrated CAGR 27.07% / MaxDD -39.18%.
+  - The next performance work should improve broker-ledger fills, turnover, stale-leader exits, staged monster sizing, and crisis cash ladders instead of optimizing the deprecated monthly metric.
+
 ### 05:29 KST - free-data-bootstrap-workflow
 
 - scope:
