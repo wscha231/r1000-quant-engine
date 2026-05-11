@@ -35,7 +35,16 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         latest = Path(tmp) / "latest"
         write_json(
             latest / "broker_replay" / "main" / "metrics.json",
-            {"status": "completed", "metric_mode": "broker_ledger_next_close", "valid_for_production": True, "cagr": 0.21, "max_dd": -0.36, "sharpe": 0.97, "end_date": "2026-01-10"},
+            {
+                "status": "completed",
+                "metric_mode": "broker_ledger_next_close",
+                "valid_for_production": True,
+                "cagr": 0.21,
+                "max_dd": -0.36,
+                "sharpe": 0.97,
+                "end_date": "2026-01-10",
+                "target_book": "outputs/reports/operating_main_target_book.csv",
+            },
         )
         write_json(
             latest / "broker_replay" / "concentrated" / "metrics.json",
@@ -47,6 +56,7 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
                 "max_dd": -0.40,
                 "sharpe": 1.09,
                 "end_date": "2026-01-10",
+                "target_book": "outputs/reports/operating_concentrated_target_book.csv",
                 "target_book_filter": {"target_stock_names": "4", "weighting_mode": "score_power"},
             },
         )
@@ -56,6 +66,11 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         write_csv(
             latest / "reports" / "concentrated_strategy_holdings.csv",
             [{"rebalance_date": "2025-12-31", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
+        )
+        write_csv(latest / "reports" / "operating_main_target_book.csv", [{"rebalance_date": "2026-01-10", "ticker": "AAA", "weight": 1.0}])
+        write_csv(
+            latest / "reports" / "operating_concentrated_target_book.csv",
+            [{"rebalance_date": "2026-01-10", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
         )
         write_csv(latest / "portfolio_latest.csv", [{"ticker": "AAA", "weight": 0.5}, {"ticker": "BBB", "weight": 0.5}])
         write_csv(
@@ -95,7 +110,10 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         main_metric_check = next(row for row in result["error_checks"] if row["check"] == "main_metrics_available")
         assert main_metric_check["severity"] in {"ok", "warn"}
         checks = {row["check"]: row for row in result["error_checks"]}
-        assert checks["main_target_book_reaches_broker_end"]["severity"] == "warn"
+        assert checks["main_target_book_reaches_broker_end"]["passed"] is True
+        assert checks["main_historical_research_book_reaches_broker_end"]["severity"] == "warn"
+        assert checks["main_broker_replay_uses_operating_target_book"]["passed"] is True
+        assert checks["concentrated_broker_replay_uses_operating_target_book"]["passed"] is True
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True

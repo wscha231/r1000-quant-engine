@@ -51,6 +51,61 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-12
+
+### 00:01 KST - event-driven-operating-target-books
+
+- scope:
+  - Add operating target books so simulated broker replay can consume latest close-based target decisions without being locked to month-end research books.
+- files:
+  - `tools/build_operating_target_books.py` ->builds main/concentrated operating target books by appending latest target recommendations to historical books with arbitrary operating signal dates.
+  - `.github/workflows/full_rebuild_manual.yml` ->builds operating target books before broker replay, routes broker replay sidecars through them, and publishes the new artifacts.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->builds operating target books for fast replay sidecars and routes broker replay sidecars through them.
+  - `tools/run_portfolio_system_guard.py` ->prefers operating target books for target freshness checks while keeping historical book staleness visible.
+  - `tests/operating_target_books_smoke.py` ->covers appending latest targets with non-monthly signal dates.
+  - `tests/workflow_artifact_smoke.py` ->covers workflow wiring for operating target books.
+  - `tests/portfolio_system_guard_smoke.py` ->covers guard freshness checks against operating target books.
+  - `CHANGELOG.md` ->records the event-driven operating target book work.
+- symbols_added:
+  - `build_operating_target_books.repo_path(path_like)` ->resolves repository-relative paths.
+  - `build_operating_target_books.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `build_operating_target_books.write_json(path, payload)` ->writes JSON diagnostics.
+  - `build_operating_target_books.clean_ticker(value)` ->normalizes ticker strings.
+  - `build_operating_target_books.date_text(value)` ->normalizes dates to ISO text.
+  - `build_operating_target_books.latest_date_from_columns(frame, columns)` ->finds the freshest date across candidate columns.
+  - `build_operating_target_books.latest_price_close_date(price_cache, tickers)` ->finds the latest common close across target tickers.
+  - `build_operating_target_books.normalize_latest_target(frame, portfolio)` ->normalizes latest target recommendation rows for operating use.
+  - `build_operating_target_books.add_missing_columns(frame, columns)` ->aligns historical and latest target schemas.
+  - `build_operating_target_books.build_book(portfolio, history_path, latest_target_path, price_cache)` ->builds one operating target book and its diagnostics.
+  - `build_operating_target_books.render_report(payload)` ->renders the operating target book markdown report.
+  - `build_operating_target_books.build(args)` ->builds both main and concentrated operating target books.
+  - `build_operating_target_books.parse_args()` ->parses CLI arguments.
+  - `build_operating_target_books.main()` ->CLI entrypoint.
+  - `run_portfolio_system_guard.target_book_summaries(latest_run, portfolio)` ->summarizes historical and operating target books and selects the operating book when available.
+- symbols_changed:
+  - `run_portfolio_system_guard.operating_alignment_checks(inputs, latest_run)` ->checks broker replay freshness against operating target books, separately warns when historical research books remain stale, and verifies broker metrics used operating target books.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->broker-replay target book for main, including latest operating target decisions.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->broker-replay target book for concentrated, including latest operating target decisions.
+  - `outputs/reports/operating_target_books_summary.json` ->coverage and append diagnostics for the operating target books.
+  - `outputs/reports/operating_target_books_report.md` ->human-readable operating target book report.
+- validation:
+  - `python tests\operating_target_books_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python -m py_compile tools\build_operating_target_books.py tools\run_portfolio_system_guard.py` ->passed.
+  - `python tests\broker_ledger_replay_smoke.py` ->passed.
+  - `python tests\broker_position_risk_replay_smoke.py` ->passed.
+  - `python tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `python tests\operating_snapshot_smoke.py` ->passed.
+- risks_or_notes:
+  - Full rebuild remains deferred by request; this commit only prepares the next run path.
+  - This enables arbitrary-date operating decisions for latest targets, but true 10-year daily decision backtesting still requires historical daily or event-time feature snapshots.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

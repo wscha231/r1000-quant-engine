@@ -100,6 +100,25 @@ def csv_row_count(path: Path) -> int:
     return len(read_csv_rows(path))
 
 
+def target_book_summaries(latest_run: Path, portfolio: str) -> dict[str, dict[str, Any]]:
+    if portfolio == "main":
+        historical = latest_run / "reports" / "main_monthly_weights.csv"
+        operating = latest_run / "reports" / "operating_main_target_book.csv"
+    else:
+        historical = latest_run / "reports" / "concentrated_strategy_holdings.csv"
+        operating = latest_run / "reports" / "operating_concentrated_target_book.csv"
+    historical_summary = csv_date_summary(historical, "rebalance_date")
+    historical_summary["target_book_role"] = "historical_research_book"
+    operating_summary = csv_date_summary(operating, "rebalance_date")
+    operating_summary["target_book_role"] = "operating_target_book"
+    selected = operating_summary if operating_summary["exists"] and int(operating_summary["row_count"]) > 0 else historical_summary
+    return {
+        "selected": selected,
+        "historical": historical_summary,
+        "operating": operating_summary,
+    }
+
+
 def filter_value(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -233,15 +252,15 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
 
 def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
-    target_books = {
-        "main": csv_date_summary(latest_run / "reports" / "main_monthly_weights.csv", "rebalance_date"),
-        "concentrated": csv_date_summary(latest_run / "reports" / "concentrated_strategy_holdings.csv", "rebalance_date"),
-    }
+    target_books = {portfolio: target_book_summaries(latest_run, portfolio) for portfolio in ("main", "concentrated")}
     broker_end = {
         "main": inputs.get("main_metrics", {}).get("end_date"),
         "concentrated": inputs.get("concentrated_metrics", {}).get("end_date"),
     }
-    for portfolio, summary in target_books.items():
+    for portfolio, summaries in target_books.items():
+        summary = summaries["selected"]
+        historical = summaries["historical"]
+        operating = summaries["operating"]
         max_dt = parse_date(summary.get("max_date"))
         end_dt = parse_date(broker_end.get(portfolio))
         passed = bool(max_dt and end_dt and max_dt.date() >= end_dt.date())
@@ -250,7 +269,28 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
                 "check": f"{portfolio}_target_book_reaches_broker_end",
                 "passed": passed,
                 "severity": "warn" if not passed else "ok",
-                "detail": f"target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}",
+                "detail": f"selected_role={summary.get('target_book_role')}; target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}; path={summary.get('path')}",
+            }
+        )
+        historical_max_dt = parse_date(historical.get("max_date"))
+        historical_recent = bool(historical_max_dt and end_dt and historical_max_dt.date() >= end_dt.date())
+        checks.append(
+            {
+                "check": f"{portfolio}_historical_research_book_reaches_broker_end",
+                "passed": historical_recent,
+                "severity": "warn" if not historical_recent else "ok",
+                "detail": f"historical_book_max={historical.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={historical.get('row_count')}; operating_book_max={operating.get('max_date')}; operating_rows={operating.get('row_count')}",
+            }
+        )
+        metrics = inputs.get(f"{portfolio}_metrics", {}) or {}
+        metric_target_book = str(metrics.get("target_book") or "")
+        uses_operating = f"operating_{portfolio}_target_book.csv" in metric_target_book.replace("\\", "/")
+        checks.append(
+            {
+                "check": f"{portfolio}_broker_replay_uses_operating_target_book",
+                "passed": uses_operating,
+                "severity": "warn" if not uses_operating else "ok",
+                "detail": f"metric_target_book={metric_target_book or 'missing'}",
             }
         )
 

@@ -292,15 +292,16 @@ jobs:
           python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
           python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
           python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
+          python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
           python tools/run_broker_gap_attribution.py --latest-run outputs --output-dir outputs/broker_gap_attribution 2>&1 | tee outputs/full_rebuild_logs/broker_gap_attribution.log || true
           python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
@@ -360,6 +361,8 @@ jobs:
             outputs/reports/global_alpha_sleeve_audit_*.csv
             outputs/reports/concentrated_strategy_*.csv
             outputs/reports/main_monthly_weights.csv
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
             outputs/reports/tactical_monthly_weights.csv
             outputs/reports/alpha_sprint_monthly_weights.csv
             outputs/reports/regime_by_month.csv
@@ -563,6 +566,10 @@ jobs:
           copy_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
           copy_if_exists outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports"
           copy_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
+          copy_if_exists outputs/reports/operating_target_books_report.md "$DEST/reports"
           copy_if_exists outputs/reports/tactical_monthly_weights.csv "$DEST/reports"
           copy_if_exists outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports"
           copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
@@ -634,6 +641,9 @@ jobs:
           verify_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
           verify_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
           verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
           verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           verify_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
           verify_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
@@ -715,6 +725,8 @@ jobs:
           cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/main_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/operating_*_target_book.csv /tmp/bundle/reports/ 2>/dev/null || true
+          cp outputs/reports/operating_target_books_* /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/tactical_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/alpha_sprint_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
           cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
@@ -858,6 +870,8 @@ jobs:
           cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/tactical_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
