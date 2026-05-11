@@ -1,0 +1,2 @@
+severity,check_id,message,path,details
+info,simulated_broker_account,simulated broker-ledger account is the intended account source; live broker snapshot reconciliation was intentionally skipped,,{}
