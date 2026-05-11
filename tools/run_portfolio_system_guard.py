@@ -16,6 +16,7 @@ import argparse
 import csv
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,58 @@ def write_json(path: Path, payload: Any) -> None:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return [dict(row) for row in csv.DictReader(handle)]
+    except Exception:
+        return []
+
+
+def parse_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def csv_date_summary(path: Path, date_col: str) -> dict[str, Any]:
+    rows = read_csv_rows(path)
+    dates = [parse_date(row.get(date_col)) for row in rows]
+    dates = [dt for dt in dates if dt is not None]
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "row_count": len(rows),
+        "date_col": date_col,
+        "min_date": min(dates).date().isoformat() if dates else None,
+        "max_date": max(dates).date().isoformat() if dates else None,
+        "unique_date_count": len({dt.date().isoformat() for dt in dates}),
+    }
+
+
+def csv_row_count(path: Path) -> int:
+    return len(read_csv_rows(path))
+
+
+def filter_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if abs(number - round(number)) < 1e-9:
+            return str(int(round(number)))
+    except ValueError:
+        pass
+    return text
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -178,6 +231,73 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
     }
 
 
+def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    target_books = {
+        "main": csv_date_summary(latest_run / "reports" / "main_monthly_weights.csv", "rebalance_date"),
+        "concentrated": csv_date_summary(latest_run / "reports" / "concentrated_strategy_holdings.csv", "rebalance_date"),
+    }
+    broker_end = {
+        "main": inputs.get("main_metrics", {}).get("end_date"),
+        "concentrated": inputs.get("concentrated_metrics", {}).get("end_date"),
+    }
+    for portfolio, summary in target_books.items():
+        max_dt = parse_date(summary.get("max_date"))
+        end_dt = parse_date(broker_end.get(portfolio))
+        passed = bool(max_dt and end_dt and max_dt.date() >= end_dt.date())
+        checks.append(
+            {
+                "check": f"{portfolio}_target_book_reaches_broker_end",
+                "passed": passed,
+                "severity": "warn" if not passed else "ok",
+                "detail": f"target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}",
+            }
+        )
+
+    current_only = latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv"
+    legacy_current = latest_run / "operating_snapshot" / "current_portfolio_snapshot_latest.csv"
+    current_only_rows = csv_row_count(current_only)
+    checks.append(
+        {
+            "check": "current_only_operating_holdings_available",
+            "passed": current_only_rows > 0,
+            "severity": "warn" if current_only_rows == 0 else "ok",
+            "detail": f"{current_only}; rows={current_only_rows}; legacy_snapshot_exists={legacy_current.exists()}",
+        }
+    )
+
+    main_positions = csv_row_count(latest_run / "broker_replay" / "main" / "positions_latest.csv")
+    main_target_rows = csv_row_count(latest_run / "portfolio_latest.csv")
+    main_excess = max(0, main_positions - main_target_rows)
+    checks.append(
+        {
+            "check": "main_current_position_count_near_latest_target_count",
+            "passed": main_excess <= 5,
+            "severity": "warn" if main_excess > 5 else "ok",
+            "detail": f"main_positions={main_positions}; latest_target_rows={main_target_rows}; excess={main_excess}",
+        }
+    )
+
+    concentrated_metrics = inputs.get("concentrated_metrics", {})
+    metric_filter = concentrated_metrics.get("target_book_filter") or {}
+    latest_conc_rows = read_csv_rows(latest_run / "concentrated_portfolio_latest.csv")
+    latest_conc = latest_conc_rows[0] if latest_conc_rows else {}
+    metric_n = filter_value(metric_filter.get("target_stock_names"))
+    latest_n = filter_value(latest_conc.get("target_stock_names"))
+    metric_mode = filter_value(metric_filter.get("weighting_mode"))
+    latest_mode = filter_value(latest_conc.get("weighting_mode"))
+    filter_match = bool(metric_n and latest_n and metric_n == latest_n and metric_mode == latest_mode)
+    checks.append(
+        {
+            "check": "concentrated_replay_filter_matches_latest_target",
+            "passed": filter_match,
+            "severity": "warn" if not filter_match else "ok",
+            "detail": f"broker_filter_n={metric_n or 'missing'}; latest_target_n={latest_n or 'missing'}; broker_mode={metric_mode or 'missing'}; latest_mode={latest_mode or 'missing'}",
+        }
+    )
+    return checks
+
+
 def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifacts: bool = False) -> list[dict[str, Any]]:
     def rel(path: Path) -> str:
         try:
@@ -238,6 +358,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
             "detail": f"status={replay.get('status')}; data_mode={replay.get('data_mode')}",
         }
     )
+    out.extend(operating_alignment_checks(inputs, latest_run))
     return out
 
 

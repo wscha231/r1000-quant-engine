@@ -129,10 +129,61 @@ def test_broker_replay_does_not_backdate_sparse_history_fill() -> None:
         assert "LATE" not in set(trades["ticker"])
 
 
+def test_concentrated_replay_uses_comparison_champion_filter() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        reports = root / "reports"
+        out = root / "broker"
+        cache.mkdir()
+        reports.mkdir()
+        for ticker in ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG"]:
+            _write_px(cache, ticker, [100.0, 101.0, 102.0, 103.0, 104.0])
+        target = reports / "concentrated_strategy_holdings.csv"
+        rows = [
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 0.40, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "BBB", "weight": 0.30, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "CCC", "weight": 0.30, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "DDD", "weight": 0.25, "target_stock_names": 4, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "EEE", "weight": 0.25, "target_stock_names": 4, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "FFF", "weight": 0.25, "target_stock_names": 4, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2026-01-02", "ticker": "GGG", "weight": 0.25, "target_stock_names": 4, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+        ]
+        pd.DataFrame(rows).to_csv(target, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                    "rebalance_interval_months": 1,
+                    "strategy_cagr": 0.40,
+                    "sharpe": 1.2,
+                    "max_dd": -0.15,
+                    "comparison_objective": 1.0,
+                }
+            ]
+        ).to_csv(reports / "concentrated_strategy_comparison.csv", index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="concentrated",
+            starting_capital=10_000.0,
+        )
+
+        assert metrics["status"] == "completed"
+        assert metrics["target_book_filter"]["target_stock_names"] == "4"
+        positions = pd.read_csv(out / "positions_latest.csv")
+        assert set(positions["ticker"]) == {"DDD", "EEE", "FFF", "GGG"}
+
+
 def main() -> int:
     test_broker_replay_tracks_integer_shares_and_cash()
     test_broker_replay_blocks_contaminated_weight_book()
     test_broker_replay_does_not_backdate_sparse_history_fill()
+    test_concentrated_replay_uses_comparison_champion_filter()
     print("broker_ledger_replay_smoke: PASS")
     return 0
 

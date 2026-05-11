@@ -53,6 +53,68 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 23:33 KST - operating-current-portfolio-alignment
+
+- scope:
+  - Align broker replay and reporting around the current simulated operating portfolio instead of mixing current holdings with latest target recommendations.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->will resolve concentrated replay filters from the champion comparison artifact instead of a stale hard-coded N=3 filter.
+  - `tools/run_broker_position_risk_replay.py` ->will pass the same concentrated champion filter into position-risk replay normalization.
+  - `tools/run_broker_execution_policy_replay.py` ->will pass the same concentrated champion filter into execution-policy replay normalization.
+  - `tools/run_operating_snapshot.py` ->will export current-only operating holdings and separate target-delta review artifacts.
+  - `tools/run_portfolio_system_guard.py` ->will flag stale target-book coverage, replay/target filter mismatches, missing current snapshots, and excessive operating position counts.
+  - `.github/workflows/full_rebuild_manual.yml` ->will run and publish the portfolio system guard during full rebuilds.
+  - `tests/broker_ledger_replay_smoke.py` ->will cover concentrated champion filter resolution.
+  - `tests/operating_snapshot_smoke.py` ->will cover current-only operating holdings exports.
+  - `tests/portfolio_system_guard_smoke.py` ->will cover stale target-book and current snapshot guard checks.
+  - `tests/workflow_artifact_smoke.py` ->will cover full rebuild guard wiring.
+  - `CHANGELOG.md` ->records the operating current portfolio alignment work.
+- symbols_added:
+  - `run_broker_ledger_replay.filter_value(value)` ->normalizes filter values so numeric CSV fields compare consistently across `4`, `4.0`, and string forms.
+  - `run_broker_ledger_replay.comparison_path_for_target_book(target_book)` ->finds the sibling concentrated comparison artifact for a target book.
+  - `run_broker_ledger_replay.resolve_concentrated_champion_filters(target_book, raw_targets, portfolio_kind, explicit_filters)` ->selects concentrated broker replay filters from the champion comparison artifact, falling back to the legacy static filter only when needed.
+  - `run_operating_snapshot.select_existing_columns(frame, columns)` ->builds stable CSV exports even when optional fields are absent.
+  - `run_operating_snapshot.write_current_operating_exports(frame, output_dir)` ->writes current-only holdings and separate target-delta review files.
+  - `run_portfolio_system_guard.read_csv_rows(path)` ->loads CSV artifacts for lightweight guard checks.
+  - `run_portfolio_system_guard.parse_date(value)` ->normalizes ISO-like dates for freshness comparisons.
+  - `run_portfolio_system_guard.csv_date_summary(path, date_col)` ->summarizes target-book date coverage.
+  - `run_portfolio_system_guard.csv_row_count(path)` ->counts artifact rows for position-count checks.
+  - `run_portfolio_system_guard.filter_value(value)` ->normalizes champion filter fields for guard comparisons.
+  - `run_portfolio_system_guard.operating_alignment_checks(inputs, latest_run)` ->flags stale target books, missing current-only holdings, excessive main position count, and concentrated filter mismatches.
+- symbols_changed:
+  - `run_broker_ledger_replay.filter_concentrated_champion(frame, portfolio_kind, champion_filters)` ->accepts dynamic champion filters instead of always using the stale N=3 concentrated filter.
+  - `run_broker_ledger_replay.normalize_targets(frame, portfolio_kind, champion_filters)` ->passes dynamic concentrated filters into target normalization.
+  - `run_broker_ledger_replay.replay(...)` ->records target-book filter metadata and exposes explicit concentrated filter CLI overrides.
+  - `run_broker_execution_policy_replay.replay(...)` ->uses the same concentrated champion filter resolution as broker-ledger replay.
+  - `run_broker_position_risk_replay.replay(...)` ->uses the same concentrated champion filter resolution as broker-ledger replay.
+  - `run_operating_snapshot.write_current_portfolio_snapshot(...)` ->updates the schema to v2 and publishes the current-only holdings view as the primary user view.
+  - `run_operating_snapshot.render_current_snapshot_report(payload)` ->documents the current-only holdings file and separates target deltas from current holdings.
+  - `run_portfolio_system_guard.error_checks(inputs, latest_run, require_latest_artifacts)` ->includes operating alignment checks in the guard result.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_operating_holdings_latest.csv` ->current-only broker-ledger holdings marked to the latest available close.
+  - `outputs/operating_snapshot/current_operating_holdings_main_latest.csv` ->main current-only holdings.
+  - `outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv` ->concentrated current-only holdings.
+  - `outputs/operating_snapshot/proposed_target_deltas_latest.csv` ->separate target/review deltas so recommendations are not presented as current holdings.
+  - `outputs/portfolio_system_guard/target_gap.json` ->expanded guard summary including freshness and semantics checks.
+- validation:
+  - `python tests\broker_ledger_replay_smoke.py` ->passed.
+  - `python tests\operating_snapshot_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python -m py_compile tools\run_broker_ledger_replay.py tools\run_broker_execution_policy_replay.py tools\run_broker_position_risk_replay.py tools\run_operating_snapshot.py tools\run_portfolio_system_guard.py` ->passed.
+  - `python tools\run_broker_ledger_replay.py --target-book cloud_results\full_rebuild\latest_global_alpha_universe\reports\concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir %TEMP%\r1000_conc_replay_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7` ->passed; selected champion filter N=4/score_power and produced CAGR 31.47%, Sharpe 1.104, MaxDD -37.79%.
+  - `python tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check` ->passed; wrote current-only holdings and proposed target delta files.
+  - `python tools\run_portfolio_system_guard.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_portfolio_guard_check` ->passed; guard correctly warned that target books stop at 2026-02-27 while broker replay marks through 2026-05-08.
+  - `python tools\run_broker_ledger_replay.py --target-book cloud_results\full_rebuild\latest_global_alpha_universe\main_v2_backtest\monthly_holdings.csv --price-cache cache_prices --portfolio-kind main --output-dir %TEMP%\r1000_main_v2_broker_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7` ->passed; result was not promoted because CAGR 16.50% and MaxDD -35.68% were worse than official main.
+- risks_or_notes:
+  - Full rebuild remains intentionally deferred; targeted validation passed, but target-book generation still needs a separate fix before another expensive run should be launched.
+  - Target-book generation still stops at 2026-02-27 in the latest artifact; this patch exposes and guards that issue but does not fabricate missing March/April/May historical decisions.
+  - ON/MU/WDC/SNDK remains a latest recommendation/rotation target, not a historically held 2026-03-02 broker-ledger position, until the target-book generation path is extended and replayed.
+
 ### 13:10 KST - ten-year-readiness-audit
 
 - scope:

@@ -44,6 +44,7 @@ from run_broker_ledger_replay import (  # noqa: E402
     normalize_targets,
     price_at_or_before,
     read_csv,
+    resolve_concentrated_champion_filters,
     target_period_ends,
     weight_book_diagnostics,
 )
@@ -301,9 +302,21 @@ def replay(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
-    targets = normalize_targets(raw, portfolio_kind)
+    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+        target_book=target_book,
+        raw_targets=raw,
+        portfolio_kind=portfolio_kind,
+    )
+    targets = normalize_targets(raw, portfolio_kind, champion_filters)
     if targets.empty:
-        payload = {"status": "blocked", "reason": "target book is empty or invalid", "target_book": str(target_book)}
+        payload = {
+            "status": "blocked",
+            "reason": "target book is empty or invalid",
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+        }
         write_json(output_dir / "metrics.json", payload)
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
@@ -313,6 +326,9 @@ def replay(
             "reason": "target weight sum exceeds maximum reasonable exposure",
             "target_book": str(target_book),
             "valid_for_production": False,
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
         write_json(output_dir / "metrics.json", payload)
@@ -484,6 +500,9 @@ def replay(
             "integer_shares": bool(integer_shares),
             "cost_bps_per_side": float(cost_bps),
             "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
             "benchmark_ticker": benchmark_ticker,
             "hard_stop": hard_stop,

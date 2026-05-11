@@ -34,11 +34,12 @@ from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 DEFAULT_OUT_DIR = "outputs/broker_replay"
-CONCENTRATED_CHAMPION_FILTERS = {
+DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "target_stock_names": "3",
     "weighting_mode": "score_power",
     "active_rebalance_interval_months": "1",
 }
+CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -67,24 +68,106 @@ def read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def filter_concentrated_champion(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+def filter_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if math.isfinite(number) and abs(number - round(number)) < 1e-9:
+            return str(int(round(number)))
+    except (TypeError, ValueError):
+        pass
+    return text
+
+
+def comparison_path_for_target_book(target_book: Path) -> Path:
+    return target_book.parent / "concentrated_strategy_comparison.csv"
+
+
+def resolve_concentrated_champion_filters(
+    *,
+    target_book: Path,
+    raw_targets: pd.DataFrame,
+    portfolio_kind: str,
+    explicit_filters: dict[str, Any] | None = None,
+) -> tuple[dict[str, str], str, str]:
+    if portfolio_kind != "concentrated":
+        return {}, "not_applicable", ""
+    if explicit_filters:
+        filters = {str(k): filter_value(v) for k, v in explicit_filters.items() if filter_value(v)}
+        if filters:
+            return filters, "explicit", ""
+
+    comparison_path = comparison_path_for_target_book(target_book)
+    comparison = read_csv(comparison_path)
+    if not comparison.empty:
+        d = comparison.copy()
+        if "portfolio_mode" in d.columns:
+            d = d[d["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+        for col in ["target_stock_names", "strategy_cagr", "sharpe", "max_dd"]:
+            if col not in d.columns:
+                d[col] = np.nan
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+        d = d[
+            d["target_stock_names"].notna()
+            & d["strategy_cagr"].notna()
+            & d["sharpe"].notna()
+            & d["max_dd"].notna()
+        ].copy()
+        if not d.empty:
+            row = d.iloc[0].to_dict()
+            filters = {
+                "target_stock_names": filter_value(row.get("target_stock_names")),
+                "weighting_mode": filter_value(row.get("weighting_mode") or "score_power"),
+                "active_rebalance_interval_months": filter_value(row.get("rebalance_interval_months") or 1),
+            }
+            filters = {k: v for k, v in filters.items() if v}
+            missing_cols = [col for col in filters if col not in raw_targets.columns]
+            if missing_cols:
+                warning = "comparison champion could not be fully applied; missing target-book columns: " + ",".join(missing_cols)
+                return DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(), "default_static", warning
+            return filters, str(comparison_path), ""
+
+    return (
+        DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(),
+        "default_static",
+        f"champion comparison artifact missing or invalid: {comparison_path}",
+    )
+
+
+def filter_concentrated_champion(
+    frame: pd.DataFrame,
+    portfolio_kind: str,
+    champion_filters: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     if portfolio_kind != "concentrated" or frame.empty:
         return frame
     out = frame.copy()
-    for col, expected in CONCENTRATED_CHAMPION_FILTERS.items():
+    filters = champion_filters or DEFAULT_CONCENTRATED_CHAMPION_FILTERS
+    for col, expected_raw in filters.items():
         if col not in out.columns:
             continue
-        values = out[col].astype(str).str.strip()
+        expected = filter_value(expected_raw)
+        if not expected:
+            continue
+        values = out[col].map(filter_value)
         mask = values.eq(expected)
         if mask.any():
             out = out[mask].copy()
     return out
 
 
-def normalize_targets(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+def normalize_targets(
+    frame: pd.DataFrame,
+    portfolio_kind: str,
+    champion_filters: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns or "weight" not in frame.columns:
         return pd.DataFrame()
-    d = filter_concentrated_champion(frame.copy(), portfolio_kind)
+    d = filter_concentrated_champion(frame.copy(), portfolio_kind, champion_filters)
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
@@ -411,12 +494,26 @@ def replay(
     integer_shares: bool = True,
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
+    concentrated_champion_filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
-    targets = normalize_targets(raw, portfolio_kind)
+    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+        target_book=target_book,
+        raw_targets=raw,
+        portfolio_kind=portfolio_kind,
+        explicit_filters=concentrated_champion_filters,
+    )
+    targets = normalize_targets(raw, portfolio_kind, champion_filters)
     if targets.empty:
-        payload = {"status": "blocked", "reason": "target book is empty or invalid", "target_book": str(target_book)}
+        payload = {
+            "status": "blocked",
+            "reason": "target book is empty or invalid",
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+        }
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
@@ -427,6 +524,9 @@ def replay(
             "target_book": str(target_book),
             "research_only": True,
             "valid_for_production": False,
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -575,6 +675,9 @@ def replay(
             "integer_shares": bool(integer_shares),
             "cost_bps_per_side": float(cost_bps),
             "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
             "max_fill_lag_days": int(max_fill_lag_days),
@@ -655,6 +758,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
+    parser.add_argument("--concentrated-weighting-mode", default="")
+    parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
     return parser.parse_args()
 
 
@@ -671,6 +777,15 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        concentrated_champion_filters={
+            key: value
+            for key, value in {
+                "target_stock_names": args.concentrated_target_stock_n or None,
+                "weighting_mode": args.concentrated_weighting_mode or None,
+                "active_rebalance_interval_months": args.concentrated_rebalance_interval_months or None,
+            }.items()
+            if value is not None
+        },
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

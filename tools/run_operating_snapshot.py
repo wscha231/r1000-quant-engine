@@ -455,6 +455,100 @@ def cash_policy_review_decision(
     return "RESERVE_CASH", "Combined cash is below target.", "below_combined_cash_target"
 
 
+CURRENT_ONLY_COLUMNS = [
+    "as_of_date",
+    "snapshot_semantics",
+    "portfolio_kind",
+    "row_type",
+    "ticker",
+    "current_shares",
+    "current_price",
+    "current_value_usd",
+    "current_weight",
+    "cost_basis",
+    "unrealized_pnl_usd",
+    "realized_pnl_usd",
+    "first_entry_date",
+    "latest_entry_date",
+    "holding_days",
+    "open_lot_count",
+    "open_lot_quantity",
+    "avg_entry_price",
+    "entry_reasons",
+    "entry_sleeves",
+    "daily_review_action",
+    "daily_review_reason",
+    "monster_recommendation",
+    "monster_stage",
+    "monster_priority_score",
+    "monster_reason",
+    "risk_state",
+    "account_source",
+    "approval_status",
+]
+
+
+DELTA_REVIEW_COLUMNS = [
+    "as_of_date",
+    "portfolio_kind",
+    "row_type",
+    "ticker",
+    "current_weight",
+    "target_portfolio_weight",
+    "target_combined_weight",
+    "delta_portfolio_weight",
+    "preview_action",
+    "review_action",
+    "review_reason",
+    "review_quantity_delta",
+    "review_trade_value_delta_usd",
+    "review_order_count",
+    "review_order_status",
+    "cash_policy_flag",
+    "macro_recommended_cash_floor",
+    "macro_cash_raise_gate",
+    "macro_cash_raise_confirmation_count",
+]
+
+
+def select_existing_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    for col in columns:
+        if col not in out.columns:
+            out[col] = ""
+    return out[columns].copy()
+
+
+def write_current_operating_exports(frame: pd.DataFrame, output_dir: Path) -> dict[str, Any]:
+    source = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    if not source.empty:
+        source = source.rename(
+            columns={
+                "review_action": "daily_review_action",
+                "review_reason": "daily_review_reason",
+            }
+        )
+    current = select_existing_columns(source, CURRENT_ONLY_COLUMNS)
+    combined_path = output_dir / "current_operating_holdings_latest.csv"
+    main_path = output_dir / "current_operating_holdings_main_latest.csv"
+    concentrated_path = output_dir / "current_operating_holdings_concentrated_latest.csv"
+    current.to_csv(combined_path, index=False)
+    current[current["portfolio_kind"].astype(str).eq("main")].to_csv(main_path, index=False)
+    current[current["portfolio_kind"].astype(str).eq("concentrated")].to_csv(concentrated_path, index=False)
+
+    deltas = select_existing_columns(frame, DELTA_REVIEW_COLUMNS)
+    delta_path = output_dir / "proposed_target_deltas_latest.csv"
+    deltas.to_csv(delta_path, index=False)
+    return {
+        "current_operating_holdings_csv": str(combined_path),
+        "current_operating_holdings_main_csv": str(main_path),
+        "current_operating_holdings_concentrated_csv": str(concentrated_path),
+        "proposed_target_deltas_csv": str(delta_path),
+        "current_operating_row_count": int(len(current)),
+        "proposed_target_delta_row_count": int(len(deltas)),
+    }
+
+
 def write_current_portfolio_snapshot(
     *,
     latest_run: Path,
@@ -629,13 +723,15 @@ def write_current_portfolio_snapshot(
         frame = frame.drop(columns=["_row_type_rank"])
     csv_path = output_dir / "current_portfolio_snapshot_latest.csv"
     frame.to_csv(csv_path, index=False)
+    current_export_outputs = write_current_operating_exports(frame, output_dir)
     summary = {
         "status": "completed" if rows else "missing_positions",
-        "schema_version": "current-portfolio-snapshot-v1",
+        "schema_version": "current-portfolio-snapshot-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
         "as_of_date": latest_non_empty(as_of_dates),
         "snapshot_semantics": "current_broker_ledger_mark_to_market",
+        "primary_user_view": "current_operating_holdings_latest.csv",
         "portfolio_position_counts": portfolio_counts,
         "row_count": int(len(frame)),
         "cash_row_count": int((frame.get("row_type", pd.Series(dtype=str)) == "cash").sum()) if not frame.empty else 0,
@@ -652,9 +748,12 @@ def write_current_portfolio_snapshot(
             "csv": str(csv_path),
             "json": str(output_dir / "current_portfolio_snapshot_summary.json"),
             "report": str(output_dir / "current_portfolio_snapshot_report.md"),
+            **current_export_outputs,
         },
         "notes": [
             "This is the current simulated broker-ledger account state marked to the latest available close.",
+            "current_operating_holdings_latest.csv is the primary current-only user view.",
+            "proposed_target_deltas_latest.csv is the separate recommendation/review delta view.",
             "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
             "Review actions are suggestions from the order preview; this tool does not place orders.",
             "Cash policy fields are combined-account policy context, not duplicated per-portfolio cash targets.",
@@ -915,9 +1014,11 @@ def render_current_snapshot_report(payload: dict[str, Any]) -> str:
         f"- Combined current cash: {clean_float(payload.get('combined_current_cash_weight')):.2%}",
         f"- Combined target cash: {clean_float(payload.get('combined_target_cash_weight')):.2%}",
         f"- Cash policy review: `{payload.get('cash_policy_review_action', '')}`",
+        f"- Primary user view: `{payload.get('primary_user_view', '')}`",
         "",
         "This file answers what the simulated broker-ledger portfolios currently hold after historical trades and latest close mark-to-market.",
         "It is different from `portfolio_latest.csv` and `concentrated_portfolio_latest.csv`, which are target recommendation books.",
+        "Use `proposed_target_deltas_latest.csv` only for review actions and target drift, not as current holdings.",
         "Cash policy fields are combined-account context; they are not separate per-portfolio target cash weights.",
         "",
     ]
