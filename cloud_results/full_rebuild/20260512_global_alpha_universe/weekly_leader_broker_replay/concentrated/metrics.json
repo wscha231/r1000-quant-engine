@@ -1,0 +1,25 @@
+{
+  "status": "blocked",
+  "reason": "target weight sum exceeds maximum reasonable exposure",
+  "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/weekly_leader_concentrated_target_book.csv",
+  "research_only": true,
+  "valid_for_production": false,
+  "target_book_filter": {
+    "target_stock_names": "4",
+    "weighting_mode": "score_power",
+    "active_rebalance_interval_months": "1"
+  },
+  "target_book_filter_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_comparison.csv",
+  "target_book_filter_warning": "",
+  "max_total_weight": 1.0999999999999996,
+  "max_stock_weight": 1.0999999999999996,
+  "invalid_weight_date_count": 1,
+  "invalid_weight_dates": [
+    {
+      "rebalance_date": "2020-12-31",
+      "stock_weight": 1.0999999999999996,
+      "cash_weight": 0.0,
+      "total_weight": 1.0999999999999996
+    }
+  ]
+}
