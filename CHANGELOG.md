@@ -1172,6 +1172,61 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Stop B is unlikely on Iter 6**. The realistic frontier within long-only + no per-position stops + monthly cadence appears to be Main ~-27%, Concentrated ~-28 to -30%. The final-summary writer should document this honestly and recommend either (a) structural follow-ups (main_v2 swap, broker-accounting audit fixes A1/A2) or (b) revised targets if the user wants to ship.
   - **Final summary will be written after Iter 6 Tier-2 result**. The current best metrics by portfolio (across all iterations) will be the headline numbers.
 
+### 23:08 KST - overnight-loop-final-summary
+
+- scope:
+  - Closing record of the autonomous overnight attribution loop that ran 19:26 KST through 23:08 KST against broker-ledger baseline metrics from full rebuild `25713620719`. Six iterations were executed; each measured the broker-ledger result of a single focused hypothesis against the same fixed baseline. The user's stop condition B (Main MaxDD ≤ -22.0% AND Concentrated MaxDD ≤ -25.0%) was NOT achieved. The loop produced concrete data on what works, what does not, and where the realistic long-only R1000 + 25bps + monthly cadence Pareto frontier lies.
+- iteration_table:
+
+  | Iter | Commit | Hypothesis | Main ΔCAGR | Main ΔMaxDD | Conc ΔCAGR | Conc ΔMaxDD | Outcome |
+  | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+  | 1 | 52bc1b1 | neutral-regime churn filter targeting F2 | -1.42pp | -0.31pp (WORSE) | n/a | n/a | F2 hypothesis refuted — blocked entries were small wins not losses |
+  | 2 | add5ba8 | SPY 200ma macro circuit breaker | n/a | n/a | n/a | n/a | INFRA FAILED — SPY missing from Tier-2 cache; no measurement |
+  | 3 | 32c5232 | regime_state filter, bear=0.5, deep_bear=0.25 | -3.05pp | +1.24pp | 0.00 | 0.00 | Mechanism works on Main; concentrated regime label was null |
+  | 4 | 0405f24 | concentrated borrows Main regime via --regime-source-book | (unchanged) | (unchanged) | -4.62pp | **+5.20pp** | Concentrated breakthrough with Sharpe +0.027 (winners-safe) |
+  | 5 | df4487b | tighter multipliers bear=0.35, deep_bear=0.15 | -3.88pp | +0.32pp (WORSE than Iter 3) | -5.80pp | +5.03pp (slightly WORSE than Iter 4) | Tightening was directionally wrong — cash held through recoveries misses bounce |
+  | 6 | 9067d63 | revert multipliers + add concentrated neutral=0.85 | -3.05pp | +1.24pp | -7.86pp | **+6.50pp** | Best concentrated MaxDD overall; CAGR cost grows nonlinearly with neutral coverage |
+- baseline_metrics:
+  - Main: CAGR 21.99% / MaxDD -28.63% / Sharpe 1.062 / 2464 trades.
+  - Concentrated: CAGR 35.76% / MaxDD -36.74% / Sharpe 1.205 / 532 trades.
+- best_known_pareto_per_portfolio:
+  - **Main (best MaxDD)**: Iter 3/4/6 setting `bear=0.5, deep_bear=0.25`. CAGR **18.94%** / MaxDD **-27.38%** / Sharpe 1.045 / Calmar 0.691. ΔCAGR -3.05pp, ΔMaxDD +1.24pp, Calmar 0.768 -> 0.691 (regression).
+  - **Concentrated (best Calmar, risk-adjusted)**: Iter 4 setting `bear=0.5, deep_bear=0.25` with regime borrow. CAGR **31.13%** / MaxDD **-31.54%** / Sharpe **1.232** / Calmar **0.987**. ΔCAGR -4.62pp, ΔMaxDD +5.20pp, Sharpe +0.027. THIS IS THE RECOMMENDED CONCENTRATED CONFIGURATION.
+  - **Concentrated (best absolute MaxDD)**: Iter 6 setting `bear=0.5, deep_bear=0.25, neutral=0.85`. CAGR **27.90%** / MaxDD **-30.24%** / Sharpe **1.219** / Calmar **0.923**. ΔCAGR -7.86pp, ΔMaxDD +6.50pp. Use only if MaxDD is hard-binding and CAGR drag is acceptable.
+- stop_condition_b_status:
+  - **NOT ACHIEVED**. Both portfolios remain meaningfully short:
+    - Main MaxDD -27.38% (best) vs -22.00% target → **5.38pp gap**.
+    - Concentrated MaxDD -30.24% (Iter 6) or -31.54% (Iter 4 best-Calmar) vs -25.00% target → **5.24pp to 6.54pp gap**.
+  - Hard stop loss was NEVER triggered. Best-known iterations improved MaxDD without making it worse than baseline for either portfolio.
+- findings_status_after_loop:
+  - **F1 (concentrated unrealized MDD)**: PARTIALLY ADDRESSED. Best-Calmar Iter 4 cut Concentrated MaxDD from -36.74% to -31.54% (+5.20pp). Best-MaxDD Iter 6 cut it further to -30.24% (+6.50pp). Did NOT close to the user's original -18% target. The mechanism (regime-conditioned capacity gating on bear/deep_bear months) is validated; closing more of the gap would require either intra-month (sub-monthly) cadence OR per-position dampening with strict winners-safe gating.
+  - **F2 (main neutral regime loss)**: REFUTED. Iter 1 measured that the blocked re-entries of high-churn neutral-regime tickers (MA, PG, ORCL, COST) were on net small WINS, not losses as initially suspected. The realized losses concentrated in neutral regime are not bad picks — they are an artifact of the monthly cadence interacting with score noise on quality megacaps. Finding remains open in the attribution but the originally proposed mechanism does not work.
+  - **F3 (concentrated late exits)**: UNCHANGED. No iteration touched target_exit timing. The asymmetry between target_exit losers (avg -$2,618) and target_rebalance losers (avg -$435) remains. Recommended for the next loop or as a manual review.
+- realistic_frontier:
+  - The honest broker-ledger frontier under long-only R1000 + 25 bps per side + monthly cadence:
+    - Main: CAGR 19-22%, MaxDD -25% to -29%, Calmar 0.7-0.85.
+    - Concentrated: CAGR 28-36%, MaxDD -28% to -37%, Calmar 0.9-1.0.
+  - The user's original targets (Main 30%/-15%, Concentrated 50%/-18%) sit OUTSIDE this frontier. Those numbers came from the deprecated monthly-bar research backtest which capped MaxDD via a -8% hard-stop convention that did not survive broker-ledger reality. Under broker-ledger truth those targets require structural changes (leverage, shorting, or daily rebalancing) that are out of scope for the current architecture.
+- recommendations_for_user_next_morning:
+  1. **Pick a configuration**. The data supports two reasonable operational choices for Concentrated:
+     - **Iter 4 setting (recommended)**: `--multipliers "bear=0.5,deep_bear=0.25"` with `--regime-source-book` pointing at the main book. Best Calmar (0.987), Sharpe IMPROVED vs baseline (+0.027). CAGR sacrifice -4.62pp.
+     - **Iter 6 setting (more defensive)**: `--multipliers "bear=0.5,deep_bear=0.25,neutral=0.85"`. Lowest MaxDD (-30.24%). CAGR sacrifice -7.86pp, Sharpe still +0.014 vs baseline.
+     - For Main, only one configuration emerged: `bear=0.5, deep_bear=0.25`. CAGR sacrifice -3.05pp for +1.24pp MaxDD. Calmar regresses (0.768 -> 0.691). User may decide NOT to apply the filter to Main and instead pursue structural changes (see step 3).
+  2. **Production promotion path**. The broker-accounting hard gates in `research/broker_accounting_audit.json` (`delisted_cost_basis_fallback_eliminated` and `survivorship_coverage_audited`) are STILL FALSE. Until they flip true, every result from this loop is research-grade. The 14:55 KST entry's smoke test (`tests/broker_ledger_correctness_smoke.py`) documents the open biases; closing them is prerequisite to any production swap.
+  3. **Structural follow-ups to close the remaining MaxDD gap**:
+     - (a) Promote `r1000_main_v2.py` from shadow to operating book. Its 84-month research backtest shows CAGR 21.6% / MaxDD -27.22% / Sharpe 1.007, which is comparable to Iter 4 main filter at lower CAGR cost. Validate via Tier-2 broker-ledger replay first.
+     - (b) Per-position trailing-loss dampener with strict gating (only fire when regime != bull AND position unrealized loss > 15%). Iter 6's per-position experiment was scoped out as too high-risk for an overnight pass; revisit deliberately.
+     - (c) Concentrated single-name cap reduction in bear (50% → 30%). Invasive; requires broker_replay path modification. Estimated additional MaxDD improvement +3-5pp on Concentrated.
+  4. **Telemetry preserved for future loops**. `tools/run_trade_attribution_analysis.py` produces `findings.json` on every Tier-2 / Tier-3 run; the structured F1/F2/F3 entries with `finding_id`, `evidence`, `candidate_fix` are the agent-readable record. The next loop iteration starts by reading those files.
+  5. **Iter 5's lesson is structural**, not parametric. Going from `bear=0.5` to `bear=0.35` was directionally wrong because cash held through bear-labeled months misses the recovery bounce that the engine's regime label is too slow to catch. Future filters should either (a) trigger faster than the monthly regime label or (b) accept that monthly-cadence regime dampening has a 5-7pp MaxDD ceiling per portfolio.
+- workflow_state_at_loop_end:
+  - Branch `codex/broker-ledger-replay-foundation` head: `9067d63` (Iter 6 commit). Workflows currently configured with Iter 6 multipliers (`bear=0.5,deep_bear=0.25` Main; `bear=0.5,deep_bear=0.25,neutral=0.85` Concentrated). The user may want to revert Concentrated to Iter 4 setting for best-Calmar, or keep Iter 6 setting for best-MaxDD; both are acceptable depending on preference.
+  - All six iterations remain in git history; reverting to Iter 4's exact wiring is a single workflow line edit.
+  - PR validation suite stayed at 21/21 passing throughout. No regression introduced.
+- do_not_auto_resume: true
+- closing_note:
+  - User's directive was "B로 하고 CAGR도 좀 낮더라도 달성하게" plus "한번 돌릴때 충분히 결과와 원인을 분석하고 성급하게 RUN 돌리기 전에 결과물 분석 리서치와 코드서치. 좀더 창의적인 방법은 없나까지 고려해서". The loop followed that protocol — each iteration analyzed prior results, brainstormed 5-7 options with explicit rationale, and acted on a single focused change. The frontier was pushed to a sensible local optimum within the current architecture. Closing this attribution loop without target achievement is the honest answer; the next move belongs to the user (pick a configuration to ship as research, OR invest in the structural follow-ups to reach the original 30/-15 and 50/-18 numbers).
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
