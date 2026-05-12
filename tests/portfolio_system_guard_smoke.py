@@ -120,8 +120,10 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert main_metric_check["severity"] in {"ok", "warn"}
         checks = {row["check"]: row for row in result["error_checks"]}
         assert checks["main_target_book_reaches_broker_end"]["passed"] is True
+        assert checks["main_operating_target_book_available"]["passed"] is True
         assert checks["main_historical_research_book_reaches_broker_end"]["severity"] == "warn"
         assert checks["main_broker_replay_uses_operating_target_book"]["passed"] is True
+        assert checks["concentrated_operating_target_book_available"]["passed"] is True
         assert checks["concentrated_broker_replay_uses_operating_target_book"]["passed"] is True
         assert checks["operating_event_backtest_available"]["passed"] is True
         assert checks["daily_risk_overlay_backtest_validated"]["passed"] is True
@@ -133,6 +135,65 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert (out_dir / "target_gap.json").exists()
 
 
+def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:
+    with TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "guard"
+        latest = Path(tmp) / "latest"
+        write_json(
+            latest / "broker_replay" / "main" / "metrics.json",
+            {
+                "status": "completed",
+                "metric_mode": "broker_ledger_next_close",
+                "valid_for_production": True,
+                "cagr": 0.21,
+                "max_dd": -0.30,
+                "sharpe": 1.0,
+                "end_date": "2026-05-08",
+                "target_book": "outputs/reports/main_monthly_weights.csv",
+            },
+        )
+        write_json(
+            latest / "broker_replay" / "concentrated" / "metrics.json",
+            {
+                "status": "completed",
+                "metric_mode": "broker_ledger_next_close",
+                "valid_for_production": True,
+                "cagr": 0.31,
+                "max_dd": -0.39,
+                "sharpe": 1.0,
+                "end_date": "2026-05-08",
+                "target_book": "outputs/reports/concentrated_strategy_holdings.csv",
+            },
+        )
+        write_csv(latest / "reports" / "main_monthly_weights.csv", [{"rebalance_date": "2026-02-27", "ticker": "AAA", "weight": 0.72}, {"rebalance_date": "2026-02-27", "ticker": "CASH", "weight": 0.28}])
+        write_csv(
+            latest / "reports" / "concentrated_strategy_holdings.csv",
+            [{"rebalance_date": "2026-02-27", "ticker": "AAA", "weight": 1.0}],
+        )
+        write_csv(latest / "portfolio_latest.csv", [{"ticker": "BBB", "weight": 1.0}])
+        write_csv(latest / "concentrated_portfolio_latest.csv", [{"ticker": "BBB", "weight": 1.0}])
+        result = run(
+            Namespace(
+                latest_run=str(latest),
+                output_dir=str(out_dir),
+                main_cagr_target=0.30,
+                main_max_dd_target=-0.15,
+                concentrated_cagr_target=0.50,
+                concentrated_max_dd_target=-0.18,
+                strict_targets=False,
+            )
+        )
+        checks = {row["check"]: row for row in result["error_checks"]}
+        assert result["overall_status"] == "blocked"
+        assert checks["main_target_book_reaches_broker_end"]["severity"] == "error"
+        assert checks["main_operating_target_book_available"]["severity"] == "error"
+        assert checks["main_broker_replay_uses_operating_target_book"]["severity"] == "error"
+        assert checks["concentrated_target_book_reaches_broker_end"]["severity"] == "error"
+        assert checks["concentrated_operating_target_book_available"]["severity"] == "error"
+        assert checks["concentrated_broker_replay_uses_operating_target_book"]["severity"] == "error"
+
+
 if __name__ == "__main__":
     test_portfolio_system_guard_reports_target_gaps()
+    test_portfolio_system_guard_blocks_stale_historical_broker_replay()
     print("portfolio_system_guard_smoke: ok")

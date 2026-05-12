@@ -232,6 +232,46 @@ All entries must be written in English. Entries must be predictable and machine-
   - The recommendation sheet remains a target recommendation, not a broker account holding.
   - Current operating holdings are only as good as the broker-ledger replay and open-lot journal artifacts.
 
+### 11:30 KST - harden-broker-replay-freshness
+
+- scope:
+  - Prevent stale broker-ledger replays from looking valid when the replay uses historical monthly books that stop months before the latest recommendation.
+  - Make operating target book generation and official broker replay mandatory in full rebuild and replay-sidecar workflows instead of silently continuing on failure.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds `set -o pipefail` to the replay sidecar step and removes `|| true` from operating target book generation plus official main/concentrated broker-ledger replay commands.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->same hardening for fast replay sidecars.
+  - `tools/build_operating_target_books.py` ->avoids fragmented DataFrame column insertion when aligning wide historical and latest target schemas.
+  - `tools/run_portfolio_system_guard.py` ->treats missing/stale operating target books and broker replays that used historical books as hard errors.
+  - `tests/portfolio_system_guard_smoke.py` ->adds a stale historical-book regression case.
+  - `CHANGELOG.md` ->records broker replay freshness hardening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `build_operating_target_books.add_missing_columns(frame, columns)` ->adds missing columns in one concat and returns a stable ordered schema.
+  - `run_portfolio_system_guard.operating_alignment_checks(inputs, latest_run)` ->now emits hard errors for stale selected target books, missing operating target books, and broker replays that did not use `operating_*_target_book.csv`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_system_guard/target_gap.json` ->now blocks stale broker replay evidence instead of only warning.
+  - `outputs/full_rebuild_logs/operating_target_books.log` ->now must succeed for the official broker-ledger replay sidecar step.
+  - `outputs/full_rebuild_logs/broker_ledger_replay_main.log` ->now must succeed for official main account evidence.
+  - `outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log` ->now must succeed for official concentrated account evidence.
+- validation:
+  - `python tests\operating_target_books_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python tests\user_portfolio_reports_smoke.py` ->passed.
+  - `python -m py_compile tools\build_operating_target_books.py tools\run_portfolio_system_guard.py tools\run_user_portfolio_reports.py` ->passed.
+  - `python tools\run_portfolio_system_guard.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir _local_guard_stale_check` ->blocked as expected with hard errors for stale historical books and missing operating target books.
+  - `python tests\smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - The analyzed artifact used `reports/main_monthly_weights.csv` and `reports/concentrated_strategy_holdings.csv` directly; those books ended on 2026-02-27, so official broker trades stopped on 2026-03-02 while equity was merely marked to 2026-05-08.
+  - Main cash near $100k came from the 2026-02-27 target book carrying about 28.38% CASH, not from preserving the initial $100k. It is still stale relative to the latest 2026-05-08 recommendation, which targets 0% cash.
+  - A latest recommendation dated at the latest close cannot be filled on the same close under `next_close`; it should appear as pending orders until the next available close. The hard error is for missing/stale operating books, not for a one-trading-day pending fill.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

@@ -96,10 +96,10 @@ def normalize_latest_target(frame: pd.DataFrame, portfolio: str) -> pd.DataFrame
 
 def add_missing_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     out = frame.copy()
-    for col in columns:
-        if col not in out.columns:
-            out[col] = ""
-    return out
+    missing = [col for col in columns if col not in out.columns]
+    if missing:
+        out = pd.concat([out, pd.DataFrame({col: "" for col in missing}, index=out.index)], axis=1)
+    return out[columns].copy()
 
 
 def build_book(
@@ -159,10 +159,8 @@ def build_book(
         history["operating_latest_price_date"] = ""
 
     all_cols = list(dict.fromkeys(list(history.columns) + list(latest_rows.columns)))
-    combined = pd.concat(
-        [add_missing_columns(history, all_cols), add_missing_columns(latest_rows, all_cols)],
-        ignore_index=True,
-    )
+    parts = [add_missing_columns(part, all_cols) for part in (history, latest_rows) if not part.empty]
+    combined = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=all_cols)
     if not combined.empty:
         combined["rebalance_date"] = pd.to_datetime(combined["rebalance_date"], errors="coerce").dt.date.astype(str)
         combined = combined.sort_values(["rebalance_date", "ticker"]).reset_index(drop=True)

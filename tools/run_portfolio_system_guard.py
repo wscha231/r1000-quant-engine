@@ -270,8 +270,17 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
             {
                 "check": f"{portfolio}_target_book_reaches_broker_end",
                 "passed": passed,
-                "severity": "warn" if not passed else "ok",
+                "severity": "error" if not passed else "ok",
                 "detail": f"selected_role={summary.get('target_book_role')}; target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}; path={summary.get('path')}",
+            }
+        )
+        operating_exists = bool(operating.get("exists") and int(operating.get("row_count") or 0) > 0)
+        checks.append(
+            {
+                "check": f"{portfolio}_operating_target_book_available",
+                "passed": operating_exists,
+                "severity": "error" if not operating_exists else "ok",
+                "detail": f"operating_book={operating.get('path')}; rows={operating.get('row_count')}; max_date={operating.get('max_date')}",
             }
         )
         historical_max_dt = parse_date(historical.get("max_date"))
@@ -291,7 +300,7 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
             {
                 "check": f"{portfolio}_broker_replay_uses_operating_target_book",
                 "passed": uses_operating,
-                "severity": "warn" if not uses_operating else "ok",
+                "severity": "error" if not uses_operating else "ok",
                 "detail": f"metric_target_book={metric_target_book or 'missing'}",
             }
         )
