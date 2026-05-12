@@ -446,6 +446,63 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Failed runs `25709590282` and `25710401180` did not execute jobs; they failed before job creation due to workflow YAML parsing, so no data or portfolio outputs were modified.
 
+### 13:14 KST - event-target-book-sidecar
+
+- scope:
+  - Add a research-only event target book bridge that turns monthly/operating target books into broker-ledger replay inputs with observable daily/weekly exit and trim events.
+- files:
+  - `tools/build_event_target_books.py` ->builds main/concentrated event target books and event logs from operating target books plus daily price cache paths.
+  - `tests/event_target_books_smoke.py` ->covers daily hard-stop target injection and broker-ledger replay compatibility.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs event target book generation after official broker replay and publishes/syncs event replay artifacts.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs the same event target book sidecar from completed full-rebuild artifacts without rerunning the collector/model pipeline.
+  - `tools/sync_cloud_to_drive.py` ->syncs event target book and event broker replay directories to the local Drive mirror.
+  - `tests/workflow_artifact_smoke.py` ->covers workflow wiring for event target books and event broker replay outputs.
+  - `.gitignore` ->ignores regenerated event target book and event broker replay outputs.
+  - `CHANGELOG.md` ->records the event target book sidecar work.
+- symbols_added:
+  - `build_event_target_books.repo_path(path_like)` ->resolves repository-relative paths.
+  - `build_event_target_books.now_utc()` ->returns an ISO UTC generation timestamp.
+  - `build_event_target_books.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `build_event_target_books.write_json(path, payload)` ->writes JSON diagnostics.
+  - `build_event_target_books.write_text(path, text)` ->writes markdown/text diagnostics.
+  - `build_event_target_books.date_text(value)` ->normalizes dates to ISO text.
+  - `build_event_target_books.normalize_targets(frame, portfolio_kind, target_book)` ->normalizes and champion-filters target book rows.
+  - `build_event_target_books.latest_period_end(targets, prices, dt, idx, dates)` ->finds the replay end date for one target period.
+  - `build_event_target_books.original_template_by_ticker(period)` ->keeps source target metadata for event snapshots.
+  - `build_event_target_books.snapshot_rows(snapshot_date, weights, templates, portfolio_kind, event_kind, event_reason, event_source_tickers)` ->serializes one full target snapshot including CASH.
+  - `build_event_target_books.period_base_weights(period)` ->normalizes base stock weights for one target period.
+  - `build_event_target_books.price_dict_for_targets(price_cache, targets, benchmark_ticker)` ->loads needed ticker and benchmark price series.
+  - `build_event_target_books.build_event_book(target_book, price_cache, portfolio_kind, benchmark_ticker, hard_stop, trailing_stop, trailing_activation, relative_trim_threshold, relative_exit_threshold, trim_weight)` ->injects event-driven target snapshots for one portfolio.
+  - `build_event_target_books.render_report(payload)` ->renders a markdown event target book summary.
+  - `build_event_target_books.build(args)` ->builds both main and concentrated event target books.
+  - `build_event_target_books.parse_args()` ->parses CLI arguments.
+  - `build_event_target_books.main()` ->CLI entrypoint.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/event_main_target_book.csv` ->main broker-replay target book with scheduled targets plus event-driven exit/trim snapshots.
+  - `outputs/reports/event_concentrated_target_book.csv` ->concentrated broker-replay target book with scheduled targets plus event-driven exit/trim snapshots.
+  - `outputs/event_target_books/main_events.csv` ->main event action log.
+  - `outputs/event_target_books/concentrated_events.csv` ->concentrated event action log.
+  - `outputs/event_target_books/summary.json` ->research-only status and event counts.
+  - `outputs/event_target_books/report.md` ->human-readable event target book report.
+  - `outputs/event_broker_replay/main/*` ->broker-ledger replay outputs for the main event target book.
+  - `outputs/event_broker_replay/concentrated/*` ->broker-ledger replay outputs for the concentrated event target book.
+- validation:
+  - `py -3 -m py_compile tools\build_event_target_books.py` ->passed.
+  - `py -3 tests\event_target_books_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This is explicitly research-only and does not create new daily entries; it only applies observable daily/weekly exits and trims to existing target holdings.
+  - True daily alpha entry backtesting still requires historical daily or weekly scored snapshots; full daily universe scoring would be much more expensive than this controlled overlay.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
