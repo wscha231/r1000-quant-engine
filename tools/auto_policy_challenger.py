@@ -30,6 +30,7 @@ DEFAULT_E1_METRICS = "outputs/experiments/E1_auto_feature_gates_on/metrics.json"
 DEFAULT_E5_METRICS = "outputs/experiments/E5_orchestrator_balanced/metrics.json"
 DEFAULT_WEEKLY_LEADER_MAIN_METRICS = "outputs/weekly_leader_broker_replay/main/metrics.json"
 DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS = "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
+DEFAULT_BROKER_ACCOUNTING_AUDIT = "research/broker_accounting_audit.json"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -114,6 +115,77 @@ def candidate_thresholds(policy: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def load_broker_accounting_audit(path: Path) -> dict[str, Any]:
+    """Load the broker-ledger known-bias audit artifact.
+
+    Returns the parsed audit dict, or an empty-but-valid skeleton if the
+    file is missing so the challenger emits explicit "missing audit"
+    failures rather than crashing.
+    """
+    if not path.exists():
+        return {
+            "hard_gates": {
+                "delisted_cost_basis_fallback_eliminated": {"value": False, "rationale": "audit file missing"},
+                "survivorship_coverage_audited": {"value": False, "rationale": "audit file missing"},
+            },
+            "soft_gates": {
+                "multi_day_fill_date_stamping_corrected": {"value": False, "rationale": "audit file missing"},
+                "sharpe_uses_excess_return": {"value": False, "rationale": "audit file missing"},
+            },
+            "audit_present": False,
+        }
+    raw = read_json(path)
+    raw["audit_present"] = True
+    return raw
+
+
+def _broker_accounting_rows(audit: dict[str, Any], audit_path: str) -> list[dict[str, Any]]:
+    """Emit gate rows for each broker-ledger known-bias flag.
+
+    Hard gates correspond to biases that meaningfully distort CAGR/MaxDD
+    (delisted cost-basis fallback and survivorship coverage). Soft gates
+    capture smaller biases (multi-day fill date stamping, Sharpe risk-free
+    rate). The audit JSON is the single source of truth; do not duplicate
+    the flag names in code without updating that artifact.
+    """
+    rows: list[dict[str, Any]] = []
+    hard = audit.get("hard_gates") or {}
+    soft = audit.get("soft_gates") or {}
+    rows.append(gate_row(
+        "broker_accounting",
+        "audit_artifact_present",
+        bool(audit.get("audit_present")),
+        "hard",
+        observed=audit.get("audit_present", False),
+        threshold=True,
+        reason="research/broker_accounting_audit.json must exist so the challenger can read known-bias flags.",
+        evidence=audit_path,
+    ))
+    for name, payload in hard.items():
+        rows.append(gate_row(
+            "broker_accounting",
+            name,
+            bool((payload or {}).get("value")) is True,
+            "hard",
+            observed=(payload or {}).get("value"),
+            threshold=True,
+            reason=(payload or {}).get("rationale") or "Bias must be eliminated before production promotion.",
+            evidence=(payload or {}).get("evidence_path") or audit_path,
+        ))
+    for name, payload in soft.items():
+        rows.append(gate_row(
+            "broker_accounting",
+            name,
+            bool((payload or {}).get("value")) is True,
+            "soft",
+            observed=(payload or {}).get("value"),
+            threshold=True,
+            reason=(payload or {}).get("rationale") or "Bias should be corrected; warning only until then.",
+            evidence=(payload or {}).get("evidence_path") or audit_path,
+        ))
+    return rows
+
+
 def evaluate_challenger(
     policy: dict[str, Any],
     baseline: dict[str, Any],
@@ -124,10 +196,15 @@ def evaluate_challenger(
     alpha_sprint_metrics: dict[str, Any],
     weekly_leader_main_metrics: dict[str, Any],
     weekly_leader_concentrated_metrics: dict[str, Any],
+    broker_accounting_audit: dict[str, Any] | None = None,
+    broker_accounting_audit_path: str = DEFAULT_BROKER_ACCOUNTING_AUDIT,
 ) -> dict[str, Any]:
     validation = validate_policy(policy)
     thresholds = candidate_thresholds(policy)
     rows: list[dict[str, Any]] = []
+
+    audit = broker_accounting_audit if broker_accounting_audit is not None else {"audit_present": False, "hard_gates": {}, "soft_gates": {}}
+    rows.extend(_broker_accounting_rows(audit, broker_accounting_audit_path))
 
     rows.append(gate_row(
         "schema",
@@ -370,6 +447,7 @@ def evaluate_challenger(
             "weekly_leader_concentrated_metrics": DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS,
         },
         "next_required_backtests": [
+            "broker_accounting_audit_flips_hard_gates_to_true",
             "main_v2_83_month_backtest",
             "orchestrator_83_month_backtest",
             "weekly_leader_entry_cost_and_stress_replay",
@@ -378,6 +456,7 @@ def evaluate_challenger(
             "cost_sensitivity_25_50_75_bps",
             "rolling_3y_5y_stability",
         ],
+        "broker_accounting_audit_path": broker_accounting_audit_path,
     }
 
 
@@ -432,10 +511,12 @@ def main() -> int:
     parser.add_argument("--e5-metrics", default=DEFAULT_E5_METRICS)
     parser.add_argument("--weekly-leader-main-metrics", default=DEFAULT_WEEKLY_LEADER_MAIN_METRICS)
     parser.add_argument("--weekly-leader-concentrated-metrics", default=DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS)
+    parser.add_argument("--broker-accounting-audit", default=DEFAULT_BROKER_ACCOUNTING_AUDIT)
     args = parser.parse_args()
 
     policy = load_policy(repo_path(args.policy))
     baseline = load_baseline(repo_path(args.latest_run))
+    audit_path = repo_path(args.broker_accounting_audit)
     decision = evaluate_challenger(
         policy=policy,
         baseline=baseline,
@@ -446,6 +527,8 @@ def main() -> int:
         alpha_sprint_metrics=read_json(repo_path("outputs/alpha_sprint/backtest_metrics.json")),
         weekly_leader_main_metrics=read_json(repo_path(args.weekly_leader_main_metrics)),
         weekly_leader_concentrated_metrics=read_json(repo_path(args.weekly_leader_concentrated_metrics)),
+        broker_accounting_audit=load_broker_accounting_audit(audit_path),
+        broker_accounting_audit_path=str(args.broker_accounting_audit),
     )
 
     out_dir = repo_path(args.out_dir)

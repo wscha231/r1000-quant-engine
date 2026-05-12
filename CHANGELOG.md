@@ -678,6 +678,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - The generic `production_ready` path treats `sharpe_delta is None` as pass-through (so experiments that do not publish `sharpe_delta_pp` are unaffected). The weekly-leader path always computes `sharpe_delta` from the broker-ledger metrics, so the gate is binding there.
   - AutoLearning still cannot mutate production. This gate only changes which hypotheses are surfaced to the human reviewer as "passed_discovery"; promotion remains gated by `auto_policy_challenger.py`, which is the next target (C5).
 
+### 16:16 KST - challenger-broker-accounting-gate
+
+- scope:
+  - Surface the broker-ledger known-bias audit as explicit hard/soft challenger gates so policies derived from broker-ledger metrics cannot be marked production-ready while accounting biases remain unfixed. The audit is held in a single JSON artifact that the challenger reads; each flag points back to the file/line where the bias lives plus the smoke test that captures the current behavior.
+- files:
+  - `research/broker_accounting_audit.json` ->new audit artifact. Two hard-gate flags (`delisted_cost_basis_fallback_eliminated`, `survivorship_coverage_audited`) and two soft-gate flags (`multi_day_fill_date_stamping_corrected`, `sharpe_uses_excess_return`), each with `evidence_path`, `smoke_test`, and `rationale`. All four currently default to false.
+  - `tools/auto_policy_challenger.py` ->add `DEFAULT_BROKER_ACCOUNTING_AUDIT`, `load_broker_accounting_audit(path)`, `_broker_accounting_rows(audit, audit_path)`; wire two new keyword arguments through `evaluate_challenger`; emit an `audit_artifact_present` hard gate plus one hard gate per `hard_gates` entry and one soft gate per `soft_gates` entry; append `broker_accounting_audit_flips_hard_gates_to_true` to `next_required_backtests`; surface the audit path inside the decision payload; expose `--broker-accounting-audit` on the CLI.
+  - `tests/auto_policy_challenger_smoke.py` ->new smoke test covering: a) default audit blocks promotion with exactly the two known hard failures plus the two soft warnings; b) flipping both hard flags to true removes hard failures while soft warnings persist; c) missing audit file is reported as an explicit `audit_artifact_present=False` hard failure rather than a crash; d) repository-shipped audit conforms to the documented schema and currently reports the open biases.
+  - `tools/run_pr_validation.py` ->add `tests/auto_policy_challenger_smoke.py` to `DEFAULT_TESTS` so Tier 0 / Tier 1 cover the new gate.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `tools.auto_policy_challenger.DEFAULT_BROKER_ACCOUNTING_AUDIT` ->relative path to the audit artifact.
+  - `tools.auto_policy_challenger.load_broker_accounting_audit(path)` ->loads the audit JSON or returns a sentinel skeleton with `audit_present=False` when the file is missing.
+  - `tools.auto_policy_challenger._broker_accounting_rows(audit, audit_path)` ->emits one `gate_row` per flag plus a presence row.
+  - `tests/auto_policy_challenger_smoke.py::test_default_audit_blocks_promotion_with_hard_failures()` ->verifies block-on-false behavior.
+  - `tests/auto_policy_challenger_smoke.py::test_hard_gates_pass_when_audit_flags_flip_true()` ->verifies the post-fix unlock.
+  - `tests/auto_policy_challenger_smoke.py::test_missing_audit_file_emits_explicit_failure_not_crash()` ->verifies graceful fallback.
+  - `tests/auto_policy_challenger_smoke.py::test_repository_audit_matches_schema_and_documents_open_bugs()` ->verifies the shipped audit JSON schema and current-state invariants.
+- symbols_changed:
+  - `tools.auto_policy_challenger.evaluate_challenger(policy, baseline, e1_metrics, e5_metrics, main_v2_audit, concentrated_policy, alpha_sprint_metrics, weekly_leader_main_metrics, weekly_leader_concentrated_metrics, broker_accounting_audit=None, broker_accounting_audit_path=DEFAULT_BROKER_ACCOUNTING_AUDIT)` ->prepends the broker-accounting rows before the existing schema gates; adds `broker_accounting_audit_path` to the returned payload; existing gate semantics are unchanged.
+  - `tools.auto_policy_challenger.main()` ->loads the audit JSON via `load_broker_accounting_audit` and threads it through; exposes `--broker-accounting-audit` CLI flag.
+- config_fields_added:
+  - `--broker-accounting-audit: str = "research/broker_accounting_audit.json"` ->override path to the audit JSON for the CLI.
+- breaking_changes:
+  - none for production behavior; AutoLearning was already proposal-only. The challenger's `approved_for_promotion` flag now hard-fails until both bias flags flip true, which is the intended block during the A1/A2 window.
+- outputs:
+  - `outputs/auto_learning/challenger/challenger_decision.json` ->now includes additional `broker_accounting/*` rows in `gate_rows` plus a top-level `broker_accounting_audit_path` field.
+  - `outputs/auto_learning/challenger/challenger_gate_matrix.csv` ->gains four `broker_accounting` rows.
+- validation:
+  - `py -3 tests/auto_policy_challenger_smoke.py` ->PASS (4 tests).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 16/16 in 23.10 s (now includes the new challenger smoke).
+  - `py -3 tests/auto_learning_v2_smoke.py` ->PASS (Sharpe gate from C4 still green).
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89.
+- risks_or_notes:
+  - `research/broker_accounting_audit.json` is now the canonical source for broker-ledger known-bias state. Future bug-fix commits must update this file in lockstep: flip the appropriate flag to `true` and reference the regression test that demonstrates the fix. Do not flip a flag without a test, otherwise the challenger silently re-approves a policy whose underlying simulation still distorts metrics.
+  - Soft gates are warning-only by design. If the multi-day fill date stamping or Sharpe excess-return biases prove material on real-data sidecar replays, promote them to hard gates in the audit schema and the corresponding `_broker_accounting_rows` logic will hard-fail without any further code change (severity is read from the audit per flag).
+  - The challenger remains research-only. `production_activation_allowed=False` is still enforced by the schema gate; the broker-accounting hard failures stack on top of (not replace) the existing stress / cost / stability blockers.
+  - Next item per the agreed roadmap is C2 (cost-sensitivity 25/50/75/100 bps sidecar) which will exercise the existing `cost_sensitivity_25_50_75_bps` next-required-backtests entry.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
