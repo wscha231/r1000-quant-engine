@@ -35,6 +35,8 @@ outputs/alpha_sprint_backtest/
 outputs/position_aware_risk_replay/
 outputs/event_target_books/
 outputs/event_broker_replay/
+outputs/weekly_leader_snapshots/
+outputs/weekly_leader_broker_replay/
 outputs/monster_lifecycle_replay/
 cloud_results/
 research/github_runs/

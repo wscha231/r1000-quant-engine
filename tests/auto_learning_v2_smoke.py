@@ -2,6 +2,7 @@
 """Smoke tests for AutoLearning v2 Alpha Scientist scaffolding."""
 from __future__ import annotations
 
+import json
 import sys
 from tempfile import TemporaryDirectory
 from argparse import Namespace
@@ -64,7 +65,30 @@ def test_auto_learning_v2_runner_writes_expected_outputs() -> None:
         assert (research_dir / "policy_candidates.yaml").exists()
 
 
+def test_weekly_leader_counterfactual_feeds_autolearning() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "outputs" / "weekly_leader_broker_replay" / "concentrated").mkdir(parents=True)
+        (root / "outputs" / "broker_replay" / "concentrated").mkdir(parents=True)
+        (root / "outputs" / "weekly_leader_broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.45, "sharpe": 1.4, "max_dd": -0.20}),
+            encoding="utf-8",
+        )
+        (root / "outputs" / "broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.35, "sharpe": 1.1, "max_dd": -0.22}),
+            encoding="utf-8",
+        )
+        rows = build_counterfactual_results(
+            [{"id": "alpha_sprint_breakout_fallback_v1", "hypothesis": "weekly leaders improve alpha"}],
+            root,
+        )
+        assert rows[0]["experiment_id"] == "weekly_leader_entry_broker_replay"
+        assert rows[0]["status"] == "counterfactual_available"
+        assert rows[0]["passed_discovery"] is True
+
+
 if __name__ == "__main__":
     test_alpha_scientist_builds_proposal_only_candidate()
     test_auto_learning_v2_runner_writes_expected_outputs()
+    test_weekly_leader_counterfactual_feeds_autolearning()
     print("auto_learning_v2_smoke: ok")

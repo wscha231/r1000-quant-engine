@@ -503,6 +503,85 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is explicitly research-only and does not create new daily entries; it only applies observable daily/weekly exits and trims to existing target holdings.
   - True daily alpha entry backtesting still requires historical daily or weekly scored snapshots; full daily universe scoring would be much more expensive than this controlled overlay.
 
+### 13:26 KST - weekly-leader-entry-broker-replay
+
+- scope:
+  - Add a research-only weekly new-leader entry challenger that converts PIT monthly candidates plus daily price cache into broker-ledger target books.
+- files:
+  - `tools/build_weekly_leader_target_books.py` ->builds weekly leader snapshots, main/concentrated weekly leader target books, and entry logs without using forward-label columns for selection.
+  - `tests/weekly_leader_target_books_smoke.py` ->covers a synthetic new-leader entry and verifies broker-ledger BUY execution.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs weekly leader target books and broker-ledger replays during full rebuild sidecars.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs weekly leader target books and broker-ledger replays from completed full-rebuild artifacts.
+  - `tools/run_portfolio_goal_search.py` ->adds weekly leader broker replays as research-only goal-search candidates.
+  - `r1000_auto_learning_evidence.py` ->loads weekly leader broker replay evidence into AutoLearning evidence snapshots.
+  - `auto_learning_v2/counterfactual_tester.py` ->lets the alpha-sprint breakout fallback hypothesis use weekly leader broker replay as counterfactual evidence.
+  - `tools/auto_policy_challenger.py` ->surfaces weekly leader broker replay availability in AutoLearning challenger gates.
+  - `tools/sync_cloud_to_drive.py` ->syncs weekly leader snapshot and replay outputs to the local Drive mirror.
+  - `tests/workflow_artifact_smoke.py` ->covers workflow wiring for weekly leader target books and replay outputs.
+  - `tests/auto_learning_evidence_smoke.py` ->covers weekly leader evidence loading.
+  - `tests/auto_learning_v2_smoke.py` ->covers weekly leader counterfactual evidence routing.
+  - `.gitignore` ->ignores regenerated weekly leader outputs.
+  - `CHANGELOG.md` ->records the weekly leader entry work.
+- symbols_added:
+  - `build_weekly_leader_target_books.repo_path(path_like)` ->resolves repository-relative paths.
+  - `build_weekly_leader_target_books.now_utc()` ->returns an ISO UTC generation timestamp.
+  - `build_weekly_leader_target_books.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `build_weekly_leader_target_books.write_json(path, payload)` ->writes JSON diagnostics.
+  - `build_weekly_leader_target_books.write_text(path, text)` ->writes markdown/text diagnostics.
+  - `build_weekly_leader_target_books.normalize_book(frame, portfolio_kind, target_book)` ->normalizes target books and applies concentrated champion filtering.
+  - `build_weekly_leader_target_books.normalize_candidate_book(frame)` ->normalizes PIT monthly candidate rows.
+  - `build_weekly_leader_target_books.numeric(frame, col, default)` ->coerces numeric columns.
+  - `build_weekly_leader_target_books.first_numeric(row, cols, default)` ->chooses the first usable numeric field.
+  - `build_weekly_leader_target_books.robust_z(values)` ->computes robust cross-sectional z-scores.
+  - `build_weekly_leader_target_books.price_return(px, as_of, lookback_days)` ->computes point-in-time price returns.
+  - `build_weekly_leader_target_books.price_features(px, benchmark_px, as_of)` ->computes weekly price, RS, trend, and liquidity features from historical bars.
+  - `build_weekly_leader_target_books.score_candidates(candidates)` ->scores weekly leader candidates without forward labels.
+  - `build_weekly_leader_target_books.period_end_dates(dates, candidate_prices, period, idx, dt)` ->finds each monthly candidate period's replay end date.
+  - `build_weekly_leader_target_books.weekly_signal_dates(start, end)` ->generates weekly signal dates inside a monthly period.
+  - `build_weekly_leader_target_books.base_weights_for_date(base_book, dt)` ->gets the active base target weights for a weekly signal date.
+  - `build_weekly_leader_target_books.capacity_for_regime(portfolio_kind, regime)` ->sets research-only weekly leader overlay capacity by portfolio and regime.
+  - `build_weekly_leader_target_books.score_power_weights(frame, score_col, total_weight, single_cap)` ->allocates leader overlay weights from scores with caps.
+  - `build_weekly_leader_target_books.combine_base_and_leaders(base_weights, leader_weights, single_cap)` ->merges base book and weekly leader overlay weights.
+  - `build_weekly_leader_target_books.snapshot_rows(snapshot_date, weights, templates, selected, portfolio_kind, event_kind, event_reason)` ->serializes broker replay target rows.
+  - `build_weekly_leader_target_books.build_weekly_snapshots(candidates, price_cache, benchmark_ticker, min_mcap, min_dollar_vol, min_price, snapshot_top_k)` ->builds weekly leader candidate snapshots.
+  - `build_weekly_leader_target_books.build_target_book_for_portfolio(base_book, base_meta, weekly_snapshots, portfolio_kind, top_n, min_score_quantile, single_cap)` ->builds one portfolio's weekly leader target book.
+  - `build_weekly_leader_target_books.render_report(payload)` ->renders a markdown report.
+  - `build_weekly_leader_target_books.build(args)` ->builds weekly leader artifacts for both portfolios.
+  - `build_weekly_leader_target_books.parse_args()` ->parses CLI arguments.
+  - `build_weekly_leader_target_books.main()` ->CLI entrypoint.
+  - `counterfactual_tester._weekly_leader_counterfactual(root, hypothesis_id)` ->maps weekly leader broker replay into AutoLearning counterfactual evidence.
+- symbols_changed:
+  - `r1000_auto_learning_evidence.load_auto_learning_evidence(latest_run, root)` ->adds weekly leader entry evidence and CAGR deltas versus broker-ledger baseline.
+  - `auto_learning_v2.counterfactual_tester.build_counterfactual_results(hypotheses, root)` ->uses weekly leader replay for alpha-sprint breakout fallback when available.
+  - `tools.auto_policy_challenger.evaluate_challenger(...)` ->accepts weekly leader metrics and surfaces a weekly leader broker replay gate.
+  - `tools.run_portfolio_goal_search.collect_candidates(latest_run)` ->ranks weekly leader broker replay candidates as research-only evidence.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/weekly_leader_main_target_book.csv` ->main broker-replay target book with weekly new-leader entry snapshots.
+  - `outputs/reports/weekly_leader_concentrated_target_book.csv` ->concentrated broker-replay target book with weekly new-leader entry snapshots.
+  - `outputs/weekly_leader_snapshots/weekly_leader_snapshots.csv` ->weekly top candidate snapshots and score inputs.
+  - `outputs/weekly_leader_snapshots/main_entries.csv` ->main weekly leader entry log.
+  - `outputs/weekly_leader_snapshots/concentrated_entries.csv` ->concentrated weekly leader entry log.
+  - `outputs/weekly_leader_snapshots/summary.json` ->research-only status, coverage, and leakage guard diagnostics.
+  - `outputs/weekly_leader_broker_replay/main/*` ->broker-ledger replay outputs for the main weekly leader target book.
+  - `outputs/weekly_leader_broker_replay/concentrated/*` ->broker-ledger replay outputs for the concentrated weekly leader target book.
+- validation:
+  - `py -3 -m py_compile tools\build_weekly_leader_target_books.py r1000_auto_learning_evidence.py auto_learning_v2\counterfactual_tester.py tools\auto_policy_challenger.py tools\run_portfolio_goal_search.py`
+  - `py -3 tests\weekly_leader_target_books_smoke.py`
+  - `py -3 tests\workflow_artifact_smoke.py`
+  - `py -3 tests\auto_learning_evidence_smoke.py`
+  - `py -3 tests\auto_learning_v2_smoke.py`
+  - `py -3 tests\portfolio_goal_search_smoke.py`
+  - `py -3 tests\event_target_books_smoke.py`
+  - `py -3 tests\smoke_test.py`
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime`
+- risks_or_notes:
+  - This is research-only; weekly leader books can raise turnover and must pass broker-ledger, stress-window, cost-sensitivity, and human review gates before promotion.
+  - Candidate eligibility is PIT monthly, while weekly price features are computed from bars available at each weekly signal date; full daily fundamental rescoring remains intentionally out of scope for GitHub fullrun cost control.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

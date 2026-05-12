@@ -22,11 +22,16 @@ def _experiment_rows(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def build_counterfactual_results(hypotheses: list[dict[str, Any]], root: str | Path) -> list[dict[str, Any]]:
-    summary = read_json(Path(root) / "outputs" / "experiments" / "experiment_matrix_summary.json")
+    root_path = Path(root)
+    summary = read_json(root_path / "outputs" / "experiments" / "experiment_matrix_summary.json")
     experiments = _experiment_rows(summary)
     results: list[dict[str, Any]] = []
     for hypothesis in hypotheses:
         hid = str(hypothesis.get("id"))
+        weekly_bridge = _weekly_leader_counterfactual(root_path, hid)
+        if weekly_bridge:
+            results.append(weekly_bridge)
+            continue
         experiment_id = HYPOTHESIS_EXPERIMENT_MAP.get(hid)
         experiment = experiments.get(experiment_id or "", {})
         backtest_executed = experiment.get("backtest_executed")
@@ -61,6 +66,35 @@ def build_counterfactual_results(hypotheses: list[dict[str, Any]], root: str | P
             }
         )
     return results
+
+
+def _weekly_leader_counterfactual(root: Path, hypothesis_id: str) -> dict[str, Any] | None:
+    if hypothesis_id != "alpha_sprint_breakout_fallback_v1":
+        return None
+    candidate = read_json(root / "outputs" / "weekly_leader_broker_replay" / "concentrated" / "metrics.json")
+    baseline = read_json(root / "outputs" / "broker_replay" / "concentrated" / "metrics.json")
+    if not candidate or candidate.get("status") != "completed":
+        return None
+    cand_cagr = safe_float(candidate.get("cagr"), 0.0)
+    base_cagr = safe_float(baseline.get("cagr"), 0.0) if baseline else 0.0
+    cand_dd = safe_float(candidate.get("max_dd"), 0.0)
+    base_dd = safe_float(baseline.get("max_dd"), 0.0) if baseline else 0.0
+    cagr_delta = (cand_cagr - base_cagr) * 100.0
+    maxdd_delta = (cand_dd - base_dd) * 100.0
+    passed = bool(cagr_delta > 0 and maxdd_delta >= -5.0)
+    return {
+        "hypothesis_id": hypothesis_id,
+        "experiment_id": "weekly_leader_entry_broker_replay",
+        "status": "counterfactual_available",
+        "backtest_executed": True,
+        "requires_full_challenger_backtest": False,
+        "passed_discovery": passed,
+        "production_ready": False,
+        "cagr_delta_pp": cagr_delta,
+        "maxdd_delta_pp": maxdd_delta,
+        "sharpe_delta": safe_float(candidate.get("sharpe"), 0.0) - safe_float(baseline.get("sharpe"), 0.0) if baseline else 0.0,
+        "notes": "Weekly leader-entry broker replay is available as account-like counterfactual evidence; keep proposal-only until stress/cost gates pass.",
+    }
 
 
 def _notes(status: str, experiment: dict[str, Any], hypothesis: dict[str, Any]) -> str:

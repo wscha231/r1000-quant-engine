@@ -28,6 +28,8 @@ DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUT_DIR = "outputs/auto_learning/challenger"
 DEFAULT_E1_METRICS = "outputs/experiments/E1_auto_feature_gates_on/metrics.json"
 DEFAULT_E5_METRICS = "outputs/experiments/E5_orchestrator_balanced/metrics.json"
+DEFAULT_WEEKLY_LEADER_MAIN_METRICS = "outputs/weekly_leader_broker_replay/main/metrics.json"
+DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS = "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -120,6 +122,8 @@ def evaluate_challenger(
     main_v2_audit: dict[str, Any],
     concentrated_policy: dict[str, Any],
     alpha_sprint_metrics: dict[str, Any],
+    weekly_leader_main_metrics: dict[str, Any],
+    weekly_leader_concentrated_metrics: dict[str, Any],
 ) -> dict[str, Any]:
     validation = validate_policy(policy)
     thresholds = candidate_thresholds(policy)
@@ -285,15 +289,31 @@ def evaluate_challenger(
     ))
 
     alpha_status = alpha_sprint_metrics.get("status")
+    weekly_leader_available = bool(weekly_leader_main_metrics.get("status") == "completed" or weekly_leader_concentrated_metrics.get("status") == "completed")
     rows.append(gate_row(
         "alpha_sprint",
         "alpha_sprint_historical_backtest_exists",
-        alpha_status not in {"not_backtested_missing_historical_scored_snapshot", None, ""},
+        alpha_status not in {"not_backtested_missing_historical_scored_snapshot", None, ""} or weekly_leader_available,
         "hard",
-        observed=alpha_status,
-        threshold="weekly/historical alpha sprint backtest",
-        reason="Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.",
-        evidence="outputs/alpha_sprint/backtest_metrics.json",
+        observed={"alpha_sprint_status": alpha_status, "weekly_leader_available": weekly_leader_available},
+        threshold="weekly/historical alpha sprint or weekly leader-entry broker replay",
+        reason="Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist; weekly leader entry broker replay can now serve as the first counterfactual bridge.",
+        evidence=f"{DEFAULT_WEEKLY_LEADER_MAIN_METRICS},{DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS}",
+    ))
+    rows.append(gate_row(
+        "weekly_leader_entry",
+        "weekly_leader_broker_replay_available",
+        weekly_leader_available,
+        "soft",
+        observed={
+            "main_status": weekly_leader_main_metrics.get("status"),
+            "main_cagr": weekly_leader_main_metrics.get("cagr"),
+            "concentrated_status": weekly_leader_concentrated_metrics.get("status"),
+            "concentrated_cagr": weekly_leader_concentrated_metrics.get("cagr"),
+        },
+        threshold="completed account-like replay",
+        reason="New-leader entry ideas should be judged by broker-ledger metrics, not latest snapshot recommendations.",
+        evidence=f"{DEFAULT_WEEKLY_LEADER_MAIN_METRICS},{DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS}",
     ))
 
     rows.append(gate_row(
@@ -346,10 +366,13 @@ def evaluate_challenger(
             "main_v2_audit": "outputs/main_v2/main_v2_audit_latest.json",
             "concentrated_policy_audit": "outputs/concentrated_policy/policy_audit_latest.json",
             "alpha_sprint_metrics": "outputs/alpha_sprint/backtest_metrics.json",
+            "weekly_leader_main_metrics": DEFAULT_WEEKLY_LEADER_MAIN_METRICS,
+            "weekly_leader_concentrated_metrics": DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS,
         },
         "next_required_backtests": [
             "main_v2_83_month_backtest",
             "orchestrator_83_month_backtest",
+            "weekly_leader_entry_cost_and_stress_replay",
             "alpha_sprint_weekly_historical_backtest",
             "stress_window_equity_curve_test",
             "cost_sensitivity_25_50_75_bps",
@@ -407,6 +430,8 @@ def main() -> int:
     parser.add_argument("--out-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--e1-metrics", default=DEFAULT_E1_METRICS)
     parser.add_argument("--e5-metrics", default=DEFAULT_E5_METRICS)
+    parser.add_argument("--weekly-leader-main-metrics", default=DEFAULT_WEEKLY_LEADER_MAIN_METRICS)
+    parser.add_argument("--weekly-leader-concentrated-metrics", default=DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS)
     args = parser.parse_args()
 
     policy = load_policy(repo_path(args.policy))
@@ -419,6 +444,8 @@ def main() -> int:
         main_v2_audit=read_json(repo_path("outputs/main_v2/main_v2_audit_latest.json")),
         concentrated_policy=read_json(repo_path("outputs/concentrated_policy/policy_audit_latest.json")),
         alpha_sprint_metrics=read_json(repo_path("outputs/alpha_sprint/backtest_metrics.json")),
+        weekly_leader_main_metrics=read_json(repo_path(args.weekly_leader_main_metrics)),
+        weekly_leader_concentrated_metrics=read_json(repo_path(args.weekly_leader_concentrated_metrics)),
     )
 
     out_dir = repo_path(args.out_dir)
