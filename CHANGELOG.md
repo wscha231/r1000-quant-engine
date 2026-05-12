@@ -834,6 +834,53 @@ All entries must be written in English. Entries must be predictable and machine-
   - The list of files is intentionally tight; expand only with files that stay well under 5 MB. Daily trade journals and bundle-style dumps belong in the GDrive sync, not Telegram.
   - A richer curated mobile bundle (e.g. ZIP only the top 5-10 reports under 49 MB) can be reintroduced later if needed. The previous version of this block is in git history (`14d4c58`).
 
+### 18:49 KST - trade-attribution-analysis-and-three-baseline-findings
+
+- scope:
+  - Add a reusable structured trade-attribution analysis tool the autonomous agent loop can mine. Each broker-ledger replay run now publishes machine-readable `findings.json` files for `main` and `concentrated` portfolios; each finding has a `finding_id`, `severity`, plain-English `evidence` (with numbers), and a concrete `candidate_fix`. The tool is read-only — it never edits strategy code or target books. Three findings already surface from full rebuild 25713620719's broker-ledger metrics and are recorded inline below so subsequent commits can either close or downgrade them.
+- files:
+  - `tools/run_trade_attribution_analysis.py` ->new tool. Reads `broker_replay/<kind>/{metrics.json, equity_curve.csv}` plus `broker_trade_journal/<kind>/round_trips.csv`, computes the MDD window, decomposes losses by `entry_regime_state` and `exit_reason`, lists the 10 worst losers and 10 best winners, and emits structured findings.
+  - `tests/trade_attribution_analysis_smoke.py` ->four smoke tests covering F1 unrealized-MDD detection, F2 single-regime loss concentration, missing-input graceful fallback, and the `run()` summary writer.
+  - `tools/run_pr_validation.py` ->add the new smoke test to `DEFAULT_TESTS`.
+  - `.github/workflows/full_rebuild_manual.yml` ->run the attribution analysis after cost-sensitivity, include `outputs/trade_attribution/` in the GDrive sync loop and the artifact list.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->mirror in the Tier-2 replay workflow so attribution refreshes on each replay-only rerun without paying the full-rebuild cost.
+  - `tests/workflow_artifact_smoke.py` ->add `outputs/trade_attribution/` to workflow expectations.
+  - `CHANGELOG.md` ->this entry; the three baseline findings are written below so future agents can pick one up.
+- symbols_added:
+  - `run_trade_attribution_analysis.SCHEMA_VERSION = "trade-attribution-findings-v1"`.
+  - `run_trade_attribution_analysis.analyze_portfolio(latest_run, portfolio_kind, output_dir)` ->per-portfolio analysis writing `findings.json` + `attribution_report.md`.
+  - `run_trade_attribution_analysis.build_findings(...)` ->central rules engine; emits up to five canonical finding ids (F1 unrealized MDD, F2 regime loss concentration, F3 asymmetric exit-reason loser depth, F4 single-trade loss share, F5 low win-rate).
+  - `run_trade_attribution_analysis.mdd_window(equity)`, `trades_in_window(...)`, `worst_n`, `best_n`, `loss_by_group`, `pick_pnl_column`, `render_report` helpers.
+  - `run_trade_attribution_analysis.run(latest_run, output_dir, portfolios)` ->orchestrator writing the consolidated `summary.json`.
+  - `tests/trade_attribution_analysis_smoke.py::test_unrealized_holding_mdd_triggers_f1_high_finding()`
+  - `tests/trade_attribution_analysis_smoke.py::test_regime_loss_concentration_triggers_f2_medium_finding()`
+  - `tests/trade_attribution_analysis_smoke.py::test_missing_inputs_produce_blocked_status_not_crash()`
+  - `tests/trade_attribution_analysis_smoke.py::test_run_wrapper_writes_summary_with_all_findings_flat()`
+- symbols_changed:
+  - none (workflow YAML and smoke list are additive).
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none.
+- outputs:
+  - `outputs/trade_attribution/<portfolio>/findings.json` ->machine-readable findings with the schema above.
+  - `outputs/trade_attribution/<portfolio>/attribution_report.md` ->human-readable summary table.
+  - `outputs/trade_attribution/summary.json` ->cross-portfolio roll-up plus `all_findings` flat list with portfolio-kind tags.
+  - `outputs/full_rebuild_logs/trade_attribution_analysis.log` ->workflow stdout capture.
+- validation:
+  - `py -3 tests/trade_attribution_analysis_smoke.py` ->PASS (4 tests).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 18/18 in 27.34 s.
+  - `py -3 tools/run_trade_attribution_analysis.py` (against cloud_results/full_rebuild/latest_global_alpha_universe) ->emits 3 findings (1 high, 2 medium) recorded below.
+  - YAML parse for both updated workflows: OK.
+- risks_or_notes:
+  - **Baseline findings from run 25713620719 (head c4690c9)**. The next commits should reference these `finding_id` strings and either ship a candidate_fix or explain why it is deferred.
+    - **F1_mdd_dominated_by_unrealized_holdings_concentrated** (high). MDD window 2020-02-19 -> 2020-03-16 (-36.74% drawdown, equity loss $44,427) had only 5 round-trip exits totaling $983 P&L. Realized share 2.2%. Drawdown is almost entirely unrealized loss on still-held positions. Candidate fix: portfolio-level drawdown circuit breaker, force trim 50% when running DD > 10% in 5 trading days, extend `tools/run_broker_position_risk_replay.py` or the operating-book builders. This is the single most material lever for closing the user's -18% concentrated MDD target.
+    - **F2_loss_concentration_in_neutral_regime_main** (medium). 57% of realized losses ($-146,496 of $-256,009) occurred in neutral regime across 401 trades (avg $-365). The engine over-allocates or over-trades when regime label is ambiguous. Candidate fix: reduce `capacity_for_regime['neutral']` by 20-30% in `tools/build_weekly_leader_target_books.py` and the broader operating book builder, or raise `min_score_quantile` for neutral signal dates. Re-measure F2 share on the next replay.
+    - **F3_target_exit_losers_deeper_than_rebalance_concentrated** (medium). `target_exit` losers average $-2,618 over 118 trades, while `target_rebalance` losers average $-435 over 12 trades. Explicit exits are firing too late, consistent with the known weekly-leader entry/exit asymmetry. Candidate fix: tighten leader-rescue / stale-trim thresholds; inspect `tools/run_lifecycle_review_overlay.py` and the `stale_mega_leader_score` weight in `r1000_main_v2.py`.
+  - The five canonical finding rules (F1-F5) are intentionally tunable. If the agent loop discovers a new pattern (sector concentration, holding-day bucket, entry-day-of-week), add a new `F6_*` rule rather than mutating the existing ones, so historical findings keep referring to stable ids.
+  - The tool is **read-only**. It never proposes weights, never writes target books, and never flips the broker-accounting audit. Acting on a finding requires a separate commit that ships a strategy/config change AND keeps the smoke suite green.
+  - Per `auto_policy_challenger`, F1 and F2 would close after the corresponding fixes land AND the broker-accounting hard gates (A1 delisted cost-basis, A2 survivorship coverage) flip true. Until those land, all attribution findings should be treated as proposal-only evidence.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
