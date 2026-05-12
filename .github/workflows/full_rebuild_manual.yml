@@ -327,6 +327,18 @@ jobs:
           if [ -s outputs/reports/operating_main_target_book_churn_filtered.csv ]; then
             python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_churn_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/churn_filtered_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/churn_filtered_broker_replay_main.log || true
           fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/main/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/concentrated/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/macro_circuit_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_concentrated.log || true
+          fi
           python tools/run_trade_attribution_analysis.py --latest-run outputs --output-dir outputs/trade_attribution 2>&1 | tee outputs/full_rebuild_logs/trade_attribution_analysis.log || true
           python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
           python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
@@ -430,6 +442,8 @@ jobs:
             outputs/trade_attribution/
             outputs/churn_filter/
             outputs/churn_filtered_broker_replay/
+            outputs/macro_circuit_filter/
+            outputs/macro_circuit_broker_replay/
             outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operating_event_backtest/

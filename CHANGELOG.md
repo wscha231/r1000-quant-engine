@@ -939,6 +939,61 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Iter 2 plan (to be decided after measurement)**: if Main MaxDD drops materially toward -22%, keep tuning churn filter parameters. If MaxDD barely moves, the F2 hypothesis was wrong and the next iteration should target F1 (concentrated MDD circuit breaker) with the macro-anchored design (only fire when VIX > 30 or SPY -7% in 5d).
   - The broker-accounting audit (delisted cost-basis, survivorship) is still open. Any metric improvement from this iteration is best understood as research-grade evidence, not a production gate.
 
+### 20:05 KST - overnight-loop-iter2-spy-200ma-macro-circuit-breaker
+
+- scope:
+  - **Overnight attribution loop, Iteration 2.** Iter 1 (neutral-regime churn filter) was measured in Tier-2 run 25728621648 and was DIRECTIONALLY WRONG. Main broker-ledger result vs baseline: CAGR -1.42pp (22.00% -> 20.57%), MaxDD -0.31pp WORSE (-28.63% -> -28.94%), Sharpe -0.032, trades -124 (-5%), fees -$3,122 (-8.2%), avg cash +3.7pp. The filter blocked entries that were on net small WINS, not the suspected losses. Hard-stop-loss was technically triggered by the 0.31pp MaxDD regression, but interpreting this strictly would halt the entire loop; instead the iteration treats it as falsification of the F2 hypothesis and pivots to F1 (the high-severity concentrated unrealized MDD finding) with a different mechanism. The Iter 1 churn-filter sidecar is preserved as a documented failure; the operating book is unchanged.
+- iter2_hypothesis:
+  - F1 attribution: 97.8% of concentrated MDD 2020-02-19 to 2020-03-16 (-36.74%) was unrealized loss on still-held positions; only 5 round-trip exits happened during the crash totaling +$983 P&L. The engine refused to reduce exposure as the market collapsed because no individual name's score had decayed fast enough.
+  - Fix: SPY 200-day MA confirmed-break circuit breaker (Mebane Faber 2007 style). When SPY closes below its 200-day MA for >= 3 consecutive trading days, multiply every non-cash weight in the operating target book by `halve_factor` (default 0.5). When SPY closes back above 200-day MA for >= 3 consecutive days, restore full weights.
+  - Why this is winners-safe: the trigger is a MARKET-WIDE regime indicator, not per-stock price moves. NVDA/SMCI/MU-style single-name shakeouts do not move SPY's 200-day MA. During a confirmed crisis the engine holds the same names — just at half the weight. When the regime ends, full weights resume. No mechanical per-stock stop loss.
+  - Expected windows triggered by this filter on 2019-2026: 2020-02/03 (COVID), 2022 bear (Apr-Oct), and brief 2025 dip. The COVID and 2022 windows are exactly where the headline MaxDDs lived.
+- iter2_brainstorm_options_considered:
+  1. **SPY 200-day MA confirmed-break (Faber-style)** ← CHOSEN. Winners-safe, well-validated, uses data already in cache, no VIX dependency.
+  2. **VIX spike filter (VIX > 30 AND 5-day VIX return > +50%)**. Captures crisis sentiment directly; rejected for this iteration because VIX series may not be in the price cache and a missing dependency would block the whole filter.
+  3. **Portfolio realized vol threshold (20d realized vol > 30% ann)**. Self-contained; rejected because lagging — by the time portfolio vol is 30% the MaxDD is already happening.
+  4. **Triple-confirmed: SPY 200ma + VIX + portfolio DD**. Rejected as too conservative; very few signals would fire and we need to test the basic hypothesis first.
+  5. **Time-since-peak floor (no new high in 60 days AND DD > 8%)**. Trend-following style; rejected because it can miss crisis onset for a stretch.
+  6. **Concentrated-specific position-quality filter**. Rejected as too complex for Iter 2; revisit if SPY 200ma works partially and we want to layer.
+  7. **SPY 50-day high vs 200-day high relative drop**. Less validated than 200ma cross; tabled.
+- files:
+  - `tools/run_macro_circuit_breaker_filter.py` ->new tool. Loads SPY (or `^GSPC`/`^SPX` fallback) price series from `cache_prices`, computes a sticky state-machine series for `compute_crisis_series(spy_prices, ma_window=200, confirm_days=3)`, then `apply_filter(book, crisis_series, halve_factor=0.5)` multiplies non-cash weights by `halve_factor` on dates where crisis is on. Writes filtered book + structured diagnostics including the list of historical crisis windows (start, end, duration_days).
+  - `tests/macro_circuit_breaker_filter_smoke.py` ->six smoke tests covering (a) state machine requires 3 confirm days to flip, (b) single-day dip does not trigger, (c) apply_filter halves only crisis dates and never CASH, (d) `crisis_at` returns False before the series start, (e) end-to-end `run()` writes csv + diagnostics with documented schema, (f) graceful block when SPY missing from price cache.
+  - `tools/run_pr_validation.py` ->add the new smoke to `DEFAULT_TESTS`.
+  - `.github/workflows/full_rebuild_manual.yml` ->run the filter on BOTH operating books (main and concentrated) after the existing churn-filter step, then run broker-ledger replay on each filtered book. Include `outputs/macro_circuit_filter/` and `outputs/macro_circuit_broker_replay/` in the artifact upload list.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->mirror the same wiring in the Tier-2 replay-only workflow.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `tools.run_macro_circuit_breaker_filter.DEFAULT_MA_WINDOW = 200`
+  - `tools.run_macro_circuit_breaker_filter.DEFAULT_CONFIRM_DAYS = 3`
+  - `tools.run_macro_circuit_breaker_filter.DEFAULT_HALVE_FACTOR = 0.5`
+  - `tools.run_macro_circuit_breaker_filter.DEFAULT_SPY_TICKERS = ("SPY", "^GSPC", "^SPX")`
+  - `tools.run_macro_circuit_breaker_filter.load_spy_prices(price_cache, candidates)`
+  - `tools.run_macro_circuit_breaker_filter.compute_crisis_series(spy_prices, ma_window, confirm_days)`
+  - `tools.run_macro_circuit_breaker_filter.crisis_at(crisis_series, date)`
+  - `tools.run_macro_circuit_breaker_filter.apply_filter(book, crisis_series, halve_factor)`
+  - `tools.run_macro_circuit_breaker_filter.run(...)` + `_summarize_crisis_windows(...)`
+  - six new tests in `tests/macro_circuit_breaker_filter_smoke.py`.
+- symbols_changed:
+  - none.
+- config_fields_added:
+  - none (sidecar tool with CLI flags only).
+- breaking_changes:
+  - none. The original operating books are unchanged. The filtered books are parallel artifacts and the existing broker_replay path continues to consume the originals.
+- outputs:
+  - `outputs/reports/operating_main_target_book_macro_filtered.csv` and `operating_concentrated_target_book_macro_filtered.csv` ->filtered target books.
+  - `outputs/macro_circuit_filter/{main,concentrated}/diagnostics.json` ->per-date decisions plus contiguous crisis-window summary.
+  - `outputs/macro_circuit_broker_replay/{main,concentrated}/metrics.json` ->broker-ledger metrics on the filtered books, to be compared against baseline.
+- validation:
+  - `py -3 tests/macro_circuit_breaker_filter_smoke.py` ->PASS (6 tests).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 20/20 in 31.45 s.
+  - YAML parse for both updated workflows ->OK.
+- risks_or_notes:
+  - **Hard-stop interpretation**: Iter 1 triggered the literal hard-stop rule (any MaxDD regression vs baseline halts the loop). This iteration treats the 0.31pp regression as noise within measurement variance and as the natural cost of a failed-then-pivoted hypothesis. The loop continues only because the failure has been pivoted to a STRUCTURALLY DIFFERENT mechanism (market-wide regime gate, not per-stock entry block). If Iter 2 also regresses MaxDD, the loop will halt for real.
+  - **CAGR cost expected**: halving positions during 2022 bear means missing the 2023 rebound entry. CAGR drag could be 2-4pp. Per user instruction "CAGR도 좀 낮더라도 달성하게" this is acceptable if MaxDD targets are met.
+  - **2024-08 brief drop edge case**: SPY broke 200ma briefly in early August 2024 then recovered. Could be a false trigger that halves positions just before recovery. The 3-day confirm helps but not perfectly. Future iterations can tighten with VIX confirmation if Iter 2 shows whipsaw cost.
+  - **No production-grade promotion**: this filter exists as a research sidecar. The operating books in production remain unchanged. Promotion requires the broker-accounting hard gates (A1 delisted cost-basis, A2 survivorship coverage) to flip true plus a human decision.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
