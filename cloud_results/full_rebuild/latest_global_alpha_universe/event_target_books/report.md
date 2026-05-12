@@ -4,7 +4,7 @@ Research-only bridge from monthly/operating targets to daily event-aware broker 
 
 | Portfolio | Status | Rows | Events | Exits | Trims |
 | --- | --- | ---: | ---: | ---: | ---: |
-| main | completed | 8949 | 644 | 454 | 190 |
-| concentrated | completed | 701 | 104 | 74 | 30 |
+| main | completed | 12191 | 792 | 569 | 223 |
+| concentrated | completed | 463 | 77 | 56 | 21 |
 
 These books can be replayed by the broker-ledger engine. They are not a daily alpha rescore yet; new daily entries require historical daily/weekly scored snapshots.

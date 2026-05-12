@@ -1,23 +1,23 @@
 # Main Portfolio Report
 
 This report separates latest target recommendations from the current simulated operating account.
-- Recommendation date: `2026-05-08`
+- Recommendation date: `2026-05-12`
 - Current account last replay trade date: `2026-03-02`
-- Current account stale days versus recommendation date: `67`
-- Pending orders needed to match recommendation: `40`
+- Current account stale days versus recommendation date: `71`
+- Pending orders needed to match recommendation: `45`
 
 ## Performance Scorecard
 
 | Horizon | Return | CAGR | Sharpe | MaxDD | Turnover | Trades | End Cash |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1M | 7.75% | 148.06% | 5.777 | -1.84% | 0.00x | 0 | 26.15% |
-| 3M | 8.56% | 40.65% | 1.890 | -7.37% | 1.29x | 31 | 26.15% |
-| 6M | 21.17% | 47.96% | 2.028 | -8.92% | 4.44x | 147 | 26.15% |
-| 1Y | 47.78% | 47.82% | 2.242 | -10.50% | 9.81x | 309 | 26.15% |
-| 2Y | 73.98% | 31.93% | 1.560 | -21.20% | 21.35x | 696 | 26.15% |
-| 3Y | 133.75% | 32.71% | 1.643 | -21.20% | 32.14x | 1068 | 26.15% |
-| 5Y | 135.54% | 18.71% | 1.006 | -28.62% | 54.66x | 1760 | 26.15% |
-| FULL | 300.19% | 21.84% | 1.056 | -28.62% | 37.90x | 2464 | 26.15% |
+| 1M | 6.09% | 110.45% | 4.891 | -1.81% | 0.00x | 0 | 26.03% |
+| 3M | 9.88% | 47.19% | 2.316 | -7.28% | 1.32x | 43 | 26.03% |
+| 6M | 22.24% | 49.98% | 1.993 | -9.11% | 4.68x | 157 | 26.03% |
+| 1Y | 38.69% | 38.72% | 1.831 | -11.23% | 10.30x | 328 | 26.03% |
+| 2Y | 63.35% | 27.87% | 1.364 | -21.71% | 22.18x | 773 | 26.03% |
+| 3Y | 127.01% | 31.42% | 1.564 | -21.71% | 33.61x | 1172 | 26.03% |
+| 5Y | 125.45% | 17.66% | 0.947 | -33.45% | 57.46x | 1997 | 26.03% |
+| FULL | 267.75% | 20.35% | 0.991 | -33.45% | 41.75x | 2737 | 26.03% |
 
 ## Files
 
@@ -30,40 +30,40 @@ This report separates latest target recommendations from the current simulated o
 
 | Ticker | Weight | Current Weight | Action | Trade Delta | Price | Shares per $100k | Logic |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | --- |
-| GOOGL | 12.00% | 0.00% | BUY | 48,023 | 400.80 | 29 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| AMZN | 11.26% | 0.00% | BUY | 45,042 | 272.68 | 41 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| GEV | 9.92% | 0.00% | BUY | 39,679 | 1040.15 | 9 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| TSM | 7.75% | 0.00% | BUY | 31,019 | 411.68 | 18 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| VRT | 6.03% | 4.08% | BUY | 7,815 | 339.97 | 17 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| TXN | 5.09% | 0.00% | BUY | 20,372 | 287.80 | 17 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| GLW | 5.07% | 0.00% | BUY | 20,309 | 186.94 | 27 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
-| FIX | 5.01% | 0.00% | BUY | 20,040 | 1952.37 | 2 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| FTI | 4.64% | 3.35% | BUY | 5,155 | 70.15 | 66 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
-| LRCX | 4.63% | 6.17% | SELL | -6,186 | 294.05 | 15 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
-| PWR | 4.52% | 0.00% | BUY | 18,087 | 745.00 | 6 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
-| CBOE | 4.34% | 0.00% | BUY | 17,388 | 348.56 | 12 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| GOOG | 17.89% | 3.75% | BUY | 52,009 | 382.95 | 46 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
+| PLTR | 6.10% | 0.00% | BUY | 22,420 | 134.10 | 45 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
+| LRCX | 6.10% | 5.64% | BUY | 1,663 | 288.29 | 21 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
+| VRT | 6.10% | 4.30% | BUY | 6,609 | 367.70 | 16 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
+| GLW | 5.95% | 0.00% | BUY | 21,889 | 196.16 | 30 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| FTI | 5.69% | 2.99% | BUY | 9,937 | 73.25 | 77 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| FIX | 5.66% | 0.00% | BUY | 20,832 | 2014.47 | 2 | portfolio_sleeve_label=core_compounder; dominant_archetype_label=emerging_growth |
+| PWR | 5.66% | 0.00% | BUY | 20,801 | 765.88 | 7 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| UMC | 5.63% | 0.00% | BUY | 20,701 | 15.98 | 352 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| OKE | 5.62% | 0.00% | BUY | 20,651 | 88.64 | 63 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| SU | 5.61% | 0.00% | BUY | 20,634 | 66.50 | 84 | portfolio_sleeve_label=future_winner; dominant_archetype_label=emerging_growth |
+| ON | 4.00% | 0.00% | BUY | 14,710 | 103.33 | 38 | portfolio_sleeve_label=early_scout; dominant_archetype_label=emerging_growth |
 
 ## Current Holdings
 
 | Ticker | Current Weight | Target Weight | Action | Trade Delta | Shares | Current Price | Entry Date | Entry Price | Return Since Entry | Entry Reason |
 | --- | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
-| AMAT | 9.14% | 0.00% | SELL | -36,577 | 84.00 | 435.44 | 2026-01-02 | 305.55 | 42.51% | target_rebalance |
-| MU | 8.96% | 0.00% | SELL | -35,847 | 48.00 | 746.81 | 2025-12-01 | 240.26 | 210.83% | target_rebalance |
-| LRCX | 6.17% | 4.63% | SELL | -6,186 | 84.00 | 294.05 | 2025-11-03 | 160.27 | 83.47% | target_rebalance |
-| GOOG | 4.76% | 0.00% | SELL | -19,058 | 48.00 | 397.05 | 2026-02-02 | 344.66 | 15.20% | target_rebalance |
-| ETR | 4.74% | 0.00% | SELL | -18,970 | 170.00 | 111.59 | 2026-03-02 | 106.05 | 5.22% | target_rebalance |
-| VRT | 4.08% | 6.03% | BUY | 7,815 | 48.00 | 339.97 | 2026-03-02 | 257.69 | 31.93% | target_rebalance |
-| VZ | 3.62% | 0.00% | SELL | -14,497 | 307.00 | 47.22 | 2026-03-02 | 49.24 | -4.10% | target_rebalance |
-| SCCO | 3.47% | 0.00% | SELL | -13,897 | 75.00 | 185.29 | 2026-03-02 | 218.85 | -15.33% | target_rebalance |
-| FTI | 3.35% | 4.64% | BUY | 5,155 | 191.00 | 70.15 | 2026-03-02 | 67.45 | 4.01% | target_rebalance |
-| KO | 3.15% | 0.00% | SELL | -12,626 | 161.00 | 78.42 | 2026-03-02 | 79.67 | -1.57% | target_rebalance |
-| APH | 3.14% | 0.00% | SELL | -12,547 | 98.00 | 128.03 | 2026-03-02 | 134.89 | -5.09% | target_rebalance |
-| ADI | 3.02% | 0.00% | SELL | -12,079 | 29.00 | 416.52 | 2026-03-02 | 351.31 | 18.56% | target_rebalance |
-| COST | 2.77% | 0.00% | SELL | -11,097 | 11.00 | 1008.79 | 2026-03-02 | 1001.32 | 0.75% | target_rebalance |
-| PR | 2.73% | 4.00% | BUY | 5,063 | 555.00 | 19.72 | 2026-03-02 | 18.63 | 5.83% | target_rebalance |
-| BKNG | 2.57% | 0.00% | SELL | -10,288 | 62.00 | 165.93 | 2026-03-02 | 166.81 | -0.53% | target_rebalance |
-| GTLS | 2.54% | 0.00% | SELL | -10,164 | 49.00 | 207.43 | 2026-03-02 | 207.06 | 0.18% | target_rebalance |
-| RGLD | 2.45% | 0.00% | SELL | -9,795 | 41.00 | 238.91 | 2026-03-02 | 303.74 | -21.34% | target_rebalance |
-| ATI | 1.86% | 0.00% | SELL | -7,444 | 47.00 | 158.39 | 2026-03-02 | 166.42 | -4.83% | target_rebalance |
-| TPR | 0.23% | 0.00% | SELL | -934 | 7.00 | 133.48 | 2026-02-02 | 129.32 | 3.21% | target_rebalance |
-| PH | 0.22% | 0.00% | SELL | -879 | 1.00 | 878.83 | 2026-02-02 | 948.09 | -7.30% | target_rebalance |
+| MU | 8.78% | 0.00% | SELL | -32,303 | 43.00 | 751.24 | 2025-12-01 | 247.24 | 203.85% | target_rebalance |
+| AMAT | 8.62% | 0.00% | SELL | -31,691 | 74.00 | 428.26 | 2026-02-02 | 353.07 | 21.30% | target_rebalance |
+| LRCX | 5.64% | 6.10% | BUY | 1,663 | 72.00 | 288.29 | 2025-11-03 | 156.58 | 84.11% | target_rebalance |
+| APH | 4.68% | 0.00% | SELL | -17,221 | 135.00 | 127.56 | 2025-10-01 | 134.81 | -5.38% | target_rebalance |
+| ETR | 4.61% | 0.00% | SELL | -16,943 | 150.00 | 112.96 | 2026-03-02 | 106.05 | 6.51% | target_rebalance |
+| VRT | 4.30% | 6.10% | BUY | 6,609 | 43.00 | 367.70 | 2026-03-02 | 257.69 | 42.69% | target_rebalance |
+| VZ | 3.75% | 0.00% | SELL | -13,798 | 287.00 | 48.08 | 2026-03-02 | 49.24 | -2.36% | target_rebalance |
+| GOOG | 3.75% | 17.89% | BUY | 52,009 | 36.00 | 382.95 | 2026-01-02 | 312.11 | 22.70% | target_rebalance |
+| KO | 3.25% | 0.00% | SELL | -11,945 | 149.00 | 80.17 | 2026-03-02 | 79.67 | 0.62% | target_rebalance |
+| ADI | 3.07% | 0.00% | SELL | -11,275 | 27.00 | 417.58 | 2026-03-02 | 351.31 | 18.86% | target_rebalance |
+| FTI | 2.99% | 5.69% | BUY | 9,937 | 150.00 | 73.25 | 2026-03-02 | 67.45 | 8.60% | target_rebalance |
+| SCCO | 2.79% | 0.00% | SELL | -10,268 | 54.00 | 190.14 | 2026-03-02 | 218.85 | -13.12% | target_rebalance |
+| COST | 2.78% | 0.00% | SELL | -10,213 | 10.00 | 1021.31 | 2026-03-02 | 1001.32 | 2.00% | target_rebalance |
+| PR | 2.69% | 4.00% | BUY | 4,834 | 490.00 | 20.16 | 2026-03-02 | 18.63 | 8.16% | target_rebalance |
+| GTLS | 2.48% | 0.00% | SELL | -9,124 | 44.00 | 207.38 | 2026-03-02 | 207.06 | 0.15% | target_rebalance |
+| BKNG | 2.36% | 0.00% | SELL | -8,666 | 54.00 | 160.48 | 2025-09-02 | 167.78 | -4.35% | target_rebalance |
+| RGLD | 2.34% | 0.00% | SELL | -8,617 | 35.00 | 246.21 | 2026-03-02 | 303.74 | -18.94% | target_rebalance |
+| PEG | 1.99% | 0.00% | SELL | -7,333 | 93.00 | 78.85 | 2026-03-02 | 83.83 | -5.94% | target_rebalance |
+| TPR | 0.54% | 0.00% | SELL | -1,980 | 15.00 | 131.98 | 2026-02-02 | 129.32 | 2.05% | target_rebalance |
+| AEM | 0.32% | 0.00% | SELL | -1,182 | 6.00 | 197.06 | 2026-02-02 | 190.48 | 3.46% | target_rebalance |

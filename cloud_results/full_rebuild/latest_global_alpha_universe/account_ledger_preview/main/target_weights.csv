@@ -1,18 +1,18 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-GOOGL,0.12,ALPHABET INC CLASS A,Communication,core_compounder
-AMZN,0.1125510372146551,AMAZON.COM INC,Consumer Discretionary,core_compounder
-GEV,0.0991509969788108,GE VERNOVA INC,Industrials,core_compounder
-TSM,0.0775108753756545,Taiwan Semiconductor Manufacturing,Information Technology,core_compounder
-VRT,0.0603050074414681,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
-TXN,0.0509056228845666,TEXAS INSTRUMENT INC,Information Technology,core_compounder
-GLW,0.050747673420967,CORNING INC,Information Technology,future_winner
-FIX,0.0500761331964573,COMFORT SYSTEMS USA INC,Industrials,core_compounder
-FTI,0.0463631650637203,TECHNIPFMC PLC,Energy,future_winner
-LRCX,0.0462624661539853,LAM RESEARCH CORP,Information Technology,core_compounder
-PWR,0.0451950756764116,QUANTA SERVICES INC,Industrials,future_winner
-CBOE,0.0434497120982685,CBOE GLOBAL MARKETS INC,Financials,future_winner
-NXPI,0.0429088723302079,NXP Semiconductors,Semiconductors,future_winner
-PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
+GOOG,0.1789140872012445,ALPHABET INC CLASS C,Communication,core_compounder
+VRT,0.0609664208489582,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
+LRCX,0.0609664208489582,LAM RESEARCH CORP,Information Technology,core_compounder
+PLTR,0.0609664208489582,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder
+GLW,0.0595206270011178,CORNING INC,Information Technology,future_winner
+FTI,0.056898740829369,TECHNIPFMC PLC,Energy,future_winner
+FIX,0.0566464468687113,COMFORT SYSTEMS USA INC,Industrials,core_compounder
+PWR,0.0565631406386838,QUANTA SERVICES INC,Industrials,future_winner
+UMC,0.0562924863585598,United Microelectronics,Semiconductors,future_winner
+OKE,0.0561550728003203,ONEOK INC,Energy,future_winner
+SU,0.0561101357551186,Suncor Energy,Energy,future_winner
+AKAM,0.04,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
 MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
-AKAM,0.0383334081305656,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
-ON,0.0362399540342607,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+NXPI,0.04,NXP Semiconductors,Semiconductors,future_winner
+ON,0.04,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
+TKR,0.04,TIMKEN,Industrials,early_scout

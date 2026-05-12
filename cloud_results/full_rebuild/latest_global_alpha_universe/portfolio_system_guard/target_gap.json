@@ -97,7 +97,7 @@
     },
     {
       "check": "counterfactual_replay_coverage",
-      "detail": "missing_counterfactual_count=3",
+      "detail": "missing_counterfactual_count=2",
       "passed": false,
       "severity": "warn"
     },
@@ -115,13 +115,13 @@
     },
     {
       "check": "daily_risk_overlay_backtest_validated",
-      "detail": "daily_risk_overlay_validated=True; nonmonthly_risk_action_count=662",
+      "detail": "daily_risk_overlay_validated=True; nonmonthly_risk_action_count=746",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "full_nonmonthly_entry_replacement_backtest_validated",
-      "detail": "full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=662",
+      "detail": "full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=746",
       "passed": false,
       "severity": "warn"
     },
@@ -133,19 +133,19 @@
     },
     {
       "check": "main_target_book_reaches_broker_end",
-      "detail": "selected_role=operating_target_book; target_book_max=2026-05-08; broker_end=2026-05-08; rows=1869; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-05-12; broker_end=2026-05-12; rows=2214; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_operating_target_book_available",
-      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1869; max_date=2026-05-08",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2214; max_date=2026-05-12",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-08; rows=1852; operating_book_max=2026-05-08; operating_rows=1869",
+      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-12; rows=2197; operating_book_max=2026-05-12; operating_rows=2214",
       "passed": false,
       "severity": "warn"
     },
@@ -157,19 +157,19 @@
     },
     {
       "check": "concentrated_target_book_reaches_broker_end",
-      "detail": "selected_role=operating_target_book; target_book_max=2026-05-08; broker_end=2026-05-08; rows=23479; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-05-12; broker_end=2026-05-12; rows=23469; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "concentrated_operating_target_book_available",
-      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23479; max_date=2026-05-08",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23469; max_date=2026-05-12",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "concentrated_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-08; rows=23475; operating_book_max=2026-05-08; operating_rows=23479",
+      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-12; rows=23466; operating_book_max=2026-05-12; operating_rows=23469",
       "passed": false,
       "severity": "warn"
     },
@@ -181,44 +181,44 @@
     },
     {
       "check": "current_only_operating_holdings_available",
-      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=33; legacy_snapshot_exists=True",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=46; legacy_snapshot_exists=True",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_current_position_count_near_latest_target_count",
-      "detail": "main_positions=27; latest_target_rows=17; excess=10",
+      "detail": "main_positions=41; latest_target_rows=17; excess=24",
       "passed": false,
       "severity": "warn"
     },
     {
       "check": "concentrated_replay_filter_matches_latest_target",
-      "detail": "broker_filter_n=4; latest_target_n=4; broker_mode=score_power; latest_mode=score_power",
+      "detail": "broker_filter_n=3; latest_target_n=3; broker_mode=score_power; latest_mode=score_power",
       "passed": true,
       "severity": "ok"
     }
   ],
   "goal_search_candidates": [
     {
-      "cagr": 0.3605591955808749,
+      "cagr": 0.3647396186859777,
       "cagr_gap_pp": 0.0,
       "candidate_id": "main_v2_position_aware_risk_proxy",
       "governance_action": "target_pass_review",
-      "max_dd": -0.12726031582321473,
+      "max_dd": -0.12728599717447886,
       "max_dd_gap_pp": 0.0,
       "portfolio": "main",
       "target_pass": true,
       "valid_for_production": false
     },
     {
-      "cagr": 0.49307295764810033,
-      "cagr_gap_pp": 0.6927,
+      "cagr": 0.5162091205344463,
+      "cagr_gap_pp": 0.0,
       "candidate_id": "concentrated_position_risk_proxy",
-      "governance_action": "needs_alpha_boost",
-      "max_dd": -0.17340024422456934,
+      "governance_action": "target_pass_review",
+      "max_dd": -0.15409926517303707,
       "max_dd_gap_pp": 0.0,
       "portfolio": "concentrated",
-      "target_pass": false,
+      "target_pass": true,
       "valid_for_production": false
     }
   ],
@@ -226,32 +226,32 @@
   "portfolio_status": [
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.21841389129066835,
-      "cagr_gap_pp": 8.1586,
+      "cagr": 0.20347971738915804,
+      "cagr_gap_pp": 9.652,
       "cagr_pass": false,
       "cagr_target": 0.3,
-      "max_dd": -0.28621917066524416,
-      "max_dd_improvement_needed_pp": 13.6219,
+      "max_dd": -0.3345476089128743,
+      "max_dd_improvement_needed_pp": 18.4548,
       "max_dd_pass": false,
       "max_dd_target": -0.15,
       "metric_source": "broker_ledger_next_close",
       "portfolio": "main",
-      "sharpe": 1.0556328995259578,
+      "sharpe": 0.9914893272915797,
       "target_pass": false
     },
     {
       "avg_turnover_monthly": 0.0,
-      "cagr": 0.35757065142146116,
-      "cagr_gap_pp": 14.2429,
+      "cagr": 0.36413434089941177,
+      "cagr_gap_pp": 13.5866,
       "cagr_pass": false,
       "cagr_target": 0.5,
-      "max_dd": -0.36739720049030034,
-      "max_dd_improvement_needed_pp": 18.7397,
+      "max_dd": -0.38448929995729797,
+      "max_dd_improvement_needed_pp": 20.4489,
       "max_dd_pass": false,
       "max_dd_target": -0.18,
       "metric_source": "broker_ledger_next_close",
       "portfolio": "concentrated",
-      "sharpe": 1.2040566861112372,
+      "sharpe": 1.1855100487526875,
       "target_pass": false
     }
   ],
@@ -285,8 +285,8 @@
       "maxdd_delta_pp": null,
       "passed_discovery": true,
       "priority": 12.0,
-      "replay_cagr": 0.2615067898580157,
-      "replay_max_dd": -0.0898953572117277,
+      "replay_cagr": 0.26576052767423985,
+      "replay_max_dd": -0.11342010239876166,
       "requires_full_challenger_backtest": false,
       "sharpe_delta": null,
       "status": "completed"

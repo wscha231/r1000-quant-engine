@@ -10,7 +10,7 @@ Research-only staged sizing replay: scout -> confirm -> winner -> monster.
 - Entry requires leadership/growth: `True`
 - Stale patience months: 2
 - Hard-stop proxy: -8.00%
-- CAGR: 14.59%
+- CAGR: 14.60%
 - Sharpe: 0.895
 - MaxDD: -26.71%
 - Avg cash: 12.94%

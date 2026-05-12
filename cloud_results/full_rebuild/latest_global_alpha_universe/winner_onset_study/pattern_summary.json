@@ -1,22 +1,22 @@
 {
   "event_count": 26,
-  "generated_at": "2026-05-12T08:14:01Z",
+  "generated_at": "2026-05-12T23:27:27Z",
   "production_activation_allowed": false,
   "onset_medians": {
-    "entry_readiness_score": 0.6500000000000001,
-    "onset_mom_1m": 0.0676429155357181,
-    "onset_mom_3m": 0.09985125901657366,
-    "onset_mom_6m": 0.039635869683392944,
-    "onset_rs_vs_spy_3m": 0.08686122756522513,
-    "onset_rs_vs_spy_6m": 0.02696514421152363,
+    "entry_readiness_score": 0.6181818181818182,
+    "onset_mom_1m": 0.07771348876875406,
+    "onset_mom_3m": 0.10865745757918066,
+    "onset_mom_6m": 0.03963594313220409,
+    "onset_rs_vs_spy_3m": 0.08686116114700199,
+    "onset_rs_vs_spy_6m": 0.02696517279203492,
     "onset_volume_surge": 1.0625040794759815,
-    "onset_price_vs_sma50": 0.05489749940647637,
-    "onset_price_vs_sma200": 0.02054450790360829,
-    "onset_dist_52w_high": -0.20671854572013137,
-    "peak_multiple_12m": 2.909871480694938,
-    "forward_6m_return": 0.8144537053123005,
-    "forward_12m_return": 1.6789291032449336,
-    "max_drawdown_first_3m": -0.1354398202340958,
+    "onset_price_vs_sma50": 0.06162070225135108,
+    "onset_price_vs_sma200": 0.02054450236608074,
+    "onset_dist_52w_high": -0.20989423046337236,
+    "peak_multiple_12m": 3.012024732162152,
+    "forward_6m_return": 0.7664820978511749,
+    "forward_12m_return": 1.868678792655119,
+    "max_drawdown_first_3m": -0.14739797361803453,
     "days_to_peak": 355.0
   },
   "top_events": [
@@ -34,9 +34,9 @@
       "onset_date": "2025-05-05",
       "peak_date": "2026-05-06",
       "winner_tier": "super_5x",
-      "peak_return_12m": 7.5120303308718785,
-      "peak_multiple_12m": 8.512030330871879,
-      "forward_6m_return": 1.8617394304472419
+      "peak_return_12m": 7.512031033785394,
+      "peak_multiple_12m": 8.512031033785394,
+      "forward_6m_return": 1.8617396667663395
     },
     {
       "ticker": "LITE",
@@ -57,49 +57,76 @@
       "forward_6m_return": 2.752749146539351
     },
     {
+      "ticker": "APP",
+      "onset_date": "2024-10-10",
+      "peak_date": "2025-09-30",
+      "winner_tier": "major_2_5x",
+      "peak_return_12m": 3.9609223708560073,
+      "peak_multiple_12m": 4.960922370856007,
+      "forward_6m_return": 0.6298675317106595
+    },
+    {
+      "ticker": "APP",
+      "onset_date": "2023-04-17",
+      "peak_date": "2024-04-11",
+      "winner_tier": "major_2_5x",
+      "peak_return_12m": 3.7882495185520586,
+      "peak_multiple_12m": 4.788249518552059,
+      "forward_6m_return": 1.3800489000294855
+    },
+    {
       "ticker": "MU",
       "onset_date": "2025-03-14",
       "peak_date": "2026-03-17",
       "winner_tier": "major_2_5x",
       "peak_return_12m": 3.5957245003519205,
       "peak_multiple_12m": 4.5957245003519205,
-      "forward_6m_return": 0.5688472567828267
+      "forward_6m_return": 0.5688474087346787
+    },
+    {
+      "ticker": "UMC",
+      "onset_date": "2020-01-29",
+      "peak_date": "2021-01-22",
+      "winner_tier": "major_2_5x",
+      "peak_return_12m": 3.1846002761372567,
+      "peak_multiple_12m": 4.184600276137257,
+      "forward_6m_return": 0.5075970050026457
     },
     {
       "ticker": "FCX",
       "onset_date": "2020-06-05",
       "peak_date": "2021-05-11",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 3.134423973546655,
-      "peak_multiple_12m": 4.134423973546655,
-      "forward_6m_return": 1.245856530931162
+      "peak_return_12m": 3.1344228423205633,
+      "peak_multiple_12m": 4.134422842320563,
+      "forward_6m_return": 1.24585634239348
     },
     {
       "ticker": "VRT",
       "onset_date": "2022-12-07",
       "peak_date": "2023-12-08",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.4528636030180295,
-      "peak_multiple_12m": 3.4528636030180295,
-      "forward_6m_return": 0.5512444916700432
+      "peak_return_12m": 2.4528641251194503,
+      "peak_multiple_12m": 3.4528641251194503,
+      "forward_6m_return": 0.5512447404482168
     },
     {
       "ticker": "GLW",
       "onset_date": "2025-03-19",
       "peak_date": "2026-02-25",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.33356961471232,
-      "peak_multiple_12m": 3.33356961471232,
-      "forward_6m_return": 0.6487968748597857
+      "peak_return_12m": 2.3335693499821955,
+      "peak_multiple_12m": 3.3335693499821955,
+      "forward_6m_return": 0.6487969027500229
     },
     {
       "ticker": "LRCX",
       "onset_date": "2025-03-12",
       "peak_date": "2026-02-25",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 2.2772842279860543,
-      "peak_multiple_12m": 3.2772842279860543,
-      "forward_6m_return": 0.5128294459493157
+      "peak_return_12m": 2.2772845568396827,
+      "peak_multiple_12m": 3.2772845568396827,
+      "forward_6m_return": 0.512829597751667
     },
     {
       "ticker": "GEV",
@@ -108,7 +135,7 @@
       "winner_tier": "major_2_5x",
       "peak_return_12m": 2.042297708525251,
       "peak_multiple_12m": 3.042297708525251,
-      "forward_6m_return": 0.9431166034610197
+      "forward_6m_return": 0.9431164161480281
     },
     {
       "ticker": "PLTR",
@@ -126,7 +153,7 @@
       "winner_tier": "major_2_5x",
       "peak_return_12m": 1.9797874823807415,
       "peak_multiple_12m": 2.9797874823807415,
-      "forward_6m_return": 1.3242740098323726
+      "forward_6m_return": 1.3242737841794998
     },
     {
       "ticker": "NEM",
@@ -135,16 +162,16 @@
       "winner_tier": "major_2_5x",
       "peak_return_12m": 1.922129322357133,
       "peak_multiple_12m": 2.922129322357133,
-      "forward_6m_return": 0.7499633676130082
+      "forward_6m_return": 0.7499631983125485
     },
     {
       "ticker": "NVDA",
       "onset_date": "2019-08-19",
       "peak_date": "2020-08-17",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.897613639032743,
-      "peak_multiple_12m": 2.897613639032743,
-      "forward_6m_return": 0.8459068100874017
+      "peak_return_12m": 1.897613414265885,
+      "peak_multiple_12m": 2.897613414265885,
+      "forward_6m_return": 0.8459069224708307
     },
     {
       "ticker": "COHR",
@@ -165,40 +192,13 @@
       "forward_6m_return": 0.8640143217911809
     },
     {
-      "ticker": "AMD",
-      "onset_date": "2018-03-07",
-      "peak_date": "2018-09-14",
-      "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.6732027640972778,
-      "peak_multiple_12m": 2.6732027640972778,
-      "forward_6m_return": 1.329248428268341
-    },
-    {
       "ticker": "TSM",
       "onset_date": "2020-02-28",
       "peak_date": "2021-02-16",
       "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.6704145233571555,
-      "peak_multiple_12m": 2.6704145233571555,
-      "forward_6m_return": 0.5225293400193167
-    },
-    {
-      "ticker": "MPWR",
-      "onset_date": "2020-03-11",
-      "peak_date": "2021-01-21",
-      "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.6100266258999478,
-      "peak_multiple_12m": 2.610026625899948,
-      "forward_6m_return": 0.5909660776346546
-    },
-    {
-      "ticker": "PWR",
-      "onset_date": "2020-06-17",
-      "peak_date": "2021-05-10",
-      "winner_tier": "major_2_5x",
-      "peak_return_12m": 1.594484998922049,
-      "peak_multiple_12m": 2.594484998922049,
-      "forward_6m_return": 0.7830006005371994
+      "peak_return_12m": 1.6704148397575094,
+      "peak_multiple_12m": 2.6704148397575094,
+      "forward_6m_return": 0.5225285017659296
     }
   ],
   "winner_tier_counts": {
@@ -221,8 +221,8 @@
       "onset_date": "2025-05-05",
       "peak_date": "2026-05-06",
       "winner_tier": "super_5x",
-      "peak_return_12m": 7.5120303308718785,
-      "peak_multiple_12m": 8.512030330871879,
+      "peak_return_12m": 7.512031033785394,
+      "peak_multiple_12m": 8.512031033785394,
       "entry_readiness_score": 0.5727272727272728
     },
     {
@@ -245,62 +245,62 @@
     }
   ],
   "hold_medians": {
-    "hold_6m_return": 0.8144537053123005,
-    "hold_12m_return": 1.6789291032449336,
-    "max_return_12m": 1.909871480694938,
-    "max_dd_6m": -0.20547792275003823,
-    "trail20_after_50pct_return": 1.1735219892123556,
-    "ma50_5d_after_50pct_return": 1.0437345741243376
+    "hold_6m_return": 0.7664820978511749,
+    "hold_12m_return": 1.868678792655119,
+    "max_return_12m": 2.012024732162152,
+    "max_dd_6m": -0.2092080581729182,
+    "trail20_after_50pct_return": 1.2013024792274685,
+    "ma50_5d_after_50pct_return": 1.2190847309064443
   },
   "phase_medians_by_offset_months": {
     "-6": {
       "n": 25,
-      "median_mom_3m": 0.09981970584482114,
-      "median_rs_vs_spy_3m": 0.023514566522851332,
+      "median_mom_3m": 0.053206499481379455,
+      "median_rs_vs_spy_3m": 0.0037426396048609867,
       "median_entry_readiness_score": 0.4818181818181818,
-      "median_forward_6m_return": 0.16396394152949667
+      "median_forward_6m_return": 0.16396375706832167
     },
     "-3": {
       "n": 25,
-      "median_mom_3m": -0.046085909924768687,
-      "median_rs_vs_spy_3m": -0.03730244862094767,
-      "median_entry_readiness_score": 0.36363636363636365,
-      "median_forward_6m_return": 0.42229766520188483
+      "median_mom_3m": -0.02579858797627621,
+      "median_rs_vs_spy_3m": -0.03730267519698227,
+      "median_entry_readiness_score": 0.3636363636363637,
+      "median_forward_6m_return": 0.48236726197536006
     },
     "-1": {
       "n": 25,
-      "median_mom_3m": 0.045359452425781654,
-      "median_rs_vs_spy_3m": 0.040523572918706785,
+      "median_mom_3m": 0.05504514336421562,
+      "median_rs_vs_spy_3m": 0.05247220550471243,
       "median_entry_readiness_score": 0.4545454545454547,
-      "median_forward_6m_return": 0.6147541861417518
+      "median_forward_6m_return": 0.6867612758178292
     },
     "0": {
       "n": 26,
-      "median_mom_3m": 0.09985125901657366,
-      "median_rs_vs_spy_3m": 0.08686122756522513,
-      "median_entry_readiness_score": 0.6500000000000001,
-      "median_forward_6m_return": 0.8144537053123005
+      "median_mom_3m": 0.10865745757918066,
+      "median_rs_vs_spy_3m": 0.08686116114700199,
+      "median_entry_readiness_score": 0.6181818181818182,
+      "median_forward_6m_return": 0.7664820978511749
     },
     "1": {
       "n": 26,
-      "median_mom_3m": 0.09300240387747993,
-      "median_rs_vs_spy_3m": 0.09935601475582356,
-      "median_entry_readiness_score": 0.6181818181818182,
+      "median_mom_3m": 0.14475343758648185,
+      "median_rs_vs_spy_3m": 0.12766868729093794,
+      "median_entry_readiness_score": 0.6272727272727272,
       "median_forward_6m_return": 0.8870827572909652
     },
     "3": {
       "n": 26,
-      "median_mom_3m": 0.2176134978238592,
-      "median_rs_vs_spy_3m": 0.14697379941411587,
+      "median_mom_3m": 0.2398034400937049,
+      "median_rs_vs_spy_3m": 0.20000284790761735,
       "median_entry_readiness_score": 0.7272727272727274,
-      "median_forward_6m_return": 0.7349982909419842
+      "median_forward_6m_return": 0.7770278817618489
     },
     "6": {
       "n": 26,
-      "median_mom_3m": 0.3896103474352194,
-      "median_rs_vs_spy_3m": 0.2880968358084539,
-      "median_entry_readiness_score": 0.8181818181818182,
-      "median_forward_6m_return": 0.6825157159106854
+      "median_mom_3m": 0.3896102021417537,
+      "median_rs_vs_spy_3m": 0.2880965719317117,
+      "median_entry_readiness_score": 0.8181818181818183,
+      "median_forward_6m_return": 0.7306440039712911
     }
   },
   "filters": {

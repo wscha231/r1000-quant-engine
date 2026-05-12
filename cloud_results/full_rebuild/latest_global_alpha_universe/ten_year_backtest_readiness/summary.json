@@ -6,28 +6,28 @@
   ],
   "broker_replay": {
     "concentrated": {
-      "cagr": 0.35757065142146116,
-      "end_date": "2026-05-08",
+      "cagr": 0.36413434089941177,
+      "end_date": "2026-05-12",
       "exists": true,
-      "max_dd": -0.36739720049030034,
+      "max_dd": -0.38448929995729797,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.2040566861112372,
+      "sharpe": 1.1855100487526875,
       "start_date": "2019-05-01",
       "status": "completed",
       "valid_for_production": true,
-      "years": 7.0198
+      "years": 7.0308
     },
     "main": {
-      "cagr": 0.21841389129066835,
-      "end_date": "2026-05-08",
+      "cagr": 0.20347971738915804,
+      "end_date": "2026-05-12",
       "exists": true,
-      "max_dd": -0.28621917066524416,
+      "max_dd": -0.3345476089128743,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.0556328995259578,
+      "sharpe": 0.9914893272915797,
       "start_date": "2019-05-01",
       "status": "completed",
       "valid_for_production": true,
-      "years": 7.0198
+      "years": 7.0308
     },
     "ten_year_ready": false
   },
@@ -38,7 +38,7 @@
     "manifest_generated_at_utc": null,
     "sec_companyfacts_available": false
   },
-  "generated_at_utc": "2026-05-12T08:12:25.919032+00:00",
+  "generated_at_utc": "2026-05-12T23:25:56.003483+00:00",
   "min_years": 9.8,
   "next_actions": [
     "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
@@ -67,14 +67,14 @@
       "exists": true,
       "max_date": "2026-02-27",
       "min_date": "2019-04-30",
-      "rows": 23475,
+      "rows": 23466,
       "unique_months": 83
     },
     "main": {
       "exists": true,
       "max_date": "2026-02-27",
       "min_date": "2019-04-30",
-      "rows": 1852,
+      "rows": 2197,
       "unique_months": 83
     },
     "ten_year_ready": false

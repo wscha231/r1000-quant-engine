@@ -2,8 +2,8 @@
 
 Round-trip trade journal reconstructed from broker-ledger replay executions.
 
-- `main`: trades=1754, win_rate=57.47%, avg_return=5.03%, avg_holding_days=69.7, broker_cagr=21.84%, broker_max_dd=-28.62%
-- `concentrated`: trades=328, win_rate=60.37%, avg_return=6.13%, avg_holding_days=53.1, broker_cagr=35.76%, broker_max_dd=-36.74%
-- `combined`: trades=2082, win_rate=57.93%, avg_return=5.20%, avg_holding_days=67.1, broker_cagr=0.00%, broker_max_dd=0.00%
+- `main`: trades=2002, win_rate=55.69%, avg_return=3.88%, avg_holding_days=69.8, broker_cagr=20.35%, broker_max_dd=-33.45%
+- `concentrated`: trades=244, win_rate=62.70%, avg_return=6.13%, avg_holding_days=55.0, broker_cagr=36.41%, broker_max_dd=-38.45%
+- `combined`: trades=2246, win_rate=56.46%, avg_return=4.12%, avg_holding_days=68.2, broker_cagr=0.00%, broker_max_dd=0.00%
 
 This journal is evidence for AutoLearning. It does not place orders.

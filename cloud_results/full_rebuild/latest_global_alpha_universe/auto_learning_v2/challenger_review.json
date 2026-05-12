@@ -5,10 +5,9 @@
   "hard_blockers": [
     "counterfactual:main_future_alpha_concentration_v1:needs_full_challenger_backtest",
     "counterfactual:concentrated_neutral_25_v1:needs_full_challenger_backtest",
-    "counterfactual:alpha_sprint_breakout_fallback_v1:needs_full_challenger_backtest",
     "human_approval_required"
   ],
-  "missing_counterfactual_count": 3,
+  "missing_counterfactual_count": 2,
   "production_ready_count": 0,
   "status": "blocked",
   "validation": {

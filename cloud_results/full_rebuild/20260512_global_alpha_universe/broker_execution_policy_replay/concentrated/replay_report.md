@@ -5,11 +5,11 @@ Account-aware replay of monthly target books with churn controls.
 - Portfolio: `concentrated`
 - Status: `completed`
 - Metric mode: `broker_ledger_execution_policy_next_close`
-- CAGR: 22.38%
-- Sharpe: 0.872
-- MaxDD: -35.24%
-- Avg cash: 0.71%
-- Total trades: 336
+- CAGR: 21.72%
+- Sharpe: 0.843
+- MaxDD: -36.63%
+- Avg cash: 1.59%
+- Total trades: 263
 - Valid for production evidence: `true`
 
 This is not a production policy by itself. It is a broker-ledger challenger for reducing churn and preserving winners.

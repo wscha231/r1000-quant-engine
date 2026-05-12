@@ -2,34 +2,34 @@
 
 Research-only pre-fullrun diagnostic. No production behavior is changed.
 
-- base CAGR / Sharpe / MaxDD: 34.31% / 2.2892447163866385 / -5.16%
-- production CAGR / Sharpe / MaxDD: 28.91% / 1.7438756765602594 / -13.56%
-- base-vs-production CAGR / MaxDD delta: 5.40% / 8.40%
-- base avg cash: 18.94%
-- best model: `cash0.00_cap0.33`
-- best CAGR / Sharpe / MaxDD: 34.85% / 1.8468507104653387 / -11.90%
+- base CAGR / Sharpe / MaxDD: 34.40% / 2.3147029355936604 / -5.42%
+- production CAGR / Sharpe / MaxDD: 29.19% / 1.7248976396719429 / -17.46%
+- base-vs-production CAGR / MaxDD delta: 5.21% / 12.04%
+- base avg cash: 20.93%
+- best model: `cash0.00_cap0.18`
+- best CAGR / Sharpe / MaxDD: 35.87% / 1.875055428601023 / -13.96%
 - best avg cash: -0.00%
 - cash source: `reported_regime_by_month`
-- avg reported cash before alignment: 18.94%
-- avg explicit monthly-book cash before alignment: 4.86%
-- avg cash gap before alignment: 14.08%
+- avg reported cash before alignment: 20.93%
+- avg explicit monthly-book cash before alignment: 5.03%
+- avg cash gap before alignment: 15.90%
 
 ## Top Grid Rows
 
 | model | CAGR | Sharpe | MaxDD | Avg Cash | Delta CAGR | Delta MaxDD |
 |---|---:|---:|---:|---:|---:|---:|
-| cash0.00_cap0.33 | 34.85% | 1.847 | -11.90% | -0.00% | 0.54% | -6.74% |
-| cash0.00_cap0.25 | 34.84% | 1.846 | -11.92% | 0.00% | 0.54% | -6.76% |
-| cash0.00_cap0.22 | 34.84% | 1.845 | -11.93% | -0.00% | 0.53% | -6.78% |
-| cash0.00_cap0.18 | 34.83% | 1.844 | -11.96% | -0.00% | 0.53% | -6.80% |
-| cash0.03_cap0.33 | 34.20% | 1.857 | -11.52% | 2.59% | -0.11% | -6.36% |
-| cash0.03_cap0.25 | 34.20% | 1.856 | -11.54% | 2.59% | -0.11% | -6.39% |
-| cash0.03_cap0.22 | 34.20% | 1.856 | -11.56% | 2.59% | -0.11% | -6.40% |
-| cash0.03_cap0.18 | 34.19% | 1.855 | -11.58% | 2.59% | -0.11% | -6.42% |
-| cash0.05_cap0.18 | 33.83% | 1.864 | -11.33% | 4.16% | -0.47% | -6.17% |
-| cash0.05_cap0.22 | 33.83% | 1.865 | -11.30% | 4.16% | -0.47% | -6.15% |
-| cash0.05_cap0.25 | 33.83% | 1.865 | -11.29% | 4.16% | -0.47% | -6.13% |
-| cash0.05_cap0.33 | 33.83% | 1.866 | -11.27% | 4.16% | -0.48% | -6.11% |
+| cash0.00_cap0.18 | 35.87% | 1.875 | -13.96% | -0.00% | 1.47% | -8.54% |
+| cash0.00_cap0.22 | 35.86% | 1.875 | -13.97% | -0.00% | 1.46% | -8.54% |
+| cash0.00_cap0.25 | 35.86% | 1.876 | -13.97% | 0.00% | 1.46% | -8.55% |
+| cash0.00_cap0.33 | 35.86% | 1.876 | -13.98% | 0.00% | 1.46% | -8.55% |
+| cash0.03_cap0.18 | 35.05% | 1.882 | -13.52% | 2.75% | 0.65% | -8.10% |
+| cash0.03_cap0.22 | 35.04% | 1.882 | -13.53% | 2.75% | 0.64% | -8.11% |
+| cash0.03_cap0.25 | 35.04% | 1.883 | -13.53% | 2.75% | 0.64% | -8.11% |
+| cash0.03_cap0.33 | 35.03% | 1.883 | -13.54% | 2.75% | 0.63% | -8.12% |
+| cash0.05_cap0.18 | 34.59% | 1.890 | -13.23% | 4.43% | 0.19% | -7.81% |
+| cash0.05_cap0.22 | 34.58% | 1.890 | -13.24% | 4.43% | 0.18% | -7.82% |
+| cash0.05_cap0.25 | 34.58% | 1.890 | -13.24% | 4.43% | 0.18% | -7.82% |
+| cash0.05_cap0.33 | 34.57% | 1.890 | -13.25% | 4.43% | 0.17% | -7.83% |
 
 ## Limits
 

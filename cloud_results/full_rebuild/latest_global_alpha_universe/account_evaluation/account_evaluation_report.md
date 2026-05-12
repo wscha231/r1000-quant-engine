@@ -7,26 +7,26 @@ Legacy weight-level backtest metrics are retained only as research comparison fi
 
 | Portfolio | CAGR | Target | Gap | MaxDD | Target | Gap | Sharpe | Avg Cash | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 21.84% | 30.00% | 8.16pp | -28.62% | -15.00% | 13.62pp | 1.056 | 5.55% | false |
-| concentrated | 35.76% | 50.00% | 14.24pp | -36.74% | -18.00% | 18.74pp | 1.204 | 0.04% | false |
+| main | 20.35% | 30.00% | 9.65pp | -33.45% | -15.00% | 18.45pp | 0.991 | 5.66% | false |
+| concentrated | 36.41% | 50.00% | 13.59pp | -38.45% | -18.00% | 20.45pp | 1.186 | 0.04% | false |
 
 ## Account State And Orders
 
 | Portfolio | End Date | Equity | Latest Cash | Positions | Preview Orders | Buys | Sells | Blocked |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 2026-05-08 | $400,191 | 26.15% | 27 | 40 | 16 | 24 | 0 |
-| concentrated | 2026-05-08 | $855,012 | 0.00% | 4 | 8 | 4 | 4 | 0 |
+| main | 2026-05-12 | $367,747 | 26.03% | 41 | 45 | 17 | 28 | 0 |
+| concentrated | 2026-05-12 | $887,470 | 0.01% | 3 | 6 | 3 | 3 | 0 |
 
 ## Broker Trade Journal
 
 | Portfolio | Round Trips | Win Rate | Avg Return | Avg Holding Days | Profit Factor | Fees |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 1754 | 57.47% | 5.03% | 69.7 | 2.44 | $37,913 |
-| concentrated | 328 | 60.37% | 6.13% | 53.1 | 3.61 | $76,204 |
+| main | 2002 | 55.69% | 3.88% | 69.8 | 2.00 | $38,384 |
+| concentrated | 244 | 62.70% | 6.13% | 55.0 | 3.55 | $73,729 |
 
 ## Governance
 
 - Official metric mode: `broker_ledger_next_close`
 - Production target pass: `false`
-- Research target pass: `false`
-- Generated at: `2026-05-12T08:12:16+00:00`
+- Research target pass: `true`
+- Generated at: `2026-05-12T23:25:46+00:00`

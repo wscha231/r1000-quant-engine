@@ -6,63 +6,62 @@ Research-only diagnostic. It does not change production weights.
 
 - latest candidate rows: 606
 - current main names: 17
-- current concentrated names: 4
-- selected stale review count: 2
+- current concentrated names: 3
+- selected stale review count: 3
 - omitted monster candidates in top list: 0
 
 ## Decision Buckets
 
 - `not_selected_low_priority`: 124
-- `omitted_candidate_gate_block`: 456
+- `omitted_candidate_gate_block`: 458
 - `omitted_risk_entry_block`: 1
-- `omitted_stale_leader`: 11
-- `selected_concentrated`: 3
-- `selected_main`: 9
-- `selected_main_stale_review`: 2
+- `omitted_stale_leader`: 10
+- `selected_concentrated`: 2
+- `selected_main`: 8
+- `selected_main_stale_review`: 3
 
 ## Current Selected
 
 | ticker | bucket | main | concentrated | pressure | months main / conc |
 |---|---|---:|---:|---:|---:|
-| PR | `selected_main` | 4.0% | 0.0% | 0.656 | 3 / 7 |
-| VRT | `selected_main` | 6.0% | 0.0% | 0.630 | 11 / 0 |
-| GEV | `selected_main` | 9.9% | 0.0% | 0.623 | 2 / 0 |
-| LRCX | `selected_main_stale_review` | 4.6% | 0.0% | 0.619 | 37 / 39 |
-| FTI | `selected_main` | 4.6% | 0.0% | 0.610 | 1 / 0 |
-| GOOGL | `selected_main_stale_review` | 12.0% | 0.0% | 0.578 | 24 / 13 |
-| AKAM | `selected_main` | 3.8% | 0.0% | 0.563 | 0 / 0 |
-| AMZN | `selected_main` | 11.3% | 0.0% | 0.513 | 24 / 3 |
-| CBOE | `selected_main` | 4.3% | 0.0% | 0.472 | 3 / 4 |
-| PWR | `selected_main` | 4.5% | 0.0% | 0.415 | 2 / 0 |
-| MLI | `selected_main` | 4.0% | 0.0% | 0.396 | 3 / 2 |
-| SNDK | `selected_concentrated` | 0.0% | 17.0% | 0.642 | 0 / 0 |
-| WDC | `selected_concentrated` | 0.0% | 26.6% | 0.624 | 2 / 5 |
-| MU | `selected_concentrated` | 0.0% | 22.9% | 0.587 | 9 / 5 |
+| PR | `selected_main` | 4.0% | 0.0% | 0.661 | 4 / 4 |
+| OKE | `selected_main` | 5.6% | 0.0% | 0.640 | 1 / 0 |
+| SU | `selected_main` | 5.6% | 0.0% | 0.637 | 0 / 0 |
+| VRT | `selected_main` | 6.1% | 0.0% | 0.630 | 11 / 2 |
+| LRCX | `selected_main_stale_review` | 6.1% | 0.0% | 0.620 | 40 / 39 |
+| FTI | `selected_main` | 5.7% | 0.0% | 0.606 | 1 / 0 |
+| GOOG | `selected_main_stale_review` | 17.9% | 0.0% | 0.571 | 31 / 13 |
+| AKAM | `selected_main` | 4.0% | 0.0% | 0.569 | 4 / 0 |
+| PLTR | `selected_main_stale_review` | 6.1% | 0.0% | 0.427 | 11 / 5 |
+| PWR | `selected_main` | 5.7% | 0.0% | 0.409 | 7 / 0 |
+| MLI | `selected_main` | 4.0% | 0.0% | 0.404 | 4 / 2 |
+| WDC | `selected_concentrated` | 0.0% | 35.7% | 0.629 | 4 / 5 |
+| MU | `selected_concentrated` | 0.0% | 26.5% | 0.590 | 9 / 5 |
 
 ## Top Omitted Candidates
 
 | ticker | bucket | pressure | score | conc score | monster | risk block | gate |
 |---|---|---:|---:|---:|---:|---:|---|
-| LNG | `not_selected_low_priority` | 0.663 | 4.645 | 0.000 | 0.541 | 0.122 | future_relaxed |
-| VZ | `not_selected_low_priority` | 0.660 | 4.208 | 0.000 | 0.594 | 0.000 | future_relaxed |
-| ETR | `not_selected_low_priority` | 0.659 | 3.406 | 0.000 | 0.577 | 0.000 | early_relaxed |
-| SLB | `not_selected_low_priority` | 0.644 | 2.861 | 0.000 | 0.582 | 0.108 | future_relaxed |
-| OKE | `omitted_candidate_gate_block` | 0.642 | 2.608 | 0.000 | 0.549 | 0.014 | rejected |
-| DAL | `omitted_candidate_gate_block` | 0.637 | 3.088 | 0.000 | 0.478 | 0.147 | rejected |
-| MRVL | `omitted_candidate_gate_block` | 0.637 | 3.285 | 0.000 | 0.551 | 0.133 | rejected |
-| CNQ | `not_selected_low_priority` | 0.637 | 2.192 | 0.000 | 0.586 | 0.108 | adr_global_alpha_fallback |
-| CIEN | `not_selected_low_priority` | 0.634 | 2.156 | 0.000 | 0.559 | 0.333 | future_relaxed |
-| SU | `not_selected_low_priority` | 0.628 | 1.831 | 0.000 | 0.612 | 0.108 | adr_global_alpha_fallback |
-| ATO | `not_selected_low_priority` | 0.622 | 2.297 | 0.000 | 0.518 | 0.000 | future_relaxed |
-| ROST | `not_selected_low_priority` | 0.619 | 2.260 | 0.000 | 0.522 | 0.242 | future_relaxed |
-| TRGP | `not_selected_low_priority` | 0.618 | 1.589 | 0.000 | 0.618 | 0.108 | future_relaxed |
-| AMAT | `omitted_stale_leader` | 0.618 | 4.186 | 0.000 | 0.394 | 0.255 | core_strict |
-| LITE | `not_selected_low_priority` | 0.610 | 2.002 | 0.000 | 0.521 | 0.333 | future_relaxed |
-| ED | `omitted_candidate_gate_block` | 0.609 | 2.223 | 0.000 | 0.507 | 0.000 | rejected |
-| DUK | `not_selected_low_priority` | 0.609 | 3.335 | 0.000 | 0.494 | 0.000 | future_relaxed |
-| CVX | `omitted_candidate_gate_block` | 0.608 | 4.477 | 0.000 | 0.506 | 0.108 | rejected |
-| UTHR | `not_selected_low_priority` | 0.604 | 1.504 | 0.000 | 0.556 | 0.242 | future_relaxed |
-| ENB | `not_selected_low_priority` | 0.601 | 2.796 | 0.000 | 0.586 | 0.000 | adr_global_alpha_fallback |
+| LNG | `not_selected_low_priority` | 0.665 | 4.716 | 0.000 | 0.540 | 0.122 | future_relaxed |
+| VZ | `not_selected_low_priority` | 0.661 | 4.249 | 0.000 | 0.596 | 0.000 | future_relaxed |
+| ETR | `not_selected_low_priority` | 0.659 | 3.486 | 0.000 | 0.577 | 0.000 | early_relaxed |
+| SNDK | `omitted_candidate_gate_block` | 0.646 | 3.174 | 0.000 | 0.492 | 0.333 | rejected |
+| SLB | `not_selected_low_priority` | 0.642 | 2.576 | 0.000 | 0.581 | 0.108 | future_relaxed |
+| CNQ | `not_selected_low_priority` | 0.639 | 2.236 | 0.000 | 0.585 | 0.108 | adr_global_alpha_fallback |
+| DAL | `omitted_candidate_gate_block` | 0.634 | 2.898 | 0.000 | 0.478 | 0.147 | rejected |
+| MRVL | `omitted_candidate_gate_block` | 0.627 | 2.833 | 0.000 | 0.550 | 0.133 | rejected |
+| ATO | `not_selected_low_priority` | 0.621 | 2.273 | 0.000 | 0.517 | 0.000 | future_relaxed |
+| ROST | `not_selected_low_priority` | 0.621 | 2.276 | 0.000 | 0.522 | 0.242 | future_relaxed |
+| GEV | `omitted_candidate_gate_block` | 0.620 | 4.053 | 0.000 | 0.468 | 0.242 | rejected |
+| AMAT | `omitted_stale_leader` | 0.619 | 4.273 | 0.000 | 0.395 | 0.255 | core_strict |
+| TRGP | `not_selected_low_priority` | 0.614 | 1.462 | 0.000 | 0.617 | 0.108 | future_relaxed |
+| DUK | `not_selected_low_priority` | 0.609 | 3.271 | 0.000 | 0.493 | 0.000 | future_relaxed |
+| CVX | `omitted_candidate_gate_block` | 0.608 | 4.480 | 0.000 | 0.506 | 0.108 | rejected |
+| ED | `omitted_candidate_gate_block` | 0.607 | 2.149 | 0.000 | 0.506 | 0.000 | rejected |
+| CIEN | `not_selected_low_priority` | 0.605 | 1.332 | 0.000 | 0.559 | 0.333 | future_relaxed |
+| ENB | `not_selected_low_priority` | 0.602 | 2.801 | 0.000 | 0.586 | 0.000 | adr_global_alpha_fallback |
+| FANG | `not_selected_low_priority` | 0.601 | 2.303 | 0.000 | 0.589 | 0.108 | future_relaxed |
+| DTM | `not_selected_low_priority` | 0.598 | 1.517 | 0.000 | 0.540 | 0.133 | future_relaxed |
 
 ## Interpretation
 

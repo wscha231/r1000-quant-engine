@@ -1,6 +1,6 @@
 {
-  "concentrated_rows": 16,
-  "generated_at_utc": "2026-05-12T08:14:40.225673+00:00",
+  "concentrated_rows": 15,
+  "generated_at_utc": "2026-05-12T23:28:03.993972+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "main_rows": 29,
   "outputs": {
@@ -11,5 +11,5 @@
   "production_activation_allowed": false,
   "schema_version": "monster-recommendation-bridge-v1",
   "status": "completed",
-  "unified_rows": 45
+  "unified_rows": 44
 }

@@ -1,18 +1,16 @@
 {
-  "as_of_date": "2026-05-08",
+  "as_of_date": "2026-05-12",
   "client_order_ids": [
-    "r1k-C-20260508-S-ETR-d206d7f69ee0",
-    "r1k-C-20260508-S-PR-8c84f7c8049c",
-    "r1k-C-20260508-S-BKNG-95af0280e234",
-    "r1k-C-20260508-S-PEG-552b5baed53a",
-    "r1k-C-20260508-B-ON-7d7b0150388c",
-    "r1k-C-20260508-B-WDC-c1c26fda245b",
-    "r1k-C-20260508-B-MU-22c2a6cf086a",
-    "r1k-C-20260508-B-SNDK-328d0ace7dad"
+    "r1k-C-20260512-S-ETR-edb9503b12af",
+    "r1k-C-20260512-S-PR-440b0a80b6ed",
+    "r1k-C-20260512-S-PEG-d69577c5a9ef",
+    "r1k-C-20260512-B-GLW-e20386697d81",
+    "r1k-C-20260512-B-WDC-f11cce1037c8",
+    "r1k-C-20260512-B-MU-c9520f877d0e"
   ],
-  "order_batch_id": "07607d60f430a713304cf89f94f44e333ea6545dd5678f973fda98761ef7f1c9",
-  "order_count": 8,
+  "order_batch_id": "d53b10fb34126aeb2e36134311b039416865003e7ff7d68d674e4e4a94908705",
+  "order_count": 6,
   "portfolio_kind": "concentrated",
-  "ready_order_count": 7,
+  "ready_order_count": 5,
   "schema_version": "account-ledger-preview-order-batch-v1"
 }
