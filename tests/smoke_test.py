@@ -1551,6 +1551,7 @@ def test_workflow_topology_consolidated() -> None:
         "unified_monthly.yml",
         "layer4_monthly_swap.yml",
         "gdrive_smoke_test.yml",
+        "pr_validation.yml",
     }
     missing = sorted(name for name in expected if not (wf_dir / name).exists())
     assert not missing, f"missing consolidated workflows: {missing}"

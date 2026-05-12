@@ -1,0 +1,65 @@
+name: PR Validation (Fast)
+
+# Tier 1 validator: ~2-3 minute code-level smoke test runner.
+# Runs automatically on every push to non-master branches and pull
+# requests so code changes get rapid feedback without waiting on a
+# manual full rebuild (Tier 3, 2-6 h).
+#
+# Covers:
+#   * Syntax / import errors via individual smoke-test imports.
+#   * Test topology regressions (regression.workflow_topology_consolidated
+#     and the other guards inside tests/smoke_test.py).
+#   * Broker-ledger replay smoke (ledger correctness, position risk,
+#     execution policy, crisis reentry).
+#   * Target book builders (operating, event, weekly leader).
+#   * Portfolio system guard and operating event backtest smokes.
+#   * Auto-learning evidence + v2 smokes.
+#   * Static leakage audit (tests/audit_features.py --no-runtime).
+#   * Workflow artifact wiring smoke.
+#
+# Does NOT cover:
+#   * Real-data sidecar metric verification — use
+#     alphaops_replay_sidecars_manual.yml (Tier 2, ~10-30 min) with a
+#     completed full_rebuild source_run_id.
+#   * 84-month broker-ledger metric regeneration — use
+#     full_rebuild_manual.yml (Tier 3, ~2-6 h).
+#
+# Runtime target: < 5 minutes on the free GitHub runner. Add new
+# critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
+# both this workflow and the local runner stay in sync.
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Run Tier-1 PR validation
+        run: python tools/run_pr_validation.py

@@ -614,6 +614,39 @@ All entries must be written in English. Entries must be predictable and machine-
   - Investigation of `origin/claude/analyze-updated-code-OfEbu` confirmed that `tools/auto_baseline_rotation.py`, `.github/workflows/auto_baseline_rotation_weekly.yml`, `.github/workflows/macro_daily_snapshot.yml`, `.github/workflows/etf_leadership_daily.yml`, `.github/workflows/explosive_pattern_train_monthly.yml`, and `.github/workflows/tactical_backtest_monthly.yml` are *intentionally* not in HEAD. The four ``*_daily.yml/*_monthly.yml`` workflows were consolidated into `after_close_daily.yml` / `weekly_data_refresh.yml` / `monthly_research.yml` per `AUTOMATION_STRATEGY.md` (and are explicitly retired in `tests/smoke_test.py::regression.workflow_topology_consolidated`). `auto_baseline_rotation_weekly.yml` is deferred per `PHASE17_19_INTEGRATION_NOTES.md:74-75`. Future agents do not need to re-investigate these candidates.
   - These smoke tests are additive and do not affect any in-flight cloud run.
 
+### 15:44 KST - pr-validation-fast-tier-runner
+
+- scope:
+  - Add a Tier-1 fast code-level validation pipeline so developers and other agents get pass/fail feedback in ~20-40 s locally / ~2-3 min in CI, without paying the 2-6 h full-rebuild cost on every code change. Documents the full validation tier ladder in AUTOMATION_STRATEGY.md and registers the new workflow with the consolidated topology guard.
+- files:
+  - `tools/run_pr_validation.py` ->local Tier-0 runner that executes 15 smoke and audit tests in sequence and prints a consolidated pass/fail summary; forces PYTHONUTF8 in child processes and reconfigures its own stdout so Windows cp949 consoles do not crash on em-dash output from the leakage audit.
+  - `.github/workflows/pr_validation.yml` ->Tier-1 CI workflow that runs `tools/run_pr_validation.py` on every push to non-master branches, every pull request, and manual dispatch; uses the existing `requirements_github.txt` minimal dependency set.
+  - `AUTOMATION_STRATEGY.md` ->adds a PR/push CI cadence row referencing `pr_validation.yml` and introduces a new "Code-Level Validation Tiers" section that documents Tier 0 / 1 / 2 / 3 with runtime targets, coverage, and when-to-use guidance.
+  - `tests/smoke_test.py` ->adds `pr_validation.yml` to the consolidated workflow topology guard so accidental deletion of the new CI workflow fails the topology assertion.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `run_pr_validation.run_one(rel_path, extra_args, quiet)` ->runs one smoke test as a subprocess and returns (passed, elapsed_seconds, tail_or_last_line).
+  - `run_pr_validation.main()` ->CLI entrypoint; supports `--include <name>`, `--only <substring>`, and `--quiet`.
+  - `run_pr_validation.DEFAULT_TESTS` ->ordered list of (relative_path, extra_args) covering smoke_test, broker-ledger replay variants, broker position/execution policy, broker crisis reentry, operating/event/weekly leader target books, portfolio system guard, operating event backtest, auto learning evidence/v2, leakage audit, and workflow artifact smoke.
+  - `run_pr_validation.CHILD_ENV` ->subprocess environment that forces UTF-8 so the leakage audit's em-dash banner runs on Windows.
+- symbols_changed:
+  - `tests/smoke_test.py::test_workflow_topology_consolidated` ->adds `pr_validation.yml` to the `expected` set; the retired set and `AUTOMATION_STRATEGY.md` token checks are unchanged.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none (runner prints to stdout only; CI uploads no artifacts).
+- validation:
+  - `py -3 tools/run_pr_validation.py` ->PASS, 15/15 in 20.39 s on Windows.
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89 with `pr_validation.yml` registered in the topology guard.
+  - `py -3 tests/broker_ledger_correctness_smoke.py` ->PASS (already shipped in 14:55 KST entry).
+- risks_or_notes:
+  - Tier 0 / Tier 1 are CODE-LEVEL only. They do not produce CAGR/MDD numbers and do not validate any sidecar against real market data. Strategy regressions still require Tier 2 (`alphaops_replay_sidecars_manual.yml` on a prior `source_run_id`) or Tier 3 (`full_rebuild_manual.yml`).
+  - The CI workflow runs on every push to non-master branches and on every pull request, including from forks. This is a code-only job with no secrets or production write access (`permissions: contents: read`). The free GitHub runner budget is sufficient at the current cadence; if billable, throttle by adding a path filter to `on.push.paths` so docs-only commits are skipped.
+  - Future smoke tests should be appended to `tools/run_pr_validation.py::DEFAULT_TESTS` so the local runner and the CI workflow stay aligned. If a smoke test takes more than ~10 s, gate it behind `--include` instead of adding it to the default list so the Tier-1 runtime budget stays under five minutes.
+  - The `audit_features.py --no-runtime` flag is required; the runtime audit needs real-data artifacts that do not exist on a fresh checkout and would push Tier 1 well past its target runtime.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
