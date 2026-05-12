@@ -881,6 +881,64 @@ All entries must be written in English. Entries must be predictable and machine-
   - The tool is **read-only**. It never proposes weights, never writes target books, and never flips the broker-accounting audit. Acting on a finding requires a separate commit that ships a strategy/config change AND keeps the smoke suite green.
   - Per `auto_policy_challenger`, F1 and F2 would close after the corresponding fixes land AND the broker-accounting hard gates (A1 delisted cost-basis, A2 survivorship coverage) flip true. Until those land, all attribution findings should be treated as proposal-only evidence.
 
+### 19:26 KST - overnight-loop-iter1-neutral-regime-churn-filter
+
+- scope:
+  - **Overnight autonomous attribution loop, Iteration 1.** Targets finding F2_loss_concentration_in_neutral_regime_main. Hypothesis: the $-146,496 of realized losses concentrated in neutral regime is not bad picks; it is churn of quality megacaps (MA 14 swaps, PG 11, ORCL 10, COST 9, HD 9 over 7 years). Fix: a winners-safe filter that blocks RE-ENTRIES of tickers that have accumulated >= 2 in/out transitions in the prior 6 monthly rebalance dates, but only when the regime label is neutral. Existing positions are never force-held; exits pass through unchanged so F3 (declining concentrated names) is not protected.
+- iteration_targets:
+  - **stop_conditions (option B)**: Concentrated MaxDD < -25% (from -36.74%) AND Main MaxDD < -22% (from -28.62%). CAGR drop acceptable.
+  - **hard_stop_loss**: if any post-iteration broker-ledger metric makes MaxDD WORSE than baseline, halt immediately.
+  - **max_iterations**: 6.
+- files:
+  - `tools/run_neutral_regime_churn_filter.py` ->new read-only tool. Reads an operating target book, computes per (date, ticker) the in/out transition count over the trailing six monthly rebalance dates, and writes a filtered book where neutral-regime ENTRIES of high-churn tickers fall to cash. Existing holdings pass through. Default swap_threshold=2 (1 round trip per 6 months), default window_months=6, default target_regimes=("neutral",). Side-by-side measurement: the workflow runs broker-ledger replay on BOTH the original and filtered books so the attribution tool can confirm or refute the hypothesis.
+  - `tests/neutral_regime_churn_filter_smoke.py` ->six smoke tests covering (a) churny ticker blocked on neutral re-entry, (b) long-held winner never blocked, (c) non-neutral regimes pass through unchanged, (d) filter never force-holds an explicit exit, (e) blocked weight falls to cash not redistributed, (f) the `run()` wrapper writes csv + diagnostics.
+  - `tools/run_pr_validation.py` ->add the new smoke to `DEFAULT_TESTS`.
+  - `.github/workflows/full_rebuild_manual.yml` ->run the churn filter on `operating_main_target_book.csv` after the cost-sensitivity sidecar, then run a parallel broker-ledger replay on the filtered book into `outputs/churn_filtered_broker_replay/main/`. Include new directories in GDrive sync, bundle, artifact upload.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->mirror the same wiring in the Tier-2 replay workflow so the loop can rerun on the latest run's artifacts in ~15-25 min.
+  - `CHANGELOG.md` ->this entry.
+- preview_against_real_data:
+  - On full rebuild 25713620719's `operating_main_target_book.csv` (1869 rows, 84 monthly periods, 845 neutral rows):
+    - **threshold=2: 88 entries blocked (10.4% of neutral entries), weight_dropped_total=3.40 across 84 months (~4% cash residue per month on blocked dates)**.
+    - Top blocked tickers: GOOGL 5, VRTX 5, ORLY 4, META 4, ETSY 4, ORCL 4, DKS 4, XYZ 3, NRG 3, SBUX 2, SHOP 2, UNH 2, DPZ 2, CHTR 2, MA 2.
+    - Stable holdings (PG, COST, MSFT, LRCX, BKNG) that lost money via consistent holding (not churn) are NOT blocked, as designed.
+  - On `operating_concentrated_target_book.csv` (23,479 rows): 0 blocks because the raw book holds all champion-filter param combinations; the churn pattern only becomes visible after the comparison-champion filter is applied. Iteration 1 deliberately scopes to Main; champion-filter-aware concentrated variant is a candidate fix for a later iteration if needed.
+- symbols_added:
+  - `tools.run_neutral_regime_churn_filter.DEFAULT_SWAP_THRESHOLD = 2`
+  - `tools.run_neutral_regime_churn_filter.DEFAULT_WINDOW_MONTHS = 6`
+  - `tools.run_neutral_regime_churn_filter.DEFAULT_TARGET_REGIMES = ("neutral",)`
+  - `tools.run_neutral_regime_churn_filter.compute_swap_counts(history, window_months)`
+  - `tools.run_neutral_regime_churn_filter.apply_churn_filter(book, swap_counts, swap_threshold, target_regimes)`
+  - `tools.run_neutral_regime_churn_filter.run(input_book, output_book, diagnostics_path, swap_threshold, window_months, target_regimes)`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_high_churn_ticker_blocked_on_neutral_reentry()`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_long_held_winner_never_blocked()`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_non_neutral_regimes_pass_through_unchanged()`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_filter_does_not_force_hold_on_explicit_exit()`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_blocked_weight_falls_to_cash_not_redistributed()`
+  - `tests/neutral_regime_churn_filter_smoke.py::test_run_wrapper_writes_csv_and_diagnostics()`
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none (sidecar tool with CLI flags only).
+- breaking_changes:
+  - none. The original operating book is not modified; the filtered book is a parallel artifact.
+- outputs:
+  - `outputs/reports/operating_main_target_book_churn_filtered.csv` ->filtered main target book.
+  - `outputs/churn_filter/main/diagnostics.json` ->per-decision audit trail and aggregate counts.
+  - `outputs/churn_filtered_broker_replay/main/metrics.json` ->broker-ledger metrics replayed against the filtered book. The next iteration will compare these against `outputs/broker_replay/main/metrics.json`.
+  - `outputs/full_rebuild_logs/churn_filter_main.log` and `churn_filtered_broker_replay_main.log` ->workflow stdout capture.
+- validation:
+  - `py -3 tests/neutral_regime_churn_filter_smoke.py` ->PASS (6 tests).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 19/19 in 20.43 s.
+  - `py -3 tools/run_neutral_regime_churn_filter.py` against latest run ->88 blocks, schema-conformant diagnostics emitted.
+  - YAML parse for both updated workflows ->OK.
+- risks_or_notes:
+  - **Why winners are safe**: NVDA-style entrants enter once and stay; their in/out transition count is 0. The filter only acts on tickers that have already demonstrated repeated swap behavior. The "shakeout" worry (SMCI/MU short-term -20% drops within a hold) doesn't trigger the filter because the position is not exited during the shakeout — the filter operates on entry/exit transitions in the book, not on intra-month price moves.
+  - **Why F3 (concentrated late exits) is not protected**: the filter NEVER force-holds an existing position. If the engine's main book chooses to drop a name, the filter respects that drop. So declining holdings that need to exit can still exit.
+  - **Cash residue intentional**: blocked entries fall to cash, total weight drops below 1.0 on those months. This is by design — the broker-ledger replay tolerates total < 1.05 and cash is the right default in ambiguous regime. No renormalization to stock weights.
+  - **Threshold tuning**: 2 transitions per 6 months ≈ 1 round trip per half year. Below this, names like PG that hold for 4-6 months then exit briefly aren't classified as churn. If the next iteration shows the filter is too lax, lower to 2 over 9 months or apply at lower granularity (4-month window).
+  - **Iter 2 plan (to be decided after measurement)**: if Main MaxDD drops materially toward -22%, keep tuning churn filter parameters. If MaxDD barely moves, the F2 hypothesis was wrong and the next iteration should target F1 (concentrated MDD circuit breaker) with the macro-anchored design (only fire when VIX > 30 or SPY -7% in 5d).
+  - The broker-accounting audit (delisted cost-basis, survivorship) is still open. Any metric improvement from this iteration is best understood as research-grade evidence, not a production gate.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
