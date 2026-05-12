@@ -26,6 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.run_weekly_evaluation import load_price_series, price_on_or_before
+
 
 PORTFOLIO_SPECS = {
     "main": {
@@ -145,6 +147,21 @@ def latest_as_of_date(latest_run: Path) -> str:
     return pd.Timestamp(parsed.max()).date().isoformat()
 
 
+def latest_close_from_cache(price_cache: Path, ticker: str, as_of_date: str) -> tuple[float, str]:
+    if not price_cache.exists():
+        return np.nan, ""
+    px = load_price_series(price_cache, ticker)
+    if px.empty:
+        return np.nan, ""
+    if as_of_date:
+        dt, value = price_on_or_before(px, as_of_date, "close")
+    else:
+        dt, value = pd.Timestamp(px.index.max()), clean_float(px["close"].iloc[-1], np.nan)
+    if dt is None or value is None or not math.isfinite(float(value)) or float(value) <= 0:
+        return np.nan, ""
+    return float(value), pd.Timestamp(dt).date().isoformat()
+
+
 def compact_logic(row: dict[str, Any], portfolio: str) -> str:
     parts: list[str] = []
     if portfolio == "main":
@@ -174,7 +191,7 @@ def compact_logic(row: dict[str, Any], portfolio: str) -> str:
     return "; ".join(parts[:5])
 
 
-def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str) -> pd.DataFrame:
+def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str, price_cache: Path) -> pd.DataFrame:
     spec = PORTFOLIO_SPECS[portfolio]
     raw = read_csv(latest_run / spec["target_file"])
     if raw.empty or "ticker" not in raw.columns:
@@ -189,13 +206,15 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str)
     d = d[(d["ticker"] != "") & (~d["ticker"].isin(CASH_TICKERS)) & (d["weight"] > 1e-12)].copy()
     rows: list[dict[str, Any]] = []
     for i, row in enumerate(d.sort_values("weight", ascending=False).to_dict("records"), start=1):
-        price = clean_float(
+        cache_price, cache_price_date = latest_close_from_cache(price_cache, row["ticker"], as_of_date)
+        fallback_price = clean_float(
             first_existing(
                 row,
                 ["reference_price", "current_price_live", "px", "entry_price", "open_px"],
                 0.0,
             )
         )
+        price = cache_price if math.isfinite(cache_price) and cache_price > 0 else fallback_price
         target_value = clean_float(row.get("weight")) * 100000.0
         est_shares = math.floor(target_value / price) if price > 0 else 0
         rows.append(
@@ -209,6 +228,8 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str)
                 "recommended_weight": clean_float(row.get("weight")),
                 "target_value_per_100k_usd": target_value,
                 "reference_price": price if price > 0 else np.nan,
+                "reference_price_date": cache_price_date or as_of_date,
+                "reference_price_source": "price_cache_latest_close" if cache_price_date else "target_file_fallback",
                 "estimated_shares_per_100k": est_shares,
                 "suggested_action": "BUY_OR_HOLD_TO_TARGET",
                 "buy_logic": compact_logic(row, portfolio),
@@ -593,6 +614,7 @@ def render_portfolio_report(portfolio: str, rec: pd.DataFrame, current: pd.DataF
 def build_reports(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
+    price_cache = repo_path(args.price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
     as_of_date = args.as_of_date or latest_as_of_date(latest_run)
     portfolios: dict[str, Any] = {}
@@ -600,7 +622,7 @@ def build_reports(args: argparse.Namespace) -> dict[str, Any]:
     for portfolio in PORTFOLIO_SPECS:
         pdir = output_dir / portfolio
         pdir.mkdir(parents=True, exist_ok=True)
-        rec = normalize_recommendations(latest_run, portfolio, as_of_date)
+        rec = normalize_recommendations(latest_run, portfolio, as_of_date, price_cache)
         current = normalize_current_holdings(latest_run, portfolio, as_of_date)
         scorecard = build_scorecard(latest_run, portfolio)
 
@@ -683,6 +705,7 @@ def build_reports(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": "user-portfolio-reports-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
+        "price_cache": str(price_cache),
         "as_of_date": as_of_date,
         "portfolios": portfolios,
     }
@@ -694,6 +717,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/user_portfolio_reports")
+    parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--as-of-date", default="")
     return parser.parse_args()
 

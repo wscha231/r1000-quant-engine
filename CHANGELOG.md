@@ -164,7 +164,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add user-facing main/concentrated report packs that clearly separate latest buy/hold recommendations from actual simulated operating holdings.
 - files:
-  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, and SVG weight charts.
+  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, and SVG weight charts with latest close reference prices when price cache is available.
   - `tools/build_operating_target_books.py` ->prevents future `recommended_next_run_date` values from being used as operating signal dates.
   - `.github/workflows/full_rebuild_manual.yml` ->runs and publishes the user-facing report pack during full rebuilds.
   - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and publishes the same report pack during fast replay sidecars.
@@ -183,7 +183,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - `run_user_portfolio_reports.first_existing(row, names, default)` ->selects the first present value from candidate columns.
   - `run_user_portfolio_reports.latest_as_of_date(latest_run)` ->selects the broker-ledger latest evaluation date.
   - `run_user_portfolio_reports.compact_logic(row, portfolio)` ->renders a compact buy-logic explanation.
-  - `run_user_portfolio_reports.normalize_recommendations(latest_run, portfolio, as_of_date)` ->formats target recommendation sheets.
+  - `run_user_portfolio_reports.latest_close_from_cache(price_cache, ticker, as_of_date)` ->loads the latest close at or before the report as-of date.
+  - `run_user_portfolio_reports.normalize_recommendations(latest_run, portfolio, as_of_date, price_cache)` ->formats target recommendation sheets with price-cache close references when available.
   - `run_user_portfolio_reports.load_open_lots(latest_run, portfolio)` ->summarizes open lot entry metadata.
   - `run_user_portfolio_reports.normalize_current_holdings(latest_run, portfolio, as_of_date)` ->formats current simulated account holdings with entry returns and cash.
   - `run_user_portfolio_reports.scorecard_for_horizon(equity, trades, label, offset)` ->computes period return, CAGR, Sharpe, MaxDD, turnover, and cash by horizon.

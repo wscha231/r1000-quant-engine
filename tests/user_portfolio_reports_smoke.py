@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_user_portfolio_reports import build_reports  # noqa: E402
+from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def _write_portfolio_fixture(root: Path, portfolio: str) -> None:
@@ -99,6 +100,22 @@ def _write_portfolio_fixture(root: Path, portfolio: str) -> None:
     ).to_csv(journal / "open_positions.csv", index=False)
 
 
+def _write_price_cache(root: Path, ticker: str, close: float) -> None:
+    cache = root / "cache_prices"
+    cache.mkdir(parents=True, exist_ok=True)
+    dates = pd.bdate_range("2026-01-01", "2026-01-31")
+    frame = pd.DataFrame(
+        {
+            "Open": [close - 1.0] * len(dates),
+            "Close": [close] * len(dates),
+            "Adj Close": [close] * len(dates),
+            "Volume": [1_000_000] * len(dates),
+        },
+        index=dates,
+    )
+    frame.to_parquet(cache / px_cache_name(ticker))
+
+
 def test_user_portfolio_reports_separate_recommendations_from_current_holdings() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -131,16 +148,20 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         ).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
         _write_portfolio_fixture(root, "main")
         _write_portfolio_fixture(root, "concentrated")
+        _write_price_cache(root, "AAA", 110.0)
+        _write_price_cache(root, "BBB", 55.0)
 
         out = root / "user_portfolio_reports"
-        payload = build_reports(Namespace(latest_run=str(root), output_dir=str(out), as_of_date=""))
+        payload = build_reports(Namespace(latest_run=str(root), output_dir=str(out), price_cache=str(root / "cache_prices"), as_of_date=""))
         assert payload["status"] == "completed"
         assert payload["as_of_date"] == "2026-01-31"
 
         rec = pd.read_csv(out / "main" / "recommendation_latest.csv")
-        assert {"ticker", "recommended_weight", "target_value_per_100k_usd", "estimated_shares_per_100k", "buy_logic"} <= set(rec.columns)
+        assert {"ticker", "recommended_weight", "target_value_per_100k_usd", "estimated_shares_per_100k", "buy_logic", "reference_price_date", "reference_price_source"} <= set(rec.columns)
         assert rec.iloc[0]["ticker"] == "AAA"
-        assert rec.iloc[0]["estimated_shares_per_100k"] == 555
+        assert rec.iloc[0]["reference_price"] == 110.0
+        assert rec.iloc[0]["reference_price_source"] == "price_cache_latest_close"
+        assert rec.iloc[0]["estimated_shares_per_100k"] == 545
 
         current = pd.read_csv(out / "main" / "current_operating_holdings_latest.csv")
         assert {"entry_date", "avg_entry_price", "return_since_entry_pct", "current_weight"} <= set(current.columns)
