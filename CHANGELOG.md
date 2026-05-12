@@ -775,6 +775,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - Cost-sensitivity is a stress test, not a strategy lever. A weekly-leader candidate that holds up at 100 bps but loses at 50 bps signals turnover that is not absorbed by alpha; the right response is to tune entry frequency or exit symmetry, not to raise the threshold.
   - The broker-accounting hard gates from the 16:16 KST entry still block production promotion. Cost-sensitivity passing only retires one of the seven `next_required_backtests` items; A1/A2 must still land.
 
+### 18:25 KST - fix-weekly-leader-signal-date-collision
+
+- scope:
+  - Repair the bug that caused full rebuild `25713620719` (head SHA `c4690c9`) to emit `weekly_leader_*_target_book.csv` files with stock-weight sums of 2.0 on 2020-12-31 and 2024-03-28, which the broker-ledger replay correctly rejected with status `blocked` / `target weight sum exceeds maximum reasonable exposure`. The compute pipeline succeeded; only the weekly-leader sidecar's target books were unusable. Root cause and fix follow.
+- diagnosis:
+  - `tools/build_weekly_leader_target_books.py::price_features` stamped each snapshot row's `weekly_signal_date` with the **price-anchored actual trading day** (`actual` from `price_on_or_before(px, as_of, "close")`) rather than the **intended W-FRI** (`as_of`).
+  - When the intended W-FRI fell on an NYSE-closed day (2021-01-01 New Year's Day, 2024-03-29 Good Friday), `actual` back-shifted to the previous trading day. That previous trading day (2020-12-31, 2024-03-28) was ALSO a monthly candidate rebalance date.
+  - `build_target_book_for_portfolio` then emitted both a `scheduled_rebalance` row set (sum=1.0) and a `weekly_leader_entry` row set (sum=1.0) for the same `rebalance_date`. The dedup pass only cleared prior `weekly_leader_entry` rows, leaving `scheduled_rebalance` rows in place. `tools.run_broker_ledger_replay.normalize_targets` groups by `(rebalance_date, ticker)` and sums weights, so overlapping tickers doubled and total stock weight reached 2.0 on the two boundary dates.
+  - Production-data scan confirmed exactly two such dates (`2020-12-31`, `2024-03-28`) out of 329 weekly signal dates in the run's `weekly_leader_main_target_book.csv`.
+- files:
+  - `tools/build_weekly_leader_target_books.py` ->set `weekly_signal_date` to the intended `as_of` instead of `actual`, expose the actual trading-day close as a new transparency field `weekly_signal_actual_close_date`, and tighten the dedup pass to also clear `scheduled_rebalance` rows for any date that gets a `weekly_leader_entry` row (defensive against future collisions through other paths).
+  - `tests/weekly_leader_target_books_smoke.py` ->add `test_weekly_signal_date_does_not_collide_with_monthly_rebalance` which constructs the Good-Friday 2024 boundary condition (2024-02-29 / 2024-03-28 monthly periods plus a price cache missing 2024-03-29) and verifies a) every `rebalance_date` in the produced target book has total weight <= 1.0, b) the broker-ledger replay completes (`status=completed`, `max_total_weight <= 1.0`).
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none (transparency field added to dict literal only).
+- symbols_changed:
+  - `build_weekly_leader_target_books.price_features(px, benchmark_px, as_of)` ->`weekly_signal_date` is now `as_of`, plus new `weekly_signal_actual_close_date` field for audit transparency.
+  - `build_weekly_leader_target_books.build_target_book_for_portfolio(...)` ->dedup pass for a target `week_dt` now clears rows whose `event_kind` is `weekly_leader_entry` OR `scheduled_rebalance`, instead of only the former.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none for downstream consumers: `weekly_signal_date` was already an ISO-date string; existing tools that only read this column see a value that is now strictly equal to the intended W-FRI loop date, which is the documented semantics.
+- outputs:
+  - `outputs/weekly_leader_snapshots/weekly_leader_snapshots.csv` ->gains the `weekly_signal_actual_close_date` column.
+- validation:
+  - `py -3 tests/weekly_leader_target_books_smoke.py` ->PASS (2 tests, including the new collision regression).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 17/17 in 26.06 s.
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89.
+- risks_or_notes:
+  - This is the unlock for the entire weekly-leader broker-ledger replay. Without it, full rebuild 25713620719's blocked `weekly_leader_broker_replay/*/metrics.json` could not be used to evaluate whether the new-leader sidecar adds CAGR / preserves MaxDD. With it, re-running the Tier-2 workflow (`alphaops_replay_sidecars_manual.yml` with `source_run_id=25713620719`) should regenerate the target books and broker replays in ~10-30 min instead of re-running the full 4-5 h rebuild.
+  - The price cache for 2026-05-12's rebuild already contains the relevant historical bars; only the target-book build and the four downstream broker replays need to rerun.
+  - Once the Tier-2 rerun produces completed weekly-leader metrics, the AutoLearning v2 Sharpe gate (16:13 KST entry) and the cost-sensitivity sidecar (16:24 KST entry) will both kick in automatically — there is no additional code wiring required.
+  - The defensive dedup (clear `scheduled_rebalance` on weekly-leader collision) means a base-book scheduled rebalance that happens to share a date with a weekly-leader entry is now fully replaced by the combined `weekly_leader_entry` row; the base book's contribution is still preserved through `combine_base_and_leaders` which folds base weights into the combined output. The total stock weight per `rebalance_date` therefore stays exactly the combined value (typically ~1.0), not the doubled-up 2.0 that the broker replay rejected.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

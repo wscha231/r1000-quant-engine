@@ -179,7 +179,16 @@ def price_features(px: pd.DataFrame, benchmark_px: pd.DataFrame, as_of: pd.Times
         base = float(volume.tail(60).mean())
         vol_ratio = float(volume.tail(20).mean() / base - 1.0) if base > 0 else 0.0
     return {
-        "weekly_signal_date": pd.Timestamp(actual).date().isoformat(),
+        # weekly_signal_date is the *intended* week_dt the caller wants
+        # to evaluate at. It must NOT be back-shifted to the last actual
+        # trading day (`actual`) — back-shifting let the W-FRI loop emit
+        # signals on dates that coincided with monthly rebalance dates
+        # (e.g. 2021-01-01 NYSE-closed -> 2020-12-31), which collided
+        # with scheduled_rebalance rows in build_target_book_for_portfolio
+        # and produced double-counted weights that the broker-ledger
+        # replay rejected with max_total_weight=2.0.
+        "weekly_signal_date": pd.Timestamp(as_of).date().isoformat(),
+        "weekly_signal_actual_close_date": pd.Timestamp(actual).date().isoformat(),
         "weekly_close": float(close_now),
         "weekly_ret_1w": ret_1w,
         "weekly_ret_4w": ret_4w,
@@ -520,7 +529,21 @@ def build_target_book_for_portfolio(
             continue
         base_weights, templates = base_weights_for_date(base_book, week_dt)
         combined = combine_base_and_leaders(base_weights, leader_weights, single_cap=single_cap)
-        rows = [row for row in rows if not (str(row.get("rebalance_date")) == week_dt.date().isoformat() and str(row.get("event_kind")) == "weekly_leader_entry")]
+        # Defensive dedup. When a weekly_leader_entry fires on a date
+        # that already has scheduled_rebalance rows from the base loop
+        # (e.g. price_on_or_before would have collided with a monthly
+        # boundary before the as_of fix), the broker-ledger replay sees
+        # both row sets and sums weights to 2.0 -> hard block. Drop both
+        # event kinds for the target date so the new combined rows are
+        # the single source of truth.
+        rows = [
+            row
+            for row in rows
+            if not (
+                str(row.get("rebalance_date")) == week_dt.date().isoformat()
+                and str(row.get("event_kind")) in {"weekly_leader_entry", "scheduled_rebalance"}
+            )
+        ]
         rows.extend(
             snapshot_rows(
                 snapshot_date=week_dt,
