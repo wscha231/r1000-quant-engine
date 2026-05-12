@@ -162,6 +162,9 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         assert rec.iloc[0]["reference_price"] == 110.0
         assert rec.iloc[0]["reference_price_source"] == "price_cache_latest_close"
         assert rec.iloc[0]["estimated_shares_per_100k"] == 545
+        cash_rec = rec[rec["ticker"].eq("CASH")].iloc[0]
+        assert cash_rec["suggested_action"] == "RESERVE_CASH"
+        assert round(float(cash_rec["recommended_weight"]), 4) == 0.4
 
         current = pd.read_csv(out / "main" / "current_operating_holdings_latest.csv")
         assert {"entry_date", "avg_entry_price", "return_since_entry_pct", "current_weight"} <= set(current.columns)
@@ -174,6 +177,10 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         assert {"1M", "FULL"} <= set(scorecard["horizon"])
         assert (out / "main" / "recommendation_weights_pie.svg").exists()
         assert (out / "main" / "current_weights_bar.svg").exists()
+        assert (out / "main_recommendation_latest.csv").exists()
+        assert (out / "main_current_operating_holdings_latest.csv").exists()
+        assert (out / "concentrated_recommendation_latest.csv").exists()
+        assert (out / "concentrated_current_operating_holdings_latest.csv").exists()
         assert (out / "index.md").exists()
 
 

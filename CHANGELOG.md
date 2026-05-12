@@ -164,7 +164,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add user-facing main/concentrated report packs that clearly separate latest buy/hold recommendations from actual simulated operating holdings.
 - files:
-  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, and SVG weight charts with latest close reference prices when price cache is available.
+  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, SVG weight charts, and four root-level prefixed user CSVs with latest close reference prices when price cache is available.
   - `tools/build_operating_target_books.py` ->prevents future `recommended_next_run_date` values from being used as operating signal dates.
   - `.github/workflows/full_rebuild_manual.yml` ->runs and publishes the user-facing report pack during full rebuilds.
   - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and publishes the same report pack during fast replay sidecars.
@@ -202,11 +202,15 @@ All entries must be written in English. Entries must be predictable and machine-
 - breaking_changes:
   - none
 - outputs:
-  - `outputs/user_portfolio_reports/main/recommendation_latest.csv` ->human-readable main target recommendation sheet.
-  - `outputs/user_portfolio_reports/main/current_operating_holdings_latest.csv` ->main simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/main_recommendation_latest.csv` ->primary human-readable main target recommendation sheet.
+  - `outputs/user_portfolio_reports/main_current_operating_holdings_latest.csv` ->primary main simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/main/recommendation_latest.csv` ->portfolio-folder copy of the main target recommendation sheet.
+  - `outputs/user_portfolio_reports/main/current_operating_holdings_latest.csv` ->portfolio-folder copy of main simulated account holdings.
   - `outputs/user_portfolio_reports/main/performance_scorecard.csv` ->main broker-ledger scorecard by horizon.
-  - `outputs/user_portfolio_reports/concentrated/recommendation_latest.csv` ->human-readable concentrated target recommendation sheet.
-  - `outputs/user_portfolio_reports/concentrated/current_operating_holdings_latest.csv` ->concentrated simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/concentrated_recommendation_latest.csv` ->primary human-readable concentrated target recommendation sheet.
+  - `outputs/user_portfolio_reports/concentrated_current_operating_holdings_latest.csv` ->primary concentrated simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/concentrated/recommendation_latest.csv` ->portfolio-folder copy of the concentrated target recommendation sheet.
+  - `outputs/user_portfolio_reports/concentrated/current_operating_holdings_latest.csv` ->portfolio-folder copy of concentrated simulated account holdings.
   - `outputs/user_portfolio_reports/concentrated/performance_scorecard.csv` ->concentrated broker-ledger scorecard by horizon.
   - `outputs/user_portfolio_reports/*/*_weights_pie.svg` ->recommendation/current pie charts.
   - `outputs/user_portfolio_reports/*/*_weights_bar.svg` ->recommendation/current ticker weight bar charts.

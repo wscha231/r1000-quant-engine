@@ -242,35 +242,38 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
     out = pd.DataFrame(rows)
     stock_sum = float(out["recommended_weight"].sum()) if not out.empty else 0.0
     cash_weight = max(0.0, 1.0 - stock_sum)
-    if cash_weight > 0.0005:
-        out = pd.concat(
-            [
-                out,
-                pd.DataFrame(
-                    [
-                        {
-                            "as_of_date": as_of_date,
-                            "portfolio_kind": portfolio,
-                            "rank": len(out) + 1,
-                            "ticker": "CASH",
-                            "company_name": "Cash reserve",
-                            "sector": "Cash",
-                            "recommended_weight": cash_weight,
-                            "target_value_per_100k_usd": cash_weight * 100000.0,
-                            "reference_price": 1.0,
-                            "estimated_shares_per_100k": 0,
-                            "suggested_action": "RESERVE_CASH",
-                            "buy_logic": "residual cash after target stock weights",
-                            "score": 0.0,
-                            "monster_early_score": 0.0,
-                            "stale_leader_score": 0.0,
-                            "risk_entry_block_score": 0.0,
-                        }
-                    ]
-                ),
-            ],
-            ignore_index=True,
-        )
+    if abs(cash_weight) < 1e-9:
+        cash_weight = 0.0
+    out = pd.concat(
+        [
+            out,
+            pd.DataFrame(
+                [
+                    {
+                        "as_of_date": as_of_date,
+                        "portfolio_kind": portfolio,
+                        "rank": len(out) + 1,
+                        "ticker": "CASH",
+                        "company_name": "Cash reserve",
+                        "sector": "Cash",
+                        "recommended_weight": cash_weight,
+                        "target_value_per_100k_usd": cash_weight * 100000.0,
+                        "reference_price": 1.0,
+                        "reference_price_date": as_of_date,
+                        "reference_price_source": "cash",
+                        "estimated_shares_per_100k": 0,
+                        "suggested_action": "RESERVE_CASH" if cash_weight > 0 else "NO_CASH_TARGET",
+                        "buy_logic": "residual cash after target stock weights",
+                        "score": 0.0,
+                        "monster_early_score": 0.0,
+                        "stale_leader_score": 0.0,
+                        "risk_entry_block_score": 0.0,
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
     return out
 
 
@@ -633,6 +636,11 @@ def build_reports(args: argparse.Namespace) -> dict[str, Any]:
         current.to_csv(current_path, index=False)
         scorecard.to_csv(scorecard_path, index=False)
 
+        root_rec_path = output_dir / f"{portfolio}_recommendation_latest.csv"
+        root_current_path = output_dir / f"{portfolio}_current_operating_holdings_latest.csv"
+        rec.to_csv(root_rec_path, index=False)
+        current.to_csv(root_current_path, index=False)
+
         write_pie_svg(
             pdir / "recommendation_weights_pie.svg",
             top_weight_rows(rec, "recommended_weight", max_items=10),
@@ -666,6 +674,8 @@ def build_reports(args: argparse.Namespace) -> dict[str, Any]:
             "as_of_date": as_of_date,
             "recommendation_csv": str(rec_path),
             "current_operating_csv": str(current_path),
+            "primary_recommendation_csv": str(root_rec_path),
+            "primary_current_operating_csv": str(root_current_path),
             "performance_scorecard_csv": str(scorecard_path),
             "full_cagr": clean_float(full_row.get("cagr")) if full_row else None,
             "full_sharpe": clean_float(full_row.get("sharpe")) if full_row else None,
