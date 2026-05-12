@@ -33,6 +33,18 @@ MONTHLY_BOOK_TOKENS = [
 ]
 
 
+def test_workflow_yaml_files_parse() -> None:
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except Exception:
+        return
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        try:
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise AssertionError(f"{path.name} is not valid YAML: {exc}") from exc
+
+
 def test_workflow_keeps_monthly_books() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     for token in MONTHLY_BOOK_TOKENS:
@@ -404,6 +416,7 @@ def test_data_readiness_preflight_workflow_restores_drive_and_audits_without_ful
 
 
 def main() -> int:
+    test_workflow_yaml_files_parse()
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()

@@ -507,16 +507,7 @@ jobs:
           fi
           GUARD_HARD_ERRORS="999"
           if [ -s outputs/portfolio_system_guard/error_check.json ]; then
-            GUARD_HARD_ERRORS="$(python - <<'PY'
-import json
-from pathlib import Path
-p = Path("outputs/portfolio_system_guard/error_check.json")
-try:
-    print(int(json.loads(p.read_text()).get("hard_error_count", 999)))
-except Exception:
-    print(999)
-PY
-)"
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
           else
             echo "[gdrive-sync] WARN: portfolio_system_guard/error_check.json missing; preserving canonical outputs."
           fi
@@ -856,16 +847,7 @@ PY
           mkdir -p cloud_results/full_rebuild
           GUARD_HARD_ERRORS="999"
           if [ -s outputs/portfolio_system_guard/error_check.json ]; then
-            GUARD_HARD_ERRORS="$(python - <<'PY'
-import json
-from pathlib import Path
-p = Path("outputs/portfolio_system_guard/error_check.json")
-try:
-    print(int(json.loads(p.read_text()).get("hard_error_count", 999)))
-except Exception:
-    print(999)
-PY
-)"
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
           else
             echo "[push] WARN: portfolio_system_guard/error_check.json missing; preserving latest pointer."
           fi

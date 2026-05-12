@@ -421,6 +421,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - The local audit correctly reports that this workstation lacks restored price parquet files and canonical `data_raw/free/sec/companyfacts.zip`; GitHub preflight restores them from Drive when credentials are available.
   - Historical Russell 1000 membership remains proxy-labeled until a PIT-safe constituent source is added.
 
+### 12:54 KST - fix-full-rebuild-yaml-parse
+
+- scope:
+  - Fix failed GitHub Actions push validations caused by invalid YAML heredoc indentation in `full_rebuild_manual.yml`.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->replaces two unindented `python <<'PY'` guard-count heredocs with YAML-safe `python -c` one-liners.
+  - `tests/workflow_artifact_smoke.py` ->adds optional PyYAML parsing of every workflow file so invalid workflow YAML is caught locally.
+  - `CHANGELOG.md` ->records the workflow parse fix.
+- symbols_added:
+  - `test_workflow_yaml_files_parse()` ->validates GitHub workflow YAML files when PyYAML is available.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 - <<yaml parse script>>` ->passed for all workflow YAML files.
+- risks_or_notes:
+  - Failed runs `25709590282` and `25710401180` did not execute jobs; they failed before job creation due to workflow YAML parsing, so no data or portfolio outputs were modified.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
