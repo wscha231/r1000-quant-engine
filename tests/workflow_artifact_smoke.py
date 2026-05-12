@@ -10,6 +10,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
 REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml"
 FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.yml"
 FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
+DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -23,6 +24,8 @@ MONTHLY_BOOK_TOKENS = [
     "outputs/reports/concentrated_strategy_holdings.csv",
     "outputs/reports/operating_*_target_book.csv",
     "outputs/reports/operating_target_books_*",
+    "outputs/target_snapshots/",
+    "outputs/data_readiness/",
     "outputs/reports/leader_drop_diagnostics_*.csv",
     "outputs/reports/leader_drop_diagnostics_summary.json",
     "outputs/reports/leader_drop_diagnostics_report.md",
@@ -38,6 +41,8 @@ def test_workflow_keeps_monthly_books() -> None:
     for token in (
         "outputs/main_v2_backtest/",
         "outputs/concentrated_policy_replay/",
+        "outputs/target_snapshots/",
+        "outputs/data_readiness/",
         "outputs/concentrated_trade_journal/",
         "outputs/alpha_sprint_backtest/",
         "outputs/position_aware_risk_replay/",
@@ -141,6 +146,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_broker_crisis_reentry_replay.py",
         "tools/run_position_risk_weekly_validation.py",
         "tools/build_operating_target_books.py",
+        "tools/archive_target_snapshots.py",
         "tools/run_broker_ledger_replay.py",
         "tools/run_broker_position_risk_replay.py",
         "tools/run_broker_execution_policy_replay.py",
@@ -160,6 +166,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_selection_audit.py",
         "tools/run_dataset_coverage_audit.py",
         "tools/check_10y_backtest_readiness.py",
+        "tools/audit_data_readiness.py",
         "tools/run_weekly_evaluation.py",
         "tools/run_theme_leadership_tape.py",
         "tools/run_theme_concentration_challenger.py",
@@ -191,6 +198,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log",
         "outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log",
         "outputs/full_rebuild_logs/operating_target_books.log",
+        "outputs/full_rebuild_logs/target_snapshot_archive.log",
+        "outputs/full_rebuild_logs/data_readiness.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_main.log",
         "outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log",
         "outputs/full_rebuild_logs/broker_position_risk_replay_main.log",
@@ -227,6 +236,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main",
         "--target-book outputs/reports/operating_main_target_book.csv",
         "--target-book outputs/reports/operating_concentrated_target_book.csv",
+        "outputs/target_snapshots/latest_manifest.json",
+        "outputs/data_readiness/summary.json",
         "outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2",
     ]:
         assert token in text, token
@@ -240,6 +251,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "gh run download",
         "tools/build_replay_price_cache.py",
         "tools/build_operating_target_books.py",
+        "tools/archive_target_snapshots.py",
         "tools/run_broker_trade_journal.py",
         "tools/run_account_order_preview.py",
         "tools/run_live_trading_safety_audit.py",
@@ -249,6 +261,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "tools/run_user_portfolio_reports.py",
         "--account-mode simulated",
         "tools/run_account_evaluation.py",
+        "tools/audit_data_readiness.py",
         "tools/run_broker_position_risk_replay.py",
         "tools/run_broker_execution_policy_replay.py",
         "tools/run_broker_gap_attribution.py",
@@ -261,6 +274,8 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "outputs/reports/operating_main_target_book.csv",
         "outputs/reports/operating_concentrated_target_book.csv",
         "outputs/reports/operating_target_books_*",
+        "outputs/target_snapshots/",
+        "outputs/data_readiness/",
         "outputs/reports/regime_by_month.csv",
         "outputs/position_risk_weekly_validation/main",
         "outputs/position_risk_weekly_validation/main_v2",
@@ -280,6 +295,8 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "outputs/operating_snapshot/",
         "outputs/user_portfolio_reports/",
         "outputs/account_evaluation/",
+        "outputs/full_rebuild_logs/target_snapshot_archive.log",
+        "outputs/full_rebuild_logs/data_readiness.log",
         "tools/run_theme_leadership_tape.py",
         "tools/run_theme_concentration_challenger.py",
         "tools/run_portfolio_goal_search.py",
@@ -358,6 +375,34 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         assert forbidden not in text, forbidden
 
 
+def test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild() -> None:
+    text = DATA_PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Data Readiness Preflight",
+        "schedule:",
+        "15 0 * * 2-6",
+        "tools/audit_data_readiness.py",
+        "cache_prices",
+        "data_raw/free",
+        "data_pit/free",
+        "manifests/free_data",
+        "companyfacts.zip",
+        "outputs/data_readiness/",
+        "outputs/full_rebuild_logs/data_readiness.log",
+        "data-readiness-preflight-${{ github.run_id }}",
+        "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/data_readiness",
+        "RCLONE_CONFIG_GDRIVE",
+        "GOOGLE_SERVICE_ACCOUNT_KEY",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "python run_local.py --full",
+        "git commit",
+        "tools/run_broker_ledger_replay.py",
+    ]:
+        assert forbidden not in text, forbidden
+
+
 def main() -> int:
     test_workflow_keeps_monthly_books()
     test_cloud_results_copy_is_not_nested()
@@ -366,6 +411,7 @@ def main() -> int:
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
+    test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     print("workflow artifact smoke passed")
     return 0
 

@@ -332,6 +332,95 @@ All entries must be written in English. Entries must be predictable and machine-
   - Projected post-order outputs are an execution preview, not official account performance evidence.
   - Missing March-May target snapshots cannot be perfectly reconstructed unless archived target snapshots exist; this change makes future runs append and preserve the newest operating target decision instead of silently staying on stale monthly books.
 
+### 11:52 KST - data-readiness-preflight-and-target-snapshots
+
+- scope:
+  - Add pre-fullrun data readiness diagnostics and dated target snapshot archival so stale cache, missing companyfacts, missing operating target books, and target-book date gaps are visible before expensive runs are trusted.
+- files:
+  - `tools/audit_data_readiness.py` ->audits price cache freshness, canonical SEC companyfacts availability, macro/free-data manifests, latest recommendation dates, historical/operating target-book ranges, and target snapshot archive presence.
+  - `tools/archive_target_snapshots.py` ->archives latest main/concentrated recommendations and operating target books under `outputs/target_snapshots/<YYYY-MM-DD>/`.
+  - `.github/workflows/data_readiness_preflight.yml` ->adds a manual/scheduled lightweight Drive restore plus data readiness audit workflow without running the full rebuild.
+  - `.github/workflows/full_rebuild_manual.yml` ->archives target snapshots after operating target books, runs the data readiness audit, and publishes/syncs both outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->archives target snapshots and runs the same data readiness audit for artifact-only replay sidecars.
+  - `tools/sync_cloud_to_drive.py` ->includes `target_snapshots` and `data_readiness` in local Drive sync helper outputs.
+  - `.gitignore` ->keeps generated readiness and snapshot outputs out of source control.
+  - `tests/data_readiness_smoke.py` ->covers ready and stale operating-book audit states.
+  - `tests/target_snapshot_archive_smoke.py` ->covers dated recommendation and operating-book snapshot creation.
+  - `tests/workflow_artifact_smoke.py` ->covers full, replay, and preflight workflow wiring for the new outputs.
+  - `CHANGELOG.md` ->records the data readiness and target snapshot archival work.
+- symbols_added:
+  - `audit_data_readiness.repo_path(path_like)` ->resolves repository-relative paths.
+  - `audit_data_readiness.now_utc()` ->returns the current UTC timestamp.
+  - `audit_data_readiness.json_default(value)` ->normalizes JSON serialization for timestamps and non-finite floats.
+  - `audit_data_readiness.read_json(path)` ->loads optional JSON artifacts defensively.
+  - `audit_data_readiness.write_json(path, payload)` ->writes JSON diagnostics.
+  - `audit_data_readiness.write_text(path, text)` ->writes text reports.
+  - `audit_data_readiness.file_stats(path)` ->summarizes file existence, size, and modification time.
+  - `audit_data_readiness.count_csv_rows(path)` ->counts CSV data rows without loading full frames.
+  - `audit_data_readiness.read_csv_light(path, columns)` ->loads optional CSV artifacts defensively.
+  - `audit_data_readiness.latest_date_from_columns(frame, columns)` ->finds the latest date across candidate columns.
+  - `audit_data_readiness.min_date_from_columns(frame, columns)` ->finds the earliest date across candidate columns.
+  - `audit_data_readiness.csv_summary(path)` ->summarizes CSV rows, dates, tickers, and weight sums.
+  - `audit_data_readiness.parse_date(value)` ->normalizes optional date values.
+  - `audit_data_readiness.days_old(value, today)` ->computes calendar staleness.
+  - `audit_data_readiness.price_cache_summary(price_cache, free_data_root)` ->summarizes root/free price cache manifests and parquet counts.
+  - `audit_data_readiness.fundamentals_summary(free_data_root, latest_run)` ->checks canonical and fallback companyfacts archive locations.
+  - `audit_data_readiness.macro_summary(free_data_root, latest_run)` ->checks free-data and latest-run macro artifacts.
+  - `audit_data_readiness.target_snapshot_summary(latest_run)` ->summarizes dated target snapshot availability.
+  - `audit_data_readiness.build_payload(args)` ->builds the machine-readable readiness decision.
+  - `audit_data_readiness.render_report(payload)` ->renders the readiness markdown report.
+  - `audit_data_readiness.parse_args()` ->parses CLI arguments.
+  - `audit_data_readiness.main()` ->CLI entrypoint.
+  - `archive_target_snapshots.repo_path(path_like)` ->resolves repository-relative paths.
+  - `archive_target_snapshots.now_utc()` ->returns the current UTC timestamp.
+  - `archive_target_snapshots.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `archive_target_snapshots.write_json(path, payload)` ->writes JSON manifests.
+  - `archive_target_snapshots.date_text(value)` ->normalizes dates to ISO text.
+  - `archive_target_snapshots.infer_snapshot_date(explicit_date, price_cache, main_target, concentrated_target)` ->chooses the observable snapshot date.
+  - `archive_target_snapshots.normalize_recommendation(frame, portfolio, snapshot_date, source_path)` ->adds portfolio and archive metadata to recommendation rows.
+  - `archive_target_snapshots.file_summary(path, frame)` ->summarizes archived CSV outputs.
+  - `archive_target_snapshots.copy_csv(src, dst)` ->copies optional operating-book CSVs with summary metadata.
+  - `archive_target_snapshots.build(args)` ->creates the dated target snapshot archive.
+  - `archive_target_snapshots.parse_args()` ->parses CLI arguments.
+  - `archive_target_snapshots.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires readiness and target snapshot artifacts in full rebuild exports.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires archive/audit tool execution and log publication.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild()` ->requires archive/audit tool execution in artifact-only replay.
+  - `test_free_data_daily_workflow_updates_metrics_after_close()` ->unchanged behavior, retained as the recurring free-data update guard.
+- config_fields_added:
+  - `data_readiness_preflight latest_run: string = cloud_results/full_rebuild/latest_global_alpha_universe` ->selects the run folder audited by the preflight workflow.
+  - `data_readiness_preflight strict: choice = false` ->optionally fails the preflight workflow when readiness blockers are present.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json` ->machine-readable data readiness status, blockers, warnings, and next actions.
+  - `outputs/data_readiness/report.md` ->human-readable data readiness report.
+  - `outputs/target_snapshots/latest_manifest.json` ->latest dated target snapshot manifest.
+  - `outputs/target_snapshots/<YYYY-MM-DD>/main_recommendation.csv` ->dated main recommendation snapshot.
+  - `outputs/target_snapshots/<YYYY-MM-DD>/concentrated_recommendation.csv` ->dated concentrated recommendation snapshot.
+  - `outputs/target_snapshots/<YYYY-MM-DD>/operating_main_target_book.csv` ->dated main operating target book when available.
+  - `outputs/target_snapshots/<YYYY-MM-DD>/operating_concentrated_target_book.csv` ->dated concentrated operating target book when available.
+- validation:
+  - `py -3 tests\data_readiness_smoke.py` ->passed.
+  - `py -3 tests\target_snapshot_archive_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\replay_price_cache_smoke.py` ->passed.
+  - `py -3 tests\operating_target_books_smoke.py` ->passed.
+  - `py -3 tests\account_order_preview_smoke.py` ->passed.
+  - `py -3 tests\user_portfolio_reports_smoke.py` ->passed.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\audit_data_readiness.py tools\archive_target_snapshots.py tools\build_operating_target_books.py tools\run_account_order_preview.py tools\run_user_portfolio_reports.py tools\sync_cloud_to_drive.py` ->passed.
+  - `py -3 tools\audit_data_readiness.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --price-cache cache_prices --output-dir _local_data_readiness_check` ->passed and correctly reported local data blockers.
+  - `py -3 tools\archive_target_snapshots.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --price-cache cache_prices --output-dir _local_target_snapshot_check` ->passed and archived dated latest recommendation snapshots.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - This patch does not fabricate missing historical target decisions; it makes future target snapshots persistent so March-May-style gaps stop recurring.
+  - The local audit correctly reports that this workstation lacks restored price parquet files and canonical `data_raw/free/sec/companyfacts.zip`; GitHub preflight restores them from Drive when credentials are available.
+  - Historical Russell 1000 membership remains proxy-labeled until a PIT-safe constituent source is added.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

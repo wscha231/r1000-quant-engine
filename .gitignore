@@ -18,6 +18,8 @@ data_pit/
 cache_prices/
 manifests/free_data/
 outputs/regime_snapshot_cache.json
+outputs/data_readiness/
+outputs/target_snapshots/
 outputs/free_data_lake_bootstrap/
 outputs/free_data_proxy_backtest/
 outputs/free_data_engine_validation/
