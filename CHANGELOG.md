@@ -809,6 +809,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - Once the Tier-2 rerun produces completed weekly-leader metrics, the AutoLearning v2 Sharpe gate (16:13 KST entry) and the cost-sensitivity sidecar (16:24 KST entry) will both kick in automatically — there is no additional code wiring required.
   - The defensive dedup (clear `scheduled_rebalance` on weekly-leader collision) means a base-book scheduled rebalance that happens to share a date with a weekly-leader entry is now fully replaced by the combined `weekly_leader_entry` row; the base book's contribution is still preserved through `combine_base_and_leaders` which folds base weights into the combined output. The total stock weight per `rebalance_date` therefore stays exactly the combined value (typically ~1.0), not the doubled-up 2.0 that the broker replay rejected.
 
+### 18:33 KST - telegram-send-curated-files-instead-of-oversize-bundle
+
+- scope:
+  - Stop trying to send the full-rebuild output as a single ZIP bundle through Telegram. Full rebuild 25713620719 produced a 54.4 MB bundle and Telegram's sendDocument refused it (limit is 50 MB). Replace the bundle path with a curated list of small high-signal result files sent as individual documents. Keep the rich-text sendMessage notification as before.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->the "Telegram alert + zip results (mobile-friendly)" step no longer constructs `/tmp/bundle` or `BUNDLE.zip`. Instead it iterates a hardcoded list of small key result paths (`outputs/broker_replay/{main,concentrated}/metrics.json`, `outputs/weekly_leader_broker_replay/{main,concentrated}/metrics.json`, `outputs/cost_sensitivity/{main,concentrated}/summary.json`, `outputs/portfolio_latest.csv`, `outputs/concentrated_portfolio_latest.csv`), skips any file missing or larger than 5 MB, and posts each as a separate Telegram document with a caption that includes the universe mode, run status, and the source path. The legacy `copy_dir_clean` helper and the per-output `cp ... /tmp/bundle/...` block were removed from this step; the same outputs are still uploaded as GitHub Actions artifacts and synced to Google Drive via earlier steps.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none (workflow shell only)
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Telegram no longer receives a single zipped archive. The richer set of intermediate files is still available via the GitHub Actions artifact and the GDrive sync.
+- outputs:
+  - none (workflow change only).
+- validation:
+  - `python -c "import yaml; yaml.safe_load(open('.github/workflows/full_rebuild_manual.yml','r',encoding='utf-8'))"` ->parses successfully.
+  - `py -3 tools/run_pr_validation.py` ->PASS, 17/17 in 29.96 s.
+- risks_or_notes:
+  - Telegram is treated as best-effort. Each per-file `curl` swallows failures with `|| echo "[telegram] failed to send ..."` so a single bad upload cannot fail the workflow.
+  - The list of files is intentionally tight; expand only with files that stay well under 5 MB. Daily trade journals and bundle-style dumps belong in the GDrive sync, not Telegram.
+  - A richer curated mobile bundle (e.g. ZIP only the top 5-10 reports under 49 MB) can be reintroduced later if needed. The previous version of this block is in git history (`14d4c58`).
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

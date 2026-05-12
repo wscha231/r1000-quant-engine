@@ -743,122 +743,45 @@ jobs:
             -d "disable_web_page_preview=true" > /dev/null \
             || echo "[telegram] rich notification failed (length=$MSG_LEN)"
 
-          # Mobile-friendly: bundle key results into a zip and send as Telegram
-          # document so user can download directly on phone (no PC sync needed).
-          # Telegram document limit = 50MB.
-          BUNDLE="/tmp/full_rebuild_${{ inputs.universe_mode }}_$(date +%Y%m%d_%H%M).zip"
-          mkdir -p /tmp/bundle
-          copy_dir_clean() {
-            local src="$1"
-            local dst="$2"
-            if [ -d "$src" ]; then
-              rm -rf "$dst"
-              mkdir -p "$dst"
-              cp -R "$src"/. "$dst"/ 2>/dev/null || true
+          # Mobile-friendly: send a small curated set of result files as
+          # individual Telegram documents. The previous full-output ZIP
+          # bundle frequently exceeded Telegram's 50MB sendDocument
+          # limit (run 25713620719 produced a 54.4MB bundle). Sending
+          # individual high-signal files avoids the size ceiling and
+          # gives the operator the most useful numbers on phone. A
+          # richer bundling story can be revisited later.
+          TG_FILES=(
+            "outputs/broker_replay/main/metrics.json"
+            "outputs/broker_replay/concentrated/metrics.json"
+            "outputs/weekly_leader_broker_replay/main/metrics.json"
+            "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
+            "outputs/cost_sensitivity/main/summary.json"
+            "outputs/cost_sensitivity/concentrated/summary.json"
+            "outputs/portfolio_latest.csv"
+            "outputs/concentrated_portfolio_latest.csv"
+          )
+          MAX_TG_FILE_BYTES=5000000
+          for FILE in "${TG_FILES[@]}"; do
+            if [ ! -s "$FILE" ]; then
+              echo "[telegram] skip missing: $FILE"
+              continue
             fi
-          }
-          cp outputs/scored_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/scored_unified.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
-          cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
-          cp outputs/equity_curve.csv /tmp/bundle/ 2>/dev/null || true
-          copy_dir_clean outputs/orchestrator /tmp/bundle/orchestrator
-          mkdir -p /tmp/bundle/reports
-          cp outputs/reports/baseline_registry.* /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/config_audit.* /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/main_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/operating_*_target_book.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/operating_target_books_* /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/event_*_target_book.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/weekly_leader_*_target_book.csv /tmp/bundle/reports/ 2>/dev/null || true
-          copy_dir_clean outputs/target_snapshots /tmp/bundle/target_snapshots
-          copy_dir_clean outputs/data_readiness /tmp/bundle/data_readiness
-          cp outputs/reports/tactical_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/alpha_sprint_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/sleeve_returns_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/candidate_replay_book.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/dataset_coverage_audit.* /tmp/bundle/reports/ 2>/dev/null || true
-          copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
-          copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
-          copy_dir_clean outputs/concentrated_trade_journal /tmp/bundle/concentrated_trade_journal
-          copy_dir_clean outputs/auto_learning /tmp/bundle/auto_learning
-          copy_dir_clean outputs/orchestrator_replay /tmp/bundle/orchestrator_replay
-          copy_dir_clean outputs/portfolio_goal_search /tmp/bundle/portfolio_goal_search
-          copy_dir_clean outputs/main_v2_backtest /tmp/bundle/main_v2_backtest
-          copy_dir_clean outputs/concentrated_policy_replay /tmp/bundle/concentrated_policy_replay
-          copy_dir_clean outputs/concentrated_position_risk_replay /tmp/bundle/concentrated_position_risk_replay
-          copy_dir_clean outputs/alpha_sprint_backtest /tmp/bundle/alpha_sprint_backtest
-          copy_dir_clean outputs/position_aware_risk_replay /tmp/bundle/position_aware_risk_replay
-          copy_dir_clean outputs/position_risk_weekly_validation /tmp/bundle/position_risk_weekly_validation
-          copy_dir_clean outputs/broker_replay /tmp/bundle/broker_replay
-          copy_dir_clean outputs/event_target_books /tmp/bundle/event_target_books
-          copy_dir_clean outputs/event_broker_replay /tmp/bundle/event_broker_replay
-          copy_dir_clean outputs/weekly_leader_snapshots /tmp/bundle/weekly_leader_snapshots
-          copy_dir_clean outputs/weekly_leader_broker_replay /tmp/bundle/weekly_leader_broker_replay
-          copy_dir_clean outputs/cost_sensitivity /tmp/bundle/cost_sensitivity
-          copy_dir_clean outputs/broker_position_risk_replay /tmp/bundle/broker_position_risk_replay
-          copy_dir_clean outputs/broker_execution_policy_replay /tmp/bundle/broker_execution_policy_replay
-          copy_dir_clean outputs/operating_event_backtest /tmp/bundle/operating_event_backtest
-          copy_dir_clean outputs/broker_gap_attribution /tmp/bundle/broker_gap_attribution
-          copy_dir_clean outputs/broker_trade_journal /tmp/bundle/broker_trade_journal
-          copy_dir_clean outputs/account_ledger_preview /tmp/bundle/account_ledger_preview
-          copy_dir_clean outputs/live_trading_safety /tmp/bundle/live_trading_safety
-          copy_dir_clean outputs/live_trading_risk_controls /tmp/bundle/live_trading_risk_controls
-          copy_dir_clean outputs/monster_recommendations /tmp/bundle/monster_recommendations
-          copy_dir_clean outputs/operating_snapshot /tmp/bundle/operating_snapshot
-          copy_dir_clean outputs/user_portfolio_reports /tmp/bundle/user_portfolio_reports
-          copy_dir_clean outputs/portfolio_system_guard /tmp/bundle/portfolio_system_guard
-          copy_dir_clean outputs/account_evaluation /tmp/bundle/account_evaluation
-          copy_dir_clean outputs/governance_catalyst /tmp/bundle/governance_catalyst
-          copy_dir_clean outputs/macro_policy_engine /tmp/bundle/macro_policy_engine
-          copy_dir_clean outputs/cash_policy /tmp/bundle/cash_policy
-          copy_dir_clean outputs/main_cash_drag_replay /tmp/bundle/main_cash_drag_replay
-          copy_dir_clean outputs/crisis_reentry_replay /tmp/bundle/crisis_reentry_replay
-          copy_dir_clean outputs/broker_crisis_reentry_replay /tmp/bundle/broker_crisis_reentry_replay
-          copy_dir_clean outputs/monster_lifecycle_replay /tmp/bundle/monster_lifecycle_replay
-          copy_dir_clean outputs/lifecycle_review_overlay_main /tmp/bundle/lifecycle_review_overlay_main
-          copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
-          copy_dir_clean outputs/monster_lifecycle_review_concentrated /tmp/bundle/monster_lifecycle_review_concentrated
-          copy_dir_clean outputs/historical_trade_journey /tmp/bundle/historical_trade_journey
-          copy_dir_clean outputs/selection_audit /tmp/bundle/selection_audit
-          copy_dir_clean outputs/ten_year_backtest_readiness /tmp/bundle/ten_year_backtest_readiness
-          copy_dir_clean outputs/weekly_evaluation /tmp/bundle/weekly_evaluation
-          copy_dir_clean outputs/theme_leadership_tape /tmp/bundle/theme_leadership_tape
-          copy_dir_clean outputs/theme_concentration_challenger /tmp/bundle/theme_concentration_challenger
-          copy_dir_clean outputs/auto_learning_v2 /tmp/bundle/auto_learning_v2
-          copy_dir_clean outputs/winner_lifecycle /tmp/bundle/winner_lifecycle
-          copy_dir_clean outputs/winner_onset_study /tmp/bundle/winner_onset_study
-          copy_dir_clean outputs/shakeout_breakdown_study /tmp/bundle/shakeout_breakdown_study
-          copy_dir_clean outputs/autolearning_winner_challenger /tmp/bundle/autolearning_winner_challenger
-          copy_dir_clean outputs/policy_fusion /tmp/bundle/policy_fusion
-          if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
-            (cd /tmp/bundle && zip -qr "$BUNDLE" .)
-            BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
-            echo "[telegram] bundle size: $BUNDLE_SIZE bytes"
-            if [ "$BUNDLE_SIZE" -lt 49000000 ] && [ "$BUNDLE_SIZE" -gt 0 ]; then
-              CAPTION="📊 r1000 [${{ inputs.universe_mode }}] ${STATUS}%0A${VERDICT}"
-              curl -sf -F "document=@${BUNDLE}" \
-                   -F "chat_id=${TELEGRAM_CHAT_ID}" \
-                   -F "caption=${CAPTION}" \
-                   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-                   > /dev/null \
-                || echo "[telegram] document send failed (size $BUNDLE_SIZE)"
-              echo "[telegram] sent zip to mobile ($((BUNDLE_SIZE/1024)) KB)"
+            FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
+            if [ "$FILE_SIZE" -gt "$MAX_TG_FILE_BYTES" ]; then
+              echo "[telegram] skip oversized $FILE ($FILE_SIZE bytes > $MAX_TG_FILE_BYTES)"
+              continue
+            fi
+            CAPTION_TG="r1000 ${{ inputs.universe_mode }} ${STATUS} :: $FILE"
+            if curl -sf -F "document=@${FILE}" \
+                 -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                 -F "caption=${CAPTION_TG}" \
+                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                 > /dev/null 2>&1; then
+              echo "[telegram] sent $FILE ($FILE_SIZE bytes)"
             else
-              echo "[telegram] bundle too large or empty ($BUNDLE_SIZE), skipping document send"
+              echo "[telegram] failed to send $FILE ($FILE_SIZE bytes)"
             fi
-          else
-            echo "[telegram] no output files to bundle"
-          fi
+          done
 
       - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
         if: always()    # ← changed from success() to capture fail-state logs
