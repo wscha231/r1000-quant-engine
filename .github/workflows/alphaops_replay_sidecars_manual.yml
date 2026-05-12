@@ -77,7 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -142,6 +142,7 @@ jobs:
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+          python tools/run_user_portfolio_reports.py --latest-run outputs --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
 
       - name: Upload replay artifact
         if: always()
@@ -163,6 +164,7 @@ jobs:
             outputs/live_trading_risk_controls/
             outputs/monster_recommendations/
             outputs/operating_snapshot/
+            outputs/user_portfolio_reports/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
@@ -207,7 +209,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in reports position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation full_rebuild_logs; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi

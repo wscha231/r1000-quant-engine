@@ -112,6 +112,39 @@ def test_operating_books_append_latest_close_targets() -> None:
         assert (out_dir / "operating_target_books_report.md").exists()
 
 
+def test_operating_books_do_not_use_future_recommended_next_run_date() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        out_dir = latest / "reports"
+        price_cache = root / "empty_cache"
+
+        write_csv(
+            latest / "reports" / "main_monthly_weights.csv",
+            [{"rebalance_date": "2026-02-27", "ticker": "AAA", "weight": 1.0}],
+        )
+        write_csv(
+            latest / "portfolio_latest.csv",
+            [{"recommended_next_run_date": "2026-06-30", "ticker": "ON", "weight": 1.0}],
+        )
+        write_csv(
+            latest / "reports" / "concentrated_strategy_holdings.csv",
+            [{"rebalance_date": "2026-02-27", "ticker": "AAA", "weight": 1.0}],
+        )
+        write_csv(
+            latest / "concentrated_portfolio_latest.csv",
+            [{"recommended_next_run_date": "2026-06-30", "ticker": "MU", "weight": 1.0}],
+        )
+
+        payload = build(Namespace(latest_run=str(latest), price_cache=str(price_cache), output_dir=str(out_dir)))
+        books = {row["portfolio"]: row for row in payload["books"]}
+        assert books["main"]["latest_target_appended"] is False
+        assert books["main"]["operating_signal_date"] == ""
+        assert books["concentrated"]["latest_target_appended"] is False
+        assert books["concentrated"]["operating_signal_date"] == ""
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
+    test_operating_books_do_not_use_future_recommended_next_run_date()
     print("operating_target_books_smoke: ok")

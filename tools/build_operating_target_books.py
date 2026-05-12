@@ -130,7 +130,10 @@ def build_book(
         history["operating_decision_semantics"] = history.get("operating_decision_semantics", "historical_research_target_book")
 
     history_max = latest_date_from_columns(history, ["rebalance_date"])
-    latest_target_date = latest_date_from_columns(latest, ["rebalance_date", "feature_date", "as_of_date", "recommended_next_run_date"])
+    # Do not use recommended_next_run_date here. It is a future scheduling hint,
+    # not an observable signal date. Operating books must be dated to a price
+    # close or an already-known feature/rebalance/as-of date.
+    latest_target_date = latest_date_from_columns(latest, ["rebalance_date", "feature_date", "as_of_date", "last_trade_date"])
     price_close = latest_price_close_date(price_cache, latest["ticker"].astype(str).tolist()) if not latest.empty else None
     signal_date = price_close or latest_target_date
     appended = False

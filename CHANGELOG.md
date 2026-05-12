@@ -159,6 +159,70 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This verification can prove daily risk exits/trims when artifacts contain those actions, but it intentionally marks full non-monthly entry/replacement as not validated until historical daily/event target books exist.
 
+### 10:42 KST - user-facing-portfolio-reports
+
+- scope:
+  - Add user-facing main/concentrated report packs that clearly separate latest buy/hold recommendations from actual simulated operating holdings.
+- files:
+  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, and SVG weight charts.
+  - `tools/build_operating_target_books.py` ->prevents future `recommended_next_run_date` values from being used as operating signal dates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and publishes the user-facing report pack during full rebuilds.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and publishes the same report pack during fast replay sidecars.
+  - `tests/user_portfolio_reports_smoke.py` ->covers recommendation/current-holding separation, entry-return calculation, scorecards, and SVG outputs.
+  - `tests/operating_target_books_smoke.py` ->covers that future next-run dates are not treated as observable operating signals.
+  - `tests/workflow_artifact_smoke.py` ->covers full/replay workflow wiring for the report pack.
+  - `CHANGELOG.md` ->records the user-facing portfolio report work.
+- symbols_added:
+  - `run_user_portfolio_reports.repo_path(path_like)` ->resolves repository-relative paths.
+  - `run_user_portfolio_reports.read_csv(path)` ->loads optional CSV artifacts defensively.
+  - `run_user_portfolio_reports.read_json(path)` ->loads optional JSON artifacts defensively.
+  - `run_user_portfolio_reports.write_json(path, payload)` ->writes JSON diagnostics.
+  - `run_user_portfolio_reports.write_text(path, text)` ->writes text artifacts.
+  - `run_user_portfolio_reports.clean_ticker(value)` ->normalizes ticker strings.
+  - `run_user_portfolio_reports.clean_float(value, default)` ->normalizes numeric values.
+  - `run_user_portfolio_reports.first_existing(row, names, default)` ->selects the first present value from candidate columns.
+  - `run_user_portfolio_reports.latest_as_of_date(latest_run)` ->selects the broker-ledger latest evaluation date.
+  - `run_user_portfolio_reports.compact_logic(row, portfolio)` ->renders a compact buy-logic explanation.
+  - `run_user_portfolio_reports.normalize_recommendations(latest_run, portfolio, as_of_date)` ->formats target recommendation sheets.
+  - `run_user_portfolio_reports.load_open_lots(latest_run, portfolio)` ->summarizes open lot entry metadata.
+  - `run_user_portfolio_reports.normalize_current_holdings(latest_run, portfolio, as_of_date)` ->formats current simulated account holdings with entry returns and cash.
+  - `run_user_portfolio_reports.scorecard_for_horizon(equity, trades, label, offset)` ->computes period return, CAGR, Sharpe, MaxDD, turnover, and cash by horizon.
+  - `run_user_portfolio_reports.build_scorecard(latest_run, portfolio)` ->builds 1M/3M/6M/1Y/2Y/3Y/5Y/full scorecards.
+  - `run_user_portfolio_reports.write_pie_svg(path, rows, title)` ->writes dependency-free SVG pie charts.
+  - `run_user_portfolio_reports.write_bar_svg(path, rows, title)` ->writes dependency-free SVG weight bars.
+  - `run_user_portfolio_reports.render_portfolio_report(portfolio, rec, current, scorecard)` ->renders a Markdown portfolio report.
+  - `run_user_portfolio_reports.build_reports(args)` ->builds the full user-facing report pack.
+  - `run_user_portfolio_reports.parse_args()` ->parses CLI arguments.
+  - `run_user_portfolio_reports.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `build_operating_target_books.build_book(...)` ->uses only observable signal-date columns and latest price close dates, not future next-run dates.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/user_portfolio_reports/main/recommendation_latest.csv` ->human-readable main target recommendation sheet.
+  - `outputs/user_portfolio_reports/main/current_operating_holdings_latest.csv` ->main simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/main/performance_scorecard.csv` ->main broker-ledger scorecard by horizon.
+  - `outputs/user_portfolio_reports/concentrated/recommendation_latest.csv` ->human-readable concentrated target recommendation sheet.
+  - `outputs/user_portfolio_reports/concentrated/current_operating_holdings_latest.csv` ->concentrated simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/concentrated/performance_scorecard.csv` ->concentrated broker-ledger scorecard by horizon.
+  - `outputs/user_portfolio_reports/*/*_weights_pie.svg` ->recommendation/current pie charts.
+  - `outputs/user_portfolio_reports/*/*_weights_bar.svg` ->recommendation/current ticker weight bar charts.
+  - `outputs/user_portfolio_reports/index.md` ->portfolio report index.
+  - `outputs/user_portfolio_reports/summary.json` ->machine-readable report summary.
+- validation:
+  - `python tests\user_portfolio_reports_smoke.py` ->passed.
+  - `python tests\operating_target_books_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python -m py_compile tools\run_user_portfolio_reports.py tools\build_operating_target_books.py` ->passed.
+  - `python tools\run_user_portfolio_reports.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_user_portfolio_reports_check2` ->passed.
+  - `python tests\smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - The recommendation sheet remains a target recommendation, not a broker account holding.
+  - Current operating holdings are only as good as the broker-ledger replay and open-lot journal artifacts.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
