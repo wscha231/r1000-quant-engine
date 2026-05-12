@@ -121,6 +121,45 @@ def existing_cache_count(output_dir: Path, tickers: set[str]) -> int:
     return sum(1 for ticker in tickers if (output_dir / px_cache_name(ticker)).exists())
 
 
+def cached_max_date(output_dir: Path, ticker: str) -> pd.Timestamp | None:
+    path = output_dir / px_cache_name(ticker)
+    if not path.exists():
+        return None
+    try:
+        frame = pd.read_parquet(path)
+    except Exception:
+        return None
+    if frame.empty:
+        return None
+    idx = pd.to_datetime(frame.index, errors="coerce").dropna()
+    if idx.empty:
+        return None
+    return pd.Timestamp(idx.max()).tz_localize(None).normalize()
+
+
+def stale_cache_tickers(
+    output_dir: Path,
+    tickers: set[str],
+    *,
+    today: pd.Timestamp,
+    refresh_stale_days: int,
+) -> list[str]:
+    if refresh_stale_days < 0:
+        return []
+    stale: list[str] = []
+    for ticker in sorted(tickers):
+        path = output_dir / px_cache_name(ticker)
+        if not path.exists():
+            continue
+        max_dt = cached_max_date(output_dir, ticker)
+        if max_dt is None:
+            stale.append(ticker)
+            continue
+        if (today - max_dt).days > int(refresh_stale_days):
+            stale.append(ticker)
+    return stale
+
+
 def normalize_download_frame(data: pd.DataFrame, ticker: str, symbol: str) -> pd.DataFrame:
     if data.empty:
         return pd.DataFrame()
@@ -191,6 +230,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     start_dt = pd.Timestamp(args.start).normalize() if args.start else (min_dt or today - pd.DateOffset(years=8)) - pd.Timedelta(days=14)
     end_dt = pd.Timestamp(args.end).normalize() if args.end else today + pd.Timedelta(days=2)
     missing = [ticker for ticker in tickers if not (output_dir / px_cache_name(ticker)).exists()]
+    stale = stale_cache_tickers(
+        output_dir,
+        set(tickers),
+        today=today,
+        refresh_stale_days=args.refresh_stale_days,
+    )
+    download_targets = sorted(set(missing) | set(stale))
     result: dict[str, Any] = {
         "books": [str(path) for path in book_paths],
         "scored": str(repo_path(args.scored)) if args.scored else "",
@@ -199,14 +245,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "scored_ticker_count": len(scored_tickers),
         "existing_cache_count": existing_cache_count(output_dir, set(tickers)),
         "missing_before": len(missing),
+        "stale_before": len(stale),
+        "refresh_stale_days": int(args.refresh_stale_days),
+        "download_target_count": len(download_targets),
         "start": start_dt.date().isoformat(),
         "end": end_dt.date().isoformat(),
         "output_dir": str(output_dir),
     }
-    if args.dry_run or not missing:
+    if args.dry_run or not download_targets:
         result.update({"downloaded": 0, "failed_count": 0, "failed": [], "status": "dry_run" if args.dry_run else "already_cached"})
     else:
-        download_result = download_prices(missing, result["start"], result["end"], output_dir, args.batch_size)
+        download_result = download_prices(download_targets, result["start"], result["end"], output_dir, args.batch_size)
         result.update(download_result)
         result["status"] = "completed"
     result["existing_cache_count_after"] = existing_cache_count(output_dir, set(tickers))
@@ -225,6 +274,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end", default="")
     parser.add_argument("--batch-size", type=int, default=40)
     parser.add_argument("--max-tickers", type=int, default=0)
+    parser.add_argument(
+        "--refresh-stale-days",
+        type=int,
+        default=2,
+        help="Refresh cached tickers whose latest cached bar is older than this many calendar days; use -1 to disable.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 

@@ -201,6 +201,16 @@ def load_order_preview(latest_run: Path, portfolio: str) -> tuple[pd.DataFrame, 
     return d[d["ticker"].ne("")].copy(), metrics
 
 
+def load_projected_after_order_weights(latest_run: Path, portfolio: str) -> dict[str, float]:
+    frame = read_csv(latest_run / "account_ledger_preview" / portfolio / "projected_positions_after_orders.csv")
+    if frame.empty or "ticker" not in frame.columns or "projected_weight" not in frame.columns:
+        return {}
+    d = frame.copy()
+    d["ticker"] = d["ticker"].map(clean_ticker)
+    d["projected_weight"] = pd.to_numeric(d["projected_weight"], errors="coerce").fillna(0.0)
+    return {str(row.ticker): float(row.projected_weight) for row in d.itertuples(index=False) if str(row.ticker)}
+
+
 def order_by_ticker(order_preview: pd.DataFrame) -> dict[str, dict[str, Any]]:
     if order_preview.empty or "ticker" not in order_preview.columns:
         return {}
@@ -243,7 +253,9 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
         return pd.DataFrame()
     order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
     orders = order_by_ticker(order_preview)
+    projected_weights = load_projected_after_order_weights(latest_run, portfolio)
     account_cash_weight = clean_float(preview_metrics.get("cash_weight"), np.nan)
+    projected_cash_weight = clean_float(preview_metrics.get("projected_cash_weight"), np.nan)
     recommendation_date = str(preview_metrics.get("as_of_date") or as_of_date)
     d = raw.copy()
     d["ticker"] = d["ticker"].map(clean_ticker)
@@ -280,6 +292,7 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
                 "sector": first_existing(row, ["sector", "sage_sector"], ""),
                 "recommended_weight": clean_float(row.get("weight")),
                 "current_account_weight": clean_float(order.get("current_weight"), 0.0),
+                "projected_account_weight_after_orders": projected_weights.get(row["ticker"], np.nan),
                 "trade_action_from_current": str(order.get("side") or ("HOLD" if clean_float(order.get("current_weight"), 0.0) > 0 else "BUY")),
                 "trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
                 "estimated_order_quantity": clean_float(order.get("quantity"), 0.0),
@@ -318,6 +331,7 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
                         "sector": "Cash",
                         "recommended_weight": cash_weight,
                         "current_account_weight": account_cash_weight,
+                        "projected_account_weight_after_orders": projected_weights.get("CASH", projected_cash_weight),
                         "trade_action_from_current": "DEPLOY_CASH" if clean_float(account_cash_weight, 0.0) > cash_weight else "RESERVE_CASH",
                         "trade_value_delta_usd": 0.0,
                         "estimated_order_quantity": 0.0,
@@ -377,6 +391,7 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
     lots = load_open_lots(latest_run, portfolio)
     order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
     orders = order_by_ticker(order_preview)
+    projected_weights = load_projected_after_order_weights(latest_run, portfolio)
     trade_dt = last_trade_date(latest_run, portfolio)
     stale_days = date_diff_days(trade_dt, as_of_date)
     pending_order_count = int(clean_float(preview_metrics.get("order_count"), 0.0))
@@ -406,6 +421,7 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
                     "market_value_usd": clean_float(row.get("market_value_usd")),
                     "current_weight": clean_float(row.get("weight")),
                     "recommended_target_weight": clean_float(order.get("target_weight"), 0.0),
+                    "projected_weight_after_recommendation_orders": projected_weights.get(ticker, np.nan),
                     "recommended_trade_action": str(order.get("side") or "HOLD"),
                     "recommended_trade_quantity": clean_float(order.get("quantity"), 0.0),
                     "recommended_trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
@@ -453,6 +469,7 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
                 "market_value_usd": cash,
                 "current_weight": cash / equity,
                 "recommended_target_weight": target_cash_weight,
+                "projected_weight_after_recommendation_orders": projected_weights.get("CASH", clean_float(preview_metrics.get("projected_cash_weight"), np.nan)),
                 "recommended_trade_action": "DEPLOY_CASH" if pending_order_count > 0 else "HOLD_CASH",
                 "recommended_trade_quantity": 0.0,
                 "recommended_trade_value_delta_usd": 0.0,

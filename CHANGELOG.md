@@ -272,6 +272,66 @@ All entries must be written in English. Entries must be predictable and machine-
   - Main cash near $100k came from the 2026-02-27 target book carrying about 28.38% CASH, not from preserving the initial $100k. It is still stale relative to the latest 2026-05-08 recommendation, which targets 0% cash.
   - A latest recommendation dated at the latest close cannot be filled on the same close under `next_close`; it should appear as pending orders until the next available close. The hard error is for missing/stale operating books, not for a one-trading-day pending fill.
 
+### 11:45 KST - fresh-cache-and-projected-rebalance
+
+- scope:
+  - Refresh missing/stale replay price cache rows before artifact-only replay, block canonical/latest publication when operating target books are stale, and expose projected post-order cash/weights so current holdings and recommendations are not confused.
+- files:
+  - `tools/build_replay_price_cache.py` ->detects stale existing parquet price cache files and refreshes them together with missing tickers.
+  - `tools/build_operating_target_books.py` ->adds operating-book freshness diagnostics and an opt-in hard failure when latest targets cannot be made current.
+  - `tools/run_account_order_preview.py` ->writes projected post-order positions/cash after applying preview orders at reference prices.
+  - `tools/run_user_portfolio_reports.py` ->surfaces projected post-order weights in recommendation and current-holdings CSVs.
+  - `.github/workflows/full_rebuild_manual.yml` ->routes stale system-guard hard errors to failed-run outputs instead of overwriting canonical latest outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->refreshes missing/stale replay price cache before replay sidecars.
+  - `tests/replay_price_cache_smoke.py` ->covers stale cache detection without network downloads.
+  - `tests/account_order_preview_smoke.py` ->covers projected post-order output.
+  - `tests/operating_target_books_smoke.py` ->covers the required-current operating book blocker.
+  - `tests/user_portfolio_reports_smoke.py` ->covers projected post-order columns in user CSV outputs.
+  - `tests/workflow_artifact_smoke.py` ->covers workflow wiring for stale cache refresh and required-current operating books.
+  - `CHANGELOG.md` ->records cache freshness and projected rebalance hardening.
+- symbols_added:
+  - `build_replay_price_cache.cached_max_date(output_dir, ticker)` ->returns the latest cached bar date for one ticker.
+  - `build_replay_price_cache.stale_cache_tickers(output_dir, tickers, today, refresh_stale_days)` ->lists cached tickers whose bars are stale enough to refresh.
+  - `run_account_order_preview.build_projected_positions_after_orders(current, orders, starting_cash)` ->projects account positions and cash after ready preview orders.
+  - `run_user_portfolio_reports.load_projected_after_order_weights(latest_run, portfolio)` ->loads projected weights for user-facing CSVs.
+- symbols_changed:
+  - `build_replay_price_cache.run(args)` ->downloads both missing and stale cache tickers and records freshness counts in the manifest.
+  - `build_replay_price_cache.parse_args()` ->adds stale-cache refresh control.
+  - `build_operating_target_books.build_book(portfolio, history_path, latest_target_path, price_cache)` ->adds output max date, current-book flag, and freshness error diagnostics.
+  - `build_operating_target_books.build(args)` ->blocks when `--require-current-latest-target` is set and any book is not current.
+  - `build_operating_target_books.parse_args()` ->adds the required-current flag.
+  - `build_operating_target_books.render_report(payload)` ->shows output max date and current status.
+  - `run_account_order_preview.run(args)` ->writes projected post-order CSV and projected cash metrics.
+  - `run_account_order_preview.render_report(payload)` ->shows target cash and projected post-order cash.
+  - `run_user_portfolio_reports.normalize_recommendations(latest_run, portfolio, as_of_date, price_cache)` ->adds projected post-order weight per recommendation row.
+  - `run_user_portfolio_reports.normalize_current_holdings(latest_run, portfolio, as_of_date)` ->adds projected post-order weight per current holding row.
+- config_fields_added:
+  - `build_replay_price_cache --refresh-stale-days: int = 2` ->refreshes cached bars older than this many calendar days; `-1` disables refresh.
+  - `build_operating_target_books --require-current-latest-target: bool = false` ->optionally fails the tool when latest targets cannot be represented by current operating books; workflows leave this off and use system guard to avoid repeated hard workflow failures.
+- breaking_changes:
+  - none
+- outputs:
+  - `cache_prices/replay_price_cache_manifest.json` ->now includes `stale_before`, `refresh_stale_days`, and `download_target_count`.
+  - `outputs/reports/operating_target_books_summary.json` ->now includes `output_max_rebalance_date`, `operating_book_current`, and `freshness_error`.
+  - `outputs/account_ledger_preview/*/projected_positions_after_orders.csv` ->shows approximate positions/cash if preview orders are executed at reference prices.
+  - `outputs/account_ledger_preview/*/preview_metrics.json` ->now includes target and projected cash metrics.
+  - `outputs/user_portfolio_reports/*/recommendation_latest.csv` ->now includes `projected_account_weight_after_orders`.
+  - `outputs/user_portfolio_reports/*/current_operating_holdings_latest.csv` ->now includes `projected_weight_after_recommendation_orders`.
+- validation:
+  - `python tests\replay_price_cache_smoke.py` ->passed.
+  - `python tests\operating_target_books_smoke.py` ->passed.
+  - `python tests\account_order_preview_smoke.py` ->passed.
+  - `python tests\user_portfolio_reports_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python -m py_compile tools\build_replay_price_cache.py tools\build_operating_target_books.py tools\run_account_order_preview.py tools\run_user_portfolio_reports.py tools\run_portfolio_system_guard.py` ->passed.
+  - `python tests\smoke_test.py` ->passed, 89/89.
+  - `PYTHONUTF8=1 python tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - `current_operating_holdings_latest.csv` must remain actual simulated filled holdings; it should not pretend latest-close recommendations filled on the same close under `next_close`.
+  - Projected post-order outputs are an execution preview, not official account performance evidence.
+  - Missing March-May target snapshots cannot be perfectly reconstructed unless archived target snapshots exist; this change makes future runs append and preserve the newest operating target decision instead of silently staying on stale monthly books.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

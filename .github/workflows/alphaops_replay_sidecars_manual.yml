@@ -97,20 +97,19 @@ jobs:
           test -s outputs/reports/regime_by_month.csv
           PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
           echo "[replay] restored price cache files=$PRICE_FILES"
+          echo "[replay] refreshing missing/stale replay price cache from target books + top scored names"
+          python tools/build_replay_price_cache.py \
+            --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
+            --scored outputs/scored_latest.csv \
+            --max-scored 250 \
+            --output-dir cache_prices \
+            --batch-size 40 \
+            --refresh-stale-days 2
+          PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "[replay] price cache files after refresh=$PRICE_FILES"
           if [ "${PRICE_FILES:-0}" -lt 10 ]; then
-            echo "[replay] price cache missing; building minimal replay cache from target books + top scored names"
-            python tools/build_replay_price_cache.py \
-              --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
-              --scored outputs/scored_latest.csv \
-              --max-scored 250 \
-              --output-dir cache_prices \
-              --batch-size 40
-            PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
-            echo "[replay] price cache files after fallback=$PRICE_FILES"
-            if [ "${PRICE_FILES:-0}" -lt 10 ]; then
-              echo "[replay] ERROR: price cache fallback did not produce enough files."
-              exit 3
-            fi
+            echo "[replay] ERROR: price cache refresh did not produce enough files."
+            exit 3
           fi
 
       - name: Run fast replay sidecars

@@ -143,6 +143,17 @@ def test_operating_books_do_not_use_future_recommended_next_run_date() -> None:
         assert books["concentrated"]["latest_target_appended"] is False
         assert books["concentrated"]["operating_signal_date"] == ""
 
+        required_payload = build(
+            Namespace(
+                latest_run=str(latest),
+                price_cache=str(price_cache),
+                output_dir=str(out_dir),
+                require_current_latest_target=True,
+            )
+        )
+        assert required_payload["status"] == "blocked"
+        assert len(required_payload["blocked_books"]) == 2
+
 
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()

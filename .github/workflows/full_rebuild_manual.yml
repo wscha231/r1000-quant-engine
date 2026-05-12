@@ -501,11 +501,26 @@ jobs:
               LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
             fi
           fi
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python - <<'PY'
+import json
+from pathlib import Path
+p = Path("outputs/portfolio_system_guard/error_check.json")
+try:
+    print(int(json.loads(p.read_text()).get("hard_error_count", 999)))
+except Exception:
+    print(999)
+PY
+)"
+          else
+            echo "[gdrive-sync] WARN: portfolio_system_guard/error_check.json missing; preserving canonical outputs."
+          fi
           VALID_PRIMARY_OUTPUTS="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
             VALID_PRIMARY_OUTPUTS="yes"
           else
-            echo "[gdrive-sync] WARN: core metrics missing; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            echo "[gdrive-sync] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
             if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
               if [ "$BRANCH_NAME" = "master" ]; then
                 DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
@@ -632,6 +647,7 @@ jobs:
             "safe_branch": "${SAFE_BRANCH}",
             "gdrive_scope": "${GDRIVE_SCOPE}",
             "valid_primary_outputs": "${VALID_PRIMARY_OUTPUTS}",
+            "portfolio_system_guard_hard_errors": "${GUARD_HARD_ERRORS}",
             "dest": "${DEST}",
             "log_dest": "${LOG_DEST}",
             "synced_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -830,13 +846,28 @@ jobs:
             echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
           fi
           mkdir -p cloud_results/full_rebuild
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python - <<'PY'
+import json
+from pathlib import Path
+p = Path("outputs/portfolio_system_guard/error_check.json")
+try:
+    print(int(json.loads(p.read_text()).get("hard_error_count", 999)))
+except Exception:
+    print(999)
+PY
+)"
+          else
+            echo "[push] WARN: portfolio_system_guard/error_check.json missing; preserving latest pointer."
+          fi
           RUN_ARTIFACT_VALID="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
             RUN_ARTIFACT_VALID="yes"
             DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           else
             DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
-            echo "[push] WARN: core metrics missing; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
           fi
           mkdir -p "$DEST"
           copy_dir_clean() {

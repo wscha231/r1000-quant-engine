@@ -164,6 +164,20 @@ def build_book(
     if not combined.empty:
         combined["rebalance_date"] = pd.to_datetime(combined["rebalance_date"], errors="coerce").dt.date.astype(str)
         combined = combined.sort_values(["rebalance_date", "ticker"]).reset_index(drop=True)
+    output_max = latest_date_from_columns(combined, ["rebalance_date"])
+    operating_book_current = bool(
+        not latest.empty
+        and signal_date is not None
+        and output_max is not None
+        and pd.Timestamp(output_max).normalize() >= pd.Timestamp(signal_date).normalize()
+    )
+    freshness_error = ""
+    if latest.empty:
+        freshness_error = "latest target file is empty"
+    elif signal_date is None:
+        freshness_error = "could not infer an observable latest signal date from price cache or target dates"
+    elif not operating_book_current:
+        freshness_error = "operating target book does not reach the latest observable signal date"
 
     output_name = f"operating_{portfolio}_target_book.csv"
     summary = {
@@ -175,10 +189,13 @@ def build_book(
         "latest_target_row_count": int(len(latest)),
         "output_row_count": int(len(combined)),
         "history_max_rebalance_date": date_text(history_max),
+        "output_max_rebalance_date": date_text(output_max),
         "latest_target_source_date": date_text(latest_target_date),
         "latest_price_close_date": date_text(price_close),
         "operating_signal_date": date_text(signal_date),
         "latest_target_appended": bool(appended),
+        "operating_book_current": bool(operating_book_current),
+        "freshness_error": freshness_error,
         "append_reason": append_reason,
         "decision_frequency": "event_driven_latest_close",
     }
@@ -192,19 +209,21 @@ def render_report(payload: dict[str, Any]) -> str:
         "Broker replay should use these operating target books when simulating the current account.",
         "Historical research books remain available, but they may be monthly and stale.",
         "",
-        "| Portfolio | Rows | History max | Latest target source | Latest close | Operating signal | Appended |",
-        "| --- | ---: | --- | --- | --- | --- | ---: |",
+        "| Portfolio | Rows | History max | Output max | Latest target source | Latest close | Operating signal | Appended | Current |",
+        "| --- | ---: | --- | --- | --- | --- | --- | ---: | ---: |",
     ]
     for row in payload.get("books", []):
         lines.append(
-            "| {portfolio} | {rows} | {history} | {source} | {close} | {signal} | {appended} |".format(
+            "| {portfolio} | {rows} | {history} | {output_max} | {source} | {close} | {signal} | {appended} | {current} |".format(
                 portfolio=row.get("portfolio"),
                 rows=row.get("output_row_count"),
                 history=row.get("history_max_rebalance_date") or "",
+                output_max=row.get("output_max_rebalance_date") or "",
                 source=row.get("latest_target_source_date") or "",
                 close=row.get("latest_price_close_date") or "",
                 signal=row.get("operating_signal_date") or "",
                 appended=str(row.get("latest_target_appended")).lower(),
+                current=str(row.get("operating_book_current")).lower(),
             )
         )
     lines.append("")
@@ -236,8 +255,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         summary["output_path"] = str(out_path)
         outputs[f"{portfolio}_operating_target_book"] = str(out_path)
         summaries.append(summary)
+    blocked_books = [
+        row
+        for row in summaries
+        if bool(getattr(args, "require_current_latest_target", False))
+        and not bool(row.get("operating_book_current"))
+    ]
     payload = {
-        "status": "completed",
+        "status": "blocked" if blocked_books else "completed",
+        "blocked_reason": "operating target book did not reach the latest target close" if blocked_books else "",
+        "blocked_books": blocked_books,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
@@ -258,6 +285,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--require-current-latest-target",
+        action="store_true",
+        help="Exit nonzero unless each operating book reaches the latest observable target signal date.",
+    )
     return parser.parse_args()
 
 

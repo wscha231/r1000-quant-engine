@@ -163,6 +163,7 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
             "recommended_next_review_date",
             "recommended_weight",
             "current_account_weight",
+            "projected_account_weight_after_orders",
             "trade_action_from_current",
             "target_value_per_100k_usd",
             "estimated_shares_per_100k",
@@ -189,6 +190,7 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
             "current_account_stale_days",
             "pending_order_count_to_recommendation",
             "recommended_target_weight",
+            "projected_weight_after_recommendation_orders",
             "recommended_trade_action",
         } <= set(current.columns)
         aaa = current[current["ticker"].eq("AAA")].iloc[0]
