@@ -164,7 +164,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add user-facing main/concentrated report packs that clearly separate latest buy/hold recommendations from actual simulated operating holdings.
 - files:
-  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, SVG weight charts, and four root-level prefixed user CSVs with latest close reference prices when price cache is available.
+  - `tools/run_user_portfolio_reports.py` ->builds per-portfolio recommendation CSVs, current operating holdings CSVs, broker-ledger scorecards, Markdown reports, SVG weight charts, and four root-level prefixed user CSVs with latest close reference prices, recommendation dates, current-account stale diagnostics, and order deltas when price/order-preview artifacts are available.
   - `tools/build_operating_target_books.py` ->prevents future `recommended_next_run_date` values from being used as operating signal dates.
   - `.github/workflows/full_rebuild_manual.yml` ->runs and publishes the user-facing report pack during full rebuilds.
   - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and publishes the same report pack during fast replay sidecars.
@@ -184,6 +184,10 @@ All entries must be written in English. Entries must be predictable and machine-
   - `run_user_portfolio_reports.latest_as_of_date(latest_run)` ->selects the broker-ledger latest evaluation date.
   - `run_user_portfolio_reports.compact_logic(row, portfolio)` ->renders a compact buy-logic explanation.
   - `run_user_portfolio_reports.latest_close_from_cache(price_cache, ticker, as_of_date)` ->loads the latest close at or before the report as-of date.
+  - `run_user_portfolio_reports.date_diff_days(start, end)` ->computes stale-day diagnostics between the latest account trade and recommendation date.
+  - `run_user_portfolio_reports.last_trade_date(latest_run, portfolio)` ->finds the latest broker-ledger trade date for current-account freshness diagnostics.
+  - `run_user_portfolio_reports.load_order_preview(latest_run, portfolio)` ->loads current-to-target order preview rows and preview metrics.
+  - `run_user_portfolio_reports.order_by_ticker(order_preview)` ->indexes preview orders by ticker for report joins.
   - `run_user_portfolio_reports.normalize_recommendations(latest_run, portfolio, as_of_date, price_cache)` ->formats target recommendation sheets with price-cache close references when available.
   - `run_user_portfolio_reports.load_open_lots(latest_run, portfolio)` ->summarizes open lot entry metadata.
   - `run_user_portfolio_reports.normalize_current_holdings(latest_run, portfolio, as_of_date)` ->formats current simulated account holdings with entry returns and cash.
@@ -202,13 +206,13 @@ All entries must be written in English. Entries must be predictable and machine-
 - breaking_changes:
   - none
 - outputs:
-  - `outputs/user_portfolio_reports/main_recommendation_latest.csv` ->primary human-readable main target recommendation sheet.
-  - `outputs/user_portfolio_reports/main_current_operating_holdings_latest.csv` ->primary main simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/main_recommendation_latest.csv` ->primary human-readable main target recommendation sheet with recommendation date, current-account weight, and estimated trade delta.
+  - `outputs/user_portfolio_reports/main_current_operating_holdings_latest.csv` ->primary main simulated account holdings with entry date, entry price, entry return, current weight, current-account last trade date, stale days, target weight, trade action, and cash.
   - `outputs/user_portfolio_reports/main/recommendation_latest.csv` ->portfolio-folder copy of the main target recommendation sheet.
   - `outputs/user_portfolio_reports/main/current_operating_holdings_latest.csv` ->portfolio-folder copy of main simulated account holdings.
   - `outputs/user_portfolio_reports/main/performance_scorecard.csv` ->main broker-ledger scorecard by horizon.
-  - `outputs/user_portfolio_reports/concentrated_recommendation_latest.csv` ->primary human-readable concentrated target recommendation sheet.
-  - `outputs/user_portfolio_reports/concentrated_current_operating_holdings_latest.csv` ->primary concentrated simulated account holdings with entry date, entry price, entry return, current weight, and cash.
+  - `outputs/user_portfolio_reports/concentrated_recommendation_latest.csv` ->primary human-readable concentrated target recommendation sheet with recommendation date, current-account weight, and estimated trade delta.
+  - `outputs/user_portfolio_reports/concentrated_current_operating_holdings_latest.csv` ->primary concentrated simulated account holdings with entry date, entry price, entry return, current weight, current-account last trade date, stale days, target weight, trade action, and cash.
   - `outputs/user_portfolio_reports/concentrated/recommendation_latest.csv` ->portfolio-folder copy of the concentrated target recommendation sheet.
   - `outputs/user_portfolio_reports/concentrated/current_operating_holdings_latest.csv` ->portfolio-folder copy of concentrated simulated account holdings.
   - `outputs/user_portfolio_reports/concentrated/performance_scorecard.csv` ->concentrated broker-ledger scorecard by horizon.

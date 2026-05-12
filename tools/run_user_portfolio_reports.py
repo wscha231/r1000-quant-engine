@@ -162,6 +162,51 @@ def latest_close_from_cache(price_cache: Path, ticker: str, as_of_date: str) -> 
     return float(value), pd.Timestamp(dt).date().isoformat()
 
 
+def date_diff_days(start: Any, end: Any) -> int | None:
+    a = pd.to_datetime(start, errors="coerce")
+    b = pd.to_datetime(end, errors="coerce")
+    if pd.isna(a) or pd.isna(b):
+        return None
+    return int((pd.Timestamp(b).normalize() - pd.Timestamp(a).normalize()).days)
+
+
+def last_trade_date(latest_run: Path, portfolio: str) -> str:
+    trades = read_csv(latest_run / "broker_replay" / portfolio / "trades.csv")
+    if trades.empty or "date" not in trades.columns:
+        return ""
+    dates = pd.to_datetime(trades["date"], errors="coerce").dropna()
+    if dates.empty:
+        return ""
+    return pd.Timestamp(dates.max()).date().isoformat()
+
+
+def load_order_preview(latest_run: Path, portfolio: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    preview = read_csv(latest_run / "account_ledger_preview" / portfolio / "orders_preview.csv")
+    metrics = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
+    if preview.empty or "ticker" not in preview.columns:
+        return pd.DataFrame(), metrics
+    d = preview.copy()
+    d["ticker"] = d["ticker"].map(clean_ticker)
+    for col in [
+        "quantity",
+        "current_weight",
+        "target_weight",
+        "target_value_usd",
+        "current_value_usd",
+        "trade_value_delta_usd",
+        "estimated_cash_after_usd",
+    ]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    return d[d["ticker"].ne("")].copy(), metrics
+
+
+def order_by_ticker(order_preview: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    if order_preview.empty or "ticker" not in order_preview.columns:
+        return {}
+    return {clean_ticker(row.get("ticker")): row for row in order_preview.to_dict("records")}
+
+
 def compact_logic(row: dict[str, Any], portfolio: str) -> str:
     parts: list[str] = []
     if portfolio == "main":
@@ -196,6 +241,10 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
     raw = read_csv(latest_run / spec["target_file"])
     if raw.empty or "ticker" not in raw.columns:
         return pd.DataFrame()
+    order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
+    orders = order_by_ticker(order_preview)
+    account_cash_weight = clean_float(preview_metrics.get("cash_weight"), np.nan)
+    recommendation_date = str(preview_metrics.get("as_of_date") or as_of_date)
     d = raw.copy()
     d["ticker"] = d["ticker"].map(clean_ticker)
     weight_col = "weight" if "weight" in d.columns else "target_weight"
@@ -206,6 +255,7 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
     d = d[(d["ticker"] != "") & (~d["ticker"].isin(CASH_TICKERS)) & (d["weight"] > 1e-12)].copy()
     rows: list[dict[str, Any]] = []
     for i, row in enumerate(d.sort_values("weight", ascending=False).to_dict("records"), start=1):
+        order = orders.get(clean_ticker(row.get("ticker")), {})
         cache_price, cache_price_date = latest_close_from_cache(price_cache, row["ticker"], as_of_date)
         fallback_price = clean_float(
             first_existing(
@@ -219,13 +269,20 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
         est_shares = math.floor(target_value / price) if price > 0 else 0
         rows.append(
             {
+                "recommendation_date": recommendation_date,
                 "as_of_date": as_of_date,
+                "recommended_next_review_date": first_existing(row, ["recommended_next_run_date", "next_scheduled_rebalance_date"], ""),
+                "recommendation_semantics": "latest_close_target_recommendation_not_yet_filled",
                 "portfolio_kind": portfolio,
                 "rank": i,
                 "ticker": row["ticker"],
                 "company_name": first_existing(row, ["Name", "name", "company_name"], ""),
                 "sector": first_existing(row, ["sector", "sage_sector"], ""),
                 "recommended_weight": clean_float(row.get("weight")),
+                "current_account_weight": clean_float(order.get("current_weight"), 0.0),
+                "trade_action_from_current": str(order.get("side") or ("HOLD" if clean_float(order.get("current_weight"), 0.0) > 0 else "BUY")),
+                "trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
+                "estimated_order_quantity": clean_float(order.get("quantity"), 0.0),
                 "target_value_per_100k_usd": target_value,
                 "reference_price": price if price > 0 else np.nan,
                 "reference_price_date": cache_price_date or as_of_date,
@@ -250,13 +307,20 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
             pd.DataFrame(
                 [
                     {
+                        "recommendation_date": recommendation_date,
                         "as_of_date": as_of_date,
+                        "recommended_next_review_date": "",
+                        "recommendation_semantics": "latest_close_target_recommendation_not_yet_filled",
                         "portfolio_kind": portfolio,
                         "rank": len(out) + 1,
                         "ticker": "CASH",
                         "company_name": "Cash reserve",
                         "sector": "Cash",
                         "recommended_weight": cash_weight,
+                        "current_account_weight": account_cash_weight,
+                        "trade_action_from_current": "DEPLOY_CASH" if clean_float(account_cash_weight, 0.0) > cash_weight else "RESERVE_CASH",
+                        "trade_value_delta_usd": 0.0,
+                        "estimated_order_quantity": 0.0,
                         "target_value_per_100k_usd": cash_weight * 100000.0,
                         "reference_price": 1.0,
                         "reference_price_date": as_of_date,
@@ -311,6 +375,11 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
     positions = read_csv(latest_run / "broker_replay" / portfolio / "positions_latest.csv")
     state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     lots = load_open_lots(latest_run, portfolio)
+    order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
+    orders = order_by_ticker(order_preview)
+    trade_dt = last_trade_date(latest_run, portfolio)
+    stale_days = date_diff_days(trade_dt, as_of_date)
+    pending_order_count = int(clean_float(preview_metrics.get("order_count"), 0.0))
     rows: list[dict[str, Any]] = []
     if not positions.empty and "ticker" in positions.columns:
         for row in positions.to_dict("records"):
@@ -318,12 +387,17 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
             if not ticker:
                 continue
             lot = lots.get(ticker, {})
+            order = orders.get(ticker, {})
             current_price = clean_float(row.get("price"), np.nan)
             avg_entry = clean_float(lot.get("avg_entry_price"), clean_float(row.get("cost_basis"), np.nan))
             return_since_entry = current_price / avg_entry - 1.0 if current_price > 0 and avg_entry > 0 else np.nan
             rows.append(
                 {
                     "as_of_date": str(row.get("as_of_date") or as_of_date),
+                    "recommendation_date": str(preview_metrics.get("as_of_date") or as_of_date),
+                    "current_account_last_trade_date": trade_dt,
+                    "current_account_stale_days": stale_days,
+                    "pending_order_count_to_recommendation": pending_order_count,
                     "portfolio_kind": portfolio,
                     "row_type": "equity",
                     "ticker": ticker,
@@ -331,6 +405,10 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
                     "current_price": current_price,
                     "market_value_usd": clean_float(row.get("market_value_usd")),
                     "current_weight": clean_float(row.get("weight")),
+                    "recommended_target_weight": clean_float(order.get("target_weight"), 0.0),
+                    "recommended_trade_action": str(order.get("side") or "HOLD"),
+                    "recommended_trade_quantity": clean_float(order.get("quantity"), 0.0),
+                    "recommended_trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
                     "cost_basis": clean_float(row.get("cost_basis"), np.nan),
                     "avg_entry_price": avg_entry,
                     "entry_date": lot.get("entry_date", ""),
@@ -347,9 +425,26 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
     equity = clean_float(state.get("equity_usd"))
     cash = clean_float(state.get("cash_usd"))
     if equity > 0:
+        target_cash_weight = np.nan
+        if not order_preview.empty:
+            target_sum = float(
+                pd.to_numeric(
+                    order_preview.get("target_weight", pd.Series(dtype=float)),
+                    errors="coerce",
+                )
+                .fillna(0.0)
+                .sum()
+            )
+            target_cash_weight = max(0.0, 1.0 - target_sum)
+            if abs(target_cash_weight) < 1e-9:
+                target_cash_weight = 0.0
         rows.append(
             {
                 "as_of_date": str(state.get("as_of_date") or as_of_date),
+                "recommendation_date": str(preview_metrics.get("as_of_date") or as_of_date),
+                "current_account_last_trade_date": trade_dt,
+                "current_account_stale_days": stale_days,
+                "pending_order_count_to_recommendation": pending_order_count,
                 "portfolio_kind": portfolio,
                 "row_type": "cash",
                 "ticker": "CASH",
@@ -357,6 +452,10 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
                 "current_price": 1.0,
                 "market_value_usd": cash,
                 "current_weight": cash / equity,
+                "recommended_target_weight": target_cash_weight,
+                "recommended_trade_action": "DEPLOY_CASH" if pending_order_count > 0 else "HOLD_CASH",
+                "recommended_trade_quantity": 0.0,
+                "recommended_trade_value_delta_usd": 0.0,
                 "cost_basis": 1.0,
                 "avg_entry_price": 1.0,
                 "entry_date": "",
@@ -556,10 +655,27 @@ def write_bar_svg(path: Path, rows: list[tuple[str, float]], title: str) -> None
 
 def render_portfolio_report(portfolio: str, rec: pd.DataFrame, current: pd.DataFrame, scorecard: pd.DataFrame) -> str:
     title = PORTFOLIO_SPECS[portfolio]["label"]
+    rec_date = ""
+    if not rec.empty and "recommendation_date" in rec.columns:
+        rec_date = str(rec["recommendation_date"].dropna().iloc[0]) if rec["recommendation_date"].dropna().size else ""
+    last_trade = ""
+    stale_days = None
+    pending_orders = None
+    if not current.empty:
+        if "current_account_last_trade_date" in current.columns and current["current_account_last_trade_date"].dropna().size:
+            last_trade = str(current["current_account_last_trade_date"].dropna().iloc[0])
+        if "current_account_stale_days" in current.columns and current["current_account_stale_days"].dropna().size:
+            stale_days = int(clean_float(current["current_account_stale_days"].dropna().iloc[0]))
+        if "pending_order_count_to_recommendation" in current.columns and current["pending_order_count_to_recommendation"].dropna().size:
+            pending_orders = int(clean_float(current["pending_order_count_to_recommendation"].dropna().iloc[0]))
     lines = [
         f"# {title} Portfolio Report",
         "",
         "This report separates latest target recommendations from the current simulated operating account.",
+        f"- Recommendation date: `{rec_date}`",
+        f"- Current account last replay trade date: `{last_trade}`",
+        f"- Current account stale days versus recommendation date: `{stale_days}`",
+        f"- Pending orders needed to match recommendation: `{pending_orders}`",
         "",
         "## Performance Scorecard",
         "",
@@ -592,23 +708,23 @@ def render_portfolio_report(portfolio: str, rec: pd.DataFrame, current: pd.DataF
         "",
         "## Top Recommendations",
         "",
-        "| Ticker | Weight | Price | Shares per $100k | Logic |",
-        "| --- | ---: | ---: | ---: | --- |",
+        "| Ticker | Weight | Current Weight | Action | Trade Delta | Price | Shares per $100k | Logic |",
+        "| --- | ---: | ---: | --- | ---: | ---: | ---: | --- |",
     ]
     for row in rec.head(12).to_dict("records"):
         lines.append(
-            f"| {row.get('ticker')} | {clean_float(row.get('recommended_weight')):.2%} | {clean_float(row.get('reference_price')):.2f} | {int(clean_float(row.get('estimated_shares_per_100k')))} | {str(row.get('buy_logic', '')).replace('|', '/')} |"
+            f"| {row.get('ticker')} | {clean_float(row.get('recommended_weight')):.2%} | {clean_float(row.get('current_account_weight')):.2%} | {row.get('trade_action_from_current', '')} | {clean_float(row.get('trade_value_delta_usd')):,.0f} | {clean_float(row.get('reference_price')):.2f} | {int(clean_float(row.get('estimated_shares_per_100k')))} | {str(row.get('buy_logic', '')).replace('|', '/')} |"
         )
     lines += [
         "",
         "## Current Holdings",
         "",
-        "| Ticker | Current Weight | Shares | Current Price | Entry Date | Entry Price | Return Since Entry | Entry Reason |",
-        "| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |",
+        "| Ticker | Current Weight | Target Weight | Action | Trade Delta | Shares | Current Price | Entry Date | Entry Price | Return Since Entry | Entry Reason |",
+        "| --- | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |",
     ]
     for row in current.head(20).to_dict("records"):
         lines.append(
-            f"| {row.get('ticker')} | {clean_float(row.get('current_weight')):.2%} | {clean_float(row.get('shares')):.2f} | {clean_float(row.get('current_price')):.2f} | {row.get('entry_date', '')} | {clean_float(row.get('avg_entry_price')):.2f} | {clean_float(row.get('return_since_entry_pct')):.2%} | {str(row.get('entry_reason', '')).replace('|', '/')} |"
+            f"| {row.get('ticker')} | {clean_float(row.get('current_weight')):.2%} | {clean_float(row.get('recommended_target_weight')):.2%} | {row.get('recommended_trade_action', '')} | {clean_float(row.get('recommended_trade_value_delta_usd')):,.0f} | {clean_float(row.get('shares')):.2f} | {clean_float(row.get('current_price')):.2f} | {row.get('entry_date', '')} | {clean_float(row.get('avg_entry_price')):.2f} | {clean_float(row.get('return_since_entry_pct')):.2%} | {str(row.get('entry_reason', '')).replace('|', '/')} |"
         )
     lines.append("")
     return "\n".join(lines)

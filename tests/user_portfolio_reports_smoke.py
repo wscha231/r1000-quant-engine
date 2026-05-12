@@ -157,7 +157,19 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         assert payload["as_of_date"] == "2026-01-31"
 
         rec = pd.read_csv(out / "main" / "recommendation_latest.csv")
-        assert {"ticker", "recommended_weight", "target_value_per_100k_usd", "estimated_shares_per_100k", "buy_logic", "reference_price_date", "reference_price_source"} <= set(rec.columns)
+        assert {
+            "ticker",
+            "recommendation_date",
+            "recommended_next_review_date",
+            "recommended_weight",
+            "current_account_weight",
+            "trade_action_from_current",
+            "target_value_per_100k_usd",
+            "estimated_shares_per_100k",
+            "buy_logic",
+            "reference_price_date",
+            "reference_price_source",
+        } <= set(rec.columns)
         assert rec.iloc[0]["ticker"] == "AAA"
         assert rec.iloc[0]["reference_price"] == 110.0
         assert rec.iloc[0]["reference_price_source"] == "price_cache_latest_close"
@@ -167,7 +179,18 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         assert round(float(cash_rec["recommended_weight"]), 4) == 0.4
 
         current = pd.read_csv(out / "main" / "current_operating_holdings_latest.csv")
-        assert {"entry_date", "avg_entry_price", "return_since_entry_pct", "current_weight"} <= set(current.columns)
+        assert {
+            "entry_date",
+            "avg_entry_price",
+            "return_since_entry_pct",
+            "current_weight",
+            "recommendation_date",
+            "current_account_last_trade_date",
+            "current_account_stale_days",
+            "pending_order_count_to_recommendation",
+            "recommended_target_weight",
+            "recommended_trade_action",
+        } <= set(current.columns)
         aaa = current[current["ticker"].eq("AAA")].iloc[0]
         assert aaa["entry_date"] == "2025-12-31"
         assert round(float(aaa["return_since_entry_pct"]), 4) == 0.2
