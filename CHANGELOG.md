@@ -1131,6 +1131,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Concentrated single-month deep_bear is a heavy hit at 0.15x**. The only deep_bear date in the latest run is 2020-03-31. Iter 5 will reduce that month's concentrated exposure to 15% of target (was 25%). The concentrated MaxDD trough is 2020-03-16, between Feb (bear) and March (deep_bear) book entries — granularity is monthly, so the actual peak-to-trough trough may be only partially shielded.
   - **Iter 6 budget**: 1 iteration remaining. If Iter 5 closes one side of stop B (Main or Conc but not both), Iter 6 should focus asymmetrically on the still-failing side. If neither closes, Iter 6 should add neutral coverage (option 2 in brainstorm) for concentrated to push it past -25%.
 
+### 22:29 KST - overnight-loop-iter6-revert-and-extend
+
+- scope:
+  - **Overnight attribution loop, Iteration 6 (LAST work iteration).** Iter 5 measurement (Tier-2 run 25735838226) revealed that tightening multipliers from 0.5/0.25 to 0.35/0.15 was **DIRECTIONALLY WRONG**. Main Δ CAGR -3.88pp / Δ MaxDD +0.32pp (vs Iter 3's +1.24pp — TIGHTER multipliers gave LESS MaxDD improvement). Concentrated Δ CAGR -5.80pp / Δ MaxDD +5.03pp (vs Iter 4's +5.20pp — slightly worse). The 0.5/0.25 multipliers from Iter 3/4 are the local optimum. Going further crushes CAGR while cash sits through recoveries and misses the bounce.
+  - Iter 6 reverts the multipliers AND extends concentrated coverage to neutral months. The neutral=0.85 entry adds 42 neutral-labeled dates to the dampening set at 15% reduction each. Concentrated has higher per-name concentration than main, so even neutral months carry tail risk worth a 15% trim. Main stays at the proven 0.5/0.25 (no neutral coverage) to keep its CAGR cost bounded.
+- iter6_hypothesis:
+  - Best known results so far: Main -27.38% MaxDD / 18.94% CAGR (Iter 3/4 same), Concentrated -31.54% MaxDD / 31.13% CAGR (Iter 4). Both still short of stop B (Main needs -22, Conc needs -25). The 0.5/0.25 multipliers are validated as optimal for bear/deep_bear coverage; adding additional regime coverage (neutral) is the remaining lever.
+  - Real-data preview on concentrated with `bear=0.5,deep_bear=0.25,neutral=0.85`: 59/84 dates dampened (70%!) vs Iter 4's 17/84 (20%). 11,745 stock rows touched at neutral=0.85 (vs 4215 bear at 0.5 + 147 deep_bear at 0.25). weight_dropped_total 837 vs Iter 4's 467.
+  - Expected impact: Concentrated MaxDD ~-28pp (additional ~3pp improvement on top of Iter 4's -31.54%). CAGR cost: additional ~2-3pp on top of Iter 4's -4.62pp (final ~26%). Stop B target -25% still likely short by 2-3pp but closer than anything before.
+- iter6_brainstorm_options_considered:
+  1. **REVERT multipliers + add neutral=0.85 on concentrated only** ← CHOSEN. Smallest change that maximizes leverage on the largest gap (Conc -31.54 -> -25 target = 6.5pp gap). Main stays at known-best.
+  2. **REVERT + prior-month carry**. Adds 2-4 dates of additional dampening; smaller effect than neutral coverage.
+  3. **REVERT + Main-asymmetric tighter (bear=0.4 only on Main)**. Iter 5 already showed this direction hurts Main; rejected.
+  4. **REVERT + per-position trailing dampener gated on regime != bull**. Higher risk of cutting NVDA/SMCI-style winners; user explicitly flagged this earlier.
+  5. **REVERT + bull-stretched detector (portfolio vol)**. Requires broker_replay equity feedback; chicken-and-egg.
+  6. **REVERT + concentrated single-name cap reduction in bear (50 -> 30)**. Invasive; would need broker_replay path modification.
+  7. **JUST REVERT and stop**. Acknowledge frontier; produce final summary. Considered but option 1 is no-cost additional learning.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->main multipliers revert to `"bear=0.5,deep_bear=0.25"`; concentrated multipliers become `"bear=0.5,deep_bear=0.25,neutral=0.85"`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->same revert + extend.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none (existing `--multipliers` flag already supports arbitrary regime keys via `parse_multipliers_arg`).
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/regime_capacity_broker_replay/{main,concentrated}/metrics.json` ->Iter 6 numbers will replace Iter 5 in the next Tier-2 run. Concentrated now dampens ~70% of dates rather than 20%.
+- validation:
+  - `py -3 tools/run_pr_validation.py` ->PASS, 21/21 in 23.46 s.
+  - YAML parse for both workflows ->OK.
+  - Local sanity dry-run on real concentrated book with new multipliers ->59 dampened dates, weight_dropped 837.289, regime breakdown: bear 16×0.5, deep_bear 1×0.25, neutral 42×0.85.
+- risks_or_notes:
+  - **Concentrated CAGR will drop further**. From baseline 35.76% through Iter 4's 31.13% to expected ~26-28%. Per user instruction `CAGR도 좀 낮더라도 달성하게`, this is acceptable if MaxDD targets are met. If Iter 6 result shows CAGR < 20% on Concentrated, the trade has gone too far and Iter 4's setting is preferable.
+  - **Main is unchanged from Iter 3/4 setting**. Main MaxDD stays at -27.38%, still 5.4pp short of -22% target. This iteration does NOT close the Main gap. The Main side is the dominant remaining gap; closing it would require a structural change (main_v2 promotion, per-position dampener, or accepting that long-only equity at -22% MaxDD is unachievable without leverage or shorting).
+  - **Stop B is unlikely on Iter 6**. The realistic frontier within long-only + no per-position stops + monthly cadence appears to be Main ~-27%, Concentrated ~-28 to -30%. The final-summary writer should document this honestly and recommend either (a) structural follow-ups (main_v2 swap, broker-accounting audit fixes A1/A2) or (b) revised targets if the user wants to ship.
+  - **Final summary will be written after Iter 6 Tier-2 result**. The current best metrics by portfolio (across all iterations) will be the headline numbers.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
