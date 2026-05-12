@@ -61,6 +61,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/auto_learning_evidence_smoke.py", []),
     ("tests/auto_learning_v2_smoke.py", []),
     ("tests/auto_policy_challenger_smoke.py", []),
+    ("tests/cost_sensitivity_sidecar_smoke.py", []),
     ("tests/audit_features.py", ["--no-runtime"]),
     ("tests/workflow_artifact_smoke.py", []),
 ]

@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.auto_policy_challenger import (  # noqa: E402
     DEFAULT_BROKER_ACCOUNTING_AUDIT,
     _broker_accounting_rows,
+    _cost_sensitivity_gate_row,
     load_broker_accounting_audit,
 )
 
@@ -122,11 +123,70 @@ def test_repository_audit_matches_schema_and_documents_open_bugs() -> None:
         assert "rationale" in payload, f"missing rationale for {name}"
 
 
+def _cost_summary(levels: list[float], schema: str = "cost-sensitivity-sidecar-v1") -> dict:
+    return {
+        "schema_version": schema,
+        "levels": [{"cost_bps": lv, "status": "completed", "cagr": 0.20, "sharpe": 1.0, "max_dd": -0.30} for lv in levels],
+        "breakeven_cost_bps": None,
+    }
+
+
+def test_cost_sensitivity_gate_passes_when_all_levels_present_for_both_portfolios() -> None:
+    row = _cost_sensitivity_gate_row(
+        main_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        concentrated_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        expected_cost_levels=[25, 50, 75, 100],
+    )
+    assert row["check"] == "cost_sensitivity_backtested"
+    assert row["passed"] is True
+    assert row["severity"] == "hard"
+
+
+def test_cost_sensitivity_gate_fails_when_summary_missing_for_either_portfolio() -> None:
+    row_main_missing = _cost_sensitivity_gate_row(
+        main_summary={},
+        concentrated_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        expected_cost_levels=[25, 50, 75, 100],
+    )
+    assert row_main_missing["passed"] is False
+    row_concentrated_missing = _cost_sensitivity_gate_row(
+        main_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        concentrated_summary={},
+        expected_cost_levels=[25, 50, 75, 100],
+    )
+    assert row_concentrated_missing["passed"] is False
+
+
+def test_cost_sensitivity_gate_fails_when_required_level_count_not_met() -> None:
+    row = _cost_sensitivity_gate_row(
+        main_summary=_cost_summary([25.0, 50.0]),
+        concentrated_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        expected_cost_levels=[25, 50, 75, 100],
+    )
+    assert row["passed"] is False
+    main_observed = row["observed"]["main"]
+    assert main_observed["completed_levels"] == [25.0, 50.0]
+
+
+def test_cost_sensitivity_gate_fails_when_schema_version_mismatched() -> None:
+    row = _cost_sensitivity_gate_row(
+        main_summary=_cost_summary([25.0, 50.0, 75.0, 100.0], schema="cost-sensitivity-sidecar-v0"),
+        concentrated_summary=_cost_summary([25.0, 50.0, 75.0, 100.0]),
+        expected_cost_levels=[25, 50, 75, 100],
+    )
+    assert row["passed"] is False
+    assert row["observed"]["main"]["schema_version"] == "cost-sensitivity-sidecar-v0"
+
+
 def main() -> int:
     test_default_audit_blocks_promotion_with_hard_failures()
     test_hard_gates_pass_when_audit_flags_flip_true()
     test_missing_audit_file_emits_explicit_failure_not_crash()
     test_repository_audit_matches_schema_and_documents_open_bugs()
+    test_cost_sensitivity_gate_passes_when_all_levels_present_for_both_portfolios()
+    test_cost_sensitivity_gate_fails_when_summary_missing_for_either_portfolio()
+    test_cost_sensitivity_gate_fails_when_required_level_count_not_met()
+    test_cost_sensitivity_gate_fails_when_schema_version_mismatched()
     print("auto_policy_challenger_smoke: ok")
     return 0
 

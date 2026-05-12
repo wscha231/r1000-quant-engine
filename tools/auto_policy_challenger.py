@@ -31,6 +31,8 @@ DEFAULT_E5_METRICS = "outputs/experiments/E5_orchestrator_balanced/metrics.json"
 DEFAULT_WEEKLY_LEADER_MAIN_METRICS = "outputs/weekly_leader_broker_replay/main/metrics.json"
 DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS = "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
 DEFAULT_BROKER_ACCOUNTING_AUDIT = "research/broker_accounting_audit.json"
+DEFAULT_COST_SENSITIVITY_MAIN = "outputs/cost_sensitivity/main/summary.json"
+DEFAULT_COST_SENSITIVITY_CONCENTRATED = "outputs/cost_sensitivity/concentrated/summary.json"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -186,6 +188,51 @@ def _broker_accounting_rows(audit: dict[str, Any], audit_path: str) -> list[dict
     return rows
 
 
+def _cost_sensitivity_gate_row(
+    *,
+    main_summary: dict[str, Any],
+    concentrated_summary: dict[str, Any],
+    expected_cost_levels: list[float | int],
+) -> dict[str, Any]:
+    """Emit the cost-sensitivity hard gate row.
+
+    Passes when both main and concentrated sidecar summaries are present,
+    declare schema ``cost-sensitivity-sidecar-v1``, and each contains at
+    least one completed level per required ``cost_bps`` step. Otherwise
+    hard-fails with the observed coverage and the missing levels surfaced
+    in ``observed``.
+    """
+    cost_summaries = {"main": main_summary or {}, "concentrated": concentrated_summary or {}}
+    observed: dict[str, Any] = {}
+    expected_count = len(expected_cost_levels)
+    all_present = True
+    for portfolio_kind, summary in cost_summaries.items():
+        levels = summary.get("levels") or []
+        completed = [safe_float(lv.get("cost_bps")) for lv in levels if lv.get("status") == "completed"]
+        schema = summary.get("schema_version")
+        observed[portfolio_kind] = {
+            "schema_version": schema,
+            "completed_levels": completed,
+            "breakeven_cost_bps": summary.get("breakeven_cost_bps"),
+        }
+        if schema != "cost-sensitivity-sidecar-v1" or len(completed) < expected_count:
+            all_present = False
+    return gate_row(
+        "cost",
+        "cost_sensitivity_backtested",
+        bool(all_present),
+        "hard",
+        observed=observed,
+        threshold={
+            "cost_bps_levels_required": expected_cost_levels,
+            "main_summary_path": DEFAULT_COST_SENSITIVITY_MAIN,
+            "concentrated_summary_path": DEFAULT_COST_SENSITIVITY_CONCENTRATED,
+        },
+        reason="Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
+        evidence=f"{DEFAULT_COST_SENSITIVITY_MAIN},{DEFAULT_COST_SENSITIVITY_CONCENTRATED}",
+    )
+
+
 def evaluate_challenger(
     policy: dict[str, Any],
     baseline: dict[str, Any],
@@ -198,6 +245,8 @@ def evaluate_challenger(
     weekly_leader_concentrated_metrics: dict[str, Any],
     broker_accounting_audit: dict[str, Any] | None = None,
     broker_accounting_audit_path: str = DEFAULT_BROKER_ACCOUNTING_AUDIT,
+    cost_sensitivity_main: dict[str, Any] | None = None,
+    cost_sensitivity_concentrated: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validation = validate_policy(policy)
     thresholds = candidate_thresholds(policy)
@@ -402,14 +451,10 @@ def evaluate_challenger(
         threshold="2020/2022/momentum/rate/vix stress windows",
         reason="Policy challenger needs monthly equity and allocation series before stress gates can pass.",
     ))
-    rows.append(gate_row(
-        "cost",
-        "cost_sensitivity_backtested",
-        False,
-        "hard",
-        observed="not_available",
-        threshold=thresholds.get("cost_sensitivity_bps", [25, 50, 75]),
-        reason="Cost sensitivity has not been run for the full candidate policy.",
+    rows.append(_cost_sensitivity_gate_row(
+        main_summary=cost_sensitivity_main or {},
+        concentrated_summary=cost_sensitivity_concentrated or {},
+        expected_cost_levels=thresholds.get("cost_sensitivity_bps") or [25, 50, 75],
     ))
     rows.append(gate_row(
         "stability",
@@ -512,6 +557,8 @@ def main() -> int:
     parser.add_argument("--weekly-leader-main-metrics", default=DEFAULT_WEEKLY_LEADER_MAIN_METRICS)
     parser.add_argument("--weekly-leader-concentrated-metrics", default=DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS)
     parser.add_argument("--broker-accounting-audit", default=DEFAULT_BROKER_ACCOUNTING_AUDIT)
+    parser.add_argument("--cost-sensitivity-main", default=DEFAULT_COST_SENSITIVITY_MAIN)
+    parser.add_argument("--cost-sensitivity-concentrated", default=DEFAULT_COST_SENSITIVITY_CONCENTRATED)
     args = parser.parse_args()
 
     policy = load_policy(repo_path(args.policy))
@@ -529,6 +576,8 @@ def main() -> int:
         weekly_leader_concentrated_metrics=read_json(repo_path(args.weekly_leader_concentrated_metrics)),
         broker_accounting_audit=load_broker_accounting_audit(audit_path),
         broker_accounting_audit_path=str(args.broker_accounting_audit),
+        cost_sensitivity_main=read_json(repo_path(args.cost_sensitivity_main)),
+        cost_sensitivity_concentrated=read_json(repo_path(args.cost_sensitivity_concentrated)),
     )
 
     out_dir = repo_path(args.out_dir)

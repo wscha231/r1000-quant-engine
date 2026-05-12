@@ -717,6 +717,64 @@ All entries must be written in English. Entries must be predictable and machine-
   - The challenger remains research-only. `production_activation_allowed=False` is still enforced by the schema gate; the broker-accounting hard failures stack on top of (not replace) the existing stress / cost / stability blockers.
   - Next item per the agreed roadmap is C2 (cost-sensitivity 25/50/75/100 bps sidecar) which will exercise the existing `cost_sensitivity_25_50_75_bps` next-required-backtests entry.
 
+### 16:24 KST - cost-sensitivity-sidecar-and-cost-gate-wiring
+
+- scope:
+  - Add a cost-sensitivity sidecar that reruns broker-ledger replay at 25 / 50 / 75 / 100 bps per side for both main and concentrated operating target books, emits a single comparable summary per portfolio, and wires the output into the policy challenger so the `cost_sensitivity_backtested` hard gate can pass when sidecar evidence is present. The sidecar does not change any strategy logic; it only multiplies replay cost levels for stress-testing.
+- files:
+  - `tools/run_cost_sensitivity_sidecar.py` ->new sidecar tool; runs `tools.run_broker_ledger_replay.replay` in a temp directory per `cost_bps` level, aggregates per-level CAGR / Sharpe / MaxDD / ending capital / fees / trade count plus baseline-relative deltas, and writes `summary.json` + `report.md` under the chosen `--output-dir`.
+  - `tests/cost_sensitivity_sidecar_smoke.py` ->new smoke test; verifies four-level sweep emits monotonic cost-drag, single-level edge case, schema-version stamping, and the markdown report renders.
+  - `tools/auto_policy_challenger.py` ->extract `_cost_sensitivity_gate_row(main_summary, concentrated_summary, expected_cost_levels)` helper; replace the previously hardcoded `cost_sensitivity_backtested=False` row with one that reads the two sidecar summaries and passes when both portfolios published `cost-sensitivity-sidecar-v1` schema and emitted at least one completed level per required `cost_bps` step; thread two new kwargs (`cost_sensitivity_main`, `cost_sensitivity_concentrated`) through `evaluate_challenger` and `main()`; add `--cost-sensitivity-main` / `--cost-sensitivity-concentrated` CLI flags.
+  - `tests/auto_policy_challenger_smoke.py` ->extend with four cost-sensitivity gate tests covering pass-on-full-coverage, fail-on-missing-summary, fail-on-insufficient-level-count, fail-on-schema-mismatch.
+  - `tools/run_pr_validation.py` ->add `tests/cost_sensitivity_sidecar_smoke.py` to `DEFAULT_TESTS` so both Tier 0 and Tier 1 exercise the sidecar.
+  - `.github/workflows/full_rebuild_manual.yml` ->run sidecar for both portfolios after the weekly-leader broker replay step; route output through `cost_sensitivity` directory; include the directory in the GDrive sync loop, the artifact upload, and the `/tmp/bundle/...` copy block.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->same sidecar wiring on the Tier-2 replay-only workflow so cost-sensitivity coverage stays available when reusing a prior full rebuild's artifacts.
+  - `tests/workflow_artifact_smoke.py` ->add `outputs/cost_sensitivity/` to the output directory expectations and the two `cost_sensitivity_*.log` entries to the full-rebuild log expectations.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `tools.run_cost_sensitivity_sidecar.DEFAULT_COST_BPS` ->`[25.0, 50.0, 75.0, 100.0]`.
+  - `tools.run_cost_sensitivity_sidecar.DEFAULT_BASELINE_BPS` ->`25.0`.
+  - `tools.run_cost_sensitivity_sidecar.run_level(target_book, price_cache, portfolio_kind, cost_bps, starting_capital, fill_mode, max_fill_lag_days)` ->runs a single broker-ledger replay at the given cost level in a temp directory and returns its metrics dict.
+  - `tools.run_cost_sensitivity_sidecar.summarize(metrics, baseline)` ->extracts per-level row including baseline-relative deltas when a baseline row is supplied.
+  - `tools.run_cost_sensitivity_sidecar.render_report(payload)` ->renders the Markdown comparison table.
+  - `tools.run_cost_sensitivity_sidecar.run(target_book, price_cache, output_dir, portfolio_kind, cost_bps_list, starting_capital, fill_mode, max_fill_lag_days, baseline_cost_bps)` ->orchestrates the sweep and writes summary + report.
+  - `tools.run_cost_sensitivity_sidecar.parse_args()` ->CLI parser.
+  - `tools.run_cost_sensitivity_sidecar.main()` ->CLI entrypoint.
+  - `tools.auto_policy_challenger._cost_sensitivity_gate_row(main_summary, concentrated_summary, expected_cost_levels)` ->emits a hard gate row that passes iff both summaries match the sidecar schema and report at least the required number of completed levels.
+  - `tools.auto_policy_challenger.DEFAULT_COST_SENSITIVITY_MAIN` ->`outputs/cost_sensitivity/main/summary.json`.
+  - `tools.auto_policy_challenger.DEFAULT_COST_SENSITIVITY_CONCENTRATED` ->`outputs/cost_sensitivity/concentrated/summary.json`.
+  - `tests/cost_sensitivity_sidecar_smoke.py::test_cost_sensitivity_sweep_emits_four_levels_and_monotonic_cost_drag()` ->end-to-end check on 60-bday synthetic data.
+  - `tests/cost_sensitivity_sidecar_smoke.py::test_cost_sensitivity_handles_single_level()` ->edge-case check on a single-level sweep.
+  - `tests/auto_policy_challenger_smoke.py::test_cost_sensitivity_gate_passes_when_all_levels_present_for_both_portfolios()`
+  - `tests/auto_policy_challenger_smoke.py::test_cost_sensitivity_gate_fails_when_summary_missing_for_either_portfolio()`
+  - `tests/auto_policy_challenger_smoke.py::test_cost_sensitivity_gate_fails_when_required_level_count_not_met()`
+  - `tests/auto_policy_challenger_smoke.py::test_cost_sensitivity_gate_fails_when_schema_version_mismatched()`
+- symbols_changed:
+  - `tools.auto_policy_challenger.evaluate_challenger(...)` ->accepts `cost_sensitivity_main` and `cost_sensitivity_concentrated` kwargs; the cost-sensitivity gate now reads from these instead of hardcoded `False`.
+  - `tools.auto_policy_challenger.main()` ->loads both cost-sensitivity summaries via `read_json` and forwards to `evaluate_challenger`.
+- config_fields_added:
+  - `--cost-sensitivity-main: str = "outputs/cost_sensitivity/main/summary.json"` ->challenger CLI override.
+  - `--cost-sensitivity-concentrated: str = "outputs/cost_sensitivity/concentrated/summary.json"` ->challenger CLI override.
+  - `--cost-bps-list: list[float] = [25, 50, 75, 100]` ->sidecar CLI flag.
+  - `--baseline-cost-bps: float = 25.0` ->sidecar CLI flag for baseline-relative deltas.
+- breaking_changes:
+  - none for production. The challenger's `cost_sensitivity_backtested` row previously always failed (hard, `observed="not_available"`). It still fails until the sidecar publishes results, but now it can pass once sidecar coverage is in place; that is the intended unblocking path.
+- outputs:
+  - `outputs/cost_sensitivity/main/summary.json` and `report.md` ->per-portfolio cost-sensitivity sweep.
+  - `outputs/cost_sensitivity/concentrated/summary.json` and `report.md` ->per-portfolio cost-sensitivity sweep.
+  - `outputs/full_rebuild_logs/cost_sensitivity_main.log` and `cost_sensitivity_concentrated.log` ->workflow stdout/stderr capture for both runs.
+- validation:
+  - `py -3 tests/cost_sensitivity_sidecar_smoke.py` ->PASS (2 tests).
+  - `py -3 tests/auto_policy_challenger_smoke.py` ->PASS (8 tests, 4 new for cost gate).
+  - `py -3 tests/workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools/run_pr_validation.py` ->PASS, 17/17 in 22.00 s.
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89.
+- risks_or_notes:
+  - The sidecar reruns the full broker-ledger replay at each cost level. On the cloud runner with the production 84-month target book, four replays add proportional cost; budget roughly 4x the single-replay runtime per portfolio (still small compared with the full rebuild). If runtime becomes a problem, narrow the sweep via `--cost-bps-list` rather than disabling the gate.
+  - The challenger now hard-fails on cost sensitivity unless BOTH `outputs/cost_sensitivity/main/summary.json` and `outputs/cost_sensitivity/concentrated/summary.json` exist with schema `cost-sensitivity-sidecar-v1` and at least one completed level per required `cost_bps` step. A run that skips the sidecar (for example through a curtailed Tier 2 dispatch) will block promotion. Tier 2 / Tier 3 manual workflows include the sidecar by default; ad-hoc runs that intentionally skip it must accept the gate failure.
+  - Cost-sensitivity is a stress test, not a strategy lever. A weekly-leader candidate that holds up at 100 bps but loses at 50 bps signals turnover that is not absorbed by alpha; the right response is to tune entry frequency or exit symmetry, not to raise the threshold.
+  - The broker-accounting hard gates from the 16:16 KST entry still block production promotion. Cost-sensitivity passing only retires one of the seven `next_required_backtests` items; A1/A2 must still land.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
