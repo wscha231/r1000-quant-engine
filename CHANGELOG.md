@@ -582,6 +582,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is research-only; weekly leader books can raise turnover and must pass broker-ledger, stress-window, cost-sensitivity, and human review gates before promotion.
   - Candidate eligibility is PIT monthly, while weekly price features are computed from bars available at each weekly signal date; full daily fundamental rescoring remains intentionally out of scope for GitHub fullrun cost control.
 
+### 14:55 KST - broker-ledger-correctness-smoke-and-phase17v3-port-decision
+
+- scope:
+  - Add broker-ledger replay correctness smoke tests that document two known biases (delisted cost-basis fallback, multi-day fill date stamping) and verify two correctness invariants (no look-ahead under next_close fill, long-horizon equity-curve continuity). Also records the architectural decision to not port unmerged Phase 17 v3 cadence workflows from `origin/claude/analyze-updated-code-OfEbu`; that decision was already documented at `PHASE17_19_INTEGRATION_NOTES.md:72-79` but was not surfaced in the change log.
+- files:
+  - `tests/broker_ledger_correctness_smoke.py` ->four new smoke tests exercising delisted-position equity treatment, multi-day fill date stamping, look-ahead-free `next_close` fills, and 1-year synthetic equity-curve continuity.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `broker_ledger_correctness_smoke._write_px(cache_dir, ticker, closes, start)` ->writes a synthetic `Open/Close/Adj Close/Volume` parquet for a ticker.
+  - `broker_ledger_correctness_smoke.test_delisted_position_currently_marks_at_cost_basis()` ->asserts observed cost-basis fallback behavior at `run_broker_ledger_replay.py:313-315`; flip this assertion when the fallback is replaced.
+  - `broker_ledger_correctness_smoke.test_multi_day_fill_uses_min_fill_date_for_stamp()` ->asserts observed min-fill-date trade stamping at `run_broker_ledger_replay.py:552-611`; flip this assertion when per-ticker actual_dt stamping lands.
+  - `broker_ledger_correctness_smoke.test_no_look_ahead_in_next_close_fills()` ->verifies every trade with `fill_mode=next_close` has `fill_date > signal_date`.
+  - `broker_ledger_correctness_smoke.test_long_horizon_equity_curve_continuous()` ->verifies a 252-bday synthetic replay produces a strictly increasing, gap-bounded, NaN-free, positive equity curve with unique dates.
+  - `broker_ledger_correctness_smoke.main()` ->CLI entrypoint that runs all four tests and prints `broker_ledger_correctness_smoke: PASS` on success.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests/broker_ledger_correctness_smoke.py` ->PASS (4/4; two tests document known biases and will need their assertions flipped when fixes land).
+  - `py -3 tests/broker_ledger_replay_smoke.py` ->PASS (existing replay coverage unchanged).
+  - `py -3 tests/weekly_leader_target_books_smoke.py` ->PASS (weekly leader sidecar still green).
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89.
+- risks_or_notes:
+  - Two of the four new tests intentionally assert observed buggy behavior so the suite stays green. The TODO blocks inside the test file describe the desired post-fix assertion. When `run_broker_ledger_replay.py:313-315` is changed so that dead positions are not marked at cost basis (zero-mark or zombie clearance), the assertion in `test_delisted_position_currently_marks_at_cost_basis` must be flipped to expect `market_value_usd ~= 0` or row absence. When `run_broker_ledger_replay.py:552-611` is changed so each trade is stamped with its own per-ticker `actual_dt`, the assertion in `test_multi_day_fill_uses_min_fill_date_for_stamp` must be flipped to expect distinct dates per ticker.
+  - Investigation of `origin/claude/analyze-updated-code-OfEbu` confirmed that `tools/auto_baseline_rotation.py`, `.github/workflows/auto_baseline_rotation_weekly.yml`, `.github/workflows/macro_daily_snapshot.yml`, `.github/workflows/etf_leadership_daily.yml`, `.github/workflows/explosive_pattern_train_monthly.yml`, and `.github/workflows/tactical_backtest_monthly.yml` are *intentionally* not in HEAD. The four ``*_daily.yml/*_monthly.yml`` workflows were consolidated into `after_close_daily.yml` / `weekly_data_refresh.yml` / `monthly_research.yml` per `AUTOMATION_STRATEGY.md` (and are explicitly retired in `tests/smoke_test.py::regression.workflow_topology_consolidated`). `auto_baseline_rotation_weekly.yml` is deferred per `PHASE17_19_INTEGRATION_NOTES.md:74-75`. Future agents do not need to re-investigate these candidates.
+  - These smoke tests are additive and do not affect any in-flight cloud run.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
