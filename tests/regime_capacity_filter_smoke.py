@@ -15,8 +15,10 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.run_regime_capacity_filter import (  # noqa: E402
     DEFAULT_REGIME_MULTIPLIERS,
     apply_filter,
+    build_regime_map_from_book,
     dominant_regime,
     parse_multipliers_arg,
+    regime_map_lookup,
     run,
 )
 
@@ -124,6 +126,63 @@ def test_run_writes_csv_and_diagnostics() -> None:
         assert diag_path.exists()
 
 
+def test_external_regime_map_overrides_missing_column() -> None:
+    """Iter 4 unblock: concentrated book has regime_state mostly null.
+    With an external regime_map supplied (typically derived from main
+    book), the filter must still dampen on bear/deep_bear dates."""
+    # Concentrated-style book: no regime_state column at all.
+    book = pd.DataFrame([
+        {"rebalance_date": "2020-02-29", "ticker": "AAA", "weight": 0.50},
+        {"rebalance_date": "2020-03-31", "ticker": "AAA", "weight": 0.50},
+        {"rebalance_date": "2020-04-30", "ticker": "AAA", "weight": 0.50},
+        {"rebalance_date": "2020-05-29", "ticker": "AAA", "weight": 0.50},
+    ])
+    external_map = {
+        pd.Timestamp("2020-02-29"): "bear",
+        pd.Timestamp("2020-03-31"): "deep_bear",
+        pd.Timestamp("2020-04-30"): "bear",
+        pd.Timestamp("2020-05-29"): "neutral",
+    }
+    out, decisions = apply_filter(book, regime_map=external_map)
+    out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
+    weights = out.set_index("rebalance_date")["weight"]
+    assert float(weights[pd.Timestamp("2020-02-29")]) == 0.25
+    assert float(weights[pd.Timestamp("2020-03-31")]) == 0.125
+    assert float(weights[pd.Timestamp("2020-04-30")]) == 0.25
+    assert float(weights[pd.Timestamp("2020-05-29")]) == 0.50
+
+
+def test_build_regime_map_from_book_takes_dominant_per_date() -> None:
+    src = pd.DataFrame([
+        {"rebalance_date": "2020-03-31", "ticker": "AAA", "regime_state": "deep_bear"},
+        {"rebalance_date": "2020-03-31", "ticker": "BBB", "regime_state": "deep_bear"},
+        {"rebalance_date": "2020-04-30", "ticker": "AAA", "regime_state": "bear"},
+        {"rebalance_date": "2020-05-29", "ticker": "AAA", "regime_state": "neutral"},
+        {"rebalance_date": "2020-05-29", "ticker": "BBB", "regime_state": "bull"},
+    ])
+    regime_map = build_regime_map_from_book(src)
+    assert regime_map[pd.Timestamp("2020-03-31")] == "deep_bear"
+    assert regime_map[pd.Timestamp("2020-04-30")] == "bear"
+    # 2020-05-29 has neutral and bull tied; mode returns smallest alphabetically
+    # (pandas behavior). We just assert it's one of the input labels.
+    assert regime_map[pd.Timestamp("2020-05-29")] in {"neutral", "bull"}
+
+
+def test_regime_map_lookup_carries_forward_to_undefined_dates() -> None:
+    rm = {
+        pd.Timestamp("2020-02-29"): "bear",
+        pd.Timestamp("2020-05-29"): "bull",
+    }
+    # Date BEFORE any entry: returns unknown.
+    assert regime_map_lookup(rm, pd.Timestamp("2020-01-31")) == "unknown"
+    # Date matching an entry exactly: returns that entry.
+    assert regime_map_lookup(rm, pd.Timestamp("2020-02-29")) == "bear"
+    # Date between entries: returns most recent prior.
+    assert regime_map_lookup(rm, pd.Timestamp("2020-03-15")) == "bear"
+    # Date after last entry: returns last entry.
+    assert regime_map_lookup(rm, pd.Timestamp("2020-12-31")) == "bull"
+
+
 def main() -> int:
     test_bear_regime_halves_weights()
     test_deep_bear_quarters_weights()
@@ -133,6 +192,9 @@ def main() -> int:
     test_parse_multipliers_arg()
     test_missing_regime_column_yields_no_op_pass_through()
     test_run_writes_csv_and_diagnostics()
+    test_external_regime_map_overrides_missing_column()
+    test_build_regime_map_from_book_takes_dominant_per_date()
+    test_regime_map_lookup_carries_forward_to_undefined_dates()
     print("regime_capacity_filter_smoke: ok")
     return 0
 

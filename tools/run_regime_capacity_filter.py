@@ -85,15 +85,64 @@ def dominant_regime(values: pd.Series) -> str:
     return str(mode.iloc[0])
 
 
+def build_regime_map_from_book(source_book: pd.DataFrame) -> dict[pd.Timestamp, str]:
+    """Derive a {rebalance_date -> dominant regime label} map from a
+    source book. The map is sorted by date; callers should look up each
+    target rebalance_date with `regime_map_lookup` so missing dates fall
+    back to the most recent prior label.
+    """
+    if source_book.empty or "rebalance_date" not in source_book.columns or "regime_state" not in source_book.columns:
+        return {}
+    src = source_book.copy()
+    src["rebalance_date"] = pd.to_datetime(src["rebalance_date"], errors="coerce")
+    src = src.dropna(subset=["rebalance_date"])
+    out: dict[pd.Timestamp, str] = {}
+    for date in sorted(src["rebalance_date"].unique()):
+        label = dominant_regime(src.loc[src["rebalance_date"] == date, "regime_state"])
+        out[pd.Timestamp(date)] = label
+    return out
+
+
+def regime_map_lookup(regime_map: dict[pd.Timestamp, str], date: pd.Timestamp) -> str:
+    """Look up the regime for a date. Returns the regime for the most
+    recent map entry on-or-before the queried date. If the queried date
+    predates the entire map, returns 'unknown'.
+    """
+    if not regime_map:
+        return "unknown"
+    sorted_dates = sorted(regime_map.keys())
+    target = pd.Timestamp(date)
+    pos = -1
+    for i, d in enumerate(sorted_dates):
+        if d <= target:
+            pos = i
+        else:
+            break
+    if pos < 0:
+        return "unknown"
+    return regime_map.get(sorted_dates[pos], "unknown")
+
+
 def apply_filter(
     book: pd.DataFrame,
     *,
     multipliers: dict[str, float] = None,
+    regime_map: dict[pd.Timestamp, str] | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Halve / quarter / etc. non-cash weights on dates whose regime
+    matches an entry in `multipliers`.
+
+    Regime source (in order of precedence):
+        1. ``regime_map`` argument if supplied. Useful for borrowing a
+           sibling book's regime calendar when the target book is
+           missing the column (concentrated borrows main).
+        2. Otherwise the book's own ``regime_state`` column.
+    """
     mult = multipliers if multipliers is not None else DEFAULT_REGIME_MULTIPLIERS
     if book.empty or "rebalance_date" not in book.columns or "weight" not in book.columns:
         return book, []
-    if "regime_state" not in book.columns:
+    use_external_map = regime_map is not None and len(regime_map) > 0
+    if not use_external_map and "regime_state" not in book.columns:
         return book, [{"rebalance_date": None, "regime": "no_regime_column", "multiplier": 1.0, "rows_affected": 0}]
     out = book.copy()
     out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
@@ -102,7 +151,10 @@ def apply_filter(
     decisions: list[dict[str, Any]] = []
     for date in sorted(out["rebalance_date"].unique()):
         date_mask = out["rebalance_date"] == date
-        regime_label = dominant_regime(out.loc[date_mask, "regime_state"])
+        if use_external_map:
+            regime_label = regime_map_lookup(regime_map, pd.Timestamp(date))
+        else:
+            regime_label = dominant_regime(out.loc[date_mask, "regime_state"])
         factor = float(mult.get(regime_label, 1.0))
         if factor >= 1.0 - 1e-12:
             decisions.append({
@@ -130,6 +182,7 @@ def run(
     output_book: Path,
     diagnostics_path: Path,
     multipliers: dict[str, float] = None,
+    regime_source_book: Path | None = None,
 ) -> dict[str, Any]:
     mult = multipliers if multipliers is not None else DEFAULT_REGIME_MULTIPLIERS
     if not input_book.exists():
@@ -145,7 +198,11 @@ def run(
         payload = {"status": "blocked", "reason": "empty input book", "input_book": str(input_book)}
         write_json(diagnostics_path, payload)
         return payload
-    filtered, decisions = apply_filter(book, multipliers=mult)
+    regime_map: dict[pd.Timestamp, str] | None = None
+    if regime_source_book is not None and Path(regime_source_book).exists():
+        source = pd.read_csv(regime_source_book, low_memory=False)
+        regime_map = build_regime_map_from_book(source)
+    filtered, decisions = apply_filter(book, multipliers=mult, regime_map=regime_map)
     out_for_csv = filtered.copy()
     if "rebalance_date" in out_for_csv.columns:
         out_for_csv["rebalance_date"] = pd.to_datetime(out_for_csv["rebalance_date"], errors="coerce").dt.date.astype(str)
@@ -171,6 +228,8 @@ def run(
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "input_book": str(input_book),
         "output_book": str(output_book),
+        "regime_source_book": str(regime_source_book) if regime_source_book is not None else None,
+        "regime_source_dates": len(regime_map) if regime_map is not None else 0,
         "multipliers": {k: float(v) for k, v in mult.items()},
         "rebalance_dates_total": n_total,
         "rebalance_dates_dampened": n_dampened,
@@ -214,6 +273,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Comma-separated regime=factor overrides, e.g. 'bear=0.5,deep_bear=0.25'. Unspecified regimes default to 1.0.",
     )
+    parser.add_argument(
+        "--regime-source-book",
+        default="",
+        help="Optional path to a sibling book whose regime_state column drives the dampening calendar. Useful when the input book is missing the column (concentrated borrows main).",
+    )
     return parser.parse_args()
 
 
@@ -225,6 +289,7 @@ def main() -> int:
         output_book=repo_path(args.output_book),
         diagnostics_path=repo_path(args.diagnostics),
         multipliers=multipliers,
+        regime_source_book=repo_path(args.regime_source_book) if args.regime_source_book else None,
     )
     print(json.dumps({k: v for k, v in payload.items() if k != "decisions_sample"}, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

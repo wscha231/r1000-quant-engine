@@ -1045,6 +1045,53 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Deep_bear factor 0.25 is aggressive**. Only 1 date in the latest run uses it (2020-03-31), so the practical sensitivity is low; reverting to 0.50 if Iter 4 shows whipsaw cost is one line change in DEFAULT_REGIME_MULTIPLIERS or via the `--multipliers` CLI override.
   - **Iter 2 macro circuit breaker is preserved in code and workflow**. It will continue to log SPY-not-found in Tier-2 until the cache wiring is fixed. The two filters layer harmlessly: if SPY becomes available later, macro_circuit_broker_replay outputs will start populating alongside regime_capacity_broker_replay.
 
+### 21:19 KST - overnight-loop-iter4-concentrated-regime-source-borrow
+
+- scope:
+  - **Overnight attribution loop, Iteration 4.** Iter 3 (regime_state-based capacity filter) was measured in Tier-2 run 25732244706. Main: Δ CAGR -3.05pp / Δ MaxDD +1.24pp better (-28.63% -> -27.38%) / Δ Sharpe -0.017 / Calmar 0.77 -> 0.69. Concentrated: ZERO CHANGE. Investigation: the operating concentrated book's `regime_state` column is null for 23,475 of 23,479 rows (99.98%) — the source `concentrated_strategy_holdings.csv` does not carry the regime label that `main_monthly_weights.csv` does. With no usable regime label, the Iter 3 filter saw "unknown" on 83/84 concentrated dates and dampened nothing. Concentrated needs the same broad-market regime gate but the data has to be borrowed from main.
+- iter4_hypothesis:
+  - Add `--regime-source-book` flag to `tools/run_regime_capacity_filter.py`. When supplied, the filter derives a `{date -> dominant_regime}` map from the source book and applies it to the input book regardless of the input's own regime_state column. Concentrated now uses `operating_main_target_book.csv` as its regime source. The broad-market regime label is identical between main and concentrated (it is a market-wide signal); only the per-portfolio coverage was missing.
+  - Real-data preview on the latest concentrated book: 17 dates dampened (matching main exactly), 4,215 stock rows touched at 0.5x on bear dates plus 147 rows at 0.25x on deep_bear, weight_dropped_total 466.5. Champion filter (target_stock_names=4) picks one combo per month; on bear/deep_bear dates that combo's 4 names will all have weights halved/quartered.
+- iter4_brainstorm_options_considered:
+  1. **Borrow regime calendar from main book** ← CHOSEN. Smallest possible code change (one new flag). Targets the highest-leverage gap (concentrated -36.74% -> -25% target = 12pp). Reuses already-working machinery.
+  2. **Backfill regime label in `build_operating_target_books.py`**. More invasive — touches engine-adjacent code, risk of breaking other consumers.
+  3. **Tighten Main multipliers (bear=0.4, deep_bear=0.10)**. Iter 3 showed Main got +1.24pp MaxDD for -3.05pp CAGR; tightening would worsen the Calmar trade unless concentrated drives the gap first.
+  4. **Layer F4 single-trade trailing dampener on concentrated**. Per-position stop. Higher risk of cutting NVDA/SMCI-style winners during shakeouts; user pre-flagged this.
+  5. **Prior-month carry**: if last month was bear, also halve next month. Could help main's slow-fire bear label but does nothing for concentrated which had no labels at all.
+  6. **Bull-stretched detector**: portfolio realized vol > 25% in a bull-labeled month -> halve. Would need to compute portfolio vol from broker_replay output; chicken-and-egg.
+  7. **VIX/macro_policy_engine bridge**: macro_policy_engine produces a regime signal; adapt its schema into the filter. Bigger surface area than borrowing from main.
+- files:
+  - `tools/run_regime_capacity_filter.py` ->add `build_regime_map_from_book(source)`, `regime_map_lookup(map, date)`, extend `apply_filter` and `run` to accept `regime_map` / `regime_source_book` kwargs. Add `--regime-source-book` CLI flag. Diagnostics payload now includes `regime_source_book` and `regime_source_dates` fields.
+  - `tests/regime_capacity_filter_smoke.py` ->three new tests: external regime map overrides missing column, build_regime_map_from_book takes dominant per date, regime_map_lookup carries forward to undefined dates.
+  - `.github/workflows/full_rebuild_manual.yml` ->concentrated regime_capacity_filter step now uses `--regime-source-book outputs/reports/operating_main_target_book.csv`.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->mirror in Tier-2 workflow.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `tools.run_regime_capacity_filter.build_regime_map_from_book(source)`
+  - `tools.run_regime_capacity_filter.regime_map_lookup(map, date)`
+  - `tests/regime_capacity_filter_smoke.py::test_external_regime_map_overrides_missing_column`
+  - `tests/regime_capacity_filter_smoke.py::test_build_regime_map_from_book_takes_dominant_per_date`
+  - `tests/regime_capacity_filter_smoke.py::test_regime_map_lookup_carries_forward_to_undefined_dates`
+- symbols_changed:
+  - `apply_filter(book, multipliers, regime_map=None)` ->new optional `regime_map` kwarg overrides the book's own regime_state column when supplied.
+  - `run(input_book, output_book, diagnostics_path, multipliers, regime_source_book=None)` ->new optional `regime_source_book` kwarg; when set, loads the source and builds a regime map before filtering.
+- config_fields_added:
+  - `--regime-source-book PATH` CLI override.
+- breaking_changes:
+  - none. Existing callers (main) ignore the new flag; concentrated workflow callers add the new flag.
+- outputs:
+  - same files as Iter 3 plus diagnostics now record `regime_source_book` and `regime_source_dates` for audit.
+- validation:
+  - `py -3 tests/regime_capacity_filter_smoke.py` ->PASS (11 tests, 3 new).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 21/21 in 23.36 s.
+  - `py -3 tools/run_regime_capacity_filter.py --input-book ...operating_concentrated_target_book.csv --regime-source-book ...operating_main_target_book.csv` ->17 dampened dates, 4215 bear rows + 147 deep_bear rows, weight_dropped 466.5.
+  - YAML parse for both updated workflows ->OK.
+- risks_or_notes:
+  - **Concentrated now uses main's regime calendar verbatim**. This is correct conceptually (regime is market-wide) but means any quality issue in main's regime label propagates to concentrated. If main mislabels a quiet month as bear, concentrated will under-allocate in that month too.
+  - **Iter 3 already exposed a Main Calmar regression** (0.77 -> 0.69). Iter 4 does not address that. If concentrated also Calmar-regresses, the loop should pivot rather than tighten. Iter 5 should consider relaxing main's multipliers if Calmar continues to drift.
+  - **The base concentrated MDD is COVID 2020-02-19 to 2020-03-16, exactly the deep_bear month**. The filter should activate at deep_bear 0.25x for that month. If concentrated MDD does NOT drop materially, it means COVID-specific moves happen WITHIN a single month (Feb 19 to Mar 16 spans Feb + March book entries); the monthly granularity of the regime calendar cannot catch all of it. Iter 5 may need intra-month staging or a sharper trigger.
+  - **Iter 5 / Iter 6 budget remaining: 2 iterations**. After this run we have data on concentrated AND tighter-knob options. If stop B not yet hit, Iter 5 should pivot decisively (e.g. concentrated single-name cap reduction in bear regime, or layer F4 trailing dampener with strict gating).
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
