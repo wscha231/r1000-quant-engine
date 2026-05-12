@@ -647,6 +647,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - Future smoke tests should be appended to `tools/run_pr_validation.py::DEFAULT_TESTS` so the local runner and the CI workflow stay aligned. If a smoke test takes more than ~10 s, gate it behind `--include` instead of adding it to the default list so the Tier-1 runtime budget stays under five minutes.
   - The `audit_features.py --no-runtime` flag is required; the runtime audit needs real-data artifacts that do not exist on a fresh checkout and would push Tier 1 well past its target runtime.
 
+### 16:13 KST - autolearning-counterfactual-sharpe-gate
+
+- scope:
+  - Add a Sharpe-regression guard to the AutoLearning v2 counterfactual tester. The previous discovery gate accepted any weekly-leader candidate that improved CAGR and did not worsen MaxDD by more than 5pp, which allowed a CAGR-only win that collapsed Sharpe (e.g. through high-vol concentration) to register as `passed_discovery`. The new gate additionally requires `sharpe_delta >= -0.10`. The same Sharpe regression cap is applied to the generic `production_ready` check.
+- files:
+  - `auto_learning_v2/counterfactual_tester.py` ->add `MAX_SHARPE_REGRESSION` and `MAX_MAXDD_REGRESSION_PP` module-level constants, apply Sharpe guard inside both `_weekly_leader_counterfactual` and the generic `production_ready` evaluation, and surface the active thresholds as a `discovery_gate` block in the weekly-leader result so future readers can audit the gate without grepping for literals.
+  - `tests/auto_learning_v2_smoke.py` ->extend `test_weekly_leader_counterfactual_feeds_autolearning` to verify the `discovery_gate` block is published; add `test_weekly_leader_counterfactual_blocks_sharpe_regression` covering a candidate with `cagr_delta=+10pp`, `maxdd_delta=0pp`, `sharpe_delta=-0.60` that must NOT pass.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `auto_learning_v2.counterfactual_tester.MAX_SHARPE_REGRESSION` ->Sharpe-ratio drop threshold; gates fail when `sharpe_delta < -MAX_SHARPE_REGRESSION` (default 0.10).
+  - `auto_learning_v2.counterfactual_tester.MAX_MAXDD_REGRESSION_PP` ->MaxDD percentage-point regression threshold; gates fail when `maxdd_delta_pp < MAX_MAXDD_REGRESSION_PP` (default -5.0).
+  - `tests/auto_learning_v2_smoke.py::test_weekly_leader_counterfactual_blocks_sharpe_regression()` ->regression test that verifies the Sharpe gate blocks a Sharpe-collapse candidate.
+- symbols_changed:
+  - `auto_learning_v2.counterfactual_tester._weekly_leader_counterfactual(root, hypothesis_id)` ->discovery `passed` now also requires `sharpe_delta >= -MAX_SHARPE_REGRESSION`; the returned row publishes a `discovery_gate` block describing the active CAGR / MaxDD / Sharpe thresholds.
+  - `auto_learning_v2.counterfactual_tester.build_counterfactual_results(hypotheses, root)` ->generic `production_ready` now also requires `sharpe_delta is None or sharpe_delta >= -MAX_SHARPE_REGRESSION`.
+  - `tests/auto_learning_v2_smoke.py::test_weekly_leader_counterfactual_feeds_autolearning` ->asserts the published `discovery_gate` exposes `sharpe_delta_min == -0.10` and `maxdd_delta_pp_min == -5.0`.
+- config_fields_added:
+  - none (Sharpe / MaxDD thresholds are module constants; if they should be tunable per hypothesis, lift them into the policy candidate schema in a follow-up commit).
+- breaking_changes:
+  - none for production: AutoLearning was already proposal-only with `production_activation_allowed=False`. This commit tightens an internal discovery flag that gates whether AutoLearning's policy candidate builder advertises a hypothesis as "passed_discovery".
+- outputs:
+  - `discovery_gate` block now appears inside each weekly-leader counterfactual result written into AutoLearning v2 artifacts.
+- validation:
+  - `py -3 tests/auto_learning_v2_smoke.py` ->PASS (4 tests including new Sharpe-regression block).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 15/15 in 23.37 s.
+  - `py -3 tests/smoke_test.py` ->PASS, 89/89.
+- risks_or_notes:
+  - `MAX_SHARPE_REGRESSION = 0.10` is a starting threshold. If walk-forward Sharpe noise on the 84-month broker-ledger ledger is meaningfully larger than 0.10 in practice, this gate will block harmless noise; loosen the constant only after measuring the noise floor on a clean baseline run.
+  - The generic `production_ready` path treats `sharpe_delta is None` as pass-through (so experiments that do not publish `sharpe_delta_pp` are unaffected). The weekly-leader path always computes `sharpe_delta` from the broker-ledger metrics, so the gate is binding there.
+  - AutoLearning still cannot mutate production. This gate only changes which hypotheses are surfaced to the human reviewer as "passed_discovery"; promotion remains gated by `auto_policy_challenger.py`, which is the next target (C5).
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment

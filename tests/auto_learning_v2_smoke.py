@@ -85,10 +85,46 @@ def test_weekly_leader_counterfactual_feeds_autolearning() -> None:
         assert rows[0]["experiment_id"] == "weekly_leader_entry_broker_replay"
         assert rows[0]["status"] == "counterfactual_available"
         assert rows[0]["passed_discovery"] is True
+        gate = rows[0].get("discovery_gate") or {}
+        assert gate.get("sharpe_delta_min") == -0.10
+        assert gate.get("maxdd_delta_pp_min") == -5.0
+
+
+def test_weekly_leader_counterfactual_blocks_sharpe_regression() -> None:
+    """A candidate that boosts CAGR but tanks Sharpe must not pass discovery.
+
+    Before C4 the gate was `cagr_delta > 0 AND maxdd_delta >= -5.0`. A
+    candidate that levered CAGR through high-vol concentration could pass
+    despite a Sharpe collapse. The Sharpe gate keeps AutoLearning from
+    promoting CAGR-only wins that destroy risk-adjusted return.
+    """
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "outputs" / "weekly_leader_broker_replay" / "concentrated").mkdir(parents=True)
+        (root / "outputs" / "broker_replay" / "concentrated").mkdir(parents=True)
+        # CAGR jumps +10pp and MaxDD is flat, but Sharpe collapses 1.10 -> 0.50.
+        (root / "outputs" / "weekly_leader_broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.45, "sharpe": 0.50, "max_dd": -0.22}),
+            encoding="utf-8",
+        )
+        (root / "outputs" / "broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.35, "sharpe": 1.10, "max_dd": -0.22}),
+            encoding="utf-8",
+        )
+        rows = build_counterfactual_results(
+            [{"id": "alpha_sprint_breakout_fallback_v1"}],
+            root,
+        )
+        assert rows[0]["passed_discovery"] is False, (
+            "Sharpe gate must block CAGR-only candidates that regress risk-adjusted return"
+        )
+        assert rows[0]["sharpe_delta"] < -0.10
+        assert rows[0]["cagr_delta_pp"] > 0.0
 
 
 if __name__ == "__main__":
     test_alpha_scientist_builds_proposal_only_candidate()
     test_auto_learning_v2_runner_writes_expected_outputs()
     test_weekly_leader_counterfactual_feeds_autolearning()
+    test_weekly_leader_counterfactual_blocks_sharpe_regression()
     print("auto_learning_v2_smoke: ok")
