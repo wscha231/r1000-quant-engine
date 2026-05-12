@@ -994,6 +994,57 @@ All entries must be written in English. Entries must be predictable and machine-
   - **2024-08 brief drop edge case**: SPY broke 200ma briefly in early August 2024 then recovered. Could be a false trigger that halves positions just before recovery. The 3-day confirm helps but not perfectly. Future iterations can tighten with VIX confirmation if Iter 2 shows whipsaw cost.
   - **No production-grade promotion**: this filter exists as a research sidecar. The operating books in production remain unchanged. Promotion requires the broker-accounting hard gates (A1 delisted cost-basis, A2 survivorship coverage) to flip true plus a human decision.
 
+### 20:43 KST - overnight-loop-iter3-regime-capacity-filter
+
+- scope:
+  - **Overnight attribution loop, Iteration 3.** Iter 2 (SPY 200ma macro circuit breaker) was measured in Tier-2 run 25730459480 and FAILED ON INFRASTRUCTURE not on hypothesis: the macro filter could not find SPY in the Tier-2 cache (Tier-2 reuses target books and tickers per the operating book, but does NOT pre-cache SPY benchmark). Diagnostics: `{"status":"blocked","reason":"SPY price series not found in price cache; tried ['SPY','^GSPC','^SPX']"}`. The downstream macro_circuit_broker_replay step never ran; no Iter 2 metrics exist. The hypothesis itself (cut exposure in confirmed bearish regimes) is preserved; only the data source pivots.
+- iter3_hypothesis:
+  - Use the regime_state label that is ALREADY embedded in the operating target books (PIT-computed by the engine). The label has six values: exceptional_bull / strong_bull / bull / neutral / bear / deep_bear. On the latest run's main operating book, regime distribution across 84 monthly dates: neutral 42, bull 23, bear 16, deep_bear 1, strong_bull 1, unknown 1. The bear + deep_bear dates (17/84 = 20.2%) line up with the months containing the headline MaxDDs: 2020-02 bear, 2020-03 deep_bear, 2020-04 bear, 2022 Apr-Dec all bear.
+  - Multiply non-cash weights by 0.5 on bear dates and 0.25 on deep_bear dates. Leave neutral/bull/strong_bull untouched (Iter 1 lesson: mechanical filters on neutral are fragile). Real-data preview: 17 dampened dates, total weight dropped 7.675 across 84 months (≈ 9.1% cash residue on dampened months).
+  - Why this is winners-safe: the regime label is an engine-level macro indicator, not per-stock price moves. NVDA / SMCI / MU single-name shakeouts do NOT shift the engine's regime_state from bull to bear. The filter only triggers on the engine's own confirmed broad-market regime calls.
+- iter3_brainstorm_options_considered:
+  1. **Regime-state-based capacity filter** ← CHOSEN. Internal signal; no external data dependency; uses what the engine already knows.
+  2. **Add yfinance SPY download to workflow setup**. Fixes Iter 2 directly but adds a network dependency and 30-60s of workflow time.
+  3. **Use SPY from per-ticker cache via build_weekly_leader_target_books's load path**. Same infrastructure issue — SPY is in some cache but not the broker_replay cache_prices dir in Tier-2.
+  4. **Substitute QQQ or VTI for SPY**. Same problem — broad index benchmarks are not in the per-ticker price cache.
+  5. **Use portfolio's own running drawdown as crisis indicator (post-replay feedback)**. Requires running broker_replay first, then a second pass — chicken-and-egg.
+  6. **Use VIX from FRED via macro_policy_engine output**. macro_policy_engine output exists but its schema differs; would require adapter work.
+  7. **Hardcode crisis dates from US recession calendar**. Look-ahead bias; rejected.
+- files:
+  - `tools/run_regime_capacity_filter.py` ->new tool. Reads operating book, derives dominant regime per rebalance_date from the embedded regime_state column, multiplies non-cash weights by a per-regime factor. Defaults: exceptional_bull 1.0, strong_bull 1.0, bull 1.0, neutral 1.0, bear 0.5, deep_bear 0.25. CLI `--multipliers "bear=0.5,deep_bear=0.25"` overrides allow tuning without code change.
+  - `tests/regime_capacity_filter_smoke.py` ->eight smoke tests covering halve-on-bear, quarter-on-deep-bear, neutral/bull pass-through, dominant-regime mode aggregation, custom multipliers, parse_multipliers_arg, no-regime-column graceful fallback, end-to-end run().
+  - `tools/run_pr_validation.py` ->add the new smoke to DEFAULT_TESTS.
+  - `.github/workflows/full_rebuild_manual.yml` ->run the regime-capacity filter on BOTH operating books (main and concentrated) after the macro circuit step (which keeps existing but will likely continue to fail SPY-not-found until cache wiring is fixed), then run broker-ledger replay on each filtered book. Include `outputs/regime_capacity_filter/` and `outputs/regime_capacity_broker_replay/` in the artifact upload list.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->mirror in the Tier-2 replay workflow.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - `tools.run_regime_capacity_filter.DEFAULT_REGIME_MULTIPLIERS` (dict mapping regime -> factor).
+  - `tools.run_regime_capacity_filter.dominant_regime(values)`
+  - `tools.run_regime_capacity_filter.apply_filter(book, multipliers)`
+  - `tools.run_regime_capacity_filter.run(input_book, output_book, diagnostics_path, multipliers)`
+  - `tools.run_regime_capacity_filter.parse_multipliers_arg(text)` (parses CLI overrides).
+  - eight tests in `tests/regime_capacity_filter_smoke.py`.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none (CLI flag `--multipliers` overrides per-regime factors).
+- breaking_changes:
+  - none. The original operating books are unchanged; filtered books are parallel artifacts.
+- outputs:
+  - `outputs/reports/operating_{main,concentrated}_target_book_regime_capacity_filtered.csv` ->filtered books.
+  - `outputs/regime_capacity_filter/{main,concentrated}/diagnostics.json` ->per-date decisions plus by-regime aggregate.
+  - `outputs/regime_capacity_broker_replay/{main,concentrated}/metrics.json` ->broker-ledger metrics on the filtered books, to be compared against baseline in Iter 4.
+- validation:
+  - `py -3 tests/regime_capacity_filter_smoke.py` ->PASS (8 tests).
+  - `py -3 tools/run_pr_validation.py` ->PASS, 21/21 in 22.54 s.
+  - `py -3 tools/run_regime_capacity_filter.py` against the latest run ->17 dates dampened (16 bear × 0.5 + 1 deep_bear × 0.25), weight_dropped_total 7.675 across 84 months.
+  - YAML parse for both updated workflows ->OK.
+- risks_or_notes:
+  - **The regime_state label is the engine's own diagnostic**. Its quality bounds the quality of this filter. If the engine mis-labels a sideways market as bear, the filter will under-allocate during a calm market and drag CAGR. If the engine mis-labels the early innings of a crash as neutral, the filter won't fire fast enough. The regime label's PIT correctness is itself an audit item but is out of scope for this iteration.
+  - **Cash residue intentional**: dampened months drop total weight below 1.0; the broker-ledger replay tolerates total < 1.05 and the residue is held as cash. No renormalization to remaining stocks.
+  - **Deep_bear factor 0.25 is aggressive**. Only 1 date in the latest run uses it (2020-03-31), so the practical sensitivity is low; reverting to 0.50 if Iter 4 shows whipsaw cost is one line change in DEFAULT_REGIME_MULTIPLIERS or via the `--multipliers` CLI override.
+  - **Iter 2 macro circuit breaker is preserved in code and workflow**. It will continue to log SPY-not-found in Tier-2 until the cache wiring is fixed. The two filters layer harmlessly: if SPY becomes available later, macro_circuit_broker_replay outputs will start populating alongside regime_capacity_broker_replay.
+
 ## 2026-05-11
 
 ### 23:33 KST - operating-current-portfolio-alignment
