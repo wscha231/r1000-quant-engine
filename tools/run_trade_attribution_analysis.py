@@ -158,6 +158,155 @@ def loss_by_group(losers: pd.DataFrame, group_col: str, pnl_col: str) -> dict[st
     }
 
 
+def yearly_cagr_from_equity(equity_df: pd.DataFrame) -> dict[str, Any]:
+    """Decompose CAGR by calendar year. Partial years are annualized.
+
+    Answers the question: did the headline CAGR come from a few outlier
+    years or is it broadly distributed? A point estimate of ``28.91%``
+    over 7 years means different things if the per-year split is
+    `{2020:45, 2021:35, 2022:-5, 2023:40, 2024:28, 2025:42}` vs
+    `{2020:100, 2021:5, 2022:5, ...}`.
+    """
+    if equity_df.empty or "date" not in equity_df.columns or "equity_usd" not in equity_df.columns:
+        return {}
+    eq = equity_df.copy()
+    eq["date"] = pd.to_datetime(eq["date"], errors="coerce")
+    eq = eq.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    eq["year"] = eq["date"].dt.year
+    out: dict[str, Any] = {}
+    for year, sub in eq.groupby("year"):
+        if len(sub) < 5:
+            continue
+        start_eq = float(sub["equity_usd"].iloc[0])
+        end_eq = float(sub["equity_usd"].iloc[-1])
+        if start_eq <= 0:
+            continue
+        n_days = int(len(sub))
+        ret = end_eq / start_eq - 1.0
+        if n_days >= 252:
+            cagr = ret
+        elif n_days > 1:
+            cagr = (1.0 + ret) ** (252.0 / n_days) - 1.0
+        else:
+            cagr = ret
+        out[str(int(year))] = {
+            "yearly_return": float(ret),
+            "annualized_cagr": float(cagr),
+            "days_observed": n_days,
+            "start_equity_usd": start_eq,
+            "end_equity_usd": end_eq,
+        }
+    return out
+
+
+def build_regime_calendar(latest_run: Path, portfolio_kind: str) -> dict[pd.Timestamp, str]:
+    """Build {rebalance_date -> dominant regime} map from the operating
+    book. Concentrated books usually have null regime_state; fall back
+    to the main book in that case so the calendar still resolves.
+    """
+    # Concentrated books often have regime_state null on ~all rows
+    # (the source `concentrated_strategy_holdings.csv` does not carry
+    # the engine's regime label). Try the portfolio's own book first,
+    # but fall through to the main book when the own book yields a
+    # near-empty calendar so concentrated analyses inherit main's
+    # market-wide regime signal.
+    candidates = [
+        latest_run / "reports" / f"operating_{portfolio_kind}_target_book.csv",
+        latest_run / "reports" / "operating_main_target_book.csv",
+    ]
+    best: dict[pd.Timestamp, str] = {}
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            book = pd.read_csv(path, low_memory=False, usecols=["rebalance_date", "regime_state"])
+        except Exception:
+            continue
+        if "regime_state" not in book.columns or "rebalance_date" not in book.columns:
+            continue
+        book["rebalance_date"] = pd.to_datetime(book["rebalance_date"], errors="coerce")
+        book = book.dropna(subset=["rebalance_date"])
+        out: dict[pd.Timestamp, str] = {}
+        for date, sub in book.groupby("rebalance_date"):
+            labels = sub["regime_state"].dropna().astype(str).str.strip().str.lower()
+            labels = labels[labels != ""]
+            if labels.empty:
+                continue
+            mode = labels.mode()
+            if mode.empty:
+                continue
+            out[pd.Timestamp(date)] = str(mode.iloc[0])
+        if len(out) > len(best):
+            best = out
+        # Heuristic: a usable calendar needs more than ~10 dates. Some
+        # books carry a stray non-null regime row from the latest target
+        # snapshot which alone is not enough.
+        if len(best) >= 10:
+            return best
+    return best
+
+
+def regime_for_date(date: pd.Timestamp, regime_calendar: dict[pd.Timestamp, str]) -> str:
+    """Return the regime label active on ``date`` (most recent
+    rebalance_date on or before). Returns 'unknown' before the calendar
+    starts.
+    """
+    if not regime_calendar:
+        return "unknown"
+    keys = sorted(regime_calendar.keys())
+    target = pd.Timestamp(date)
+    pos = -1
+    for i, k in enumerate(keys):
+        if k <= target:
+            pos = i
+        else:
+            break
+    if pos < 0:
+        return "unknown"
+    return regime_calendar.get(keys[pos], "unknown")
+
+
+def cagr_by_regime_from_equity(
+    equity_df: pd.DataFrame,
+    regime_calendar: dict[pd.Timestamp, str],
+) -> dict[str, Any]:
+    """Decompose CAGR by regime label. Days where the engine labeled the
+    market `bull` vs `bear` etc. are pooled separately; geometric mean
+    daily return per regime is annualized.
+
+    Answers the question: in which regime does this portfolio earn its
+    return? If `cagr_by_regime["bull"]` is the only positive bucket,
+    the strategy is a bull-market beta player. If `bear` is also
+    positive, real defensive alpha exists.
+    """
+    if equity_df.empty or not regime_calendar or "date" not in equity_df.columns:
+        return {}
+    eq = equity_df.copy()
+    eq["date"] = pd.to_datetime(eq["date"], errors="coerce")
+    eq = eq.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if len(eq) < 5:
+        return {}
+    eq["regime"] = eq["date"].apply(lambda d: regime_for_date(d, regime_calendar))
+    eq["daily_return"] = eq["equity_usd"].pct_change().fillna(0.0)
+    out: dict[str, Any] = {}
+    for regime, sub in eq.groupby("regime"):
+        if regime == "unknown" or len(sub) < 5:
+            continue
+        cumret = float((1.0 + sub["daily_return"]).prod())
+        n_days = int(len(sub))
+        if cumret <= 0:
+            annualized = -1.0
+        else:
+            annualized = float(cumret ** (252.0 / max(n_days, 1)) - 1.0)
+        out[str(regime)] = {
+            "annualized_cagr": annualized,
+            "total_return_in_regime": float(cumret - 1.0),
+            "days_in_regime": n_days,
+            "share_of_period": float(n_days / len(eq)),
+        }
+    return out
+
+
 def build_findings(
     *,
     portfolio_kind: str,
@@ -346,6 +495,9 @@ def analyze_portfolio(
     win_rate = float(len(winners) / max(len(winners) + len(losers), 1))
     avg_winner = float(winners[pnl_col].mean()) if not winners.empty else 0.0
     avg_loser = float(losers[pnl_col].mean()) if not losers.empty else 0.0
+    yearly_cagr = yearly_cagr_from_equity(equity)
+    regime_calendar = build_regime_calendar(latest_run, portfolio_kind)
+    cagr_by_regime = cagr_by_regime_from_equity(equity, regime_calendar)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "portfolio_kind": portfolio_kind,
@@ -358,6 +510,9 @@ def analyze_portfolio(
             "trade_count": metrics.get("trade_count"),
             "total_fees_usd": metrics.get("total_fees_usd"),
         },
+        "yearly_cagr": yearly_cagr,
+        "cagr_by_regime": cagr_by_regime,
+        "regime_calendar_size": int(len(regime_calendar)),
         "trade_pnl_distribution": {
             "round_trip_count": int(len(trade_journal)),
             "winners_count": int(len(winners)),
