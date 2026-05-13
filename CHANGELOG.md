@@ -51,6 +51,77 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-14
+
+### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
+
+- scope:
+  - Halt record for the CAGR-improvement loop Iter 1. The engineering change in commit `247cdf9` (`fix(alpha_sprint): NaN/inf falls through in _first_float`) unblocked the alpha_sprint sleeve which had been silently dormant 84/84 months because `_first_float` was returning the default on NaN inputs instead of falling through to the next candidate key. Tier-3 full rebuild run `25793942810` (head `247cdf9`) shipped the fix end-to-end and produced broker-ledger metrics for both portfolios. The Main portfolio MaxDD regressed from -28.63% to **-33.19%** (Δ -4.56pp WORSE), which exceeds the loop's hard-stop guardrail of `Main MaxDD < -32%`. Per the documented hard-stop procedure the loop is halted, this entry is written, and `ScheduleWakeup` is NOT called. The decision on whether to keep the NaN fix, roll it back, or pair it with a compensating MDD circuit breaker is escalated to the user.
+- iter1_measured_results:
+
+  | Portfolio | Metric | Baseline (pre-fix) | Iter 1 (post-fix) | Delta | Verdict |
+  | --- | --- | ---: | ---: | ---: | --- |
+  | Main | CAGR | 21.99% | 21.38% | -0.61pp | regressed |
+  | Main | MaxDD | -28.63% | **-33.19%** | **-4.56pp** | **HARD STOP** |
+  | Main | Sharpe | 1.062 | 1.026 | -0.036 | regressed |
+  | Main | Trades | 2464 | 2091 | -373 | fewer entries (alpha_sprint diverted) |
+  | Concentrated | CAGR | 35.76% | 37.35% | +1.59pp | improved |
+  | Concentrated | MaxDD | -36.74% | -37.89% | -1.15pp | slightly worse |
+  | Concentrated | Sharpe | 1.205 | 1.278 | +0.073 | improved |
+- alpha_sprint_status_change:
+  - Pre-fix: `inactive_no_bull_months_or_candidates` (universe gate rejected 100% of candidates because `market_cap_live` NaN was being treated as the resolved value instead of falling through to `mktcap` / historical).
+  - Post-fix: `completed`. Standalone alpha_sprint sleeve metrics: CAGR 0.22%, Sharpe 0.39, MaxDD -1.43% over its active months. Sleeve runs cleanly; its standalone return is small because alpha_sprint is opportunistic by design.
+- sleeve_distribution_latest_month_2026_05_12:
+  - core_compounder 65.8% (down from 71.1% pre-fix)
+  - future_winner 26.2% (up from 0% pre-fix — newly activated)
+  - early_scout 8.0% (up from 0% pre-fix — newly activated)
+  - alpha_sprint 0% in the latest month but historically active (see below)
+  - cash 0% (was 28.9% pre-fix)
+- sleeve_label_count_over_84_months:
+  - core_compounder: 1605 selections
+  - cash: 18
+  - future_winner: 5 (new activity)
+  - early_scout: 2 (new activity)
+  - alpha_sprint: appears in standalone backtest as `completed` even though monthly sleeve_label count is small; activity is concentrated in eligible bull months and shows up in trade-level attribution rather than dominant monthly labels.
+- five_box_verification:
+  - **data honesty PASS**: PIT discipline preserved; no leakage introduced; rebuild used phase-x0 source_run_id `25757175186` end-to-end.
+  - **score quality PASS**: `_first_float` now honors `math.isfinite`. Ten regression tests in `tests/alpha_sprint_first_float_smoke.py` cover NaN/inf/None/empty/unparseable/genuine-zero/three-key-chain. Local smoke shows alpha_sprint all-gate pass rate 0% -> 31.87%.
+  - **selection PARTIAL**: future_winner and early_scout activate in the latest month for the first time — qualitatively the right direction per user's "core_compounder 71.1% is wrong" critique. But the activated picks dragged Main MaxDD down, so selection quality at the level of which names enter is unverified.
+  - **metrics FAIL on Main**: MaxDD regressed -4.56pp; CAGR regressed -0.61pp; Sharpe regressed -0.036. The hard-stop guardrail trips here.
+  - **walk-forward UNVERIFIED**: `tools/run_trade_attribution_analysis.py` returned `No findings for main/concentrated` on this run, so `yearly_cagr` and `cagr_by_regime` breakdowns that would localize the MDD damage to a specific regime or year are not available. This is itself a follow-up item.
+- hard_stop_reason:
+  - Main MaxDD **-33.19% < -32% guardrail** => HALT per protocol step 5 of the loop spec: "Apply hard stop: if Main MaxDD < -32% OR Conc MaxDD < -40%, HALT (write CHANGELOG entry, do NOT ScheduleWakeup)." Concentrated MaxDD -37.89% remained within its -40% guardrail.
+- root_cause_interpretation:
+  - The pre-fix baseline was unintentionally MDD-suppressed by a bug. With the alpha_sprint sleeve forcibly dormant the engine was holding more cash / core_compounder during bull-tail months and therefore avoiding some bull-late drawdown that the now-activated sleeves participate in. The MDD regression is NOT evidence the fix is wrong — it is evidence the engine's risk envelope was being held in by an accident. The honest broker-ledger reality of the post-fix engine has a wider drawdown than the previous "broken" baseline reported.
+  - Two facts support this reading:
+    1. Concentrated CAGR/Sharpe both IMPROVED with only a -1.15pp MaxDD cost (Sharpe +0.073). If the fix were purely harmful both portfolios would show Sharpe regression.
+    2. The activated sleeves (future_winner, early_scout) are exactly the ones the user flagged as "where real money is made" in trade-journal attribution.
+- recommendation_for_user_decision:
+  - **(a) accept fix + pair with MDD circuit breaker (recommended path)**: Keep `247cdf9` in place. Add a top-level MDD circuit breaker that dampens sleeve exposure when realized 6M MaxDD exceeds 20% — this is the regime-conditioned capacity gating mechanism that worked in the prior overnight loop's Iter 4. Estimated MDD recovery: 2-4pp on Main based on Iter 4 numbers.
+  - **(b) roll back the NaN fix**: Revert `247cdf9`. The engine returns to the pre-fix MDD profile but at the cost of permanently disabling alpha_sprint via a silent bug. This is operationally easy but engineering-dishonest — the bug would still be present, just unfixed.
+  - **(c) investigate which sleeve activation drove MDD regression**: Decompose Iter 1 MaxDD by sleeve_label (per-month sleeve attribution to drawdown contribution) before deciding on (a) vs (b). Requires a follow-up tool run (extend `tools/run_trade_attribution_analysis.py` with sleeve-conditional MaxDD) and a new Tier-3 measurement. Slower but most informed decision.
+- files:
+  - `CHANGELOG.md` ->records the Iter 1 halt entry and the user-decision recommendation.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests/alpha_sprint_first_float_smoke.py` ->passed (10/10 regression tests). Locked in by commit `247cdf9`.
+  - Tier-3 full rebuild run `25793942810` (head `247cdf9`) ->completed end-to-end. Conclusion=failure was due to GDrive sync rate limit only; broker-ledger metrics and sleeve artifacts extracted successfully via `gh run download`.
+- risks_or_notes:
+  - The CAGR-improvement loop is halted at Iter 1. No `ScheduleWakeup` is being issued.
+  - The pre-fix MDD baseline (-28.63%) used in prior CHANGELOG entries should be considered tainted — it reflected a silently-dormant alpha_sprint, not the engine's honest risk envelope. Future loops should baseline against post-fix metrics, not pre-fix.
+  - Trade-attribution findings were empty on this run; before any continuation of the loop the user should request a re-run of `tools/run_trade_attribution_analysis.py` against run `25793942810`'s artifacts (or extend the tool to emit findings even when no F-class triggers fire) so that regime/year decomposition is available for decision-making.
+  - The broker_accounting_audit hard gates `delisted_cost_basis_fallback_eliminated` and `survivorship_coverage_audited` remain `false`. All numbers in this entry are research-grade until those gates flip true.
+  - do_not_auto_resume: true
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books

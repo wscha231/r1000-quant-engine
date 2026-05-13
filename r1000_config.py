@@ -1673,7 +1673,12 @@ class EngineConfig:
     early_scout_sleeve_min_weight: float = 0.04
     early_scout_sleeve_max_weight: float = 0.36
     early_scout_growth_floor_weight: float = 0.18
-    early_scout_growth_floor_min_signal: float = 0.34
+    # Phase X0 S2-1 (2026-05-12): lowered 0.34 -> 0.25. The 0.34 threshold caused
+    # defensive_drawdown_control to win the policy auto-selector almost every
+    # month, producing core actual 62% (vs target 40%), early_scout=3 PARTIAL
+    # verdict, and 18-28% cash. Lowering to 0.25 lets the early_scout floor fire
+    # in more months, breaking the defensive-policy lock. Plan: phase X0 SMOKING GUN.
+    early_scout_growth_floor_min_signal: float = 0.25
     early_scout_growth_floor_max_risk: float = 0.60
     early_scout_candidate_floor_min_share: float = 0.01
     future_winner_entry_weight_cap: float = 0.12
@@ -2248,16 +2253,21 @@ class EngineConfig:
     # cfg flag the active path reverts to the legacy single-threshold
     # breaker so prior runs remain reproducible.
     drawdown_breaker_multilevel_enabled: bool = True
-    drawdown_breaker_level_1_threshold: float = 0.08    # -8% peak-to-running DD
+    # Phase X0 S2-2 (2026-05-12): raised thresholds [0.08, 0.15, 0.25] -> [0.12,
+    # 0.20, 0.35] and recovery_buffer 0.03 -> 0.05. Level 1 firing at 8% DD was
+    # too aggressive — normal pullbacks (e.g. -8% bear market dip) lock 15% cash
+    # for weeks. Raised to 12% so level 1 only fires on genuine drawdowns, not
+    # noise. Estimated impact: -5 to -10pp avg cash drag eliminated.
+    drawdown_breaker_level_1_threshold: float = 0.12    # was 0.08 — too sensitive
     drawdown_breaker_level_1_cash_floor: float = 0.15
     drawdown_breaker_level_1_scale: float = 0.90
-    drawdown_breaker_level_2_threshold: float = 0.15    # -15%
+    drawdown_breaker_level_2_threshold: float = 0.20    # was 0.15
     drawdown_breaker_level_2_cash_floor: float = 0.35
     drawdown_breaker_level_2_scale: float = 0.70
-    drawdown_breaker_level_3_threshold: float = 0.25    # -25%
+    drawdown_breaker_level_3_threshold: float = 0.35    # was 0.25
     drawdown_breaker_level_3_cash_floor: float = 0.60
     drawdown_breaker_level_3_scale: float = 0.40
-    drawdown_breaker_recovery_buffer: float = 0.03      # require equity to overshoot trigger by 3% before stepping down
+    drawdown_breaker_recovery_buffer: float = 0.05      # was 0.03 — looser recovery
     # ---------------
     # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6 + PROPOSAL §3)
     # ---------------

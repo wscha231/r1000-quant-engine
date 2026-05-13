@@ -11782,6 +11782,28 @@ def backtest_portfolio(
         metrics["benchmark_ending_capital_usd"] = np.nan
     metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
 
+    # Phase X0 S3-1 (2026-05-12): bootstrap CI on backtest metrics.
+    # Wires r1000_bootstrap_ci.compute_bootstrap_ci_from_returns() so the
+    # single-path CAGR/Sharpe/MaxDD numbers gain explicit 95% confidence
+    # intervals. Block-bootstrap (3mo blocks) on monthly net_return +
+    # bench_return preserves autocorrelation. Non-fatal: if module missing or
+    # too few months, metrics["bootstrap_ci"] = {bootstrap_skipped: True}.
+    try:
+        from r1000_bootstrap_ci import compute_bootstrap_ci_from_returns
+        bench_for_ci = ret_df["bench_return"] if "bench_return" in ret_df.columns else None
+        metrics["bootstrap_ci"] = compute_bootstrap_ci_from_returns(
+            ret_df["net_return"].to_numpy(),
+            bench_rets=(bench_for_ci.to_numpy() if bench_for_ci is not None else None),
+            n_bootstrap=2000,
+            block_size=3,
+            seed=42,
+        )
+    except Exception as _bootstrap_exc:
+        metrics["bootstrap_ci"] = {
+            "bootstrap_skipped": True,
+            "reason": f"exception: {type(_bootstrap_exc).__name__}: {_bootstrap_exc}",
+        }
+
     holdings_df = pd.DataFrame(holdings_rows)
     if not holdings_df.empty:
         stock_names = holdings_df[
@@ -12382,7 +12404,11 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.02,
             early_scout_sleeve_max_weight=0.18,
             early_scout_growth_floor_weight=0.10,
-            early_scout_growth_floor_min_signal=0.34,
+            # Phase X0 S2-1 (2026-05-12): defensive policy growth_floor 0.34 -> 0.25
+            # so even when this defensive policy is chosen the early_scout floor
+            # can still fire, breaking the "defensive wins -> no early_scout"
+            # circular pattern that produced early_scout=3 PARTIAL verdicts.
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.60,
             future_winner_entry_weight_cap=0.07,
             future_winner_drift_weight_cap=0.12,
@@ -12394,7 +12420,12 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.25,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.07,
-            cash_target_mild_risk_cap=0.18,
+            # Phase X0 S2-5 (2026-05-12): defensive cash_target_mild_risk_cap
+            # 0.18 -> 0.10. The 18% was the primary contributor to the observed
+            # 28% cash. 10% retains drawdown protection but allows more capital
+            # to work in non-crisis periods (user critique #9: "8년간 평균 cash
+            # 18%는 명백한 실패").
+            cash_target_mild_risk_cap=0.10,
             min_dynamic_port_names=18,
         ),
         candidate(
@@ -12471,7 +12502,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.06,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.18,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.55,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.28,
@@ -12495,7 +12526,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.04,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.14,
             future_winner_drift_weight_cap=0.28,
@@ -12519,7 +12550,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.08,
             early_scout_sleeve_max_weight=0.48,
             early_scout_growth_floor_weight=0.22,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.30,
@@ -12543,7 +12574,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.05,
             early_scout_sleeve_max_weight=0.55,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.45,
             future_winner_entry_weight_cap=0.16,
             future_winner_drift_weight_cap=0.32,
@@ -12599,7 +12630,8 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.40,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.06,
-            cash_target_mild_risk_cap=0.16,
+            # Phase X0 S2-5: 0.16 -> 0.08
+            cash_target_mild_risk_cap=0.08,
             min_dynamic_port_names=12,
         ),
         candidate(

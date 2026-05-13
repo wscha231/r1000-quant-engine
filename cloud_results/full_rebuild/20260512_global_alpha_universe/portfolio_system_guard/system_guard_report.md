@@ -6,8 +6,8 @@ Fast integrated check from existing artifacts. Production defaults are not chang
 
 | Portfolio | CAGR | Target | Gap | MaxDD | Target | DD improvement needed | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 21.84% | 30.00% | 8.16pp | -28.62% | -15.00% | 13.62pp | false |
-| concentrated | 35.76% | 50.00% | 14.24pp | -36.74% | -18.00% | 18.74pp | false |
+| main | 20.35% | 30.00% | 9.65pp | -33.45% | -15.00% | 18.45pp | false |
+| concentrated | 36.41% | 50.00% | 13.59pp | -38.45% | -18.00% | 20.45pp | false |
 
 Metric sources:
 - `main`: `broker_ledger_next_close`
@@ -30,8 +30,8 @@ Strict target mode: `false`
 
 | Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_v2_position_aware_risk_proxy` | 36.06% | 0.00pp | -12.73% | 0.00pp | true | `target_pass_review` |
-| concentrated | `concentrated_position_risk_proxy` | 49.31% | 0.69pp | -17.34% | 0.00pp | false | `needs_alpha_boost` |
+| main | `main_v2_position_aware_risk_proxy` | 36.47% | 0.00pp | -12.73% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_proxy` | 51.62% | 0.00pp | -15.41% | 0.00pp | true | `target_pass_review` |
 
 ## Error Checks
 
@@ -44,23 +44,23 @@ Strict target mode: `false`
 - `PASS` portfolio_goal_search_available: outputs/portfolio_goal_search/goal_search_summary.json
 - `PASS` account_evaluation_available: outputs/account_evaluation/account_evaluation_summary.json
 - `PASS` github_workflows_available: .github/workflows
-- `WARN` counterfactual_replay_coverage: missing_counterfactual_count=3
+- `WARN` counterfactual_replay_coverage: missing_counterfactual_count=2
 - `WARN` candidate_production_ready: production_ready_count=0
 - `PASS` operating_event_backtest_available: outputs/operating_event_backtest/operating_event_backtest_summary.json
-- `PASS` daily_risk_overlay_backtest_validated: daily_risk_overlay_validated=True; nonmonthly_risk_action_count=662
-- `WARN` full_nonmonthly_entry_replacement_backtest_validated: full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=662
+- `PASS` daily_risk_overlay_backtest_validated: daily_risk_overlay_validated=True; nonmonthly_risk_action_count=746
+- `WARN` full_nonmonthly_entry_replacement_backtest_validated: full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=746
 - `PASS` orchestrator_replay_valid_for_promotion: status=completed; data_mode=historical_concentrated_monthly
-- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-08; broker_end=2026-05-08; rows=1869; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1869; max_date=2026-05-08
-- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-08; rows=1852; operating_book_max=2026-05-08; operating_rows=1869
+- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-12; broker_end=2026-05-12; rows=2214; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
+- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2214; max_date=2026-05-12
+- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-12; rows=2197; operating_book_max=2026-05-12; operating_rows=2214
 - `PASS` main_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-08; broker_end=2026-05-08; rows=23479; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23479; max_date=2026-05-08
-- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-08; rows=23475; operating_book_max=2026-05-08; operating_rows=23479
+- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-12; broker_end=2026-05-12; rows=23469; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
+- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23469; max_date=2026-05-12
+- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-12; rows=23466; operating_book_max=2026-05-12; operating_rows=23469
 - `PASS` concentrated_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=33; legacy_snapshot_exists=True
-- `WARN` main_current_position_count_near_latest_target_count: main_positions=27; latest_target_rows=17; excess=10
-- `PASS` concentrated_replay_filter_matches_latest_target: broker_filter_n=4; latest_target_n=4; broker_mode=score_power; latest_mode=score_power
+- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=46; legacy_snapshot_exists=True
+- `WARN` main_current_position_count_near_latest_target_count: main_positions=41; latest_target_rows=17; excess=24
+- `PASS` concentrated_replay_filter_matches_latest_target: broker_filter_n=3; latest_target_n=3; broker_mode=score_power; latest_mode=score_power
 
 ## Automation Plan
 

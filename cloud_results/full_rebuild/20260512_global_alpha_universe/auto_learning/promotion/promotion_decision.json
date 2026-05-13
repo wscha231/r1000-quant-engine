@@ -13,8 +13,28 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-05-12T07:59:49Z",
+  "generated_at_utc": "2026-05-12T23:08:28Z",
   "hard_failures": [
+    {
+      "check": "delisted_cost_basis_fallback_eliminated",
+      "evidence": "tools/run_broker_ledger_replay.py:313-315",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "survivorship_coverage_audited",
+      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
     {
       "check": "feature_gate_candidate_backtest_executed",
       "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
@@ -33,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2790724333621508
+      "threshold": 0.28187107791269117
     },
     {
       "check": "main_sharpe_floor",
@@ -43,7 +63,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6638756765602594
+      "threshold": 1.6448976396719428
     },
     {
       "check": "main_max_dd_floor",
@@ -53,7 +73,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.14560070456212548
+      "threshold": -0.18462786046803548
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -110,17 +130,32 @@
     },
     {
       "check": "cost_sensitivity_backtested",
-      "evidence": "",
+      "evidence": "outputs/cost_sensitivity/main/summary.json,outputs/cost_sensitivity/concentrated/summary.json",
       "gate": "cost",
-      "observed": "not_available",
+      "observed": {
+        "concentrated": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        },
+        "main": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        }
+      },
       "passed": false,
-      "reason": "Cost sensitivity has not been run for the full candidate policy.",
+      "reason": "Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
       "severity": "hard",
-      "threshold": [
-        25,
-        50,
-        75
-      ]
+      "threshold": {
+        "concentrated_summary_path": "outputs/cost_sensitivity/concentrated/summary.json",
+        "cost_bps_levels_required": [
+          25,
+          50,
+          75
+        ],
+        "main_summary_path": "outputs/cost_sensitivity/main/summary.json"
+      }
     },
     {
       "check": "rolling_3y_5y_backtested",

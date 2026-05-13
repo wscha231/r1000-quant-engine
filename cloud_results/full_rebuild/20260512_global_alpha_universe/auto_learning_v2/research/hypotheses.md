@@ -41,7 +41,20 @@ Test plan:
 - Metrics: MaxDD, CAGR, Sharpe, late_exit_rate, swap_hit_rate
 - Falsify if: cagr_delta_pp < -1.0, sharpe_delta < 0.0
 
-## 4. alpha_sprint_breakout_fallback_v1
+## 4. cluster_conviction_router_v1
+
+- Status: `proposal_only`
+- Hypothesis: Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules.
+- Observations: cluster_conviction_asymmetry
+- Exploration stage: `shadow`
+
+Test plan:
+
+- Windows: all_months, all_bear_months
+- Metrics: cluster_hit_rate, loss_rate, avg_return, turnover
+- Falsify if: strong_cluster_bonus_reduces_avg_return, block_rule_removes_winners
+
+## 5. alpha_sprint_breakout_fallback_v1
 
 - Status: `proposal_only`
 - Hypothesis: Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated.
@@ -54,7 +67,7 @@ Test plan:
 - Metrics: standalone_CAGR, hit_rate, avg_loss, portfolio_contribution
 - Falsify if: hit_rate < 0.45, maxdd_worsens_by_more_than_2pp
 
-## 5. counterfactual_replay_priority_v1
+## 6. counterfactual_replay_priority_v1
 
 - Status: `proposal_only`
 - Hypothesis: Policy creativity should be blocked from promotion until each sidecar has historical replay evidence.

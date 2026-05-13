@@ -15,13 +15,13 @@ Evidence:
 
 ```json
 {
-  "concentrated_cagr": 0.4667634811272734,
-  "concentrated_max_dd": -0.36739720049030034,
-  "concentrated_sharpe": 1.2040566861112372,
+  "concentrated_cagr": 0.4894016706042674,
+  "concentrated_max_dd": -0.38448929995729797,
+  "concentrated_sharpe": 1.1855100487526875,
   "latest_concentrated_capacity": 0.1,
-  "main_cagr": 0.21841389129066835,
-  "main_max_dd": -0.28621917066524416,
-  "main_sharpe": 1.0556328995259578
+  "main_cagr": 0.20347971738915804,
+  "main_max_dd": -0.3345476089128743,
+  "main_sharpe": 0.9914893272915797
 }
 ```
 
@@ -38,10 +38,10 @@ Evidence:
 
 ```json
 {
-  "main_avg_stock_names": 22.132530120481928,
-  "main_avg_turnover_monthly": 0.5048225011464385,
-  "main_cagr": 0.21841389129066835,
-  "main_max_dd": -0.28621917066524416
+  "main_avg_stock_names": 26.216867469879517,
+  "main_avg_turnover_monthly": 0.529198387898223,
+  "main_cagr": 0.20347971738915804,
+  "main_max_dd": -0.3345476089128743
 }
 ```
 
@@ -116,7 +116,39 @@ Evidence:
 }
 ```
 
-## 5. explosion_stack_dormant
+## 5. cluster_conviction_asymmetry
+
+- Category: `trade_pattern_asymmetry`
+- Severity: `medium`
+- Confidence: 0.70
+- Observation: Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns.
+- Broken assumption: Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps.
+- Suggested hypothesis types: cluster_conviction_router, pattern_block_or_amplify
+
+Evidence:
+
+```json
+{
+  "strong_clusters": [
+    {
+      "avg_realized_return": 0.08932513058663706,
+      "cluster_id": "0",
+      "n": 130,
+      "win_rate": 0.6307692307692307
+    }
+  ],
+  "weak_clusters": [
+    {
+      "avg_realized_return": 0.05118162073121035,
+      "cluster_id": "7",
+      "n": 83,
+      "win_rate": 0.4939759036144578
+    }
+  ]
+}
+```
+
+## 6. explosion_stack_dormant
 
 - Category: `dormant_signal_stack`
 - Severity: `medium`
@@ -129,7 +161,7 @@ Evidence:
 
 ```json
 {
-  "explosion_entry_n_all": 912,
-  "explosion_exit_n_all": 912
+  "explosion_entry_n_all": 887,
+  "explosion_exit_n_all": 887
 }
 ```

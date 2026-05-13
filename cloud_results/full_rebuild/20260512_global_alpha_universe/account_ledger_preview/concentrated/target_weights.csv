@@ -1,5 +1,4 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-ON,0.3351016083809965,ON SEMICONDUCTOR CORP,Information Technology,early_scout
-WDC,0.2657084987840206,WESTERN DIGITAL CORP,Information Technology,future_winner
-MU,0.2292685489921484,MICRON TECHNOLOGY INC,Information Technology,future_winner
-SNDK,0.1699213438428344,SANDISK CORP,Information Technology,future_winner
+GLW,0.3777706389406775,CORNING INC,Information Technology,future_winner
+WDC,0.3568348105118002,WESTERN DIGITAL CORP,Information Technology,future_winner
+MU,0.2653945505475223,MICRON TECHNOLOGY INC,Information Technology,future_winner

@@ -2,22 +2,73 @@
   "approved_for_promotion": false,
   "baseline": {
     "concentrated": {
-      "cagr": 0.4667634811272734,
-      "max_dd": -0.18566983182348396,
-      "selected_names": 4,
-      "sharpe": 1.7450442508169008
+      "cagr": 0.4894016706042674,
+      "max_dd": -0.16665464216428827,
+      "selected_names": 3,
+      "sharpe": 1.7406704160388327
     },
     "main": {
-      "avg_cash_weight": 0.18942945456204124,
-      "avg_stock_names": 22.132530120481928,
-      "avg_turnover_monthly": 0.5048225011464385,
-      "cagr": 0.2890724333621508,
-      "max_dd": -0.13560070456212547,
+      "avg_cash_weight": 0.20926166140086275,
+      "avg_stock_names": 26.216867469879517,
+      "avg_turnover_monthly": 0.529198387898223,
+      "cagr": 0.2918710779126912,
+      "max_dd": -0.17462786046803547,
       "months": 83,
-      "sharpe": 1.7438756765602594
+      "sharpe": 1.7248976396719429
     }
   },
+  "broker_accounting_audit_path": "research/broker_accounting_audit.json",
   "gate_rows": [
+    {
+      "check": "audit_artifact_present",
+      "evidence": "research/broker_accounting_audit.json",
+      "gate": "broker_accounting",
+      "observed": true,
+      "passed": true,
+      "reason": "research/broker_accounting_audit.json must exist so the challenger can read known-bias flags.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "delisted_cost_basis_fallback_eliminated",
+      "evidence": "tools/run_broker_ledger_replay.py:313-315",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "survivorship_coverage_audited",
+      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "multi_day_fill_date_stamping_corrected",
+      "evidence": "tools/run_broker_ledger_replay.py:552-611",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "When per-ticker fill dates span multiple days, every trade is stamped with min(fill_dt_by_ticker.values()) instead of each ticker's actual_dt. Cash is debited earlier than the trade could have happened in reality. Minor for liquid R1000 universe but should be corrected.",
+      "severity": "soft",
+      "threshold": true
+    },
+    {
+      "check": "sharpe_uses_excess_return",
+      "evidence": "tools/run_broker_ledger_replay.py:394",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "Sharpe is computed with risk_free=0. Over 2019-2026 the average T-bill yield is ~2-3%, so reported Sharpe is overstated by ~0.20-0.30. Sharpe-based gates inherit this bias until risk-free series is subtracted.",
+      "severity": "soft",
+      "threshold": true
+    },
     {
       "check": "policy_valid",
       "evidence": "",
@@ -66,7 +117,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2790724333621508
+      "threshold": 0.28187107791269117
     },
     {
       "check": "main_sharpe_floor",
@@ -76,7 +127,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6638756765602594
+      "threshold": 1.6448976396719428
     },
     {
       "check": "main_max_dd_floor",
@@ -86,7 +137,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.14560070456212548
+      "threshold": -0.18462786046803548
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -115,7 +166,7 @@
       "check": "concentrated_cagr_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": 0.4667634811272734,
+      "observed": 0.4894016706042674,
       "passed": true,
       "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
       "severity": "hard",
@@ -125,7 +176,7 @@
       "check": "concentrated_max_dd_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": -0.18566983182348396,
+      "observed": -0.16665464216428827,
       "passed": true,
       "reason": "Standalone concentrated MaxDD must clear the policy floor.",
       "severity": "hard",
@@ -201,17 +252,32 @@
     },
     {
       "check": "cost_sensitivity_backtested",
-      "evidence": "",
+      "evidence": "outputs/cost_sensitivity/main/summary.json,outputs/cost_sensitivity/concentrated/summary.json",
       "gate": "cost",
-      "observed": "not_available",
+      "observed": {
+        "concentrated": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        },
+        "main": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        }
+      },
       "passed": false,
-      "reason": "Cost sensitivity has not been run for the full candidate policy.",
+      "reason": "Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
       "severity": "hard",
-      "threshold": [
-        25,
-        50,
-        75
-      ]
+      "threshold": {
+        "concentrated_summary_path": "outputs/cost_sensitivity/concentrated/summary.json",
+        "cost_bps_levels_required": [
+          25,
+          50,
+          75
+        ],
+        "main_summary_path": "outputs/cost_sensitivity/main/summary.json"
+      }
     },
     {
       "check": "rolling_3y_5y_backtested",
@@ -224,8 +290,28 @@
       "threshold": "rolling 3y and 5y pass"
     }
   ],
-  "generated_at_utc": "2026-05-12T07:59:49Z",
+  "generated_at_utc": "2026-05-12T23:08:28Z",
   "hard_failures": [
+    {
+      "check": "delisted_cost_basis_fallback_eliminated",
+      "evidence": "tools/run_broker_ledger_replay.py:313-315",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "survivorship_coverage_audited",
+      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
     {
       "check": "feature_gate_candidate_backtest_executed",
       "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
@@ -244,7 +330,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2790724333621508
+      "threshold": 0.28187107791269117
     },
     {
       "check": "main_sharpe_floor",
@@ -254,7 +340,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6638756765602594
+      "threshold": 1.6448976396719428
     },
     {
       "check": "main_max_dd_floor",
@@ -264,7 +350,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.14560070456212548
+      "threshold": -0.18462786046803548
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -321,17 +407,32 @@
     },
     {
       "check": "cost_sensitivity_backtested",
-      "evidence": "",
+      "evidence": "outputs/cost_sensitivity/main/summary.json,outputs/cost_sensitivity/concentrated/summary.json",
       "gate": "cost",
-      "observed": "not_available",
+      "observed": {
+        "concentrated": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        },
+        "main": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        }
+      },
       "passed": false,
-      "reason": "Cost sensitivity has not been run for the full candidate policy.",
+      "reason": "Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
       "severity": "hard",
-      "threshold": [
-        25,
-        50,
-        75
-      ]
+      "threshold": {
+        "concentrated_summary_path": "outputs/cost_sensitivity/concentrated/summary.json",
+        "cost_bps_levels_required": [
+          25,
+          50,
+          75
+        ],
+        "main_summary_path": "outputs/cost_sensitivity/main/summary.json"
+      }
     },
     {
       "check": "rolling_3y_5y_backtested",
@@ -346,6 +447,7 @@
   ],
   "mode": "challenger_gate_evaluation",
   "next_required_backtests": [
+    "broker_accounting_audit_flips_hard_gates_to_true",
     "main_v2_83_month_backtest",
     "orchestrator_83_month_backtest",
     "weekly_leader_entry_cost_and_stress_replay",
@@ -367,6 +469,26 @@
   },
   "research_only": true,
   "soft_failures": [
+    {
+      "check": "multi_day_fill_date_stamping_corrected",
+      "evidence": "tools/run_broker_ledger_replay.py:552-611",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "When per-ticker fill dates span multiple days, every trade is stamped with min(fill_dt_by_ticker.values()) instead of each ticker's actual_dt. Cash is debited earlier than the trade could have happened in reality. Minor for liquid R1000 universe but should be corrected.",
+      "severity": "soft",
+      "threshold": true
+    },
+    {
+      "check": "sharpe_uses_excess_return",
+      "evidence": "tools/run_broker_ledger_replay.py:394",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "Sharpe is computed with risk_free=0. Over 2019-2026 the average T-bill yield is ~2-3%, so reported Sharpe is overstated by ~0.20-0.30. Sharpe-based gates inherit this bias until risk-free series is subtracted.",
+      "severity": "soft",
+      "threshold": true
+    },
     {
       "check": "weekly_leader_broker_replay_available",
       "evidence": "outputs/weekly_leader_broker_replay/main/metrics.json,outputs/weekly_leader_broker_replay/concentrated/metrics.json",

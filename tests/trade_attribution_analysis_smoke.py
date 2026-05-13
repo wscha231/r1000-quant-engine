@@ -25,7 +25,11 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.run_trade_attribution_analysis import (  # noqa: E402
     SCHEMA_VERSION,
     analyze_portfolio,
+    build_regime_calendar,
+    cagr_by_regime_from_equity,
+    regime_for_date,
     run,
+    yearly_cagr_from_equity,
 )
 
 
@@ -191,11 +195,94 @@ def test_run_wrapper_writes_summary_with_all_findings_flat() -> None:
             assert f["portfolio_kind"] == "main"
 
 
+def test_yearly_cagr_splits_per_calendar_year() -> None:
+    """A 2-year flat-rate equity series should produce per-year CAGRs
+    that match the underlying rate."""
+    # 504 trading days = 2 years; equity grows by 25% per year exactly.
+    dates = pd.bdate_range("2024-01-02", periods=504)
+    daily_factor = 1.25 ** (1 / 252)
+    equity = [100_000.0 * (daily_factor ** i) for i in range(504)]
+    df = pd.DataFrame({"date": dates.astype(str), "equity_usd": equity})
+    out = yearly_cagr_from_equity(df)
+    assert "2024" in out and "2025" in out
+    assert abs(out["2024"]["annualized_cagr"] - 0.25) < 0.02
+    assert abs(out["2025"]["annualized_cagr"] - 0.25) < 0.02
+
+
+def test_regime_for_date_uses_most_recent_on_or_before() -> None:
+    calendar = {
+        pd.Timestamp("2024-01-31"): "bull",
+        pd.Timestamp("2024-04-30"): "bear",
+        pd.Timestamp("2024-07-31"): "bull",
+    }
+    # Before calendar: unknown
+    assert regime_for_date(pd.Timestamp("2023-12-15"), calendar) == "unknown"
+    # In a bull window
+    assert regime_for_date(pd.Timestamp("2024-03-15"), calendar) == "bull"
+    # After bear started
+    assert regime_for_date(pd.Timestamp("2024-05-15"), calendar) == "bear"
+    # After bull resumed
+    assert regime_for_date(pd.Timestamp("2024-08-15"), calendar) == "bull"
+    # Empty calendar returns unknown
+    assert regime_for_date(pd.Timestamp("2024-05-15"), {}) == "unknown"
+
+
+def test_cagr_by_regime_separates_bull_and_bear_returns() -> None:
+    """Synthetic equity: +30% over bull window (252 days),
+    -10% over bear window (252 days). CAGR per regime should reflect
+    those buckets after annualization."""
+    bull_dates = pd.bdate_range("2024-01-02", periods=252)
+    bear_dates = pd.bdate_range("2025-01-02", periods=252)
+    bull_factor = 1.30 ** (1 / 252)
+    bear_factor = 0.90 ** (1 / 252)
+    bull_eq = [100_000.0 * (bull_factor ** i) for i in range(252)]
+    bear_eq = [bull_eq[-1] * (bear_factor ** i) for i in range(252)]
+    df = pd.DataFrame({
+        "date": pd.concat([pd.Series(bull_dates), pd.Series(bear_dates)]).astype(str).tolist(),
+        "equity_usd": bull_eq + bear_eq,
+    })
+    calendar = {
+        pd.Timestamp("2024-01-02"): "bull",
+        pd.Timestamp("2025-01-02"): "bear",
+    }
+    out = cagr_by_regime_from_equity(df, calendar)
+    assert "bull" in out and "bear" in out
+    assert abs(out["bull"]["annualized_cagr"] - 0.30) < 0.05
+    assert abs(out["bear"]["annualized_cagr"] - (-0.10)) < 0.05
+
+
+def test_build_regime_calendar_falls_back_when_concentrated_book_is_null() -> None:
+    """The concentrated operating book often has 99%+ null regime_state.
+    The fallback must prefer the main book when the concentrated book
+    yields a near-empty calendar."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        reports = root / "reports"
+        reports.mkdir(parents=True)
+        # Concentrated has only 1 non-null row (insufficient).
+        conc_rows = [{"rebalance_date": "2026-05-08", "ticker": "AAA", "weight": 1.0, "regime_state": "neutral"}]
+        conc_rows.extend([{"rebalance_date": f"2024-{m:02d}-28", "ticker": f"X{m}", "weight": 0.10, "regime_state": ""} for m in range(1, 13)])
+        pd.DataFrame(conc_rows).to_csv(reports / "operating_concentrated_target_book.csv", index=False)
+        # Main has a real calendar.
+        main_rows = []
+        for m in range(1, 13):
+            label = "bull" if m % 3 == 0 else ("bear" if m % 3 == 1 else "neutral")
+            main_rows.append({"rebalance_date": f"2024-{m:02d}-28", "ticker": "AAA", "weight": 1.0, "regime_state": label})
+        pd.DataFrame(main_rows).to_csv(reports / "operating_main_target_book.csv", index=False)
+        cal = build_regime_calendar(root, "concentrated")
+        assert len(cal) >= 10, len(cal)
+        assert pd.Timestamp("2024-03-28") in cal
+
+
 def main() -> int:
     test_unrealized_holding_mdd_triggers_f1_high_finding()
     test_regime_loss_concentration_triggers_f2_medium_finding()
     test_missing_inputs_produce_blocked_status_not_crash()
     test_run_wrapper_writes_summary_with_all_findings_flat()
+    test_yearly_cagr_splits_per_calendar_year()
+    test_regime_for_date_uses_most_recent_on_or_before()
+    test_cagr_by_regime_separates_bull_and_bear_returns()
+    test_build_regime_calendar_falls_back_when_concentrated_book_is_null()
     print("trade_attribution_analysis_smoke: ok")
     return 0
 

@@ -11,8 +11,8 @@ candidate_rules:
     status: proposal_only
     intent: detect early major-winner onset and hold while trend remains intact
     suggested_thresholds:
-      entry_readiness_score_min: 0.650
-      mom_3m_min: 0.0999
+      entry_readiness_score_min: 0.618
+      mom_3m_min: 0.1087
       rs_vs_spy_3m_min: 0.0869
       max_initial_position_weight: 0.05
       staged_add_after_profit_cushion: true
