@@ -266,18 +266,34 @@ def regime_for_date(date: pd.Timestamp, regime_calendar: dict[pd.Timestamp, str]
     return regime_calendar.get(keys[pos], "unknown")
 
 
+MIN_DAYS_FOR_ANNUALIZATION = 63  # ≈ 3 trading months. Below this the
+# regime sample is too small to extrapolate to a full year reliably:
+# a 22-day -6.85% drop in `strong_bull` annualizes to -55% by formula
+# but is statistically just noise. Mark these regimes explicitly as
+# `noise_band` and report the raw total return without annualization
+# so callers do not misread short-window math as a real bull-regime
+# loss.
+
+
 def cagr_by_regime_from_equity(
     equity_df: pd.DataFrame,
     regime_calendar: dict[pd.Timestamp, str],
+    *,
+    min_days_for_annualization: int = MIN_DAYS_FOR_ANNUALIZATION,
 ) -> dict[str, Any]:
     """Decompose CAGR by regime label. Days where the engine labeled the
     market `bull` vs `bear` etc. are pooled separately; geometric mean
-    daily return per regime is annualized.
+    daily return per regime is annualized ONLY when the regime has at
+    least ``min_days_for_annualization`` observed days. Smaller buckets
+    are reported as a raw total return with ``noise_band=True`` so
+    callers do not over-read extrapolation artifacts (a 22-day -6.85%
+    move in ``strong_bull`` annualizes to -55% by formula but is just
+    statistical noise from the regime label's rare firing window).
 
     Answers the question: in which regime does this portfolio earn its
-    return? If `cagr_by_regime["bull"]` is the only positive bucket,
-    the strategy is a bull-market beta player. If `bear` is also
-    positive, real defensive alpha exists.
+    return? If `cagr_by_regime["bull"]` is the only meaningful positive
+    bucket the strategy is a bull-market beta player; if `bear` is also
+    positive at full sample, real defensive alpha exists.
     """
     if equity_df.empty or not regime_calendar or "date" not in equity_df.columns:
         return {}
@@ -294,7 +310,10 @@ def cagr_by_regime_from_equity(
             continue
         cumret = float((1.0 + sub["daily_return"]).prod())
         n_days = int(len(sub))
-        if cumret <= 0:
+        noise_band = n_days < int(min_days_for_annualization)
+        if noise_band:
+            annualized = None
+        elif cumret <= 0:
             annualized = -1.0
         else:
             annualized = float(cumret ** (252.0 / max(n_days, 1)) - 1.0)
@@ -303,6 +322,8 @@ def cagr_by_regime_from_equity(
             "total_return_in_regime": float(cumret - 1.0),
             "days_in_regime": n_days,
             "share_of_period": float(n_days / len(eq)),
+            "noise_band": bool(noise_band),
+            "min_days_threshold": int(min_days_for_annualization),
         }
     return out
 
