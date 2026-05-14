@@ -145,6 +145,39 @@ def main() -> int:
         lines.append("Official account performance missing. Do not ship from legacy metrics.")
 
     lines.append("")
+    # F12 (2026-05-14): cross-mode comparison table -- headline vs all the
+    # alternate broker-replay measurement modes. Lets the reader see if any
+    # mode delivers materially better risk-adjusted returns.
+    lines.append("Mode comparison (broker-ledger, account-like):")
+    mode_dirs = [
+        ("headline (no-stops)",        "broker_replay"),
+        ("position-risk daily stops",  "broker_position_risk_replay"),
+        ("position-risk WEEKLY stops", "broker_position_risk_replay_weekly"),
+        ("regime-capacity (Mode X)",   "regime_capacity_broker_replay"),
+        ("macro-circuit",              "macro_circuit_broker_replay"),
+    ]
+    header_printed = False
+    for label, sub in mode_dirs:
+        for portfolio in ("main", "concentrated"):
+            metrics = safe_load_json(out / sub / portfolio / "metrics.json")
+            if not metrics or metrics.get("status") != "completed":
+                continue
+            cagr_v = metrics.get("cagr")
+            sharpe_v = metrics.get("sharpe")
+            maxdd_v = metrics.get("max_dd")
+            trades_v = metrics.get("trade_count")
+            if not header_printed:
+                lines.append(
+                    f"  {'mode':28} {'portfolio':14} {'CAGR':>8}  {'MaxDD':>8}  {'Sharpe':>7}  {'trades':>7}"
+                )
+                header_printed = True
+            lines.append(
+                f"  {label:28} {portfolio:14} {pct(cagr_v):>8}  {pct(maxdd_v):>8}  "
+                f"{fnum(sharpe_v):7.3f}  {int(fnum(trades_v)):>7}"
+            )
+    if not header_printed:
+        lines.append("  (no alternate-mode metrics found)")
+    lines.append("")
     lines.append("Research-only legacy metrics:")
     if main_legacy:
         lines.append(
