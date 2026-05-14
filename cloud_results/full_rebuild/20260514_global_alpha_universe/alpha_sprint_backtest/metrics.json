@@ -1,18 +1,18 @@
 {
   "active_months": 24,
   "allow_neutral_proxy": false,
-  "cagr": 0.0022332300520135906,
-  "calmar": 0.16979444410972797,
+  "cagr": 0.0022332253216559295,
+  "calmar": 0.16979399755310956,
   "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
   "data_mode": "historical_candidate_replay_book",
-  "ending_equity": 1.0157377347054743,
+  "ending_equity": 1.0157377011467987,
   "experiment_id": "alpha_sprint_historical_sidecar",
-  "max_dd": -0.013152550801782348,
+  "max_dd": -0.013152557533474662,
   "months": 84,
   "production_activation_allowed": false,
   "research_only": true,
   "return_column": "period_forward_return",
-  "sharpe": 0.39267943479527134,
+  "sharpe": 0.39267868906720765,
   "status": "completed",
-  "vol_ann": 0.005722955367807475
+  "vol_ann": 0.005722954197358
 }

@@ -1,26 +1,27 @@
 {
   "unified_weights": {
-    "GEV": 0.078,
-    "GOOG": 0.078,
-    "MRVL": 0.05,
-    "LRCX": 0.040340556256091134,
-    "VRT": 0.040340556256091134,
-    "WDC": 0.03800545826821209,
-    "FIX": 0.03660959364834293,
-    "FTI": 0.03573788659131292,
-    "NXPI": 0.03559227022480411,
-    "UMC": 0.03557780946417143,
-    "CBOE": 0.03545531303488312,
-    "HPE": 0.026000000000000002,
-    "MLI": 0.026000000000000002,
-    "ON": 0.026000000000000002,
-    "PR": 0.026000000000000002,
-    "STM": 0.026000000000000002,
-    "TKR": 0.026000000000000002,
-    "CIEN": 0.025,
-    "MU": 0.025
+    "GOOG": 0.10406161197212373,
+    "FIX": 0.05,
+    "MRVL": 0.043575234865085855,
+    "VRT": 0.043575234865085855,
+    "LRCX": 0.042739878178775774,
+    "FTI": 0.041666791333125654,
+    "PWR": 0.041602520506423164,
+    "UMC": 0.04144058600113072,
+    "CBOE": 0.04142202456005072,
+    "AMD": 0.026000000000000006,
+    "HPE": 0.026000000000000006,
+    "MLI": 0.026000000000000006,
+    "NXPI": 0.026000000000000006,
+    "ON": 0.026000000000000006,
+    "PR": 0.026000000000000006,
+    "STM": 0.026000000000000006,
+    "TKR": 0.026000000000000006,
+    "CIEN": 0.0125,
+    "MU": 0.0125,
+    "NVDA": 0.0125
   },
-  "cash_target": 0.2903405562560911,
+  "cash_target": 0.30441611771819843,
   "by_mandate_capacity": {
     "main": 0.65,
     "concentrated": 0.1,
@@ -28,28 +29,41 @@
   },
   "conflicts": [
     {
-      "ticker": "MRVL",
+      "ticker": "FIX",
       "mandates": [
         "concentrated",
         "main"
       ],
       "weights_per_mandate": {
         "concentrated": 0.05,
-        "main": 0.040340556256091134
+        "main": 0.04191611771819856
       },
       "max_weight_used": 0.05,
       "winning_mandate": "concentrated"
+    },
+    {
+      "ticker": "MRVL",
+      "mandates": [
+        "main",
+        "concentrated"
+      ],
+      "weights_per_mandate": {
+        "main": 0.043575234865085855,
+        "concentrated": 0.0125
+      },
+      "max_weight_used": 0.043575234865085855,
+      "winning_mandate": "main"
     }
   ],
   "regime_state": "neutral",
   "audit": {
     "input_weights_sum": {
-      "main": 1.0,
+      "main": 0.9999999999999999,
       "concentrated": 1.0,
       "tactical": 0
     },
     "scaled_weights_sum": {
-      "main": 0.65,
+      "main": 0.6500000000000001,
       "concentrated": 0.1,
       "tactical": 0
     },
@@ -58,24 +72,24 @@
       "concentrated": 0.1,
       "tactical": 0.0,
       "expected_total_invested": 0.75,
-      "actual_total_invested_after_merge": 0.7096594437439089,
-      "merged_below_expected_due_to_conflicts": 0.04034055625609112
+      "actual_total_invested_after_merge": 0.6955838822818016,
+      "merged_below_expected_due_to_conflicts": 0.05441611771819843
     },
     "merge_mode": "max",
     "unified_single_name_cap": 1.0,
-    "n_unique_tickers": 19,
-    "n_conflicts": 1,
-    "generated_at": "2026-05-14T16:10:06Z"
+    "n_unique_tickers": 20,
+    "n_conflicts": 2,
+    "generated_at": "2026-05-14T20:50:18Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,
     "weights_at_most_one": true,
     "cash_in_unit_range": true,
     "invested_plus_cash_close_to_one": true,
-    "invested_amount": 0.7096594437439089,
-    "cash_amount": 0.2903405562560911,
-    "n_positions": 19,
-    "n_conflicts": 1,
+    "invested_amount": 0.6955838822818016,
+    "cash_amount": 0.30441611771819843,
+    "n_positions": 20,
+    "n_conflicts": 2,
     "all_passed": true
   }
 }

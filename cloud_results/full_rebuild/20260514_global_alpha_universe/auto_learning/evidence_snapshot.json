@@ -9,49 +9,49 @@
     "trade_count": 0
   },
   "combined_trade_journal": {
-    "avg_alpha_vs_benchmark": 0.04065510073854495,
-    "avg_holding_days": 48.27641408751334,
-    "avg_realized_return": 0.070735773678876,
+    "avg_alpha_vs_benchmark": 0.04190923843789419,
+    "avg_holding_days": 45.611111111111114,
+    "avg_realized_return": 0.06642650027512532,
     "avg_return_by_regime": {
-      "balanced": 0.07325639595125844,
-      "bear": 0.061611523370320456,
-      "bull": 0.07152439771547912,
-      "deep_bear": 0.34847845172721265,
-      "growth_reentry_alert": 0.017706229193390162,
+      "balanced": 0.07519866704778869,
+      "bear": 0.05146329871858283,
+      "bull": 0.06976306237429425,
+      "deep_bear": 0.34847845874944955,
+      "growth_reentry_alert": 0.061502852885827616,
       "nan": 0.0,
-      "neutral": 0.07036092073835436,
-      "risk_off_alert": 0.07806728001641271,
-      "strong_bull": 0.1441388219177693,
-      "systemic_alert": 0.08875739800542959
+      "neutral": 0.06329288506035702,
+      "risk_off_alert": 0.07149863025128597,
+      "strong_bull": 0.036568615662095315,
+      "systemic_alert": 0.137973838327374
     },
     "avg_return_by_sleeve": {
       "cash": 0.0,
-      "concentrated_alpha": 0.06961813480072605,
-      "core_compounder": 0.07196966153436352
+      "concentrated_alpha": 0.07517411875478289,
+      "core_compounder": 0.06498005606859499
     },
     "exit_reason_counts": {
-      "scheduled_rebalance": 561,
-      "single_period_hold": 376
+      "scheduled_rebalance": 592,
+      "single_period_hold": 452
     },
     "regime_counts": {
-      "balanced": 118,
-      "bear": 159,
-      "bull": 208,
+      "balanced": 173,
+      "bear": 163,
+      "bull": 227,
       "deep_bear": 7,
-      "growth_reentry_alert": 13,
-      "nan": 11,
-      "neutral": 391,
-      "risk_off_alert": 20,
-      "strong_bull": 6,
-      "systemic_alert": 4
+      "growth_reentry_alert": 19,
+      "nan": 13,
+      "neutral": 396,
+      "risk_off_alert": 33,
+      "strong_bull": 7,
+      "systemic_alert": 6
     },
     "sleeve_counts": {
-      "cash": 11,
-      "concentrated_alpha": 155,
-      "core_compounder": 771
+      "cash": 13,
+      "concentrated_alpha": 231,
+      "core_compounder": 800
     },
-    "trade_count": 937,
-    "win_rate": 0.5602988260405549
+    "trade_count": 1044,
+    "win_rate": 0.5680076628352491
   },
   "concentrated_policy": {
     "audit": {
@@ -228,39 +228,58 @@
     }
   },
   "concentrated_trade_journal": {
-    "avg_alpha_vs_benchmark": 0.051821466206831805,
-    "avg_holding_days": 18.412903225806453,
-    "avg_realized_return": 0.06961813480072605,
+    "avg_alpha_vs_benchmark": 0.05536285130488774,
+    "avg_holding_days": 24.225108225108226,
+    "avg_realized_return": 0.07517411875478289,
     "avg_return_by_regime": {
-      "balanced": 0.07325639595125844,
-      "growth_reentry_alert": 0.017706229193390162,
-      "risk_off_alert": 0.07806728001641271,
-      "systemic_alert": 0.08875739800542959
+      "balanced": 0.07519866704778869,
+      "growth_reentry_alert": 0.061502852885827616,
+      "risk_off_alert": 0.07149863025128597,
+      "systemic_alert": 0.137973838327374
     },
     "avg_return_by_sleeve": {
-      "concentrated_alpha": 0.06961813480072605
+      "concentrated_alpha": 0.07517411875478289
     },
     "exit_reason_counts": {
-      "scheduled_rebalance": 52,
-      "single_period_hold": 103
+      "scheduled_rebalance": 85,
+      "single_period_hold": 146
     },
     "regime_counts": {
-      "balanced": 118,
-      "growth_reentry_alert": 13,
-      "risk_off_alert": 20,
-      "systemic_alert": 4
+      "balanced": 173,
+      "growth_reentry_alert": 19,
+      "risk_off_alert": 33,
+      "systemic_alert": 6
     },
     "sleeve_counts": {
-      "concentrated_alpha": 155
+      "concentrated_alpha": 231
     },
-    "trade_count": 155,
-    "win_rate": 0.6580645161290323
+    "trade_count": 231,
+    "win_rate": 0.6493506493506493
   },
   "evidence_mode": "legacy_trade_journal",
   "feature_gate_candidate": {
     "available": true,
-    "gate_count": 0,
-    "gates": [],
+    "gate_count": 2,
+    "gates": [
+      {
+        "factor": 1.3,
+        "ic": 0.1458,
+        "kind": "signal_regime_amplify",
+        "n": 227,
+        "rationale": "IC +0.146 in bull (n=227) >= amplify threshold +0.1",
+        "regime": "bull",
+        "signal": "rs_acceleration_score"
+      },
+      {
+        "factor": 1.3,
+        "ic": 0.1622,
+        "kind": "signal_regime_amplify",
+        "n": 227,
+        "rationale": "IC +0.162 in bull (n=227) >= amplify threshold +0.1",
+        "regime": "bull",
+        "signal": "h6_dynamic_leader_score"
+      }
+    ],
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_feature_gates_candidate.yaml"
   },
   "main_v2": {
@@ -295,19 +314,19 @@
   },
   "metrics": {
     "concentrated": {
-      "cagr": 0.5512182594905781,
-      "max_dd": -0.14001362470919554,
+      "cagr": 0.5629735833612635,
+      "max_dd": -0.1482922030415612,
       "monitoring_review_days": 7,
-      "selected_names": 3,
-      "sharpe": 1.7167511376775713
+      "selected_names": 5,
+      "sharpe": 1.8844929489164732
     },
     "main": {
-      "avg_stock_names": 26.08433734939759,
-      "avg_turnover_monthly": 0.5353708981327154,
-      "cagr": 0.30992798155664136,
-      "max_dd": -0.1740570376610172,
+      "avg_stock_names": 26.204819277108435,
+      "avg_turnover_monthly": 0.5459683318523246,
+      "cagr": 0.3062406075450368,
+      "max_dd": -0.16882100595122018,
       "months": 83,
-      "sharpe": 1.7070972870997103
+      "sharpe": 1.687330574762984
     }
   },
   "paths": {
@@ -330,39 +349,39 @@
   "run_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "sleeve_audit": {
     "core_compounder": {
-      "hist_gate_avg_multi_year_winner_score": 0.7492894591403746,
-      "hist_gate_avg_score": 3.404560817741719,
+      "hist_gate_avg_multi_year_winner_score": 0.7510460731866824,
+      "hist_gate_avg_score": 3.3915016584781976,
       "latest_candidate_count": 47,
-      "latest_gate_avg_multi_year_winner_score": 1.505056157005186,
-      "latest_gate_avg_score": 3.5190247137715156,
+      "latest_gate_avg_multi_year_winner_score": 1.5050564596480625,
+      "latest_gate_avg_score": 3.569169468692549,
       "latest_gate_pass_count": 42,
       "latest_top10_gate_tickers": "NVDA,LRCX,GOOGL,GOOG,AMAT,COST,VZ,AAPL,MU,AVGO",
       "months": 84
     },
     "early_scout": {
-      "hist_gate_avg_multi_year_winner_score": 0.7493235114133013,
-      "hist_gate_avg_score": 0.47009552775387226,
+      "hist_gate_avg_multi_year_winner_score": 0.7504444086017945,
+      "hist_gate_avg_score": 0.4779051173390051,
       "latest_candidate_count": 52,
-      "latest_gate_avg_multi_year_winner_score": 0.383047271394318,
-      "latest_gate_avg_score": 0.6753152147590417,
+      "latest_gate_avg_multi_year_winner_score": 0.38304754666078555,
+      "latest_gate_avg_score": 0.7306731571835614,
       "latest_gate_pass_count": 47,
-      "latest_top10_gate_tickers": "PR,ETR,MTDR,AKAM,SEB,PVH,EXE,DINO,SFD,PEG",
+      "latest_top10_gate_tickers": "PR,ETR,MTDR,AKAM,SEB,PVH,DINO,EXE,SFD,PEG",
       "months": 84
     },
     "future_winner": {
-      "hist_gate_avg_multi_year_winner_score": 2.9134566918900893,
-      "hist_gate_avg_score": 1.8334154074693776,
-      "latest_candidate_count": 69,
-      "latest_gate_avg_multi_year_winner_score": 3.3704130773824694,
-      "latest_gate_avg_score": 1.7467220126235108,
-      "latest_gate_pass_count": 65,
-      "latest_top10_gate_tickers": "FTI,SU,TRGP,UI,NXT,TPL,CNQ,CIEN,LNG,UTHR",
+      "hist_gate_avg_multi_year_winner_score": 2.9137129026865662,
+      "hist_gate_avg_score": 1.8141803607382962,
+      "latest_candidate_count": 70,
+      "latest_gate_avg_multi_year_winner_score": 3.3483715927176,
+      "latest_gate_avg_score": 1.8097948943179403,
+      "latest_gate_pass_count": 66,
+      "latest_top10_gate_tickers": "FTI,SU,TRGP,UI,NXT,TPL,CNQ,LNG,CIEN,UTHR",
       "months": 84
     },
     "unassigned": {
       "hist_gate_avg_multi_year_winner_score": 0.0,
       "hist_gate_avg_score": 0.0,
-      "latest_candidate_count": 440,
+      "latest_candidate_count": 439,
       "latest_gate_avg_multi_year_winner_score": 0.0,
       "latest_gate_avg_score": 0.0,
       "latest_gate_pass_count": 0,
@@ -371,39 +390,39 @@
     }
   },
   "trade_journal": {
-    "avg_alpha_vs_benchmark": 0.038441818580508554,
-    "avg_holding_days": 54.19565217391305,
-    "avg_realized_return": 0.07095730056648884,
+    "avg_alpha_vs_benchmark": 0.03808662518786281,
+    "avg_holding_days": 51.687576875768755,
+    "avg_realized_return": 0.06394101458164328,
     "avg_return_by_regime": {
-      "bear": 0.061611523370320456,
-      "bull": 0.07152439771547912,
-      "deep_bear": 0.34847845172721265,
+      "bear": 0.05146329871858283,
+      "bull": 0.06976306237429425,
+      "deep_bear": 0.34847845874944955,
       "nan": 0.0,
-      "neutral": 0.07036092073835436,
-      "strong_bull": 0.1441388219177693
+      "neutral": 0.06329288506035702,
+      "strong_bull": 0.036568615662095315
     },
     "avg_return_by_sleeve": {
       "cash": 0.0,
-      "core_compounder": 0.07196966153436352
+      "core_compounder": 0.06498005606859499
     },
     "exit_reason_counts": {
-      "scheduled_rebalance": 509,
-      "single_period_hold": 273
+      "scheduled_rebalance": 507,
+      "single_period_hold": 306
     },
     "regime_counts": {
-      "bear": 159,
-      "bull": 208,
+      "bear": 163,
+      "bull": 227,
       "deep_bear": 7,
-      "nan": 11,
-      "neutral": 391,
-      "strong_bull": 6
+      "nan": 13,
+      "neutral": 396,
+      "strong_bull": 7
     },
     "sleeve_counts": {
-      "cash": 11,
-      "core_compounder": 771
+      "cash": 13,
+      "core_compounder": 800
     },
-    "trade_count": 782,
-    "win_rate": 0.540920716112532
+    "trade_count": 813,
+    "win_rate": 0.5448954489544895
   },
   "weekly_leader_entry": {
     "available": false,

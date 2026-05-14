@@ -104,7 +104,7 @@
     },
     {
       "backtest_executed": true,
-      "cagr_delta_pp": -17.68378230153416,
+      "cagr_delta_pp": -16.218947108898796,
       "discovery_gate": {
         "cagr_delta_pp_gt": 0.0,
         "maxdd_delta_pp_min": -5.0,
@@ -112,12 +112,12 @@
       },
       "experiment_id": "weekly_leader_entry_broker_replay",
       "hypothesis_id": "alpha_sprint_breakout_fallback_v1",
-      "maxdd_delta_pp": 0.15702872388283495,
+      "maxdd_delta_pp": -1.0184287952728854,
       "notes": "Weekly leader-entry broker replay is available as account-like counterfactual evidence; keep proposal-only until stress/cost gates pass.",
       "passed_discovery": false,
       "production_ready": false,
       "requires_full_challenger_backtest": false,
-      "sharpe_delta": -0.4391591781757158,
+      "sharpe_delta": -0.436804648443601,
       "status": "counterfactual_available"
     },
     {
@@ -135,7 +135,7 @@
     }
   ],
   "expires_at": "2026-08-12",
-  "generated_at": "2026-05-14T16:27:36Z",
+  "generated_at": "2026-05-14T21:09:59Z",
   "generated_by": "auto_learning_v2.alpha_scientist",
   "guardrails": {
     "kill_switch": {

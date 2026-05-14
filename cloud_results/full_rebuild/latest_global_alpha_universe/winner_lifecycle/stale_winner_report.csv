@@ -1,3 +1,1 @@
 ticker,name,sector,weight,score,stale_winner_score,mom_3m,mom_6m,mom_12m,rs_benchmark_3m,rs_benchmark_6m,relative_strength_composite,portfolio_sleeve_label,diagnosis,policy_probe,production_activation_allowed
-NXPI,NXP Semiconductors,Semiconductors,0.054757338807390935,4.286710900550788,0.082136,0.20103572345603982,0.4688166893812067,0.46886147939180356,0.12860437966286642,0.37927021762811153,0.4474165989351486,future_winner,high_weight_low_relative_strength,trim_or_replace_replay,False
-TKR,TIMKEN,Industrials,0.04,2.255367615051373,0.072776,0.0670547055808488,0.4781720689944129,0.6169265178211514,-0.0053766382123245915,0.38862559724131773,1.2516372263902624,early_scout,under_benchmark_3m,trim_or_replace_replay,False

@@ -4,9 +4,9 @@ Research-only replay: select the strongest current theme each month and hold at 
 
 - Status: `completed`
 - Months: 84
-- CAGR: 24.10%
-- Sharpe: 0.806
-- MaxDD: -31.04%
+- CAGR: 25.18%
+- Sharpe: 0.823
+- MaxDD: -31.38%
 - Average positions: 2.99
 - Average invested: 100.00%
 

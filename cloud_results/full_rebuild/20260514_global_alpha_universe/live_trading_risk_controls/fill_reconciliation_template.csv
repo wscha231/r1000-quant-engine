@@ -1,6 +1,2 @@
 portfolio,client_order_id,broker_order_id,ticker,side,submitted_qty,filled_qty,remaining_qty,avg_fill_price,fees_usd,fill_status,submitted_at,last_update_at,notes
-concentrated,r1k-C-20260513-S-PR-ae00117774da,,PR,SELL,15698.0,,,,,pending,,,
-concentrated,r1k-C-20260513-S-ETR-7f372785d6bd,,ETR,SELL,2758.0,,,,,pending,,,
-concentrated,r1k-C-20260513-B-MRVL-a4551dd9736d,,MRVL,BUY,2049.0,,,,,pending,,,
-concentrated,r1k-C-20260513-B-CIEN-529a2aa92d08,,CIEN,BUY,315.0,,,,,pending,,,
-concentrated,r1k-C-20260513-B-MU-6b09d8d66c8b,,MU,BUY,223.0,,,,,pending,,,
+main,r1k-M-20260514-S-LRCX-5882d1e1d444,,LRCX,SELL,1.0,,,,,pending,,,

@@ -3,7 +3,7 @@
 # challenger backtest, promotion gate, and human approval.
 
 policy_version: "2026-05-alphaops-20260514-v1"
-generated_at: "2026-05-14T16:10:14Z"
+generated_at: "2026-05-14T20:50:27Z"
 expires_at: "2026-08-12"
 mode: "proposal_only"
 guardrails:
@@ -20,27 +20,42 @@ guardrails:
   broker_execution_auto_apply: false
   candidate_policy_only: true
 evidence_summary:
-  main_cagr: 0.30992798155664136
-  main_sharpe: 1.7070972870997103
-  main_max_dd: -0.1740570376610172
-  main_avg_turnover_monthly: 0.5353708981327154
-  main_avg_stock_names: 26.08433734939759
-  concentrated_cagr: 0.5512182594905781
-  concentrated_sharpe: 1.7167511376775713
-  concentrated_max_dd: -0.14001362470919554
-  trade_count: 782
-  concentrated_trade_count: 155
-  combined_trade_count: 937
-  combined_win_rate: 0.5602988260405549
-  combined_avg_alpha_vs_benchmark: 0.04065510073854495
-  feature_gate_candidate_count: 0
+  main_cagr: 0.3062406075450368
+  main_sharpe: 1.687330574762984
+  main_max_dd: -0.16882100595122018
+  main_avg_turnover_monthly: 0.5459683318523246
+  main_avg_stock_names: 26.204819277108435
+  concentrated_cagr: 0.5629735833612635
+  concentrated_sharpe: 1.8844929489164732
+  concentrated_max_dd: -0.1482922030415612
+  trade_count: 813
+  concentrated_trade_count: 231
+  combined_trade_count: 1044
+  combined_win_rate: 0.5680076628352491
+  combined_avg_alpha_vs_benchmark: 0.04190923843789419
+  feature_gate_candidate_count: 2
   main_v2_positions: 11
   main_v2_cash_target: 0.07820306303913749
   concentrated_policy_cap_violations: 2
   alpha_sprint_candidates: 5
   alpha_sprint_active: false
 feature_gates:
-  []
+  -
+    kind: "signal_regime_amplify"
+    signal: "rs_acceleration_score"
+    regime: "bull"
+    factor: 1.3
+    ic: 0.1458
+    n: 227
+    rationale: "IC +0.146 in bull (n=227) >= amplify threshold +0.1"
+  -
+    kind: "signal_regime_amplify"
+    signal: "h6_dynamic_leader_score"
+    regime: "bull"
+    factor: 1.3
+    ic: 0.1622
+    n: 227
+    rationale: "IC +0.162 in bull (n=227) >= amplify threshold +0.1"
 sleeve_policy:
   main_v2_balanced:
     deep_bear:
@@ -224,12 +239,12 @@ proposals:
   -
     kind: "feature_gate_learning"
     status: "carry_forward_candidate"
-    proposal_count: 0
+    proposal_count: 2
     rationale: "Existing feature-gate learner found regime-specific bear gates; keep as policy input, still proposal-only."
   -
     kind: "target_n_learning"
     mandate: "main"
-    current_avg_stock_names: 26.08433734939759
+    current_avg_stock_names: 26.204819277108435
     proposed_neutral_n: 15
     rationale: "Main is broad while Main v2 latest concentrates to 11 shadow positions with explicit sleeve books."
   -
@@ -241,9 +256,9 @@ proposals:
       early_scout: 0.15
       cash: 0.05
     evidence:
-      future_latest_multi_year_winner: 3.3704130773824694
-      early_latest_multi_year_winner: 0.383047271394318
-      core_latest_multi_year_winner: 1.505056157005186
+      future_latest_multi_year_winner: 3.3483715927176
+      early_latest_multi_year_winner: 0.38304754666078555
+      core_latest_multi_year_winner: 1.5050564596480625
     rationale: "Future winner sleeve has the strongest latest multi-year winner evidence; early scout stays capped."
   -
     kind: "concentrated_policy_learning"

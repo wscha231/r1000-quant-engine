@@ -6,17 +6,17 @@ production_activation_allowed: false
 requires_historical_replay: true
 requires_shadow_validation: true
 requires_human_approval: true
-generated_at_utc: 2026-05-14T16:27:37Z
+generated_at_utc: 2026-05-14T21:09:59Z
 rules:
   - id: fundamental_acceleration_override_candidate
     rationale: Treat explosive leaders as repricing candidates, not automatic chase rejects.
     source_report: missed_winners
-    candidate_tickers: [SNDK, INTC, STX, LITE, HIMX, RKLB, FLEX, PL]
+    candidate_tickers: [SNDK, INTC, STX, RKLB, LITE, PL, HIMX, BE]
     action: replay_alpha_sprint_or_concentrated_pilot_entry
   - id: stale_winner_trim_candidate
     rationale: Reduce opportunity cost from high-weight holdings lagging the market.
     source_report: stale_winners
-    candidate_tickers: [NXPI, TKR]
+    candidate_tickers: []
     action: replay_trim_or_replace
   - id: leadership_rotation_candidate
     rationale: Test same-sector challenger swaps when new leaders overtake current holdings.
@@ -24,9 +24,9 @@ rules:
     candidate_pairs:
       - [HPE, SNDK]
       - [LRCX, SNDK]
-      - [MRVL, SNDK]
+      - [MLI, BE]
+      - [TKR, BE]
+      - [AMD, SNDK]
       - [ON, SNDK]
-      - [MLI, RKLB]
-      - [TKR, RKLB]
-      - [WDC, SNDK]
-      - [GEV, RKLB]
+      - [MRVL, SNDK]
+      - [PWR, BE]

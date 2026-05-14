@@ -23,16 +23,16 @@ Research-only sidecar. It does not change production weights.
 - crisis: 5
 - green: 46
 - recovery: 8
-- red: 9
-- yellow: 16
+- red: 10
+- yellow: 15
 
 ## Regime Speed Diagnostics
 
-- balanced_under_drawdown: 12
-- late_risk_alert: 13
+- balanced_under_drawdown: 10
+- late_risk_alert: 11
 - possible_cash_drag: 6
 - premature_growth_reentry: 1
-- unconfirmed_cash_raise: 15
+- unconfirmed_cash_raise: 17
 
 ## Interpretation
 
@@ -50,12 +50,12 @@ Production promotion requires a separate historical challenger replay.
 ## First Diagnostics
 
 - 2020-01-31: unconfirmed_cash_raise (balanced -> green)
-- 2021-08-31: late_risk_alert;unconfirmed_cash_raise (balanced -> green)
-- 2021-10-29: possible_cash_drag;unconfirmed_cash_raise (growth_reentry_alert -> recovery)
+- 2020-09-30: unconfirmed_cash_raise (balanced -> green)
+- 2021-08-31: late_risk_alert (balanced -> green)
 - 2021-12-31: late_risk_alert;unconfirmed_cash_raise (balanced -> green)
 - 2022-01-31: late_risk_alert (balanced -> yellow)
 - 2022-03-31: late_risk_alert;premature_growth_reentry;unconfirmed_cash_raise (growth_reentry_alert -> recovery)
 - 2022-05-31: balanced_under_drawdown;unconfirmed_cash_raise (balanced -> yellow)
-- 2022-06-30: late_risk_alert;balanced_under_drawdown (balanced -> yellow)
-- 2022-07-29: late_risk_alert;balanced_under_drawdown (balanced -> yellow)
+- 2022-06-30: balanced_under_drawdown (balanced -> red)
+- 2022-07-29: balanced_under_drawdown (balanced -> yellow)
 - 2022-08-31: late_risk_alert;balanced_under_drawdown (balanced -> yellow)

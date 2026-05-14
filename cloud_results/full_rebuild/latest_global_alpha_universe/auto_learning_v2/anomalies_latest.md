@@ -15,13 +15,13 @@ Evidence:
 
 ```json
 {
-  "concentrated_cagr": 0.5512182594905781,
-  "concentrated_max_dd": -0.2885307646315559,
-  "concentrated_sharpe": 1.0708309562908154,
+  "concentrated_cagr": 0.5629735833612635,
+  "concentrated_max_dd": -0.22677561691887382,
+  "concentrated_sharpe": 1.2996537124175735,
   "latest_concentrated_capacity": 0.1,
-  "main_cagr": 0.19854011435400376,
-  "main_max_dd": -0.3212518991190376,
-  "main_sharpe": 0.9157147189766915
+  "main_cagr": 0.18440300245186636,
+  "main_max_dd": -0.3192510867364303,
+  "main_sharpe": 0.8484185422459798
 }
 ```
 
@@ -38,10 +38,10 @@ Evidence:
 
 ```json
 {
-  "main_avg_stock_names": 26.08433734939759,
-  "main_avg_turnover_monthly": 0.5353708981327154,
-  "main_cagr": 0.19854011435400376,
-  "main_max_dd": -0.3212518991190376
+  "main_avg_stock_names": 26.204819277108435,
+  "main_avg_turnover_monthly": 0.5459683318523246,
+  "main_cagr": 0.18440300245186636,
+  "main_max_dd": -0.3192510867364303
 }
 ```
 
@@ -129,15 +129,15 @@ Evidence:
 
 ```json
 {
-  "strong_clusters": [],
-  "weak_clusters": [
+  "strong_clusters": [
     {
-      "avg_realized_return": 0.0760414762239017,
-      "cluster_id": "6",
-      "n": 80,
-      "win_rate": 0.4625
+      "avg_realized_return": 0.08673317969214833,
+      "cluster_id": "2",
+      "n": 95,
+      "win_rate": 0.6210526315789474
     }
-  ]
+  ],
+  "weak_clusters": []
 }
 ```
 
@@ -154,7 +154,7 @@ Evidence:
 
 ```json
 {
-  "explosion_entry_n_all": 937,
-  "explosion_exit_n_all": 937
+  "explosion_entry_n_all": 1044,
+  "explosion_exit_n_all": 1044
 }
 ```

@@ -13,7 +13,7 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-05-14T16:10:14Z",
+  "generated_at_utc": "2026-05-14T20:50:27Z",
   "hard_failures": [
     {
       "check": "survivorship_coverage_audited",
@@ -43,7 +43,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.29992798155664135
+      "threshold": 0.2962406075450368
     },
     {
       "check": "main_sharpe_floor",
@@ -53,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6270972870997102
+      "threshold": 1.607330574762984
     },
     {
       "check": "main_max_dd_floor",
@@ -63,7 +63,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.18405703766101722
+      "threshold": -0.1788210059512202
     },
     {
       "check": "main_v2_historical_backtest_exists",

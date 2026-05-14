@@ -3,7 +3,7 @@
 - status: `blocked`
 - ready_for_fullrun: `false`
 - ready_for_skip_collector_replay: `false`
-- latest_target_date: `2026-05-14`
+- latest_target_date: `2026-05-15`
 
 ## Prices
 
@@ -15,22 +15,22 @@
 
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
-| scored_latest | 744 | 2026-05-14 |  |
-| portfolio_latest | 17 |  | 0.9999999999999998 |
-| concentrated_portfolio_latest | 3 | 2026-05-14 | 1.0 |
+| scored_latest | 745 | 2026-05-15 |  |
+| portfolio_latest | 17 |  | 0.9999999999999996 |
+| concentrated_portfolio_latest | 5 | 2026-05-15 | 1.0 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 2180 | 2019-04-30 | 2026-02-27 | 82.99999999999991 |
-| concentrated_history | 23379 | 2019-04-30 | 2026-02-27 | 4999.5 |
-| operating_main | 2197 | 2019-04-30 | 2026-05-13 | 76.35628644723688 |
-| operating_concentrated | 23382 | 2019-04-30 | 2026-05-14 | 4172.432931838797 |
+| main_history | 2194 | 2019-04-30 | 2026-02-27 | 82.99999999999991 |
+| concentrated_history | 23382 | 2019-04-30 | 2026-02-27 | 4999.5 |
+| operating_main | 2211 | 2019-04-30 | 2026-05-14 | 76.3420408180361 |
+| operating_concentrated | 23387 | 2019-04-30 | 2026-05-15 | 4174.19441984332 |
 
 ## Blockers
 
-- main operating target book max date 2026-05-13 is older than latest target date 2026-05-14
+- main operating target book max date 2026-05-14 is older than latest target date 2026-05-15
 
 ## Warnings
 

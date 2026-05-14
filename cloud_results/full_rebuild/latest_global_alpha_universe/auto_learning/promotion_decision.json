@@ -11,13 +11,13 @@
     "trade_count_floor": true
   },
   "dry_run": true,
-  "generated_at": "2026-05-14T16:10:14Z",
+  "generated_at": "2026-05-14T20:50:26Z",
   "metrics": {
-    "concentrated_cagr": 0.5512182594905781,
-    "main_cagr": 0.30992798155664136,
-    "main_max_dd": -0.1740570376610172,
-    "main_sharpe": 1.7070972870997103,
-    "trade_count": 782
+    "concentrated_cagr": 0.5629735833612635,
+    "main_cagr": 0.3062406075450368,
+    "main_max_dd": -0.16882100595122018,
+    "main_sharpe": 1.687330574762984,
+    "trade_count": 813
   },
   "promoted": false,
   "reasons": [],

@@ -1,37 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Main Recommendation Weights</text>
-<path d="M 210.00 220.00 L 210.00 85.00 A 135.00 135.00 0 0 1 302.41 121.59 Z" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 302.41 121.59 A 135.00 135.00 0 0 1 344.73 211.52 Z" fill="#16a34a" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 344.73 211.52 A 135.00 135.00 0 0 1 337.84 263.38 Z" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 337.84 263.38 A 135.00 135.00 0 0 1 311.75 308.72 Z" fill="#9333ea" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 311.75 308.72 A 135.00 135.00 0 0 1 270.39 340.74 Z" fill="#ea580c" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 270.39 340.74 A 135.00 135.00 0 0 1 222.99 354.37 Z" fill="#0891b2" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 222.99 354.37 A 135.00 135.00 0 0 1 175.62 350.55 Z" fill="#4f46e5" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 175.62 350.55 A 135.00 135.00 0 0 1 133.45 331.20 Z" fill="#65a30d" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 133.45 331.20 A 135.00 135.00 0 0 1 100.43 298.86 Z" fill="#be123c" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 100.43 298.86 A 135.00 135.00 0 0 1 80.25 257.29 Z" fill="#0f766e" stroke="#ffffff" stroke-width="2"/>
-<path d="M 210.00 220.00 L 80.25 257.29 A 135.00 135.00 0 0 1 210.00 85.00 Z" fill="#7c3aed" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 210.00 85.00 A 135.00 135.00 0 0 1 324.03 147.73 Z" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 324.03 147.73 A 135.00 135.00 0 0 1 343.61 200.67 Z" fill="#16a34a" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 343.61 200.67 A 135.00 135.00 0 0 1 339.83 256.99 Z" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 339.83 256.99 A 135.00 135.00 0 0 1 314.06 306.00 Z" fill="#9333ea" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 314.06 306.00 A 135.00 135.00 0 0 1 271.73 340.06 Z" fill="#ea580c" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 271.73 340.06 A 135.00 135.00 0 0 1 219.73 354.65 Z" fill="#0891b2" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 219.73 354.65 A 135.00 135.00 0 0 1 166.26 347.72 Z" fill="#4f46e5" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 166.26 347.72 A 135.00 135.00 0 0 1 119.92 320.55 Z" fill="#65a30d" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 119.92 320.55 A 135.00 135.00 0 0 1 87.85 277.48 Z" fill="#be123c" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 87.85 277.48 A 135.00 135.00 0 0 1 77.39 245.30 Z" fill="#0f766e" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 77.39 245.30 A 135.00 135.00 0 0 1 210.00 85.00 Z" fill="#7c3aed" stroke="#ffffff" stroke-width="2"/>
 <rect x="400" y="70" width="14" height="14" fill="#2563eb"/>
-<text x="424" y="82" font-family="Arial" font-size="14" fill="#111827">GOOG 12.0%</text>
+<text x="424" y="82" font-family="Arial" font-size="14" fill="#111827">GOOG 16.0%</text>
 <rect x="400" y="94" width="14" height="14" fill="#16a34a"/>
-<text x="424" y="106" font-family="Arial" font-size="14" fill="#111827">GEV 12.0%</text>
+<text x="424" y="106" font-family="Arial" font-size="14" fill="#111827">MRVL 6.7%</text>
 <rect x="400" y="118" width="14" height="14" fill="#dc2626"/>
-<text x="424" y="130" font-family="Arial" font-size="14" fill="#111827">MRVL 6.2%</text>
+<text x="424" y="130" font-family="Arial" font-size="14" fill="#111827">VRT 6.7%</text>
 <rect x="400" y="142" width="14" height="14" fill="#9333ea"/>
-<text x="424" y="154" font-family="Arial" font-size="14" fill="#111827">LRCX 6.2%</text>
+<text x="424" y="154" font-family="Arial" font-size="14" fill="#111827">LRCX 6.6%</text>
 <rect x="400" y="166" width="14" height="14" fill="#ea580c"/>
-<text x="424" y="178" font-family="Arial" font-size="14" fill="#111827">VRT 6.2%</text>
+<text x="424" y="178" font-family="Arial" font-size="14" fill="#111827">FIX 6.4%</text>
 <rect x="400" y="190" width="14" height="14" fill="#0891b2"/>
-<text x="424" y="202" font-family="Arial" font-size="14" fill="#111827">WDC 5.8%</text>
+<text x="424" y="202" font-family="Arial" font-size="14" fill="#111827">FTI 6.4%</text>
 <rect x="400" y="214" width="14" height="14" fill="#4f46e5"/>
-<text x="424" y="226" font-family="Arial" font-size="14" fill="#111827">FIX 5.6%</text>
+<text x="424" y="226" font-family="Arial" font-size="14" fill="#111827">PWR 6.4%</text>
 <rect x="400" y="238" width="14" height="14" fill="#65a30d"/>
-<text x="424" y="250" font-family="Arial" font-size="14" fill="#111827">FTI 5.5%</text>
+<text x="424" y="250" font-family="Arial" font-size="14" fill="#111827">UMC 6.4%</text>
 <rect x="400" y="262" width="14" height="14" fill="#be123c"/>
-<text x="424" y="274" font-family="Arial" font-size="14" fill="#111827">NXPI 5.5%</text>
+<text x="424" y="274" font-family="Arial" font-size="14" fill="#111827">CBOE 6.4%</text>
 <rect x="400" y="286" width="14" height="14" fill="#0f766e"/>
-<text x="424" y="298" font-family="Arial" font-size="14" fill="#111827">UMC 5.5%</text>
+<text x="424" y="298" font-family="Arial" font-size="14" fill="#111827">AMD 4.0%</text>
 <rect x="400" y="310" width="14" height="14" fill="#7c3aed"/>
-<text x="424" y="322" font-family="Arial" font-size="14" fill="#111827">OTHER 29.5%</text>
+<text x="424" y="322" font-family="Arial" font-size="14" fill="#111827">OTHER 28.0%</text>
 </svg>

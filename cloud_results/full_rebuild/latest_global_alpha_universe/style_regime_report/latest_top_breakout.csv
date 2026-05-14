@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
-GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.994000720351421,0.6624070673614683,breakout_growth
-GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.978641136045813,0.6624070673614683,breakout_growth
-ADI,ANALOG DEVICES INC,Information Technology,future_winner,6.115659304669557,0.6624070673614683,breakout_growth
-TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,5.937691732612389,0.6624070673614683,breakout_growth
-MU,MICRON TECHNOLOGY INC,Information Technology,core_compounder,5.464861792404377,0.6624070673614683,breakout_growth
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.363947598941732,0.6624070673614683,breakout_growth
-CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,3.174084171784514,0.6624070673614683,breakout_growth
-FTNT,FORTINET INC,Information Technology,core_compounder,2.6585269249731445,0.6624070673614683,breakout_growth
+LRCX,LAM RESEARCH CORP,Information Technology,core_compounder,6.836432742864006,0.6730814330108248,breakout_growth
+AMAT,APPLIED MATERIAL INC,Information Technology,core_compounder,6.157993193694372,0.6730814330108248,breakout_growth
+TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,5.100405918887069,0.6730814330108248,breakout_growth
+NVDA,NVIDIA CORP,Information Technology,core_compounder,4.785049682800269,0.6730814330108248,breakout_growth
+AVGO,BROADCOM INC,Information Technology,core_compounder,3.1817569585467864,0.6730814330108248,breakout_growth
+FTNT,FORTINET INC,Information Technology,core_compounder,2.133939049883081,0.6730814330108248,breakout_growth
+FFIV,F5 INC,Information Technology,future_winner,1.3320050183235514,0.6697744090676147,breakout_growth
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,7.560910517280424,0.6629852115156624,breakout_growth

@@ -1,26 +1,26 @@
 {
   "unified_weights": {
-    "GOOG": 0.12,
-    "GEV": 0.12,
-    "MRVL": 0.0620623942401402,
-    "LRCX": 0.0620623942401402,
-    "VRT": 0.0620623942401402,
-    "WDC": 0.05846993579724937,
-    "FIX": 0.05632245176668143,
-    "FTI": 0.05498136398663526,
-    "NXPI": 0.054757338807390935,
-    "UMC": 0.054735091483340666,
-    "CBOE": 0.05454663543828172,
+    "GOOG": 0.1600947876494211,
+    "MRVL": 0.06703882286936284,
+    "VRT": 0.06703882286936284,
+    "LRCX": 0.0657536587365781,
+    "FIX": 0.0644863349510747,
+    "FTI": 0.06410275589711638,
+    "PWR": 0.06400387770218947,
+    "UMC": 0.06375474769404725,
+    "CBOE": 0.06372619163084725,
+    "AMD": 0.04,
     "ON": 0.04,
+    "NXPI": 0.04,
     "STM": 0.04,
     "HPE": 0.04,
     "PR": 0.04,
     "TKR": 0.04,
     "MLI": 0.04
   },
-  "cash_target": 0.0,
+  "cash_target": 1.1102230246251565e-16,
   "by_mandate_capacity": {
-    "main": 1.0,
+    "main": 0.9999999999999999,
     "concentrated": 0.0,
     "tactical": 0.0
   },
@@ -29,15 +29,15 @@
   "audit": {
     "mode": "legacy_passthrough",
     "n_unique_tickers": 17,
-    "generated_at": "2026-05-14T16:10:06Z"
+    "generated_at": "2026-05-14T20:50:18Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,
     "weights_at_most_one": true,
     "cash_in_unit_range": true,
     "invested_plus_cash_close_to_one": true,
-    "invested_amount": 1.0,
-    "cash_amount": 0.0,
+    "invested_amount": 0.9999999999999999,
+    "cash_amount": 1.1102230246251565e-16,
     "n_positions": 17,
     "n_conflicts": 0,
     "all_passed": true

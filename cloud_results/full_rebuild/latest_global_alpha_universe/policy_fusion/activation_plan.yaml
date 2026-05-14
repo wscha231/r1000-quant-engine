@@ -45,32 +45,20 @@ alphaops_policy_fusion:
       activation_stage: confirm_with_production_compatible_replay
       target_pass: true
       evidence_type: monthly_proxy
-    - policy_id: account_aware_execution
-      portfolio: concentrated
-      priority: high
-      activation_stage: candidate_for_combination
-      target_pass: false
-      evidence_type: production
     - policy_id: style_macro_router
       portfolio: main
       priority: high
       activation_stage: candidate_for_combination
       target_pass: false
       evidence_type: historical_replay
-    - policy_id: account_aware_execution
+    - policy_id: long_winner_hold_template
       portfolio: main
       priority: high
       activation_stage: candidate_for_combination
       target_pass: false
-      evidence_type: production
-    - policy_id: monster_early_staged_sizing
-      portfolio: main
-      priority: high
-      activation_stage: conditional_defense_only
-      target_pass: false
       evidence_type: historical_replay
     - policy_id: monster_early_staged_sizing
-      portfolio: concentrated
+      portfolio: main
       priority: high
       activation_stage: conditional_defense_only
       target_pass: false
@@ -93,18 +81,30 @@ alphaops_policy_fusion:
       activation_stage: shadow_watch
       target_pass: false
       evidence_type: diagnostic
-    - policy_id: long_winner_hold_template
-      portfolio: main
-      priority: watch
-      activation_stage: shadow_watch
-      target_pass: false
-      evidence_type: diagnostic
     - policy_id: governance_catalyst_watch
       portfolio: main
       priority: watch
       activation_stage: shadow_watch
       target_pass: false
       evidence_type: diagnostic
+    - policy_id: auto_learning_policy_candidate
+      portfolio: main
+      priority: watch
+      activation_stage: shadow_watch
+      target_pass: false
+      evidence_type: proposal
+    - policy_id: account_aware_execution
+      portfolio: main
+      priority: blocked
+      activation_stage: reject_current_form
+      target_pass: false
+      evidence_type: production
+    - policy_id: account_aware_execution
+      portfolio: concentrated
+      priority: blocked
+      activation_stage: reject_current_form
+      target_pass: false
+      evidence_type: production
   conflict_rules:
     - policy_a: position_hard_stop_distribution
       policy_b: shakeout_hold_veto

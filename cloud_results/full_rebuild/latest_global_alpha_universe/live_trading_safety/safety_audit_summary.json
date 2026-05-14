@@ -1,10 +1,25 @@
 {
-  "error_count": 0,
-  "generated_at_utc": "2026-05-14T16:25:59.532555+00:00",
-  "issues": [],
+  "error_count": 2,
+  "generated_at_utc": "2026-05-14T21:08:13.067281+00:00",
+  "issues": [
+    {
+      "check_id": "concentrated_orders_nonpositive_qty",
+      "details": "{}",
+      "message": "orders contain non-positive quantities",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/concentrated/orders_preview.csv",
+      "severity": "error"
+    },
+    {
+      "check_id": "concentrated_orders_blocked",
+      "details": "{\"count\": 1}",
+      "message": "orders_preview contains blocked orders",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/concentrated/orders_preview.csv",
+      "severity": "error"
+    }
+  ],
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "schema_version": "live-trading-safety-v1",
-  "status": "pass",
+  "status": "blocked",
   "strict": false,
   "warning_count": 0
 }

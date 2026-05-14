@@ -20,13 +20,13 @@ This report evaluates the candidate policy gates. It does not apply the policy t
 | schema | production_activation_disabled | hard | True | `False` | `False` |
 | schema | human_approval_required | hard | True | `True` | `True` |
 | main | feature_gate_candidate_backtest_executed | hard | False | `candidate_only` | `full candidate rebuild/backtest` |
-| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.29992798155664135` |
-| main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.6270972870997102` |
-| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.18405703766101722` |
+| main | main_cagr_floor | hard | False | `0.20165834588806963` | `0.2962406075450368` |
+| main | main_sharpe_floor | hard | False | `1.0971959712745438` | `1.607330574762984` |
+| main | main_max_dd_floor | hard | False | `-0.27307967491398366` | `-0.1788210059512202` |
 | main_v2 | main_v2_historical_backtest_exists | hard | False | `latest_snapshot_only` | `83-month main_v2 backtest` |
 | main_v2 | main_v2_cap_audit | soft | True | `{'positions': 11, 'cash': 0.07820306303913749}` | `cap<=15%, positions>0` |
-| concentrated | concentrated_cagr_floor | hard | True | `0.5512182594905781` | `0.3` |
-| concentrated | concentrated_max_dd_floor | hard | True | `-0.14001362470919554` | `-0.25` |
+| concentrated | concentrated_cagr_floor | hard | True | `0.5629735833612635` | `0.3` |
+| concentrated | concentrated_max_dd_floor | hard | True | `-0.1482922030415612` | `-0.25` |
 | concentrated | single_name_and_sector_cap_audit | hard | False | `2` | `0` |
 | orchestrator | orchestrator_historical_backtest_exists | hard | False | `snapshot_report_only` | `83-month orchestrator backtest` |
 | orchestrator | snapshot_cash_floor | soft | True | `0.19999999999999996` | `0.25` |

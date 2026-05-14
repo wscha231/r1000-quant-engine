@@ -13,14 +13,14 @@
 
 ## Target Books
 
-- Main: `2019-04-30` to `2026-02-27`, rows `2180`
-- Concentrated: `2019-04-30` to `2026-02-27`, rows `23379`
+- Main: `2019-04-30` to `2026-02-27`, rows `2194`
+- Concentrated: `2019-04-30` to `2026-02-27`, rows `23382`
 - 10-year ready: `False`
 
 ## Broker Replay
 
-- Main: `2019-05-01` to `2026-05-13`, CAGR `0.19854011435400376`
-- Concentrated: `2019-05-01` to `2026-05-13`, CAGR `0.3264642157430835`
+- Main: `2019-05-01` to `2026-05-14`, CAGR `0.18440300245186636`
+- Concentrated: `2019-05-01` to `2026-05-14`, CAGR `0.35103006392857994`
 - 10-year ready: `False`
 
 ## Blockers

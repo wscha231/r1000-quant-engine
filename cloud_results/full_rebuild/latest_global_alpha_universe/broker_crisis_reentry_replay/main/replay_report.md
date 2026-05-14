@@ -5,11 +5,11 @@ Broker-ledger conversion of the crisis cash ladder / bargain re-entry target boo
 - Status: `completed`
 - Policy: `fast_reentry`
 - Metric mode: `broker_ledger_next_close`
-- CAGR: 20.30%
-- Sharpe: 0.884
-- MaxDD: -32.95%
-- Avg cash: 8.96%
-- Trade count: 2852
+- CAGR: 19.68%
+- Sharpe: 0.851
+- MaxDD: -31.91%
+- Avg cash: 9.20%
+- Trade count: 2914
 - Valid for production evidence: `true`
 
 This is a broker-compatible challenger, not an automatic production promotion.

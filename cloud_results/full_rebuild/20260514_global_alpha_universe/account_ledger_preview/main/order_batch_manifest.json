@@ -1,9 +1,11 @@
 {
-  "as_of_date": "2026-05-13",
-  "client_order_ids": [],
-  "order_batch_id": "a7bbd245c063275bc9409209a216c0e14312a05e2eac4b0fb484cfb450bbf8cc",
-  "order_count": 0,
+  "as_of_date": "2026-05-14",
+  "client_order_ids": [
+    "r1k-M-20260514-S-LRCX-5882d1e1d444"
+  ],
+  "order_batch_id": "12c96f9fff9b901f743f4c8bb3e56d9cce2aa4ef99abf985cc0212e65e2b9cb7",
+  "order_count": 1,
   "portfolio_kind": "main",
-  "ready_order_count": 0,
+  "ready_order_count": 1,
   "schema_version": "account-ledger-preview-order-batch-v1"
 }

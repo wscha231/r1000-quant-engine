@@ -6,8 +6,8 @@ Important: target-book forward returns are used only for attribution. They are n
 
 | Portfolio | Legacy/Proxy CAGR | Broker CAGR | CAGR Gap | Legacy/Proxy MaxDD | Broker Daily MaxDD | Broker Month-End MaxDD | Avg Target Turnover | Trades | Fees | Diagnosis |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| main | 35.94% | 19.85% | 16.08pp | -15.20% | -32.13% | -27.89% | 54.53% | 2836 | $33,910 | high monthly target turnover creates execution cost and churn drag; monthly/proxy drawdown understates intramonth account drawdown; cash/rounding/unfilled exposure drag is material; fees are material under realistic turnover |
-| concentrated | 58.92% | 32.65% | 26.27pp | -13.15% | -28.85% | -24.12% | 62.76% | 280 | $64,915 | high monthly target turnover creates execution cost and churn drag; monthly/proxy drawdown understates intramonth account drawdown; cash/rounding/unfilled exposure drag is material; fees are material under realistic turnover |
+| main | 35.52% | 18.44% | 17.08pp | -14.62% | -31.93% | -28.01% | 55.14% | 2873 | $34,566 | high monthly target turnover creates execution cost and churn drag; monthly/proxy drawdown understates intramonth account drawdown; cash/rounding/unfilled exposure drag is material; fees are material under realistic turnover |
+| concentrated | 57.30% | 35.10% | 22.20pp | -13.66% | -22.68% | -19.59% | 61.19% | 649 | $69,041 | high monthly target turnover creates execution cost and churn drag; cash/rounding/unfilled exposure drag is material; fees are material under realistic turnover |
 
 ## Readout
 
