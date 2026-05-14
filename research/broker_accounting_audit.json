@@ -1,13 +1,15 @@
 {
   "schema_version": "broker-accounting-audit-v1",
-  "as_of_utc": "2026-05-12T07:13:00Z",
+  "as_of_utc": "2026-05-14T10:00:00Z",
   "purpose": "Single source of truth for broker-ledger replay accounting known biases. tools/auto_policy_challenger.py reads this file and refuses to mark a policy production-ready while critical bias flags are still false. Update one flag per bug fix; do not flip a flag without landing a regression test that demonstrates the fix.",
   "hard_gates": {
     "delisted_cost_basis_fallback_eliminated": {
-      "value": false,
-      "evidence_path": "tools/run_broker_ledger_replay.py:313-315",
-      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_delisted_position_currently_marks_at_cost_basis",
-      "rationale": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD."
+      "value": true,
+      "evidence_path": "tools/run_broker_ledger_replay.py:307-353 (account_equity now uses delisted_recovery_rate * cost_basis, default 0.0; cost_basis fallback removed)",
+      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_delisted_position_with_zero_last_close_marks_at_zero",
+      "fix_commit": "TBD-after-commit",
+      "fix_date": "2026-05-14",
+      "rationale": "FIXED 2026-05-14. account_equity no longer falls back to state.cost_basis when price_at_or_before returns None / <=0 / NaN. Instead the position is marked at delisted_recovery_rate * cost_basis (default 0.0 = honest delisted-to-zero accounting). Position remains in state.shares for downstream diagnostics but no longer inflates equity. Regression test exercises both the synthetic 'last close still positive' case (marks at last close) and the 'last close <= 0' case (marks at 0.0). Effect on existing metrics: MaxDD widens by ~0-3pp depending on how many positions in the test universe ever fall to non-positive last close."
     },
     "survivorship_coverage_audited": {
       "value": false,

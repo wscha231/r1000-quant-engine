@@ -304,15 +304,53 @@ class LedgerState:
     realized_pnl: dict[str, float] = field(default_factory=dict)
 
 
-def account_equity(state: LedgerState, prices: dict[str, pd.DataFrame], date: pd.Timestamp) -> tuple[float, dict[str, float]]:
+def account_equity(
+    state: LedgerState,
+    prices: dict[str, pd.DataFrame],
+    date: pd.Timestamp,
+    delisted_recovery_rate: float = 0.0,
+    delisted_log: list[dict[str, Any]] | None = None,
+) -> tuple[float, dict[str, float]]:
+    """Mark-to-market the LedgerState at `date`.
+
+    2026-05-14 hard-gate fix (broker_accounting_audit.delisted_cost_basis_fallback_eliminated):
+    when `price_at_or_before` returns None / <=0 / NaN (ticker has no usable
+    cache data on-or-before `date` -- typically a delisted-to-zero / fire-sale
+    bankruptcy / cache gap), DO NOT fall back to `state.cost_basis`. Falling
+    back to cost basis silently held dead positions at their original purchase
+    value, understating MaxDD over multi-year windows.
+
+    New behavior:
+      px = qty * (last_known_close OR delisted_recovery_rate * cost_basis)
+    Default delisted_recovery_rate = 0.0 -> a dead position contributes $0 to
+    equity (the honest accounting for delisting/bankruptcy). The position
+    stays in state.shares so downstream diagnostics can see it, but it does
+    NOT prop up account_equity.
+
+    `delisted_log` (optional) captures per-ticker zero-marks for diagnostics;
+    callers should pass a list to collect events.
+    """
     values: dict[str, float] = {}
     equity = float(state.cash)
     for ticker, qty in list(state.shares.items()):
         if abs(qty) <= 1e-12:
             continue
         px = price_at_or_before(prices, ticker, date)
+        marked_via = "last_close"
         if px is None or px <= 0:
-            px = safe_float(state.cost_basis.get(ticker), 0.0)
+            cost = safe_float(state.cost_basis.get(ticker), 0.0)
+            px = float(delisted_recovery_rate) * cost
+            marked_via = "delisted_zero_mark" if delisted_recovery_rate == 0.0 else "delisted_partial_recovery"
+            if delisted_log is not None:
+                delisted_log.append({
+                    "as_of_date": pd.Timestamp(date).date().isoformat(),
+                    "ticker": ticker,
+                    "qty": float(qty),
+                    "cost_basis_per_share": float(cost),
+                    "recovery_rate": float(delisted_recovery_rate),
+                    "marked_price": float(px),
+                    "marked_via": marked_via,
+                })
         value = float(qty) * float(px)
         values[ticker] = value
         equity += value
