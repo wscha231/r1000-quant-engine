@@ -460,6 +460,64 @@ All entries must be written in English. Entries must be predictable and machine-
   - **F5 sleeve_pnl_in_window may be empty** on portfolios with no exits during the MDD window (e.g. Concentrated's 2025 MDD if all positions held through trough). Empty dict `{}` rather than null; check before iterating in downstream consumers.
   - F4 + F5 are independent; either can be reverted without affecting the other.
 
+### 21:30 KST - iter4-results-analysis-and-iter5-honesty-bundle-triggered
+
+- scope:
+  - Iter 4 (run `25851747009` head `11eba2a`) COMPLETED. Conclusion=failure was the GDrive sync step only; artifact upload succeeded and metrics were extracted via `gh run download`. Measured against Iter 1/2 baselines. Iter 5 (run `25860138864` head `d95933e`) TRIGGERED to capture honesty-fix-applied measurement (F1+F3+F4+F6+F9+F10 plus the original A+B+D-1+D-2+C bundle).
+- iter4_measured_results:
+
+  | Portfolio | Source | CAGR | MaxDD | Sharpe |
+  | --- | --- | ---: | ---: | ---: |
+  | Main | Iter 4 broker_replay (Mode Y headline) | 20.20% | -32.02% | 1.057 |
+  | Main | Iter 4 Mode X sidecar (double-filter, ignore) | 19.00% | -32.17% | 1.031 |
+  | Conc | Iter 4 broker_replay (Mode Y headline) | **29.42%** | **-32.56%** | 1.078 |
+  | Conc | Iter 4 Mode X sidecar (double-filter, ignore) | 24.59% | -29.37% | 1.032 |
+
+- iter4_vs_iter1_iter2_delta:
+  - **Main MaxDD**: Iter 1 -33.19% -> Iter 2 -29.98% -> Iter 4 -32.02%. Iter 4 worse than Iter 2 on Main MaxDD. Mode Y main filter (`bear=0.5,deep_bear=0.25`) cost -3pp CAGR for no MaxDD improvement vs Iter 2.
+  - **Conc MaxDD**: Iter 1 -37.89% -> Iter 2 -41.82% -> Iter 4 **-32.56%** (+9.26pp recovery from Iter 2, +5.33pp from Iter 1, +4.18pp from baseline). Mode Y + A+B trap exemption + ETF overlay WORKS for Concentrated.
+  - **Conc CAGR cost**: 37.35% -> 29.42% (-7.93pp). Trade-off accepted in exchange for the MaxDD recovery.
+- iter4_caveats:
+  - Sharpe is rf=0 (F3 not yet applied) - reported numbers overstate Sharpe by ~0.20-0.30.
+  - MaxDD is cost_basis-fallback biased (F1 not yet applied) - reported MaxDD probably understates honest reality by 1-3pp.
+  - Concentrated Mode X sidecar is DOUBLE-FILTERED (Mode Y already filtered the book, then Mode X filtered again) - ignore those numbers. F9 fix lands for Iter 5.
+- iter4_d_2_etf_overlay_actually_landed:
+  - INTC reached scored_latest with score=5.00 (universe_source includes strategic_global_hardware). D-1 dd_1y bypass WORKS.
+  - JOBY reached scored_latest with score=-4.86 from etf_thematic_overlay. D-2 ETF overlay PARTIALLY works (only 1 of 25 names made it).
+  - IONQ, RGTI, QBTS, ACHR, ASTS, BEAM, BBAI, SOUN all CUT at the dd_1y filter (dd_1y 0.67-0.88 above the 0.65 threshold). D-2 didn't reach its intended thematic names.
+  - This drove the F10 fix (etf_thematic_overlay dd_1y bypass) which lands for Iter 5.
+- iter5_triggered_at: '2026-05-14T12:31:50Z'
+- iter5_run_id: 25860138864
+- iter5_head: d95933e
+- iter5_includes_relative_to_iter4:
+  - F1 cost_basis -> delisted zero-mark (HARD gate 1 flip)
+  - F3 Sharpe excess return rf=2.5% (SOFT gate 2 flip)
+  - F2 survivorship audit tool (HARD gate 2 measurement infrastructure)
+  - F4 tail-row same_close fallback (operating account advances to 5/14)
+  - F6 sleeve_confidence floor penalty (Concentrated noise filter)
+  - F5 sleeve-conditional MaxDD attribution (read-only diagnostic)
+  - F9 Mode X sidecar skip when Mode Y on (eliminates double-filter)
+  - F10 etf_thematic_overlay dd_1y bypass (IONQ/RGTI/QBTS/ACHR etc. reach scoring)
+  - F7 ETF top holdings refresh tool (separate monthly cron)
+- iter5_expected_metric_shift_vs_iter4:
+  - **Main MaxDD**: 0 to +3pp WORSE (F1 honesty correction).
+  - **Conc MaxDD**: similar -- but probably less impact since Conc Iter 4 already at -32.56% which doesn't include many delisted positions.
+  - **Sharpe**: -0.10 to -0.30 (F3 rf=2.5% subtraction); Main 1.057 -> ~0.75-0.85; Conc 1.078 -> ~0.75-0.85.
+  - **Trade composition**: F4 tail-row fallback means broker_replay tail row fills at 5/13 close; account_state advances; current_operating_holdings reflects 5/13 recommendation; pending_order_count drops near 0.
+  - **Concentrated picks**: F6 may dock low-confidence sleeve picks; F10 may add IONQ/RGTI/etc to scoring pool; INTC continues to pass D-1 bypass.
+- key_observation_from_iter2_artifact_analysis:
+  - Main 2022 MDD trajectory: -8.8% (Jan), -15.4% (Apr), -23.4% (Jun), -27.9% (Sep trough). 9-month drawdown.
+  - 2022 MDD window had 252 exits (252 round-trips closed). 7 of top-10 losses were `future_winner` sleeve names (BLDR, AVGO, VLO, NET, AMZN, KLAC, LRCX) all exiting at -10 to -25% in 30-90 day holds. None of these were stopped earlier despite ~-8% hard stop in the prior monthly framework.
+  - broker_position_risk_replay (intra-day -8/-15% stops): CAGR 15.42% / MaxDD -31.54% / Sharpe 0.91. WORSE than no-stops headline -- intra-day price noise causes whipsaw exits. The prior monthly system's -16.65% MDD relied on MONTHLY-CADENCE stops, not intra-day.
+  - Improvement hypothesis for next-next iter: weekly-close based stops (less noisy than daily, more responsive than monthly).
+- validation:
+  - `tools/run_pr_validation.py` -> 24/24 passed.
+  - Branch `claude/short-rs-intc-etf-overlay` head `d95933e` is the measurement target.
+- risks_or_notes:
+  - **Iter 5 is the FIRST run with honest accounting**. The reported numbers will be lower across the board vs Iter 4. This is not a regression; it is correction.
+  - **Mode Y main filter is questionable for Main** based on Iter 4 evidence. If Iter 5 Main MaxDD stays around -32% with -3pp CAGR cost, recommend dropping the main multipliers (pass `mode_y_main_multipliers=""` to next workflow trigger). Concentrated should keep Mode Y as the Iter 4 evidence shows clear win.
+  - **F4 tail-row fill** changes the historical broker_replay state semantics. Anyone interpreting current_account_last_trade_date previously expected ~Mar 2 freeze. After F4 the account advances to 5/13. Documentation expectations should be updated.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
