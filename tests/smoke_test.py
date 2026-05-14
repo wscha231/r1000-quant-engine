@@ -2924,6 +2924,119 @@ def test_compute_short_extension_penalty_structural_exempt() -> None:
     )
 
 
+@_test("behavioral.concentrated_short_rs_trap_exempt_score_columns_present")
+def test_concentrated_short_rs_trap_exempt_score_columns_present() -> None:
+    """The 2026-05-14 A+B bundle introduces two new score columns produced
+    by add_total_score_columns:
+      - score_core_pre_short_rs_trap : score_core BEFORE the additive
+        rs_short_long_separation component.
+      - score_pre_short_rs_trap      : full score WITHOUT additive trap and
+        WITHOUT multiplicative short_extension penalty.
+    Concentrated uses score_pre_short_rs_trap (when concentrated_uses_short_rs_trap=False)
+    so the Iter 1 baseline behavior is preserved for the N=3 high-conviction
+    portfolio while Main still benefits from the trap on `score`.
+
+    This test asserts BOTH columns are produced and that score_pre_short_rs_trap
+    equals score WHEN the trap signals are zero (no PLTR-class breakdown).
+    """
+    import pandas as pd
+    import numpy as np
+    from r1000_pipeline import add_total_score_columns
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    # Construct a minimal DataFrame that exercises add_total_score_columns
+    # with zero trap signal (rs_short_score=0, breakdown_penalty=0,
+    # short_extension_risk_penalty=0). In this case score_pre_short_rs_trap
+    # MUST equal score (trap contributes nothing).
+    n = 3
+    base_cols = {
+        "ticker": [f"T{i}" for i in range(n)],
+        "rebalance_date": pd.to_datetime(["2026-05-12"] * n),
+        # Score components that feed score_core
+        "score_model_core": [1.0, 2.0, 3.0],
+        "score_quality_core": [0.5, 0.4, 0.3],
+        "score_event_core": [0.0, 0.0, 0.0],
+        "score_actual_core": [0.0, 0.0, 0.0],
+        "score_garp_core": [0.0, 0.0, 0.0],
+        "score_anticipatory_growth": [0.0, 0.0, 0.0],
+        "score_archetype_mixture": [0.0, 0.0, 0.0],
+        "score_future_winner_scout": [0.0, 0.0, 0.0],
+        "score_future_winner_model": [0.0, 0.0, 0.0],
+        "score_strategy_blueprint": [0.0, 0.0, 0.0],
+        "score_multidimensional_confirmation": [0.0, 0.0, 0.0],
+        "score_fundamental_reliability_adjustment": [0.0, 0.0, 0.0],
+        "score_missing_fundamental_penalty": [0.0, 0.0, 0.0],
+        "score_flow_satellite": [0.0, 0.0, 0.0],
+        "score_forward_revision_satellite": [0.0, 0.0, 0.0],
+        # Trap signals all zero -> no trap effect
+        "rs_short_score": [0.0, 0.0, 0.0],
+        "rs_short_breakdown_penalty": [0.0, 0.0, 0.0],
+        "short_extension_risk_penalty": [0.0, 0.0, 0.0],
+    }
+    df = pd.DataFrame(base_cols)
+    out = add_total_score_columns(df, cfg, include_satellite=False)
+
+    # Both new columns must exist.
+    assert "score_core_pre_short_rs_trap" in out.columns, (
+        "score_core_pre_short_rs_trap column missing -- A+B bundle wiring failed"
+    )
+    assert "score_pre_short_rs_trap" in out.columns, (
+        "score_pre_short_rs_trap column missing -- A+B bundle wiring failed"
+    )
+    # When trap signals are zero, score_pre_short_rs_trap == score.
+    for i in range(n):
+        delta = abs(out.iloc[i]["score"] - out.iloc[i]["score_pre_short_rs_trap"])
+        assert delta < 1e-9, (
+            f"With zero trap signals row {i} expected score==pre_trap, "
+            f"got score={out.iloc[i]['score']:.6f}, pre_trap={out.iloc[i]['score_pre_short_rs_trap']:.6f}"
+        )
+
+
+@_test("behavioral.concentrated_short_rs_trap_exempt_diverges_when_trap_active")
+def test_concentrated_short_rs_trap_exempt_diverges_when_trap_active() -> None:
+    """When trap signals fire (negative rs_short, positive breakdown_penalty,
+    nonzero short_extension), score and score_pre_short_rs_trap MUST diverge.
+    score_pre_short_rs_trap > score (since trap is purely a penalty).
+    Tests the RELATIVE ordering only — absolute values depend on the function's
+    internal computation of score_model_core / score_quality_core from
+    primitives (score_linear / score_cat / quality_trend_score etc.) which
+    this test deliberately leaves at default 0.
+    """
+    import pandas as pd
+    from r1000_pipeline import add_total_score_columns
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    # Active trap signals on a single row. score_model_core etc. will be 0
+    # because the primitive inputs (score_linear / score_cat / etc.) are not
+    # supplied — that's intentional; we want to isolate the trap delta.
+    df = pd.DataFrame({
+        "ticker": ["PLTR"],
+        "rebalance_date": pd.to_datetime(["2026-05-12"]),
+        "rs_short_score": [-1.4],
+        "rs_short_breakdown_penalty": [0.9],
+        "short_extension_risk_penalty": [0.5],
+    })
+    out = add_total_score_columns(df, cfg, include_satellite=False)
+    score = float(out.iloc[0]["score"])
+    pre = float(out.iloc[0]["score_pre_short_rs_trap"])
+    assert pre > score, (
+        f"With active trap, expected pre_trap ({pre:.4f}) > score ({score:.4f})"
+    )
+    # Expected delta from additive separation:
+    #   rs_short_long_separation = 0.35 * (-1.4) - 0.40 * 0.9 = -0.85
+    # So score_core = pre_core + (-0.85) => score (no satellite) = pre - 0.85
+    # before the multiplicative penalty.
+    # Multiplicative: 1 - 0.15 * 0.5 = 0.925, so score *= 0.925.
+    # Final relationship: score = (pre - 0.85) * 0.925 (when satellite=0).
+    expected_score = (pre - 0.85) * (1.0 - 0.15 * 0.5)
+    assert abs(score - expected_score) < 0.01, (
+        f"score formula mismatch: got {score:.4f}, expected {expected_score:.4f} "
+        f"(pre={pre:.4f})"
+    )
+
+
 @_test("behavioral.strategic_turnaround_pass_intc_case")
 def test_strategic_turnaround_pass_intc_case() -> None:
     """INTC-like input (mktcap=$95B, universe_source='strategic_global_hardware',

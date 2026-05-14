@@ -208,6 +208,60 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Mode Y not in this commit**: Engine-level capacity gate port (modifying backtest_portfolio.py or sleeve allocation) is the next-stage work IF Mode X sidecar proves MaxDD recovery insufficient. Tracked as TODO for the follow-up loop.
   - The broker_accounting_audit hard gates remain false; all results research-grade.
 
+### 17:30 KST - iter2-measurement-and-conc-short-rs-trap-exempt-a-plus-b-bundle
+
+- scope:
+  - Tier-3 measurement of the integrated bundle (rebased short-rs PR + alpha_sprint NaN fix + phantom-column removed + themes promoted + conservative weights + Mode X sidecar) ran as `25840490595` on 2026-05-14 from branch `claude/short-rs-intc-etf-overlay` at head `0a7daeb`. Headline broker_ledger replay metrics measured and the engine emitted SHIP verdict vs the Phase 15-D global_alpha_universe baseline. Asymmetric result: **Main improved on every metric** while **Concentrated regressed on every metric**. Hard-stop guardrails: Main MaxDD -29.98% PASSES the -32% gate (recovery of +3.21pp from Iter 1 baseline -33.19%); Concentrated MaxDD -41.82% FAILS the -40% gate. Even Mode X capacity-filtered Concentrated (MaxDD -35.13%) does not reach the -32% target, and its CAGR cost is too high (33.00% headline -> 27.11% filtered, -5.89pp).
+  - Engineering action: **A+B bundle** — A is the SHIP decision for Main (no code), B is a code change that exempts Concentrated from the short-RS trap so it returns to the Iter 1 baseline behavior on Concentrated picks while Main continues to benefit from the trap. The trap propagates into the Concentrated portfolio because `concentrated_score` uses `cross_sectional_robust_z(d, "score")` as one of its row-mean inputs; the trap's additive penalty (`score_rs_short_long_separation`) and multiplicative penalty (`(1 - w * short_extension_risk_penalty)`) both flow into Concentrated's score. By saving a parallel `score_pre_short_rs_trap` column that mirrors the score WITHOUT either trap component, Concentrated can read the pre-trap version while Main keeps reading the trap-applied `score`.
+- iter2_measured_results:
+
+  | Portfolio | Source | CAGR | MaxDD | Sharpe | vs Iter 1 baseline |
+  | --- | --- | ---: | ---: | ---: | --- |
+  | Main | broker_replay (headline) | 23.10% | -29.98% | 1.090 | CAGR +1.72pp / MaxDD +3.21pp / Sharpe +0.064 — all improved, MaxDD below -32% gate ✅ |
+  | Main | regime_capacity_broker_replay (Mode X) | 20.32% | -30.30% | 1.087 | Mode X does NOT help Main (already under -32%) |
+  | Concentrated | broker_replay (headline) | 33.00% | **-41.82%** | 1.094 | CAGR -4.35pp / MaxDD -3.93pp / Sharpe -0.184 — all regressed, MaxDD exceeds -40% gate ❌ |
+  | Concentrated | regime_capacity_broker_replay (Mode X) | 27.11% | -35.13% | 1.136 | Mode X recovers MaxDD +6.69pp but kills CAGR -5.89pp (still > -32% gate) |
+  | (verdict.log) | monthly research backtest | 29.79% | -16.65% | 1.711 | engine emits SHIP (+5.28pp CAGR / +9.14pp MaxDD vs Phase 15-D baseline) — research view; broker_ledger view is the truth |
+- trap_efficacy_observation:
+  - PLTR rs_short_score = -1.384, rs_short_breakdown_penalty = 0.923 (near max), short_extension_risk_penalty = 0 (structural_growth exemption via `ai_software` theme). PLTR did NOT appear in scored_latest top-10 selection. **Trap is working as designed on Main**: top-10 = GOOGL, GEV, MRVL, ARM, VRT, FIX, RKLB, UMC, FTI, CBOE.
+  - INTC: NOT present in scored_latest.csv (universe-level cut, not gate-level). strategic_turnaround_pass did not fire because INTC was already removed at universe build. This is a deferred follow-up (universe gating audit).
+  - IONQ/RGTI/QBTS: NOT in scored_latest (outside R1000). Need ETF-overlay universe expansion (deferred).
+- code_change_summary:
+  - `r1000_pipeline.add_total_score_columns` now produces two new score columns:
+    - `score_core_pre_short_rs_trap` = score_core WITHOUT the additive `score_rs_short_long_separation` component.
+    - `score_pre_short_rs_trap` = full score with NO trap applied (no additive separation, no multiplicative extension penalty). Equals `score` when trap signals are zero.
+  - `r1000_pipeline` concentrated_score path reads `score_pre_short_rs_trap` when `cfg.concentrated_uses_short_rs_trap=False` (new field, default False) instead of `score`. Main's sleeve selection continues to use the trap-applied `score`.
+  - `ENGINE_REUSE_VERSION` bumped to `2026-05-14-conc-short-rs-trap-exempt` to force FS rebuild on the next Tier-3 (the new columns are produced by add_total_score_columns which runs after FS but score columns are saved into the feature store / scored_latest, so a regen is the cleanest way to guarantee freshness).
+- files:
+  - `r1000_pipeline.py` ->`add_total_score_columns`: split score_core computation into pre-trap and trap-applied halves; new columns `score_core_pre_short_rs_trap` + `score_pre_short_rs_trap`. Concentrated_score uses `score_pre_short_rs_trap` when cfg flag is False.
+  - `r1000_config.py` ->new field `concentrated_uses_short_rs_trap: bool = False`; ENGINE_REUSE_VERSION -> `2026-05-14-conc-short-rs-trap-exempt`.
+  - `tests/smoke_test.py` ->2 new behavioral tests: `concentrated_short_rs_trap_exempt_score_columns_present` (verifies both new columns produced + score==pre_trap when trap signals are zero) + `concentrated_short_rs_trap_exempt_diverges_when_trap_active` (verifies pre_trap > score with active trap + formula consistency: `score == (pre - 0.85) * 0.925`).
+  - `CHANGELOG.md` ->records Iter 2 measurement + A+B bundle.
+- symbols_added:
+  - `r1000_pipeline.add_total_score_columns()` now writes `score_core_pre_short_rs_trap` and `score_pre_short_rs_trap` columns (no new functions).
+  - `test_concentrated_short_rs_trap_exempt_score_columns_present()` ->verifies new score columns present + score==pre_trap when trap zero.
+  - `test_concentrated_short_rs_trap_exempt_diverges_when_trap_active()` ->verifies pre_trap > score with active trap, formula check.
+- symbols_changed:
+  - `r1000_pipeline.add_total_score_columns(d, cfg, include_satellite, include_latest_only_satellite)` ->now produces `score_core_pre_short_rs_trap` + `score_pre_short_rs_trap` parallel columns. Backward compatible — `score`, `score_core`, `score_satellite` keep their existing semantics.
+  - `r1000_pipeline` concentrated_score block ->branches on `cfg.concentrated_uses_short_rs_trap` to select the source score column.
+  - `r1000_config.ENGINE_REUSE_VERSION` ->bumped to `2026-05-14-conc-short-rs-trap-exempt`.
+- config_fields_added:
+  - `concentrated_uses_short_rs_trap: bool = False` ->when False (default), Concentrated reads `score_pre_short_rs_trap`; when True, reads `score` (trap applied). Set True to test reverting Concentrated to the trap-applied behavior.
+- breaking_changes:
+  - none runtime. ENGINE_REUSE_VERSION bump triggers one-time FS rebuild. Defensive fallback in concentrated_score: if `score_pre_short_rs_trap` column is missing (e.g. legacy run before this commit) it falls back to `score` so Concentrated still produces a result.
+- outputs:
+  - `scored_latest.csv` gains 2 new columns: `score_core_pre_short_rs_trap`, `score_pre_short_rs_trap`.
+  - Expected Iter 3 behavior: Main metrics stay at Iter 2 levels (no change to Main's score path); Concentrated returns toward Iter 1 baseline (37.35% / -37.89% / 1.278) because PLTR-class names re-enter Concentrated's top-N selection.
+- validation:
+  - `py -3 tests/smoke_test.py` ->99/99 passed (95 prior + 4 new behavioral including 2 Iter 2 additions).
+  - Cloud Tier-3 measurement pending — required to verify Concentrated regression unwinds without giving back Main's gains.
+- risks_or_notes:
+  - **A+B is a half-step, not a full solution**: this preserves Main's gains and unwinds Conc's regression but does NOT close the original CAGR/MaxDD gap to user's targets (Conc 50% / -18%, Main 30% / -15%). Concentrated will likely land near its Iter 1 baseline (37.35% / -37.89%) which is still well outside the user's target frontier per the prior overnight loop's "realistic frontier" analysis.
+  - **Score column proliferation**: scored_latest now has 4 score-family columns (`score`, `score_core`, `score_pre_short_rs_trap`, `score_core_pre_short_rs_trap`). Downstream consumers (auto_verdict_summary, reports, lifecycle tools) read `score` and are unaffected. New columns are additive-only.
+  - **Verdict.log SHIP is monthly-research view, not broker view**: the engine's own verdict gate is computed against the monthly research backtest (29.79% / -16.65% / 1.711), which has known optimism bias vs the broker_ledger replay (which is the SHIP truth per project doctrine). The monthly verdict says SHIP; the broker verdict says SHIP-Main / HOLD-Conc.
+  - **Concentrated regression cause is hypothesized, not proven**: most likely PLTR-class breakdown_penalty=0.923 docked a key concentrated holding's weight, and the N=3 high-conviction structure amplifies the impact. Could also be INTC bypass partially activating but routing through Conc differently. A sleeve-conditional MaxDD attribution tool would prove the mechanism; deferred.
+  - **Mode Y (engine port) deferred again**: even after A+B, neither portfolio hits the user's original target frontier. Closing that gap requires either (a) ETF-overlay universe expansion for quantum/eVTOL, (b) deeper Mode Y capacity gate inside the engine, or (c) acceptance that 25%/-30% Main and 37%/-38% Conc IS the honest frontier under current constraints. The next Tier-3 result should inform this choice.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books

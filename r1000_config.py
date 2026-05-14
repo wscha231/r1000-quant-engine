@@ -1559,7 +1559,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-13-short-rs-trap-intc-bypass"
+ENGINE_REUSE_VERSION = "2026-05-14-conc-short-rs-trap-exempt"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -2056,6 +2056,16 @@ class EngineConfig:
     # Structural growth (theme_horizon=structural_growth + multi-year mom)
     # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
     w_short_extension_penalty: float = 0.15
+    # Concentrated short-RS trap exemption (2026-05-14 A+B bundle): first
+    # measurement of the trap (run 25840490595) showed Main benefits
+    # (+1.72pp CAGR / +3.21pp MaxDD recovery) but Concentrated REGRESSES
+    # (-4.35pp CAGR / -3.93pp MaxDD / -0.184 Sharpe) because removing
+    # PLTR-class names from a N=3 high-conviction portfolio has outsized
+    # impact. When False, concentrated_score uses `score_pre_short_rs_trap`
+    # (no additive separation, no multiplicative extension penalty) so
+    # Concentrated stays at the Iter 1 baseline equivalent while Main keeps
+    # the trap benefits. Default False per Iter 2 measurement.
+    concentrated_uses_short_rs_trap: bool = False
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08

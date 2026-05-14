@@ -1049,7 +1049,15 @@ def add_total_score_columns(
         - rs_short_breakdown_w * rs_short_breakdown
     ).fillna(0.0)
 
-    d["score_core"] = (
+    # score_core_pre_short_rs_trap (2026-05-14): score_core BEFORE the short-RS
+    # trap additive component is added. Used by the concentrated-portfolio path
+    # when concentrated_uses_short_rs_trap=False, so Concentrated stays at the
+    # Iter 1 baseline behavior while Main continues to benefit from the trap.
+    # First measurement (run 25840490595) showed Main benefits +1.72pp CAGR /
+    # +3.21pp MaxDD from the trap but Concentrated regresses -4.35pp / -3.93pp
+    # because removing PLTR-class names from the high-conviction N=3 portfolio
+    # has outsized impact. Splitting score versions decouples these effects.
+    d["score_core_pre_short_rs_trap"] = (
         d["score_model_core"]
         + d["score_quality_core"]
         + d["score_event_core"]
@@ -1062,14 +1070,25 @@ def add_total_score_columns(
         + d["score_strategy_blueprint"]
         + d["score_multidimensional_confirmation"]
         + d["score_fundamental_reliability_adjustment"]
-        + d["score_rs_short_long_separation"]
         - d["score_missing_fundamental_penalty"]
+    )
+    d["score_core"] = (
+        d["score_core_pre_short_rs_trap"]
+        + d["score_rs_short_long_separation"]
     )
     d["score_satellite"] = d["score_flow_satellite"]
     if include_latest_only_satellite:
         d["score_satellite"] = d["score_satellite"] + d["score_forward_revision_satellite"]
     d["score_model"] = d["score_core"]
     d["score_live_overlay"] = d["score_forward_revision_satellite"]
+    # score_pre_short_rs_trap: complete score with NO trap applied (no additive
+    # separation, no multiplicative extension penalty). Mirrors the score
+    # column's pre-trap value. Concentrated reads this when its config flag
+    # indicates exemption.
+    d["score_pre_short_rs_trap"] = (
+        d["score_core_pre_short_rs_trap"]
+        + (d["score_satellite"] if include_satellite else 0.0)
+    )
     d["score"] = d["score_core"] + (d["score_satellite"] if include_satellite else 0.0)
 
     # Short-extension multiplicative penalty (2026-05-13): apply AFTER score is
@@ -1080,6 +1099,8 @@ def add_total_score_columns(
         lower=0.0, upper=1.0
     )
     d["score"] = d["score"] * (1.0 - short_ext_w * short_ext_penalty).fillna(1.0)
+    # score_pre_short_rs_trap stays untouched by the multiplicative penalty —
+    # it is the "Iter 1 baseline equivalent" score.
     return d
 
 
@@ -13981,9 +14002,21 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     ).fillna(0.0)
     d["concentrated_preferred_sleeve"] = labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
     d["concentrated_preferred_sleeve_raw"] = raw_labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    # Concentrated short-RS trap exemption (2026-05-14): if
+    # concentrated_uses_short_rs_trap=False, Concentrated reads the pre-trap
+    # score so PLTR-class high-conviction picks are not docked out of the
+    # N=3 portfolio. Main continues to use `score` (full trap applied).
+    # First measurement showed Main benefits from the trap while Concentrated
+    # regresses -4.35pp CAGR / -3.93pp MaxDD; splitting decouples the effects.
+    _conc_uses_trap = bool(getattr(cfg, "concentrated_uses_short_rs_trap", False))
+    _conc_score_col = "score" if _conc_uses_trap else "score_pre_short_rs_trap"
+    if _conc_score_col not in d.columns:
+        # Defensive fallback: pre-trap column absent (e.g. legacy run before
+        # 2026-05-14 wiring) -> use `score` so concentrated still produces.
+        _conc_score_col = "score"
     d["concentrated_score"] = row_mean(
         [
-            cross_sectional_robust_z(d, "score"),
+            cross_sectional_robust_z(d, _conc_score_col),
             float(getattr(cfg, "concentrated_score_future_weight", 0.95))
             * numeric_series_or_default(d, "portfolio_future_winner_engine_score", 0.0),
             float(getattr(cfg, "concentrated_score_early_weight", 1.05))
