@@ -387,6 +387,58 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This fix is not included in already-running Tier-3 run `25851747009` because that run is pinned to SHA `11eba2a`. It does not alter strategy behavior; it only restores API compatibility and local/CI fast validation.
 
+### 20:00 KST - autonomous-session-f1-f3-f2-f6-hard-gate-and-honesty-fixes
+
+- scope:
+  - Continuing-agent autonomous session after user signed off. Applied 4 fixes from the priority queue established at 18:39 KST analysis:
+    * **F1**: cost_basis fallback REPLACED with delisted zero-mark (HARD gate 1 flip)
+    * **F3**: Sharpe uses excess return rf=2.5% (SOFT gate 2 flip)
+    * **F2**: survivorship audit tool + smoke test + workflow wiring (HARD gate 2 audit tool added; flip awaits real-data measurement)
+    * **F6**: sleeve_confidence floor penalty (concentrated_score additive damper for PLTR-class low-conviction picks)
+  - These fixes do NOT affect already-running Tier-3 `25851747009` (pinned to SHA `11eba2a`). They land for the NEXT Tier-3.
+  - The point of this batch: separate "engine is more honest now" from "engine performs better now". F1 + F3 widen reported MaxDD and lower reported Sharpe by mathematically subtracting bias terms. F2 surfaces the survivorship gap as a measurable number. F6 tightens Concentrated selection on the noise margin.
+- commits_in_this_session:
+  - `1e354d8` fix(broker-ledger): replace cost_basis fallback with delisted zero-mark
+  - `2e55c69` fix(broker-ledger): Sharpe uses excess return (rf=2.5% default)
+  - `b7034a9` feat(audit): survivorship coverage audit tool (F2 hard-gate prep)
+  - `b42d35c` fix(concentrated): sleeve_confidence floor penalty (F6)
+- F1_changes:
+  - `tools/run_broker_ledger_replay.py::account_equity` ->signature gained `delisted_recovery_rate: float = 0.0` and optional `delisted_log: list | None = None`. When `price_at_or_before` returns None / <=0 / NaN the position now marks at `delisted_recovery_rate * cost_basis` (default 0.0) instead of at full cost_basis.
+  - `tests/broker_ledger_correctness_smoke.py` ->docstring updated on the original test (now regression guard); NEW `test_delisted_position_with_zero_last_close_marks_at_zero` exercises the cost-basis path explicitly.
+  - `research/broker_accounting_audit.json::hard_gates.delisted_cost_basis_fallback_eliminated.value` -> false -> **TRUE**.
+- F3_changes:
+  - `tools/run_broker_ledger_replay.py::calc_metrics` ->signature gained `risk_free_annual: float = 0.025`. Sharpe now `(ann_return - rf_annual) / vol`. metrics.json emits `sharpe_risk_free_annual` for transparency.
+  - `research/broker_accounting_audit.json::soft_gates.sharpe_uses_excess_return.value` -> false -> **TRUE**.
+- F2_changes:
+  - NEW `tools/run_survivorship_audit.py` ->loads historical_universe_membership, builds delisted-set = historical - latest, checks price_cache coverage per delisted ticker, emits coverage_ratio + hard_gate_flip_eligible flag.
+  - NEW `tests/survivorship_audit_smoke.py` ->4 tests covering missing-membership, delisted vs survivor distinction, hard_gate_flip_eligible path, and missing-cache-ticker handling.
+  - `tools/run_pr_validation.py` ->added survivorship_audit_smoke to DEFAULT_TESTS (23 tests now).
+  - `.github/workflows/full_rebuild_manual.yml` ->survivorship audit step added after audit_data_readiness; outputs/audit/ now in the artifact upload list.
+  - `research/broker_accounting_audit.json::hard_gates.survivorship_coverage_audited` ->still **FALSE**, but evidence_path now points to the new tool and flip_path documents the exit criteria: payload.hard_gate_flip_eligible == true (coverage_ratio>=0.85 AND delisted_count>=100).
+- F6_changes:
+  - `r1000_pipeline` `compute_concentrated_score` block ->additive penalty: `concentrated_score -= concentrated_sleeve_confidence_penalty_weight * (sleeve_conf < concentrated_sleeve_confidence_floor)`.
+  - `r1000_config.EngineConfig` ->2 new fields: `concentrated_sleeve_confidence_floor: float = 0.05`, `concentrated_sleeve_confidence_penalty_weight: float = 0.50`.
+- expected_metric_impact_for_continuing_agents:
+  - **CAGR**: roughly unchanged on Main and Concentrated (F1/F3 don't change returns; F6 may marginally shift Concentrated picks).
+  - **MaxDD**: Main +0 to +3pp WORSE (more honest, depends on how many positions historically went to non-positive last close; previously inflated by cost-basis fallback).
+  - **Sharpe**: -0.10 to -0.30 across both portfolios (rf=2.5% subtraction is global).
+  - **Concentrated composition**: PLTR-class noise picks (sleeve_conf < 0.05) get docked; expected to push them out of N=3.
+  - **Survivorship gate**: tool runs in the workflow. Continuing agent should download outputs/audit/survivorship_coverage.json after the next Tier-3 and flip the JSON value manually (a CHANGELOG entry will document the flip).
+- next_priority_queue_for_continuing_agents:
+  - **F4**: live_extension auto-wiring -> close the 33-pending-orders / Mar-2-frozen-account_state gap. Tool exists at `tools/r1000_live_extension.py`; needs to be wired into user_portfolio_reports so the "current_operating_holdings" actually forward-rolls from the latest broker_replay anchor through the recommendation date. ~2 hours.
+  - **F5**: sleeve-conditional MaxDD attribution -> extend `tools/run_trade_attribution_analysis.py` with per-sleeve drawdown contribution. Proves which sleeve drove any future Concentrated regression. ~1 hour.
+  - **F7**: `tools/refresh_etf_top_holdings.py` (D-2 v2) -> automated ETF holdings refresh with 5-tier fallback. ~3 hours.
+  - **F8**: post-Tier-3 survivorship gate flip -> if Tier-3 emits survivorship_coverage.json with hard_gate_flip_eligible=true, flip the audit JSON, document in CHANGELOG, push. ~5 min.
+- run_25851747009_status_at_session_pause:
+  - Still in step 10/21 "Run FULL rebuild" at +1h elapsed. Engine cache miss (new ENGINE_REUSE_VERSION + new cache_key_suffix) is causing a full feature-store rebuild, expected to land closer to +4-5h.
+- validation:
+  - `tools/run_pr_validation.py` ->23/23 passed (1 new test added: survivorship_audit_smoke).
+- risks_or_notes:
+  - **F1 may suddenly widen MaxDD** on the NEXT Tier-3 against the same cache as Iter 2. The honest number is what we want; do not treat this as a regression.
+  - **F6 weight is starter-conservative** (0.50 on a [-2, +3] z-score scale). Tune up to 1.0 only if Tier-3 still shows low-confidence picks slipping in.
+  - **F2 hard gate flip needs human verification**: even when the tool says `hard_gate_flip_eligible: true`, the continuing agent should spot-check `delisted_uncovered` for unexpected omissions before flipping the audit JSON.
+  - All 4 fixes are independent commits; if F1's widened MaxDD turns out to be unacceptably large, the fix can be reverted via `git revert 1e354d8` without losing F3/F2/F6.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
