@@ -3064,6 +3064,66 @@ def load_strategic_global_hardware_universe_frame(cfg: EngineConfig) -> pd.DataF
     return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
 
 
+def load_etf_thematic_overlay_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load thematic ETF top-holdings curated overlay (2026-05-14 D-2).
+
+    Brings in small/mid-cap thematic names that sit outside R1000 / ADR
+    universes — quantum (IONQ/RGTI/QBTS/QUBT/ARQQ), eVTOL (JOBY/ACHR/EH),
+    space economy (ASTS/IRDM/MAXR/PL), genomics speculatives (BEAM/CRSP/EDIT),
+    etc. Sourced from category ETF top-holdings reviews (QTUM/ARKQ/ARKX/ARKG).
+
+    This is a universe overlay ONLY. Names get the standard liquidity,
+    dd_1y, mktcap, ranking, and scoring gates. The leader-rescue PIT mode
+    filter applies (`latest_only` keeps them only for the latest rebalance
+    date so historical OOS months are not biased).
+
+    Returns DataFrame with columns: ticker, Name, sector, industry_group,
+    cik10, universe_source. Empty frame returned if YAML is missing,
+    malformed, or the overlay is disabled via config.
+    """
+    if not bool(getattr(cfg, "etf_thematic_overlay_enabled", True)):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    path_raw = str(getattr(cfg, "etf_thematic_overlay_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "thematic_etf_universe.yaml")
+    if not path.exists():
+        log(f"[INFO] thematic ETF overlay missing: {path}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] thematic ETF overlay requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] thematic ETF overlay load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    raw = payload.get("thematic_etf_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Information Technology")),
+                "industry_group": str(rec.get("industry_group", rec.get("theme", "Thematic Overlay"))),
+                "cik10": np.nan,
+                "universe_source": "etf_thematic_overlay",
+            }
+        )
+    out = pd.DataFrame(rows, columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
+
+
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
     explicit = (cfg.sec_actual_local_dir or "").strip()
     return Path(explicit) if explicit else (paths["data_raw"] / "sec_actual")
@@ -3677,6 +3737,23 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                 f"mode={universe_mode}, candidates={len(strategic_hw)}, added={len(hw_add)}"
             )
 
+    # Thematic ETF top-holdings overlay (2026-05-14 D-2): inject small/mid-cap
+    # names from category ETFs that are outside R1000 / ADR / strategic_hw.
+    # Examples: quantum (IONQ/RGTI/QBTS/QUBT), eVTOL (JOBY/ACHR), space
+    # speculative (ASTS/IRDM), genomics speculative (BEAM/CRSP). Same
+    # leader-rescue PIT-mode filtering applies downstream.
+    if not adr_only and bool(getattr(cfg, "etf_thematic_overlay_enabled", True)):
+        etf_overlay = load_etf_thematic_overlay_frame(cfg)
+        if not etf_overlay.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            etf_add = etf_overlay[~etf_overlay["ticker"].astype(str).isin(before)].copy()
+            if not etf_add.empty:
+                uni = pd.concat([uni, etf_add], ignore_index=True, sort=False)
+            log(
+                "Thematic ETF overlay: "
+                f"mode={universe_mode}, candidates={len(etf_overlay)}, added={len(etf_add)}"
+            )
+
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
     uni = _combine_candidate_universe_sources(uni)
@@ -3918,8 +3995,10 @@ def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
     candidates throughout historical backtests.
     """
     source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
-    has_rescue = source.str.contains("leader_rescue_", regex=False) | source.str.contains(
-        "strategic_global_hardware", regex=False
+    has_rescue = (
+        source.str.contains("leader_rescue_", regex=False)
+        | source.str.contains("strategic_global_hardware", regex=False)
+        | source.str.contains("etf_thematic_overlay", regex=False)
     )
     has_base = (
         source.str.contains("historical_membership_file", regex=False)

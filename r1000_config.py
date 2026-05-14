@@ -2076,6 +2076,13 @@ class EngineConfig:
     # add_core_fundamental_minimum_flags.
     strategic_dd_1y_bypass_max: float = 0.85
     strategic_dd_bypass_min_mktcap: float = 10e9
+    # Thematic ETF top-holdings overlay (2026-05-14 D-2): inject small/mid-cap
+    # thematic names from category ETFs that sit outside R1000 / ADR / strategic
+    # universes. v1 is YAML-only (thematic_etf_universe.yaml); v2 will add
+    # tools/refresh_etf_top_holdings.py with monthly cron + 5-tier fallback.
+    # Treated as leader-rescue rows (latest_only PIT mode by default).
+    etf_thematic_overlay_enabled: bool = True
+    etf_thematic_overlay_path: str = ""
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
