@@ -142,11 +142,41 @@ def filter_concentrated_champion(
     frame: pd.DataFrame,
     portfolio_kind: str,
     champion_filters: dict[str, Any] | None = None,
+    preserve_tail_row: bool = True,
 ) -> pd.DataFrame:
+    """F13 (2026-05-14): preserve_tail_row defaults TRUE. The champion filter
+    historically dropped the latest-recommendation row when its champion
+    metadata (target_stock_names / weighting_mode / etc.) differed from the
+    historical-strategy params. Symptom in run 25860138864: Concentrated
+    operating_target_book had a 2026-05-13 row with target_stock_names=3 /
+    weighting_mode=winner_take_all, while the champion filter required N=2 /
+    conviction_curve, so the 5/13 row was silently dropped and F4 tail-row
+    same_close fallback never had a chance to fire.
+
+    With preserve_tail_row=True, the row(s) with the maximum rebalance_date
+    in the frame are kept regardless of metadata mismatch. Historical rows
+    still go through the filter normally. Set False to recover the previous
+    behavior (legacy strict filter).
+    """
     if portfolio_kind != "concentrated" or frame.empty:
         return frame
     out = frame.copy()
     filters = champion_filters or DEFAULT_CONCENTRATED_CHAMPION_FILTERS
+    # F13 (2026-05-14): remember the original tail date so we can detect
+    # whether the post-filter result accidentally dropped ALL tail rows.
+    original_tail_date: pd.Timestamp | None = None
+    original_tail_rows: pd.DataFrame | None = None
+    distinct_dates = 0
+    if preserve_tail_row and "rebalance_date" in out.columns:
+        rd = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        if rd.notna().any():
+            distinct_dates = int(rd.dt.normalize().nunique())
+            if distinct_dates >= 2:
+                # Only meaningful to "preserve the tail row" when there are
+                # multiple distinct rebalance dates -- otherwise every row
+                # IS a tail row and the filter must apply normally.
+                original_tail_date = rd.max()
+                original_tail_rows = frame.loc[rd == original_tail_date].copy()
     for col, expected_raw in filters.items():
         if col not in out.columns:
             continue
@@ -157,6 +187,22 @@ def filter_concentrated_champion(
         mask = values.eq(expected)
         if mask.any():
             out = out[mask].copy()
+    # F13: if all tail-date rows were dropped by the champion filter, splice
+    # them back in. Symptom this fixes: Concentrated 2026-05-13 row carries
+    # winner_take_all/N=3 metadata while champion filter wants conviction_curve
+    # /N=2 -- without this carve-out, the 5/13 latest-recommendation row gets
+    # silently dropped, F4 tail-row fallback never fires, operating account
+    # stays frozen at the prior historical rebalance.
+    if (
+        original_tail_date is not None
+        and original_tail_rows is not None
+        and not original_tail_rows.empty
+        and "rebalance_date" in out.columns
+    ):
+        rd_post = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        post_has_tail = bool((rd_post == original_tail_date).any())
+        if not post_has_tail:
+            out = pd.concat([out, original_tail_rows], ignore_index=True)
     return out
 
 
