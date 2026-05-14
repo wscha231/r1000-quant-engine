@@ -1,2 +1,2 @@
 ticker,name,sector,weight,score,stale_winner_score,mom_3m,mom_6m,mom_12m,rs_benchmark_3m,rs_benchmark_6m,relative_strength_composite,portfolio_sleeve_label,diagnosis,policy_probe,production_activation_allowed
-TKR,TIMKEN,Industrials,0.04,2.446649059474277,0.072776,0.0670547055808488,0.4781720689944129,0.6169265178211514,-0.0053766382123245915,0.38862559724131773,1.2727967782144631,early_scout,under_benchmark_3m,trim_or_replace_replay,False
+TKR,TIMKEN,Industrials,0.04,2.345338492106283,0.072776,0.0670547055808488,0.4781720689944129,0.6169263454807403,-0.0053766382123245915,0.38862559724131773,1.2623817226233345,early_scout,under_benchmark_3m,trim_or_replace_replay,False

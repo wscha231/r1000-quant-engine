@@ -3,7 +3,7 @@
 # challenger backtest, promotion gate, and human approval.
 
 policy_version: "2026-05-alpha-scientist-v1"
-generated_at: "2026-05-14T07:54:26Z"
+generated_at: "2026-05-14T12:05:31Z"
 expires_at: "2026-08-12"
 mode: "proposal_only"
 generated_by: "auto_learning_v2.alpha_scientist"
@@ -24,8 +24,8 @@ guardrails:
     loss_rate_spike: true
 novelty_regime:
   status: "novel_regime_watch"
-  novelty_score: 16.74
-  known_regime_confidence: 0.4769
+  novelty_score: 19.44
+  known_regime_confidence: 0.3925
   flags:
     - "leadership_concentration"
     - "sprint_signal_gap"
@@ -35,9 +35,10 @@ novelty_regime:
     portfolio_construction_drag: 1
     research_infrastructure_gap: 1
     risk_policy_tradeoff: 1
+    trade_pattern_asymmetry: 1
     dormant_signal_stack: 1
   regime_counts:
-    system: 5
+    system: 6
   recommended_mode: "shadow_only"
   production_activation_allowed: false
 anomalies:
@@ -69,6 +70,13 @@ anomalies:
     confidence: 0.72
     observation: "Simplified risk sensing improves drawdown but reduces CAGR/Sharpe in the aggressive matrix."
     breaks_assumption: "A blunt portfolio breaker may protect capital but suppress upside without position-aware exits and swaps."
+  -
+    id: "cluster_conviction_asymmetry"
+    category: "trade_pattern_asymmetry"
+    severity: "medium"
+    confidence: 0.7
+    observation: "Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns."
+    breaks_assumption: "Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps."
   -
     id: "explosion_stack_dormant"
     category: "dormant_signal_stack"
@@ -135,7 +143,7 @@ hypotheses:
         - "leadership_concentration"
         - "sprint_signal_gap"
         - "defense_return_tradeoff"
-      known_regime_confidence: 0.4769
+      known_regime_confidence: 0.3925
   -
     id: "concentrated_neutral_25_v1"
     status: "proposal_only"
@@ -195,7 +203,7 @@ hypotheses:
         - "leadership_concentration"
         - "sprint_signal_gap"
         - "defense_return_tradeoff"
-      known_regime_confidence: 0.4769
+      known_regime_confidence: 0.3925
   -
     id: "risk_governor_layered_exit_v1"
     status: "proposal_only"
@@ -238,7 +246,61 @@ hypotheses:
         - "leadership_concentration"
         - "sprint_signal_gap"
         - "defense_return_tradeoff"
-      known_regime_confidence: 0.4769
+      known_regime_confidence: 0.3925
+  -
+    id: "cluster_conviction_router_v1"
+    status: "proposal_only"
+    observation_ids:
+      - "cluster_conviction_asymmetry"
+    hypothesis: "Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules."
+    rules:
+      -
+        rule_type: "theme_policy"
+        if:
+          trade_cluster:
+            - 1
+            - 5
+        then:
+          allow_conviction_bonus: true
+          max_bonus: 0.05
+        limits:
+          proposal_only: true
+          production_activation_allowed: false
+          max_weight_delta: 0.05
+      -
+        rule_type: "feature_gate"
+        if:
+          trade_cluster:
+            - 0
+            - 6
+        then:
+          pattern_block_or_caution: true
+        limits:
+          proposal_only: true
+          production_activation_allowed: false
+          max_ttl_days: 90
+    test_plan:
+      windows:
+        - "all_months"
+        - "all_bear_months"
+      metrics:
+        - "cluster_hit_rate"
+        - "loss_rate"
+        - "avg_return"
+        - "turnover"
+      falsify_if:
+        - "strong_cluster_bonus_reduces_avg_return"
+        - "block_rule_removes_winners"
+    exploration_budget:
+      stage: "shadow"
+      capital_weight: 0.0
+    novelty_context:
+      status: "novel_regime_watch"
+      flags:
+        - "leadership_concentration"
+        - "sprint_signal_gap"
+        - "defense_return_tradeoff"
+      known_regime_confidence: 0.3925
   -
     id: "alpha_sprint_breakout_fallback_v1"
     status: "proposal_only"
@@ -287,7 +349,7 @@ hypotheses:
         - "leadership_concentration"
         - "sprint_signal_gap"
         - "defense_return_tradeoff"
-      known_regime_confidence: 0.4769
+      known_regime_confidence: 0.3925
   -
     id: "counterfactual_replay_priority_v1"
     status: "proposal_only"
@@ -323,7 +385,7 @@ hypotheses:
         - "leadership_concentration"
         - "sprint_signal_gap"
         - "defense_return_tradeoff"
-      known_regime_confidence: 0.4769
+      known_regime_confidence: 0.3925
 policy_candidates:
   -
     id: "main_future_alpha_concentration_v1"
@@ -461,6 +523,51 @@ policy_candidates:
       stage: "shadow"
       capital_weight: 0.0
   -
+    id: "cluster_conviction_router_v1"
+    status: "proposal_only"
+    hypothesis: "Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules."
+    rules:
+      -
+        rule_type: "theme_policy"
+        if:
+          trade_cluster:
+            - 1
+            - 5
+        then:
+          allow_conviction_bonus: true
+          max_bonus: 0.05
+        limits:
+          proposal_only: true
+          production_activation_allowed: false
+          max_weight_delta: 0.05
+      -
+        rule_type: "feature_gate"
+        if:
+          trade_cluster:
+            - 0
+            - 6
+        then:
+          pattern_block_or_caution: true
+        limits:
+          proposal_only: true
+          production_activation_allowed: false
+          max_ttl_days: 90
+    test_plan:
+      windows:
+        - "all_months"
+        - "all_bear_months"
+      metrics:
+        - "cluster_hit_rate"
+        - "loss_rate"
+        - "avg_return"
+        - "turnover"
+      falsify_if:
+        - "strong_cluster_bonus_reduces_avg_return"
+        - "block_rule_removes_winners"
+    exploration_budget:
+      stage: "shadow"
+      capital_weight: 0.0
+  -
     id: "alpha_sprint_breakout_fallback_v1"
     status: "proposal_only"
     hypothesis: "Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated."
@@ -565,6 +672,18 @@ counterfactuals:
     sharpe_delta: -0.0636541409809035
     notes: "Historical replay exists; review discovery/production gates."
   -
+    hypothesis_id: "cluster_conviction_router_v1"
+    experiment_id: null
+    status: "infrastructure_or_guardrail"
+    backtest_executed: null
+    requires_full_challenger_backtest: false
+    passed_discovery: false
+    production_ready: false
+    cagr_delta_pp: null
+    maxdd_delta_pp: null
+    sharpe_delta: null
+    notes: "Governance/infrastructure hypothesis; blocks promotion until replay coverage improves."
+  -
     hypothesis_id: "alpha_sprint_breakout_fallback_v1"
     experiment_id: "weekly_leader_entry_broker_replay"
     status: "counterfactual_available"
@@ -572,9 +691,9 @@ counterfactuals:
     requires_full_challenger_backtest: false
     passed_discovery: false
     production_ready: false
-    cagr_delta_pp: -21.791466643217248
-    maxdd_delta_pp: 13.414804110731836
-    sharpe_delta: -0.48143082752740074
+    cagr_delta_pp: -15.101547475529298
+    maxdd_delta_pp: 5.560437658195305
+    sharpe_delta: -0.3218398767791888
     discovery_gate:
       cagr_delta_pp_gt: 0.0
       maxdd_delta_pp_min: -5.0

@@ -1,55 +1,55 @@
 {
   "base_metrics": {
-    "avg_cash_weight": 0.2023107910638002,
-    "avg_monthly_return": 0.026227729921660406,
-    "avg_turnover_monthly": 0.5149845079929324,
-    "cagr": 0.3523303801325075,
-    "max_dd": -0.06403289630521891,
+    "avg_cash_weight": 0.21413153960258796,
+    "avg_monthly_return": 0.02711945781593578,
+    "avg_turnover_monthly": 0.5185534464880072,
+    "cagr": 0.3662976859336702,
+    "max_dd": -0.06426581272071497,
     "months": 83,
-    "sharpe": 2.294864771678963,
-    "terminal_multiple": 8.065960019403295,
-    "vol_ann": 0.13714653819434464
+    "sharpe": 2.3486792271163557,
+    "terminal_multiple": 8.660079623397989,
+    "vol_ann": 0.13856021292051351
   },
   "base_vs_production_delta": {
-    "avg_cash_weight": -2.7755575615628914e-17,
-    "cagr": 0.054470058098960994,
-    "max_dd": 0.10248696206312224
+    "avg_cash_weight": 0.0,
+    "cagr": 0.057593711572480055,
+    "max_dd": 0.1208025771942054
   },
   "best_by_cagr": {
-    "avg_cash_weight": 3.3649455377381437e-18,
-    "avg_monthly_return": 0.027130804922383202,
-    "avg_turnover_monthly": 0.5125650188185968,
-    "cagr": 0.35879928887587553,
+    "avg_cash_weight": 2.5498345068574756e-18,
+    "avg_monthly_return": 0.028081722578960435,
+    "avg_turnover_monthly": 0.5155915058089867,
+    "cagr": 0.373259597323067,
     "cash_cap": 0.0,
-    "delta_cagr_vs_base": 0.006468908743368029,
-    "delta_max_dd_vs_base": -0.08417553487602158,
-    "max_dd": -0.1482084311812405,
+    "delta_cagr_vs_base": 0.006961911389396835,
+    "delta_max_dd_vs_base": -0.0897282979215922,
+    "max_dd": -0.15399411064230717,
     "model": "cash0.00_cap0.33",
     "months": 83,
     "production_activation_allowed": false,
-    "sharpe": 1.8464682385140603,
+    "sharpe": 1.876526242015704,
     "single_name_cap": 0.33,
-    "terminal_multiple": 8.336637171434717,
-    "vol_ann": 0.17632020539416352
+    "terminal_multiple": 8.969931224045428,
+    "vol_ann": 0.1795768497143698
   },
   "candidate_count": 16,
   "cash_alignment": {
-    "avg_cash_gap_before_alignment": 0.1523571806545588,
-    "avg_explicit_cash_before_alignment": 0.04995361040924146,
-    "avg_reported_cash_weight": 0.2023107910638002,
+    "avg_cash_gap_before_alignment": 0.1643046821535392,
+    "avg_explicit_cash_before_alignment": 0.049826857449048786,
+    "avg_reported_cash_weight": 0.21413153960258796,
     "cash_source": "reported_regime_by_month",
     "regime_rows": 83
   },
-  "generated_at_utc": "2026-05-14T07:53:15.410373+00:00",
+  "generated_at_utc": "2026-05-14T12:04:44.598042+00:00",
   "mode": "research_only",
   "note": "Uses existing monthly selected holdings only; it cannot discover missed tickers.",
   "production_activation_allowed": false,
   "production_metrics": {
-    "avg_cash_weight": 0.20231079106380023,
-    "avg_turnover_monthly": 0.5341055154263505,
-    "cagr": 0.2978603220335465,
-    "max_dd": -0.16651985836834116,
+    "avg_cash_weight": 0.21413153960258796,
+    "avg_turnover_monthly": 0.5445803959033847,
+    "cagr": 0.3087039743611901,
+    "max_dd": -0.18506838991492036,
     "months": 83,
-    "sharpe": 1.7111635028673302
+    "sharpe": 1.7202960298994148
   }
 }

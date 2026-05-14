@@ -12,13 +12,13 @@
       "target_book_filter": {},
       "target_book_filter_source": "not_applicable",
       "target_book_filter_warning": "",
-      "target_row_count": 9943,
+      "target_row_count": 10086,
       "top_n": 3,
       "valid_for_production": false,
       "weekly_entries_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/weekly_leader_snapshots/main_entries.csv",
-      "weekly_entry_count": 758,
+      "weekly_entry_count": 760,
       "weekly_leader_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/weekly_leader_main_target_book.csv",
-      "weekly_signal_count": 289
+      "weekly_signal_count": 290
     },
     {
       "min_score_quantile": 0.8,
@@ -30,24 +30,24 @@
       "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
       "target_book_filter": {
         "active_rebalance_interval_months": "1",
-        "target_stock_names": "3",
+        "target_stock_names": "2",
         "weighting_mode": "winner_take_all"
       },
       "target_book_filter_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_comparison.csv",
       "target_book_filter_warning": "",
-      "target_row_count": 1841,
+      "target_row_count": 1542,
       "top_n": 3,
       "valid_for_production": false,
       "weekly_entries_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/weekly_leader_snapshots/concentrated_entries.csv",
-      "weekly_entry_count": 758,
+      "weekly_entry_count": 760,
       "weekly_leader_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/weekly_leader_concentrated_target_book.csv",
-      "weekly_signal_count": 289
+      "weekly_signal_count": 290
     }
   ],
   "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
   "data_mode": "monthly_candidate_book_plus_weekly_price_snapshot",
   "experiment_id": "weekly_leader_entry_target_books",
-  "generated_at_utc": "2026-05-14T07:46:22.586614+00:00",
+  "generated_at_utc": "2026-05-14T12:00:41.198585+00:00",
   "leakage_guard_excluded_columns": [
     "period_forward_return",
     "pred_forward_return",

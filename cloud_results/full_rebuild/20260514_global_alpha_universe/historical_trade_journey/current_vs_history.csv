@@ -1,21 +1,23 @@
 current_book,ticker,name,sector,current_weight,history_status,first_seen,last_seen,total_months_held,run_count,current_run_months,current_run_return,current_run_recent_3m_return,current_run_tag,historical_weighted_contribution
-current_concentrated,MU,MICRON TECHNOLOGY INC,Information Technology,0.5,open_history,2019-07-31,2026-02-27,56.0,11.0,5.0,0.5798768604327666,0.25149052239025926,normal,0.8522782402923472
-current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.25,open_history,2025-08-29,2026-03-31,18.0,3.0,8.0,3.6944852292068475,0.46264674646838877,open_winner_hold,0.49072341322753305
-current_concentrated,GLW,nan,nan,0.25,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,GOOGL,ALPHABET INC CLASS A,Communication,0.14,open_history,2019-08-30,2026-03-31,143.0,35.0,8.0,0.8361810472666358,0.08465230445601346,open_winner_hold,0.4881416900256008
-current_main,GEV,GE VERNOVA INC,Industrials,0.14,returning_after_gap,2025-07-31,2025-08-29,2.0,1.0,2.0,-0.060390487406886906,-0.060390487406886906,normal,-0.003988085901867
-current_main,MRVL,MARVELL TECHNOLOGY INC,Information Technology,0.0567942243103047,open_history,2023-06-30,2026-03-31,9.0,3.0,5.0,0.7450635705843149,0.9777906274099908,normal,0.0463800759796601
-current_main,ARM,nan,nan,0.0567942243103047,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.0567942243103047,open_history,2024-02-29,2026-02-27,13.0,6.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.0359683839431852
-current_main,FIX,nan,nan,0.0567942243103047,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,RKLB,ROCKET LAB CORP,Industrials,0.0544754273933545,returning_after_gap,2025-12-31,2026-01-30,2.0,1.0,2.0,0.03110868187972815,0.03110868187972815,normal,-0.0012905230252462999
-current_main,UMC,nan,nan,0.0530745669585512,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,FTI,nan,nan,0.0528097499965903,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,CBOE,CBOE GLOBAL MARKETS INC,Financials,0.0524633584102847,returning_after_gap,2019-05-31,2023-12-29,7.0,3.0,3.0,0.11947246731454442,0.11947246731454442,normal,0.01736193823522357
-current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.04,returning_after_gap,2022-05-31,2023-09-29,14.0,6.0,3.0,-0.42876321593330136,-0.42876321593330136,normal,-0.022354256698149694
+current_concentrated,ON,ON SEMICONDUCTOR CORP,Information Technology,0.3828999926483202,returning_after_gap,2022-07-29,2023-09-29,12.0,4.0,3.0,-0.19767943470671157,-0.19767943470671157,normal,-0.020065276824866796
+current_concentrated,WDC,WESTERN DIGITAL CORP,Information Technology,0.2756879947067905,open_history,2023-01-31,2026-03-31,16.0,5.0,8.0,3.6944847908747738,0.46264674646838877,open_winner_hold,0.3806949821792994
+current_concentrated,MRVL,MARVELL TECHNOLOGY INC,Information Technology,0.1984953561888891,returning_after_gap,2023-06-30,2023-07-31,2.0,1.0,2.0,-0.06826374033096094,-0.06826374033096094,normal,-0.002150554397604
+current_concentrated,MU,MICRON TECHNOLOGY INC,Information Technology,0.1429166564560001,open_history,2019-07-31,2026-02-27,60.0,13.0,5.0,0.579876963231569,0.25149052239025926,normal,0.8714543356164299
+current_main,GOOG,ALPHABET INC CLASS C,Communication,0.14,open_history,2019-07-31,2026-02-27,128.0,29.0,5.0,0.05076752575182253,-0.06620390960336775,normal,0.6423903573413796
+current_main,GEV,GE VERNOVA INC,Industrials,0.1193116586282239,returning_after_gap,2025-07-31,2025-09-30,5.0,2.0,3.0,-0.07432668122958863,-0.07432668122958863,normal,-0.004686744765686993
+current_main,AMD,ADVANCED MICRO DEVICES INC,Information Technology,0.05701102776964,returning_after_gap,2019-04-30,2025-10-31,68.0,23.0,3.0,0.368211281043199,0.368211281043199,short_big_win_review,0.12266166925193918
+current_main,MRVL,MARVELL TECHNOLOGY INC,Information Technology,0.05701102776964,returning_after_gap,2023-06-30,2023-07-31,2.0,1.0,2.0,-0.06826374033096094,-0.06826374033096094,normal,-0.002150554397604
+current_main,VRT,VERTIV HOLDINGS CLASS A,Industrials,0.05701102776964,open_history,2023-08-31,2026-02-27,15.0,7.0,1.0,0.03055313457005715,0.03055313457005715,normal,0.03579620760781561
+current_main,WDC,WESTERN DIGITAL CORP,Information Technology,0.0525270453633083,open_history,2023-01-31,2026-03-31,16.0,5.0,8.0,3.6944847908747738,0.46264674646838877,open_winner_hold,0.3806949821792994
+current_main,FIX,nan,nan,0.0509525870729817,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,UMC,nan,nan,0.0493794794984856,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
+current_main,FTI,TECHNIPFMC PLC,Energy,0.0487611691928266,open_history,2026-02-27,2026-02-27,1.0,1.0,1.0,0.03793464910755939,0.03793464910755939,normal,0.0011767141224334
+current_main,CBOE,CBOE GLOBAL MARKETS INC,Financials,0.0480349769352535,returning_after_gap,2019-07-31,2024-04-30,9.0,2.0,6.0,-0.04164428452102675,-0.09453432831885678,normal,0.00912563799666677
+current_main,ON,ON SEMICONDUCTOR CORP,Information Technology,0.04,returning_after_gap,2022-07-29,2023-09-29,12.0,4.0,3.0,-0.19767943470671157,-0.19767943470671157,normal,-0.020065276824866796
 current_main,NXPI,nan,nan,0.04,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,STM,STMicroelectronics,Semiconductors,0.04,returning_after_gap,2023-01-31,2023-03-31,3.0,1.0,3.0,0.02997852441375315,0.02997852441375315,normal,-0.00042034762460169996
-current_main,HPE,HEWLETT PACKARD ENTERPRISE,Information Technology,0.04,returning_after_gap,2022-03-31,2022-03-31,1.0,1.0,1.0,-0.07999999999999996,-0.07999999999999996,normal,-0.0016806595844303
-current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.04,open_history,2024-02-29,2026-02-27,11.0,6.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.06830823931178556
+current_main,STM,STMicroelectronics,Semiconductors,0.04,returning_after_gap,2023-01-31,2023-03-31,3.0,1.0,3.0,0.029978771354309375,0.029978771354309375,normal,-0.0005138004861206999
+current_main,HPE,HEWLETT PACKARD ENTERPRISE,Information Technology,0.04,returning_after_gap,2022-03-31,2022-03-31,1.0,1.0,1.0,-0.07999999999999996,-0.07999999999999996,normal,-0.0023342494228198
+current_main,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.04,open_history,2024-02-29,2026-02-27,9.0,6.0,1.0,0.10912313315133249,0.10912313315133249,normal,0.06660035870305125
+current_main,ECG,nan,nan,0.04,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
 current_main,TKR,nan,nan,0.04,new_unseen,nan,nan,nan,nan,nan,nan,nan,nan,nan
-current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.04,returning_after_gap,2023-02-28,2026-01-30,15.0,6.0,3.0,0.14318400183269064,0.14318400183269064,normal,0.01760289726580115
+current_main,MLI,MUELLER INDUSTRIES INC,Industrials,0.04,open_history,2023-02-28,2026-02-27,15.0,6.0,3.0,0.022678119481692294,0.022678119481692294,normal,0.013168474935412313

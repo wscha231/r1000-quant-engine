@@ -5,8 +5,8 @@
   "scored_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
   "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
   "latest_price_date": "2026-05-13",
-  "tickers_scored": 732,
-  "liquid_tickers": 732,
+  "tickers_scored": 737,
+  "liquid_tickers": 737,
   "top_theme": "memory_semiconductors",
   "top_theme_state": "emerging_leader",
   "top_etf_attention": "DRAM",
@@ -17,10 +17,11 @@
     "RKLB",
     "PANW",
     "HIMX",
-    "ON",
     "STM",
+    "ON",
     "QCOM",
     "FTNT",
+    "INTC",
     "AMD",
     "COHR",
     "MTSI",
@@ -30,7 +31,6 @@
     "STX",
     "FLEX",
     "AAON",
-    "TSLA",
-    "TXN"
+    "TSLA"
   ]
 }

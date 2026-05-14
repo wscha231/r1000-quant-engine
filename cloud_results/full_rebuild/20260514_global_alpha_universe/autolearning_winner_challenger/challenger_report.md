@@ -9,18 +9,18 @@ Research-only harness connecting AutoLearning v2 with winner lifecycle, winner o
 
 ## Baseline
 
-- Main CAGR / Sharpe / MaxDD: 29.79% / 1.7111635028673302 / -16.65%
-- Main avg/latest cash: 20.23% / 28.00%
-- Concentrated CAGR / Sharpe / MaxDD: 48.62% / 1.733861454092223 / -21.05%
+- Main CAGR / Sharpe / MaxDD: 30.87% / 1.7202960298994148 / -18.51%
+- Main avg/latest cash: 21.41% / 28.00%
+- Concentrated CAGR / Sharpe / MaxDD: 47.95% / 1.7573547279957327 / -14.06%
 
 ## Connected Signals
 
-- AutoLearning hypotheses: 5
-- Missed winners: 30 top=['SNDK', 'STX', 'LITE', 'HIMX', 'FLEX', 'CIEN', 'AMD', 'BE']
+- AutoLearning hypotheses: 6
+- Missed winners: 30 top=['SNDK', 'INTC', 'STX', 'LITE', 'HIMX', 'RKLB', 'FLEX', 'CIEN']
 - Stale winners: 1 top=['TKR']
-- Leadership rotations: 10 top=['HPE->SNDK', 'ARM->SNDK', 'MRVL->SNDK', 'ON->SNDK', 'MLI->BE', 'TKR->BE', 'GEV->BE', 'VRT->BE']
+- Leadership rotations: 13 top=['HPE->SNDK', 'AMD->SNDK', 'MRVL->SNDK', 'ON->SNDK', 'MLI->RKLB', 'TKR->RKLB', 'WDC->SNDK', 'GEV->RKLB']
 - Onset events: 30
-- Shakeout/breakdown events: 1330 labels={'AMBIGUOUS': 337, 'DISTRIBUTION': 453, 'SHAKEOUT': 413, 'TRUE_BREAKDOWN': 127}
+- Shakeout/breakdown events: 1340 labels={'AMBIGUOUS': 336, 'DISTRIBUTION': 457, 'SHAKEOUT': 417, 'TRUE_BREAKDOWN': 130}
 - Main cash-drag replay: available best=cash0.00_cap0.33
 - Main v2 historical replay: completed
 - Concentrated policy replay: completed
@@ -32,38 +32,38 @@ Research-only harness connecting AutoLearning v2 with winner lifecycle, winner o
 
 | Strategy | N | Median | Avg | Hit Rate | Worst | Best |
 |---|---:|---:|---:|---:|---:|---:|
-| hold_3m_return | 30 | 30.94% | 34.31% | 86.67% | -6.39% | 117.95% |
-| hold_6m_return | 30 | 81.45% | 102.20% | 100.00% | 50.47% | 437.07% |
-| hold_12m_return | 30 | 182.43% | 259.86% | 100.00% | 79.82% | 751.20% |
-| hold_18m_return | 21 | 221.80% | 367.83% | 100.00% | 90.11% | 1336.25% |
-| trail20_after_50pct_return | 29 | 119.43% | 176.98% | 100.00% | 32.96% | 601.56% |
-| ma50_5d_after_50pct_return | 27 | 121.21% | 140.65% | 100.00% | 27.52% | 537.71% |
-| ma200_after_50pct_return | 21 | 117.60% | 302.83% | 100.00% | 15.27% | 1814.23% |
+| hold_3m_return | 30 | 25.55% | 29.89% | 80.00% | -34.51% | 117.95% |
+| hold_6m_return | 30 | 76.50% | 88.98% | 100.00% | 50.47% | 275.27% |
+| hold_12m_return | 30 | 186.87% | 269.27% | 100.00% | 79.82% | 751.20% |
+| hold_18m_return | 21 | 221.80% | 323.92% | 100.00% | 90.11% | 1303.74% |
+| trail20_after_50pct_return | 29 | 119.43% | 174.63% | 100.00% | 32.96% | 601.56% |
+| ma50_5d_after_50pct_return | 27 | 121.21% | 136.52% | 100.00% | 27.52% | 537.71% |
+| ma200_after_50pct_return | 21 | 139.92% | 323.37% | 100.00% | 15.27% | 1814.23% |
 
 ## Shakeout/Breakdown Action Backtest
 
 | Label | Horizon | Action | N | Median | Avg | Hit Rate | Worst |
 |---|---|---|---:|---:|---:|---:|---:|
-| AMBIGUOUS | 6m | add25 | 337 | 12.70% | 11.06% | 84.27% | -12.40% |
-| AMBIGUOUS | 6m | exit_to_cash | 337 | 0.00% | 0.00% | 0.00% | 0.00% |
-| AMBIGUOUS | 6m | hold | 337 | 10.16% | 8.84% | 84.27% | -9.92% |
-| AMBIGUOUS | 6m | label_oracle | 337 | 5.08% | 4.42% | 84.27% | -4.96% |
-| AMBIGUOUS | 6m | trim50 | 337 | 5.08% | 4.42% | 84.27% | -4.96% |
-| DISTRIBUTION | 6m | add25 | 453 | -0.36% | 1.88% | 49.45% | -73.44% |
-| DISTRIBUTION | 6m | exit_to_cash | 453 | 0.00% | 0.00% | 0.00% | 0.00% |
-| DISTRIBUTION | 6m | hold | 453 | -0.28% | 1.51% | 49.45% | -58.75% |
-| DISTRIBUTION | 6m | label_oracle | 453 | 0.00% | 0.00% | 0.00% | 0.00% |
-| DISTRIBUTION | 6m | trim50 | 453 | -0.14% | 0.75% | 49.45% | -29.37% |
-| SHAKEOUT | 6m | add25 | 413 | 45.59% | 61.56% | 100.00% | 25.11% |
-| SHAKEOUT | 6m | exit_to_cash | 413 | 0.00% | 0.00% | 0.00% | 0.00% |
-| SHAKEOUT | 6m | hold | 413 | 36.48% | 49.25% | 100.00% | 20.09% |
-| SHAKEOUT | 6m | label_oracle | 413 | 45.59% | 61.56% | 100.00% | 25.11% |
-| SHAKEOUT | 6m | trim50 | 413 | 18.24% | 24.63% | 100.00% | 10.05% |
-| TRUE_BREAKDOWN | 6m | add25 | 127 | -21.47% | -21.83% | 14.17% | -70.38% |
-| TRUE_BREAKDOWN | 6m | exit_to_cash | 127 | 0.00% | 0.00% | 0.00% | 0.00% |
-| TRUE_BREAKDOWN | 6m | hold | 127 | -17.18% | -17.46% | 14.17% | -56.30% |
-| TRUE_BREAKDOWN | 6m | label_oracle | 127 | 0.00% | 0.00% | 0.00% | 0.00% |
-| TRUE_BREAKDOWN | 6m | trim50 | 127 | -8.59% | -8.73% | 14.17% | -28.15% |
+| AMBIGUOUS | 6m | add25 | 336 | 12.30% | 10.84% | 83.93% | -12.40% |
+| AMBIGUOUS | 6m | exit_to_cash | 336 | 0.00% | 0.00% | 0.00% | 0.00% |
+| AMBIGUOUS | 6m | hold | 336 | 9.84% | 8.68% | 83.93% | -9.92% |
+| AMBIGUOUS | 6m | label_oracle | 336 | 4.92% | 4.34% | 83.93% | -4.96% |
+| AMBIGUOUS | 6m | trim50 | 336 | 4.92% | 4.34% | 83.93% | -4.96% |
+| DISTRIBUTION | 6m | add25 | 457 | -0.45% | 1.26% | 49.02% | -73.44% |
+| DISTRIBUTION | 6m | exit_to_cash | 457 | 0.00% | 0.00% | 0.00% | 0.00% |
+| DISTRIBUTION | 6m | hold | 457 | -0.36% | 1.01% | 49.02% | -58.75% |
+| DISTRIBUTION | 6m | label_oracle | 457 | 0.00% | 0.00% | 0.00% | 0.00% |
+| DISTRIBUTION | 6m | trim50 | 457 | -0.18% | 0.51% | 49.02% | -29.37% |
+| SHAKEOUT | 6m | add25 | 417 | 45.49% | 61.02% | 100.00% | 25.11% |
+| SHAKEOUT | 6m | exit_to_cash | 417 | 0.00% | 0.00% | 0.00% | 0.00% |
+| SHAKEOUT | 6m | hold | 417 | 36.40% | 48.82% | 100.00% | 20.09% |
+| SHAKEOUT | 6m | label_oracle | 417 | 45.49% | 61.02% | 100.00% | 25.11% |
+| SHAKEOUT | 6m | trim50 | 417 | 18.20% | 24.41% | 100.00% | 10.05% |
+| TRUE_BREAKDOWN | 6m | add25 | 130 | -21.89% | -22.15% | 14.62% | -70.38% |
+| TRUE_BREAKDOWN | 6m | exit_to_cash | 130 | 0.00% | 0.00% | 0.00% | 0.00% |
+| TRUE_BREAKDOWN | 6m | hold | 130 | -17.51% | -17.72% | 14.62% | -56.30% |
+| TRUE_BREAKDOWN | 6m | label_oracle | 130 | 0.00% | 0.00% | 0.00% | 0.00% |
+| TRUE_BREAKDOWN | 6m | trim50 | 130 | -8.76% | -8.86% | 14.62% | -28.15% |
 
 ## Portfolio Replay Readiness
 

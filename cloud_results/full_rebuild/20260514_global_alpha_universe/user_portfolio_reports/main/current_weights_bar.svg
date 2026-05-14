@@ -3,50 +3,50 @@
 <text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Main Current Operating Weights</text>
 <text x="24" y="86" font-family="Arial" font-size="14" fill="#111827">CASH</text>
 <rect x="120" y="70" width="500.00" height="20" fill="#2563eb" rx="3"/>
-<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">24.4%</text>
+<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">24.6%</text>
 <text x="24" y="116" font-family="Arial" font-size="14" fill="#111827">MU</text>
-<rect x="120" y="100" width="213.64" height="20" fill="#16a34a" rx="3"/>
-<text x="343.64" y="116" font-family="Arial" font-size="14" fill="#111827">10.4%</text>
-<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">AMAT</text>
-<rect x="120" y="130" width="128.50" height="20" fill="#dc2626" rx="3"/>
-<text x="258.50" y="146" font-family="Arial" font-size="14" fill="#111827">6.3%</text>
-<text x="24" y="176" font-family="Arial" font-size="14" fill="#111827">LRCX</text>
-<rect x="120" y="160" width="115.00" height="20" fill="#9333ea" rx="3"/>
-<text x="245.00" y="176" font-family="Arial" font-size="14" fill="#111827">5.6%</text>
-<text x="24" y="206" font-family="Arial" font-size="14" fill="#111827">BE</text>
-<rect x="120" y="190" width="108.67" height="20" fill="#ea580c" rx="3"/>
-<text x="238.67" y="206" font-family="Arial" font-size="14" fill="#111827">5.3%</text>
-<text x="24" y="236" font-family="Arial" font-size="14" fill="#111827">WDC</text>
-<rect x="120" y="220" width="107.89" height="20" fill="#0891b2" rx="3"/>
-<text x="237.89" y="236" font-family="Arial" font-size="14" fill="#111827">5.3%</text>
-<text x="24" y="266" font-family="Arial" font-size="14" fill="#111827">VRT</text>
-<rect x="120" y="250" width="100.11" height="20" fill="#4f46e5" rx="3"/>
-<text x="230.11" y="266" font-family="Arial" font-size="14" fill="#111827">4.9%</text>
-<text x="24" y="296" font-family="Arial" font-size="14" fill="#111827">GOOG</text>
-<rect x="120" y="280" width="98.50" height="20" fill="#65a30d" rx="3"/>
-<text x="228.50" y="296" font-family="Arial" font-size="14" fill="#111827">4.8%</text>
-<text x="24" y="326" font-family="Arial" font-size="14" fill="#111827">PR</text>
-<rect x="120" y="310" width="97.04" height="20" fill="#be123c" rx="3"/>
-<text x="227.04" y="326" font-family="Arial" font-size="14" fill="#111827">4.7%</text>
-<text x="24" y="356" font-family="Arial" font-size="14" fill="#111827">ETR</text>
-<rect x="120" y="340" width="89.60" height="20" fill="#0f766e" rx="3"/>
-<text x="219.60" y="356" font-family="Arial" font-size="14" fill="#111827">4.4%</text>
+<rect x="120" y="100" width="241.35" height="20" fill="#16a34a" rx="3"/>
+<text x="371.35" y="116" font-family="Arial" font-size="14" fill="#111827">11.9%</text>
+<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">LRCX</text>
+<rect x="120" y="130" width="169.24" height="20" fill="#dc2626" rx="3"/>
+<text x="299.24" y="146" font-family="Arial" font-size="14" fill="#111827">8.3%</text>
+<text x="24" y="176" font-family="Arial" font-size="14" fill="#111827">GOOG</text>
+<rect x="120" y="160" width="155.35" height="20" fill="#9333ea" rx="3"/>
+<text x="285.35" y="176" font-family="Arial" font-size="14" fill="#111827">7.7%</text>
+<text x="24" y="206" font-family="Arial" font-size="14" fill="#111827">AMAT</text>
+<rect x="120" y="190" width="133.55" height="20" fill="#ea580c" rx="3"/>
+<text x="263.55" y="206" font-family="Arial" font-size="14" fill="#111827">6.6%</text>
+<text x="24" y="236" font-family="Arial" font-size="14" fill="#111827">BE</text>
+<rect x="120" y="220" width="98.30" height="20" fill="#0891b2" rx="3"/>
+<text x="228.30" y="236" font-family="Arial" font-size="14" fill="#111827">4.8%</text>
+<text x="24" y="266" font-family="Arial" font-size="14" fill="#111827">KO</text>
+<rect x="120" y="250" width="91.51" height="20" fill="#4f46e5" rx="3"/>
+<text x="221.51" y="266" font-family="Arial" font-size="14" fill="#111827">4.5%</text>
+<text x="24" y="296" font-family="Arial" font-size="14" fill="#111827">ETR</text>
+<rect x="120" y="280" width="73.11" height="20" fill="#65a30d" rx="3"/>
+<text x="203.11" y="296" font-family="Arial" font-size="14" fill="#111827">3.6%</text>
+<text x="24" y="326" font-family="Arial" font-size="14" fill="#111827">VRT</text>
+<rect x="120" y="310" width="69.96" height="20" fill="#be123c" rx="3"/>
+<text x="199.96" y="326" font-family="Arial" font-size="14" fill="#111827">3.4%</text>
+<text x="24" y="356" font-family="Arial" font-size="14" fill="#111827">FTI</text>
+<rect x="120" y="340" width="59.01" height="20" fill="#0f766e" rx="3"/>
+<text x="189.01" y="356" font-family="Arial" font-size="14" fill="#111827">2.9%</text>
 <text x="24" y="386" font-family="Arial" font-size="14" fill="#111827">SCCO</text>
-<rect x="120" y="370" width="67.41" height="20" fill="#7c3aed" rx="3"/>
-<text x="197.41" y="386" font-family="Arial" font-size="14" fill="#111827">3.3%</text>
-<text x="24" y="416" font-family="Arial" font-size="14" fill="#111827">KO</text>
-<rect x="120" y="400" width="64.77" height="20" fill="#ca8a04" rx="3"/>
-<text x="194.77" y="416" font-family="Arial" font-size="14" fill="#111827">3.2%</text>
-<text x="24" y="446" font-family="Arial" font-size="14" fill="#111827">RGLD</text>
-<rect x="120" y="430" width="58.15" height="20" fill="#2563eb" rx="3"/>
-<text x="188.15" y="446" font-family="Arial" font-size="14" fill="#111827">2.8%</text>
-<text x="24" y="476" font-family="Arial" font-size="14" fill="#111827">APH</text>
-<rect x="120" y="460" width="57.39" height="20" fill="#16a34a" rx="3"/>
-<text x="187.39" y="476" font-family="Arial" font-size="14" fill="#111827">2.8%</text>
-<text x="24" y="506" font-family="Arial" font-size="14" fill="#111827">VZ</text>
-<rect x="120" y="490" width="56.25" height="20" fill="#dc2626" rx="3"/>
-<text x="186.25" y="506" font-family="Arial" font-size="14" fill="#111827">2.7%</text>
+<rect x="120" y="370" width="55.49" height="20" fill="#7c3aed" rx="3"/>
+<text x="185.49" y="386" font-family="Arial" font-size="14" fill="#111827">2.7%</text>
+<text x="24" y="416" font-family="Arial" font-size="14" fill="#111827">APH</text>
+<rect x="120" y="400" width="55.45" height="20" fill="#ca8a04" rx="3"/>
+<text x="185.45" y="416" font-family="Arial" font-size="14" fill="#111827">2.7%</text>
+<text x="24" y="446" font-family="Arial" font-size="14" fill="#111827">PR</text>
+<rect x="120" y="430" width="55.27" height="20" fill="#2563eb" rx="3"/>
+<text x="185.27" y="446" font-family="Arial" font-size="14" fill="#111827">2.7%</text>
+<text x="24" y="476" font-family="Arial" font-size="14" fill="#111827">ADI</text>
+<rect x="120" y="460" width="52.90" height="20" fill="#16a34a" rx="3"/>
+<text x="182.90" y="476" font-family="Arial" font-size="14" fill="#111827">2.6%</text>
+<text x="24" y="506" font-family="Arial" font-size="14" fill="#111827">ATI</text>
+<rect x="120" y="490" width="50.42" height="20" fill="#dc2626" rx="3"/>
+<text x="180.42" y="506" font-family="Arial" font-size="14" fill="#111827">2.5%</text>
 <text x="24" y="536" font-family="Arial" font-size="14" fill="#111827">OTHER</text>
-<rect x="120" y="520" width="184.18" height="20" fill="#9333ea" rx="3"/>
-<text x="314.18" y="536" font-family="Arial" font-size="14" fill="#111827">9.0%</text>
+<rect x="120" y="520" width="168.31" height="20" fill="#9333ea" rx="3"/>
+<text x="298.31" y="536" font-family="Arial" font-size="14" fill="#111827">8.3%</text>
 </svg>

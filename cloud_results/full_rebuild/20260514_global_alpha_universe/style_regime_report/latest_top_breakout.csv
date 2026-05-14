@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
-GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.838144794874904,0.1718013873999532,balanced
-GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.7336264425490215,0.1718013873999532,balanced
-ADI,ANALOG DEVICES INC,Information Technology,future_winner,6.113164483940275,0.1718013873999532,balanced
-MU,MICRON TECHNOLOGY INC,Information Technology,core_compounder,5.975183543549923,0.1718013873999532,balanced
-TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,5.937911488617146,0.1718013873999532,balanced
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.613099410526149,0.1718013873999532,balanced
-CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,3.4378314736559976,0.1718013873999532,balanced
-FTNT,FORTINET INC,Information Technology,core_compounder,2.465991739379399,0.1718013873999532,balanced
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.800777761358263,0.171595092851347,balanced
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.7081076288634165,0.171595092851347,balanced
+MU,MICRON TECHNOLOGY INC,Information Technology,core_compounder,6.070394243994032,0.171595092851347,balanced
+ADI,ANALOG DEVICES INC,Information Technology,future_winner,5.950696898213338,0.171595092851347,balanced
+TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,5.741997978601323,0.171595092851347,balanced
+NVDA,NVIDIA CORP,Information Technology,core_compounder,4.100296368361815,0.171595092851347,balanced
+CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,3.065471754664641,0.171595092851347,balanced
+FTNT,FORTINET INC,Information Technology,core_compounder,2.621156321777585,0.171595092851347,balanced

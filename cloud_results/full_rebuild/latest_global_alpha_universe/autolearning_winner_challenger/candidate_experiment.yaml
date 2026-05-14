@@ -5,11 +5,11 @@ requires_historical_replay: true
 requires_human_approval: true
 verdict: READY_FOR_PORTFOLIO_CHALLENGER_REPLAY
 inputs:
-  auto_learning_hypotheses: 5
+  auto_learning_hypotheses: 6
   lifecycle_missed_count: 30
   lifecycle_stale_count: 1
   onset_event_count: 30
-  shakeout_event_count: 1330
+  shakeout_event_count: 1340
 candidate_rules:
   - id: autolearning_winner_onset_overlay
     status: proposal_only

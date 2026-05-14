@@ -33,6 +33,14 @@
       "severity": "medium"
     },
     {
+      "breaks_assumption": "Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps.",
+      "category": "trade_pattern_asymmetry",
+      "confidence": 0.7,
+      "id": "cluster_conviction_asymmetry",
+      "observation": "Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns.",
+      "severity": "medium"
+    },
+    {
       "breaks_assumption": "Alpha Sprint cannot depend on explosion_* alone until the feature stack produces usable nonzero evidence.",
       "category": "dormant_signal_stack",
       "confidence": 0.68,
@@ -82,8 +90,21 @@
       "status": "counterfactual_available"
     },
     {
+      "backtest_executed": null,
+      "cagr_delta_pp": null,
+      "experiment_id": null,
+      "hypothesis_id": "cluster_conviction_router_v1",
+      "maxdd_delta_pp": null,
+      "notes": "Governance/infrastructure hypothesis; blocks promotion until replay coverage improves.",
+      "passed_discovery": false,
+      "production_ready": false,
+      "requires_full_challenger_backtest": false,
+      "sharpe_delta": null,
+      "status": "infrastructure_or_guardrail"
+    },
+    {
       "backtest_executed": true,
-      "cagr_delta_pp": -21.791466643217248,
+      "cagr_delta_pp": -15.101547475529298,
       "discovery_gate": {
         "cagr_delta_pp_gt": 0.0,
         "maxdd_delta_pp_min": -5.0,
@@ -91,12 +112,12 @@
       },
       "experiment_id": "weekly_leader_entry_broker_replay",
       "hypothesis_id": "alpha_sprint_breakout_fallback_v1",
-      "maxdd_delta_pp": 13.414804110731836,
+      "maxdd_delta_pp": 5.560437658195305,
       "notes": "Weekly leader-entry broker replay is available as account-like counterfactual evidence; keep proposal-only until stress/cost gates pass.",
       "passed_discovery": false,
       "production_ready": false,
       "requires_full_challenger_backtest": false,
-      "sharpe_delta": -0.48143082752740074,
+      "sharpe_delta": -0.3218398767791888,
       "status": "counterfactual_available"
     },
     {
@@ -114,7 +135,7 @@
     }
   ],
   "expires_at": "2026-08-12",
-  "generated_at": "2026-05-14T07:54:26Z",
+  "generated_at": "2026-05-14T12:05:31Z",
   "generated_by": "auto_learning_v2.alpha_scientist",
   "guardrails": {
     "kill_switch": {
@@ -147,7 +168,7 @@
           "sprint_signal_gap",
           "defense_return_tradeoff"
         ],
-        "known_regime_confidence": 0.4769,
+        "known_regime_confidence": 0.3925,
         "status": "novel_regime_watch"
       },
       "observation_ids": [
@@ -225,7 +246,7 @@
           "sprint_signal_gap",
           "defense_return_tradeoff"
         ],
-        "known_regime_confidence": 0.4769,
+        "known_regime_confidence": 0.3925,
         "status": "novel_regime_watch"
       },
       "observation_ids": [
@@ -303,7 +324,7 @@
           "sprint_signal_gap",
           "defense_return_tradeoff"
         ],
-        "known_regime_confidence": 0.4769,
+        "known_regime_confidence": 0.3925,
         "status": "novel_regime_watch"
       },
       "observation_ids": [
@@ -352,6 +373,80 @@
         "capital_weight": 0.0,
         "stage": "shadow"
       },
+      "hypothesis": "Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules.",
+      "id": "cluster_conviction_router_v1",
+      "novelty_context": {
+        "flags": [
+          "leadership_concentration",
+          "sprint_signal_gap",
+          "defense_return_tradeoff"
+        ],
+        "known_regime_confidence": 0.3925,
+        "status": "novel_regime_watch"
+      },
+      "observation_ids": [
+        "cluster_conviction_asymmetry"
+      ],
+      "rules": [
+        {
+          "if": {
+            "trade_cluster": [
+              1,
+              5
+            ]
+          },
+          "limits": {
+            "max_weight_delta": 0.05,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "theme_policy",
+          "then": {
+            "allow_conviction_bonus": true,
+            "max_bonus": 0.05
+          }
+        },
+        {
+          "if": {
+            "trade_cluster": [
+              0,
+              6
+            ]
+          },
+          "limits": {
+            "max_ttl_days": 90,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "feature_gate",
+          "then": {
+            "pattern_block_or_caution": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "strong_cluster_bonus_reduces_avg_return",
+          "block_rule_removes_winners"
+        ],
+        "metrics": [
+          "cluster_hit_rate",
+          "loss_rate",
+          "avg_return",
+          "turnover"
+        ],
+        "windows": [
+          "all_months",
+          "all_bear_months"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
       "hypothesis": "Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated.",
       "id": "alpha_sprint_breakout_fallback_v1",
       "novelty_context": {
@@ -360,7 +455,7 @@
           "sprint_signal_gap",
           "defense_return_tradeoff"
         ],
-        "known_regime_confidence": 0.4769,
+        "known_regime_confidence": 0.3925,
         "status": "novel_regime_watch"
       },
       "observation_ids": [
@@ -425,7 +520,7 @@
           "sprint_signal_gap",
           "defense_return_tradeoff"
         ],
-        "known_regime_confidence": 0.4769,
+        "known_regime_confidence": 0.3925,
         "status": "novel_regime_watch"
       },
       "observation_ids": [
@@ -470,19 +565,20 @@
       "dormant_signal_stack": 1,
       "portfolio_construction_drag": 1,
       "research_infrastructure_gap": 1,
-      "risk_policy_tradeoff": 1
+      "risk_policy_tradeoff": 1,
+      "trade_pattern_asymmetry": 1
     },
     "flags": [
       "leadership_concentration",
       "sprint_signal_gap",
       "defense_return_tradeoff"
     ],
-    "known_regime_confidence": 0.4769,
-    "novelty_score": 16.74,
+    "known_regime_confidence": 0.3925,
+    "novelty_score": 19.44,
     "production_activation_allowed": false,
     "recommended_mode": "shadow_only",
     "regime_counts": {
-      "system": 5
+      "system": 6
     },
     "status": "novel_regime_watch"
   },
@@ -661,6 +757,68 @@
           "2020",
           "2022",
           "all_drawdown_windows"
+        ]
+      }
+    },
+    {
+      "exploration_budget": {
+        "capital_weight": 0.0,
+        "stage": "shadow"
+      },
+      "hypothesis": "Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules.",
+      "id": "cluster_conviction_router_v1",
+      "rules": [
+        {
+          "if": {
+            "trade_cluster": [
+              1,
+              5
+            ]
+          },
+          "limits": {
+            "max_weight_delta": 0.05,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "theme_policy",
+          "then": {
+            "allow_conviction_bonus": true,
+            "max_bonus": 0.05
+          }
+        },
+        {
+          "if": {
+            "trade_cluster": [
+              0,
+              6
+            ]
+          },
+          "limits": {
+            "max_ttl_days": 90,
+            "production_activation_allowed": false,
+            "proposal_only": true
+          },
+          "rule_type": "feature_gate",
+          "then": {
+            "pattern_block_or_caution": true
+          }
+        }
+      ],
+      "status": "proposal_only",
+      "test_plan": {
+        "falsify_if": [
+          "strong_cluster_bonus_reduces_avg_return",
+          "block_rule_removes_winners"
+        ],
+        "metrics": [
+          "cluster_hit_rate",
+          "loss_rate",
+          "avg_return",
+          "turnover"
+        ],
+        "windows": [
+          "all_months",
+          "all_bear_months"
         ]
       }
     },

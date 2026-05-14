@@ -1,16 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="190" viewBox="0 0 760 190">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Concentrated Current Operating Weights</text>
 <text x="24" y="86" font-family="Arial" font-size="14" fill="#111827">PR</text>
 <rect x="120" y="70" width="500.00" height="20" fill="#2563eb" rx="3"/>
-<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">53.3%</text>
+<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">43.6%</text>
 <text x="24" y="116" font-family="Arial" font-size="14" fill="#111827">ETR</text>
-<rect x="120" y="100" width="244.90" height="20" fill="#16a34a" rx="3"/>
-<text x="374.90" y="116" font-family="Arial" font-size="14" fill="#111827">26.1%</text>
-<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">THC</text>
-<rect x="120" y="130" width="192.47" height="20" fill="#dc2626" rx="3"/>
-<text x="322.47" y="146" font-family="Arial" font-size="14" fill="#111827">20.5%</text>
-<text x="24" y="176" font-family="Arial" font-size="14" fill="#111827">CASH</text>
-<rect x="120" y="160" width="0.01" height="20" fill="#9333ea" rx="3"/>
-<text x="130.01" y="176" font-family="Arial" font-size="14" fill="#111827">0.0%</text>
+<rect x="120" y="100" width="487.67" height="20" fill="#16a34a" rx="3"/>
+<text x="617.67" y="116" font-family="Arial" font-size="14" fill="#111827">42.5%</text>
+<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">CASH</text>
+<rect x="120" y="130" width="160.22" height="20" fill="#dc2626" rx="3"/>
+<text x="290.22" y="146" font-family="Arial" font-size="14" fill="#111827">14.0%</text>
 </svg>

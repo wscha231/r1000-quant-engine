@@ -1,18 +1,19 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-GEV,0.14,GE VERNOVA INC,Industrials,core_compounder
-GOOGL,0.14,ALPHABET INC CLASS A,Communication,core_compounder
-ARM,0.0567942243103047,Arm Holdings,Information Technology,future_winner
-MRVL,0.0567942243103047,MARVELL TECHNOLOGY INC,Information Technology,future_winner
-FIX,0.0567942243103047,COMFORT SYSTEMS USA INC,Industrials,core_compounder
-VRT,0.0567942243103047,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
-RKLB,0.0544754273933545,ROCKET LAB CORP,Industrials,future_winner
-UMC,0.0530745669585512,United Microelectronics,Semiconductors,future_winner
-FTI,0.0528097499965903,TECHNIPFMC PLC,Energy,future_winner
-CBOE,0.0524633584102847,CBOE GLOBAL MARKETS INC,Financials,future_winner
-HPE,0.04,HEWLETT PACKARD ENTERPRISE,Information Technology,early_scout
+GOOG,0.14,ALPHABET INC CLASS C,Communication,core_compounder
+GEV,0.1193116586282239,GE VERNOVA INC,Industrials,core_compounder
+MRVL,0.05701102776964,MARVELL TECHNOLOGY INC,Information Technology,future_winner
+AMD,0.05701102776964,ADVANCED MICRO DEVICES INC,Information Technology,core_compounder
+VRT,0.05701102776964,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
+WDC,0.0525270453633083,WESTERN DIGITAL CORP,Information Technology,future_winner
+FIX,0.0509525870729817,COMFORT SYSTEMS USA INC,Industrials,core_compounder
+UMC,0.0493794794984856,United Microelectronics,Semiconductors,future_winner
+FTI,0.0487611691928266,TECHNIPFMC PLC,Energy,future_winner
+CBOE,0.0480349769352535,CBOE GLOBAL MARKETS INC,Financials,future_winner
 MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
+HPE,0.04,HEWLETT PACKARD ENTERPRISE,Information Technology,early_scout
+ECG,0.04,EVERUS CONSTRUCTION GROUP INC,Industrials,early_scout
 NXPI,0.04,NXP Semiconductors,Semiconductors,future_winner
+STM,0.04,STMicroelectronics,Semiconductors,future_winner
 PR,0.04,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout
 ON,0.04,ON SEMICONDUCTOR CORP,Information Technology,early_scout
 TKR,0.04,TIMKEN,Industrials,early_scout
-STM,0.04,STMicroelectronics,Semiconductors,future_winner

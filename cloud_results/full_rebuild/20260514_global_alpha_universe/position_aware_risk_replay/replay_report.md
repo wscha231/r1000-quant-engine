@@ -2,14 +2,14 @@
 
 Monthly proxy for hard stop, trailing stop, and distribution-risk exits.
 
-- Original CAGR: 24.47%
-- Risk CAGR: 36.13%
-- CAGR delta: 11.66%
-- Original MaxDD: -25.80%
-- Risk MaxDD: -12.68%
-- MaxDD delta: 13.11%
-- Relative trims: 18
-- Relative exits: 2
+- Original CAGR: 25.70%
+- Risk CAGR: 37.96%
+- CAGR delta: 12.26%
+- Original MaxDD: -25.76%
+- Risk MaxDD: -12.66%
+- MaxDD delta: 13.10%
+- Relative trims: 20
+- Relative exits: 3
 - Cost bps: 25.0
 - List defense mode: `risk_exit_trim50_exit_proxy`
 - Defensive latest: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/position_aware_risk_replay/defensive_latest.csv`

@@ -10,10 +10,10 @@ Research-only staged sizing replay: scout -> confirm -> winner -> monster.
 - Entry requires leadership/growth: `True`
 - Stale patience months: 2
 - Hard-stop proxy: -8.00%
-- CAGR: 14.69%
-- Sharpe: 0.894
-- MaxDD: -26.71%
-- Avg cash: 12.80%
-- Avg turnover: 28.20%
+- CAGR: 18.83%
+- Sharpe: 1.025
+- MaxDD: -25.23%
+- Avg cash: 12.55%
+- Avg turnover: 28.19%
 
 This is the priority challenger for detecting early monster winners without hardcoded tickers.

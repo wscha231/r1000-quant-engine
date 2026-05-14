@@ -13,35 +13,35 @@ Artifact-only ranking against explicit portfolio targets. Production defaults ar
 
 | Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_v2_position_aware_risk_proxy` | 36.13% | 0.00pp | -12.68% | 0.00pp | true | `target_pass_review` |
-| concentrated | `concentrated_position_risk_proxy` | 50.59% | 0.00pp | -17.99% | 0.00pp | true | `target_pass_review` |
+| main | `main_v2_position_aware_risk_proxy` | 37.96% | 0.00pp | -12.66% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_proxy` | 52.66% | 0.00pp | -16.39% | 0.00pp | true | `target_pass_review` |
 
 ## Best Production-Compatible Candidates
 
 | Portfolio | Candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_broker_ledger_replay` | 23.10% | 6.90pp | -29.98% | 14.98pp | false | `blocked_both` |
-| concentrated | `concentrated_broker_ledger_replay` | 33.00% | 17.00pp | -41.82% | 23.82pp | false | `blocked_both` |
+| main | `main_broker_execution_policy_replay` | 22.17% | 7.83pp | -30.12% | 15.12pp | false | `blocked_both` |
+| concentrated | `concentrated_broker_ledger_replay` | 29.42% | 20.59pp | -32.56% | 14.56pp | false | `blocked_both` |
 
 ## Main Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `main_v2_position_aware_risk_proxy` | 36.13% | 0.00pp | -12.68% | 0.00pp | 1.764 | true | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
-| `orchestrator_replay_main_proxy` | 33.91% | 0.00pp | -14.36% | 0.00pp | 1.907 | true | sidecar:outputs/orchestrator_replay/concentrated_balanced/metrics.json#metrics.main_proxy |
-| `main_rebalance_interval_fixed_interval_I1` | 29.79% | 0.21pp | -16.07% | 1.07pp | 1.714 | false | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
-| `main_latest_champion` | 29.79% | 0.21pp | -16.65% | 1.65pp | 1.711 | false | latest_run:outputs/backtest_metrics.json |
-| `main_rebalance_interval_adaptive_I1` | 29.79% | 0.21pp | -16.65% | 1.65pp | 1.711 | false | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
+| `main_v2_position_aware_risk_proxy` | 37.96% | 0.00pp | -12.66% | 0.00pp | 1.805 | true | sidecar:outputs/position_aware_risk_replay/metrics.json#with_position_risk |
+| `orchestrator_replay_main_proxy` | 35.12% | 0.00pp | -16.29% | 1.29pp | 1.917 | false | sidecar:outputs/orchestrator_replay/concentrated_balanced/metrics.json#metrics.main_proxy |
+| `main_sleeve_cap_policy_sleeve_cap_policy_I1` | 28.70% | 1.30pp | -16.95% | 1.95pp | 1.674 | false | latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv |
+| `main_rebalance_interval_fixed_interval_I1` | 31.20% | 0.00pp | -18.35% | 3.35pp | 1.728 | false | latest_run_report:outputs/reports/rebalance_interval_comparison.csv |
+| `main_latest_champion` | 30.87% | 0.00pp | -18.51% | 3.51pp | 1.720 | false | latest_run:outputs/backtest_metrics.json |
 
 ## Concentrated Top 5
 
 | Candidate | CAGR | Gap | MaxDD | Gap | Sharpe | Pass | Source |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `concentrated_position_risk_proxy` | 50.59% | 0.00pp | -17.99% | 0.00pp | 1.819 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
-| `concentrated_grid_N4_score_power_I1` | 46.58% | 3.42pp | -18.32% | 0.32pp | 1.804 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
-| `concentrated_grid_N3_conviction_curve_I1` | 47.71% | 2.29pp | -19.97% | 1.97pp | 1.739 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
-| `concentrated_grid_N4_conviction_curve_I1` | 46.13% | 3.87pp | -18.40% | 0.40pp | 1.823 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
-| `concentrated_latest_champion` | 48.62% | 1.38pp | -21.05% | 3.05pp | 1.734 | false | latest_run:outputs/concentrated_backtest_metrics.json |
+| `concentrated_position_risk_proxy` | 52.66% | 0.00pp | -16.39% | 0.00pp | 1.782 | true | sidecar:outputs/concentrated_position_risk_replay/metrics.json |
+| `concentrated_grid_N3_conviction_curve_I1` | 49.89% | 0.11pp | -18.26% | 0.26pp | 1.710 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N3_winner_take_all_I1` | 48.63% | 1.37pp | -18.08% | 0.08pp | 1.708 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N3_score_power_I1` | 48.24% | 1.76pp | -17.13% | 0.00pp | 1.718 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
+| `concentrated_grid_N2_winner_take_all_I1` | 55.68% | 0.00pp | -20.08% | 2.08pp | 1.591 | false | latest_run_report:outputs/reports/concentrated_strategy_comparison.csv |
 
 ## Next Actions
 

@@ -1,20 +1,20 @@
 {
   "diagnostic_counts": {
     "balanced_under_drawdown": 12,
-    "late_risk_alert": 13,
-    "possible_cash_drag": 4,
+    "late_risk_alert": 10,
+    "possible_cash_drag": 8,
     "premature_growth_reentry": 1,
-    "unconfirmed_cash_raise": 13
+    "unconfirmed_cash_raise": 17
   },
   "experiment_id": "macro_policy_engine",
   "latest": {
-    "breadth_credit_stress_score": 0.030795611301231398,
+    "breadth_credit_stress_score": 0.03079561130123139,
     "cash_raise_confirmation_count": 0,
     "cash_raise_gate": "none",
     "confirmed_cash_raise": false,
     "event_shock_score": 0.0,
     "index_trend_damage_score": 0.0,
-    "liquidity_drain_score": 0.07483519867509193,
+    "liquidity_drain_score": 0.07495049724449909,
     "macro_risk_state": "green",
     "macro_snapshot_source": "scored_latest",
     "macro_style_state": "quality_compounder",
@@ -34,15 +34,15 @@
     "crisis": 5,
     "green": 46,
     "recovery": 8,
-    "red": 9,
-    "yellow": 16
+    "red": 11,
+    "yellow": 14
   },
   "source_regime_by_month": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/regime_by_month.csv",
   "status": "completed",
   "style_state_counts": {
     "breakout_growth": 12,
-    "cash_defense": 16,
-    "quality_compounder": 49,
-    "turnaround_accumulation": 7
+    "cash_defense": 18,
+    "quality_compounder": 48,
+    "turnaround_accumulation": 6
   }
 }

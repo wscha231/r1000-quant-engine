@@ -6,24 +6,24 @@
   ],
   "broker_replay": {
     "concentrated": {
-      "cagr": 0.3299660723952078,
+      "cagr": 0.2941501486165121,
       "end_date": "2026-05-13",
       "exists": true,
-      "max_dd": -0.4181732710146112,
+      "max_dd": -0.32558014940398905,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.094135144574884,
+      "sharpe": 1.0782318630667798,
       "start_date": "2019-05-01",
       "status": "completed",
       "valid_for_production": true,
       "years": 7.0335
     },
     "main": {
-      "cagr": 0.2309506635262839,
+      "cagr": 0.20204996746216164,
       "end_date": "2026-05-13",
       "exists": true,
-      "max_dd": -0.2998402427379665,
+      "max_dd": -0.3202239262888399,
       "metric_mode": "broker_ledger_next_close",
-      "sharpe": 1.089812465182922,
+      "sharpe": 1.0570535173637137,
       "start_date": "2019-05-01",
       "status": "completed",
       "valid_for_production": true,
@@ -38,7 +38,7 @@
     "manifest_generated_at_utc": null,
     "sec_companyfacts_available": false
   },
-  "generated_at_utc": "2026-05-14T07:53:53.592689+00:00",
+  "generated_at_utc": "2026-05-14T12:05:08.088607+00:00",
   "min_years": 9.8,
   "next_actions": [
     "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
@@ -49,9 +49,9 @@
   "pit_label": null,
   "price_cache": {
     "cache_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
-    "effective_price_files": 1124,
+    "effective_price_files": 1138,
     "end_date": null,
-    "local_price_files": 1124,
+    "local_price_files": 1138,
     "manifest_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/prices/replay_price_cache_manifest.json",
     "manifest_price_files": 0,
     "requested_tickers": 0,
@@ -67,14 +67,14 @@
       "exists": true,
       "max_date": "2026-02-27",
       "min_date": "2019-04-30",
-      "rows": 23454,
+      "rows": 23436,
       "unique_months": 83
     },
     "main": {
       "exists": true,
       "max_date": "2026-02-27",
       "min_date": "2019-04-30",
-      "rows": 2123,
+      "rows": 2162,
       "unique_months": 83
     },
     "ten_year_ready": false

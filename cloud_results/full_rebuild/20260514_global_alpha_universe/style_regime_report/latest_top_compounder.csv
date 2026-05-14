@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_compounder_fit,market_style_regime_label
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.613099410526149,0.7573965333152491,balanced
-NTES,NetEase,Internet,core_compounder,3.383143280485658,0.7469047463766428,balanced
-UI,UBIQUITI INC,Information Technology,unassigned,-2.8474617458686926,0.7398104883660004,balanced
-VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.1033692630328591,0.7348954908597033,balanced
-COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,4.809092913654216,0.7217718875534055,balanced
-AAPL,APPLE INC,Information Technology,core_compounder,4.787598398466431,0.713310604770975,balanced
-WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,6.360063404776135,0.7064368216456156,balanced
-ZTO,ZTO Express,Industrials,future_winner,2.1156764693280934,0.6849194920536777,balanced
+NVDA,NVIDIA CORP,Information Technology,core_compounder,4.100296368361815,0.7571622992010566,balanced
+NTES,NetEase,Internet,core_compounder,2.806116137968041,0.7468930824200773,balanced
+UI,UBIQUITI INC,Information Technology,unassigned,-3.654411177095309,0.7392807343155112,balanced
+VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.1669470579693209,0.7362429611495853,balanced
+COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,4.746294891597193,0.7218819267916601,balanced
+AAPL,APPLE INC,Information Technology,core_compounder,5.010099810528142,0.7142071894124774,balanced
+WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,6.939597055072879,0.7051152449163607,balanced
+ZTO,ZTO Express,Industrials,future_winner,2.2725635456404927,0.6859414966420982,balanced

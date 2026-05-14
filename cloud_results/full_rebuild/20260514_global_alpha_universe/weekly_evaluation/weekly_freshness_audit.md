@@ -6,7 +6,7 @@
 - scored_vs_weekly_eval_lag_days: `1`
 - stale_days_threshold: `10`
 - latest_raw_portfolio_cash_target: `0.0`
-- latest_unified_cash_target: `0.2499999999999999`
+- latest_unified_cash_target: `0.32341833508956797`
 
 ## Portfolio Metrics
 
@@ -14,19 +14,19 @@
 - status: `completed`
 - weeks: `413`
 - range: `2019-05-03` -> `2026-05-13`
-- CAGR: `0.22294000363752553`
-- Sharpe: `1.109513389194434`
-- MaxDD: `-0.2777586605840191`
-- avg_cash_weight: `0.052906902842701976`
+- CAGR: `0.22057450320343075`
+- Sharpe: `1.0902476182536451`
+- MaxDD: `-0.3159814786075399`
+- avg_cash_weight: `0.052744487910302076`
 
 ### concentrated
 - status: `completed`
 - weeks: `413`
 - range: `2019-05-03` -> `2026-05-13`
-- CAGR: `0.3553121540811017`
-- Sharpe: `1.2185511223885324`
-- MaxDD: `-0.40189334174619873`
-- avg_cash_weight: `5.510792252982012e-17`
+- CAGR: `0.3338102331732866`
+- Sharpe: `1.179650301766003`
+- MaxDD: `-0.4025951116974581`
+- avg_cash_weight: `5.940902867848901e-17`
 
 ## Notes
 - This sidecar does not alter production portfolio selection.

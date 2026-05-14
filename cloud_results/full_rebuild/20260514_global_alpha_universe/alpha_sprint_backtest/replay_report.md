@@ -5,7 +5,7 @@ Bull-only research replay for short-horizon explosive candidates.
 - Status: `completed`
 - Active months: 24
 - CAGR contribution stream: 0.22%
-- Sharpe: 0.387
-- MaxDD: -1.43%
+- Sharpe: 0.388
+- MaxDD: -1.32%
 
 This remains a sidecar until it improves the unified orchestrator replay after costs.

@@ -1,8 +1,8 @@
 {
   "account_mode": "simulated",
   "error_count": 0,
-  "fill_template_order_count": 39,
-  "generated_at_utc": "2026-05-14T07:52:46.910834+00:00",
+  "fill_template_order_count": 38,
+  "generated_at_utc": "2026-05-14T12:04:24.642259+00:00",
   "issues": [
     {
       "check_id": "simulated_broker_account",
@@ -13,7 +13,7 @@
     }
   ],
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
-  "manifest_order_count": 39,
+  "manifest_order_count": 38,
   "schema_version": "live-trading-risk-controls-v1",
   "status": "pass",
   "strict_live": false,

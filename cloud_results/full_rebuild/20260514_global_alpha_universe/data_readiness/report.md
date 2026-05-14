@@ -7,7 +7,7 @@
 
 ## Prices
 
-- cache files: `1124`
+- cache files: `1138`
 - manifest end: ``
 - manifest tickers: ``
 
@@ -15,18 +15,18 @@
 
 | File | Rows | Max date | Weight sum |
 | --- | ---: | --- | ---: |
-| scored_latest | 732 | 2026-05-14 |  |
-| portfolio_latest | 17 |  | 0.9999999999999996 |
-| concentrated_portfolio_latest | 3 | 2026-05-14 | 1.0 |
+| scored_latest | 737 | 2026-05-14 |  |
+| portfolio_latest | 18 |  | 0.9999999999999997 |
+| concentrated_portfolio_latest | 4 | 2026-05-14 | 1.0 |
 
 ## Target Books
 
 | Book | Rows | Min date | Max date | Weight sum |
 | --- | ---: | --- | --- | ---: |
-| main_history | 2123 | 2019-04-30 | 2026-02-27 | 82.99999999999991 |
-| concentrated_history | 23454 | 2019-04-30 | 2026-02-27 | 4999.499999999999 |
-| operating_main | 2140 | 2019-04-30 | 2026-05-13 | 83.9999999999999 |
-| operating_concentrated | 23457 | 2019-04-30 | 2026-05-14 | 5000.499999999999 |
+| main_history | 2162 | 2019-04-30 | 2026-02-27 | 82.9999999999999 |
+| concentrated_history | 23436 | 2019-04-30 | 2026-02-27 | 4999.5 |
+| operating_main | 2180 | 2019-04-30 | 2026-05-13 | 76.33881690438739 |
+| operating_concentrated | 23440 | 2019-04-30 | 2026-05-14 | 4166.670192701755 |
 
 ## Blockers
 

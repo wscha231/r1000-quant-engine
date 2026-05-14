@@ -1,13 +1,13 @@
 {
   "champion": {
-    "max_dd": -0.2105063441633312,
+    "max_dd": -0.1406224666347707,
     "rebalance_interval_months": 1,
-    "sharpe": 1.733861454092223,
-    "strategy_cagr": 0.4862020696210987,
-    "target_stock_names": 3,
-    "weighting_mode": "winner_take_all"
+    "sharpe": 1.757354727995733,
+    "strategy_cagr": 0.4795398623592428,
+    "target_stock_names": 4,
+    "weighting_mode": "conviction_curve"
   },
-  "holding_rows": 249,
+  "holding_rows": 332,
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "monthly_rows": 83,
   "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_trade_journal",
@@ -17,77 +17,77 @@
   "trade_digest": {
     "by_regime": {
       "balanced": {
-        "GOOD_EXIT": 21,
-        "LOSS": 1,
-        "NEUTRAL": 67,
-        "WIN": 29
+        "GOOD_EXIT": 24,
+        "LOSS": 2,
+        "NEUTRAL": 88,
+        "WIN": 32
       },
       "growth_reentry_alert": {
-        "GOOD_EXIT": 1,
+        "GOOD_EXIT": 2,
         "LOSS": 0,
-        "NEUTRAL": 12,
+        "NEUTRAL": 10,
         "WIN": 2
       },
       "risk_off_alert": {
         "GOOD_EXIT": 3,
         "LOSS": 0,
-        "NEUTRAL": 14,
-        "WIN": 5
+        "NEUTRAL": 18,
+        "WIN": 7
       },
       "systemic_alert": {
-        "GOOD_EXIT": 0,
+        "GOOD_EXIT": 1,
         "LOSS": 0,
         "NEUTRAL": 3,
-        "WIN": 1
+        "WIN": 2
       }
     },
     "label_counts": {
-      "GOOD_EXIT": 25,
-      "LOSS": 1,
-      "NEUTRAL": 96,
-      "WIN": 37
+      "GOOD_EXIT": 30,
+      "LOSS": 2,
+      "NEUTRAL": 119,
+      "WIN": 43
     },
-    "loss_rate": 0.006289308176100629,
-    "mean_realized": 0.06571199846804922,
-    "median_realized": 0.04085600022917868,
-    "n_trades": 159,
+    "loss_rate": 0.010309278350515464,
+    "mean_realized": 0.06539941894059544,
+    "median_realized": 0.03470783669773214,
+    "n_trades": 194,
     "top_losses": [
       {
         "grade_label": "LOSS",
-        "realized_return": -0.13042582859291907,
+        "realized_return": -0.13042610409670796,
         "ticker": "LRCX"
       },
       {
-        "grade_label": "NEUTRAL",
-        "realized_return": -0.08079138225042193,
-        "ticker": "TSCO"
+        "grade_label": "LOSS",
+        "realized_return": -0.11100321918400324,
+        "ticker": "MA"
       },
       {
         "grade_label": "NEUTRAL",
-        "realized_return": -0.07999999999999996,
-        "ticker": "AVGO"
+        "realized_return": -0.0961766766431773,
+        "ticker": "DKS"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.08260040528968304,
+        "ticker": "META"
       },
       {
         "grade_label": "NEUTRAL",
         "realized_return": -0.07999999999999996,
         "ticker": "AXON"
-      },
-      {
-        "grade_label": "NEUTRAL",
-        "realized_return": -0.07999999999999996,
-        "ticker": "CPRT"
       }
     ],
     "top_wins": [
       {
         "grade_label": "GOOD_EXIT",
-        "realized_return": 0.7650792161780617,
-        "ticker": "LRCX"
+        "realized_return": 0.8976874020700762,
+        "ticker": "NVDA"
       },
       {
         "grade_label": "GOOD_EXIT",
-        "realized_return": 0.726473186543311,
-        "ticker": "DKS"
+        "realized_return": 0.7344420505960996,
+        "ticker": "LRCX"
       },
       {
         "grade_label": "GOOD_EXIT",
@@ -96,15 +96,15 @@
       },
       {
         "grade_label": "GOOD_EXIT",
-        "realized_return": 0.5599828015896311,
-        "ticker": "DUOL"
+        "realized_return": 0.6111048018562111,
+        "ticker": "AVGO"
       },
       {
         "grade_label": "GOOD_EXIT",
-        "realized_return": 0.5566952706788253,
-        "ticker": "AVGO"
+        "realized_return": 0.5599828015896311,
+        "ticker": "DUOL"
       }
     ],
-    "win_rate": 0.389937106918239
+    "win_rate": 0.37628865979381443
   }
 }

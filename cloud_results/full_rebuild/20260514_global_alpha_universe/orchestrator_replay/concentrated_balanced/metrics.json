@@ -43,46 +43,46 @@
   "main_audit": {
     "months": 83,
     "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/holdings_history.csv",
-    "rows": 2123
+    "rows": 2162
   },
   "metrics": {
     "concentrated": {
-      "cagr": 0.4300522685382939,
-      "calmar": 2.7811199676833045,
-      "ending_equity": 11.871822267917683,
-      "max_dd": -0.15463276433074225,
+      "cagr": 0.43193052562967504,
+      "calmar": 2.8848829306494457,
+      "ending_equity": 11.98009152970163,
+      "max_dd": -0.1497220289394685,
       "months": 83,
-      "sharpe": 1.688776241743226,
-      "vol_ann": 0.2295642148184891
+      "sharpe": 1.7375977499635054,
+      "vol_ann": 0.2231411645987739
     },
     "main_proxy": {
-      "cagr": 0.3391436140194406,
-      "calmar": 2.3625458071944405,
-      "ending_equity": 7.537392876220473,
-      "max_dd": -0.14355006916127433,
+      "cagr": 0.35117394954603687,
+      "calmar": 2.155669838750663,
+      "ending_equity": 8.018372709541035,
+      "max_dd": -0.16290711278382164,
       "months": 83,
-      "sharpe": 1.9069844777856866,
-      "vol_ann": 0.1616956815467643
+      "sharpe": 1.9168419385282458,
+      "vol_ann": 0.1660046018808108
     },
     "unified_balanced": {
-      "cagr": 0.2692428442659902,
-      "calmar": 2.4402518304212504,
-      "ending_equity": 5.202167581653715,
-      "max_dd": -0.11033404049102258,
+      "cagr": 0.2754561570513647,
+      "calmar": 2.1694812258052067,
+      "ending_equity": 5.38087968105465,
+      "max_dd": -0.12696867517216182,
       "months": 83,
-      "sharpe": 1.9198520901871134,
-      "vol_ann": 0.12969785095013886
+      "sharpe": 1.9118430329069733,
+      "vol_ann": 0.13306826905798425
     }
   },
   "production_activation_allowed": false,
   "status": "completed",
   "target_status": [
     {
-      "cagr": 0.3391436140194406,
+      "cagr": 0.35117394954603687,
       "cagr_gap_pp": 0.0,
       "cagr_pass": true,
       "cagr_target": 0.25,
-      "max_dd": -0.14355006916127433,
+      "max_dd": -0.16290711278382164,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.2,
@@ -90,11 +90,11 @@
       "target_pass": true
     },
     {
-      "cagr": 0.4300522685382939,
+      "cagr": 0.43193052562967504,
       "cagr_gap_pp": 0.0,
       "cagr_pass": true,
       "cagr_target": 0.4,
-      "max_dd": -0.15463276433074225,
+      "max_dd": -0.1497220289394685,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.22,
@@ -102,11 +102,11 @@
       "target_pass": true
     },
     {
-      "cagr": 0.2692428442659902,
-      "cagr_gap_pp": 1.0757155734009816,
+      "cagr": 0.2754561570513647,
+      "cagr_gap_pp": 0.45438429486353016,
       "cagr_pass": false,
       "cagr_target": 0.28,
-      "max_dd": -0.11033404049102258,
+      "max_dd": -0.12696867517216182,
       "max_dd_improvement_needed_pp": 0.0,
       "max_dd_pass": true,
       "max_dd_target": -0.22,

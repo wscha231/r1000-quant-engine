@@ -1,33 +1,33 @@
 {
   "as_of_date": "2026-05-13",
-  "generated_at_utc": "2026-05-14T07:56:37.398726+00:00",
+  "generated_at_utc": "2026-05-14T12:07:13.957129+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "portfolios": {
     "concentrated": {
       "as_of_date": "2026-05-13",
       "current_operating_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/concentrated/current_operating_holdings_latest.csv",
-      "current_rows": 4,
-      "full_cagr": 0.3299660723952078,
-      "full_max_dd": -0.4181732710146112,
-      "full_sharpe": 1.094135144574884,
+      "current_rows": 3,
+      "full_cagr": 0.2941501486165121,
+      "full_max_dd": -0.32558014940398905,
+      "full_sharpe": 1.0782318630667798,
       "performance_scorecard_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/concentrated/performance_scorecard.csv",
       "primary_current_operating_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/concentrated_current_operating_holdings_latest.csv",
       "primary_recommendation_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/concentrated_recommendation_latest.csv",
       "recommendation_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/concentrated/recommendation_latest.csv",
-      "recommendation_rows": 4
+      "recommendation_rows": 5
     },
     "main": {
       "as_of_date": "2026-05-13",
       "current_operating_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/main/current_operating_holdings_latest.csv",
       "current_rows": 19,
-      "full_cagr": 0.2309506635262839,
-      "full_max_dd": -0.2998402427379665,
-      "full_sharpe": 1.089812465182922,
+      "full_cagr": 0.20204996746216164,
+      "full_max_dd": -0.3202239262888399,
+      "full_sharpe": 1.0570535173637137,
       "performance_scorecard_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/main/performance_scorecard.csv",
       "primary_current_operating_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/main_current_operating_holdings_latest.csv",
       "primary_recommendation_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/main_recommendation_latest.csv",
       "recommendation_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_portfolio_reports/main/recommendation_latest.csv",
-      "recommendation_rows": 18
+      "recommendation_rows": 19
     }
   },
   "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",

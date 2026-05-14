@@ -4,13 +4,13 @@ Research-only replay. Production weights are unchanged.
 
 - Status: `completed`
 - Source cash: `reported_regime_by_month`
-- Production CAGR / MaxDD: 29.79% / -16.65%
+- Production CAGR / MaxDD: 30.87% / -18.51%
 
 | Policy | CAGR | Sharpe | MaxDD | Avg Cash | Turnover | Production Allowed |
 |---|---:|---:|---:|---:|---:|---:|
-| `fast_reentry` | 31.31% | 1.887 | -14.15% | 8.40% | 53.24% | false |
-| `bargain_reentry` | 30.17% | 1.890 | -13.29% | 11.35% | 52.09% | false |
-| `crisis_ladder` | 29.85% | 1.888 | -12.80% | 12.41% | 51.10% | false |
+| `fast_reentry` | 32.63% | 1.917 | -14.88% | 8.88% | 53.53% | false |
+| `bargain_reentry` | 31.47% | 1.921 | -14.04% | 11.88% | 52.20% | false |
+| `crisis_ladder` | 31.19% | 1.919 | -13.55% | 12.89% | 51.17% | false |
 
 ## Limits
 

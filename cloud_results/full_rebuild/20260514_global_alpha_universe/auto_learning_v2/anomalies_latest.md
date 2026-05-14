@@ -15,13 +15,13 @@ Evidence:
 
 ```json
 {
-  "concentrated_cagr": 0.4862020696210987,
-  "concentrated_max_dd": -0.4181732710146112,
-  "concentrated_sharpe": 1.094135144574884,
+  "concentrated_cagr": 0.47953986235924284,
+  "concentrated_max_dd": -0.32558014940398905,
+  "concentrated_sharpe": 1.0782318630667798,
   "latest_concentrated_capacity": 0.1,
-  "main_cagr": 0.2309506635262839,
-  "main_max_dd": -0.2998402427379665,
-  "main_sharpe": 1.089812465182922
+  "main_cagr": 0.20204996746216164,
+  "main_max_dd": -0.3202239262888399,
+  "main_sharpe": 1.0570535173637137
 }
 ```
 
@@ -38,10 +38,10 @@ Evidence:
 
 ```json
 {
-  "main_avg_stock_names": 25.349397590361445,
-  "main_avg_turnover_monthly": 0.5341055154263505,
-  "main_cagr": 0.2309506635262839,
-  "main_max_dd": -0.2998402427379665
+  "main_avg_stock_names": 25.85542168674699,
+  "main_avg_turnover_monthly": 0.5445803959033847,
+  "main_cagr": 0.20204996746216164,
+  "main_max_dd": -0.3202239262888399
 }
 ```
 
@@ -116,7 +116,45 @@ Evidence:
 }
 ```
 
-## 5. explosion_stack_dormant
+## 5. cluster_conviction_asymmetry
+
+- Category: `trade_pattern_asymmetry`
+- Severity: `medium`
+- Confidence: 0.70
+- Observation: Trade clusters show large dispersion between strong amplification candidates and weak/caution patterns.
+- Broken assumption: Signal IC alone misses pattern-level context; cluster routing can amplify winners and block traps.
+- Suggested hypothesis types: cluster_conviction_router, pattern_block_or_amplify
+
+Evidence:
+
+```json
+{
+  "strong_clusters": [
+    {
+      "avg_realized_return": 0.09875517788203124,
+      "cluster_id": "1",
+      "n": 100,
+      "win_rate": 0.69
+    }
+  ],
+  "weak_clusters": [
+    {
+      "avg_realized_return": 0.056717808682133976,
+      "cluster_id": "6",
+      "n": 79,
+      "win_rate": 0.4936708860759494
+    },
+    {
+      "avg_realized_return": 0.04356118250050484,
+      "cluster_id": "0",
+      "n": 62,
+      "win_rate": 0.5
+    }
+  ]
+}
+```
+
+## 6. explosion_stack_dormant
 
 - Category: `dormant_signal_stack`
 - Severity: `medium`
@@ -129,7 +167,7 @@ Evidence:
 
 ```json
 {
-  "explosion_entry_n_all": 918,
-  "explosion_exit_n_all": 918
+  "explosion_entry_n_all": 965,
+  "explosion_exit_n_all": 965
 }
 ```

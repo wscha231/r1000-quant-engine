@@ -7,9 +7,9 @@
 
 | Cost bps | CAGR | Sharpe | MaxDD | Trades | Fees USD | dCAGR pp vs base |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 25 | 23.10% | 1.090 | -29.98% | 2727 | 39076 | +0.00 |
-| 50 | 19.65% | 0.957 | -32.55% | 2723 | 69493 | -3.44 |
-| 75 | 16.20% | 0.816 | -35.43% | 2712 | 92626 | -6.90 |
-| 100 | 12.91% | 0.681 | -38.00% | 2707 | 110236 | -10.19 |
+| 25 | 20.20% | 1.057 | -32.02% | 2791 | 34259 | +0.00 |
+| 50 | 16.95% | 0.914 | -34.28% | 2784 | 61137 | -3.26 |
+| 75 | 13.87% | 0.775 | -36.29% | 2776 | 82394 | -6.34 |
+| 100 | 10.76% | 0.631 | -38.31% | 2769 | 98759 | -9.44 |
 
 Research-only sidecar. Higher cost levels stress the CAGR of high-turnover policies; a policy whose CAGR delta worsens by more than the policy's max_cagr_regression_pp at 50 bps should not be promoted.

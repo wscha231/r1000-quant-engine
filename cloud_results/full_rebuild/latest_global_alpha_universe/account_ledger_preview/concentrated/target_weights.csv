@@ -1,4 +1,5 @@
 ticker,target_weight,Name,sector,portfolio_sleeve_label
-MU,0.5,MICRON TECHNOLOGY INC,Information Technology,future_winner
-GLW,0.25,CORNING INC,Information Technology,future_winner
-WDC,0.25,WESTERN DIGITAL CORP,Information Technology,future_winner
+ON,0.3828999926483202,ON SEMICONDUCTOR CORP,Information Technology,early_scout
+WDC,0.2756879947067905,WESTERN DIGITAL CORP,Information Technology,future_winner
+MRVL,0.1984953561888891,MARVELL TECHNOLOGY INC,Information Technology,future_winner
+MU,0.1429166564560001,MICRON TECHNOLOGY INC,Information Technology,future_winner

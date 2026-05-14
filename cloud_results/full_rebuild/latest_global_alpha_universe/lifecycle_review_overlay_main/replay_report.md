@@ -4,10 +4,10 @@ Research-only overlay on existing monthly portfolio picks.
 
 - Policy: `lifecycle_review_main`
 - Status: `completed`
-- CAGR: 26.65%
-- Sharpe: 1.258
-- MaxDD: -31.27%
-- Avg cash: 4.81%
-- Avg turnover: 34.27%
+- CAGR: 20.31%
+- Sharpe: 1.031
+- MaxDD: -33.31%
+- Avg cash: 4.82%
+- Avg turnover: 33.84%
 
 This is not production-active; it tests monthly lifecycle review versus monthly churn.

@@ -12,7 +12,7 @@
         "sprint_signal_gap",
         "defense_return_tradeoff"
       ],
-      "known_regime_confidence": 0.4769,
+      "known_regime_confidence": 0.3925,
       "status": "novel_regime_watch"
     },
     "observation_ids": [
@@ -90,7 +90,7 @@
         "sprint_signal_gap",
         "defense_return_tradeoff"
       ],
-      "known_regime_confidence": 0.4769,
+      "known_regime_confidence": 0.3925,
       "status": "novel_regime_watch"
     },
     "observation_ids": [
@@ -168,7 +168,7 @@
         "sprint_signal_gap",
         "defense_return_tradeoff"
       ],
-      "known_regime_confidence": 0.4769,
+      "known_regime_confidence": 0.3925,
       "status": "novel_regime_watch"
     },
     "observation_ids": [
@@ -217,6 +217,80 @@
       "capital_weight": 0.0,
       "stage": "shadow"
     },
+    "hypothesis": "Trade clusters can route risk: strong clusters get conviction boost, weak clusters trigger caution/block rules.",
+    "id": "cluster_conviction_router_v1",
+    "novelty_context": {
+      "flags": [
+        "leadership_concentration",
+        "sprint_signal_gap",
+        "defense_return_tradeoff"
+      ],
+      "known_regime_confidence": 0.3925,
+      "status": "novel_regime_watch"
+    },
+    "observation_ids": [
+      "cluster_conviction_asymmetry"
+    ],
+    "rules": [
+      {
+        "if": {
+          "trade_cluster": [
+            1,
+            5
+          ]
+        },
+        "limits": {
+          "max_weight_delta": 0.05,
+          "production_activation_allowed": false,
+          "proposal_only": true
+        },
+        "rule_type": "theme_policy",
+        "then": {
+          "allow_conviction_bonus": true,
+          "max_bonus": 0.05
+        }
+      },
+      {
+        "if": {
+          "trade_cluster": [
+            0,
+            6
+          ]
+        },
+        "limits": {
+          "max_ttl_days": 90,
+          "production_activation_allowed": false,
+          "proposal_only": true
+        },
+        "rule_type": "feature_gate",
+        "then": {
+          "pattern_block_or_caution": true
+        }
+      }
+    ],
+    "status": "proposal_only",
+    "test_plan": {
+      "falsify_if": [
+        "strong_cluster_bonus_reduces_avg_return",
+        "block_rule_removes_winners"
+      ],
+      "metrics": [
+        "cluster_hit_rate",
+        "loss_rate",
+        "avg_return",
+        "turnover"
+      ],
+      "windows": [
+        "all_months",
+        "all_bear_months"
+      ]
+    }
+  },
+  {
+    "exploration_budget": {
+      "capital_weight": 0.0,
+      "stage": "shadow"
+    },
     "hypothesis": "Alpha Sprint should use breakout/RS/catalyst fallback signals until explosion_* features become nonzero and validated.",
     "id": "alpha_sprint_breakout_fallback_v1",
     "novelty_context": {
@@ -225,7 +299,7 @@
         "sprint_signal_gap",
         "defense_return_tradeoff"
       ],
-      "known_regime_confidence": 0.4769,
+      "known_regime_confidence": 0.3925,
       "status": "novel_regime_watch"
     },
     "observation_ids": [
@@ -290,7 +364,7 @@
         "sprint_signal_gap",
         "defense_return_tradeoff"
       ],
-      "known_regime_confidence": 0.4769,
+      "known_regime_confidence": 0.3925,
       "status": "novel_regime_watch"
     },
     "observation_ids": [
