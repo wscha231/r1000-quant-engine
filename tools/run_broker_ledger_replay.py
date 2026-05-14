@@ -546,7 +546,19 @@ def replay(
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
     concentrated_champion_filters: dict[str, Any] | None = None,
+    tail_row_fill_fallback_same_close: bool = False,
 ) -> dict[str, Any]:
+    """Run a broker-ledger replay.
+
+    2026-05-14 F4: `tail_row_fill_fallback_same_close` (default False) makes
+    the LAST signal_date in the target book retry with `same_close` fill mode
+    when `next_close` / `next_open` returns no price (typical scenario: the
+    latest recommendation lands on the same date as the most recent cache
+    close, so there is no `next_close` available yet). Historical rows
+    continue to use the requested fill_mode; only the tail row is allowed
+    the fallback. This closes the "33 pending orders" gap visible in
+    user_portfolio_reports without changing historical metric semantics.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
     champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
@@ -594,19 +606,50 @@ def replay(
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
 
-    for signal_dt in sorted(periods.keys()):
+    sorted_signal_dts = sorted(periods.keys())
+    tail_signal_dt = sorted_signal_dts[-1] if sorted_signal_dts else None
+    tail_fallback_activated_signal_dt: pd.Timestamp | None = None
+    for signal_dt in sorted_signal_dts:
         target = targets[targets["rebalance_date"].eq(signal_dt)].copy()
         if target.empty:
             continue
+        # Tail-row fallback (2026-05-14 F4): if the requested fill_mode is
+        # next_close / next_open and we're processing the LAST signal_dt,
+        # try the requested mode first; if all tickers come back unfillable
+        # (typical when latest cache close == signal_dt and there is no
+        # next_close yet), retry with same_close on the same signal_dt.
+        effective_fill_mode = fill_mode
         fill_dt_by_ticker: dict[str, pd.Timestamp] = {}
         fill_px_by_ticker: dict[str, float] = {}
         for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
             if ticker in CASH_TICKERS:
                 continue
-            actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
+            actual_dt, px = fill_price(prices, ticker, signal_dt, effective_fill_mode, max_fill_lag_days)
             if actual_dt is not None and px is not None:
                 fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
                 fill_px_by_ticker[ticker] = float(px)
+        # If tail row produced zero fills under next_close, retry with
+        # same_close. Diagnostic stamped on the trade rows so downstream
+        # reports can flag the synthetic-fill semantics.
+        tail_fallback_used = False
+        if (
+            tail_row_fill_fallback_same_close
+            and tail_signal_dt is not None
+            and pd.Timestamp(signal_dt) == pd.Timestamp(tail_signal_dt)
+            and not fill_dt_by_ticker
+            and fill_mode in {"next_close", "next_open"}
+        ):
+            effective_fill_mode = "same_close"
+            for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
+                if ticker in CASH_TICKERS:
+                    continue
+                actual_dt, px = fill_price(prices, ticker, signal_dt, effective_fill_mode, max_fill_lag_days)
+                if actual_dt is not None and px is not None:
+                    fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
+                    fill_px_by_ticker[ticker] = float(px)
+            if fill_dt_by_ticker:
+                tail_fallback_used = True
+                tail_fallback_activated_signal_dt = pd.Timestamp(signal_dt)
         if not fill_dt_by_ticker:
             continue
         fill_dt = min(fill_dt_by_ticker.values())
@@ -732,6 +775,12 @@ def replay(
             "price_cache": str(price_cache),
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
             "max_fill_lag_days": int(max_fill_lag_days),
+            "tail_row_fill_fallback_same_close_enabled": bool(tail_row_fill_fallback_same_close),
+            "tail_row_fill_fallback_activated_at": (
+                str(pd.Timestamp(tail_fallback_activated_signal_dt).date())
+                if tail_fallback_activated_signal_dt is not None
+                else None
+            ),
             **weight_diag,
         }
     )
@@ -809,6 +858,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--tail-row-fill-fallback-same-close",
+        action="store_true",
+        help=(
+            "F4 (2026-05-14): when the LAST signal_date in target_book "
+            "cannot fill under next_close/next_open (typically because the "
+            "latest cache close IS the signal_date), retry that single row "
+            "with same_close. Closes the 'N pending orders' gap between "
+            "recommendation and operating account. Historical rows still "
+            "use the requested fill_mode."
+        ),
+    )
     parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
     parser.add_argument("--concentrated-weighting-mode", default="")
     parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
@@ -828,6 +889,7 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        tail_row_fill_fallback_same_close=bool(args.tail_row_fill_fallback_same_close),
         concentrated_champion_filters={
             key: value
             for key, value in {

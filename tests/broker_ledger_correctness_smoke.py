@@ -334,9 +334,80 @@ def test_long_horizon_equity_curve_continuous() -> None:
         assert (curve["equity_usd"] > 0).all(), "non-positive equity observed"
 
 
+def test_tail_row_fill_fallback_same_close() -> None:
+    """F4 (2026-05-14): when the LAST signal_dt in target_book lands on the
+    same date as the most recent cache close (no next_close yet), the
+    tail-row same_close fallback should execute fills at that signal_dt's
+    close. Historical rows still use next_close.
+
+    Setup:
+      ALIVE: prices 2026-01-02 through 2026-01-15 (10 trading days)
+      Two signal dates:
+        2026-01-02  ->  fills at 2026-01-03 (normal next_close)
+        2026-01-15  ->  tail row, NO next_close (cache ends here);
+                        with fallback ON should fill at 2026-01-15 close.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "broker"
+        cache.mkdir()
+        _write_px(cache, "ALIVE", [100.0] * 10, start="2026-01-02")
+        target = root / "targets.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-02", "ticker": "ALIVE", "weight": 0.50},
+                {"rebalance_date": "2026-01-15", "ticker": "ALIVE", "weight": 1.00},
+            ]
+        ).to_csv(target, index=False)
+        # First: WITHOUT the fallback. Tail row should fail to fill,
+        # leaving ALIVE at the 0.50 weight set on 2026-01-02.
+        metrics_no_fallback = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out / "no_fallback",
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            integer_shares=True,
+            max_fill_lag_days=7,
+            tail_row_fill_fallback_same_close=False,
+        )
+        assert metrics_no_fallback["status"] == "completed", metrics_no_fallback
+        assert metrics_no_fallback["tail_row_fill_fallback_same_close_enabled"] is False
+        assert metrics_no_fallback.get("tail_row_fill_fallback_activated_at") is None
+        # Second: WITH the fallback. Tail row should fill at 2026-01-15.
+        metrics_with_fallback = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out / "with_fallback",
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            fill_mode="next_close",
+            cost_bps=0.0,
+            integer_shares=True,
+            max_fill_lag_days=7,
+            tail_row_fill_fallback_same_close=True,
+        )
+        assert metrics_with_fallback["status"] == "completed", metrics_with_fallback
+        assert metrics_with_fallback["tail_row_fill_fallback_same_close_enabled"] is True
+        assert (
+            metrics_with_fallback.get("tail_row_fill_fallback_activated_at") == "2026-01-15"
+        ), f"expected activation at 2026-01-15, got {metrics_with_fallback.get('tail_row_fill_fallback_activated_at')}"
+        # With fallback the second rebalance produces additional trades vs no_fallback.
+        assert int(metrics_with_fallback.get("trade_count", 0)) > int(
+            metrics_no_fallback.get("trade_count", 0)
+        ), (
+            "tail-row fallback should have fired an additional BUY to lift "
+            "ALIVE weight from 0.50 -> 1.00 on 2026-01-15"
+        )
+
+
 def main() -> int:
     test_delisted_position_currently_marks_at_cost_basis()
     test_delisted_position_with_zero_last_close_marks_at_zero()
+    test_tail_row_fill_fallback_same_close()
     test_multi_day_fill_uses_min_fill_date_for_stamp()
     test_no_look_ahead_in_next_close_fills()
     test_long_horizon_equity_curve_continuous()
