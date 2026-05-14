@@ -70,6 +70,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/audit_features.py", ["--no-runtime"]),
     ("tests/workflow_artifact_smoke.py", []),
     ("tests/survivorship_audit_smoke.py", []),
+    ("tests/refresh_etf_top_holdings_smoke.py", []),
 ]
 
 
