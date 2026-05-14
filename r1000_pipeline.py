@@ -14157,6 +14157,20 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
         ],
         d.index,
     ).fillna(0.0) + pd.to_numeric(sleeve_bonus, errors="coerce").fillna(0.0)
+
+    # Sleeve-confidence floor damper (2026-05-14 F6): when
+    # portfolio_sleeve_confidence is below the configured floor, the sleeve
+    # assignment is essentially noise (the top sleeve barely beats the next).
+    # Audit observation: PLTR sleeve_confidence=0.019 was passing into
+    # Concentrated selection. Apply a negative additive penalty so low-
+    # confidence picks get docked out of the N=3 high-conviction portfolio.
+    # Default floor 0.05 + penalty weight 0.50 (additive on the
+    # concentrated_score scale, which is roughly [-2, +3] cross-sectionally).
+    sleeve_conf_floor = float(getattr(cfg, "concentrated_sleeve_confidence_floor", 0.05))
+    sleeve_conf_penalty_weight = float(getattr(cfg, "concentrated_sleeve_confidence_penalty_weight", 0.50))
+    sleeve_conf = numeric_series_or_default(d, "portfolio_sleeve_confidence", 0.5).fillna(0.0)
+    low_conf_mask = (sleeve_conf < sleeve_conf_floor).astype(float)
+    d["concentrated_score"] = d["concentrated_score"] - sleeve_conf_penalty_weight * low_conf_mask
     return d
 
 

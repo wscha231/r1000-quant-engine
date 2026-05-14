@@ -2066,6 +2066,14 @@ class EngineConfig:
     # Concentrated stays at the Iter 1 baseline equivalent while Main keeps
     # the trap benefits. Default False per Iter 2 measurement.
     concentrated_uses_short_rs_trap: bool = False
+    # Sleeve confidence floor (2026-05-14 F6): low-confidence sleeve
+    # assignments (where the top sleeve barely beats the next) tend to
+    # be noise. Penalize concentrated_score for these so they don't slip
+    # into the N=3 high-conviction portfolio. PLTR audit observed
+    # sleeve_confidence=0.019 still entering Concentrated -- this penalty
+    # docks the score additively.
+    concentrated_sleeve_confidence_floor: float = 0.05
+    concentrated_sleeve_confidence_penalty_weight: float = 0.50
     # Strategic megacap dd_1y bypass (2026-05-14 D-1 fix): INTC was failing
     # the universe-level dd_1y < 0.65 filter at dd_1y=0.689 (Intel 2024
     # trough was -69% peak-to-trough). The downstream strategic_turnaround_pass
