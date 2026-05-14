@@ -439,6 +439,27 @@ All entries must be written in English. Entries must be predictable and machine-
   - **F2 hard gate flip needs human verification**: even when the tool says `hard_gate_flip_eligible: true`, the continuing agent should spot-check `delisted_uncovered` for unexpected omissions before flipping the audit JSON.
   - All 4 fixes are independent commits; if F1's widened MaxDD turns out to be unacceptably large, the fix can be reverted via `git revert 1e354d8` without losing F3/F2/F6.
 
+### 20:30 KST - autonomous-session-f4-tail-row-fill-and-f5-sleeve-attribution
+
+- scope:
+  - Two further fixes from the priority queue. Both ship for the NEXT Tier-3.
+  - **F4** (`f788bd0`): tail-row same_close fallback. Closes the "33 pending orders / Mar-2 frozen account_state vs 5/13 recommendation" gap. New flag `--tail-row-fill-fallback-same-close` on `tools/run_broker_ledger_replay.py`. When ON, the LAST signal_date in the target book retries with `same_close` if `next_close` produced zero fills. Historical rows still use the requested fill_mode. Wired ON in `full_rebuild_manual.yml` Main + Concentrated headline broker_replay invocations. Behavioral smoke test `test_tail_row_fill_fallback_same_close` confirms: WITH the flag, the activation date is stamped in metrics.json (`tail_row_fill_fallback_activated_at`).
+  - **F5** (`19ab3c4`): sleeve-conditional MaxDD attribution. `tools/run_trade_attribution_analysis.py` now emits `mdd_window.sleeve_pnl_in_window`, `loss_by_sleeve`, `winner_pnl_by_sleeve`, `net_pnl_by_sleeve`. attribution_report.md gains two tables (in-window sleeve P&L + lifetime sleeve P&L). Spot-check on Iter 2 artifacts: Main 2022 MDD window concentrated in `future_winner` (-$25.0K over 100 exits) vs `early_scout` (-$9.2K) vs `core_compounder` (-$2.3K). This now lets the next post-Tier-3 analysis prove (rather than guess) which sleeve drove a regression.
+- expected_metric_impact:
+  - **CAGR**: F4 may shift Main marginally (tail row fills now). For Iter 2's data the tail had 33 orders worth ~$678K gross; with same_close fill these would all execute on 5/13 close. Account state at run end now reflects ~5/13 holdings rather than ~3/2 holdings. Equity_usd at end may be larger or smaller depending on 3/2-to-5/13 price drift -- this is normal.
+  - **MaxDD**: F4 doesn't widen MaxDD since the tail row is the last day; new trades don't introduce drawdown.
+  - **F5 is read-only**: no metric change, only diagnostics.
+- next_priority_queue_remaining:
+  - **F7**: `tools/refresh_etf_top_holdings.py` (~3h) - automated ETF holdings refresh with 5-tier fallback (yfinance / issuer CSV / stockanalysis / nasdaq / previous month).
+  - **F8**: post-Tier-3 survivorship gate flip (~5 min) - if `outputs/audit/survivorship_coverage.json.hard_gate_flip_eligible == true` after the next Tier-3, flip the audit JSON value and document.
+  - **F9 (new)**: Mode X sidecar deactivation when Mode Y is on (avoid double-filter ambiguity). ~30 min.
+- validation:
+  - `tools/run_pr_validation.py` -> 23/23 passed (F5 used Iter 2 artifacts to spot-check sleeve breakdown).
+- risks_or_notes:
+  - **F4 changes account_state semantics**: previously the account froze at the last historical rebalance; now it advances to the latest recommendation. Anyone reading user_portfolio_reports historically expected the freeze. The change is correct (matches user request) but documentation/UI consumers should be aware.
+  - **F5 sleeve_pnl_in_window may be empty** on portfolios with no exits during the MDD window (e.g. Concentrated's 2025 MDD if all positions held through trough). Empty dict `{}` rather than null; check before iterating in downstream consumers.
+  - F4 + F5 are independent; either can be reverted without affecting the other.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
