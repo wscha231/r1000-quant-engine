@@ -298,6 +298,10 @@ jobs:
 
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
+        env:
+          MODE_Y_ENABLED: ${{ inputs.mode_y_enabled }}
+          MODE_Y_MAIN_MULTIPLIERS: ${{ inputs.mode_y_main_multipliers }}
+          MODE_Y_CONC_MULTIPLIERS: ${{ inputs.mode_y_concentrated_multipliers }}
         run: |
           set -e
           set -o pipefail
@@ -306,8 +310,8 @@ jobs:
           python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
           python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
           python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
-          if [ "${{ inputs.mode_y_enabled }}" = "true" ]; then
-            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "${{ inputs.mode_y_main_multipliers }}" --concentrated-multipliers "${{ inputs.mode_y_concentrated_multipliers }}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          if [ "$MODE_Y_ENABLED" = "true" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "$MODE_Y_MAIN_MULTIPLIERS" --concentrated-multipliers "$MODE_Y_CONC_MULTIPLIERS" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           else
             python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           fi
