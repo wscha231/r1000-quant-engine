@@ -2084,6 +2084,13 @@ class EngineConfig:
     # add_core_fundamental_minimum_flags.
     strategic_dd_1y_bypass_max: float = 0.85
     strategic_dd_bypass_min_mktcap: float = 10e9
+    # F10 (2026-05-14): same dd_1y bypass for etf_thematic_overlay source.
+    # Speculative small/mid-cap thematic names (IONQ, RGTI, ACHR etc.) often
+    # have dd_1y 0.65-0.85; the default 0.65 max_dd_1y cuts them out before
+    # scoring even gets a chance.  Lower mktcap floor reflects the thematic
+    # overlay being intentionally small/mid-cap rather than megacap-only.
+    etf_overlay_dd_1y_bypass_max: float = 0.85
+    etf_overlay_dd_bypass_min_mktcap: float = 1e9
     # Thematic ETF top-holdings overlay (2026-05-14 D-2): inject small/mid-cap
     # thematic names from category ETFs that sit outside R1000 / ADR / strategic
     # universes. v1 is YAML-only (thematic_etf_universe.yaml); v2 will add

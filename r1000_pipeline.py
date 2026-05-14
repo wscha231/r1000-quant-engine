@@ -7360,6 +7360,14 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     # The downstream strategic_turnaround_pass in add_core_fundamental_minimum_flags
     # still requires turnaround_evidence (ni_loss_narrowing / profit_turn etc.),
     # so candidates without that evidence will fail scoring anyway.
+    #
+    # F10 (2026-05-14): same logic extended to etf_thematic_overlay source.
+    # Verified in run 25851747009: IONQ ($20B, dd_1y=0.676), RGTI ($6B,
+    # dd_1y=0.771), QBTS ($7.9B, dd_1y=0.710), ACHR ($4.9B, dd_1y=0.712)
+    # were all cut at the dd_1y filter despite mktcap > $4B and being the
+    # exact thematic exposure the D-2 overlay was designed to unlock. ETF
+    # overlay uses a lower mktcap floor (default $1B; thematic small-mid
+    # caps) and the same dd_1y upper bound (default 0.85).
     universe_source_str = monthly.get(
         "universe_source", pd.Series("", index=monthly.index, dtype=object)
     ).astype(str)
@@ -7370,12 +7378,22 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         pd.to_numeric(monthly.get("mktcap"), errors="coerce").fillna(0.0)
         >= float(getattr(cfg, "strategic_dd_bypass_min_mktcap", 10e9))
     )
+    etf_overlay_mask = universe_source_str.str.contains(
+        "etf_thematic_overlay", case=False, na=False, regex=False
+    )
+    etf_overlay_bypass_mask = etf_overlay_mask & (
+        pd.to_numeric(monthly.get("mktcap"), errors="coerce").fillna(0.0)
+        >= float(getattr(cfg, "etf_overlay_dd_bypass_min_mktcap", 1e9))
+    )
     dd_1y_series = monthly["dd_1y"].fillna(9e9)
     dd_1y_pass = dd_1y_series <= cfg.max_dd_1y
     strategic_dd_bypass = strategic_megacap_mask & (
         dd_1y_series <= float(getattr(cfg, "strategic_dd_1y_bypass_max", 0.85))
     )
-    dd_1y_pass = dd_1y_pass | strategic_dd_bypass
+    etf_overlay_dd_bypass = etf_overlay_bypass_mask & (
+        dd_1y_series <= float(getattr(cfg, "etf_overlay_dd_1y_bypass_max", 0.85))
+    )
+    dd_1y_pass = dd_1y_pass | strategic_dd_bypass | etf_overlay_dd_bypass
 
     base_mask = (
         (monthly["px"].fillna(0) >= cfg.min_price)
