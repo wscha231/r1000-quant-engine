@@ -167,6 +167,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Bug not fixed**: PLTR sleeve_confidence=0.019 still gets through; this commit reduces PLTR's TOTAL score but doesn't add a sleeve_confidence floor. Followup commit needed: sleeve_confidence < 0.05 ->force weight=0 (or move to unassigned).
   - **ETF top-5 holdings overlay not yet shipped**: planned as separate commit (`thematic_etf_universe.yaml` + `tools/refresh_etf_top_holdings.py` + monthly cron). Will widen universe to quantum (IONQ/RGTI/QBTS/QUBT) + eVTOL (JOBY/ACHR/EH) + nuclear-smr small caps via curated ETF holdings.
 
+### 10:00 KST - short-rs-pr-hardening-and-mode-x-circuit-breaker-bundle
+
+- scope:
+  - Hardening pass on the 08:30 KST short-rs-trap PR before first Tier-3 measurement, plus integration with the alpha_sprint NaN fix branch (smoking-gun-fixes) so MaxDD attribution is clean. Five concrete fixes from an independent code review of commit `9d8a012` (`fix(scoring): short-RS trap penalty + strategic turnaround bypass`):
+    1. **REBASED** `claude/short-rs-intc-etf-overlay` onto `claude/smoking-gun-fixes` so the alpha_sprint NaN fix (commit `247cdf9`) is in the same lineage. Pre-rebase the branches diverged at `983d5cb` and a Tier-3 on the old base would have measured short-RS vs the silently-dormant alpha_sprint baseline — mixed attribution.
+    2. **PHANTOM COLUMN REMOVED**: `compute_short_extension_risk_penalty` referenced `price_to_ma20_ratio` which is not computed anywhere in the codebase. The proxy fallback `1.0 + mom_1m * 0.5` made the ma20 trigger fire only at `mom_1m > 0.40` — already saturated by the mom_1m trigger at `mom_1m > 0.20`. The 3-OR trigger was actually 2-OR with dead documentation. Removed the ma20 part; docstring updated to make this explicit and leave a hook for adding a real MA20 ratio later.
+    3. **THEMES PROMOTED**: `quantum_computing`, `evtol_advanced_air`, `space_economy` moved from `pending_themes` to active themes in `themes.yaml` with `theme_horizon: structural_growth` so IONQ/RGTI/QBTS/JOBY/ACHR/RKLB etc. actually hit the short-extension structural-growth exemption. Without this promotion the exemption mechanism silently failed for quantum names — the very class of tickers the agent's own commit message called out as needing protection.
+    4. **WEIGHTS TUNED CONSERVATIVE STARTER**: `w_rs_short_breakdown_penalty` 0.55 -> 0.40 (1.57x -> 1.14x asymmetric vs reward 0.35); `w_short_extension_penalty` 0.20 -> 0.15. Rationale: Iter-5 overnight-loop lesson that tighter is not always better. Re-tune after first Tier-3 measurement.
+    5. **BEHAVIORAL TESTS ADDED**: 4 new regression tests in `tests/smoke_test.py` exercising the actual compute functions on synthetic PLTR / IONQ-exempt / pump / INTC inputs. Prior tests were 100% regex-based and would have missed clip-bound / sign / threshold typos.
+  - Mode X MDD circuit breaker verification: confirmed `tools/run_regime_capacity_filter.py` sidecar is already wired in both `full_rebuild_manual.yml` (line 343) and `alphaops_replay_sidecars_manual.yml` (line 167) with Iter-4 settings (Main: `bear=0.5,deep_bear=0.25`; Concentrated: `bear=0.5,deep_bear=0.25,neutral=0.85` with `--regime-source-book` pointing at the main book). Sidecar publishes to `outputs/regime_capacity_broker_replay/` so next Tier-3 produces both unfiltered and filtered MaxDD without any further wiring. No flag gates it. Mode Y (engine port) deferred until Mode X measurement confirms MaxDD recovery.
+- files:
+  - `r1000_features.py` ->`compute_short_extension_risk_penalty`: removed `price_to_ma20_ratio` phantom-column block; trigger reduced to 2-OR (mom_1m + bb_pb); docstring rewritten to document the removal and leave hook for future real-MA20 wiring.
+  - `r1000_config.py` ->`w_rs_short_breakdown_penalty: float = 0.55` -> `0.40`; `w_short_extension_penalty: float = 0.20` -> `0.15`; comments updated with starter-conservative tuning rationale.
+  - `themes.yaml` ->added active themes `quantum_computing` (IONQ, RGTI, QBTS, QUBT), `evtol_advanced_air` (JOBY, ACHR, EH, LILM, BLDE), `space_economy` (RKLB, PLTR, ASTS, IRDM, MAXR) with `theme_horizon: structural_growth`. Removed quantum_computing + space_economy from `pending_themes`.
+  - `tests/smoke_test.py` ->4 new behavioral tests: `compute_rs_short_long_scores_pltr_case`, `compute_short_extension_penalty_pump_fires`, `compute_short_extension_penalty_structural_exempt`, `strategic_turnaround_pass_intc_case`.
+  - `CHANGELOG.md` ->records this hardening + integration entry.
+- symbols_added:
+  - `test_compute_rs_short_long_scores_pltr_case()` ->verifies PLTR-like 5-row frame produces rs_short_score < -0.5 + breakdown_penalty > 0.30 + rs_long_score > 0.
+  - `test_compute_short_extension_penalty_pump_fires()` ->verifies mom_1m=0.30 produces penalty ~0.50 for non-structural name.
+  - `test_compute_short_extension_penalty_structural_exempt()` ->verifies same +30% mom_1m on structural-growth IONQ-like name yields penalty=0.
+  - `test_strategic_turnaround_pass_intc_case()` ->verifies INTC ($95B + turnaround) passes the bypass and PENNY_TURN ($500M + turnaround) does NOT (megacap floor).
+- symbols_changed:
+  - `r1000_features.compute_short_extension_risk_penalty(df)` ->removed `price_to_ma20_ratio` fallback chain; trigger is now `max(mom_part, bb_part)` only.
+- config_fields_added:
+  - none (existing fields' default values changed: `w_rs_short_breakdown_penalty: 0.55 -> 0.40`, `w_short_extension_penalty: 0.20 -> 0.15`).
+- breaking_changes:
+  - none. Weight defaults changed but field signatures preserved; downstream code paths unaffected. Phantom-column removal is a no-op since the trigger was already dead. Theme promotion adds new theme keys but does not remove or rename existing ones.
+- outputs:
+  - none new from this commit. Mode X sidecar will produce `outputs/regime_capacity_broker_replay/{main,concentrated}/metrics.json` on next Tier-3 — same path it already targeted before.
+- validation:
+  - `py -3 tests/smoke_test.py` ->97/97 passed (93 prior + 4 new behavioral) in ~19s.
+  - Local rebase resolved 1 CHANGELOG conflict cleanly; no source-code conflicts (smoking-gun-fixes touched r1000_alpha_sprint.py + tools/run_trade_attribution_analysis.py only; this PR touched r1000_features.py + r1000_pipeline.py + r1000_config.py + tests/smoke_test.py).
+  - Cloud Tier-3 FULL_REBUILD pending — required to measure CAGR / Sharpe / MaxDD delta vs phase-x0 + alpha_sprint baseline (post-NaN-fix).
+- risks_or_notes:
+  - **The "1 Tier-3 measurement" model**: This run will produce BOTH the unfiltered (headline) broker_ledger_replay metrics AND the regime_capacity-filtered sidecar metrics. SHIP gate is `unfiltered_Main_MaxDD ≥ -32% OR filtered_Main_MaxDD ≥ -28%` AND `unfiltered_Conc_MaxDD ≥ -40% OR filtered_Conc_MaxDD ≥ -32%`. If filtered passes but unfiltered fails, the next decision is whether to flip the workflow's primary metric source to the filtered book (Mode Y-lite) or port the capacity gate into the engine itself (Mode Y full).
+  - **Attribution toggles available**: `PHASE_SHORT_RS_TRAP_ENABLED=0` zero-fills the 4 short-RS columns (disables both compute + downstream ML) for clean A/B vs the alpha_sprint-only baseline. If first Tier-3 has mixed results, a follow-up run with this toggle off isolates the contribution.
+  - **Themes promotion side effect**: PLTR is now in BOTH `ai_software` and `space_economy` (and `defense_drones`) — all `structural_growth` themes. PLTR's `theme_horizon_primary` was already structural_growth before this commit (via ai_software); promotion adds redundant coverage but does not change PLTR's behavior. New net-new exemption coverage: IONQ, RGTI, QBTS, QUBT, JOBY, ACHR, EH, LILM, BLDE, ASTS, IRDM, MAXR.
+  - **Conservative weight starter may under-penalize**: 0.40 breakdown penalty + 0.15 extension penalty cap. If first Tier-3 shows PLTR-class names still in the portfolio with unchanged weight, the next iteration ramps to 0.50 / 0.18 or revisits the gating logic. Do NOT push past 0.55 / 0.20 without IC evidence.
+  - **Mode Y not in this commit**: Engine-level capacity gate port (modifying backtest_portfolio.py or sleeve allocation) is the next-stage work IF Mode X sidecar proves MaxDD recovery insufficient. Tracked as TODO for the follow-up loop.
+  - The broker_accounting_audit hard gates remain false; all results research-grade.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books

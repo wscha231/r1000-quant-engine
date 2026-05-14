@@ -5121,7 +5121,15 @@ def compute_short_extension_risk_penalty(df: pd.DataFrame) -> pd.DataFrame:
     Fires on ANY of:
       mom_1m > 0.20                   # > +20% in one month
       bb_pb > 0.95                    # near top of Bollinger band
-      price/MA20 ratio > 1.20         # > 20% above 20-day MA
+
+    NOTE on price/MA20 trigger removal (2026-05-14): The original design
+    included a third trigger `price/MA20 ratio > 1.20`, but `price_to_ma20_ratio`
+    is not actually computed anywhere in the pipeline — the prior implementation
+    fell back to a `1.0 + mom_1m * 0.5` proxy that effectively duplicated the
+    mom_1m trigger (would only add new firings at mom_1m > 0.40, already 100%
+    saturated by the mom_part). The trigger was therefore dead code disguised
+    as independent confirmation. Removed to avoid misleading attribution.
+    If a real ma20 ratio is later wired, add it back here explicitly.
 
     Exempt (multiplied by 0.0) when ALL of:
       theme_horizon_primary == 'structural_growth'
@@ -5137,18 +5145,11 @@ def compute_short_extension_risk_penalty(df: pd.DataFrame) -> pd.DataFrame:
         return d
     mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)
     bb_pb = numeric_series_or_default(d, "bb_pb", 0.5)
-    # price/MA20 ratio: dist_ma200 doesn't help here; use direct ma20 distance.
-    # price_above_ma20 is binary; we need the actual ratio. Derive from
-    # available columns: 1 + (mom_1m * 0.5) as a proxy if exact ratio missing.
-    ma20_ratio = numeric_series_or_default(d, "price_to_ma20_ratio", np.nan)
-    ma20_ratio_proxy = (1.0 + mom_1m * 0.5)
-    ma20_ratio = ma20_ratio.fillna(ma20_ratio_proxy)
 
     mom_part = ((mom_1m - 0.20) / 0.20).clip(lower=0.0, upper=1.0)            # 1.0 at mom_1m >= 40%
     bb_part = ((bb_pb - 0.95) / 0.05).clip(lower=0.0, upper=1.0)              # 1.0 at bb_pb >= 1.0
-    ma20_part = ((ma20_ratio - 1.20) / 0.10).clip(lower=0.0, upper=1.0)       # 1.0 at price/MA20 >= 1.30
 
-    raw_penalty = pd.concat([mom_part, bb_part, ma20_part], axis=1).max(axis=1)
+    raw_penalty = pd.concat([mom_part, bb_part], axis=1).max(axis=1)
 
     theme_horizon = d.get("theme_horizon_primary", pd.Series("", index=d.index)).astype(str)
     mom_24m = numeric_series_or_default(d, "mom_24m", 0.0)

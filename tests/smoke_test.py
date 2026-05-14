@@ -2821,6 +2821,171 @@ def test_short_rs_trap_weight_cfg_fields() -> None:
 
 
 # ======================================================================
+# Behavioral tests for short-RS trap (2026-05-14): exercise the actual
+# compute functions and gate logic on synthetic inputs, not just verify
+# that source strings exist. Regression-protect against typos in clip
+# bounds, exemption conditions, and gate union logic.
+# ======================================================================
+
+
+@_test("behavioral.compute_rs_short_long_scores_pltr_case")
+def test_compute_rs_short_long_scores_pltr_case() -> None:
+    """PLTR-like input (all 6 short RS columns strongly negative, all 6
+    long RS columns mildly positive) must produce:
+      - rs_short_score < -0.5 (cross-sectional z-mean of 6 negative cols)
+      - rs_short_breakdown_penalty > 0.30 (penalty fires)
+      - rs_long_score > 0.0
+    Tests that the breakdown is NOT averaged away with long signals.
+    """
+    import pandas as pd
+    from r1000_features import compute_rs_short_long_scores
+
+    # 5-row frame: row 0 is "PLTR" (all short cols negative, long positive),
+    # rows 1-4 are "neutral peers" so PLTR shows up as cross-sectional outlier.
+    short_cols = [
+        "rs_industry_1m", "rs_industry_3m",
+        "rs_industry_group_1m", "rs_industry_group_3m",
+        "rs_benchmark_1m", "rs_benchmark_3m",
+    ]
+    long_cols = [
+        "rs_industry_6m", "rs_industry_12m",
+        "rs_industry_group_6m", "rs_industry_group_12m",
+        "rs_benchmark_6m", "rs_benchmark_12m",
+    ]
+    data = {"ticker": ["PLTR", "NEUTRAL1", "NEUTRAL2", "NEUTRAL3", "NEUTRAL4"]}
+    for c in short_cols:
+        data[c] = [-0.20, 0.05, -0.02, 0.03, 0.01]  # PLTR very negative, peers near 0
+    for c in long_cols:
+        data[c] = [0.08, 0.02, -0.01, 0.04, 0.00]  # PLTR mildly positive on long
+    df = pd.DataFrame(data)
+
+    out = compute_rs_short_long_scores(df)
+    pltr = out.iloc[0]
+    assert pltr["rs_short_score"] < -0.5, (
+        f"PLTR rs_short_score expected < -0.5, got {pltr['rs_short_score']:.3f}"
+    )
+    assert pltr["rs_short_breakdown_penalty"] > 0.30, (
+        f"PLTR rs_short_breakdown_penalty expected > 0.30, got "
+        f"{pltr['rs_short_breakdown_penalty']:.3f}"
+    )
+    assert pltr["rs_long_score"] > 0.0, (
+        f"PLTR rs_long_score expected > 0, got {pltr['rs_long_score']:.3f}"
+    )
+
+
+@_test("behavioral.compute_short_extension_penalty_pump_fires")
+def test_compute_short_extension_penalty_pump_fires() -> None:
+    """A pump-like name (mom_1m=+30%, no structural-growth tag) must
+    produce a nonzero short_extension_risk_penalty. Tests that mom_part
+    actually triggers at the 20% threshold and reaches a meaningful value.
+    """
+    import pandas as pd
+    from r1000_features import compute_short_extension_risk_penalty
+
+    df = pd.DataFrame({
+        "ticker": ["PUMP"],
+        "mom_1m": [0.30],   # +30% in one month
+        "bb_pb": [0.5],     # neutral Bollinger
+        "mom_24m": [0.10],
+        "mom_36m": [0.05],
+        "industry_group_strength_score": [0.5],
+        "theme_horizon_primary": ["unknown"],  # NOT structural_growth
+    })
+    out = compute_short_extension_risk_penalty(df)
+    penalty = float(out.iloc[0]["short_extension_risk_penalty"])
+    # mom_1m=0.30 -> mom_part = (0.30 - 0.20)/0.20 = 0.50
+    assert 0.40 <= penalty <= 0.60, (
+        f"PUMP short_extension_risk_penalty expected ~0.50 at mom_1m=0.30, got {penalty:.3f}"
+    )
+
+
+@_test("behavioral.compute_short_extension_penalty_structural_exempt")
+def test_compute_short_extension_penalty_structural_exempt() -> None:
+    """An IONQ-like name (mom_1m=+30%, theme_horizon_primary='structural_growth',
+    mom_24m=+0.8, industry_group_strength_score > 0) must be EXEMPTED —
+    short_extension_risk_penalty == 0.0. Tests the structural-growth carve-out.
+    """
+    import pandas as pd
+    from r1000_features import compute_short_extension_risk_penalty
+
+    df = pd.DataFrame({
+        "ticker": ["IONQ"],
+        "mom_1m": [0.30],   # same +30% pump
+        "bb_pb": [0.98],    # also at Bollinger top
+        "mom_24m": [0.80],
+        "mom_36m": [0.40],
+        "industry_group_strength_score": [0.6],
+        "theme_horizon_primary": ["structural_growth"],
+    })
+    out = compute_short_extension_risk_penalty(df)
+    penalty = float(out.iloc[0]["short_extension_risk_penalty"])
+    assert penalty == 0.0, (
+        f"IONQ structural-growth name must be exempted (penalty=0), got {penalty:.3f}"
+    )
+
+
+@_test("behavioral.strategic_turnaround_pass_intc_case")
+def test_strategic_turnaround_pass_intc_case() -> None:
+    """INTC-like input (mktcap=$95B, universe_source='strategic_global_hardware',
+    ni_loss_narrowing_4q=0.8, full CORE_FUNDAMENTAL_MINIMUM fails) must
+    pass via strategic_turnaround_pass lane.
+
+    Also: a small-cap penny-stock turnaround (mktcap=$500M) with the same
+    universe_source + turnaround evidence must NOT pass (megacap floor).
+    """
+    import pandas as pd
+    from r1000_pipeline import add_core_fundamental_minimum_flags
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    df = pd.DataFrame({
+        "ticker": ["INTC", "PENNY_TURN"],
+        # Fail CORE_FUNDAMENTAL_MINIMUM by setting net income negative
+        "net_income_ttm": [-2.0e9, -50e6],
+        "revenue_ttm": [55e9, 200e6],
+        "operating_cash_flow_ttm": [5.0e9, 10e6],
+        "gross_margin_ttm": [0.35, 0.25],
+        "op_margin_ttm": [-0.05, -0.10],
+        "fcf_ttm": [-1.0e9, -5e6],
+        # Required for sector_adjusted / partial_scout paths to fail too
+        "sector": ["Information Technology", "Information Technology"],
+        # Turnaround evidence
+        "ni_loss_narrowing_4q": [0.8, 0.8],
+        "any_profitability_turn_positive_4q": [0.0, 0.0],
+        "profit_turn_positive_4q": [0.0, 0.0],
+        # Universe source: strategic_global_hardware for both
+        "universe_source": ["strategic_global_hardware", "strategic_global_hardware"],
+        # Market cap: INTC megacap, PENNY_TURN sub-megacap
+        "market_cap_live": [95e9, 500e6],
+        "mktcap": [95e9, 500e6],
+    })
+    # Some fields the function may probe — provide safe defaults.
+    for col in [
+        "rev_yoy_4q_min", "rev_yoy_8q_min", "rev_yoy_avg_4q",
+        "fcf_margin_ttm", "fcf_yoy_4q_min", "fcf_yoy_8q_min",
+        "ni_yoy_4q_min", "ni_yoy_8q_min", "rev_qoq_2q_mean",
+        "ep_ttm", "fcf_yield",
+    ]:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    out = add_core_fundamental_minimum_flags(df, cfg)
+
+    intc_row = out.iloc[0]
+    penny_row = out.iloc[1]
+
+    assert bool(intc_row["strategic_turnaround_fundamental_pass"]), (
+        "INTC megacap turnaround must pass strategic_turnaround_pass"
+    )
+    assert bool(intc_row["core_fundamental_minimum_pass"]), (
+        "INTC megacap turnaround must reach core_fundamental_minimum_pass via the bypass"
+    )
+    assert not bool(penny_row["strategic_turnaround_fundamental_pass"]), (
+        "PENNY_TURN ($500M) must FAIL strategic_turnaround_pass (megacap floor)"
+    )
+
+
+# ======================================================================
 # main
 # ======================================================================
 

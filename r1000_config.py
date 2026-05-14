@@ -2040,18 +2040,22 @@ class EngineConfig:
     w_event_reaction: float = 0.10
     w_institutional_flow: float = 0.10
     w_insider_flow: float = 0.08
-    # Short-RS trap weights (2026-05-13): separate short (1m+3m) from long
-    # (6m+12m) RS so PLTR-style short-term breakdown drives score down even
-    # when long-RS is still positive. w_rs_short_breakdown_penalty is
-    # asymmetric (heavier than reward) — punish weakness more than reward
-    # short-term strength to avoid chasing pumps.
+    # Short-RS trap weights (2026-05-13, conservative-starter tune 2026-05-14):
+    # separate short (1m+3m) from long (6m+12m) RS so PLTR-style short-term
+    # breakdown drives score down even when long-RS is still positive.
+    # w_rs_short_breakdown_penalty is asymmetric (heavier than reward) —
+    # punish weakness more than reward short-term strength. Original draft
+    # was 0.55 (1.57x asymmetric); reduced to 0.40 (1.14x) before first
+    # Tier-3 measurement based on Iter-5 overnight-loop lesson that tighter
+    # is not always better. Re-tune after measurement.
     w_rs_short_score: float = 0.35
-    w_rs_short_breakdown_penalty: float = 0.55
+    w_rs_short_breakdown_penalty: float = 0.40
     # short_extension_risk_penalty is multiplicative (applied as
-    # score *= (1 - w * penalty)). 0.20 = max -20% score on parabolic moves.
+    # score *= (1 - w * penalty)). 0.15 = max -15% score on parabolic moves
+    # (reduced from 0.20 in 2026-05-14 starter-conservative tuning).
     # Structural growth (theme_horizon=structural_growth + multi-year mom)
     # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
-    w_short_extension_penalty: float = 0.20
+    w_short_extension_penalty: float = 0.15
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
