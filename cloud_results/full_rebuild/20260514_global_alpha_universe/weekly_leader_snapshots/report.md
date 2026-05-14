@@ -4,7 +4,7 @@ Research-only weekly entry challenger. Monthly candidate rows define the PIT eli
 
 | Portfolio | Status | Target Rows | Weekly Entries | Weekly Signals |
 | --- | --- | ---: | ---: | ---: |
-| main | completed | 10086 | 760 | 290 |
-| concentrated | completed | 1542 | 760 | 290 |
+| main | completed | 10308 | 763 | 290 |
+| concentrated | completed | 1544 | 763 | 290 |
 
 Forward-label columns are excluded from selection. This is not production-active; promotion requires broker-ledger target pass, stress windows, and cost sensitivity.

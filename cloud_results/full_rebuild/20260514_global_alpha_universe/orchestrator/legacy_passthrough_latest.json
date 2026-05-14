@@ -1,21 +1,20 @@
 {
   "unified_weights": {
-    "GOOG": 0.14,
-    "GEV": 0.11931165862822393,
-    "AMD": 0.05701102776964002,
-    "MRVL": 0.05701102776964002,
-    "VRT": 0.05701102776964002,
-    "WDC": 0.05252704536330835,
-    "FIX": 0.05095258707298178,
-    "UMC": 0.0493794794984856,
-    "FTI": 0.04876116919282669,
-    "CBOE": 0.04803497693525352,
+    "GOOG": 0.12,
+    "GEV": 0.12,
+    "MRVL": 0.0620623942401402,
+    "LRCX": 0.0620623942401402,
+    "VRT": 0.0620623942401402,
+    "WDC": 0.05846993579724937,
+    "FIX": 0.05632245176668143,
+    "FTI": 0.05498136398663526,
+    "NXPI": 0.054757338807390935,
+    "UMC": 0.054735091483340666,
+    "CBOE": 0.05454663543828172,
     "ON": 0.04,
-    "NXPI": 0.04,
     "STM": 0.04,
     "HPE": 0.04,
     "PR": 0.04,
-    "ECG": 0.04,
     "TKR": 0.04,
     "MLI": 0.04
   },
@@ -29,8 +28,8 @@
   "regime_state": "neutral",
   "audit": {
     "mode": "legacy_passthrough",
-    "n_unique_tickers": 18,
-    "generated_at": "2026-05-14T11:54:19Z"
+    "n_unique_tickers": 17,
+    "generated_at": "2026-05-14T16:10:06Z"
   },
   "audit_checks": {
     "weights_nonnegative": true,
@@ -39,7 +38,7 @@
     "invested_plus_cash_close_to_one": true,
     "invested_amount": 1.0,
     "cash_amount": 0.0,
-    "n_positions": 18,
+    "n_positions": 17,
     "n_conflicts": 0,
     "all_passed": true
   }

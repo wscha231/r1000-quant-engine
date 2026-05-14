@@ -6,8 +6,8 @@ Fast integrated check from existing artifacts. Production defaults are not chang
 
 | Portfolio | CAGR | Target | Gap | MaxDD | Target | DD improvement needed | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 20.20% | 30.00% | 9.79pp | -32.02% | -15.00% | 17.02pp | false |
-| concentrated | 29.42% | 50.00% | 20.59pp | -32.56% | -18.00% | 14.56pp | false |
+| main | 19.85% | 30.00% | 10.15pp | -32.13% | -15.00% | 17.13pp | false |
+| concentrated | 32.65% | 50.00% | 17.35pp | -28.85% | -18.00% | 10.85pp | false |
 
 Metric sources:
 - `main`: `broker_ledger_next_close`
@@ -30,8 +30,8 @@ Strict target mode: `false`
 
 | Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_v2_position_aware_risk_proxy` | 37.96% | 0.00pp | -12.66% | 0.00pp | true | `target_pass_review` |
-| concentrated | `concentrated_position_risk_proxy` | 52.66% | 0.00pp | -16.39% | 0.00pp | true | `target_pass_review` |
+| main | `main_v2_position_aware_risk_proxy` | 37.05% | 0.00pp | -12.69% | 0.00pp | true | `target_pass_review` |
+| concentrated | `concentrated_position_risk_proxy` | 61.96% | 0.00pp | -14.78% | 0.00pp | true | `target_pass_review` |
 
 ## Error Checks
 
@@ -47,20 +47,20 @@ Strict target mode: `false`
 - `WARN` counterfactual_replay_coverage: missing_counterfactual_count=2
 - `WARN` candidate_production_ready: production_ready_count=0
 - `PASS` operating_event_backtest_available: outputs/operating_event_backtest/operating_event_backtest_summary.json
-- `PASS` daily_risk_overlay_backtest_validated: daily_risk_overlay_validated=True; nonmonthly_risk_action_count=723
-- `WARN` full_nonmonthly_entry_replacement_backtest_validated: full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=723
+- `PASS` daily_risk_overlay_backtest_validated: daily_risk_overlay_validated=True; nonmonthly_risk_action_count=734
+- `WARN` full_nonmonthly_entry_replacement_backtest_validated: full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=734
 - `PASS` orchestrator_replay_valid_for_promotion: status=completed; data_mode=historical_concentrated_monthly
-- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-13; broker_end=2026-05-13; rows=2180; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2180; max_date=2026-05-13
-- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-13; rows=2162; operating_book_max=2026-05-13; operating_rows=2180
+- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-13; broker_end=2026-05-13; rows=2197; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
+- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2197; max_date=2026-05-13
+- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-13; rows=2180; operating_book_max=2026-05-13; operating_rows=2197
 - `PASS` main_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-13; broker_end=2026-05-13; rows=23440; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23440; max_date=2026-05-13
-- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-13; rows=23436; operating_book_max=2026-05-13; operating_rows=23440
+- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-13; broker_end=2026-05-13; rows=23382; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
+- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23382; max_date=2026-05-13
+- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-13; rows=23379; operating_book_max=2026-05-13; operating_rows=23382
 - `PASS` concentrated_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=22; legacy_snapshot_exists=True
-- `PASS` main_current_position_count_near_latest_target_count: main_positions=18; latest_target_rows=18; excess=0
-- `WARN` concentrated_replay_filter_matches_latest_target: broker_filter_n=2; latest_target_n=4; broker_mode=winner_take_all; latest_mode=conviction_curve
+- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=21; legacy_snapshot_exists=True
+- `PASS` main_current_position_count_near_latest_target_count: main_positions=17; latest_target_rows=17; excess=0
+- `WARN` concentrated_replay_filter_matches_latest_target: broker_filter_n=2; latest_target_n=3; broker_mode=conviction_curve; latest_mode=winner_take_all
 
 ## Automation Plan
 

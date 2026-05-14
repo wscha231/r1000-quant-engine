@@ -5,11 +5,11 @@
 - Fill mode: `next_close`
 - Price mode: `adjusted_close`
 - Integer shares: `True`
-- CAGR: 18.09%
-- Sharpe: 0.784
-- MaxDD: -36.56%
-- Ending capital: $322,094.11
-- Trade count: 7277
-- Total fees: $60,775.24
+- CAGR: 17.97%
+- Sharpe: 0.683
+- MaxDD: -37.81%
+- Ending capital: $319,810.10
+- Trade count: 7270
+- Total fees: $58,798.64
 
 This replay uses account cash and shares. It is stricter than target-weight metrics.

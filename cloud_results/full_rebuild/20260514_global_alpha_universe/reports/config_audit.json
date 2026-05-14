@@ -1,12 +1,12 @@
 {
   "report_version": "2026-05-02-alphaops-stage0-2a",
-  "generated_at_utc": "2026-05-14T11:54:19Z",
+  "generated_at_utc": "2026-05-14T16:10:06Z",
   "run_identity": {
-    "run_ts": "20260514_114404",
-    "git_commit": "11eba2ad509a79466fe065d9b0bf320aac973fa9",
+    "run_ts": "20260514_155549",
+    "git_commit": "d95933eb0b3c0fd1778c1119b48bf18e862c672c",
     "engine_version": "2026-05-14-conc-short-rs-trap-exempt",
-    "config_fingerprint": "4ef03d5db83f0312f4e32550b6eb21cd880677ee",
-    "run_id": "20260514_114404__11eba2a__2026-05-14-conc-short-rs-trap-exempt"
+    "config_fingerprint": "cce0a97cc52d499db742a5c017b1367b730a00c7",
+    "run_id": "20260514_155549__d95933e__2026-05-14-conc-short-rs-trap-exempt"
   },
   "observed": {
     "cfg_default_backtest_years": 8,

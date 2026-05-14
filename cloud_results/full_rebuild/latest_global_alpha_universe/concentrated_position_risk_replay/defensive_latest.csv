@@ -1,4 +1,3 @@
 rebalance_date,ticker,Name,sector,original_weight,defended_weight,cash_after_defense,list_action,reason,period_forward_return,risk_adjusted_return,hard_stop,risk_exit_proxy,target_n,weighting_mode,active_rebalance_interval_months,raw_score,concentrated_score,portfolio_sleeve_label
-2026-02-27,ETR,ENTERGY CORP,Utilities,0.5,0.5,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,3,conviction_curve,1,3.7480742280744983,0.6904266961342431,early_scout
-2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.3,0.3,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,3,conviction_curve,1,3.4098290014471644,0.6866979106753612,early_scout
-2026-02-27,BKNG,BOOKING HOLDINGS INC,Consumer Discretionary,0.2,0.2,,hold,hold,0.04356784208919762,0.04356784208919762,-0.08,False,3,conviction_curve,1,4.755167025430922,0.6678605650402273,early_scout
+2026-02-27,ETR,ENTERGY CORP,Utilities,0.5,0.5,,hold,hold,0.04740041165361952,0.04740041165361952,-0.08,False,2,conviction_curve,1,3.6159952781187163,0.6921778499481845,early_scout
+2026-02-27,PR,PERMIAN RESOURCES CORP CLASS A,Energy,0.49999999999999994,0.49999999999999994,,hold,hold,0.10912313315133249,0.10912313315133249,-0.08,False,2,conviction_curve,1,2.974647732829525,0.6702251436630562,early_scout

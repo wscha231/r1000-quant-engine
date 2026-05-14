@@ -5,13 +5,13 @@
 - Account source: `simulated_broker_replay`
 - Target source: `sleeve_model_target`
 - As-of date: `2026-05-13`
-- Equity: $613,265.43
-- Cash: $85,598.26 (13.96%)
+- Equity: $729,430.32
+- Cash: $101,841.51 (13.96%)
 - Target cash weight: 0.00%
-- Projected cash after preview orders: $568.31 (0.09%)
-- Orders: 6
-- Buys: $609,853.32
-- Sells: $527,667.16
-- Estimated fees: $2,843.80
+- Projected cash after preview orders: $179.14 (0.02%)
+- Orders: 5
+- Buys: $725,867.54
+- Sells: $627,588.81
+- Estimated fees: $3,383.64
 
 This is an order preview only. It does not place broker orders.

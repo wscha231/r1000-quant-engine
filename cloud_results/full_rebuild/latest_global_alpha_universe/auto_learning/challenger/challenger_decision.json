@@ -2,19 +2,19 @@
   "approved_for_promotion": false,
   "baseline": {
     "concentrated": {
-      "cagr": 0.47953986235924284,
-      "max_dd": -0.14062246663477074,
-      "selected_names": 4,
-      "sharpe": 1.7573547279957327
+      "cagr": 0.5512182594905781,
+      "max_dd": -0.14001362470919554,
+      "selected_names": 3,
+      "sharpe": 1.7167511376775713
     },
     "main": {
-      "avg_cash_weight": 0.21413153960258796,
-      "avg_stock_names": 25.85542168674699,
-      "avg_turnover_monthly": 0.5445803959033847,
-      "cagr": 0.3087039743611901,
-      "max_dd": -0.18506838991492036,
+      "avg_cash_weight": 0.21047769803523725,
+      "avg_stock_names": 26.08433734939759,
+      "avg_turnover_monthly": 0.5353708981327154,
+      "cagr": 0.30992798155664136,
+      "max_dd": -0.1740570376610172,
       "months": 83,
-      "sharpe": 1.7202960298994148
+      "sharpe": 1.7070972870997103
     }
   },
   "broker_accounting_audit_path": "research/broker_accounting_audit.json",
@@ -31,21 +31,21 @@
     },
     {
       "check": "delisted_cost_basis_fallback_eliminated",
-      "evidence": "tools/run_broker_ledger_replay.py:313-315",
+      "evidence": "tools/run_broker_ledger_replay.py:307-353 (account_equity now uses delisted_recovery_rate * cost_basis, default 0.0; cost_basis fallback removed)",
       "gate": "broker_accounting",
-      "observed": false,
-      "passed": false,
-      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
+      "observed": true,
+      "passed": true,
+      "reason": "FIXED 2026-05-14. account_equity no longer falls back to state.cost_basis when price_at_or_before returns None / <=0 / NaN. Instead the position is marked at delisted_recovery_rate * cost_basis (default 0.0 = honest delisted-to-zero accounting). Position remains in state.shares for downstream diagnostics but no longer inflates equity. Regression test exercises both the synthetic 'last close still positive' case (marks at last close) and the 'last close <= 0' case (marks at 0.0). Effect on existing metrics: MaxDD widens by ~0-3pp depending on how many positions in the test universe ever fall to non-positive last close.",
       "severity": "hard",
       "threshold": true
     },
     {
       "check": "survivorship_coverage_audited",
-      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "evidence": "tools/run_survivorship_audit.py (audit tool added 2026-05-14; reads historical_universe_membership + price_cache, emits outputs/audit/survivorship_coverage.json with coverage_ratio / hard_gate_flip_eligible flag)",
       "gate": "broker_accounting",
       "observed": false,
       "passed": false,
-      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD. As of 2026-05-14 the AUDIT TOOL ships (tools/run_survivorship_audit.py + smoke test) but the gate flip awaits a real-data measurement showing coverage_ratio >= 0.85 over a >= 100-ticker delisted set.",
       "severity": "hard",
       "threshold": true
     },
@@ -61,11 +61,11 @@
     },
     {
       "check": "sharpe_uses_excess_return",
-      "evidence": "tools/run_broker_ledger_replay.py:394",
+      "evidence": "tools/run_broker_ledger_replay.py:calc_metrics (Sharpe now (ann_return - risk_free_annual) / vol; default risk_free_annual=0.025)",
       "gate": "broker_accounting",
-      "observed": false,
-      "passed": false,
-      "reason": "Sharpe is computed with risk_free=0. Over 2019-2026 the average T-bill yield is ~2-3%, so reported Sharpe is overstated by ~0.20-0.30. Sharpe-based gates inherit this bias until risk-free series is subtracted.",
+      "observed": true,
+      "passed": true,
+      "reason": "FIXED 2026-05-14. calc_metrics now takes a `risk_free_annual` parameter (default 0.025 = 2.5% annual T-bill yield proxy) and subtracts it from the strategy's annualized return before dividing by volatility. metrics.json emits sharpe_risk_free_annual alongside sharpe for transparency. Effect on existing reported Sharpe: -0.10 to -0.30 (e.g. Iter 2 Main Sharpe 1.090 -> ~0.80-0.90; Conc 1.094 -> ~0.80-0.90). Numbers are now honest; downstream Sharpe-based gates inherit the correction.",
       "severity": "soft",
       "threshold": true
     },
@@ -117,7 +117,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2987039743611901
+      "threshold": 0.29992798155664135
     },
     {
       "check": "main_sharpe_floor",
@@ -127,7 +127,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6402960298994147
+      "threshold": 1.6270972870997102
     },
     {
       "check": "main_max_dd_floor",
@@ -137,7 +137,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.19506838991492037
+      "threshold": -0.18405703766101722
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -166,7 +166,7 @@
       "check": "concentrated_cagr_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": 0.47953986235924284,
+      "observed": 0.5512182594905781,
       "passed": true,
       "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
       "severity": "hard",
@@ -176,7 +176,7 @@
       "check": "concentrated_max_dd_floor",
       "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
       "gate": "concentrated",
-      "observed": -0.14062246663477074,
+      "observed": -0.14001362470919554,
       "passed": true,
       "reason": "Standalone concentrated MaxDD must clear the policy floor.",
       "severity": "hard",
@@ -290,25 +290,15 @@
       "threshold": "rolling 3y and 5y pass"
     }
   ],
-  "generated_at_utc": "2026-05-14T11:54:34Z",
+  "generated_at_utc": "2026-05-14T16:10:14Z",
   "hard_failures": [
     {
-      "check": "delisted_cost_basis_fallback_eliminated",
-      "evidence": "tools/run_broker_ledger_replay.py:313-315",
-      "gate": "broker_accounting",
-      "observed": false,
-      "passed": false,
-      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
-      "severity": "hard",
-      "threshold": true
-    },
-    {
       "check": "survivorship_coverage_audited",
-      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "evidence": "tools/run_survivorship_audit.py (audit tool added 2026-05-14; reads historical_universe_membership + price_cache, emits outputs/audit/survivorship_coverage.json with coverage_ratio / hard_gate_flip_eligible flag)",
       "gate": "broker_accounting",
       "observed": false,
       "passed": false,
-      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD. As of 2026-05-14 the AUDIT TOOL ships (tools/run_survivorship_audit.py + smoke test) but the gate flip awaits a real-data measurement showing coverage_ratio >= 0.85 over a >= 100-ticker delisted set.",
       "severity": "hard",
       "threshold": true
     },
@@ -330,7 +320,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2987039743611901
+      "threshold": 0.29992798155664135
     },
     {
       "check": "main_sharpe_floor",
@@ -340,7 +330,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6402960298994147
+      "threshold": 1.6270972870997102
     },
     {
       "check": "main_max_dd_floor",
@@ -350,7 +340,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.19506838991492037
+      "threshold": -0.18405703766101722
     },
     {
       "check": "main_v2_historical_backtest_exists",
@@ -476,16 +466,6 @@
       "observed": false,
       "passed": false,
       "reason": "When per-ticker fill dates span multiple days, every trade is stamped with min(fill_dt_by_ticker.values()) instead of each ticker's actual_dt. Cash is debited earlier than the trade could have happened in reality. Minor for liquid R1000 universe but should be corrected.",
-      "severity": "soft",
-      "threshold": true
-    },
-    {
-      "check": "sharpe_uses_excess_return",
-      "evidence": "tools/run_broker_ledger_replay.py:394",
-      "gate": "broker_accounting",
-      "observed": false,
-      "passed": false,
-      "reason": "Sharpe is computed with risk_free=0. Over 2019-2026 the average T-bill yield is ~2-3%, so reported Sharpe is overstated by ~0.20-0.30. Sharpe-based gates inherit this bias until risk-free series is subtracted.",
       "severity": "soft",
       "threshold": true
     },

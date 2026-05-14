@@ -4,8 +4,8 @@ This report separates daily risk-management evidence from full historical non-mo
 
 | Portfolio | Status | Daily risk engine | Non-monthly risk actions | Full non-monthly entries | Target max decisions/month | Broker CAGR | Broker MaxDD |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | `partial_daily_risk_overlay_validated` | true | 682 | false | 1 | 20.20% | -32.02% |
-| concentrated | `partial_daily_risk_overlay_validated` | true | 41 | false | 1 | 29.42% | -32.56% |
+| main | `partial_daily_risk_overlay_validated` | true | 691 | false | 1 | 19.85% | -32.13% |
+| concentrated | `partial_daily_risk_overlay_validated` | true | 43 | false | 1 | 32.65% | -28.85% |
 
 Interpretation:
 - `partial_daily_risk_overlay_validated` means daily/weekly risk exits or trims can be replayed through an account ledger, but entry/replacement targets are still sourced from monthly or latest operating target books.

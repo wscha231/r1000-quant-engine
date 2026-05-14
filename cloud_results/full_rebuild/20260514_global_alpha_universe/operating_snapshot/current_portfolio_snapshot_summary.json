@@ -3,15 +3,15 @@
   "cash_policy_flag": "target_cash_above_macro_floor_without_confirmation",
   "cash_policy_review_action": "CASH_POLICY_REVIEW",
   "cash_row_count": 2,
-  "combined_cash_gap_weight": 0.14399319738483432,
-  "combined_current_cash_weight": 0.1794251377047336,
-  "combined_target_cash_weight": 0.3234183350895679,
-  "generated_at_utc": "2026-05-14T12:07:13.311710+00:00",
+  "combined_cash_gap_weight": 0.19409444225273875,
+  "combined_current_cash_weight": 0.09624611400335238,
+  "combined_target_cash_weight": 0.2903405562560911,
+  "generated_at_utc": "2026-05-14T16:29:43.811715+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "macro_cash_raise_confirmation_count": 0.0,
   "macro_cash_raise_gate": "none",
   "macro_recommended_cash_floor": 0.03,
-  "monster_recommendation_count": 7,
+  "monster_recommendation_count": 18,
   "notes": [
     "This is the current simulated broker-ledger account state marked to the latest available close.",
     "current_operating_holdings_latest.csv is the primary current-only user view.",
@@ -25,18 +25,18 @@
     "current_operating_holdings_concentrated_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv",
     "current_operating_holdings_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv",
     "current_operating_holdings_main_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_main_latest.csv",
-    "current_operating_row_count": 22,
+    "current_operating_row_count": 21,
     "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
-    "proposed_target_delta_row_count": 22,
+    "proposed_target_delta_row_count": 21,
     "proposed_target_deltas_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/proposed_target_deltas_latest.csv",
     "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md"
   },
   "portfolio_position_counts": {
     "concentrated": 2,
-    "main": 18
+    "main": 17
   },
   "primary_user_view": "current_operating_holdings_latest.csv",
-  "row_count": 22,
+  "row_count": 21,
   "schema_version": "current-portfolio-snapshot-v2",
   "snapshot_semantics": "current_broker_ledger_mark_to_market",
   "status": "completed"

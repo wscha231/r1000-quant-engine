@@ -7,9 +7,9 @@ verdict: READY_FOR_PORTFOLIO_CHALLENGER_REPLAY
 inputs:
   auto_learning_hypotheses: 6
   lifecycle_missed_count: 30
-  lifecycle_stale_count: 1
-  onset_event_count: 30
-  shakeout_event_count: 1340
+  lifecycle_stale_count: 2
+  onset_event_count: 29
+  shakeout_event_count: 1350
 candidate_rules:
   - id: autolearning_winner_onset_overlay
     status: proposal_only
@@ -22,7 +22,7 @@ candidate_rules:
       - shakeout_hold_add_or_breakdown_exit
     suggested_event_hold_rule:
       strategy: hold_18m_return
-      median_return: 2.217964706727626
+      median_return: 2.194940818420692
     limits:
       max_shadow_capacity: 0.10
       max_single_name_weight: 0.05
@@ -39,7 +39,7 @@ candidate_rules:
     action: replay_main_cash_caps_before_any_production_change
     main_cash_cap_grid: [0.00, 0.03, 0.05, 0.08]
     current_best_cash_cap: 0.0
-    current_best_single_name_cap: 0.33
+    current_best_single_name_cap: 0.18
     objective: maximize_cagr_if_maxdd_and_turnover_do_not_regress
     activation: challenger_only
 policy_value_replay:

@@ -5,7 +5,7 @@ Research-only sidecar. It does not change production weights.
 - Status: `completed`
 - Months: 84
 - Latest risk state: `green`
-- Latest style state: `quality_compounder`
+- Latest style state: `breakout_growth`
 - Cash-raise confirmations: 0
 - Confirmed cash raise: `False`
 - Recommended cash floor: 3.0%
@@ -15,7 +15,7 @@ Research-only sidecar. It does not change production weights.
 - Cash-raise gate: `none`
 - New-buy policy: `normal`
 - Trim policy: `winner_hold_stale_watch`
-- Action: `favor_core_compounders_long_hold`
+- Action: `favor_future_winners_and_monster_breakouts`
 - Snapshot source: `scored_latest`
 
 ## Risk State Counts
@@ -23,16 +23,16 @@ Research-only sidecar. It does not change production weights.
 - crisis: 5
 - green: 46
 - recovery: 8
-- red: 11
-- yellow: 14
+- red: 9
+- yellow: 16
 
 ## Regime Speed Diagnostics
 
 - balanced_under_drawdown: 12
-- late_risk_alert: 10
-- possible_cash_drag: 8
+- late_risk_alert: 13
+- possible_cash_drag: 6
 - premature_growth_reentry: 1
-- unconfirmed_cash_raise: 17
+- unconfirmed_cash_raise: 15
 
 ## Interpretation
 
@@ -56,6 +56,6 @@ Production promotion requires a separate historical challenger replay.
 - 2022-01-31: late_risk_alert (balanced -> yellow)
 - 2022-03-31: late_risk_alert;premature_growth_reentry;unconfirmed_cash_raise (growth_reentry_alert -> recovery)
 - 2022-05-31: balanced_under_drawdown;unconfirmed_cash_raise (balanced -> yellow)
-- 2022-06-30: balanced_under_drawdown (balanced -> red)
-- 2022-07-29: balanced_under_drawdown (balanced -> yellow)
-- 2022-08-31: balanced_under_drawdown (balanced -> red)
+- 2022-06-30: late_risk_alert;balanced_under_drawdown (balanced -> yellow)
+- 2022-07-29: late_risk_alert;balanced_under_drawdown (balanced -> yellow)
+- 2022-08-31: late_risk_alert;balanced_under_drawdown (balanced -> yellow)

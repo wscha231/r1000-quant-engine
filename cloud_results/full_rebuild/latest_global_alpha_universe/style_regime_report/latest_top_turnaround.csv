@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_turnaround_fit,market_style_regime_label
-PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,2.086897121345184,0.3843133586314442,balanced
-PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,5.053546930221318,0.3057291497443012,balanced
-AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.099599372289667,0.2254906799438233,balanced
-CART,MAPLEBEAR INC,Consumer Staples,unassigned,-0.1010806251455927,0.214016334191381,balanced
-GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.7081076288634165,0.2064383413413254,balanced
-GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.800777761358263,0.2031756925411311,balanced
-UDR,UDR REIT INC,Real Estate,unassigned,1.4546930514943703,0.1851657466382123,balanced
-YMM,Full Truck Alliance,Industrials,early_scout,0.8076453308316055,0.1814999760611692,balanced
+PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,1.7971643538237183,0.5101000791998833,breakout_growth
+PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,5.404020091981004,0.4138700016849563,breakout_growth
+AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.175437225533323,0.3040547044087002,breakout_growth
+CART,MAPLEBEAR INC,Consumer Staples,unassigned,0.0719440192848588,0.2837694128481591,breakout_growth
+GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.978641136045813,0.2768135414683213,breakout_growth
+GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.994000720351421,0.271708960853701,breakout_growth
+UDR,UDR REIT INC,Real Estate,unassigned,1.40661935750499,0.2576745835560831,breakout_growth
+QUBT,Quantum Computing Inc,Information Technology,unassigned,-3.26262896575875,0.2547097672582438,breakout_growth

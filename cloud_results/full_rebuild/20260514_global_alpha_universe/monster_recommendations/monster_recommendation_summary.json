@@ -1,8 +1,8 @@
 {
-  "concentrated_rows": 16,
-  "generated_at_utc": "2026-05-14T12:07:12.832816+00:00",
+  "concentrated_rows": 15,
+  "generated_at_utc": "2026-05-14T16:29:43.249748+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
-  "main_rows": 30,
+  "main_rows": 29,
   "outputs": {
     "concentrated": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/monster_recommendations/concentrated_recommendations.csv",
     "main": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/monster_recommendations/main_recommendations.csv",
@@ -11,5 +11,5 @@
   "production_activation_allowed": false,
   "schema_version": "monster-recommendation-bridge-v1",
   "status": "completed",
-  "unified_rows": 46
+  "unified_rows": 44
 }

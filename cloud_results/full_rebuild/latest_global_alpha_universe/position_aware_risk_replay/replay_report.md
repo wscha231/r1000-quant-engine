@@ -2,12 +2,12 @@
 
 Monthly proxy for hard stop, trailing stop, and distribution-risk exits.
 
-- Original CAGR: 25.70%
-- Risk CAGR: 37.96%
-- CAGR delta: 12.26%
-- Original MaxDD: -25.76%
-- Risk MaxDD: -12.66%
-- MaxDD delta: 13.10%
+- Original CAGR: 24.83%
+- Risk CAGR: 37.05%
+- CAGR delta: 12.22%
+- Original MaxDD: -25.81%
+- Risk MaxDD: -12.69%
+- MaxDD delta: 13.12%
 - Relative trims: 20
 - Relative exits: 3
 - Cost bps: 25.0

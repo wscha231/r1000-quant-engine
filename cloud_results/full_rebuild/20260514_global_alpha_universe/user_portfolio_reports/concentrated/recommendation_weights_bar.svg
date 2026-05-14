@@ -1,16 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="190" viewBox="0 0 760 190">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Concentrated Recommendation Weights</text>
-<text x="24" y="86" font-family="Arial" font-size="14" fill="#111827">ON</text>
+<text x="24" y="86" font-family="Arial" font-size="14" fill="#111827">MRVL</text>
 <rect x="120" y="70" width="500.00" height="20" fill="#2563eb" rx="3"/>
-<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">38.3%</text>
-<text x="24" y="116" font-family="Arial" font-size="14" fill="#111827">WDC</text>
-<rect x="120" y="100" width="360.00" height="20" fill="#16a34a" rx="3"/>
-<text x="490.00" y="116" font-family="Arial" font-size="14" fill="#111827">27.6%</text>
-<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">MRVL</text>
-<rect x="120" y="130" width="259.20" height="20" fill="#dc2626" rx="3"/>
-<text x="389.20" y="146" font-family="Arial" font-size="14" fill="#111827">19.8%</text>
-<text x="24" y="176" font-family="Arial" font-size="14" fill="#111827">MU</text>
-<rect x="120" y="160" width="186.62" height="20" fill="#9333ea" rx="3"/>
-<text x="316.62" y="176" font-family="Arial" font-size="14" fill="#111827">14.3%</text>
+<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">50.0%</text>
+<text x="24" y="116" font-family="Arial" font-size="14" fill="#111827">MU</text>
+<rect x="120" y="100" width="250.00" height="20" fill="#16a34a" rx="3"/>
+<text x="380.00" y="116" font-family="Arial" font-size="14" fill="#111827">25.0%</text>
+<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">CIEN</text>
+<rect x="120" y="130" width="250.00" height="20" fill="#dc2626" rx="3"/>
+<text x="380.00" y="146" font-family="Arial" font-size="14" fill="#111827">25.0%</text>
 </svg>

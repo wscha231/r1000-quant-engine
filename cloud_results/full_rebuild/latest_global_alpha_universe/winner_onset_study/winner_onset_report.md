@@ -2,25 +2,25 @@
 
 Report-only historical study. No production behavior is changed.
 
-- events: 30
+- events: 29
 - production_activation_allowed: False
 
 ## Winner Tiers
 
 - `major_2_5x`: 24
-- `super_5x`: 5
+- `super_5x`: 4
 - `monster_10x`: 1
 
 ## Median Onset Pattern
 
 - readiness score: 0.618
-- 1m momentum: 6.9%
-- 3m momentum: 12.0%
-- 6m momentum: 3.0%
+- 1m momentum: 5.9%
+- 3m momentum: 11.8%
+- 6m momentum: 3.6%
 - RS vs SPY 3m: 9.2%
-- volume surge: 1.01x
-- distance to 52w high: -21.0%
-- first 3m max drawdown: -17.1%
+- volume surge: 0.96x
+- distance to 52w high: -20.7%
+- first 3m max drawdown: -16.8%
 
 ## Top Events
 
@@ -30,7 +30,6 @@ Report-only historical study. No production behavior is changed.
 | STX | 2025-05-05 | 2026-05-06 | super_5x | 751.2% | 8.51x | 186.2% | 0.573 |
 | LITE | 2025-02-11 | 2026-02-12 | super_5x | 633.0% | 7.33x | 51.0% | 0.591 |
 | PLTR | 2024-08-09 | 2025-08-12 | super_5x | 523.0% | 6.23x | 275.3% | 1.000 |
-| PR | 2020-06-19 | 2021-06-15 | super_5x | 508.0% | 6.08x | 54.0% | 0.591 |
 | INTC | 2025-05-09 | 2026-05-11 | super_5x | 504.3% | 6.04x | 78.0% | 0.591 |
 | APP | 2024-10-10 | 2025-09-30 | major_2_5x | 396.1% | 4.96x | 63.0% | 1.000 |
 | APP | 2023-04-17 | 2024-04-11 | major_2_5x | 378.8% | 4.79x | 138.0% | 0.591 |
@@ -41,6 +40,7 @@ Report-only historical study. No production behavior is changed.
 | GLW | 2025-03-19 | 2026-02-25 | major_2_5x | 233.4% | 3.33x | 64.9% | 0.682 |
 | LRCX | 2025-03-12 | 2026-02-25 | major_2_5x | 227.7% | 3.28x | 51.3% | 0.591 |
 | GEV | 2025-04-09 | 2026-04-10 | major_2_5x | 204.2% | 3.04x | 94.3% | 0.591 |
+| PLTR | 2023-02-08 | 2024-02-08 | major_2_5x | 198.2% | 2.98x | 87.5% | 0.709 |
 
 ## Monster Winner Archive
 
@@ -50,7 +50,6 @@ Report-only historical study. No production behavior is changed.
 | STX | 2025-05-05 | 2026-05-06 | super_5x | 751.2% | 8.51x | 0.573 |
 | LITE | 2025-02-11 | 2026-02-12 | super_5x | 633.0% | 7.33x | 0.591 |
 | PLTR | 2024-08-09 | 2025-08-12 | super_5x | 523.0% | 6.23x | 1.000 |
-| PR | 2020-06-19 | 2021-06-15 | super_5x | 508.0% | 6.08x | 0.591 |
 | INTC | 2025-05-09 | 2026-05-11 | super_5x | 504.3% | 6.04x | 0.591 |
 
 ## Files

@@ -1,9 +1,9 @@
 ticker,Name,sector,portfolio_sleeve_label,score,style_row_compounder_fit,market_style_regime_label
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.100296368361815,0.7571622992010566,balanced
-NTES,NetEase,Internet,core_compounder,2.806116137968041,0.7468930824200773,balanced
-UI,UBIQUITI INC,Information Technology,unassigned,-3.654411177095309,0.7392807343155112,balanced
-VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.1669470579693209,0.7362429611495853,balanced
-COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,4.746294891597193,0.7218819267916601,balanced
-AAPL,APPLE INC,Information Technology,core_compounder,5.010099810528142,0.7142071894124774,balanced
-WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,6.939597055072879,0.7051152449163607,balanced
-ZTO,ZTO Express,Industrials,future_winner,2.2725635456404927,0.6859414966420982,balanced
+NVDA,NVIDIA CORP,Information Technology,core_compounder,4.363947598941732,0.8490487669676119,breakout_growth
+NTES,NetEase,Internet,core_compounder,2.970636581292141,0.8421506026094505,breakout_growth
+UI,UBIQUITI INC,Information Technology,unassigned,-4.096459066248898,0.8287800606688633,breakout_growth
+VRSK,VERISK ANALYTICS INC,Industrials,early_scout,0.1841584588734131,0.8234896765257587,breakout_growth
+COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,4.8406873624451485,0.8117072482482179,breakout_growth
+AAPL,APPLE INC,Information Technology,core_compounder,5.01636080731445,0.8014172709263118,breakout_growth
+WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,6.852414029403366,0.7903457569506525,breakout_growth
+ZTO,ZTO Express,Industrials,future_winner,1.9773346185988707,0.7726995833556262,breakout_growth

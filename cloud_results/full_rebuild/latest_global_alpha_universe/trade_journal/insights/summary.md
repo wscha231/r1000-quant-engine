@@ -1,31 +1,31 @@
 # Trade Insights Summary
 
-- trades analyzed: **965**
-- generated: 2026-05-14 11:54 UTC
+- trades analyzed: **937**
+- generated: 2026-05-14 16:10 UTC
 
 ## 1. Signal IC by regime (rank correlation)
 Top actionable findings:
 
 **Worst signal x regime cells (potential gate candidates)**:
-- `theme_phase_multiplier_primary` in **bull**: IC = -0.053
-- `rs_acceleration_score` in **bear**: IC = -0.038
+- `theme_phase_multiplier_primary` in **bull**: IC = -0.043
+- `theme_phase_multiplier_primary` in **bear**: IC = -0.039
 - `h6_dynamic_leader_score` in **bear**: IC = -0.034
 
 **Best signal x regime cells (amplify candidates)**:
-- `rs_acceleration_score` in **bull**: IC = +0.116
-- `h6_dynamic_leader_score` in **bull**: IC = +0.089
-- `rs_acceleration_score` in **neutral**: IC = +0.071
+- `h6_dynamic_leader_score` in **bull**: IC = +0.078
+- `selection_confirmation_score` in **bull**: IC = +0.072
+- `rs_acceleration_score` in **neutral**: IC = +0.059
 
 Full matrix in `ic_matrix.csv`.
 
 ## 2. Trade pattern clusters
 **Worst pattern clusters (block candidates)**:
-- cluster 6: win_rate=0.49, n=79, signature: selection_confirmation_score=-0.99, rs_acceleration_score=-0.73, entry_quality_score=-0.61
-- cluster 0: win_rate=0.50, n=62, signature: theme_phase_multiplier_max=-1.89, theme_phase_multiplier_primary=-1.89, selection_confirmation_score=-1.61
+- cluster 6: win_rate=0.46, n=80, signature: selection_confirmation_score=-1.11, rs_acceleration_score=-0.69, h6_dynamic_leader_score=-0.59
+- cluster 2: win_rate=0.51, n=132, signature: rs_acceleration_score=+1.09, theme_phase_multiplier_max=+0.46, theme_phase_multiplier_primary=+0.46
 
 **Best pattern clusters (amplify candidates)**:
-- cluster 1: win_rate=0.69, n=100, signature: h6_dynamic_leader_score=+1.98, rs_acceleration_score=+0.98, selection_confirmation_score=+0.70
-- cluster 3: win_rate=0.62, n=143, signature: portfolio_risk_entry_block_score=+2.23, portfolio_monster_early_score=+1.98, theme_phase_multiplier_max=-1.89
+- cluster 1: win_rate=0.65, n=110, signature: portfolio_risk_entry_block_score=+2.56, portfolio_monster_early_score=+2.23, theme_phase_multiplier_max=-2.11
+- cluster 0: win_rate=0.59, n=186, signature: h6_dynamic_leader_score=+1.88, selection_confirmation_score=+0.66, theme_phase_multiplier_max=+0.48
 
 Full table in `cluster_winrate.csv`.
 

@@ -13,25 +13,15 @@
     "write_active_flag": false
   },
   "dry_run": true,
-  "generated_at_utc": "2026-05-14T11:54:34Z",
+  "generated_at_utc": "2026-05-14T16:10:14Z",
   "hard_failures": [
     {
-      "check": "delisted_cost_basis_fallback_eliminated",
-      "evidence": "tools/run_broker_ledger_replay.py:313-315",
-      "gate": "broker_accounting",
-      "observed": false,
-      "passed": false,
-      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
-      "severity": "hard",
-      "threshold": true
-    },
-    {
       "check": "survivorship_coverage_audited",
-      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "evidence": "tools/run_survivorship_audit.py (audit tool added 2026-05-14; reads historical_universe_membership + price_cache, emits outputs/audit/survivorship_coverage.json with coverage_ratio / hard_gate_flip_eligible flag)",
       "gate": "broker_accounting",
       "observed": false,
       "passed": false,
-      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD. As of 2026-05-14 the AUDIT TOOL ships (tools/run_survivorship_audit.py + smoke test) but the gate flip awaits a real-data measurement showing coverage_ratio >= 0.85 over a >= 100-ticker delisted set.",
       "severity": "hard",
       "threshold": true
     },
@@ -53,7 +43,7 @@
       "passed": false,
       "reason": "Candidate main CAGR must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 0.2987039743611901
+      "threshold": 0.29992798155664135
     },
     {
       "check": "main_sharpe_floor",
@@ -63,7 +53,7 @@
       "passed": false,
       "reason": "Candidate main Sharpe must not regress beyond the policy gate.",
       "severity": "hard",
-      "threshold": 1.6402960298994147
+      "threshold": 1.6270972870997102
     },
     {
       "check": "main_max_dd_floor",
@@ -73,7 +63,7 @@
       "passed": false,
       "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
       "severity": "hard",
-      "threshold": -0.19506838991492037
+      "threshold": -0.18405703766101722
     },
     {
       "check": "main_v2_historical_backtest_exists",
