@@ -119,11 +119,24 @@ def trades_in_window(trade_journal: pd.DataFrame, peak_date: str, trough_date: s
     peak = pd.Timestamp(peak_date)
     trough = pd.Timestamp(trough_date)
     in_window = tj[(tj["exit_date"] >= peak) & (tj["exit_date"] <= trough)].copy()
-    return {
+    payload: dict[str, Any] = {
         "exit_count": int(len(in_window)),
         "exit_pnl_usd": float(in_window[pnl_col].sum()),
         "worst_5_exits": worst_n(in_window, pnl_col, 5),
     }
+    # F5 (2026-05-14): sleeve attribution inside the MDD window. Lets the
+    # reader see which sleeve absorbed the drawdown (e.g. did the Concentrated
+    # regression in Iter 2 come from future_winner exits, early_scout exits,
+    # or core_compounder exits?).
+    if "entry_sleeve" in in_window.columns and not in_window.empty:
+        sleeve_pnl = in_window.groupby("entry_sleeve")[pnl_col].agg(["sum", "count"]).sort_values("sum")
+        payload["sleeve_pnl_in_window"] = {
+            str(k): {"exit_pnl_usd": float(row["sum"]), "exit_count": int(row["count"])}
+            for k, row in sleeve_pnl.iterrows()
+        }
+    else:
+        payload["sleeve_pnl_in_window"] = {}
+    return payload
 
 
 def worst_n(frame: pd.DataFrame, pnl_col: str, n: int) -> list[dict[str, Any]]:
@@ -499,6 +512,12 @@ def analyze_portfolio(
     in_window = trades_in_window(trade_journal, mdd_info.get("peak_date", ""), mdd_info.get("trough_date", ""), pnl_col) if mdd_info else {}
     loss_by_regime = loss_by_group(losers, "entry_regime_state", pnl_col)
     loss_by_exit_reason = loss_by_group(losers, "exit_reason", pnl_col)
+    # F5 (2026-05-14): sleeve-conditional attribution. Surfaces which sleeve
+    # contributed most to the MDD window and overall P&L. Cleanly separates
+    # "Concentrated regressed because of short-RS trap" from other hypotheses.
+    loss_by_sleeve = loss_by_group(losers, "entry_sleeve", pnl_col)
+    winner_pnl_by_sleeve = loss_by_group(winners, "entry_sleeve", pnl_col)  # same fn, surfaces gains
+    net_pnl_by_sleeve = loss_by_group(trade_journal, "entry_sleeve", pnl_col)
 
     findings = build_findings(
         portfolio_kind=portfolio_kind,
@@ -549,9 +568,13 @@ def analyze_portfolio(
             "trades_exited_in_window": in_window.get("exit_count", 0),
             "trades_exited_pnl_usd": in_window.get("exit_pnl_usd", 0.0),
             "worst_5_exits_in_window": in_window.get("worst_5_exits", []),
+            "sleeve_pnl_in_window": in_window.get("sleeve_pnl_in_window", {}),
         },
         "loss_by_regime": loss_by_regime,
         "loss_by_exit_reason": loss_by_exit_reason,
+        "loss_by_sleeve": loss_by_sleeve,
+        "winner_pnl_by_sleeve": winner_pnl_by_sleeve,
+        "net_pnl_by_sleeve": net_pnl_by_sleeve,
         "top_10_losers": worst_n(trade_journal, pnl_col, 10),
         "top_10_winners": best_n(trade_journal, pnl_col, 10),
         "findings": findings,
@@ -599,6 +622,31 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Trades exited inside window: {mdd.get('trades_exited_in_window')} (total P&L ${safe_float(mdd.get('trades_exited_pnl_usd')):,.0f})",
         "",
     ]
+    # F5 (2026-05-14): sleeve attribution table inside the MDD window.
+    sleeve_in_window = mdd.get("sleeve_pnl_in_window") or {}
+    if sleeve_in_window:
+        lines.append("### Sleeve P&L inside MDD window")
+        lines.append("")
+        lines.append("| Sleeve | Exit P&L (USD) | Exit count |")
+        lines.append("| --- | ---: | ---: |")
+        sleeves_sorted = sorted(sleeve_in_window.items(), key=lambda kv: kv[1].get("exit_pnl_usd", 0))
+        for sname, srow in sleeves_sorted:
+            lines.append(f"| {sname} | {safe_float(srow.get('exit_pnl_usd')):,.0f} | {int(srow.get('exit_count', 0))} |")
+        lines.append("")
+    # Overall sleeve breakdown (lifetime).
+    net_pnl = payload.get("net_pnl_by_sleeve") or {}
+    if net_pnl:
+        lines.append("## Sleeve P&L (Lifetime)")
+        lines.append("")
+        lines.append("| Sleeve | Net P&L (USD) | Trade count | Avg P&L (USD) |")
+        lines.append("| --- | ---: | ---: | ---: |")
+        sleeves_sorted = sorted(net_pnl.items(), key=lambda kv: kv[1].get("sum", 0), reverse=True)
+        for sname, srow in sleeves_sorted:
+            lines.append(
+                f"| {sname} | {safe_float(srow.get('sum')):,.0f} | {int(srow.get('count', 0))} | "
+                f"{safe_float(srow.get('mean')):,.0f} |"
+            )
+        lines.append("")
     if findings:
         lines.append("## Findings (machine-readable in findings.json)")
         lines.append("")
