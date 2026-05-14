@@ -13,9 +13,11 @@
     },
     "survivorship_coverage_audited": {
       "value": false,
-      "evidence_path": "tools/audit_data_readiness.py (no delisted-coverage field present)",
-      "smoke_test": null,
-      "rationale": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD."
+      "evidence_path": "tools/run_survivorship_audit.py (audit tool added 2026-05-14; reads historical_universe_membership + price_cache, emits outputs/audit/survivorship_coverage.json with coverage_ratio / hard_gate_flip_eligible flag)",
+      "smoke_test": "tests/survivorship_audit_smoke.py (verifies tool logic; gate flip in production requires real coverage_ratio >= 0.85 AND delisted_count >= 100)",
+      "tool_added_date": "2026-05-14",
+      "flip_path": "After next Tier-3 the workflow emits outputs/audit/survivorship_coverage.json; flip this value to true when payload.hard_gate_flip_eligible == true.",
+      "rationale": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD. As of 2026-05-14 the AUDIT TOOL ships (tools/run_survivorship_audit.py + smoke test) but the gate flip awaits a real-data measurement showing coverage_ratio >= 0.85 over a >= 100-ticker delisted set."
     }
   },
   "soft_gates": {
