@@ -308,6 +308,63 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Mode Y main filter risk**: Iter 2 measurement showed Main MaxDD -29.98% already below the -32% guardrail. Mode Y main filter (bear=0.5,deep_bear=0.25) will dampen Main CAGR by ~3pp (per prior overnight loop) for ~1pp additional MaxDD reduction. If user prefers to keep Main unfiltered, pass `mode_y_main_multipliers=""` (empty string) to the workflow.
   - **Tier-3 needed for measurement** — all three changes are wired but not yet measured against the integrated baseline. A+B + D-1 + D-2 + C (Mode Y enabled) is the recommended first Tier-3 to maximize MDD coverage. Total dev time today: ~3 hours; Tier-3 cycle: 4-6h.
 
+### 19:00 KST - integrated-iter4-tier3-triggered-and-workflow-expr-fix
+
+- scope:
+  - Operational note for continuing agents. (1) Trivial workflow fix shipped as `11eba2a`: the prior commit `4d8640d` (Mode Y wiring) added 3 `${{ inputs.X }}` expressions inside the already-300-line monolithic shell step. GitHub Actions rejected the workflow_dispatch with HTTP 422 "Exceeded max expression length 21000". Fix was to bind the 3 Mode Y inputs to `env:` variables on the step (one parse cost each) and reference them as `$MODE_Y_ENABLED` / `$MODE_Y_MAIN_MULTIPLIERS` / `$MODE_Y_CONC_MULTIPLIERS` in bash. This is a useful pattern for any future workflow expansion: aggregate per-step expressions into `env:` bindings before the run-block. (2) Integrated Tier-3 measurement run was triggered: `25851747009` at 2026-05-14T09:07:59Z on branch `claude/short-rs-intc-etf-overlay` HEAD `11eba2a`, with `mode_y_enabled=true` and default multipliers. Expected completion ~13:00-15:00 UTC (~22:00-00:00 KST).
+- integrated_run_id: 25851747009
+- branch_head_for_measurement: 11eba2a
+- changes_in_run:
+  - **A+B** (`1d4d57d`): Concentrated short-RS trap exemption via `score_pre_short_rs_trap` column + `concentrated_uses_short_rs_trap: bool = False` config flag. Concentrated reads `score_pre_short_rs_trap` for picks; Main keeps reading `score` (trap applied).
+  - **D-1** (`fbf41ef`): Strategic megacap dd_1y bypass in `build_universe_monthly`. INTC class now reaches scoring up to dd_1y=0.85 when mktcap >= $10B AND in strategic_global_hardware_universe.yaml.
+  - **D-2** (`b0e079d`): Thematic ETF overlay (`thematic_etf_universe.yaml`, 25 small/mid-cap names). New `load_etf_thematic_overlay_frame()` loader + universe injection. Leader-rescue PIT mode filter extended to include `etf_thematic_overlay`.
+  - **C / Mode Y** (`4d8640d`): Inline regime-conditioned capacity filter at `build_operating_target_books.py`. New `--apply-regime-capacity-filter` flag + per-portfolio multipliers. Concentrated borrows main's freshly-built regime calendar in-memory.
+  - **Workflow fix** (`11eba2a`): env vars for Mode Y inputs (expression length cap workaround).
+- where_to_read_results_when_run_completes:
+  - **Headline metrics (Mode Y applied)**:
+    - `outputs/broker_replay/main/metrics.json` -> {cagr, sharpe, max_drawdown, ...}
+    - `outputs/broker_replay/concentrated/metrics.json` -> same schema.
+  - **Mode Y diagnostic** (per-portfolio per-date regime decisions):
+    - `outputs/reports/operating_main_regime_capacity_filter_decisions.json`
+    - `outputs/reports/operating_concentrated_regime_capacity_filter_decisions.json`
+  - **Mode X sidecar (parallel, double-filter when Mode Y on)**:
+    - `outputs/regime_capacity_broker_replay/main/metrics.json` -> redundant in this run; will likely show DEEPER filter (filter applied twice). Ignore for SHIP decision; primary headline IS the Mode Y result.
+  - **Per-feature verification**:
+    - `outputs/scored_latest.csv` should contain `score_pre_short_rs_trap`, `score_core_pre_short_rs_trap` columns (A+B), `strategic_turnaround_fundamental_pass` column (existing), INTC row (D-1), IONQ/RGTI/QBTS/JOBY/ACHR rows (D-2).
+  - **Engine self-verdict** (research backtest, monthly-bar):
+    - `outputs/full_rebuild_logs/verdict.log` -> "==> SHIP" / "==> HOLD".
+- ship_decision_gates_for_continuing_agents:
+  - Main: `broker_replay/main/metrics.max_drawdown >= -0.32` AND `broker_replay/main/metrics.cagr >= 0.20` (baseline Iter 2 was 23.10% / -29.98%).
+  - Concentrated: `broker_replay/concentrated/metrics.max_drawdown >= -0.40` AND `broker_replay/concentrated/metrics.cagr >= 0.28` (Iter 1 baseline was 37.35% / -37.89%; A+B expected to revert toward this).
+  - Hard stop / HALT triggers (don't auto-trigger followups): Main MaxDD < -32% OR Conc MaxDD < -40%.
+- followup_paths_per_outcome:
+  - All pass + at least one CAGR > target: pick best configuration, document, START Tier-2 validation cycle.
+  - Main pass, Conc fail: try `concentrated_uses_short_rs_trap=False` AND `mode_y_concentrated_multipliers="bear=0.5,deep_bear=0.25"` (drop neutral=0.85) for less CAGR sacrifice.
+  - Main fail: roll back Mode Y main filter via `mode_y_main_multipliers=""` (empty); re-trigger.
+  - Both fail (unlikely given prior data): suspect column wiring bug, check `score_pre_short_rs_trap` actually present in scored_latest, check INTC actually in scored_latest, check Mode Y decisions JSON for filter activation.
+- pending_followups_not_in_this_run:
+  - `tools/refresh_etf_top_holdings.py` (monthly cron + 5-tier fallback) — D-2 v2 to automate ETF holdings refresh. v1 is YAML-only.
+  - sleeve-conditional MaxDD attribution tool (extend `tools/run_trade_attribution_analysis.py`) — would prove the A+B mechanism by showing which sleeve drove the Iter 2 Conc regression.
+  - sleeve_confidence < 0.05 floor — PLTR sleeve_confidence=0.019 still passes; small additional weight management.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->bound 3 Mode Y inputs to `env:` block on the operating_target_books step.
+  - `CHANGELOG.md` ->this entry.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none (workflow infra only)
+- config_fields_added:
+  - none (already in 18:30 KST entry)
+- breaking_changes:
+  - none
+- outputs:
+  - none new this commit. Run `25851747009` will materialize the run artifacts when complete.
+- validation:
+  - workflow_dispatch retry succeeded (HTTP 422 -> 204) after the env-var conversion. Run `25851747009` confirmed `in_progress` at +8s elapsed.
+- risks_or_notes:
+  - **Polling**: parent agent has wakeup loop at 30-min intervals checking run state. Artifact download is safe once "Upload artifact" step completes (typically +2.5-3.5h after start). GDrive sync step often fails on rate limit but that does NOT block artifact download; this is a known and accepted pattern (Iter 2 had the same conclusion=failure for the same reason but metrics were extractable).
+  - **Continuing agent should**: (1) wait for run state to advance past "Upload artifact (logs + scored CSVs)" step, (2) `gh run download 25851747009` into a fresh local dir, (3) compare metrics.json against the gates above, (4) follow followup_paths_per_outcome.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
