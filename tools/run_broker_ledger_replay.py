@@ -415,7 +415,12 @@ def execute_order(
     }
 
 
-def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capital: float) -> dict[str, Any]:
+def calc_metrics(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    starting_capital: float,
+    risk_free_annual: float = 0.025,
+) -> dict[str, Any]:
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve"}
     eq = pd.to_numeric(equity_curve["equity_usd"], errors="coerce").dropna()
@@ -429,7 +434,14 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
     trough_pos = int(drawdown.argmin()) if not drawdown.empty else 0
     peak_pos = int(eq.iloc[: trough_pos + 1].argmax()) if not eq.empty else 0
     vol = float(returns.std(ddof=0) * math.sqrt(252.0)) if not returns.empty else 0.0
-    sharpe = float((returns.mean() * 252.0) / (vol + 1e-12)) if not returns.empty else 0.0
+    # 2026-05-14 soft-gate fix (broker_accounting_audit.sharpe_uses_excess_return):
+    # subtract a constant annual risk-free rate from the strategy's annualized
+    # return before dividing by vol. Default 2.5% reflects the 2019-2026 average
+    # T-bill yield; callers can override via `risk_free_annual`. Previously this
+    # used risk_free=0 implicitly, overstating Sharpe by ~0.20-0.30.
+    rf_annual = float(risk_free_annual)
+    ann_return = float(returns.mean() * 252.0) if not returns.empty else 0.0
+    sharpe = float((ann_return - rf_annual) / (vol + 1e-12)) if not returns.empty else 0.0
     fees = float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
     gross_traded = float(pd.to_numeric(trades.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
     return {
@@ -444,6 +456,7 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
         "total_return": float(eq.iloc[-1] / max(starting_capital, 1e-12) - 1.0),
         "cagr": cagr,
         "sharpe": sharpe,
+        "sharpe_risk_free_annual": rf_annual,
         "max_dd": float(drawdown.min()),
         "max_dd_peak_date": dates.iloc[peak_pos].date().isoformat() if len(dates) else None,
         "max_dd_trough_date": dates.iloc[trough_pos].date().isoformat() if len(dates) else None,
