@@ -2066,6 +2066,16 @@ class EngineConfig:
     # Concentrated stays at the Iter 1 baseline equivalent while Main keeps
     # the trap benefits. Default False per Iter 2 measurement.
     concentrated_uses_short_rs_trap: bool = False
+    # Strategic megacap dd_1y bypass (2026-05-14 D-1 fix): INTC was failing
+    # the universe-level dd_1y < 0.65 filter at dd_1y=0.689 (Intel 2024
+    # trough was -69% peak-to-trough). The downstream strategic_turnaround_pass
+    # gate is irrelevant if INTC never reaches scoring. This bypass allows
+    # curated strategic_global_hardware megacaps (mktcap >= bypass_min_mktcap)
+    # to clear the dd_1y filter up to bypass_max (0.85 = -85% peak-to-trough).
+    # Downstream turnaround_evidence requirement still applies in
+    # add_core_fundamental_minimum_flags.
+    strategic_dd_1y_bypass_max: float = 0.85
+    strategic_dd_bypass_min_mktcap: float = 10e9
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08

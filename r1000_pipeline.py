@@ -7271,11 +7271,38 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
 
     leader_diag_pre_filter = monthly.copy()
+    # Strategic megacap dd_1y bypass (2026-05-14): INTC (dd_1y=0.689) and
+    # similar megacap turnaround candidates curated into
+    # strategic_global_hardware_universe.yaml were failing the dd_1y < 0.65
+    # threshold and never reaching scoring (verified via leader_drop_diagnostics
+    # run 25840490595). This bypass allows strategic megacap curated names
+    # (mktcap >= cfg.strategic_dd_bypass_min_mktcap, default $10B) to pass
+    # the dd_1y filter up to cfg.strategic_dd_1y_bypass_max (default 0.85).
+    # The downstream strategic_turnaround_pass in add_core_fundamental_minimum_flags
+    # still requires turnaround_evidence (ni_loss_narrowing / profit_turn etc.),
+    # so candidates without that evidence will fail scoring anyway.
+    universe_source_str = monthly.get(
+        "universe_source", pd.Series("", index=monthly.index, dtype=object)
+    ).astype(str)
+    strategic_curated_mask = universe_source_str.str.contains(
+        "strategic_global_hardware", case=False, na=False, regex=False
+    )
+    strategic_megacap_mask = strategic_curated_mask & (
+        pd.to_numeric(monthly.get("mktcap"), errors="coerce").fillna(0.0)
+        >= float(getattr(cfg, "strategic_dd_bypass_min_mktcap", 10e9))
+    )
+    dd_1y_series = monthly["dd_1y"].fillna(9e9)
+    dd_1y_pass = dd_1y_series <= cfg.max_dd_1y
+    strategic_dd_bypass = strategic_megacap_mask & (
+        dd_1y_series <= float(getattr(cfg, "strategic_dd_1y_bypass_max", 0.85))
+    )
+    dd_1y_pass = dd_1y_pass | strategic_dd_bypass
+
     base_mask = (
         (monthly["px"].fillna(0) >= cfg.min_price)
         & (monthly["dollar_vol_20d"].fillna(0) >= cfg.min_dollar_vol_20d)
         & (monthly["vol_252d"].fillna(9e9) <= cfg.max_vol_252)
-        & (monthly["dd_1y"].fillna(9e9) <= cfg.max_dd_1y)
+        & dd_1y_pass
     )
     if use_mktcap_filter:
         base_mask &= monthly["mktcap"].notna()
