@@ -262,6 +262,52 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Concentrated regression cause is hypothesized, not proven**: most likely PLTR-class breakdown_penalty=0.923 docked a key concentrated holding's weight, and the N=3 high-conviction structure amplifies the impact. Could also be INTC bypass partially activating but routing through Conc differently. A sleeve-conditional MaxDD attribution tool would prove the mechanism; deferred.
   - **Mode Y (engine port) deferred again**: even after A+B, neither portfolio hits the user's original target frontier. Closing that gap requires either (a) ETF-overlay universe expansion for quantum/eVTOL, (b) deeper Mode Y capacity gate inside the engine, or (c) acceptance that 25%/-30% Main and 37%/-38% Conc IS the honest frontier under current constraints. The next Tier-3 result should inform this choice.
 
+### 18:30 KST - d1-intc-bypass-d2-etf-overlay-c-mode-y-engine-port
+
+- scope:
+  - Bundle of three follow-up improvements on top of the A+B integration commit:
+    * **D-1**: INTC universe inclusion fix. Iter 2 leader_drop_diagnostics revealed INTC was being cut at the universe-level `dd_1y < 0.65` filter (INTC dd_1y = 0.689 from Intel's 2024 -69% trough), NEVER reaching `add_core_fundamental_minimum_flags` where `strategic_turnaround_pass` would have rescued it. New per-row dd_1y bypass for strategic_global_hardware megacaps allows up to 0.85 dd_1y when mktcap >= $10B. Downstream turnaround_evidence requirement still applies.
+    * **D-2**: Thematic ETF top-holdings overlay. New `thematic_etf_universe.yaml` curates 25 small/mid-cap names outside R1000 / ADR / strategic_global_hardware: quantum (IONQ, RGTI, QBTS, QUBT, ARQQ), eVTOL (JOBY, ACHR, EH, LILM, BLDE), space speculative (ASTS, IRDM, MAXR, PL), defense drones (KTOS, AVAV, ONTO), AI speculative (BBAI, SOUN, AI), genomics speculative (BEAM, CRSP, EDIT, NTLA, VERV). New `load_etf_thematic_overlay_frame()` loader mirrors `load_strategic_global_hardware_universe_frame`. Universe injection added after strategic_hw, before final dedup. `_leader_rescue_only_source_mask` extended to include the new source string so PIT-safe latest_only filtering applies. v1 is YAML-only; v2 (TODO) adds `tools/refresh_etf_top_holdings.py` with monthly cron + 5-tier fallback.
+    * **C / Mode Y**: Engine port of the regime-conditioned capacity filter from sidecar to inline. `tools/build_operating_target_books.py` now optionally applies the filter inline via `--apply-regime-capacity-filter`. When the new workflow input `mode_y_enabled=true` fires, the headline `operating_main_target_book.csv` and `operating_concentrated_target_book.csv` are emitted ALREADY filtered, so downstream `broker_ledger_replay` produces filtered metrics as the headline (not just the Mode X parallel sidecar). Concentrated borrows main's regime calendar (via `--concentrated-borrow-main-regime`, default ON) since Concentrated's `regime_state` column is sparse / unreliable.
+- mode_y_default_multipliers:
+  - Main: `bear=0.5,deep_bear=0.25` (Iter-4 known-good from prior overnight loop).
+  - Concentrated: `bear=0.5,deep_bear=0.25,neutral=0.85` (Iter-6 best-MaxDD setting).
+  - Can be overridden via workflow inputs `mode_y_main_multipliers` / `mode_y_concentrated_multipliers`. Pass empty string `""` to disable that portfolio's filter while keeping the other's.
+- files:
+  - `r1000_pipeline.py` ->`build_universe_monthly`: strategic megacap dd_1y bypass at base_mask. New universe injection for `etf_thematic_overlay`. `_leader_rescue_only_source_mask` extended to include etf_thematic_overlay.
+  - `r1000_pipeline.load_etf_thematic_overlay_frame(cfg)` ->new YAML loader (mirrors strategic_global_hardware).
+  - `r1000_config.py` ->5 new fields: `strategic_dd_1y_bypass_max` (0.85), `strategic_dd_bypass_min_mktcap` ($10B), `etf_thematic_overlay_enabled` (True), `etf_thematic_overlay_path` ("").
+  - `thematic_etf_universe.yaml` ->new file. 25 curated tickers across 6 themes + 8 ETF sources for the eventual refresh tool.
+  - `tools/build_operating_target_books.py` ->import sidecar primitives (apply_filter, build_regime_map_from_book, parse_multipliers_arg). Apply Mode Y filter inline when `--apply-regime-capacity-filter` is set. Per-portfolio multipliers. Concentrated borrows main's freshly-built regime calendar in-memory (no CSV roundtrip needed).
+  - `.github/workflows/full_rebuild_manual.yml` ->3 new workflow_dispatch inputs: `mode_y_enabled` (default false), `mode_y_main_multipliers`, `mode_y_concentrated_multipliers`. operating_target_books step branches on the flag.
+  - `CHANGELOG.md` ->records this bundle.
+- symbols_added:
+  - `r1000_pipeline.load_etf_thematic_overlay_frame(cfg)` ->loads thematic ETF overlay yaml -> DataFrame.
+  - `tools.build_operating_target_books.build(args)` extended ->per-portfolio Mode Y filter, regime calendar borrow, diagnostic JSON.
+- symbols_changed:
+  - `r1000_pipeline.build_universe_monthly` ->adds strategic megacap dd_1y bypass + etf_thematic_overlay injection.
+  - `r1000_pipeline._leader_rescue_only_source_mask` ->extended to recognize etf_thematic_overlay as rescue source.
+  - `tools.build_operating_target_books.parse_args` ->4 new CLI args: `--apply-regime-capacity-filter`, `--main-multipliers`, `--concentrated-multipliers`, `--concentrated-borrow-main-regime`.
+- config_fields_added:
+  - `strategic_dd_1y_bypass_max: float = 0.85` ->upper bound dd_1y for strategic megacap bypass.
+  - `strategic_dd_bypass_min_mktcap: float = 10e9` ->megacap floor for the bypass.
+  - `etf_thematic_overlay_enabled: bool = True` ->master switch for ETF overlay injection.
+  - `etf_thematic_overlay_path: str = ""` ->custom yaml path; default uses repo-local file.
+- breaking_changes:
+  - none. Mode Y default OFF in workflow (existing runs unaffected). ETF overlay produces NEW additions only (no existing ticker dropped). dd_1y bypass is per-row additive (broadens the allow-mask).
+- outputs:
+  - Mode Y on: `outputs/reports/operating_main_regime_capacity_filter_decisions.json` + same for concentrated (per-rebalance-date decisions diagnostic).
+  - ETF overlay: additional rows in `outputs/feature_store_latest.parquet` for the 25 thematic tickers (subject to liquidity / size gates downstream).
+- validation:
+  - `py -3 tests/smoke_test.py` ->99/99 passed.
+  - ETF loader exercised locally: 25 rows loaded from yaml.
+- risks_or_notes:
+  - **D-1 INTC bypass**: scoped to mktcap >= $10B AND universe_source includes "strategic_global_hardware". Won't open the door to penny-stock turnaround pumps. Downstream `add_core_fundamental_minimum_flags` still requires turnaround_evidence (ni_loss_narrowing / profit_turn). Expected effect: INTC appears in scored_latest; gets scoring; may or may not survive sleeve gates depending on per-ticker scores.
+  - **D-2 ETF overlay**: v1 manual yaml. Names listed have NOT been sanity-checked for liquidity individually — small-cap quantum names (e.g. QUBT, ARQQ) may have low dollar_vol_20d and fail the universe liquidity gate. eVTOL names (LILM, EH) have foreign domicile flags that may interact with ADR-only filters. First Tier-3 measurement will reveal which actually make it to scored_latest.
+  - **C Mode Y default OFF**: requires explicit `mode_y_enabled=true` workflow input. Production paths still use unfiltered headline books. Mode X sidecar still produces parallel filtered metrics regardless of Mode Y. If both Mode X and Mode Y are enabled simultaneously, the regime_capacity_broker_replay sidecar applies the filter AGAIN on top of the already-filtered primary book (double-filter). The Mode X sidecar should be disabled in the workflow when Mode Y is on, OR ignored downstream; for the first Mode Y trial measurement, recommend `mode_y_enabled=true` and treat Mode X metrics as redundant.
+  - **Mode Y main filter risk**: Iter 2 measurement showed Main MaxDD -29.98% already below the -32% guardrail. Mode Y main filter (bear=0.5,deep_bear=0.25) will dampen Main CAGR by ~3pp (per prior overnight loop) for ~1pp additional MaxDD reduction. If user prefers to keep Main unfiltered, pass `mode_y_main_multipliers=""` (empty string) to the workflow.
+  - **Tier-3 needed for measurement** — all three changes are wired but not yet measured against the integrated baseline. A+B + D-1 + D-2 + C (Mode Y enabled) is the recommended first Tier-3 to maximize MDD coverage. Total dev time today: ~3 hours; Tier-3 cycle: 4-6h.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books

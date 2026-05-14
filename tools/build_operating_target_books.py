@@ -21,6 +21,16 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series
+# Mode Y engine port (2026-05-14): import sidecar filter primitives so the
+# regime-conditioned capacity gate can be applied inline at operating book
+# build time, making it the headline metric source rather than a parallel
+# sidecar measurement.
+from tools.run_regime_capacity_filter import (
+    apply_filter as apply_regime_capacity_filter,
+    build_regime_map_from_book,
+    parse_multipliers_arg,
+    DEFAULT_REGIME_MULTIPLIERS,
+)
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -241,6 +251,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         ("main", latest_run / "reports" / "main_monthly_weights.csv", latest_run / "portfolio_latest.csv"),
         ("concentrated", latest_run / "reports" / "concentrated_strategy_holdings.csv", latest_run / "concentrated_portfolio_latest.csv"),
     ]
+    # Mode Y engine port (2026-05-14): parse per-portfolio multipliers ONCE
+    # outside the loop, so the main filter result can serve as the regime
+    # source for the concentrated filter (concentrated borrows main's regime
+    # calendar -- mirrors the sidecar's --regime-source-book pattern).
+    main_multipliers = parse_multipliers_arg(args.main_multipliers) if args.apply_regime_capacity_filter else {}
+    concentrated_multipliers = parse_multipliers_arg(args.concentrated_multipliers) if args.apply_regime_capacity_filter else {}
+    main_book_for_regime: pd.DataFrame | None = None
     summaries: list[dict[str, Any]] = []
     outputs: dict[str, str] = {}
     for portfolio, history_path, latest_target_path in specs:
@@ -250,6 +267,49 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             latest_target_path=latest_target_path,
             price_cache=price_cache,
         )
+        # Mode Y: apply regime-conditioned capacity filter inline so the
+        # primary operating book IS the filtered book. Main filters using its
+        # own regime_state column; concentrated borrows main's regime_map so
+        # the filter is consistent across portfolios (concentrated's
+        # regime_state column is sparse / unreliable).
+        if args.apply_regime_capacity_filter:
+            if portfolio == "main":
+                multipliers = main_multipliers
+                regime_map = None  # use own regime_state column
+            else:
+                multipliers = concentrated_multipliers
+                regime_map = (
+                    build_regime_map_from_book(main_book_for_regime)
+                    if main_book_for_regime is not None and bool(args.concentrated_borrow_main_regime)
+                    else None
+                )
+            filtered_book, filter_decisions = apply_regime_capacity_filter(
+                book, multipliers=multipliers, regime_map=regime_map
+            )
+            book = filtered_book
+            summary["regime_capacity_filter_applied"] = True
+            summary["regime_capacity_filter_multipliers"] = multipliers
+            summary["regime_capacity_filter_regime_source"] = (
+                "main_book_inline" if regime_map is not None else "own_regime_state"
+            )
+            summary["regime_capacity_filter_decision_count"] = len(filter_decisions)
+            # Persist the per-date decision diagnostics under a portfolio key.
+            diag_path = output_dir / f"operating_{portfolio}_regime_capacity_filter_decisions.json"
+            write_json(diag_path, {
+                "portfolio": portfolio,
+                "applied_at_utc": datetime.now(timezone.utc).isoformat(),
+                "multipliers": multipliers,
+                "regime_source": summary["regime_capacity_filter_regime_source"],
+                "decisions": filter_decisions,
+            })
+            summary["regime_capacity_filter_decisions_path"] = str(diag_path)
+        else:
+            summary["regime_capacity_filter_applied"] = False
+        if portfolio == "main":
+            # Save main book post-filter (or pre-filter if filter disabled) so
+            # concentrated can derive its regime calendar from the same source
+            # the production broker_replay will read.
+            main_book_for_regime = book
         out_path = output_dir / str(summary["output_name"])
         book.to_csv(out_path, index=False)
         summary["output_path"] = str(out_path)
@@ -289,6 +349,39 @@ def parse_args() -> argparse.Namespace:
         "--require-current-latest-target",
         action="store_true",
         help="Exit nonzero unless each operating book reaches the latest observable target signal date.",
+    )
+    # Mode Y engine port (2026-05-14): apply the regime-conditioned capacity
+    # filter inline so the primary operating book IS the filtered version
+    # rather than the parallel sidecar (Mode X) measurement.
+    parser.add_argument(
+        "--apply-regime-capacity-filter",
+        action="store_true",
+        help=(
+            "Mode Y: apply regime-conditioned capacity multipliers to the "
+            "operating books inline. Without this flag the books are emitted "
+            "unfiltered (Iter 1-2 behavior); the Mode X sidecar then produces "
+            "a parallel filtered measurement separately."
+        ),
+    )
+    parser.add_argument(
+        "--main-multipliers",
+        default="bear=0.5,deep_bear=0.25",
+        help="Main portfolio regime multipliers (Iter-4 starter: bear=0.5,deep_bear=0.25).",
+    )
+    parser.add_argument(
+        "--concentrated-multipliers",
+        default="bear=0.5,deep_bear=0.25,neutral=0.85",
+        help="Concentrated regime multipliers (Iter-6 starter: bear=0.5,deep_bear=0.25,neutral=0.85).",
+    )
+    parser.add_argument(
+        "--concentrated-borrow-main-regime",
+        action="store_true",
+        default=True,
+        help=(
+            "Concentrated borrows main's regime calendar (default ON). "
+            "Concentrated's own regime_state column is typically sparse "
+            "(~99.98%% null in prior runs)."
+        ),
     )
     return parser.parse_args()
 

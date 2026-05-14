@@ -55,6 +55,18 @@ on:
         description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
         type: boolean
         default: false
+      mode_y_enabled:
+        description: 'Mode Y engine port: apply regime-conditioned capacity filter inline at operating-book build time so the headline broker_replay metrics reflect the filter (vs Mode X sidecar parallel measurement).'
+        type: boolean
+        default: false
+      mode_y_main_multipliers:
+        description: 'Mode Y Main portfolio multipliers (e.g. "bear=0.5,deep_bear=0.25"). Pass "" to disable Main filter while keeping Conc filter.'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25'
+      mode_y_concentrated_multipliers:
+        description: 'Mode Y Concentrated portfolio multipliers (e.g. "bear=0.5,deep_bear=0.25,neutral=0.85").'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25,neutral=0.85'
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -294,7 +306,11 @@ jobs:
           python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
           python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
           python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
-          python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          if [ "${{ inputs.mode_y_enabled }}" = "true" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "${{ inputs.mode_y_main_multipliers }}" --concentrated-multipliers "${{ inputs.mode_y_concentrated_multipliers }}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          else
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          fi
           python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
