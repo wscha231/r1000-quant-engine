@@ -255,8 +255,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     # outside the loop, so the main filter result can serve as the regime
     # source for the concentrated filter (concentrated borrows main's regime
     # calendar -- mirrors the sidecar's --regime-source-book pattern).
-    main_multipliers = parse_multipliers_arg(args.main_multipliers) if args.apply_regime_capacity_filter else {}
-    concentrated_multipliers = parse_multipliers_arg(args.concentrated_multipliers) if args.apply_regime_capacity_filter else {}
+    apply_regime_filter = bool(getattr(args, "apply_regime_capacity_filter", False))
+    main_multipliers = parse_multipliers_arg(getattr(args, "main_multipliers", "")) if apply_regime_filter else {}
+    concentrated_multipliers = parse_multipliers_arg(getattr(args, "concentrated_multipliers", "")) if apply_regime_filter else {}
+    concentrated_borrow_main_regime = bool(getattr(args, "concentrated_borrow_main_regime", True))
     main_book_for_regime: pd.DataFrame | None = None
     summaries: list[dict[str, Any]] = []
     outputs: dict[str, str] = {}
@@ -272,7 +274,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         # own regime_state column; concentrated borrows main's regime_map so
         # the filter is consistent across portfolios (concentrated's
         # regime_state column is sparse / unreliable).
-        if args.apply_regime_capacity_filter:
+        if apply_regime_filter:
             if portfolio == "main":
                 multipliers = main_multipliers
                 regime_map = None  # use own regime_state column
@@ -280,7 +282,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 multipliers = concentrated_multipliers
                 regime_map = (
                     build_regime_map_from_book(main_book_for_regime)
-                    if main_book_for_regime is not None and bool(args.concentrated_borrow_main_regime)
+                    if main_book_for_regime is not None and concentrated_borrow_main_regime
                     else None
                 )
             filtered_book, filter_decisions = apply_regime_capacity_filter(

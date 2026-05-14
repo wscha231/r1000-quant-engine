@@ -365,6 +365,28 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Polling**: parent agent has wakeup loop at 30-min intervals checking run state. Artifact download is safe once "Upload artifact" step completes (typically +2.5-3.5h after start). GDrive sync step often fails on rate limit but that does NOT block artifact download; this is a known and accepted pattern (Iter 2 had the same conclusion=failure for the same reason but metrics were extractable).
   - **Continuing agent should**: (1) wait for run state to advance past "Upload artifact (logs + scored CSVs)" step, (2) `gh run download 25851747009` into a fresh local dir, (3) compare metrics.json against the gates above, (4) follow followup_paths_per_outcome.
 
+### 19:10 KST - mode-y-build-api-backcompat
+
+- scope:
+  - Fix a code-level regression introduced by the Mode Y operating-book port. `tools/build_operating_target_books.build()` assumed the caller's `argparse.Namespace` always had the new Mode Y fields. The CLI path was safe, but existing smoke tests and programmatic callers construct a minimal Namespace and crashed with `AttributeError: 'Namespace' object has no attribute 'apply_regime_capacity_filter'`.
+- files:
+  - `tools/build_operating_target_books.py` ->uses `getattr(..., default)` for `apply_regime_capacity_filter`, `main_multipliers`, `concentrated_multipliers`, and `concentrated_borrow_main_regime`.
+  - `CHANGELOG.md` ->records the compatibility fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `tools.build_operating_target_books.build(args)` ->keeps Mode Y behavior unchanged when CLI args are present, while preserving backward-compatible programmatic calls without Mode Y args.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tools\run_pr_validation.py --quiet` ->PASS, 22/22 in 27.90s.
+- risks_or_notes:
+  - This fix is not included in already-running Tier-3 run `25851747009` because that run is pinned to SHA `11eba2a`. It does not alter strategy behavior; it only restores API compatibility and local/CI fast validation.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
