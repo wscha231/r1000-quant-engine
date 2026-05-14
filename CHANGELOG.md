@@ -518,6 +518,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - **Mode Y main filter is questionable for Main** based on Iter 4 evidence. If Iter 5 Main MaxDD stays around -32% with -3pp CAGR cost, recommend dropping the main multipliers (pass `mode_y_main_multipliers=""` to next workflow trigger). Concentrated should keep Mode Y as the Iter 4 evidence shows clear win.
   - **F4 tail-row fill** changes the historical broker_replay state semantics. Anyone interpreting current_account_last_trade_date previously expected ~Mar 2 freeze. After F4 the account advances to 5/13. Documentation expectations should be updated.
 
+### 01:50 KST - iter5-results-f11-f12-f13-and-iter6-conc-tail-row-trigger
+
+- scope:
+  - Iter 5 (run `25860138864` head `d95933e`) COMPLETED. Three follow-up commits land (F11 weekly stops sidecar + F12 verdict cross-mode comparison + F13 Conc tail-row preserve). Iter 6 (run `25873418413` head `60fe558`) TRIGGERED.
+- iter5_official_results:
+  - Main (Mode Y): CAGR 19.85% / MaxDD -32.13% / Sharpe 0.916 (rf=2.5% applied) / 2836 trades / $357,442 ending.
+  - Conc (Mode Y): CAGR 32.65% / MaxDD **-28.85%** / Sharpe 1.071 / 280 trades / $729,430 ending. Best Conc MaxDD yet.
+- iter5_mode_comparison (auto_verdict_summary F12 table):
+  - macro-circuit (SPY 200ma): Main 19.02% / **-30.18%** / 0.899; Conc 30.87% / **-27.50%** / 1.046. LOWEST MaxDD on both portfolios.
+  - position-risk daily stops: Main 13.08% / -31.28% / 0.687 — strictly worse than headline; -8% intra-day stop whipsaws.
+- iter5_F4_results:
+  - Main F4 tail-row fallback FIRED at 2026-05-13. current_account_last_trade_date=2026-05-13, pending_order_count=0. Main gap CLOSED.
+  - Conc F4 tail-row did NOT fire. Conc account stayed frozen at 2026-03-02 with 5 pending orders. Root cause: filter_concentrated_champion silently drops the 5/13 row because its metadata (target_stock_names=3 / weighting_mode=winner_take_all) doesn't match champion filter (N=2 / conviction_curve from concentrated_strategy_comparison.csv).
+- F13_fix:
+  - filter_concentrated_champion gains preserve_tail_row=True default. If ALL tail-date rows got dropped by the champion filter AND there were 2+ distinct dates originally, splice the dropped tail rows back in. Historical filtering unchanged. Workaround for the deeper architectural mismatch between Conc historical strategy and latest-recommendation params.
+- iter6_triggered_at: '2026-05-14T16:58:12Z'
+- iter6_run_id: 25873418413
+- iter6_head: 60fe558
+- iter6_includes_relative_to_iter5:
+  - F11 weekly stops sidecar (broker_position_risk_replay_weekly)
+  - F12 cross-mode comparison table in auto_verdict_summary
+  - F13 tail-row preservation in champion filter (Conc gap closer)
+- iter6_expected_outcome_for_conc:
+  - tail_row_fill_fallback_activated_at = 2026-05-13
+  - current_account_last_trade_date = 2026-05-13
+  - pending_order_count_to_recommendation = 0
+  - Operating holdings reflect winner_take_all N=3 latest recommendation
+  - Trade count +5 to +10 on Conc (sells of stale + buys of latest top-3)
+- validation:
+  - tools/run_pr_validation.py -> 24/24 passed including the regression test for N-row-only champion filter behavior.
+- risks_or_notes:
+  - F13 is a workaround. Architectural mismatch (Conc historical vs latest-recommendation strategy params) remains. Long-term: emit a single Conc strategy with consistent metadata.
+  - macro-circuit best-mode finding (LOWEST MaxDD on both portfolios) deserves A/B test as headline filter. Currently runs only as sidecar. Deferred to future iter.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books
