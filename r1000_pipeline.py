@@ -84,6 +84,7 @@ from r1000_config import (
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
+    SHORT_RS_TRAP_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
@@ -281,6 +282,9 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    # Short-RS trap (2026-05-13): split short/long RS + chase-extension penalty
+    compute_rs_short_long_scores,
+    compute_short_extension_risk_penalty,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
     compute_cycle_recovery_score,
@@ -719,16 +723,59 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
     d["early_scout_confirmation_score"] = early_confirmation
     d["adr_global_alpha_confirmation_score"] = adr_confirmation
     d["adr_global_alpha_fallback_pass"] = adr_fallback_pass
+
+    # Strategic turnaround bypass (2026-05-13): allow large-cap turnaround
+    # candidates (INTC, IBM, etc) that fail CORE_FUNDAMENTAL_MINIMUM (because
+    # net_income is negative or unstable) BUT show evidence of profitability
+    # recovery via ni_loss_narrowing_4q / any_profitability_turn_positive_4q.
+    # Gated to strategic_curated overlay tickers only — never opens the entire
+    # universe to negative-NI names.
+    universe_source = d.get("universe_source", pd.Series("", index=d.index)).astype(str)
+    strategic_curated = universe_source.str.contains(
+        "strategic_global_hardware", case=False, na=False, regex=False
+    )
+    ni_loss_narrowing = pd.to_numeric(
+        d.get("ni_loss_narrowing_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    any_profit_turn = pd.to_numeric(
+        d.get("any_profitability_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    profit_turn_4q = pd.to_numeric(
+        d.get("profit_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    mktcap_live = pd.to_numeric(
+        d.get("market_cap_live", d.get("mktcap", pd.Series(0.0, index=d.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    # Megacap floor: only $10B+ qualifies for the bypass (filters out
+    # speculative biotech/penny-stock turnaround stories).
+    megacap_floor = mktcap_live >= 10e9
+    turnaround_evidence = (
+        (ni_loss_narrowing > 0.5)
+        | (any_profit_turn > 0.5)
+        | (profit_turn_4q > 0.5)
+    )
+    strategic_turnaround_pass = (
+        strategic_curated & megacap_floor & turnaround_evidence
+    )
+
     d["sector_adjusted_fundamental_pass"] = sector_adjusted_pass
     d["partial_scout_fundamental_pass"] = partial_scout_pass
-    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass
-    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass
+    d["strategic_turnaround_fundamental_pass"] = strategic_turnaround_pass
+    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
+    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
     d["fundamental_lane_label"] = "insufficient"
     d.loc[adr_fallback_pass, "fundamental_lane_label"] = "adr_global_alpha_fallback"
     d.loc[partial_scout_pass, "fundamental_lane_label"] = "partial_scout"
     d.loc[sector_adjusted_pass, "fundamental_lane_label"] = "sector_adjusted"
+    d.loc[strategic_turnaround_pass, "fundamental_lane_label"] = "strategic_turnaround"
     d.loc[full_pass, "fundamental_lane_label"] = "full_ttm"
-    d["core_fundamental_minimum_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass
+    d["core_fundamental_minimum_pass"] = (
+        full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass | strategic_turnaround_pass
+    )
     return d
 
 
@@ -989,6 +1036,19 @@ def add_total_score_columns(
     )
     d["score_market_fallback_confirmation"] = market_fallback_confirmation
     d["score_fundamental_confidence"] = score_fundamental_confidence
+
+    # Short-RS separation component (2026-05-13): reward positive short-term RS,
+    # penalize negative. Acts independently of long-RS to give 1m/3m weakness
+    # explicit weight rather than averaging it out with 6m/12m signals.
+    rs_short_w = float(getattr(cfg, "w_rs_short_score", 0.35))
+    rs_short_breakdown_w = float(getattr(cfg, "w_rs_short_breakdown_penalty", 0.55))
+    rs_short = numeric_series_or_default(d, "rs_short_score", 0.0)
+    rs_short_breakdown = numeric_series_or_default(d, "rs_short_breakdown_penalty", 0.0)
+    d["score_rs_short_long_separation"] = (
+        rs_short_w * rs_short
+        - rs_short_breakdown_w * rs_short_breakdown
+    ).fillna(0.0)
+
     d["score_core"] = (
         d["score_model_core"]
         + d["score_quality_core"]
@@ -1002,6 +1062,7 @@ def add_total_score_columns(
         + d["score_strategy_blueprint"]
         + d["score_multidimensional_confirmation"]
         + d["score_fundamental_reliability_adjustment"]
+        + d["score_rs_short_long_separation"]
         - d["score_missing_fundamental_penalty"]
     )
     d["score_satellite"] = d["score_flow_satellite"]
@@ -1010,6 +1071,15 @@ def add_total_score_columns(
     d["score_model"] = d["score_core"]
     d["score_live_overlay"] = d["score_forward_revision_satellite"]
     d["score"] = d["score_core"] + (d["score_satellite"] if include_satellite else 0.0)
+
+    # Short-extension multiplicative penalty (2026-05-13): apply AFTER score is
+    # summed so a single-month parabolic move docks the entire score by up to
+    # 20% (when not exempted by structural-growth confirmation).
+    short_ext_w = float(getattr(cfg, "w_short_extension_penalty", 0.20))
+    short_ext_penalty = numeric_series_or_default(d, "short_extension_risk_penalty", 0.0).clip(
+        lower=0.0, upper=1.0
+    )
+    d["score"] = d["score"] * (1.0 - short_ext_w * short_ext_penalty).fillna(1.0)
     return d
 
 
@@ -8001,6 +8071,20 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p14_col in PHASE14_HYBRID_ALPHA_COLUMNS:
             universe[_p14_col] = 0.0
 
+    # Short-RS trap (2026-05-13): split short/long RS components + short-horizon
+    # chase-extension penalty (PLTR/IONQ style protection). Runs after Phase 14
+    # so theme_horizon_primary is populated for the structural-growth exemption.
+    if phase_is_enabled("short_rs_trap", default=True):
+        universe = compute_rs_short_long_scores(universe)
+        universe = compute_short_extension_risk_penalty(universe)
+    else:
+        log(
+            "[short_rs_trap] disabled via env PHASE_SHORT_RS_TRAP_ENABLED=0 "
+            "- zero-filling short-RS trap columns."
+        )
+        for _srs_col in SHORT_RS_TRAP_COLUMNS:
+            universe[_srs_col] = 0.0
+
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst.
     # Runs AFTER Phase 14 because cycle_recovery uses any_profit_sign_flip_pos
     # (Phase 9 C3 flag) and mom_24m / mom_3m / mom_6m (already in universe).
@@ -8128,12 +8212,13 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
+            + SHORT_RS_TRAP_COLUMNS
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
             + PHASE20_THEME_POLICY_COLUMNS
             + PHASE21_STYLE_REGIME_COLUMNS
-            + ["applied_gates_count", "pattern_blocked"]
+            + ["applied_gates_count", "pattern_blocked", "strategic_turnaround_fundamental_pass"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -8164,6 +8249,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
+        + SHORT_RS_TRAP_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
         + [

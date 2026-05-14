@@ -51,6 +51,53 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-14
+
+### 08:30 KST - short-rs-trap-plus-strategic-turnaround-bypass
+
+- scope:
+  - Two-part fix for PLTR-class portfolio entries and INTC-class universe omissions surfaced in user audit of 2026-05-13 portfolio_latest.csv.
+  - Part 1 (Short-RS trap): Split RS into short (1m+3m) and long (6m+12m) score components; the prior single `rs_acceleration_score` averaged them to a weak -0.07 on PLTR despite rs_industry_6m=-0.27 and rs_benchmark_6m=-0.35. Adds direct hand-coded weight via `w_rs_short_score` + `w_rs_short_breakdown_penalty` so short-term breakdown drives total score down without waiting for ML retraining.
+  - Part 2 (Strategic turnaround bypass): INTC sat in `strategic_global_hardware_universe.yaml` but never reached `scored_latest.csv` because Intel's negative net income failed the CORE_FUNDAMENTAL_MINIMUM gate. New `strategic_turnaround_pass` lane unioned into `core_fundamental_minimum_pass` allows megacap ($10B+) curated names with `ni_loss_narrowing_4q > 0.5` OR `any_profitability_turn_positive_4q > 0.5` OR `profit_turn_positive_4q > 0.5` to bypass the gate. Scoped to strategic_curated overlay only — never opens the whole universe to negative-NI names.
+  - Part 3 (Short-extension penalty): New `short_extension_risk_penalty` multiplicative score reducer (max -20%) fires when mom_1m > 0.20 OR bb_pb > 0.95 OR price/MA20 > 1.20, exempted when theme_horizon_primary='structural_growth' AND (mom_24m > 0 OR mom_36m > 0) AND industry_group_strength_score > 0. Protects multi-year structural uptrends (IONQ-class quantum, eVTOL, nuclear-smr) from being penalized as single-month pumps.
+- files:
+  - `r1000_features.py` ->add `compute_rs_short_long_scores` (3 columns: rs_short_score, rs_long_score, rs_short_breakdown_penalty) + `compute_short_extension_risk_penalty` (1 column) + `SHORT_RS_TRAP_COLUMNS` constant. Both functions exported via `__all__`.
+  - `r1000_config.py` ->mirror SHORT_RS_TRAP_COLUMNS constant. Append 4 columns to DEFAULT_FEATURES so walk-forward ML learns regression weights. 3 new EngineConfig fields: w_rs_short_score=0.35, w_rs_short_breakdown_penalty=0.55, w_short_extension_penalty=0.20. Bump ENGINE_REUSE_VERSION to '2026-05-13-short-rs-trap-intc-bypass' to force FS rebuild.
+  - `r1000_pipeline.py` ->import SHORT_RS_TRAP_COLUMNS + compute fns. Invoke compute_rs_short_long_scores + compute_short_extension_risk_penalty in build_feature_store under `short_rs_trap` phase toggle (default ON). Append SHORT_RS_TRAP_COLUMNS to keep_cols (2 sites: top-level + hard_sanitize). Add `score_rs_short_long_separation` to score_core sum + multiplicative `short_extension_risk_penalty` applied to final `score` in add_total_score_columns. Add `strategic_turnaround_pass` 5th lane to add_core_fundamental_minimum_flags (megacap floor $10B + strategic_curated + turnaround_evidence).
+  - `tests/smoke_test.py` ->4 new regression tests covering: SHORT_RS_TRAP_COLUMNS export + keep_cols wiring, compute fn invocation in build_feature_store, strategic_turnaround_pass union into core_fundamental_minimum_pass, EngineConfig weight fields presence.
+- symbols_added:
+  - `r1000_features.compute_rs_short_long_scores(df)` ->z-score mean of 6 short RS cols + 6 long RS cols + breakdown penalty.
+  - `r1000_features.compute_short_extension_risk_penalty(df)` ->multiplicative score penalty with structural-growth exemption.
+  - `r1000_features.SHORT_RS_TRAP_COLUMNS: list[str]` ->4 column names.
+  - `r1000_config.SHORT_RS_TRAP_COLUMNS: list[str]` ->mirrored constant.
+- symbols_changed:
+  - `r1000_pipeline.add_core_fundamental_minimum_flags(df, cfg)` ->unions `strategic_turnaround_pass` into `core_fundamental_minimum_pass`; sets new `strategic_turnaround_fundamental_pass` column and `fundamental_lane_label='strategic_turnaround'`.
+  - `r1000_pipeline.add_total_score_columns(d, cfg, ...)` ->adds `score_rs_short_long_separation` to `score_core` sum and applies `(1 - w * short_extension_risk_penalty)` multiplicative reducer to final `score`.
+  - `r1000_pipeline.build_feature_store(cfg)` ->invokes compute_rs_short_long_scores + compute_short_extension_risk_penalty under `short_rs_trap` phase toggle.
+  - `r1000_config.ENGINE_REUSE_VERSION` ->"2026-05-07-style-regime-router" became "2026-05-13-short-rs-trap-intc-bypass". Triggers FS rebuild on next FULL run.
+  - `r1000_config.DEFAULT_FEATURES` ->appended 4 columns: rs_short_score, rs_long_score, rs_short_breakdown_penalty, short_extension_risk_penalty.
+- config_fields_added:
+  - `w_rs_short_score: float = 0.35` ->weight on z-scored short-RS reward.
+  - `w_rs_short_breakdown_penalty: float = 0.55` ->asymmetric weight on short-RS breakdown penalty (heavier than reward — punish weakness more than chasing momentum).
+  - `w_short_extension_penalty: float = 0.20` ->max multiplicative reduction of score on parabolic single-month moves (when not exempted by structural growth).
+- breaking_changes:
+  - none runtime. ENGINE_REUSE_VERSION bump triggers one-time FS rebuild on next FULL run; all 4 new columns zero-fill cleanly when phase toggle PHASE_SHORT_RS_TRAP_ENABLED=0.
+- outputs:
+  - `feature_store_latest.parquet` gains 4 columns: rs_short_score, rs_long_score, rs_short_breakdown_penalty, short_extension_risk_penalty.
+  - `scored_latest.csv` gains `score_rs_short_long_separation` + 4 trap columns + `strategic_turnaround_fundamental_pass`.
+  - Expected portfolio behavior change: PLTR-class names (high growth fundamentals + negative short-RS) get docked via the short_score penalty; INTC-class names (megacap turnaround with negative NI) now pass the gate.
+- validation:
+  - `py -3 tests/smoke_test.py` ->93/93 passed in 2.4s (89 prior + 4 new). All tests verify wiring (column constants, compute fn invocation, gate union, cfg fields).
+  - Local QUICK_RESCORE deferred to next session; cloud FULL_REBUILD required to materialize the FS schema change.
+- risks_or_notes:
+  - **Hand-coded weight risk**: w_rs_short_breakdown_penalty=0.55 is the heaviest direct score weight introduced since Phase 14. If the ML walk-forward then independently learns a positive coefficient on rs_short_breakdown_penalty (i.e. it correlates with positive forward returns post-2022 mean-reversion regimes), this could double-count. Mitigation: A/B isolate via `PHASE_SHORT_RS_TRAP_ENABLED=0` to measure ML-only baseline.
+  - **Structural-growth exemption may over-protect**: PLTR has theme_horizon_primary='structural_growth' but mom_24m/mom_36m are checked — if PLTR's 24mo/36mo momentum is positive (post-2022 AI rally), it would be exempted from short_extension_risk_penalty. Confirmed PLTR's prior mom_24m signature in current data is positive but its current rs_short_breakdown is severely negative, so the BREAKDOWN penalty applies even when EXTENSION penalty is exempted — both layers are independent.
+  - **INTC gate bypass scoped narrowly**: only strategic_global_hardware tickers with $10B+ mktcap + recent turnaround_evidence pass. R1000 turnaround candidates (e.g. T-Mobile pre-2014) are NOT covered — would need separate carve-out. Conservative by design.
+  - **Forward-return horizon mismatch**: short_extension penalty fires on 1-month features but ML target is r_1m/r_3m/r_6m blend. If the engine penalizes a name 1-month after a parabolic move but the move was actually the start of a 6-month structural rally, the penalty is wrong. Multi-year mom check exists but only for fully structural names. Acceptable trade-off: false-positive rate kept low by 3-condition OR gate AND 4-condition AND exemption.
+  - **No cloud rebuild yet**: this commit code-level only. A FULL_REBUILD via .github/workflows/full_rebuild_manual.yml is required to (a) regenerate feature_store with the 4 new columns populated, (b) measure CAGR/Sharpe/MaxDD delta vs Phase 15-D baseline. Verdict gate per SHIP rule: dCAGR ≥ +0.5pp AND dSharpe ≥ -0.05 AND dMaxDD ≥ -3pp AND early_scout ≥ 4.
+  - **Bug not fixed**: PLTR sleeve_confidence=0.019 still gets through; this commit reduces PLTR's TOTAL score but doesn't add a sleeve_confidence floor. Followup commit needed: sleeve_confidence < 0.05 ->force weight=0 (or move to unassigned).
+  - **ETF top-5 holdings overlay not yet shipped**: planned as separate commit (`thematic_etf_universe.yaml` + `tools/refresh_etf_top_holdings.py` + monthly cron). Will widen universe to quantum (IONQ/RGTI/QBTS/QUBT) + eVTOL (JOBY/ACHR/EH) + nuclear-smr small caps via curated ETF holdings.
+
 ## 2026-05-12
 
 ### 00:01 KST - event-driven-operating-target-books

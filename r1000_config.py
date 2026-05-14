@@ -200,6 +200,21 @@ PHASE14_HYBRID_ALPHA_COLUMNS = [
     "theme_phase_multiplier_max",           # themes.yaml phase classifier (max across themes)
 ]
 
+# Short-RS trap (2026-05-13) — split short (1m+3m) from long (6m+12m) RS so
+# PLTR-style single-month breakdown gets explicit penalty rather than being
+# averaged out across periods. short_extension_risk_penalty fires on parabolic
+# single-month moves not backed by structural-growth + multi-year momentum.
+# Defined in r1000_features.py compute_rs_short_long_scores +
+# compute_short_extension_risk_penalty. Constant mirrored here so all
+# PHASE*_COLUMNS-style splices reach r1000_pipeline.build_feature_store
+# keep_cols + hard_sanitize via the canonical import.
+SHORT_RS_TRAP_COLUMNS = [
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+]
+
 # Phase 15-A (2026-04-28) cycle-leader rescue + earnings-revision catalyst.
 # Two new ML features that target the gap exposed by the SHIPPED Phase 14
 # scored_latest.csv: SNDK rank 37/595 score 3.69 was completely unassigned
@@ -760,7 +775,16 @@ DEFAULT_FEATURES = [
     "val_residual_ep",
     "val_residual_sp",
     "val_residual_fcfy",
-] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + PHASE15_ALPHA_COLUMNS
+] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + [
+    # Short-RS trap features (2026-05-13): split short/long RS + chase-extension
+    # penalty. Added to DEFAULT_FEATURES so walk-forward ML learns regression
+    # weights; the engine also applies a direct hand-coded score component
+    # (w_rs_short_score / w_rs_short_breakdown_penalty) for explicit weighting.
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+] + PHASE15_ALPHA_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
     "institutional_flow_actual_score",
@@ -1535,7 +1559,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-07-style-regime-router"
+ENGINE_REUSE_VERSION = "2026-05-13-short-rs-trap-intc-bypass"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -2016,6 +2040,18 @@ class EngineConfig:
     w_event_reaction: float = 0.10
     w_institutional_flow: float = 0.10
     w_insider_flow: float = 0.08
+    # Short-RS trap weights (2026-05-13): separate short (1m+3m) from long
+    # (6m+12m) RS so PLTR-style short-term breakdown drives score down even
+    # when long-RS is still positive. w_rs_short_breakdown_penalty is
+    # asymmetric (heavier than reward) — punish weakness more than reward
+    # short-term strength to avoid chasing pumps.
+    w_rs_short_score: float = 0.35
+    w_rs_short_breakdown_penalty: float = 0.55
+    # short_extension_risk_penalty is multiplicative (applied as
+    # score *= (1 - w * penalty)). 0.20 = max -20% score on parabolic moves.
+    # Structural growth (theme_horizon=structural_growth + multi-year mom)
+    # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
+    w_short_extension_penalty: float = 0.20
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
