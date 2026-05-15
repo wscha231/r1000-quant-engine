@@ -32,6 +32,18 @@ on:
         description: 'Max trading-day lag for next-close fills'
         type: string
         default: '7'
+      mode_y_enabled:
+        description: 'Apply the same regime-capacity filter used by the latest Mode Y full rebuild'
+        type: boolean
+        default: true
+      mode_y_main_multipliers:
+        description: 'Mode Y main capacity multipliers, e.g. bear=0.5,deep_bear=0.25'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25'
+      mode_y_concentrated_multipliers:
+        description: 'Mode Y concentrated capacity multipliers, e.g. bear=0.5,deep_bear=0.25,neutral=0.85'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25,neutral=0.85'
 
 permissions:
   contents: read
@@ -120,10 +132,17 @@ jobs:
           THEME_COST_BPS: ${{ inputs.theme_cost_bps }}
           THEME_TOP_N: ${{ inputs.theme_top_n }}
           THEME_SINGLE_NAME_CAP: ${{ inputs.theme_single_name_cap }}
+          MODE_Y_ENABLED: ${{ inputs.mode_y_enabled }}
+          MODE_Y_MAIN_MULTIPLIERS: ${{ inputs.mode_y_main_multipliers }}
+          MODE_Y_CONCENTRATED_MULTIPLIERS: ${{ inputs.mode_y_concentrated_multipliers }}
         run: |
           set -e
           set -o pipefail
-          python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          if [ "$MODE_Y_ENABLED" = "true" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "$MODE_Y_MAIN_MULTIPLIERS" --concentrated-multipliers "$MODE_Y_CONCENTRATED_MULTIPLIERS" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          else
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          fi
           python tools/run_main_v3_alpha_concentration.py --latest-run outputs --output-dir outputs/main_v3_alpha_concentration --single-name-cap 0.33 --cash-floor 0.00 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration.log || true
           python tools/run_concentrated_v2_challenger.py --latest-run outputs --output-dir outputs/concentrated_v2_challenger --target-n 7 --single-cap 0.25 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger.log || true
           python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log

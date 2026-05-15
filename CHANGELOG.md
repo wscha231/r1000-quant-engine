@@ -468,9 +468,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - none
 - validation:
   - `py -3 tests\concentrated_broker_grid_smoke.py` ->PASS
-  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33 tests before the timeout-only workflow patch
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33 tests
 - risks_or_notes:
   - Replay outputs may be absent from Google Drive if sync times out, but the run artifact is uploaded before this step and should be treated as canonical for replay analysis.
+
+### 17:04 KST - replay-mode-y-parity
+
+- scope:
+  - Restore full-run parity in fast replay operating target books. Iter 6 full rebuild used Mode Y regime-capacity multipliers, but fast replay rebuilt operating books without those inputs, causing replay metrics to evaluate a different target book than the source full run.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds Mode Y workflow inputs and applies `build_operating_target_books.py --apply-regime-capacity-filter` when enabled.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `mode_y_enabled: boolean = true` ->enables full-run-equivalent regime capacity filtering in fast replay.
+  - `mode_y_main_multipliers: string = 'bear=0.5,deep_bear=0.25'` ->main capacity multipliers for replay parity.
+  - `mode_y_concentrated_multipliers: string = 'bear=0.5,deep_bear=0.25,neutral=0.85'` ->concentrated capacity multipliers for replay parity.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_target_books_summary.json` ->fast replay now reflects the selected Mode Y capacity policy by default.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tests\concentrated_broker_grid_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33 tests
+- risks_or_notes:
+  - Default replay behavior now matches the recent Mode Y full-run default. Set `mode_y_enabled=false` to intentionally run non-Mode-Y research comparisons.
 
 ## 2026-05-14
 
