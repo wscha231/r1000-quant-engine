@@ -386,7 +386,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `tests/broker_market_circuit_grid_smoke.py` ->fixture-based regression test for grid output and best-metric selection.
   - `tools/run_pr_validation.py` ->adds the grid smoke test to fast validation.
   - `tools/run_portfolio_goal_search.py` ->adds best grid variants to production-compatible candidate ranking.
-  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs market-circuit grid sidecars in fast replay and includes their artifacts/GDrive sync.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs market-circuit grid sidecars in fast replay, includes their artifacts/GDrive sync, and moves repeated workflow inputs into shell env vars to avoid GitHub's expression-length limit.
   - `.github/workflows/full_rebuild_manual.yml` ->runs market-circuit grid sidecars in full rebuild and includes their artifacts/GDrive sync.
 - symbols_added:
   - `parse_grid(value: str) -> list[tuple[float, float]]` ->parses caution/crisis multiplier pairs.
@@ -412,6 +412,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tools\run_pr_validation.py` ->PASS, 32/32 tests
 - risks_or_notes:
   - Grid variants are production-compatible evaluation artifacts but remain research-only; promotion still requires target gates and stress-window review.
+  - Push run `25904189809` exposed GitHub's `Exceeded max expression length 21000` parser limit for the long replay shell block; the workflow now uses step env vars for repeated input values.
 
 ## 2026-05-14
 
