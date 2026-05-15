@@ -612,6 +612,45 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This does not change any replay metrics or production defaults.
 
+### 19:06 KST - alpha-selector-dynamic-regime-grid
+
+- scope:
+  - Add a research-only broker-ledger sidecar that adapts alpha-selector concentration by same-date `regime_state`. This addresses the current high-CAGR alpha-selector blocker: fixed N=2/N=3 leader portfolios can reach strong CAGR, but carry too much account drawdown during bear regimes.
+- files:
+  - `tools/run_alpha_selector_dynamic_regime_grid.py` ->new research sidecar that builds bull/neutral/bear alpha-selector target recipes from same-date candidate features and evaluates them through next-close broker replay.
+  - `tests/alpha_selector_dynamic_regime_grid_smoke.py` ->adds a no-forward-label smoke test that verifies bull/bear recipe switching and deliberate bear cash scaling.
+  - `tools/run_pr_validation.py` ->adds the dynamic-regime smoke test to Tier-1 validation.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs the dynamic regime sidecar for main and concentrated replay outputs and exports the artifacts.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the dynamic regime sidecar in full rebuilds, includes cap 0.40 in the alpha-selector grid, and syncs the new outputs.
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated dynamic-regime best and target-distance candidates to artifact ranking.
+  - `tests/workflow_artifact_smoke.py` ->adds workflow coverage for the new sidecar output directory and logs.
+  - `CHANGELOG.md` ->documents the sidecar.
+- symbols_added:
+  - `parse_variant(value: str) -> tuple[str, int, float]` ->parses alpha-selector style/N/cap recipe strings.
+  - `regime_by_date(candidates: pd.DataFrame) -> dict[pd.Timestamp, str]` ->extracts same-date regime labels from the candidate replay book.
+  - `build_base_targets(candidates: pd.DataFrame, specs: set[tuple[str, int, float]], *, min_mcap: float, min_dollar_vol: float, min_price: float, require_price_cache: bool) -> dict[tuple[str, int, float], pd.DataFrame]` ->precomputes reusable alpha-selector target books.
+  - `stitch_dynamic_target(base_targets: dict[tuple[str, int, float], pd.DataFrame], regimes: dict[pd.Timestamp, str], *, bull: tuple[str, int, float], neutral: tuple[str, int, float], bear: tuple[str, int, float], bear_multiplier: float, neutral_multiplier: float) -> pd.DataFrame` ->combines target recipes by regime without using future returns.
+  - `test_dynamic_regime_grid_switches_specs_without_forward_labels() -> None` ->regression test for same-date regime switching.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes dynamic-regime sidecar candidates in goal search.
+  - `DEFAULT_TESTS` ->includes `tests/alpha_selector_dynamic_regime_grid_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none. This is research-only and does not change production defaults.
+- outputs:
+  - `outputs/alpha_selector_dynamic_regime_grid/main/best_metrics.json` ->best-CAGR main dynamic-regime alpha-selector replay.
+  - `outputs/alpha_selector_dynamic_regime_grid/main/best_target_distance_metrics.json` ->main dynamic-regime replay closest to CAGR/MaxDD target.
+  - `outputs/alpha_selector_dynamic_regime_grid/concentrated/best_metrics.json` ->best-CAGR concentrated dynamic-regime alpha-selector replay.
+  - `outputs/alpha_selector_dynamic_regime_grid/concentrated/best_target_distance_metrics.json` ->concentrated dynamic-regime replay closest to CAGR/MaxDD target.
+- validation:
+  - `py -3 tests\alpha_selector_dynamic_regime_grid_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools\run_alpha_selector_dynamic_regime_grid.py --candidate-book _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413\reports\candidate_replay_book.csv --price-cache _local_concentrated_broker_grid_higher_n\cache_prices --portfolio-kind main --output-dir _local_alpha_selector_dynamic_regime_tool_check\main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-variants 6` ->PASS, completed with sample best CAGR 36.73%, MaxDD -27.12%.
+- risks_or_notes:
+  - Local exhaustive scratch replay found an improved target-distance main candidate around 31.46% CAGR / -21.35% MaxDD, still short of the -15% target. Next work should pair this with a stronger account drawdown budget overlay rather than promote it.
+  - The workflow alpha-selector grid now includes cap 0.40 and 60 variants, so replay runtime may increase modestly.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
