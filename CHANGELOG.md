@@ -497,6 +497,29 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Default replay behavior now matches the recent Mode Y full-run default. Set `mode_y_enabled=false` to intentionally run non-Mode-Y research comparisons.
 
+### 17:41 KST - market-circuit-champion-filter-parity
+
+- scope:
+  - Fix market-circuit replay diagnostics so concentrated circuit metrics preserve the source target-book champion filter instead of reporting a misleading default-static N3/score_power warning on generated circuit books.
+- files:
+  - `tools/run_broker_market_circuit_replay.py` ->resolves champion filters from the source target book, uses them to normalize the source book, passes them explicitly into broker replay, and records source filter provenance in metrics.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `normalize_source_book(path: Path, portfolio_kind: str, champion_filters: dict[str, Any] | None = None) -> pd.DataFrame` ->accepts explicit champion filters for parity with the source target book.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_broker_market_circuit_replay.py` ->preserves source concentrated champion filter metadata when building and replaying circuit target books.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_market_circuit_replay/<portfolio>/metrics.json` ->now includes `source_target_book_filter`, `source_target_book_filter_source`, and `source_target_book_filter_warning`.
+- validation:
+  - `py -3 tests\broker_market_circuit_replay_smoke.py` ->PASS
+  - `py -3 tests\broker_market_circuit_grid_smoke.py` ->PASS
+- risks_or_notes:
+  - This is a diagnostics/accounting fix. It does not promote the market-circuit challenger or change production portfolio selection.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

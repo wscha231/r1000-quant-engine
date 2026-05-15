@@ -26,7 +26,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_broker_ledger_replay import normalize_targets, replay as broker_replay, repo_path, safe_float  # noqa: E402
+from tools.run_broker_ledger_replay import (  # noqa: E402
+    normalize_targets,
+    replay as broker_replay,
+    repo_path,
+    resolve_concentrated_champion_filters,
+    safe_float,
+)
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
@@ -130,11 +136,15 @@ def compute_circuit_states(
     return out
 
 
-def normalize_source_book(path: Path, portfolio_kind: str) -> pd.DataFrame:
+def normalize_source_book(
+    path: Path,
+    portfolio_kind: str,
+    champion_filters: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     raw = pd.read_csv(path, low_memory=False)
-    return normalize_targets(raw, portfolio_kind=portfolio_kind)
+    return normalize_targets(raw, portfolio_kind=portfolio_kind, champion_filters=champion_filters)
 
 
 def latest_base_weights(base: pd.DataFrame, signal_date: pd.Timestamp) -> tuple[pd.Timestamp | None, pd.DataFrame]:
@@ -218,7 +228,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    base = normalize_source_book(target_book, args.portfolio_kind)
+    raw_source = pd.read_csv(target_book, low_memory=False) if target_book.exists() else pd.DataFrame()
+    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+        target_book=target_book,
+        raw_targets=raw_source,
+        portfolio_kind=args.portfolio_kind,
+    )
+    base = normalize_targets(raw_source, portfolio_kind=args.portfolio_kind, champion_filters=champion_filters)
     benchmark, benchmark_ticker = load_benchmark(price_cache)
     if base.empty or benchmark.empty:
         payload = {
@@ -251,6 +267,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             cost_bps=float(args.cost_bps),
             integer_shares=not bool(args.no_integer_shares),
             max_fill_lag_days=int(args.max_fill_lag_days),
+            concentrated_champion_filters=champion_filters,
         )
     except Exception as exc:
         metrics = {
@@ -266,8 +283,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "research_only": True,
             "production_activation_allowed": False,
             "valid_for_production": bool(metrics.get("valid_for_production")),
-            "source_target_book": str(target_book),
-            "market_circuit_target_book": str(circuit_target),
+                "source_target_book": str(target_book),
+                "source_target_book_filter": champion_filters,
+                "source_target_book_filter_source": champion_filter_source,
+                "source_target_book_filter_warning": champion_filter_warning,
+                "market_circuit_target_book": str(circuit_target),
             "benchmark_ticker": benchmark_ticker,
             "caution_multiplier": float(args.caution_multiplier),
             "crisis_multiplier": float(args.crisis_multiplier),
