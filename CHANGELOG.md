@@ -190,6 +190,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is diagnostic-only. It does not override gates or force any ticker into a portfolio.
   - Iter 6 local output shows top missed candidates include ARM/RKLB/SNDK/GLW/HIMX/INTC/LITE/WDC, with SNDK and LITE marked `candidate_gate_rejected`, which supports the next P4 replacement-swap and gate-review work.
 
+### 12:25 KST - p4-broker-replacement-swap-replay
+
+- scope:
+  - Add P4 research-only broker-compatible replacement swap replay. The sidecar mutates a copy of an operating target book by replacing weak/stale holdings with stronger same-date candidates, then runs the standard broker-ledger next-close replay so candidate swaps are judged under account-like cash/share/fee rules rather than proxy metrics.
+- files:
+  - `tools/run_broker_replacement_swap_replay.py` ->new sidecar that builds replacement target books, writes swap decisions, and calls broker-ledger replay.
+  - `tests/broker_replacement_swap_replay_smoke.py` ->smoke coverage proving same-date score selection is used and forward-return labels do not drive replacements.
+  - `tools/run_pr_validation.py` ->adds the replacement-swap smoke test to fast validation.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs/uploads/syncs main and concentrated replacement-swap replay outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs/uploads/syncs replacement-swap outputs in fast replay workflow.
+  - `tests/workflow_artifact_smoke.py` ->asserts full and replay workflow wiring for the new output.
+- symbols_added:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->builds a replacement target book and replays it through broker-ledger accounting.
+  - `build_replacement_book(targets: pd.DataFrame, candidates: pd.DataFrame, args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]` ->replaces weak holdings with stronger same-date candidates.
+  - `score_candidate_frame(frame: pd.DataFrame) -> pd.DataFrame` ->creates per-date replacement candidate and adjusted scores without forward labels.
+  - `gate_allows_candidate(row: pd.Series, args: argparse.Namespace) -> tuple[bool, str]` ->applies liquidity, market-cap, risk, and optional monster gate override checks.
+  - `held_weakness(row: pd.Series, held_score: float, args: argparse.Namespace) -> tuple[bool, float, str]` ->classifies stale/weak holdings eligible for replacement review.
+  - `test_replacement_swap_uses_scores_not_forward_labels() -> None` ->guards replacement selection against future-return leakage.
+- symbols_changed:
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/broker_replacement_swap_replay_smoke.py`.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires full rebuild wiring for broker replacement-swap replay.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None` ->requires replay workflow wiring for broker replacement-swap replay.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_replacement_swap_replay/<portfolio>/metrics.json` ->broker-ledger metrics for the replacement-swap challenger.
+  - `outputs/broker_replacement_swap_replay/<portfolio>/replacement_target_book.csv` ->mutated target book used by broker replay.
+  - `outputs/broker_replacement_swap_replay/<portfolio>/replacement_swap_decisions.csv` ->swap/no-swap decision evidence.
+  - `outputs/broker_replacement_swap_replay/<portfolio>/replay_report.md` ->human-readable account-ledger replay summary.
+- validation:
+  - `py -3 tests\broker_replacement_swap_replay_smoke.py` ->PASS
+  - `py -3 tools\run_broker_replacement_swap_replay.py --target-book _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413\reports\operating_main_target_book.csv --candidate-book _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413\reports\candidate_replay_book.csv --price-cache cache_prices --output-dir _local_broker_replacement_swap_main_check --portfolio-kind main --max-swaps-per-date 2 --min-score-advantage 0.20` ->PASS, blocked locally because local `cache_prices/` is empty
+  - `py -3 tools\run_broker_replacement_swap_replay.py --target-book _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413\reports\operating_concentrated_target_book.csv --candidate-book _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413\reports\candidate_replay_book.csv --price-cache cache_prices --output-dir _local_broker_replacement_swap_concentrated_check --portfolio-kind concentrated --max-swaps-per-date 1 --min-score-advantage 0.20` ->PASS, blocked locally because local `cache_prices/` is empty
+- risks_or_notes:
+  - This is a research challenger only; production activation remains false. It is intended to test whether replacing broken/stale holdings with stronger leaders beats cash or passive review under broker-ledger accounting.
+  - The sidecar catches broker-replay exceptions and writes blocked metrics instead of failing the workflow, because local replay artifacts may not include the required `cache_prices/` files.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
