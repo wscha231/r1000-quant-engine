@@ -111,7 +111,7 @@ def test_replay_price_cache_includes_bounded_historical_candidates() -> None:
         assert payload["missing_before"] == 3
 
 
-def test_candidate_cache_total_limit_prefers_recent_dates() -> None:
+def test_candidate_cache_total_limit_balances_dates_with_recency_priority() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         candidates = root / "candidate_replay_book.csv"
@@ -124,12 +124,12 @@ def test_candidate_cache_total_limit_prefers_recent_dates() -> None:
             ]
         ).to_csv(candidates, index=False)
 
-        tickers = collect_candidate_tickers([candidates], max_per_date=2, max_total=2)
-        assert tickers == {"NEW1", "NEW2"}
+        tickers = collect_candidate_tickers([candidates], max_per_date=2, max_total=3)
+        assert tickers == {"NEW1", "OLD1", "NEW2"}
 
 
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
     test_replay_price_cache_includes_bounded_historical_candidates()
-    test_candidate_cache_total_limit_prefers_recent_dates()
+    test_candidate_cache_total_limit_balances_dates_with_recency_priority()
     print("replay_price_cache_smoke: PASS")

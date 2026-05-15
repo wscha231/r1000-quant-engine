@@ -794,18 +794,18 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is branch workflow behavior for fast alpha research. Broad operating reports remain available in full rebuild and can be restored in fast replay after the focused loop is no longer needed.
 
-### 21:35 KST - replay-candidate-cache-recency-priority
+### 21:35 KST - replay-candidate-cache-balanced-recency-priority
 
 - scope:
-  - Fix historical candidate price-cache truncation so bounded replay cache refreshes keep recent leader candidates instead of exhausting the total ticker budget on early backtest dates.
+  - Fix historical candidate price-cache truncation so bounded replay cache refreshes keep recent leader candidates without starving earlier backtest months.
 - files:
-  - `tools/build_replay_price_cache.py` ->collects per-date candidate top-K rows across all candidate books, then applies the global max ticker budget with latest rebalance dates first.
-  - `tests/replay_price_cache_smoke.py` ->adds a regression test proving latest-date candidate tickers survive when `candidate_max_total` is smaller than all per-date selections.
+  - `tools/build_replay_price_cache.py` ->collects per-date candidate top-K rows across all candidate books, then applies the global max ticker budget by within-date rank with latest rebalance dates preferred inside each rank tier.
+  - `tests/replay_price_cache_smoke.py` ->adds a regression test proving the global candidate budget keeps top candidates from both recent and older dates, with recency priority for extra slots.
   - `CHANGELOG.md` ->documents the data-path fix.
 - symbols_added:
-  - `test_candidate_cache_total_limit_prefers_recent_dates() -> None` ->regression test for recent candidate retention under a bounded cache budget.
+  - `test_candidate_cache_total_limit_balances_dates_with_recency_priority() -> None` ->regression test for balanced historical candidate retention under a bounded cache budget.
 - symbols_changed:
-  - `collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: int) -> set[str]` ->applies the global candidate ticker cap after ranking selected rows by rebalance-date recency, not while iterating chronological rows.
+  - `collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: int) -> set[str]` ->applies the global candidate ticker cap after per-date ranking, using round-robin rank tiers and recency priority instead of chronological or pure-recency truncation.
 - config_fields_added:
   - none
 - breaking_changes:
@@ -818,7 +818,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\alpha_selector_shadow_drawdown_grid_smoke.py` ->PASS.
   - `py -3 tools\run_pr_validation.py` ->PASS, 38/38.
 - risks_or_notes:
-  - This should reduce cloud/local alpha-selector divergence caused by missing latest candidates. It does not change scoring logic or portfolio weights directly.
+  - This should reduce cloud/local alpha-selector divergence caused by missing historical or latest candidates. It does not change scoring logic or portfolio weights directly.
 
 ## 2026-05-14
 

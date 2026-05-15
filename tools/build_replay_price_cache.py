@@ -179,6 +179,12 @@ def collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: i
         ascending=[False, False, True],
         kind="mergesort",
     )
+    selected_all["_within_date_rank"] = selected_all.groupby("_rebalance_ts", sort=False).cumcount()
+    selected_all = selected_all.sort_values(
+        ["_within_date_rank", "_rebalance_ts", "_candidate_cache_rank", "_ticker_norm"],
+        ascending=[True, False, False, True],
+        kind="mergesort",
+    )
 
     out: set[str] = set()
     for ticker in selected_all["_ticker_norm"]:
