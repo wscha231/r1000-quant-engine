@@ -50,6 +50,7 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
             Namespace(
                 books=[str(book)],
                 scored="",
+                extra_tickers=["SPY"],
                 max_scored=0,
                 output_dir=str(cache),
                 start="",
@@ -61,9 +62,11 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
             )
         )
         assert payload["status"] == "dry_run"
-        assert payload["missing_before"] == 1
+        assert payload["extra_ticker_count"] == 1
+        assert payload["extra_tickers"] == ["SPY"]
+        assert payload["missing_before"] == 2
         assert payload["stale_before"] == 1
-        assert payload["download_target_count"] == 2
+        assert payload["download_target_count"] == 3
 
 
 if __name__ == "__main__":

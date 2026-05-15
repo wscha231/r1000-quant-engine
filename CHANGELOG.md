@@ -348,6 +348,35 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is a research challenger only. It may reduce 2020/2022 drawdown at the cost of missing sharp rebounds, so promotion requires broker-ledger target gates plus stress-window review.
   - The current implementation uses benchmark price action only, which is safer for single-stock shakeouts but can miss idiosyncratic winner breakdowns.
 
+### 15:07 KST - replay-benchmark-cache-for-market-circuit
+
+- scope:
+  - Fix the P7 market-circuit replay wiring so fast replay and full rebuild jobs always include benchmark price caches required by the daily SPY/QQQ circuit sidecar.
+- files:
+  - `tools/build_replay_price_cache.py` ->adds explicit extra ticker support for sidecars that need non-portfolio tickers.
+  - `tests/replay_price_cache_smoke.py` ->asserts extra ticker accounting in the replay price-cache manifest.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->passes QQQ/SPY/^IXIC/^GSPC as required benchmark cache tickers before replay sidecars run.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs a lightweight benchmark cache preflight before market-circuit broker replays.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/build_replay_price_cache.py` ->includes `extra_tickers` in the download/cache manifest.
+  - `parse_args() -> argparse.Namespace` in `tools/build_replay_price_cache.py` ->adds `--extra-tickers`.
+  - `test_replay_price_cache_marks_stale_existing_tickers() -> None` ->covers benchmark-style extra ticker inclusion.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cache_prices/replay_price_cache_manifest.json` ->now records `extra_ticker_count` and `extra_tickers`.
+  - `outputs/full_rebuild_logs/benchmark_price_cache_preflight.log` ->full rebuild benchmark-cache preflight log.
+- validation:
+  - `py -3 tests\replay_price_cache_smoke.py` ->PASS
+  - `py -3 tests\broker_market_circuit_replay_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 31/31 tests
+- risks_or_notes:
+  - Tier-2 replay run `25902646482` showed `broker_market_circuit_replay` was blocked because benchmark price cache was missing even though target books existed. This fix is expected to unblock the sidecar; it does not change production portfolio selection.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

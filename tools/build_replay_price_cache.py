@@ -223,7 +223,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     book_paths = [repo_path(x) for x in args.books]
     book_tickers, min_dt, max_dt = collect_book_tickers(book_paths)
     scored_tickers = collect_scored_tickers(repo_path(args.scored), args.max_scored) if args.scored else set()
-    tickers = sorted(book_tickers | scored_tickers)
+    extra_tickers = {ticker for ticker in (normalize_ticker(x) for x in getattr(args, "extra_tickers", [])) if ticker}
+    tickers = sorted(book_tickers | scored_tickers | extra_tickers)
     if args.max_tickers and args.max_tickers > 0:
         tickers = tickers[: int(args.max_tickers)]
     today = pd.Timestamp.utcnow().tz_localize(None).normalize()
@@ -243,6 +244,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ticker_count": len(tickers),
         "book_ticker_count": len(book_tickers),
         "scored_ticker_count": len(scored_tickers),
+        "extra_ticker_count": len(extra_tickers),
+        "extra_tickers": sorted(extra_tickers),
         "existing_cache_count": existing_cache_count(output_dir, set(tickers)),
         "missing_before": len(missing),
         "stale_before": len(stale),
@@ -268,6 +271,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--books", nargs="+", required=True)
     parser.add_argument("--scored", default="")
+    parser.add_argument(
+        "--extra-tickers",
+        nargs="*",
+        default=[],
+        help="Additional tickers required by replay sidecars, e.g. benchmark ETFs used for market-circuit overlays.",
+    )
     parser.add_argument("--max-scored", type=int, default=250)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT)
     parser.add_argument("--start", default="")

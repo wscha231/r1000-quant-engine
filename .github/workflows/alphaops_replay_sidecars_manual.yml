@@ -101,6 +101,7 @@ jobs:
           python tools/build_replay_price_cache.py \
             --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
             --scored outputs/scored_latest.csv \
+            --extra-tickers QQQ SPY '^IXIC' '^GSPC' \
             --max-scored 250 \
             --output-dir cache_prices \
             --batch-size 40 \
