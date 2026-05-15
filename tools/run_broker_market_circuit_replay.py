@@ -58,6 +58,7 @@ def compute_circuit_states(
     *,
     caution_multiplier: float,
     crisis_multiplier: float,
+    trigger_mode: str = "return_ma",
 ) -> pd.DataFrame:
     if benchmark.empty or "close" not in benchmark.columns:
         return pd.DataFrame()
@@ -68,6 +69,7 @@ def compute_circuit_states(
         return pd.DataFrame()
     d["ma20"] = d["close"].rolling(20, min_periods=20).mean()
     d["ma50"] = d["close"].rolling(50, min_periods=50).mean()
+    d["ma100"] = d["close"].rolling(100, min_periods=80).mean()
     d["ma200"] = d["close"].rolling(200, min_periods=120).mean()
     d["ret5"] = d["close"].pct_change(5)
     d["ret10"] = d["close"].pct_change(10)
@@ -82,13 +84,28 @@ def compute_circuit_states(
             continue
         ma20 = safe_float(row.get("ma20"), math.nan)
         ma50 = safe_float(row.get("ma50"), math.nan)
+        ma100 = safe_float(row.get("ma100"), math.nan)
         ma200 = safe_float(row.get("ma200"), math.nan)
         ret10 = safe_float(row.get("ret10"), 0.0)
         ret20 = safe_float(row.get("ret20"), 0.0)
         ret60 = safe_float(row.get("ret60"), 0.0)
 
-        severe_trigger = ret20 <= -0.16 or (math.isfinite(ma200) and close_now < ma200 and ret20 <= -0.08)
-        caution_trigger = ret10 <= -0.08 or (math.isfinite(ma50) and close_now < ma50 and ret20 <= -0.06)
+        mode = str(trigger_mode or "return_ma").lower()
+        if mode == "ma50":
+            severe_trigger = math.isfinite(ma100) and close_now < ma100 and ret20 < 0.0
+            caution_trigger = math.isfinite(ma50) and close_now < ma50
+        elif mode == "ma20_50":
+            severe_trigger = math.isfinite(ma50) and close_now < ma50 and ret20 <= -0.03
+            caution_trigger = math.isfinite(ma20) and close_now < ma20
+        elif mode == "ma50_200":
+            severe_trigger = math.isfinite(ma200) and close_now < ma200
+            caution_trigger = math.isfinite(ma50) and close_now < ma50
+        elif mode == "trend60":
+            severe_trigger = math.isfinite(ma100) and close_now < ma100 and ret60 < 0.0
+            caution_trigger = ret20 <= -0.04
+        else:
+            severe_trigger = ret20 <= -0.16 or (math.isfinite(ma200) and close_now < ma200 and ret20 <= -0.08)
+            caution_trigger = ret10 <= -0.08 or (math.isfinite(ma50) and close_now < ma50 and ret20 <= -0.06)
         reentry_fast = math.isfinite(ma20) and close_now > ma20 and ret10 >= 0.03
         reentry_full = math.isfinite(ma50) and close_now > ma50 and ret20 >= 0.06
 
@@ -124,6 +141,7 @@ def compute_circuit_states(
                 "ret60": ret60,
                 "below_ma50": bool(math.isfinite(ma50) and close_now < ma50),
                 "below_ma200": bool(math.isfinite(ma200) and close_now < ma200),
+                "trigger_mode": mode,
                 "severe_trigger": bool(severe_trigger),
                 "caution_trigger": bool(caution_trigger),
                 "reentry_fast": bool(reentry_fast),
@@ -253,6 +271,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         benchmark,
         caution_multiplier=float(args.caution_multiplier),
         crisis_multiplier=float(args.crisis_multiplier),
+        trigger_mode=str(getattr(args, "trigger_mode", "return_ma") or "return_ma"),
     )
     states.to_csv(output_dir / "market_circuit_states.csv", index=False)
     circuit_target, events = build_circuit_target_book(base, states, output_dir=output_dir)
@@ -283,12 +302,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "research_only": True,
             "production_activation_allowed": False,
             "valid_for_production": bool(metrics.get("valid_for_production")),
-                "source_target_book": str(target_book),
-                "source_target_book_filter": champion_filters,
-                "source_target_book_filter_source": champion_filter_source,
-                "source_target_book_filter_warning": champion_filter_warning,
-                "market_circuit_target_book": str(circuit_target),
+            "source_target_book": str(target_book),
+            "source_target_book_filter": champion_filters,
+            "source_target_book_filter_source": champion_filter_source,
+            "source_target_book_filter_warning": champion_filter_warning,
+            "market_circuit_target_book": str(circuit_target),
             "benchmark_ticker": benchmark_ticker,
+            "trigger_mode": str(getattr(args, "trigger_mode", "return_ma") or "return_ma"),
             "caution_multiplier": float(args.caution_multiplier),
             "crisis_multiplier": float(args.crisis_multiplier),
             "circuit_event_count": int(len(events)),
@@ -334,6 +354,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--caution-multiplier", type=float, default=0.60)
     parser.add_argument("--crisis-multiplier", type=float, default=0.25)
+    parser.add_argument(
+        "--trigger-mode",
+        choices=["return_ma", "ma50", "ma20_50", "ma50_200", "trend60"],
+        default="return_ma",
+    )
     return parser.parse_args()
 
 

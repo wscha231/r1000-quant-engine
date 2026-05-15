@@ -62,17 +62,19 @@ def test_broker_market_circuit_grid_writes_best_metrics() -> None:
         cost_bps = 25.0
         no_integer_shares = False
         max_fill_lag_days = 7
+        trigger_modes = "return_ma,ma50"
 
     payload = run(Args())
     assert payload["status"] == "completed"
     assert payload["valid_for_production"] is True
     assert payload["market_circuit_grid"] is True
-    assert payload["variant_count"] == 2
+    assert payload["variant_count"] == 4
     assert (tmp / "grid" / "summary.csv").exists()
     best = json.loads((tmp / "grid" / "best_metrics.json").read_text(encoding="utf-8"))
     assert best["metric_mode"] == "broker_market_circuit_grid_best_next_close"
     summary = pd.read_csv(tmp / "grid" / "summary.csv")
-    assert len(summary) == 2
+    assert len(summary) == 4
+    assert set(summary["trigger_mode"]) == {"return_ma", "ma50"}
     shutil.rmtree(tmp)
 
 

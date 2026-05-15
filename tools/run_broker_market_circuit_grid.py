@@ -68,6 +68,20 @@ def variant_id(caution: float, crisis: float) -> str:
     return f"caution_{fmt(caution)}_crisis_{fmt(crisis)}"
 
 
+def parse_modes(value: str) -> list[str]:
+    allowed = {"return_ma", "ma50", "ma20_50", "ma50_200", "trend60"}
+    modes: list[str] = []
+    for raw in str(value or "").split(","):
+        mode = raw.strip().lower()
+        if not mode:
+            continue
+        if mode not in allowed:
+            raise ValueError(f"Invalid trigger mode {mode!r}; expected one of {sorted(allowed)}")
+        if mode not in modes:
+            modes.append(mode)
+    return modes or ["return_ma"]
+
+
 def target_distance(portfolio_kind: str, metrics: dict[str, Any]) -> float:
     target = PORTFOLIO_GOAL_TARGETS.get(portfolio_kind, {})
     target_cagr = safe_float(target.get("cagr"), math.nan)
@@ -90,54 +104,60 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     pairs = parse_grid(args.grid)
+    trigger_modes = parse_modes(getattr(args, "trigger_modes", "return_ma"))
+    variant_count = len(pairs) * len(trigger_modes)
     rows: list[dict[str, Any]] = []
     completed: list[dict[str, Any]] = []
 
-    for caution, crisis in pairs:
-        vid = variant_id(caution, crisis)
-        variant_dir = output_dir / vid
-        variant_args = argparse.Namespace(
-            target_book=args.target_book,
-            price_cache=args.price_cache,
-            output_dir=str(variant_dir),
-            portfolio_kind=args.portfolio_kind,
-            starting_capital=float(args.starting_capital),
-            fill_mode=args.fill_mode,
-            cost_bps=float(args.cost_bps),
-            no_integer_shares=bool(args.no_integer_shares),
-            max_fill_lag_days=int(args.max_fill_lag_days),
-            caution_multiplier=float(caution),
-            crisis_multiplier=float(crisis),
-        )
-        metrics = run_market_circuit(variant_args)
-        metrics.update(
-            {
-                "market_circuit_grid_variant": vid,
-                "caution_multiplier": float(caution),
-                "crisis_multiplier": float(crisis),
-                "source_variant_dir": str(variant_dir),
+    for trigger_mode in trigger_modes:
+        for caution, crisis in pairs:
+            vid = f"{trigger_mode}_{variant_id(caution, crisis)}"
+            variant_dir = output_dir / vid
+            variant_args = argparse.Namespace(
+                target_book=args.target_book,
+                price_cache=args.price_cache,
+                output_dir=str(variant_dir),
+                portfolio_kind=args.portfolio_kind,
+                starting_capital=float(args.starting_capital),
+                fill_mode=args.fill_mode,
+                cost_bps=float(args.cost_bps),
+                no_integer_shares=bool(args.no_integer_shares),
+                max_fill_lag_days=int(args.max_fill_lag_days),
+                caution_multiplier=float(caution),
+                crisis_multiplier=float(crisis),
+                trigger_mode=str(trigger_mode),
+            )
+            metrics = run_market_circuit(variant_args)
+            metrics.update(
+                {
+                    "market_circuit_grid_variant": vid,
+                    "trigger_mode": str(trigger_mode),
+                    "caution_multiplier": float(caution),
+                    "crisis_multiplier": float(crisis),
+                    "source_variant_dir": str(variant_dir),
+                }
+            )
+            write_json(variant_dir / "metrics.json", metrics)
+            row = {
+                "variant_id": vid,
+                "status": metrics.get("status"),
+                "portfolio_kind": args.portfolio_kind,
+                "trigger_mode": trigger_mode,
+                "caution_multiplier": caution,
+                "crisis_multiplier": crisis,
+                "cagr": metrics.get("cagr"),
+                "max_dd": metrics.get("max_dd", metrics.get("max_drawdown")),
+                "sharpe": metrics.get("sharpe"),
+                "trade_count": metrics.get("trade_count"),
+                "avg_cash_weight": metrics.get("avg_cash_weight"),
+                "total_fees_usd": metrics.get("total_fees_usd"),
+                "target_distance": target_distance(args.portfolio_kind, metrics),
+                "reason": metrics.get("reason", ""),
+                "valid_for_production": bool(metrics.get("valid_for_production")),
             }
-        )
-        write_json(variant_dir / "metrics.json", metrics)
-        row = {
-            "variant_id": vid,
-            "status": metrics.get("status"),
-            "portfolio_kind": args.portfolio_kind,
-            "caution_multiplier": caution,
-            "crisis_multiplier": crisis,
-            "cagr": metrics.get("cagr"),
-            "max_dd": metrics.get("max_dd", metrics.get("max_drawdown")),
-            "sharpe": metrics.get("sharpe"),
-            "trade_count": metrics.get("trade_count"),
-            "avg_cash_weight": metrics.get("avg_cash_weight"),
-            "total_fees_usd": metrics.get("total_fees_usd"),
-            "target_distance": target_distance(args.portfolio_kind, metrics),
-            "reason": metrics.get("reason", ""),
-            "valid_for_production": bool(metrics.get("valid_for_production")),
-        }
-        rows.append(row)
-        if metrics.get("status") == "completed" and metrics.get("valid_for_production"):
-            completed.append(metrics)
+            rows.append(row)
+            if metrics.get("status") == "completed" and metrics.get("valid_for_production"):
+                completed.append(metrics)
 
     summary = pd.DataFrame(rows)
     if not summary.empty:
@@ -153,7 +173,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "portfolio_kind": args.portfolio_kind,
                 "metric_mode": "broker_market_circuit_grid_best_next_close",
                 "market_circuit_grid": True,
-                "variant_count": len(pairs),
+                "variant_count": variant_count,
+                "trigger_modes": trigger_modes,
                 "production_activation_allowed": False,
                 "research_only": True,
                 "valid_for_production": True,
@@ -164,7 +185,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "status": "blocked",
             "reason": "no completed market-circuit grid variants",
             "portfolio_kind": args.portfolio_kind,
-            "variant_count": len(pairs),
+            "variant_count": variant_count,
+            "trigger_modes": trigger_modes,
             "production_activation_allowed": False,
             "research_only": True,
             "valid_for_production": False,
@@ -173,7 +195,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     report = [
         f"# Broker Market Circuit Grid: {args.portfolio_kind}",
         "",
-        f"- variants: {len(pairs)}",
+        f"- variants: {variant_count}",
+        f"- trigger_modes: {', '.join(trigger_modes)}",
         f"- best_variant: {best_payload.get('market_circuit_grid_variant', '')}",
         f"- best_cagr: {safe_float(best_payload.get('cagr'), math.nan):.2%}" if best_payload.get("cagr") is not None else "- best_cagr: n/a",
         f"- best_max_dd: {safe_float(best_payload.get('max_dd', best_payload.get('max_drawdown')), math.nan):.2%}"
@@ -194,6 +217,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated"], required=True)
     parser.add_argument("--output-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--grid", default=DEFAULT_GRID)
+    parser.add_argument("--trigger-modes", default="return_ma")
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--fill-mode", default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)

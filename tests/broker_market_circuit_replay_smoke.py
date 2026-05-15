@@ -63,6 +63,7 @@ def test_broker_market_circuit_replay_outputs_account_metrics() -> None:
         max_fill_lag_days = 7
         caution_multiplier = 0.60
         crisis_multiplier = 0.25
+        trigger_mode = "ma50"
 
     metrics = run(Args())
     assert metrics["status"] == "completed"
@@ -74,6 +75,7 @@ def test_broker_market_circuit_replay_outputs_account_metrics() -> None:
     assert {"normal", "caution", "crisis"}.intersection(set(states["state"].astype(str)))
     payload = json.loads((tmp / "out" / "metrics.json").read_text(encoding="utf-8"))
     assert payload["metric_mode"] == "broker_market_circuit_next_close"
+    assert payload["trigger_mode"] == "ma50"
     shutil.rmtree(tmp)
 
 

@@ -820,6 +820,43 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This should reduce cloud/local alpha-selector divergence caused by missing historical or latest candidates. It does not change scoring logic or portfolio weights directly.
 
+### 22:38 KST - alpha-selector-trend-circuit-grid
+
+- scope:
+  - Add a research-only broker-ledger trend-circuit grid for alpha-selector target books. The new sidecar takes the high-CAGR alpha-selector target book, scales exposure by daily benchmark trend states using next-close account replay, and surfaces the best candidate in portfolio goal search without changing production defaults.
+- files:
+  - `tools/run_broker_market_circuit_replay.py` ->adds trend trigger modes (`ma50`, `ma20_50`, `ma50_200`, `trend60`) in addition to the prior return/MA crash trigger.
+  - `tools/run_broker_market_circuit_grid.py` ->runs caution/crisis multiplier grids across multiple trigger modes and writes trigger-mode-aware best metrics.
+  - `tools/run_portfolio_goal_search.py` ->adds `main_alpha_selector_market_circuit_grid_best` and `concentrated_alpha_selector_market_circuit_grid_best` candidates.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and uploads/syncs alpha-selector market-circuit grids after alpha-selector broker grids.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and uploads/syncs the same grids in fast replay.
+  - `tests/broker_market_circuit_replay_smoke.py` ->asserts a trend trigger mode is persisted in replay metrics.
+  - `tests/broker_market_circuit_grid_smoke.py` ->asserts multi-mode grid variant counts and summary trigger modes.
+  - `tests/workflow_artifact_smoke.py` ->asserts the new grid tool, logs, artifact paths, and sync paths are wired.
+- symbols_added:
+  - `parse_modes(value: str) -> list[str]` ->validates and deduplicates market-circuit trigger modes for the grid runner.
+- symbols_changed:
+  - `compute_circuit_states(...) -> pd.DataFrame` ->accepts `trigger_mode` and supports trend-based benchmark circuit states.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_broker_market_circuit_grid.py` ->iterates trigger modes as well as multiplier pairs and reports total variant count.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_broker_market_circuit_replay.py` ->passes through and records the selected trigger mode.
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes alpha-selector market-circuit grid candidates in goal search.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_market_circuit_grid/main/best_metrics.json` ->best research-only account-ledger alpha-selector market-circuit candidate for main.
+  - `outputs/alpha_selector_market_circuit_grid/concentrated/best_metrics.json` ->best research-only account-ledger alpha-selector market-circuit candidate for concentrated.
+  - `outputs/alpha_selector_market_circuit_grid/<portfolio>/summary.csv` ->all trigger-mode and exposure multiplier variants.
+- validation:
+  - `py -3 tests\broker_market_circuit_replay_smoke.py` ->PASS
+  - `py -3 tests\broker_market_circuit_grid_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 38/38
+  - `py -3 tools\run_broker_market_circuit_grid.py --target-book _run_25919440879_artifacts\alphaops-replay-sidecars-25873418413-25919440879\alpha_selector_broker_grid\main\monster_heavy_N3_cap0.5\target_book.csv --price-cache _local_hedge_cache --portfolio-kind main --output-dir _local_alpha_selector_trend_circuit_grid_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --trigger-modes ma50,ma50_200,trend60 --grid "0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25"` ->PASS, best local check CAGR 28.93%, MaxDD -21.39%, Sharpe 1.148.
+- risks_or_notes:
+  - This is still research-only and does not alter official production defaults. Local check improved official-style main performance versus the 18.44% / -31.93% baseline, but it still misses the 30% / -15% final target and must be confirmed by fast replay artifact output.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
