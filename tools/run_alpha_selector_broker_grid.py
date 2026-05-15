@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 
 DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
@@ -148,6 +149,46 @@ def prepare_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def add_price_cache_tradeability(candidates: pd.DataFrame, price_cache: Path, max_fill_lag_days: int) -> pd.DataFrame:
+    """Mark candidates that can actually be filled by the broker replay.
+
+    The selector's liquidity fields can be populated even when the replay price
+    cache lacks a next-close bar. If such names enter the target book, broker
+    replay holds cash instead of the intended exposure, making the target book
+    look invested while the account is not. This gate keeps the selector aligned
+    with the official account-ledger evaluator.
+    """
+    if candidates.empty:
+        return candidates
+    out = candidates.copy()
+    tickers = sorted(out["ticker"].astype(str).str.upper().unique())
+    date_map: dict[str, np.ndarray] = {}
+    for ticker in tickers:
+        px = load_price_series(price_cache, ticker)
+        if px.empty or "close" not in px.columns:
+            continue
+        close = pd.to_numeric(px["close"], errors="coerce").dropna()
+        if close.empty:
+            continue
+        idx = pd.DatetimeIndex(close.index).tz_localize(None).normalize()
+        date_map[ticker] = np.array(sorted(idx.unique()), dtype="datetime64[ns]")
+    max_lag = max(0, int(max_fill_lag_days))
+    flags: list[bool] = []
+    for row in out.itertuples(index=False):
+        ticker = str(getattr(row, "ticker", "") or "").upper()
+        signal_dt = pd.Timestamp(getattr(row, "rebalance_date")).normalize()
+        dates = date_map.get(ticker)
+        ok = False
+        if dates is not None and len(dates):
+            pos = int(np.searchsorted(dates, np.datetime64(signal_dt), side="right"))
+            if pos < len(dates):
+                fill_dt = pd.Timestamp(dates[pos]).normalize()
+                ok = 0 <= (fill_dt - signal_dt).days <= max_lag
+        flags.append(ok)
+    out["price_cache_tradeable"] = flags
+    return out
+
+
 def liquidity_mask(frame: pd.DataFrame, *, min_mcap: float, min_dollar_vol: float, min_price: float) -> pd.Series:
     dollar_vol = numeric(frame, "dollar_vol_20d")
     price = pd.concat(
@@ -206,10 +247,13 @@ def build_target_book(
     min_mcap: float,
     min_dollar_vol: float,
     min_price: float,
+    require_price_cache: bool,
 ) -> pd.DataFrame:
     d = candidates.copy()
     d["alpha_selector_score"] = score_candidates(d, style)
     mask = liquidity_mask(d, min_mcap=min_mcap, min_dollar_vol=min_dollar_vol, min_price=min_price) & gate_mask(d)
+    if require_price_cache:
+        mask = mask & d.get("price_cache_tradeable", pd.Series(False, index=d.index)).astype(bool)
     rows: list[dict[str, Any]] = []
     for dt, group in d[mask].groupby("rebalance_date", sort=True):
         selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
@@ -257,6 +301,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     candidates = prepare_candidates(read_csv(candidate_book))
+    require_price_cache = not bool(getattr(args, "allow_unfillable_targets", False))
+    if require_price_cache:
+        candidates = add_price_cache_tradeability(candidates, price_cache, int(args.max_fill_lag_days))
     if candidates.empty:
         payload = {
             "status": "blocked",
@@ -290,6 +337,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     min_mcap=float(args.min_market_cap_usd),
                     min_dollar_vol=float(args.min_dollar_volume_usd),
                     min_price=float(args.min_price),
+                    require_price_cache=require_price_cache,
                 )
                 target_path = variant_dir / "target_book.csv"
                 variant_dir.mkdir(parents=True, exist_ok=True)
@@ -331,6 +379,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "alpha_selector_style": style,
                         "target_stock_names": int(n),
                         "single_name_cap": float(cap),
+                        "require_price_cache": require_price_cache,
                         "candidate_book": str(candidate_book),
                         "target_book": str(target_path),
                         "research_only": True,
@@ -446,6 +495,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
     parser.add_argument("--min-price", type=float, default=5.0)
+    parser.add_argument("--allow-unfillable-targets", action="store_true")
     return parser.parse_args()
 
 

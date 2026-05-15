@@ -520,6 +520,51 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a diagnostics/accounting fix. It does not promote the market-circuit challenger or change production portfolio selection.
 
+### 18:34 KST - alpha-selector-tradeability-and-leader-circuit
+
+- scope:
+  - Harden alpha-selector broker grids so target books only select candidates with replay-fillable price cache, add a selected-leader-basket circuit challenger, expand alpha-selector N/cap coverage, and wire the new outputs into goal search, artifacts, and Drive sync.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds replay price-cache tradeability gating before target selection and records `require_price_cache` in variant metrics.
+  - `tools/run_alpha_selector_leader_circuit_grid.py` ->new research-only sidecar that scales alpha-selector target books using the selected leader basket's own daily breakdown/reentry state before broker-ledger replay.
+  - `tools/run_portfolio_goal_search.py` ->includes leader-circuit alpha-selector best metrics in main and concentrated candidate rankings.
+  - `tools/run_pr_validation.py` ->adds leader-circuit smoke coverage to Tier-1 validation.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->adds a missing-price high-score candidate fixture to prove unfillable names cannot enter alpha-selector target books by default.
+  - `tests/alpha_selector_leader_circuit_grid_smoke.py` ->new synthetic broker-ledger smoke for leader-basket circuit target generation and replay.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs expanded alpha-selector grids plus leader-circuit overlays and publishes/syncs their outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs expanded alpha-selector grids plus leader-circuit overlays and publishes/syncs their outputs.
+- symbols_added:
+  - `add_price_cache_tradeability(candidates: pd.DataFrame, price_cache: Path, max_fill_lag_days: int) -> pd.DataFrame` ->marks same-date candidates that can actually be filled by the official broker replay.
+  - `resolve_target_books(alpha_selector_dir: Path, explicit_target_book: str, top_n: int) -> list[Path]` ->finds alpha-selector target books for leader-circuit overlay evaluation.
+  - `load_close_map(price_cache: Path, tickers: list[str]) -> dict[str, pd.Series]` ->loads adjusted close series for selected target tickers.
+  - `build_leader_basket_series(base: pd.DataFrame, price_cache: Path) -> pd.DataFrame` ->builds a point-in-time daily basket series from the current selected leader target book.
+  - `compute_leader_states(basket: pd.DataFrame, *, caution_multiplier: float, crisis_multiplier: float) -> pd.DataFrame` ->classifies normal/caution/crisis state from the selected leader basket.
+  - `build_circuit_target_book(base: pd.DataFrame, states: pd.DataFrame, output_dir: Path) -> tuple[Path, pd.DataFrame]` ->injects circuit-scaled target rows for next-close broker replay.
+  - `run_one_target(target_book: Path, *, args: argparse.Namespace, output_dir: Path, caution: float, crisis: float) -> dict[str, Any]` ->runs one leader-circuit target-book replay.
+  - `test_leader_circuit_grid_builds_daily_state_without_forward_labels() -> None` ->regression smoke for leader-circuit replay.
+- symbols_changed:
+  - `build_target_book(...) -> pd.DataFrame` in `tools/run_alpha_selector_broker_grid.py` ->requires replay-tradeable price cache by default so target books do not create hidden cash drag from unfillable names.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_alpha_selector_broker_grid.py` ->computes price-cache tradeability once per candidate book and passes it into all grid variants.
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->adds leader-circuit alpha-selector outputs to the official candidate ranking surface.
+- config_fields_added:
+  - `allow_unfillable_targets: bool = False` ->CLI escape hatch for diagnostic alpha-selector runs that intentionally allow candidates without replay-fillable price bars.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_broker_grid/{main,concentrated}/best_metrics.json` ->now records the best replay-tradeable alpha-selector broker variant.
+  - `outputs/alpha_selector_broker_grid/{main,concentrated}/best_target_distance_metrics.json` ->records the best distance-to-goal variant.
+  - `outputs/alpha_selector_leader_circuit_grid/{main,concentrated}/best_metrics.json` ->records the best selected-leader-basket circuit overlay variant.
+  - `outputs/alpha_selector_leader_circuit_grid/{main,concentrated}/summary.csv` ->variant-level leader-circuit metrics.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_leader_circuit_grid_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+  - Local 25873418413 replay check: price-cache tradeability gate improved main alpha-selector cash from about 25% avg cash to near 0% and surfaced a research-only high-CAGR candidate, but MDD still fails target.
+- risks_or_notes:
+  - This does not change production defaults.
+  - The high-CAGR alpha-selector candidates are still research-only and fail MaxDD targets; do not promote without a broker-ledger drawdown fix and stress-window review.
+  - Leader-circuit overlays improved Sharpe slightly in local checks but did not materially solve drawdown.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

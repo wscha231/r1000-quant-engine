@@ -106,6 +106,27 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "mktcap": 10_000_000_000,
                         "period_forward_return": 9.99,
                     },
+                    {
+                        "rebalance_date": dt,
+                        "ticker": "MISS",
+                        "Name": "Missing Price Cache",
+                        "sector": "Tech",
+                        "score": 10.0,
+                        "portfolio_sleeve_label": "future_winner",
+                        "portfolio_candidate_gate_label": "future_relaxed",
+                        "portfolio_future_winner_engine_score": 1.0,
+                        "portfolio_early_scout_engine_score": 1.0,
+                        "portfolio_monster_early_score": 1.0,
+                        "h6_dynamic_leader_score": 1.0,
+                        "rs_acceleration_score": 1.0,
+                        "industry_group_strength_score": 1.0,
+                        "portfolio_risk_entry_block_score": 0.0,
+                        "portfolio_stale_mega_leader_score": 0.0,
+                        "px": 20.0,
+                        "dollar_vol_20d": 100_000_000,
+                        "mktcap": 20_000_000_000,
+                        "period_forward_return": 99.99,
+                    },
                 ]
             )
         pd.DataFrame(rows).to_csv(candidate, index=False)
@@ -138,6 +159,8 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert float(targets["weight"].max()) > 0.99
         assert "BBB" not in set(targets["ticker"])
         assert "LEAK" not in set(targets["ticker"])
+        assert "MISS" not in set(targets["ticker"])
+        assert payload.get("require_price_cache") is True
 
 
 def main() -> int:
