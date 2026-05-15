@@ -414,6 +414,42 @@ All entries must be written in English. Entries must be predictable and machine-
   - Grid variants are production-compatible evaluation artifacts but remain research-only; promotion still requires target gates and stress-window review.
   - Push run `25904189809` exposed GitHub's `Exceeded max expression length 21000` parser limit for the long replay shell block; the workflow now uses step env vars for repeated input values.
 
+### 16:13 KST - concentrated-broker-grid
+
+- scope:
+  - Add a concentrated-only broker-ledger grid that converts top `concentrated_strategy_comparison.csv` research variants into official next-close, integer-share, 25bps-compatible metrics. This addresses the current gap where concentrated weight-level variants look attractive but only one selected champion path is measured in account-like broker replay.
+- files:
+  - `tools/run_concentrated_broker_grid.py` ->new sidecar that loads top concentrated research variants, filters the operating concentrated target book by variant metadata, runs broker-ledger replay for each, and writes best/summary outputs.
+  - `tests/concentrated_broker_grid_smoke.py` ->fixture regression test for replaying multiple concentrated variants and producing `best_metrics.json`.
+  - `tools/run_pr_validation.py` ->adds the concentrated broker-grid smoke test to fast PR validation.
+  - `tools/run_portfolio_goal_search.py` ->adds `outputs/concentrated_broker_grid/best_metrics.json` to the production-compatible concentrated candidate ranking.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs the concentrated broker grid in fast replay and syncs/uploads its outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the concentrated broker grid in full rebuild and syncs/uploads its outputs.
+- symbols_added:
+  - `comparison_path(target_book: Path) -> Path` ->locates the concentrated research comparison table paired with the target book.
+  - `load_variants(target_book: Path, max_variants: int) -> list[dict[str, Any]]` ->selects top concentrated research variants for broker-ledger conversion.
+  - `variant_id(row: dict[str, Any]) -> str` ->creates stable variant output directory names.
+  - `target_distance(metrics: dict[str, Any]) -> float` ->scores concentrated variants against configured CAGR/MaxDD targets.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_concentrated_broker_grid.py` ->executes all selected broker-ledger variants and writes summary/best outputs.
+  - `test_concentrated_broker_grid_replays_comparison_variants() -> None` ->smoke test for grid replay outputs.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes the concentrated broker-grid best candidate.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/concentrated_broker_grid_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_broker_grid/summary.csv` ->all tested concentrated variant filters and official broker-ledger metrics.
+  - `outputs/concentrated_broker_grid/best_metrics.json` ->best valid concentrated broker-ledger variant by target distance.
+  - `outputs/concentrated_broker_grid/report.md` ->human-readable summary of the best variant.
+- validation:
+  - `py -3 tests\concentrated_broker_grid_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33 tests
+- risks_or_notes:
+  - This remains research-only and does not change the selected production concentrated portfolio. It is intended to reveal whether N/weighting/interval variants can survive official broker-ledger conversion before any strategy promotion.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

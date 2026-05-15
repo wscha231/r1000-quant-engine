@@ -537,6 +537,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         notes="Production-compatible account-ledger replay of the concentrated v2 challenger target book.",
     )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "concentrated_broker_grid" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from the concentrated research strategy grid.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_position_risk_replay" / "metrics.json",
         portfolio="concentrated",
