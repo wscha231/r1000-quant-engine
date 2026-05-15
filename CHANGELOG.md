@@ -450,6 +450,28 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This remains research-only and does not change the selected production concentrated portfolio. It is intended to reveal whether N/weighting/interval variants can survive official broker-ledger conversion before any strategy promotion.
 
+### 16:59 KST - replay-gdrive-sync-timeout
+
+- scope:
+  - Prevent fast replay runs from blocking the GitHub queue when Google Drive sync hangs after artifact upload. GitHub artifact upload remains the hard evidence path; Drive sync is best-effort for replay jobs.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds a 10-minute step timeout and `continue-on-error` to replay Google Drive sync.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\concentrated_broker_grid_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33 tests before the timeout-only workflow patch
+- risks_or_notes:
+  - Replay outputs may be absent from Google Drive if sync times out, but the run artifact is uploaded before this step and should be treated as canonical for replay analysis.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

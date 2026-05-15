@@ -281,6 +281,8 @@ jobs:
 
       - name: Sync replay outputs to Google Drive
         if: always()
+        timeout-minutes: 10
+        continue-on-error: true
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
