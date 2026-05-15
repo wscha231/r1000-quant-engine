@@ -681,6 +681,44 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Fast replay may spend more time refreshing price cache, but this is required for honest alpha-selector sidecar comparison. The cap is bounded at 600 unique historical candidate tickers.
 
+### 20:11 KST - alpha-selector-shadow-drawdown-grid
+
+- scope:
+  - Add a research-only but broker-ledger-compatible drawdown overlay for alpha-selector target books. The new sidecar maintains a full-risk shadow account, scales the actual target book only after that observable shadow account enters drawdown, and evaluates the scaled book with next-close integer-share broker replay.
+- files:
+  - `tools/run_alpha_selector_shadow_drawdown_grid.py` ->new shadow-account drawdown circuit grid for alpha-selector target books.
+  - `tests/alpha_selector_shadow_drawdown_grid_smoke.py` ->adds regression coverage that the shadow account drawdown state scales target weights without forward labels.
+  - `tools/run_pr_validation.py` ->adds the new shadow drawdown smoke test to Tier-1 validation.
+  - `tools/run_portfolio_goal_search.py` ->registers main and concentrated shadow-drawdown alpha-selector results as production-compatible evidence when their broker-ledger metrics are valid.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and exports the new shadow drawdown sidecar in fast replay.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and syncs the new shadow drawdown sidecar in full rebuild.
+  - `tests/workflow_artifact_smoke.py` ->asserts workflow/log/artifact wiring for the new sidecar.
+  - `CHANGELOG.md` ->documents the change.
+- symbols_added:
+  - `parse_grid(value: str) -> list[tuple[float, float, float, float, float]]` ->parses drawdown thresholds and scaling multipliers.
+  - `compute_shadow_states(equity_curve: pd.DataFrame, *, caution_dd: float, crisis_dd: float, caution_multiplier: float, crisis_multiplier: float, reentry_dd: float) -> pd.DataFrame` ->computes observable shadow-account risk states from daily broker-ledger equity.
+  - `build_scaled_target_book(base: pd.DataFrame, states: pd.DataFrame, output_dir: Path) -> tuple[Path, pd.DataFrame]` ->injects scaled target rows when shadow risk state changes.
+  - `run_one_target(target_book: Path, *, args: argparse.Namespace, output_dir: Path, caution_dd: float, crisis_dd: float, caution_multiplier: float, crisis_multiplier: float, reentry_dd: float) -> dict[str, Any]` ->runs full-risk shadow replay and scaled actual replay for one variant.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->executes and ranks the grid.
+  - `test_shadow_drawdown_grid_scales_after_observable_shadow_loss() -> None` ->smoke test for the point-in-time shadow circuit.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->includes `tests/alpha_selector_shadow_drawdown_grid_smoke.py`.
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes shadow drawdown sidecar candidates for both portfolios.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_shadow_drawdown_grid/main/best_metrics.json` ->best main shadow-account drawdown circuit replay.
+  - `outputs/alpha_selector_shadow_drawdown_grid/concentrated/best_metrics.json` ->best concentrated shadow-account drawdown circuit replay.
+  - `outputs/alpha_selector_shadow_drawdown_grid/*/summary.csv` ->grid-level metrics and target-distance ranking.
+- validation:
+  - `py -3 tests\alpha_selector_shadow_drawdown_grid_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools\run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir _run_25912402271_artifacts\alphaops-replay-sidecars-25873418413-25912402271\alpha_selector_broker_grid\main --price-cache _local_concentrated_broker_grid_higher_n\cache_prices --portfolio-kind main --output-dir _local_alpha_selector_shadow_drawdown_check\main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 1 --grid '-0.12:-0.20:0.70:0.45:-0.06'` ->PASS, sample CAGR 23.26%, MaxDD -16.22%, Sharpe 1.278.
+- risks_or_notes:
+  - The first local sample sharply improved MaxDD but carried high average cash and lower CAGR. This sidecar is a risk-control candidate, not a production promotion. It must be evaluated in the next fast replay after candidate price-cache parity is verified.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

@@ -535,6 +535,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible account-ledger regime-adaptive alpha-selector variant ranked by shortest distance to the CAGR/MaxDD target pair.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_shadow_drawdown_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_shadow_drawdown_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by an observable full-risk shadow account drawdown circuit.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_crisis_reentry_fast_reentry",
@@ -671,6 +678,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_alpha_selector_dynamic_regime_grid_best_target_distance",
         source_label="sidecar",
         notes="Production-compatible account-ledger regime-adaptive alpha-selector variant ranked by shortest distance to the CAGR/MaxDD target pair.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_shadow_drawdown_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_shadow_drawdown_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by an observable full-risk shadow account drawdown circuit.",
     )
     concentrated += candidate_from_json(
         latest_run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json",
