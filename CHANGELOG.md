@@ -565,6 +565,30 @@ All entries must be written in English. Entries must be predictable and machine-
   - The high-CAGR alpha-selector candidates are still research-only and fail MaxDD targets; do not promote without a broker-ledger drawdown fix and stress-window review.
   - Leader-circuit overlays improved Sharpe slightly in local checks but did not materially solve drawdown.
 
+### 18:38 KST - leader-circuit-daily-return-fix
+
+- scope:
+  - Fixed selected-leader-basket circuit accounting so basket state uses true per-ticker daily returns rather than stale previous close values when target membership changes.
+- files:
+  - `tools/run_alpha_selector_leader_circuit_grid.py` ->precomputes ticker daily return series and uses same-day daily returns for basket-state updates.
+  - `CHANGELOG.md` ->documents the fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `build_leader_basket_series(base: pd.DataFrame, price_cache: Path) -> pd.DataFrame` ->uses precomputed point-in-time daily percentage returns instead of persistent previous-close state that could span target changes.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_leader_circuit_grid/{main,concentrated}/leader_basket_series.csv` ->basket levels no longer include artificial jumps from stale per-ticker previous closes.
+- validation:
+  - `py -3 tests\alpha_selector_leader_circuit_grid_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alpha_selector_leader_circuit_grid.py` ->PASS.
+  - Local 25873418413 replay check: corrected leader-circuit overlay still did not materially solve alpha-selector drawdown.
+- risks_or_notes:
+  - This is a research-sidecar accounting fix and does not change production defaults.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

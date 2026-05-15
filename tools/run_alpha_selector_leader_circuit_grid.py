@@ -174,13 +174,13 @@ def build_leader_basket_series(base: pd.DataFrame, price_cache: Path) -> pd.Data
     close_map = load_close_map(price_cache, tickers)
     if not close_map:
         return pd.DataFrame()
+    return_map = {ticker: series.pct_change() for ticker, series in close_map.items()}
     all_dates = sorted(set().union(*(set(s.index) for s in close_map.values())))
     target_start = pd.to_datetime(base["rebalance_date"], errors="coerce").dropna().min()
     all_dates = [pd.Timestamp(dt).normalize() for dt in all_dates if pd.Timestamp(dt).normalize() >= target_start]
     if len(all_dates) < 40:
         return pd.DataFrame()
     level = 100.0
-    prev_close: dict[str, float] = {}
     rows: list[dict[str, Any]] = []
     for dt in all_dates:
         _, target = latest_target(base, dt)
@@ -192,17 +192,13 @@ def build_leader_basket_series(base: pd.DataFrame, price_cache: Path) -> pd.Data
         for _, row in target.iterrows():
             ticker = str(row.get("ticker") or "").upper()
             weight = max(0.0, safe_float(row.get("weight"), 0.0))
-            series = close_map.get(ticker)
-            if series is None or dt not in series.index:
+            returns = return_map.get(ticker)
+            if returns is None or dt not in returns.index:
                 continue
-            close_now = safe_float(series.loc[dt], math.nan)
-            if not math.isfinite(close_now) or close_now <= 0:
+            ret = safe_float(returns.loc[dt], math.nan)
+            if not math.isfinite(ret):
                 continue
-            prev = prev_close.get(ticker)
-            prev_close[ticker] = close_now
-            if prev is None or prev <= 0:
-                continue
-            ret_sum += weight * (close_now / prev - 1.0)
+            ret_sum += weight * ret
             weight_sum += weight
             available += 1
         if weight_sum > 1e-8:
