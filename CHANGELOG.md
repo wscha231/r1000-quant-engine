@@ -229,6 +229,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is a research challenger only; production activation remains false. It is intended to test whether replacing broken/stale holdings with stronger leaders beats cash or passive review under broker-ledger accounting.
   - The sidecar catches broker-replay exceptions and writes blocked metrics instead of failing the workflow, because local replay artifacts may not include the required `cache_prices/` files.
 
+### 12:45 KST - p5-main-v3-alpha-concentration-challenger
+
+- scope:
+  - Add P5 Main v3 alpha-concentration challenger. The new research-only replay narrows Main exposure toward future/monster/early leaders, allows up to 33% single-name cap in the research book, lowers non-bear cash floor to zero, and wires a companion broker-ledger next-close replay so the candidate can be judged under account-like official assumptions.
+- files:
+  - `tools/run_main_v3_alpha_concentration.py` ->new research-only Main v3 replay that writes a broker-replayable `monthly_holdings.csv` target book.
+  - `tests/main_v3_alpha_concentration_smoke.py` ->smoke coverage for target-book generation, concentration cap, low cash, and research-only flags.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs Main v3 replay, weekly risk validation, broker-ledger replay, artifact upload, and Drive sync.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs Main v3 replay and broker-ledger replay in the fast replay workflow.
+  - `tools/run_portfolio_goal_search.py` ->adds Main v3 research and broker-ledger candidates plus broker replacement-swap candidates to goal search.
+  - `tests/workflow_artifact_smoke.py` ->asserts full and replay workflow wiring for Main v3 outputs.
+  - `tools/run_pr_validation.py` ->adds the Main v3 smoke test to fast validation.
+- symbols_added:
+  - `build_policy(single_name_cap: float, cash_floor: float) -> dict[str, Any]` ->creates the Main v3 alpha-concentration policy from Main v2 primitives.
+  - `rebalance_to_cash_floor(weights: dict[str, float], scores: dict[str, float], cap: float, cash_floor: float) -> dict[str, float]` ->deploys excess cash into selected names up to the single-name cap.
+  - `replay(candidate_book: Path, output_dir: Path, *, cost_bps: float, single_name_cap: float, cash_floor: float) -> dict[str, Any]` ->runs the historical Main v3 research replay and writes target books.
+  - `test_main_v3_alpha_concentration_outputs_replay_book() -> None` ->regression test for Main v3 output shape and constraints.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes Main v3 research, Main v3 broker-ledger, and replacement-swap candidates in goal search.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/main_v3_alpha_concentration_smoke.py`.
+  - `test_workflow_keeps_monthly_books() -> None` ->requires Main v3 artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires Main v3 workflow commands and logs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/main_v3_alpha_concentration/metrics.json` ->monthly research metrics for Main v3 alpha concentration.
+  - `outputs/main_v3_alpha_concentration/monthly_holdings.csv` ->broker-replayable Main v3 target book.
+  - `outputs/main_v3_alpha_concentration/monthly_returns.csv` ->monthly research returns and cash/turnover diagnostics.
+  - `outputs/main_v3_alpha_concentration_broker_replay/metrics.json` ->official-style broker-ledger next-close replay for Main v3.
+- validation:
+  - `py -3 tests\main_v3_alpha_concentration_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->PASS
+  - `py -3 tools\run_main_v3_alpha_concentration.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_main_v3_alpha_concentration_check --cost-bps 50 --single-name-cap 0.25 --cash-floor 0.03` ->PASS, 24.02% CAGR / -29.47% MaxDD research-only
+  - `cap/cash grid on Iter 6 candidate book` ->best local monthly research setting among tested configs was 33% cap / 0% non-bear floor with 25.18% CAGR / -29.93% MaxDD
+- risks_or_notes:
+  - The monthly research result improves CAGR versus the official Main broker-ledger baseline but still fails the user's 30% / -15% target. Official verdict must wait for `outputs/main_v3_alpha_concentration_broker_replay/metrics.json` from a run with price cache.
+  - Main v3 is intentionally not wired into production target selection; it is a challenger target book for broker-ledger evaluation.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

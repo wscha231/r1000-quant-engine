@@ -417,6 +417,21 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         valid_for_production=False,
         notes="Research-only Main v2 replay from candidate_replay_book.",
     )
+    main += candidate_from_json(
+        latest_run / "main_v3_alpha_concentration" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v3_alpha_concentration",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only concentrated Main v3 replay from candidate_replay_book. Official evidence requires the companion broker-ledger replay.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "main_v3_alpha_concentration_broker_replay" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v3_alpha_concentration_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of Main v3 alpha-concentration target book.",
+    )
     main += candidate_from_nested_metrics(
         latest_run / "position_aware_risk_replay" / "metrics.json",
         portfolio="main",
@@ -462,6 +477,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="main_broker_execution_policy_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with no-trade bands, staged entries, minimum holding, and winner trim deferral.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_replacement_swap_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_replacement_swap_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
     )
     main += candidate_from_json_metric_validity(
         latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
@@ -522,6 +544,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_execution_policy_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with concentrated no-trade bands, staged entries, minimum holding, and winner trim deferral.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_replacement_swap_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_replacement_swap_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
     )
     concentrated += candidate_from_json(
         latest_run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json",
