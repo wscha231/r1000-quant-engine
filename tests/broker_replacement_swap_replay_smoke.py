@@ -134,6 +134,9 @@ def test_replacement_swap_uses_scores_not_forward_labels() -> None:
                 replacement_weight_scale=1.0,
                 allowed_regimes="bull,neutral",
                 allow_monster_gate_override=True,
+                min_leader_score=0.60,
+                min_raw_leader_signal=0.55,
+                allow_rs_accel_only_exit=False,
             )
         )
         assert metrics["status"] == "completed"
@@ -148,8 +151,108 @@ def test_replacement_swap_uses_scores_not_forward_labels() -> None:
         assert "BBB" in set(trades["ticker"])
 
 
+def test_replacement_swap_does_not_sell_leader_on_rs_accel_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "swap"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100, 101, 103, 105, 107, 109])
+        _write_px(cache, "BBB", [50, 51, 52, 53, 54, 55])
+        target = root / "targets.csv"
+        candidates = root / "candidate_replay_book.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "Name": "Current Leader",
+                    "sector": "Tech",
+                    "weight": 0.95,
+                    "regime_state": "bull",
+                    "portfolio_stale_mega_leader_score": 0.0,
+                    "portfolio_risk_entry_block_score": 0.0,
+                    "portfolio_future_winner_engine_score": 0.85,
+                    "portfolio_monster_early_score": 0.75,
+                    "relative_strength_composite": 0.85,
+                    "rs_acceleration_score": -0.20,
+                }
+            ]
+        ).to_csv(target, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "AAA",
+                    "Name": "Current Leader",
+                    "sector": "Tech",
+                    "score": 9.0,
+                    "portfolio_sleeve_label": "future_winner",
+                    "portfolio_future_winner_engine_score": 0.85,
+                    "portfolio_monster_early_score": 0.75,
+                    "h6_dynamic_leader_score": 0.80,
+                    "relative_strength_composite": 0.85,
+                    "rs_acceleration_score": -0.20,
+                    "portfolio_stale_mega_leader_score": 0.0,
+                    "portfolio_risk_entry_block_score": 0.0,
+                    "portfolio_candidate_gate_label": "future_relaxed",
+                    "market_cap_live": 5_000_000_000,
+                    "dollar_vol_20d": 50_000_000,
+                },
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": "BBB",
+                    "Name": "Potential Challenger",
+                    "sector": "Tech",
+                    "score": 10.0,
+                    "portfolio_sleeve_label": "future_winner",
+                    "portfolio_future_winner_engine_score": 0.95,
+                    "portfolio_monster_early_score": 0.90,
+                    "h6_dynamic_leader_score": 0.95,
+                    "relative_strength_composite": 0.90,
+                    "rs_acceleration_score": 0.80,
+                    "portfolio_stale_mega_leader_score": 0.0,
+                    "portfolio_risk_entry_block_score": 0.0,
+                    "portfolio_candidate_gate_label": "future_relaxed",
+                    "market_cap_live": 6_000_000_000,
+                    "dollar_vol_20d": 80_000_000,
+                },
+            ]
+        ).to_csv(candidates, index=False)
+        metrics = run(
+            argparse.Namespace(
+                target_book=str(target),
+                candidate_book=str(candidates),
+                price_cache=str(cache),
+                output_dir=str(out),
+                portfolio_kind="main",
+                starting_capital=10_000.0,
+                fill_mode="next_close",
+                cost_bps=25.0,
+                no_integer_shares=False,
+                max_fill_lag_days=7,
+                max_swaps_per_date=1,
+                min_score_advantage=0.10,
+                weak_score_threshold=0.45,
+                min_market_cap_usd=1_000_000_000.0,
+                min_dollar_volume_usd=5_000_000.0,
+                replacement_weight_scale=1.0,
+                allowed_regimes="bull,neutral",
+                allow_monster_gate_override=True,
+                min_leader_score=0.60,
+                min_raw_leader_signal=0.55,
+                allow_rs_accel_only_exit=False,
+            )
+        )
+        assert metrics["status"] == "completed"
+        assert metrics["replacement_swap_count"] == 0
+        book = pd.read_csv(out / "replacement_target_book.csv")
+        assert set(book["ticker"]) == {"AAA"}
+
+
 def main() -> int:
     test_replacement_swap_uses_scores_not_forward_labels()
+    test_replacement_swap_does_not_sell_leader_on_rs_accel_only()
     print("broker_replacement_swap_replay_smoke: PASS")
     return 0
 

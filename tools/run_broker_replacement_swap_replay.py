@@ -50,6 +50,20 @@ SCORE_COLUMNS = [
     "entry_quality_score",
     "selection_confirmation_score",
 ]
+LEADER_SCORE_WEIGHTS = {
+    "portfolio_future_winner_engine_score": 0.22,
+    "portfolio_early_scout_engine_score": 0.18,
+    "portfolio_monster_early_score": 0.18,
+    "h6_dynamic_leader_score": 0.14,
+    "relative_strength_composite": 0.08,
+    "rs_acceleration_score": 0.06,
+    "oneil_leadership_score": 0.04,
+    "industry_group_strength_score": 0.04,
+    "entry_quality_score": 0.03,
+    "selection_confirmation_score": 0.02,
+    "concentrated_score": 0.01,
+}
+GENERIC_SCORE_WEIGHT = 0.03
 RISK_COLUMNS = [
     "portfolio_risk_entry_block_score",
     "portfolio_stale_mega_leader_score",
@@ -121,10 +135,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replacement-weight-scale", type=float, default=1.0)
     parser.add_argument("--allowed-regimes", default="bull,strong_bull,green,recovery,neutral,balanced")
     parser.add_argument("--allow-monster-gate-override", action="store_true", default=True)
+    parser.add_argument("--min-leader-score", type=float, default=0.60)
+    parser.add_argument("--min-raw-leader-signal", type=float, default=0.55)
+    parser.add_argument("--allow-rs-accel-only-exit", action="store_true", default=False)
     return parser.parse_args()
 
 
 def prepare_dates(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "rebalance_date" not in frame.columns:
+        return pd.DataFrame()
     out = frame.copy()
     out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.normalize()
     return out.dropna(subset=["rebalance_date"]).copy()
@@ -144,16 +163,21 @@ def score_candidate_frame(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
     out["ticker"] = out["ticker"].map(clean_ticker)
     out = out[out["ticker"].ne("")].copy()
-    score_parts: list[pd.Series] = []
-    for col in SCORE_COLUMNS:
+    score_parts: list[tuple[float, pd.Series]] = []
+    for col, weight in LEADER_SCORE_WEIGHTS.items():
         if col in out.columns:
-            score_parts.append(out.groupby("rebalance_date", group_keys=False)[col].apply(rank01))
+            score_parts.append((float(weight), out.groupby("rebalance_date", group_keys=False)[col].apply(rank01)))
+    for col in SCORE_COLUMNS:
+        if col in out.columns and col not in LEADER_SCORE_WEIGHTS:
+            score_parts.append((GENERIC_SCORE_WEIGHT, out.groupby("rebalance_date", group_keys=False)[col].apply(rank01)))
     risk_parts: list[pd.Series] = []
     for col in RISK_COLUMNS:
         if col in out.columns:
             risk_parts.append(out.groupby("rebalance_date", group_keys=False)[col].apply(lambda s: rank01(s, higher_is_better=False)))
     if score_parts:
-        score = pd.concat(score_parts, axis=1).mean(axis=1)
+        weighted = [series * weight for weight, series in score_parts]
+        denom = sum(weight for weight, _ in score_parts)
+        score = pd.concat(weighted, axis=1).sum(axis=1) / max(denom, 1e-9)
     else:
         score = pd.Series(0.5, index=out.index)
     if risk_parts:
@@ -207,6 +231,20 @@ def gate_allows_candidate(row: pd.Series, args: argparse.Namespace) -> tuple[boo
         return False, "risk_entry_block"
     if stale >= 0.85:
         return False, "stale_candidate_block"
+    sleeve = clean_text(row.get("portfolio_sleeve_label")).lower()
+    leader_score = safe_float(row.get("replacement_candidate_score"), 0.0)
+    leader_adjusted = safe_float(row.get("replacement_adjusted_score"), 0.0)
+    leader_like = any(token in sleeve for token in ["future", "early", "monster", "leader", "concentrated"])
+    raw_leader_signal = max(
+        safe_float(row.get("portfolio_future_winner_engine_score"), 0.0),
+        safe_float(row.get("portfolio_early_scout_engine_score"), 0.0),
+        safe_float(row.get("portfolio_monster_early_score"), 0.0),
+        safe_float(row.get("h6_dynamic_leader_score"), 0.0),
+    )
+    if raw_leader_signal < float(args.min_raw_leader_signal) and not leader_like:
+        return False, "raw_leader_signal_below_floor"
+    if max(leader_score, leader_adjusted) < float(args.min_leader_score) and not leader_like:
+        return False, "leader_score_below_floor"
     label = clean_text(row.get("portfolio_candidate_gate_label")).lower()
     hard_gate = any(token in label for token in ["reject", "blocked", "failed", "fail"])
     if hard_gate:
@@ -228,28 +266,44 @@ def held_weakness(row: pd.Series, held_score: float, args: argparse.Namespace) -
     rs_accel = safe_float(row.get("rs_acceleration_score"), 0.0)
     defensive = clean_text(row.get("portfolio_defensive_rotation_action")).lower()
     monster = safe_float(row.get("portfolio_monster_early_score"), 0.0)
+    future = safe_float(row.get("portfolio_future_winner_engine_score"), 0.0)
+    early = safe_float(row.get("portfolio_early_scout_engine_score"), 0.0)
+    dynamic_leader = safe_float(row.get("h6_dynamic_leader_score"), 0.0)
+    rel_strength = safe_float(row.get("relative_strength_composite"), 0.0)
     long_hold = safe_float(row.get("long_hold_compounder_score"), 0.0)
-    protected = monster >= 0.70 or long_hold >= 0.80
+    protected = (
+        monster >= 0.70
+        or future >= 0.75
+        or early >= 0.75
+        or dynamic_leader >= 0.75
+        or long_hold >= 0.80
+        or rel_strength >= 0.80
+    )
     reasons: list[str] = []
     weakness = max(0.0, 1.0 - held_score)
+    hard_break = False
     if stale >= 0.35:
         weakness += stale
         reasons.append("stale_leader_score")
+        hard_break = True
     if risk >= 0.65:
         weakness += risk
         reasons.append("risk_entry_block_score")
+        hard_break = True
     if rs3 <= -0.08:
         weakness += abs(rs3)
         reasons.append("relative_3m_lag")
-    if rs_accel <= -0.10:
-        weakness += abs(rs_accel)
+        hard_break = True
+    if rs_accel <= -0.10 and (bool(args.allow_rs_accel_only_exit) or hard_break or held_score < float(args.weak_score_threshold)):
+        weakness += 0.5 * abs(rs_accel)
         reasons.append("rs_acceleration_negative")
     if defensive and defensive not in {"neutral", "hold", "nan"}:
         weakness += 0.25
         reasons.append("defensive_rotation_action")
+        hard_break = True
     if held_score < float(args.weak_score_threshold):
         reasons.append("held_score_below_threshold")
-    if protected and not {"stale_leader_score", "risk_entry_block_score"}.intersection(reasons):
+    if protected and not hard_break:
         return False, weakness, "protected_winner"
     return bool(reasons), weakness, "+".join(reasons) if reasons else "not_weak"
 
@@ -495,6 +549,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "min_score_advantage": float(args.min_score_advantage),
             "weak_score_threshold": float(args.weak_score_threshold),
             "max_swaps_per_date": int(args.max_swaps_per_date),
+            "min_leader_score": float(args.min_leader_score),
+            "min_raw_leader_signal": float(args.min_raw_leader_signal),
+            "allow_rs_accel_only_exit": bool(args.allow_rs_accel_only_exit),
             "used_forward_return_for_selection": False,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         }

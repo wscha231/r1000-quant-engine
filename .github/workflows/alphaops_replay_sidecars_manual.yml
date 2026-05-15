@@ -250,6 +250,8 @@ jobs:
           path: |
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/reports/candidate_replay_book.csv
+            outputs/reports/concentrated_strategy_comparison.csv
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/

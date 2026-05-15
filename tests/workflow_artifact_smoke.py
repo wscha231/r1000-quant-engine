@@ -343,6 +343,8 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "outputs/reports/operating_main_target_book.csv",
         "outputs/reports/operating_concentrated_target_book.csv",
         "outputs/reports/operating_target_books_*",
+        "outputs/reports/candidate_replay_book.csv",
+        "outputs/reports/concentrated_strategy_comparison.csv",
         "outputs/target_snapshots/",
         "outputs/data_readiness/",
         "outputs/reports/regime_by_month.csv",
