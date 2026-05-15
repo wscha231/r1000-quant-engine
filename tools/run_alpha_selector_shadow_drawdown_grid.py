@@ -34,7 +34,7 @@ from tools.run_broker_ledger_replay import (  # noqa: E402
 
 
 DEFAULT_OUT_DIR = "outputs/alpha_selector_shadow_drawdown_grid"
-DEFAULT_GRID = "-0.12:-0.20:0.70:0.45:-0.06,-0.10:-0.18:0.75:0.50:-0.05,-0.15:-0.25:0.75:0.50:-0.08"
+DEFAULT_GRID = "-0.08:-0.14:0.50:0.25:-0.03,-0.12:-0.20:0.75:0.50:-0.06,-0.15:-0.25:0.80:0.55:-0.08,-0.05:-0.10:0.55:0.20:-0.02"
 
 
 def write_json(path: Path, payload: Any) -> None:

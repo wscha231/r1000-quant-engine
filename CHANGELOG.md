@@ -716,8 +716,9 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 tests\alpha_selector_shadow_drawdown_grid_smoke.py` ->PASS.
   - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
   - `py -3 tools\run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir _run_25912402271_artifacts\alphaops-replay-sidecars-25873418413-25912402271\alpha_selector_broker_grid\main --price-cache _local_concentrated_broker_grid_higher_n\cache_prices --portfolio-kind main --output-dir _local_alpha_selector_shadow_drawdown_check\main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 1 --grid '-0.12:-0.20:0.70:0.45:-0.06'` ->PASS, sample CAGR 23.26%, MaxDD -16.22%, Sharpe 1.278.
+  - `py -3 tools\run_alpha_selector_shadow_drawdown_grid.py --target-book _local_alpha_selector_tradeable_extended\main\rs_heavy_N2_cap0.5\target_book.csv --price-cache _local_concentrated_broker_grid_higher_n\cache_prices --portfolio-kind main --output-dir _local_alpha_selector_shadow_drawdown_check\main_rs_heavy_n2_cap05_strict --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 1 --grid '-0.05:-0.10:0.55:0.20:-0.02,-0.06:-0.12:0.50:0.20:-0.025,-0.08:-0.14:0.50:0.25:-0.03,-0.10:-0.16:0.50:0.25:-0.04'` ->PASS, best sample around CAGR 32.69%, MaxDD -18.32%.
 - risks_or_notes:
-  - The first local sample sharply improved MaxDD but carried high average cash and lower CAGR. This sidecar is a risk-control candidate, not a production promotion. It must be evaluated in the next fast replay after candidate price-cache parity is verified.
+  - The first local sample sharply improved MaxDD but carried high average cash and lower CAGR. A stricter local sample kept CAGR above 30% while reducing MaxDD near -18%, so the default grid now includes both strict and moderate variants. This sidecar remains a risk-control candidate, not a production promotion, and must be evaluated in the next fast replay after candidate price-cache parity is verified.
 
 ## 2026-05-14
 
