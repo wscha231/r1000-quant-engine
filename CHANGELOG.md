@@ -589,6 +589,29 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a research-sidecar accounting fix and does not change production defaults.
 
+### 18:46 KST - alpha-selector-goal-search-dual-ranking
+
+- scope:
+  - Expose both alpha-selector ranking modes in portfolio goal search: CAGR-maximizing best variant and target-distance-minimizing variant.
+- files:
+  - `tools/run_portfolio_goal_search.py` ->adds main/concentrated `best_target_distance_metrics.json` candidates for alpha-selector broker grids.
+  - `CHANGELOG.md` ->documents the reporting change.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->adds alpha-selector target-distance candidates alongside CAGR-best candidates.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_goal_search/main_candidate_ranking.csv` ->will include `main_alpha_selector_broker_grid_best_target_distance`.
+  - `outputs/portfolio_goal_search/concentrated_candidate_ranking.csv` ->will include `concentrated_alpha_selector_broker_grid_best_target_distance`.
+- validation:
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35 before this reporting-only addition.
+- risks_or_notes:
+  - This does not change any replay metrics or production defaults.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

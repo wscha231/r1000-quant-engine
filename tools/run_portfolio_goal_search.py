@@ -507,6 +507,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "main" / "best_target_distance_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_broker_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector variant ranked by shortest distance to the configured CAGR/MaxDD target pair.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "alpha_selector_leader_circuit_grid" / "main" / "best_metrics.json",
         portfolio="main",
         candidate_id="main_alpha_selector_leader_circuit_grid_best",
@@ -622,6 +629,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_alpha_selector_broker_grid_best",
         source_label="sidecar",
         notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "concentrated" / "best_target_distance_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_broker_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector variant ranked by shortest distance to the configured CAGR/MaxDD target pair.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "alpha_selector_leader_circuit_grid" / "concentrated" / "best_metrics.json",
