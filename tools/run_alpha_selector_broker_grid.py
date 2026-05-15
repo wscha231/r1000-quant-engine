@@ -1,0 +1,459 @@
+#!/usr/bin/env python3
+"""Broker-ledger grid for simple leader-alpha selectors.
+
+This research-only sidecar tests whether the strongest point-in-time
+future/early/monster leader scores survive realistic account replay. It builds
+monthly target books from `candidate_replay_book.csv`, then evaluates each
+variant through the standard broker ledger:
+
+- signal dated T is filled at next available close;
+- integer shares, fees, cash, and daily account equity are preserved;
+- selection uses only same-date candidate features;
+- forward-return labels are never used for selection.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
+from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
+
+
+DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
+DEFAULT_OUT_DIR = "outputs/alpha_selector_broker_grid"
+
+STYLE_WEIGHTS: dict[str, dict[str, float]] = {
+    "future_heavy": {
+        "portfolio_future_winner_engine_score": 0.35,
+        "portfolio_early_scout_engine_score": 0.20,
+        "portfolio_monster_early_score": 0.20,
+        "h6_dynamic_leader_score": 0.10,
+        "rs_acceleration_score": 0.08,
+        "industry_group_strength_score": 0.05,
+        "score": 0.02,
+    },
+    "monster_heavy": {
+        "portfolio_monster_early_score": 0.30,
+        "portfolio_future_winner_engine_score": 0.25,
+        "portfolio_early_scout_engine_score": 0.15,
+        "h6_dynamic_leader_score": 0.12,
+        "rs_acceleration_score": 0.10,
+        "industry_group_strength_score": 0.05,
+        "score": 0.03,
+    },
+    "rs_heavy": {
+        "portfolio_future_winner_engine_score": 0.20,
+        "portfolio_early_scout_engine_score": 0.15,
+        "portfolio_monster_early_score": 0.15,
+        "h6_dynamic_leader_score": 0.15,
+        "rs_acceleration_score": 0.20,
+        "industry_group_strength_score": 0.10,
+        "score": 0.05,
+    },
+}
+RISK_COLUMNS = ("portfolio_risk_entry_block_score", "portfolio_stale_mega_leader_score")
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.DataFrame()
+
+
+def clean_label(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    return text.strip("_") or "na"
+
+
+def parse_csv_ints(value: str, default: list[int]) -> list[int]:
+    out: list[int] = []
+    for part in str(value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(int(float(part)))
+        except ValueError:
+            continue
+    return out or list(default)
+
+
+def parse_csv_floats(value: str, default: list[float]) -> list[float]:
+    out: list[float] = []
+    for part in str(value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(float(part))
+        except ValueError:
+            continue
+    return out or list(default)
+
+
+def numeric(frame: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
+    if col not in frame.columns:
+        return pd.Series(default, index=frame.index, dtype=float)
+    return pd.to_numeric(frame[col], errors="coerce").fillna(default)
+
+
+def rank_feature(frame: pd.DataFrame, col: str, *, lower_is_better: bool = False) -> pd.Series:
+    if col not in frame.columns:
+        return pd.Series(0.5, index=frame.index, dtype=float)
+    return (
+        frame.groupby("rebalance_date")[col]
+        .rank(pct=True, ascending=not lower_is_better)
+        .fillna(0.5)
+        .clip(0.0, 1.0)
+    )
+
+
+def prepare_candidates(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns:
+        return pd.DataFrame()
+    d = frame.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
+    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d = d.dropna(subset=["rebalance_date"])
+    d = d[d["ticker"].ne("")].copy()
+    for col in sorted({c for weights in STYLE_WEIGHTS.values() for c in weights} | set(RISK_COLUMNS)):
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    for col in sorted({c for weights in STYLE_WEIGHTS.values() for c in weights}):
+        d[f"{col}_rank"] = rank_feature(d, col)
+    for col in RISK_COLUMNS:
+        d[f"{col}_safe_rank"] = rank_feature(d, col, lower_is_better=True)
+    return d
+
+
+def liquidity_mask(frame: pd.DataFrame, *, min_mcap: float, min_dollar_vol: float, min_price: float) -> pd.Series:
+    dollar_vol = numeric(frame, "dollar_vol_20d")
+    price = pd.concat(
+        [numeric(frame, "px", np.nan), numeric(frame, "current_price_live", np.nan)],
+        axis=1,
+    ).bfill(axis=1).iloc[:, 0].fillna(0.0)
+    mcap = pd.concat(
+        [numeric(frame, "market_cap_live", np.nan), numeric(frame, "mktcap", np.nan)],
+        axis=1,
+    ).max(axis=1).fillna(1e12)
+    return (dollar_vol >= float(min_dollar_vol)) & (price >= float(min_price)) & (mcap >= float(min_mcap))
+
+
+def gate_mask(frame: pd.DataFrame) -> pd.Series:
+    sleeve = frame.get("portfolio_sleeve_label", pd.Series("", index=frame.index)).astype(str).str.lower()
+    gate = frame.get("portfolio_candidate_gate_label", pd.Series("", index=frame.index)).astype(str).str.lower()
+    leader_like = sleeve.str.contains("future|early|monster|leader|concentrated", regex=True, na=False)
+    not_rejected = ~gate.str.contains("reject|block|fail", regex=True, na=False)
+    risk_ok = numeric(frame, "portfolio_risk_entry_block_score") < 0.75
+    stale_ok = numeric(frame, "portfolio_stale_mega_leader_score") < 0.75
+    return risk_ok & stale_ok & (not_rejected | leader_like)
+
+
+def score_candidates(frame: pd.DataFrame, style: str) -> pd.Series:
+    weights = STYLE_WEIGHTS[style]
+    score = pd.Series(0.0, index=frame.index, dtype=float)
+    for col, weight in weights.items():
+        score += float(weight) * frame.get(f"{col}_rank", pd.Series(0.5, index=frame.index))
+    score += 0.05 * frame.get("portfolio_risk_entry_block_score_safe_rank", pd.Series(0.5, index=frame.index))
+    score += 0.05 * frame.get("portfolio_stale_mega_leader_score_safe_rank", pd.Series(0.5, index=frame.index))
+    return score.fillna(0.0).clip(0.0, 1.0)
+
+
+def capped_score_weights(scores: pd.Series, cap: float) -> np.ndarray:
+    values = np.maximum(pd.to_numeric(scores, errors="coerce").fillna(0.0).to_numpy(dtype=float), 0.01) ** 2
+    weights = values / max(values.sum(), 1e-12)
+    cap = max(0.01, min(1.0, float(cap)))
+    weights = np.minimum(weights, cap)
+    for _ in range(8):
+        remaining = 1.0 - float(weights.sum())
+        if remaining <= 1e-8:
+            break
+        room = cap - weights
+        if float(room.max()) <= 1e-8:
+            break
+        weights = np.minimum(cap, weights + remaining * room / max(float(room.sum()), 1e-12))
+    return weights
+
+
+def build_target_book(
+    candidates: pd.DataFrame,
+    *,
+    style: str,
+    target_n: int,
+    single_name_cap: float,
+    min_mcap: float,
+    min_dollar_vol: float,
+    min_price: float,
+) -> pd.DataFrame:
+    d = candidates.copy()
+    d["alpha_selector_score"] = score_candidates(d, style)
+    mask = liquidity_mask(d, min_mcap=min_mcap, min_dollar_vol=min_dollar_vol, min_price=min_price) & gate_mask(d)
+    rows: list[dict[str, Any]] = []
+    for dt, group in d[mask].groupby("rebalance_date", sort=True):
+        selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
+        if selected.empty:
+            continue
+        weights = capped_score_weights(selected["alpha_selector_score"], single_name_cap)
+        for (_, row), weight in zip(selected.iterrows(), weights):
+            rows.append(
+                {
+                    "rebalance_date": pd.Timestamp(dt).date().isoformat(),
+                    "ticker": row.get("ticker"),
+                    "Name": row.get("Name", ""),
+                    "sector": row.get("sector", ""),
+                    "weight": float(weight),
+                    "portfolio_sleeve_label": row.get("portfolio_sleeve_label", ""),
+                    "portfolio_candidate_gate_label": row.get("portfolio_candidate_gate_label", ""),
+                    "alpha_selector_style": style,
+                    "alpha_selector_score": safe_float(row.get("alpha_selector_score")),
+                    "target_stock_names": int(target_n),
+                    "weighting_mode": "alpha_selector",
+                    "active_rebalance_interval_months": 1,
+                    "research_only_backtest": True,
+                    "production_activation_allowed": False,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def target_distance(portfolio_kind: str, metrics: dict[str, Any]) -> float:
+    target = PORTFOLIO_GOAL_TARGETS.get(portfolio_kind, PORTFOLIO_GOAL_TARGETS["main"])
+    cagr = safe_float(metrics.get("cagr"), math.nan)
+    max_dd = safe_float(metrics.get("max_dd", metrics.get("max_drawdown")), math.nan)
+    if not math.isfinite(cagr) or not math.isfinite(max_dd):
+        return math.inf
+    return max(0.0, target["cagr"] - cagr) + max(0.0, target["max_dd"] - max_dd)
+
+
+def variant_id(style: str, n: int, cap: float) -> str:
+    return f"{clean_label(style)}_N{int(n)}_cap{clean_label(cap)}"
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    candidate_book = repo_path(args.candidate_book)
+    price_cache = repo_path(args.price_cache)
+    output_dir = repo_path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    candidates = prepare_candidates(read_csv(candidate_book))
+    if candidates.empty:
+        payload = {
+            "status": "blocked",
+            "reason": "candidate replay book is missing or empty",
+            "candidate_book": str(candidate_book),
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+        write_json(output_dir / "best_metrics.json", payload)
+        return payload
+
+    target_ns = parse_csv_ints(args.target_ns, [3, 5, 7])
+    caps = parse_csv_floats(args.single_name_caps, [0.33, 0.50])
+    styles = [s.strip() for s in str(args.styles or "").split(",") if s.strip() in STYLE_WEIGHTS] or list(STYLE_WEIGHTS)
+    rows: list[dict[str, Any]] = []
+    completed: list[dict[str, Any]] = []
+    variant_count = 0
+    for style in styles:
+        for n in target_ns:
+            for cap in caps:
+                if variant_count >= int(args.max_variants):
+                    break
+                variant_count += 1
+                vid = variant_id(style, n, cap)
+                variant_dir = output_dir / vid
+                target = build_target_book(
+                    candidates,
+                    style=style,
+                    target_n=n,
+                    single_name_cap=cap,
+                    min_mcap=float(args.min_market_cap_usd),
+                    min_dollar_vol=float(args.min_dollar_volume_usd),
+                    min_price=float(args.min_price),
+                )
+                target_path = variant_dir / "target_book.csv"
+                variant_dir.mkdir(parents=True, exist_ok=True)
+                target.to_csv(target_path, index=False)
+                champion_filters = (
+                    {
+                        "target_stock_names": str(int(n)),
+                        "weighting_mode": "alpha_selector",
+                        "active_rebalance_interval_months": "1",
+                    }
+                    if args.portfolio_kind == "concentrated"
+                    else None
+                )
+                try:
+                    metrics = broker_replay(
+                        target_book=target_path,
+                        price_cache=price_cache,
+                        output_dir=variant_dir,
+                        portfolio_kind=args.portfolio_kind,
+                        starting_capital=float(args.starting_capital),
+                        fill_mode=args.fill_mode,
+                        cost_bps=float(args.cost_bps),
+                        integer_shares=not bool(args.no_integer_shares),
+                        max_fill_lag_days=int(args.max_fill_lag_days),
+                        concentrated_champion_filters=champion_filters,
+                    )
+                except Exception as exc:
+                    metrics = {
+                        "status": "blocked",
+                        "reason": f"broker replay failed: {type(exc).__name__}: {exc}",
+                        "valid_for_production": False,
+                    }
+                metrics.update(
+                    {
+                        "candidate_id": f"{args.portfolio_kind}_alpha_selector_broker_grid_{vid}",
+                        "metric_mode": "alpha_selector_broker_grid_next_close",
+                        "portfolio_kind": args.portfolio_kind,
+                        "alpha_selector_variant": vid,
+                        "alpha_selector_style": style,
+                        "target_stock_names": int(n),
+                        "single_name_cap": float(cap),
+                        "candidate_book": str(candidate_book),
+                        "target_book": str(target_path),
+                        "research_only": True,
+                        "production_activation_allowed": False,
+                    }
+                )
+                write_json(variant_dir / "metrics.json", metrics)
+                rows.append(
+                    {
+                        "variant_id": vid,
+                        "status": metrics.get("status"),
+                        "style": style,
+                        "target_stock_names": int(n),
+                        "single_name_cap": float(cap),
+                        "cagr": metrics.get("cagr"),
+                        "max_dd": metrics.get("max_dd", metrics.get("max_drawdown")),
+                        "sharpe": metrics.get("sharpe"),
+                        "trade_count": metrics.get("trade_count"),
+                        "avg_cash_weight": metrics.get("avg_cash_weight"),
+                        "target_distance": target_distance(args.portfolio_kind, metrics),
+                        "valid_for_production": bool(metrics.get("valid_for_production")),
+                        "reason": metrics.get("reason", ""),
+                    }
+                )
+                if metrics.get("status") == "completed" and metrics.get("valid_for_production"):
+                    completed.append(metrics)
+    summary = pd.DataFrame(rows)
+    if not summary.empty:
+        summary = summary.sort_values(["target_distance", "cagr", "max_dd"], ascending=[True, False, False])
+    summary.to_csv(output_dir / "summary.csv", index=False)
+    if completed:
+        best_by_distance = sorted(completed, key=lambda m: (target_distance(args.portfolio_kind, m), -safe_float(m.get("cagr"), -1.0)))[0]
+        best_distance_payload = dict(best_by_distance)
+        best_distance_payload.update(
+            {
+                "status": "completed",
+                "candidate_id": f"{args.portfolio_kind}_alpha_selector_broker_grid_best_distance",
+                "metric_mode": "alpha_selector_broker_grid_best_distance_next_close",
+                "variant_count": variant_count,
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": True,
+            }
+        )
+        write_json(output_dir / "best_target_distance_metrics.json", best_distance_payload)
+        best = sorted(
+            completed,
+            key=lambda m: (
+                -safe_float(m.get("cagr"), -1.0),
+                -safe_float(m.get("sharpe"), -1.0),
+                safe_float(m.get("max_dd", m.get("max_drawdown")), -1.0),
+            ),
+        )[0]
+        best_payload = dict(best)
+        best_payload.update(
+            {
+                "status": "completed",
+                "candidate_id": f"{args.portfolio_kind}_alpha_selector_broker_grid_best",
+                "metric_mode": "alpha_selector_broker_grid_best_next_close",
+                "variant_count": variant_count,
+                "selection_rule": "best_cagr_then_sharpe_then_max_dd",
+                "best_target_distance_metrics": str(output_dir / "best_target_distance_metrics.json"),
+                "research_only": True,
+                "production_activation_allowed": False,
+                "valid_for_production": True,
+            }
+        )
+    else:
+        best_payload = {
+            "status": "blocked",
+            "reason": "no completed alpha selector broker grid variants",
+            "portfolio_kind": args.portfolio_kind,
+            "variant_count": variant_count,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+    write_json(output_dir / "best_metrics.json", best_payload)
+    report = [
+        "# Alpha Selector Broker Grid",
+        "",
+        "Research-only account-ledger grid for concentrated leader-alpha target books.",
+        "",
+        f"- Portfolio: `{args.portfolio_kind}`",
+        f"- Best CAGR: {safe_float(best_payload.get('cagr')):.2%}",
+        f"- Best MaxDD: {safe_float(best_payload.get('max_dd', best_payload.get('max_drawdown'))):.2%}",
+        f"- Best Sharpe: {safe_float(best_payload.get('sharpe')):.3f}",
+        f"- Selection rule: `{best_payload.get('selection_rule', 'n/a')}`",
+        f"- Variants: {variant_count}",
+        "",
+        "Promotion requires target gates, stress windows, and human approval.",
+        "",
+    ]
+    (output_dir / "report.md").write_text("\n".join(report), encoding="utf-8")
+    return best_payload
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--candidate-book", default=DEFAULT_CANDIDATE_BOOK)
+    parser.add_argument("--price-cache", default="cache_prices")
+    parser.add_argument("--output-dir", default=DEFAULT_OUT_DIR)
+    parser.add_argument("--portfolio-kind", choices=["main", "concentrated"], default="main")
+    parser.add_argument("--starting-capital", type=float, default=100000.0)
+    parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
+    parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument("--no-integer-shares", action="store_true")
+    parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument("--styles", default="future_heavy,monster_heavy,rs_heavy")
+    parser.add_argument("--target-ns", default="3,5,7")
+    parser.add_argument("--single-name-caps", default="0.33,0.50")
+    parser.add_argument("--max-variants", type=int, default=18)
+    parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
+    parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
+    parser.add_argument("--min-price", type=float, default=5.0)
+    return parser.parse_args()
+
+
+def main() -> int:
+    payload = run(parse_args())
+    print(json.dumps({"status": payload.get("status"), "cagr": payload.get("cagr"), "max_dd": payload.get("max_dd")}, sort_keys=True, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

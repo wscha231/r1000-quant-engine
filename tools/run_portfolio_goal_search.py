@@ -500,6 +500,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_crisis_reentry_fast_reentry",
@@ -601,6 +608,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_replacement_swap_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
     )
     concentrated += candidate_from_json(
         latest_run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json",
