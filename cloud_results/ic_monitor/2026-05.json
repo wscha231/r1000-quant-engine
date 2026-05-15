@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-01T05:47:29",
+  "timestamp": "2026-05-15T23:38:14",
   "n_adrs": 105,
   "windows": [
     30,
@@ -15,690 +15,698 @@
   ],
   "avg_ic_by_feature": {
     "vix": null,
-    "spy_mom": 0.2614,
+    "spy_mom": 0.0293,
     "usdcny": null,
     "cpi_us": null,
     "cpi_china": null
   },
   "records": [
     {
-      "timestamp": "2026-05-01T05:47:20",
+      "timestamp": "2026-05-15T23:38:05",
       "window_days": 30,
       "ticker": "ABEV",
       "feature": "spy_mom",
-      "ic": 0.8263,
+      "ic": 0.7207,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:05",
       "window_days": 30,
       "ticker": "AEM",
       "feature": "spy_mom",
-      "ic": 0.2027,
+      "ic": 0.588,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:05",
       "window_days": 30,
       "ticker": "ARGX",
       "feature": "spy_mom",
-      "ic": 0.9034,
+      "ic": 0.6285,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:05",
       "window_days": 30,
       "ticker": "ASML",
       "feature": "spy_mom",
-      "ic": 0.6765,
+      "ic": 0.7353,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:05",
       "window_days": 30,
       "ticker": "AZN",
       "feature": "spy_mom",
-      "ic": 0.4745,
+      "ic": -0.519,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:06",
       "window_days": 30,
       "ticker": "BABA",
       "feature": "spy_mom",
-      "ic": 0.8816,
+      "ic": 0.8376,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:06",
       "window_days": 30,
       "ticker": "BBD",
+      "feature": "spy_mom",
+      "ic": 0.2374,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:06",
+      "window_days": 30,
+      "ticker": "BBVA",
+      "feature": "spy_mom",
+      "ic": 0.3562,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:06",
+      "window_days": 30,
+      "ticker": "BCE",
+      "feature": "spy_mom",
+      "ic": 0.5969,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:06",
+      "window_days": 30,
+      "ticker": "BCS",
+      "feature": "spy_mom",
+      "ic": 0.7531,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BEKE",
+      "feature": "spy_mom",
+      "ic": 0.8456,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BHP",
+      "feature": "spy_mom",
+      "ic": 0.9408,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BIDU",
+      "feature": "spy_mom",
+      "ic": 0.8914,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BMO",
       "feature": "spy_mom",
       "ic": 0.8986,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
+      "timestamp": "2026-05-15T23:38:07",
       "window_days": 30,
+      "ticker": "BNS",
+      "feature": "spy_mom",
+      "ic": 0.8861,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BP",
+      "feature": "spy_mom",
+      "ic": -0.9604,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:07",
+      "window_days": 30,
+      "ticker": "BSBR",
+      "feature": "spy_mom",
+      "ic": 0.2409,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "BTI",
+      "feature": "spy_mom",
+      "ic": 0.8434,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "BUD",
+      "feature": "spy_mom",
+      "ic": 0.9092,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CCJ",
+      "feature": "spy_mom",
+      "ic": 0.6534,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CIB",
+      "feature": "spy_mom",
+      "ic": -0.5377,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CM",
+      "feature": "spy_mom",
+      "ic": 0.9159,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CNI",
+      "feature": "spy_mom",
+      "ic": 0.7806,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CNQ",
+      "feature": "spy_mom",
+      "ic": -0.6329,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "CP",
+      "feature": "spy_mom",
+      "ic": 0.9075,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "DB",
+      "feature": "spy_mom",
+      "ic": 0.8234,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:08",
+      "window_days": 30,
+      "ticker": "DEO",
+      "feature": "spy_mom",
+      "ic": 0.9288,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:09",
+      "window_days": 30,
+      "ticker": "EC",
+      "feature": "spy_mom",
+      "ic": -0.9341,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:09",
+      "window_days": 30,
+      "ticker": "EDU",
+      "feature": "spy_mom",
+      "ic": -0.3851,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:09",
+      "window_days": 60,
+      "ticker": "ABEV",
+      "feature": "spy_mom",
+      "ic": -0.7224,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:09",
+      "window_days": 60,
+      "ticker": "AEM",
+      "feature": "spy_mom",
+      "ic": -0.8011,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:09",
+      "window_days": 60,
+      "ticker": "ARGX",
+      "feature": "spy_mom",
+      "ic": -0.3063,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
+      "ticker": "ASML",
+      "feature": "spy_mom",
+      "ic": -0.2174,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
+      "ticker": "AZN",
+      "feature": "spy_mom",
+      "ic": -0.6319,
+      "sample_size": 13
+    },
+    {
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
+      "ticker": "BABA",
+      "feature": "spy_mom",
+      "ic": 0.6512,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
+      "ticker": "BBD",
+      "feature": "spy_mom",
+      "ic": -0.8808,
+      "sample_size": 30
+    },
+    {
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BBVA",
       "feature": "spy_mom",
-      "ic": 0.887,
+      "ic": -0.2885,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
-      "window_days": 30,
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BCE",
       "feature": "spy_mom",
-      "ic": -0.7143,
+      "ic": -0.7028,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:21",
-      "window_days": 30,
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BCS",
       "feature": "spy_mom",
-      "ic": 0.9546,
+      "ic": -0.2156,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BEKE",
       "feature": "spy_mom",
-      "ic": 0.8394,
+      "ic": 0.6076,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BHP",
       "feature": "spy_mom",
-      "ic": 0.8131,
+      "ic": -0.3135,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
+      "timestamp": "2026-05-15T23:38:10",
+      "window_days": 60,
       "ticker": "BIDU",
       "feature": "spy_mom",
       "ic": 0.8954,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BMO",
-      "feature": "spy_mom",
-      "ic": 0.9168,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BNS",
-      "feature": "spy_mom",
-      "ic": 0.9675,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BP",
-      "feature": "spy_mom",
-      "ic": -0.7126,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BSBR",
-      "feature": "spy_mom",
-      "ic": 0.887,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BTI",
-      "feature": "spy_mom",
-      "ic": 0.1137,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "BUD",
-      "feature": "spy_mom",
-      "ic": 0.9288,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:22",
-      "window_days": 30,
-      "ticker": "CCJ",
-      "feature": "spy_mom",
-      "ic": 0.8888,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "CIB",
-      "feature": "spy_mom",
-      "ic": 0.7264,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "CM",
-      "feature": "spy_mom",
-      "ic": 0.9026,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "CNI",
-      "feature": "spy_mom",
-      "ic": 0.8029,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "CNQ",
-      "feature": "spy_mom",
-      "ic": -0.923,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "CP",
-      "feature": "spy_mom",
-      "ic": 0.4283,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "DB",
-      "feature": "spy_mom",
-      "ic": 0.9524,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "DEO",
-      "feature": "spy_mom",
-      "ic": 0.9244,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "EC",
-      "feature": "spy_mom",
-      "ic": -0.8687,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 30,
-      "ticker": "EDU",
-      "feature": "spy_mom",
-      "ic": 0.7295,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:23",
-      "window_days": 60,
-      "ticker": "ABEV",
-      "feature": "spy_mom",
-      "ic": -0.4727,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "AEM",
-      "feature": "spy_mom",
-      "ic": -0.5666,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "ARGX",
-      "feature": "spy_mom",
-      "ic": 0.5591,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "ASML",
-      "feature": "spy_mom",
-      "ic": -0.8772,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BABA",
-      "feature": "spy_mom",
-      "ic": -0.5039,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BBD",
-      "feature": "spy_mom",
-      "ic": -0.309,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BBVA",
-      "feature": "spy_mom",
-      "ic": -0.204,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BCE",
-      "feature": "spy_mom",
-      "ic": -0.9164,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BCS",
-      "feature": "spy_mom",
-      "ic": 0.6552,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:24",
-      "window_days": 60,
-      "ticker": "BEKE",
-      "feature": "spy_mom",
-      "ic": -0.6556,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:25",
-      "window_days": 60,
-      "ticker": "BHP",
-      "feature": "spy_mom",
-      "ic": 0.0296,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:25",
-      "window_days": 60,
-      "ticker": "BIDU",
-      "feature": "spy_mom",
-      "ic": -0.1947,
-      "sample_size": 30
-    },
-    {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:10",
       "window_days": 60,
       "ticker": "BMO",
       "feature": "spy_mom",
-      "ic": 0.762,
+      "ic": -0.1889,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:10",
       "window_days": 60,
       "ticker": "BNS",
       "feature": "spy_mom",
-      "ic": 0.8621,
+      "ic": 0.3611,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:10",
       "window_days": 60,
       "ticker": "BP",
       "feature": "spy_mom",
-      "ic": -0.6756,
+      "ic": -0.9208,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:10",
       "window_days": 60,
       "ticker": "BSBR",
       "feature": "spy_mom",
-      "ic": -0.2659,
+      "ic": -0.81,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "BTI",
       "feature": "spy_mom",
-      "ic": -0.6614,
+      "ic": -0.0994,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "BUD",
       "feature": "spy_mom",
-      "ic": -0.3304,
+      "ic": -0.8247,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CCJ",
       "feature": "spy_mom",
-      "ic": -0.9146,
+      "ic": -0.4857,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:25",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CIB",
       "feature": "spy_mom",
-      "ic": -0.907,
+      "ic": -0.899,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CM",
       "feature": "spy_mom",
-      "ic": 0.8759,
+      "ic": 0.1964,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CNI",
       "feature": "spy_mom",
-      "ic": 0.8398,
+      "ic": -0.4171,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CNQ",
       "feature": "spy_mom",
-      "ic": -0.8194,
+      "ic": -0.8612,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "CP",
       "feature": "spy_mom",
-      "ic": 0.7669,
+      "ic": -0.6165,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "DB",
       "feature": "spy_mom",
-      "ic": 0.6774,
+      "ic": 0.3499,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "DEO",
       "feature": "spy_mom",
-      "ic": 0.4545,
+      "ic": -0.5764,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "EC",
       "feature": "spy_mom",
-      "ic": -0.8781,
+      "ic": -0.6338,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 60,
       "ticker": "EDU",
       "feature": "spy_mom",
-      "ic": -0.3268,
+      "ic": -0.6676,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:11",
       "window_days": 90,
       "ticker": "ABEV",
       "feature": "spy_mom",
-      "ic": 0.3733,
+      "ic": 0.324,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:26",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "AEM",
       "feature": "spy_mom",
-      "ic": 0.2641,
+      "ic": -0.7281,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "ARGX",
       "feature": "spy_mom",
-      "ic": 0.9097,
+      "ic": 0.8492,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "ASML",
       "feature": "spy_mom",
-      "ic": 0.1235,
+      "ic": 0.1715,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BABA",
       "feature": "spy_mom",
-      "ic": 0.8367,
+      "ic": 0.8901,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BBD",
       "feature": "spy_mom",
-      "ic": 0.9021,
+      "ic": -0.0865,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BBVA",
       "feature": "spy_mom",
-      "ic": -0.0785,
+      "ic": -0.8176,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BCE",
       "feature": "spy_mom",
-      "ic": -0.7437,
+      "ic": 0.0932,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BCS",
       "feature": "spy_mom",
-      "ic": 0.2356,
+      "ic": -0.8794,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:27",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BEKE",
       "feature": "spy_mom",
-      "ic": 0.3918,
+      "ic": 0.8563,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BHP",
       "feature": "spy_mom",
-      "ic": 0.3103,
+      "ic": -0.014,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BIDU",
       "feature": "spy_mom",
-      "ic": 0.8283,
+      "ic": 0.5017,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BMO",
       "feature": "spy_mom",
-      "ic": 0.8607,
+      "ic": 0.1333,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:12",
       "window_days": 90,
       "ticker": "BNS",
       "feature": "spy_mom",
-      "ic": 0.6543,
+      "ic": -0.1755,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "BP",
       "feature": "spy_mom",
-      "ic": 0.4888,
+      "ic": -0.0861,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "BSBR",
       "feature": "spy_mom",
-      "ic": 0.8287,
+      "ic": -0.4865,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "BTI",
       "feature": "spy_mom",
-      "ic": -0.6845,
+      "ic": 0.4607,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "BUD",
       "feature": "spy_mom",
-      "ic": 0.5439,
+      "ic": 0.4518,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "CCJ",
       "feature": "spy_mom",
-      "ic": 0.7473,
+      "ic": -0.3192,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:28",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "CIB",
       "feature": "spy_mom",
-      "ic": -0.0136,
+      "ic": -0.895,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "CM",
       "feature": "spy_mom",
-      "ic": 0.7215,
+      "ic": 0.3139,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:13",
       "window_days": 90,
       "ticker": "CNI",
       "feature": "spy_mom",
-      "ic": 0.6196,
+      "ic": -0.3833,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "CNQ",
       "feature": "spy_mom",
-      "ic": -0.5364,
+      "ic": 0.1875,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "CP",
       "feature": "spy_mom",
-      "ic": 0.4127,
+      "ic": 0.5684,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "DB",
       "feature": "spy_mom",
-      "ic": 0.4131,
+      "ic": -0.7539,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "DEO",
       "feature": "spy_mom",
-      "ic": 0.8732,
+      "ic": 0.6694,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "EC",
       "feature": "spy_mom",
-      "ic": -0.1079,
+      "ic": -0.4309,
       "sample_size": 30
     },
     {
-      "timestamp": "2026-05-01T05:47:29",
+      "timestamp": "2026-05-15T23:38:14",
       "window_days": 90,
       "ticker": "EDU",
       "feature": "spy_mom",
-      "ic": -0.1631,
+      "ic": -0.8274,
       "sample_size": 30
     }
   ]
