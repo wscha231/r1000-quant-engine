@@ -651,6 +651,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local exhaustive scratch replay found an improved target-distance main candidate around 31.46% CAGR / -21.35% MaxDD, still short of the -15% target. Next work should pair this with a stronger account drawdown budget overlay rather than promote it.
   - The workflow alpha-selector grid now includes cap 0.40 and 60 variants, so replay runtime may increase modestly.
 
+### 19:58 KST - replay-price-cache-candidate-coverage
+
+- scope:
+  - Fix a replay reproducibility bug where GitHub fast replay alpha-selector results depended on which historical candidate tickers happened to exist in restored price cache. Fast replay now refreshes a bounded top-K from `candidate_replay_book.csv` before alpha-selector sidecars run.
+- files:
+  - `tools/build_replay_price_cache.py` ->adds bounded historical candidate ticker collection from candidate replay books.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->passes `outputs/reports/candidate_replay_book.csv` to replay price-cache preflight with top 20 candidates per date and max 600 unique tickers.
+  - `.github/workflows/full_rebuild_manual.yml` ->adds the same candidate-cache preflight arguments for full-run sidecar consistency.
+  - `tests/replay_price_cache_smoke.py` ->adds coverage that top historical candidates are included in dry-run cache requirements.
+  - `tools/run_pr_validation.py` ->adds replay price-cache smoke to Tier-1 validation.
+  - `tests/workflow_artifact_smoke.py` ->asserts the replay workflow wires candidate-cache preflight arguments.
+  - `CHANGELOG.md` ->documents the data-path fix.
+- symbols_added:
+  - `collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: int) -> set[str]` ->collects bounded top-ranked historical candidate tickers for replay price coverage.
+  - `test_replay_price_cache_includes_bounded_historical_candidates() -> None` ->regression test for candidate-cache preflight.
+- symbols_changed:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/build_replay_price_cache.py` ->combines book, scored, candidate, and extra tickers and records candidate-cache diagnostics in the manifest.
+  - `parse_args() -> argparse.Namespace` in `tools/build_replay_price_cache.py` ->adds `--candidate-books`, `--candidate-max-per-date`, and `--candidate-max-total`.
+  - `DEFAULT_TESTS` ->includes `tests/replay_price_cache_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `cache_prices/replay_price_cache_manifest.json` ->now includes `candidate_ticker_count`, `candidate_max_per_date`, and `candidate_max_total`.
+- validation:
+  - pending full Tier-1 validation after this patch.
+- risks_or_notes:
+  - Fast replay may spend more time refreshing price cache, but this is required for honest alpha-selector sidecar comparison. The cap is bounded at 600 unique historical candidate tickers.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

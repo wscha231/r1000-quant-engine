@@ -50,6 +50,9 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
             Namespace(
                 books=[str(book)],
                 scored="",
+                candidate_books=[],
+                candidate_max_per_date=0,
+                candidate_max_total=0,
                 extra_tickers=["SPY"],
                 max_scored=0,
                 output_dir=str(cache),
@@ -69,6 +72,46 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
         assert payload["download_target_count"] == 3
 
 
+def test_replay_price_cache_includes_bounded_historical_candidates() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame([{"rebalance_date": "2026-01-31", "ticker": "AAA", "weight": 1.0}]).to_csv(book, index=False)
+        candidates = root / "candidate_replay_book.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2026-01-31", "ticker": "LOW1", "score": 0.1, "portfolio_monster_early_score": 0.1},
+                {"rebalance_date": "2026-01-31", "ticker": "TOP1", "score": 0.9, "portfolio_monster_early_score": 0.9},
+                {"rebalance_date": "2026-02-28", "ticker": "TOP2", "score": 0.8, "portfolio_monster_early_score": 0.8},
+                {"rebalance_date": "2026-02-28", "ticker": "LOW2", "score": 0.2, "portfolio_monster_early_score": 0.2},
+            ]
+        ).to_csv(candidates, index=False)
+        cache = root / "cache_prices"
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                candidate_books=[str(candidates)],
+                candidate_max_per_date=1,
+                candidate_max_total=10,
+                extra_tickers=[],
+                max_scored=0,
+                output_dir=str(cache),
+                start="",
+                end="",
+                batch_size=40,
+                max_tickers=0,
+                refresh_stale_days=2,
+                dry_run=True,
+            )
+        )
+        assert payload["status"] == "dry_run"
+        assert payload["candidate_ticker_count"] == 2
+        assert payload["ticker_count"] == 3
+        assert payload["missing_before"] == 3
+
+
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
+    test_replay_price_cache_includes_bounded_historical_candidates()
     print("replay_price_cache_smoke: PASS")

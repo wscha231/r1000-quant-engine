@@ -117,6 +117,63 @@ def collect_scored_tickers(path: Path, max_scored: int) -> set[str]:
     return out
 
 
+def collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: int) -> set[str]:
+    """Collect bounded historical sidecar candidates for replay price cache.
+
+    Alpha-selector sidecars rank historical candidate_replay_book rows, not just
+    latest scored rows. If those historical candidate tickers are missing from
+    the replay cache, tradeability filtering becomes cache-dependent and cloud
+    replays can diverge from local replays. This intentionally downloads only a
+    bounded top-K per rebalance date.
+    """
+    if max_per_date <= 0:
+        return set()
+    score_cols = [
+        "score",
+        "portfolio_future_winner_engine_score",
+        "portfolio_early_scout_engine_score",
+        "portfolio_monster_early_score",
+        "h6_dynamic_leader_score",
+        "rs_acceleration_score",
+        "industry_group_strength_score",
+        "relative_strength_composite",
+        "dollar_vol_20d",
+    ]
+    out: set[str] = set()
+    for path in paths:
+        frame = read_csv(path)
+        if frame.empty or "ticker" not in frame.columns:
+            continue
+        d = frame.copy()
+        if "rebalance_date" not in d.columns:
+            d["rebalance_date"] = "latest"
+        rank_score = pd.Series(0.0, index=d.index)
+        used = 0
+        for col in score_cols:
+            if col not in d.columns:
+                continue
+            series = pd.to_numeric(d[col], errors="coerce")
+            if series.notna().any():
+                rank_score += series.groupby(d["rebalance_date"]).rank(pct=True).fillna(0.0)
+                used += 1
+        if used == 0:
+            rank_score = pd.Series(1.0, index=d.index)
+        d["_candidate_cache_rank"] = rank_score
+        d["_ticker_norm"] = d["ticker"].map(normalize_ticker)
+        d = d[d["_ticker_norm"].ne("")]
+        selected = (
+            d.sort_values(["rebalance_date", "_candidate_cache_rank"], ascending=[True, False])
+            .groupby("rebalance_date", sort=False)
+            .head(int(max_per_date))
+        )
+        for ticker in selected["_ticker_norm"]:
+            if ticker:
+                out.add(ticker)
+                if max_total > 0 and len(out) >= int(max_total):
+                    return out
+    return out
+
+
 def existing_cache_count(output_dir: Path, tickers: set[str]) -> int:
     return sum(1 for ticker in tickers if (output_dir / px_cache_name(ticker)).exists())
 
@@ -223,8 +280,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     book_paths = [repo_path(x) for x in args.books]
     book_tickers, min_dt, max_dt = collect_book_tickers(book_paths)
     scored_tickers = collect_scored_tickers(repo_path(args.scored), args.max_scored) if args.scored else set()
+    candidate_paths = [repo_path(x) for x in getattr(args, "candidate_books", [])]
+    candidate_tickers = collect_candidate_tickers(
+        candidate_paths,
+        int(getattr(args, "candidate_max_per_date", 0) or 0),
+        int(getattr(args, "candidate_max_total", 0) or 0),
+    )
     extra_tickers = {ticker for ticker in (normalize_ticker(x) for x in getattr(args, "extra_tickers", [])) if ticker}
-    tickers = sorted(book_tickers | scored_tickers | extra_tickers)
+    tickers = sorted(book_tickers | scored_tickers | candidate_tickers | extra_tickers)
     if args.max_tickers and args.max_tickers > 0:
         tickers = tickers[: int(args.max_tickers)]
     today = pd.Timestamp.utcnow().tz_localize(None).normalize()
@@ -244,6 +307,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ticker_count": len(tickers),
         "book_ticker_count": len(book_tickers),
         "scored_ticker_count": len(scored_tickers),
+        "candidate_books": [str(path) for path in candidate_paths],
+        "candidate_ticker_count": len(candidate_tickers),
+        "candidate_max_per_date": int(getattr(args, "candidate_max_per_date", 0) or 0),
+        "candidate_max_total": int(getattr(args, "candidate_max_total", 0) or 0),
         "extra_ticker_count": len(extra_tickers),
         "extra_tickers": sorted(extra_tickers),
         "existing_cache_count": existing_cache_count(output_dir, set(tickers)),
@@ -271,6 +338,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--books", nargs="+", required=True)
     parser.add_argument("--scored", default="")
+    parser.add_argument(
+        "--candidate-books",
+        nargs="*",
+        default=[],
+        help="Historical candidate books whose top same-date rows need replay price coverage.",
+    )
+    parser.add_argument("--candidate-max-per-date", type=int, default=0)
+    parser.add_argument("--candidate-max-total", type=int, default=0)
     parser.add_argument(
         "--extra-tickers",
         nargs="*",
