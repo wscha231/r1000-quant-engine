@@ -404,6 +404,7 @@ jobs:
           python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy lifecycle_review_concentrated --output-dir outputs/monster_lifecycle_review_concentrated 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_review_concentrated.log || true
           python tools/run_orchestrator_replay.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/orchestrator_replay.log || true
           python tools/run_leader_drop_diagnostics_sidecar.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
           python tools/run_governance_catalyst_report.py --latest-run outputs --output-dir outputs/governance_catalyst 2>&1 | tee outputs/full_rebuild_logs/governance_catalyst_report.log || true
           python tools/run_style_regime_report.py --latest-run outputs --output-dir outputs/style_regime_report 2>&1 | tee outputs/full_rebuild_logs/style_regime_report.log || true
           python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
@@ -477,6 +478,7 @@ jobs:
             outputs/concentrated_trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/
+            outputs/leader_drop_diagnostics/
             outputs/portfolio_goal_search/
             outputs/main_v2_backtest/
             outputs/concentrated_policy_replay/
@@ -728,7 +730,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit selection_quality ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation leader_drop_diagnostics governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit selection_quality ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -983,6 +985,7 @@ jobs:
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/leader_drop_diagnostics "$DEST/leader_drop_diagnostics"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
           copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"

@@ -151,6 +151,45 @@ All entries must be written in English. Entries must be predictable and machine-
   - Selection quality uses `period_forward_return` from candidate replay, so it is research diagnostics only and not live/actionable output.
   - Iter 6 local selection quality shows `portfolio_future_winner_engine_score` as the best factor by monthly IC and top-k excess, supporting the hypothesis that broker conversion / cash / replacement execution is a larger leak than raw score ranking.
 
+### 12:10 KST - p2-unified-leader-drop-diagnostics
+
+- scope:
+  - Add P2 unified leader-drop diagnostics that connect pre-filter universe gates, latest scored rows, target books, account preview order feasibility, and watchlist names. The new sidecar answers where potential leaders are lost: before scoring, after scoring, during target selection, or at broker order feasibility.
+- files:
+  - `tools/run_leader_drop_diagnostics.py` ->new research-only sidecar writing gate-level leader-drop diagnostics under `outputs/leader_drop_diagnostics/`.
+  - `tests/leader_drop_diagnostics_smoke.py` ->smoke coverage for pre-filter drop, target/actionable order, missing watchlist, and missed-leader candidate outputs.
+  - `tools/run_pr_validation.py` ->adds the new smoke test to fast validation.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs/uploads/syncs the new leader-drop diagnostics output.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs/uploads/syncs the new sidecar in fast replay workflow.
+  - `tests/workflow_artifact_smoke.py` ->asserts full and replay workflow wiring for the new output.
+- symbols_added:
+  - `run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DEFAULT_OUTPUT_DIR, watchlist: str = DEFAULT_WATCHLIST) -> dict[str, Any]` ->builds unified leader-drop diagnostics.
+  - `build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]` ->joins pre-filter, scored, target, preview, and watchlist evidence.
+  - `classify(row: dict[str, Any]) -> str` ->classifies each ticker into selected/actionable, selected/blocked, filtered-before-scoring, gate rejected, risk blocked, stale blocked, monster not selected, or rank/cap not selected.
+  - `order_maps(latest_run: Path, portfolio: str) -> tuple[set[str], set[str], dict[str, str]]` ->extracts actionable and blocked preview-order feasibility.
+  - `rank_scores(scored: pd.DataFrame) -> dict[str, dict[str, Any]]` ->adds factor rank context for scored tickers.
+  - `test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> None` ->regression test for the unified gate map.
+- symbols_changed:
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/leader_drop_diagnostics_smoke.py`.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires full rebuild wiring for unified leader-drop diagnostics.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None` ->requires replay workflow wiring for unified leader-drop diagnostics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/leader_drop_diagnostics/leader_drop_summary.json` ->gate/reason counts and source file metadata.
+  - `outputs/leader_drop_diagnostics/leader_drop_by_gate.csv` ->ticker-level gate map from universe to broker preview feasibility.
+  - `outputs/leader_drop_diagnostics/missed_leader_candidates.csv` ->high-pressure missed candidates for review.
+  - `outputs/leader_drop_diagnostics/leader_drop_report.md` ->human-readable gate summary.
+- validation:
+  - `py -3 tests\leader_drop_diagnostics_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_leader_drop_diagnostics.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_leader_drop_diagnostics_check --watchlist SNDK,INTC,AMD,MU,WDC,STX,LITE,CIEN,IONQ,RGTI,QBTS,ACHR,LEU,SMR,OKLO` ->PASS, 1,138 rows
+- risks_or_notes:
+  - This is diagnostic-only. It does not override gates or force any ticker into a portfolio.
+  - Iter 6 local output shows top missed candidates include ARM/RKLB/SNDK/GLW/HIMX/INTC/LITE/WDC, with SNDK and LITE marked `candidate_gate_rejected`, which supports the next P4 replacement-swap and gate-review work.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

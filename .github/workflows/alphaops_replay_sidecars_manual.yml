@@ -193,6 +193,7 @@ jobs:
           python tools/run_selection_quality_report.py --latest-run outputs --output-dir outputs/selection_quality 2>&1 | tee outputs/full_rebuild_logs/selection_quality_report.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
           python tools/run_cash_policy_reconciliation.py --latest-run outputs --output-dir outputs/cash_policy_reconciliation 2>&1 | tee outputs/full_rebuild_logs/cash_policy_reconciliation.log || true
@@ -241,6 +242,7 @@ jobs:
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
             outputs/selection_quality/
+            outputs/leader_drop_diagnostics/
             outputs/portfolio_goal_search/
             outputs/account_evaluation/
             outputs/full_rebuild_logs/
@@ -282,7 +284,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation leader_drop_diagnostics monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi
