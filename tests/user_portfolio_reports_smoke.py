@@ -82,6 +82,57 @@ def _write_portfolio_fixture(root: Path, portfolio: str) -> None:
         ),
         encoding="utf-8",
     )
+    preview = root / "account_ledger_preview" / portfolio
+    preview.mkdir(parents=True)
+    target_ticker = "AAA" if portfolio == "main" else "BBB"
+    target_weight = 0.60 if portfolio == "main" else 0.50
+    target_cash = 1.0 - target_weight
+    (preview / "preview_metrics.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "as_of_date": "2026-01-31",
+                "account_state_as_of_date": "2026-01-31",
+                "equity_usd": 120000,
+                "cash_usd": 12000,
+                "cash_weight": 0.10,
+                "target_cash_weight": target_cash,
+                "projected_cash_weight": target_cash,
+                "order_count": 0,
+                "ready_order_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "ticker": "AAA",
+                "shares": 100,
+                "price": 108,
+                "market_value_usd": 10800,
+                "current_weight": 0.09,
+            },
+            {
+                "ticker": "BBB",
+                "shares": 0,
+                "price": 55,
+                "market_value_usd": 0,
+                "current_weight": 0.0,
+            },
+        ]
+    ).to_csv(preview / "positions_current.csv", index=False)
+    pd.DataFrame([{"ticker": target_ticker, "target_weight": target_weight}]).to_csv(preview / "target_weights.csv", index=False)
+    pd.DataFrame(columns=["ticker", "side", "quantity", "current_weight", "target_weight", "trade_value_delta_usd"]).to_csv(
+        preview / "orders_preview.csv",
+        index=False,
+    )
+    pd.DataFrame(
+        [
+            {"ticker": target_ticker, "projected_weight": target_weight},
+            {"ticker": "CASH", "projected_weight": target_cash},
+        ]
+    ).to_csv(preview / "projected_positions_after_orders.csv", index=False)
 
     journal = root / "broker_trade_journal" / portfolio
     journal.mkdir(parents=True)
@@ -175,6 +226,7 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         assert rec.iloc[0]["reference_price"] == 110.0
         assert rec.iloc[0]["reference_price_source"] == "price_cache_latest_close"
         assert rec.iloc[0]["estimated_shares_per_100k"] == 545
+        assert round(float(rec.iloc[0]["current_account_weight"]), 4) == 0.09
         cash_rec = rec[rec["ticker"].eq("CASH")].iloc[0]
         assert cash_rec["suggested_action"] == "RESERVE_CASH"
         assert round(float(cash_rec["recommended_weight"]), 4) == 0.4
@@ -196,7 +248,10 @@ def test_user_portfolio_reports_separate_recommendations_from_current_holdings()
         aaa = current[current["ticker"].eq("AAA")].iloc[0]
         assert aaa["entry_date"] == "2025-12-31"
         assert round(float(aaa["return_since_entry_pct"]), 4) == 0.2
+        assert round(float(aaa["recommended_target_weight"]), 4) == 0.6
         assert "CASH" in set(current["ticker"])
+        cash_current = current[current["ticker"].eq("CASH")].iloc[0]
+        assert round(float(cash_current["recommended_target_weight"]), 4) == 0.4
 
         scorecard = pd.read_csv(out / "main" / "performance_scorecard.csv")
         assert {"1M", "FULL"} <= set(scorecard["horizon"])

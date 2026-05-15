@@ -415,6 +415,7 @@ jobs:
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
           python tools/run_selection_audit.py --latest-run outputs --output-dir outputs/selection_audit 2>&1 | tee outputs/full_rebuild_logs/selection_audit.log || true
+          python tools/run_selection_quality_report.py --latest-run outputs --output-dir outputs/selection_quality 2>&1 | tee outputs/full_rebuild_logs/selection_quality_report.log || true
           python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
           python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true
           python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
@@ -430,6 +431,7 @@ jobs:
           python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir outputs/policy_fusion 2>&1 | tee outputs/full_rebuild_logs/policy_fusion.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+          python tools/run_cash_policy_reconciliation.py --latest-run outputs --output-dir outputs/cash_policy_reconciliation 2>&1 | tee outputs/full_rebuild_logs/cash_policy_reconciliation.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 
@@ -504,6 +506,7 @@ jobs:
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
+            outputs/cash_policy_reconciliation/
             outputs/monster_recommendations/
             outputs/operating_snapshot/
             outputs/user_portfolio_reports/
@@ -522,6 +525,7 @@ jobs:
             outputs/monster_lifecycle_review_concentrated/
             outputs/historical_trade_journey/
             outputs/selection_audit/
+            outputs/selection_quality/
             outputs/ten_year_backtest_readiness/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
@@ -724,7 +728,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit selection_quality ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -973,6 +977,7 @@ jobs:
           copy_dir_clean outputs/account_ledger_preview "$DEST/account_ledger_preview"
           copy_dir_clean outputs/live_trading_safety "$DEST/live_trading_safety"
           copy_dir_clean outputs/live_trading_risk_controls "$DEST/live_trading_risk_controls"
+          copy_dir_clean outputs/cash_policy_reconciliation "$DEST/cash_policy_reconciliation"
           copy_dir_clean outputs/monster_recommendations "$DEST/monster_recommendations"
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
@@ -991,6 +996,7 @@ jobs:
           copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
           copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
           copy_dir_clean outputs/selection_audit "$DEST/selection_audit"
+          copy_dir_clean outputs/selection_quality "$DEST/selection_quality"
           copy_dir_clean outputs/ten_year_backtest_readiness "$DEST/ten_year_backtest_readiness"
           copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"

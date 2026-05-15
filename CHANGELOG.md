@@ -51,6 +51,106 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-15
+
+### 11:48 KST - p0-actionable-orders-and-cash-target-reporting
+
+- scope:
+  - P0 operational-trust hardening for account-ledger previews and user portfolio reports. `orders_preview.csv` now represents actionable orders only, blocked or zero-quantity target deltas are retained in review files, live safety audits check the actionable file, and user current-holdings reports read target cash from preview metrics / full target weights instead of inferring it from partial order rows.
+- files:
+  - `tools/run_account_order_preview.py` ->separates actionable executable orders from blocked/non-actionable target deltas and writes `order_deltas_review.csv` plus `non_actionable_order_deltas.csv`.
+  - `tools/run_user_portfolio_reports.py` ->loads full preview target/current weights so current holdings and CASH rows report the real recommended target weights.
+  - `tools/run_live_trading_safety_audit.py` ->keeps actionable-order hygiene checks on `orders_preview.csv` and leakage-checks review deltas without blocking solely because a non-actionable delta exists.
+  - `tests/account_order_preview_smoke.py` ->adds regression coverage for blocked-buy separation.
+  - `tests/live_trading_safety_audit_smoke.py` ->adds regression coverage that blocked review deltas do not fail actionable-order safety.
+  - `tests/user_portfolio_reports_smoke.py` ->adds target/cash/current-weight fixtures and assertions for user-facing report correctness.
+- symbols_added:
+  - `split_actionable_orders(order_deltas: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]` ->splits executable orders from informational or blocked target deltas.
+  - `load_preview_target_weights(latest_run: Path, portfolio: str) -> dict[str, float]` ->loads full target weights from account-ledger preview outputs.
+  - `load_preview_current_weights(latest_run: Path, portfolio: str) -> dict[str, float]` ->loads current preview account weights for recommendation reports.
+  - `preview_target_cash_weight(preview_metrics: dict[str, Any], target_weights: dict[str, float], order_preview: pd.DataFrame) -> float` ->resolves target cash weight from authoritative preview metrics or full target weights.
+  - `test_order_preview_separates_blocked_deltas_from_actionable_orders() -> None` ->regression test for blocked delta separation.
+  - `test_live_trading_safety_ignores_non_actionable_review_deltas() -> None` ->regression test for actionable-only safety audit behavior.
+- symbols_changed:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_account_order_preview.py` ->writes actionable orders to `orders_preview.csv`, review deltas to separate files, and reports actionable/review counts separately.
+  - `render_report(payload: dict[str, Any]) -> str` in `tools/run_account_order_preview.py` ->labels actionable orders and review deltas explicitly.
+  - `audit_account_preview(...) -> None` ->treats `orders_preview.csv` as actionable-only and leakage-checks `order_deltas_review.csv`.
+  - `normalize_recommendations(...) -> pd.DataFrame` ->uses preview current weights instead of relying only on partial order rows.
+  - `normalize_current_holdings(...) -> pd.DataFrame` ->uses full target weights and preview cash metrics for `recommended_target_weight`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - `account_ledger_preview/<portfolio>/orders_preview.csv` is now actionable-only. Consumers that need all target deltas must read `order_deltas_review.csv` or `non_actionable_order_deltas.csv`.
+- outputs:
+  - `outputs/account_ledger_preview/<portfolio>/orders_preview.csv` ->positive-quantity executable order rows only.
+  - `outputs/account_ledger_preview/<portfolio>/order_deltas_review.csv` ->all generated target deltas including ready, scaled, blocked, and zero-quantity rows.
+  - `outputs/account_ledger_preview/<portfolio>/non_actionable_order_deltas.csv` ->blocked or otherwise non-executable target deltas for review.
+- validation:
+  - `py -3 tests\account_order_preview_smoke.py` ->PASS
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->PASS
+  - `py -3 tests\user_portfolio_reports_smoke.py` ->PASS
+  - `py -3 tests\account_evaluation_smoke.py` ->PASS
+  - `py -3 tests\operating_snapshot_smoke.py` ->PASS
+  - `py -3 tests\live_trading_risk_controls_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 24/24
+- risks_or_notes:
+  - This is an output semantics cleanup, not a strategy performance change. The next full rebuild should verify the live safety audit is no longer blocked by zero-quantity/blocked concentrated orders.
+
+### 12:00 KST - p1-p3-cash-reconciliation-and-selection-quality
+
+- scope:
+  - Add research/reporting sidecars for the next priority layer after P0: latest cash policy reconciliation and historical selection quality diagnostics. These tools do not change weights, but they make the next CAGR/MDD work measurable by separating mechanical cash drag from macro defense and by testing whether score ranks predict forward returns before broker-ledger conversion.
+- files:
+  - `tools/run_cash_policy_reconciliation.py` ->new latest-snapshot sidecar comparing macro cash floor, orchestrator target cash, capacity leftover, conflict-merge cash, current broker cash, and account preview cash.
+  - `tools/run_selection_quality_report.py` ->new historical candidate replay diagnostic emitting factor IC, top-k hit rate, decile spread, sleeve attribution, and missed-winner onset files.
+  - `tests/cash_policy_reconciliation_smoke.py` ->smoke coverage for unconfirmed mechanical cash review detection.
+  - `tests/selection_quality_report_smoke.py` ->smoke coverage for IC/top-k output generation.
+  - `tools/run_pr_validation.py` ->adds both new smoke tests to the 26-file fast validation suite.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and uploads/syncs the new sidecars in full rebuild outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and uploads/syncs the new sidecars in fast replay outputs.
+  - `tests/workflow_artifact_smoke.py` ->asserts the new sidecars, logs, artifacts, and replay workflow paths are wired.
+- symbols_added:
+  - `run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DEFAULT_OUTPUT_DIR) -> dict[str, Any]` in `tools/run_cash_policy_reconciliation.py` ->builds latest cash reconciliation outputs.
+  - `orchestrator_cash(latest_run: Path) -> dict[str, Any]` ->extracts target cash, capacity leftover, and conflict-merge cash from orchestrator artifacts.
+  - `account_cash(latest_run: Path) -> dict[str, Any]` ->extracts operating and preview cash values.
+  - `rows_by_source(macro: dict[str, Any], orch: dict[str, Any], cash: dict[str, Any]) -> list[dict[str, Any]]` ->builds cash target source rows.
+  - `run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DEFAULT_OUTPUT_DIR, top_n: int = 30) -> dict[str, Any]` in `tools/run_selection_quality_report.py` ->builds historical selection quality outputs.
+  - `factor_ic(frame: pd.DataFrame) -> pd.DataFrame` ->computes overall and monthly Spearman IC by factor.
+  - `topk_hit_rate(frame: pd.DataFrame, topks: list[int]) -> pd.DataFrame` ->computes top-k forward-return hit and excess-return stats.
+  - `decile_spread(frame: pd.DataFrame) -> pd.DataFrame` ->computes top-minus-bottom decile spreads by factor.
+  - `sleeve_attribution(frame: pd.DataFrame) -> pd.DataFrame` ->summarizes forward returns by sleeve label.
+  - `missed_winner_onset(frame: pd.DataFrame, top_n: int) -> pd.DataFrame` ->exports recent high-forward-return candidates for missed-winner review.
+  - `test_cash_policy_reconciliation_flags_unconfirmed_mechanical_cash() -> None` ->regression test for cash review detection.
+  - `test_selection_quality_report_emits_ic_and_topk_outputs() -> None` ->regression test for selection quality outputs.
+- symbols_changed:
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds cash policy reconciliation and selection quality smoke tests.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires full rebuild wiring for the new sidecars.
+  - `test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None` ->requires replay workflow wiring for the new sidecars.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/cash_policy_reconciliation/cash_policy_reconciliation_summary.json` ->latest macro/orchestrator/account cash reconciliation.
+  - `outputs/cash_policy_reconciliation/cash_target_by_source.csv` ->cash target by source table.
+  - `outputs/cash_policy_reconciliation/cash_policy_reconciliation_report.md` ->human-readable cash decision-point report.
+  - `outputs/selection_quality/factor_ic_by_horizon.csv` ->factor IC diagnostics over candidate replay rows.
+  - `outputs/selection_quality/topk_forward_hit_rate.csv` ->top-k forward hit/excess-return diagnostics.
+  - `outputs/selection_quality/score_decile_spread.csv` ->decile spread diagnostics.
+  - `outputs/selection_quality/sleeve_alpha_attribution.csv` ->sleeve forward-return attribution.
+  - `outputs/selection_quality/missed_winner_onset.csv` ->latest missed-winner review candidates.
+  - `outputs/selection_quality/selection_quality_summary.json` ->summary and best factor diagnostics.
+- validation:
+  - `py -3 tests\cash_policy_reconciliation_smoke.py` ->PASS
+  - `py -3 tests\selection_quality_report_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_cash_policy_reconciliation.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_cash_policy_reconciliation_check` ->PASS, review_required true
+  - `py -3 tools\run_selection_quality_report.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_selection_quality_check --top-n 20` ->PASS, 46,789 rows / 84 months
+  - `py -3 tools\run_pr_validation.py` ->PASS, 26/26
+- risks_or_notes:
+  - Selection quality uses `period_forward_return` from candidate replay, so it is research diagnostics only and not live/actionable output.
+  - Iter 6 local selection quality shows `portfolio_future_winner_engine_score` as the best factor by monthly IC and top-k excess, supporting the hypothesis that broker conversion / cash / replacement execution is a larger leak than raw score ranking.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

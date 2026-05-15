@@ -190,10 +190,12 @@ jobs:
           python tools/run_weekly_evaluation.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_evaluation --stale-days-threshold 10 2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log || true
           python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --price-cache cache_prices --output-dir outputs/theme_leadership_tape 2>&1 | tee outputs/full_rebuild_logs/theme_leadership_tape.log || true
           python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n "${{ inputs.theme_top_n }}" --single-name-cap "${{ inputs.theme_single_name_cap }}" --cost-bps "${{ inputs.theme_cost_bps }}" 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
+          python tools/run_selection_quality_report.py --latest-run outputs --output-dir outputs/selection_quality 2>&1 | tee outputs/full_rebuild_logs/selection_quality_report.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+          python tools/run_cash_policy_reconciliation.py --latest-run outputs --output-dir outputs/cash_policy_reconciliation 2>&1 | tee outputs/full_rebuild_logs/cash_policy_reconciliation.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
           python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
 
@@ -231,12 +233,14 @@ jobs:
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
+            outputs/cash_policy_reconciliation/
             outputs/monster_recommendations/
             outputs/operating_snapshot/
             outputs/user_portfolio_reports/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
+            outputs/selection_quality/
             outputs/portfolio_goal_search/
             outputs/account_evaluation/
             outputs/full_rebuild_logs/
@@ -278,7 +282,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi

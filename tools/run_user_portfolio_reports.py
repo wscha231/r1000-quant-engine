@@ -217,6 +217,63 @@ def order_by_ticker(order_preview: pd.DataFrame) -> dict[str, dict[str, Any]]:
     return {clean_ticker(row.get("ticker")): row for row in order_preview.to_dict("records")}
 
 
+def load_preview_target_weights(latest_run: Path, portfolio: str) -> dict[str, float]:
+    frame = read_csv(latest_run / "account_ledger_preview" / portfolio / "target_weights.csv")
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    d = frame.copy()
+    d["ticker"] = d["ticker"].map(clean_ticker)
+    if "target_weight" not in d.columns:
+        weight_col = "weight" if "weight" in d.columns else ""
+        d["target_weight"] = pd.to_numeric(d[weight_col], errors="coerce") if weight_col else 0.0
+    else:
+        d["target_weight"] = pd.to_numeric(d["target_weight"], errors="coerce")
+    d = d[(d["ticker"] != "") & d["target_weight"].notna()].copy()
+    if d.empty:
+        return {}
+    out = d.groupby("ticker")["target_weight"].sum().to_dict()
+    stock_sum = sum(float(v) for k, v in out.items() if k not in CASH_TICKERS and math.isfinite(float(v)))
+    if "CASH" not in out and stock_sum <= 1.000001:
+        out["CASH"] = max(0.0, 1.0 - stock_sum)
+    return {str(k): float(v) for k, v in out.items()}
+
+
+def load_preview_current_weights(latest_run: Path, portfolio: str) -> dict[str, float]:
+    frame = read_csv(latest_run / "account_ledger_preview" / portfolio / "positions_current.csv")
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    d = frame.copy()
+    d["ticker"] = d["ticker"].map(clean_ticker)
+    if "current_weight" not in d.columns:
+        return {}
+    d["current_weight"] = pd.to_numeric(d["current_weight"], errors="coerce")
+    d = d[(d["ticker"] != "") & d["current_weight"].notna()].copy()
+    return {str(row.ticker): float(row.current_weight) for row in d.itertuples(index=False)}
+
+
+def preview_target_cash_weight(preview_metrics: dict[str, Any], target_weights: dict[str, float], order_preview: pd.DataFrame) -> float:
+    metric_value = clean_float(preview_metrics.get("target_cash_weight"), np.nan)
+    if math.isfinite(metric_value):
+        return max(0.0, metric_value)
+    cash_value = clean_float(target_weights.get("CASH"), np.nan)
+    if math.isfinite(cash_value):
+        return max(0.0, cash_value)
+    if target_weights:
+        stock_sum = sum(float(v) for k, v in target_weights.items() if k not in CASH_TICKERS and math.isfinite(float(v)))
+        return max(0.0, 1.0 - stock_sum)
+    if not order_preview.empty:
+        target_sum = float(
+            pd.to_numeric(
+                order_preview.get("target_weight", pd.Series(dtype=float)),
+                errors="coerce",
+            )
+            .fillna(0.0)
+            .sum()
+        )
+        return max(0.0, 1.0 - target_sum)
+    return np.nan
+
+
 def compact_logic(row: dict[str, Any], portfolio: str) -> str:
     parts: list[str] = []
     if portfolio == "main":
@@ -253,6 +310,7 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
         return pd.DataFrame()
     order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
     orders = order_by_ticker(order_preview)
+    current_weights = load_preview_current_weights(latest_run, portfolio)
     projected_weights = load_projected_after_order_weights(latest_run, portfolio)
     account_cash_weight = clean_float(preview_metrics.get("cash_weight"), np.nan)
     projected_cash_weight = clean_float(preview_metrics.get("projected_cash_weight"), np.nan)
@@ -291,7 +349,7 @@ def normalize_recommendations(latest_run: Path, portfolio: str, as_of_date: str,
                 "company_name": first_existing(row, ["Name", "name", "company_name"], ""),
                 "sector": first_existing(row, ["sector", "sage_sector"], ""),
                 "recommended_weight": clean_float(row.get("weight")),
-                "current_account_weight": clean_float(order.get("current_weight"), 0.0),
+                "current_account_weight": current_weights.get(row["ticker"], clean_float(order.get("current_weight"), 0.0)),
                 "projected_account_weight_after_orders": projected_weights.get(row["ticker"], np.nan),
                 "trade_action_from_current": str(order.get("side") or ("HOLD" if clean_float(order.get("current_weight"), 0.0) > 0 else "BUY")),
                 "trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
@@ -391,10 +449,11 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
     lots = load_open_lots(latest_run, portfolio)
     order_preview, preview_metrics = load_order_preview(latest_run, portfolio)
     orders = order_by_ticker(order_preview)
+    target_weights = load_preview_target_weights(latest_run, portfolio)
     projected_weights = load_projected_after_order_weights(latest_run, portfolio)
     trade_dt = last_trade_date(latest_run, portfolio)
     stale_days = date_diff_days(trade_dt, as_of_date)
-    pending_order_count = int(clean_float(preview_metrics.get("order_count"), 0.0))
+    pending_order_count = int(clean_float(preview_metrics.get("ready_order_count", preview_metrics.get("order_count")), 0.0))
     rows: list[dict[str, Any]] = []
     if not positions.empty and "ticker" in positions.columns:
         for row in positions.to_dict("records"):
@@ -420,7 +479,7 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
                     "current_price": current_price,
                     "market_value_usd": clean_float(row.get("market_value_usd")),
                     "current_weight": clean_float(row.get("weight")),
-                    "recommended_target_weight": clean_float(order.get("target_weight"), 0.0),
+                    "recommended_target_weight": target_weights.get(ticker, clean_float(order.get("target_weight"), 0.0)),
                     "projected_weight_after_recommendation_orders": projected_weights.get(ticker, np.nan),
                     "recommended_trade_action": str(order.get("side") or "HOLD"),
                     "recommended_trade_quantity": clean_float(order.get("quantity"), 0.0),
@@ -441,19 +500,9 @@ def normalize_current_holdings(latest_run: Path, portfolio: str, as_of_date: str
     equity = clean_float(state.get("equity_usd"))
     cash = clean_float(state.get("cash_usd"))
     if equity > 0:
-        target_cash_weight = np.nan
-        if not order_preview.empty:
-            target_sum = float(
-                pd.to_numeric(
-                    order_preview.get("target_weight", pd.Series(dtype=float)),
-                    errors="coerce",
-                )
-                .fillna(0.0)
-                .sum()
-            )
-            target_cash_weight = max(0.0, 1.0 - target_sum)
-            if abs(target_cash_weight) < 1e-9:
-                target_cash_weight = 0.0
+        target_cash_weight = preview_target_cash_weight(preview_metrics, target_weights, order_preview)
+        if math.isfinite(target_cash_weight) and abs(target_cash_weight) < 1e-9:
+            target_cash_weight = 0.0
         rows.append(
             {
                 "as_of_date": str(state.get("as_of_date") or as_of_date),
