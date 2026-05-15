@@ -311,6 +311,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - The default local monthly research result does not beat the current official Concentrated broker-ledger baseline. The sidecar is kept research-only so full runs can compare its broker-ledger conversion without changing production selection.
   - The local grid suggests the broad 7-name / 25% cap variant is more stable than the 3-name / 50% target, but it still fails the user's 50% / -18% concentrated goal. Further improvement likely requires weekly/daily leader entry plus better drawdown exits rather than monthly candidate-book ranking alone.
 
+### 14:46 KST - broker-market-circuit-replay
+
+- scope:
+  - Add broker-compatible daily market circuit challenger. The new replay injects target-book rows when SPY/QQQ daily crash states change, scales exposure before next-close broker replay, and is intended to test whether fast broad-market defense can reduce the large intramonth drawdowns that monthly/proxy accounting hides.
+- files:
+  - `tools/run_broker_market_circuit_replay.py` ->new research-only broker-ledger replay wrapper that creates daily benchmark-circuit target books and replays them with account cash/shares/fees.
+  - `tests/broker_market_circuit_replay_smoke.py` ->fixture-based regression coverage for circuit-state generation, target-book injection, and broker-ledger metrics.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs market-circuit broker replays for main and concentrated books, uploads artifacts, and syncs outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs market-circuit broker replays in the fast replay workflow.
+  - `tools/run_portfolio_goal_search.py` ->adds market-circuit broker candidates to production-compatible goal search.
+  - `tests/workflow_artifact_smoke.py` ->asserts full and replay workflow wiring for market-circuit artifacts.
+  - `tools/run_pr_validation.py` ->adds the market-circuit smoke test to fast validation.
+- symbols_added:
+  - `compute_circuit_states(benchmark: pd.DataFrame, *, caution_multiplier: float, crisis_multiplier: float) -> pd.DataFrame` ->builds daily normal/caution/crisis states from benchmark returns and moving averages.
+  - `build_circuit_target_book(base: pd.DataFrame, states: pd.DataFrame, *, output_dir: Path) -> tuple[Path, pd.DataFrame]` ->injects target rows on monthly and circuit-change signal dates.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->creates the circuit target book and evaluates it through broker-ledger replay.
+  - `test_broker_market_circuit_replay_outputs_account_metrics() -> None` ->smoke test for generated market-circuit broker metrics.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes main and concentrated market-circuit broker replay candidates.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/broker_market_circuit_replay_smoke.py`.
+  - `test_workflow_keeps_monthly_books() -> None` ->requires market-circuit artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires market-circuit workflow commands and logs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_market_circuit_replay/<portfolio>/metrics.json` ->broker-ledger metrics for the market-circuit challenger.
+  - `outputs/broker_market_circuit_replay/<portfolio>/market_circuit_target_book.csv` ->target book after daily benchmark-circuit scaling.
+  - `outputs/broker_market_circuit_replay/<portfolio>/market_circuit_states.csv` ->daily benchmark state diagnostics.
+  - `outputs/broker_market_circuit_replay/<portfolio>/market_circuit_events.csv` ->target-book injection dates and multipliers.
+- validation:
+  - `py -3 tests\broker_market_circuit_replay_smoke.py` ->PASS
+- risks_or_notes:
+  - This is a research challenger only. It may reduce 2020/2022 drawdown at the cost of missing sharp rebounds, so promotion requires broker-ledger target gates plus stress-window review.
+  - The current implementation uses benchmark price action only, which is safer for single-stock shakeouts but can miss idiosyncratic winner breakdowns.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
