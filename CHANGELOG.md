@@ -742,6 +742,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This narrows only the manual fast replay loop. The full rebuild still carries broader sidecar output for final validation.
 
+### 21:15 KST - focused-alpha-selector-challenger-workflow
+
+- scope:
+  - Add a dedicated lightweight workflow for the CAGR/MDD candidate loop. It downloads a completed full rebuild artifact, refreshes historical candidate price coverage, runs only alpha-selector/dynamic/shadow broker-ledger challengers, and exports goal-search/account-evaluation outputs.
+- files:
+  - `.github/workflows/alpha_selector_challenger_manual.yml` ->new focused manual workflow for alpha-selector challenger evaluation.
+  - `CHANGELOG.md` ->documents the focused workflow.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_broker_grid/` ->focused alpha-selector broker-ledger grid.
+  - `outputs/alpha_selector_dynamic_regime_grid/` ->focused regime-adaptive broker-ledger grid.
+  - `outputs/alpha_selector_shadow_drawdown_grid/` ->focused shadow-account drawdown overlay grid.
+  - `outputs/portfolio_goal_search/` ->official target ranking for focused candidates.
+  - `outputs/account_evaluation/` ->official account-ledger summary for focused candidates.
+- validation:
+  - pending workflow YAML smoke and GitHub PR validation.
+- risks_or_notes:
+  - This workflow is for fast challenger evidence only. It intentionally skips broader operating reports and should not replace full rebuild validation before promotion.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
