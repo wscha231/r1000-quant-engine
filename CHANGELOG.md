@@ -720,6 +720,28 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - The first local sample sharply improved MaxDD but carried high average cash and lower CAGR. A stricter local sample kept CAGR above 30% while reducing MaxDD near -18%, so the default grid now includes both strict and moderate variants. This sidecar remains a risk-control candidate, not a production promotion, and must be evaluated in the next fast replay after candidate price-cache parity is verified.
 
+### 20:48 KST - focused-fast-replay-alpha-selector-grid
+
+- scope:
+  - Keep fast replay usable for iteration by narrowing the fast-workflow alpha-selector grids to the high-signal RS/monster leader candidates, while leaving broader full-rebuild sidecar coverage intact.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->limits fast replay alpha-selector grid to `rs_heavy,monster_heavy`, target N `2,3,5`, caps `0.25,0.50`, dynamic regime max 18 variants, and shadow drawdown top 1 source variant.
+  - `CHANGELOG.md` ->documents the fast-loop runtime control.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - pending workflow smoke and fast replay rerun.
+- risks_or_notes:
+  - This narrows only the manual fast replay loop. The full rebuild still carries broader sidecar output for final validation.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
