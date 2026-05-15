@@ -64,6 +64,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/concentrated_v2_challenger_smoke.py", []),
     ("tests/concentrated_broker_grid_smoke.py", []),
     ("tests/alpha_selector_broker_grid_smoke.py", []),
+    ("tests/alpha_selector_market_circuit_grid_smoke.py", []),
     ("tests/alpha_selector_leader_circuit_grid_smoke.py", []),
     ("tests/alpha_selector_dynamic_regime_grid_smoke.py", []),
     ("tests/alpha_selector_shadow_drawdown_grid_smoke.py", []),

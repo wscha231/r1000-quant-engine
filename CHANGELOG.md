@@ -857,6 +857,39 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is still research-only and does not alter official production defaults. Local check improved official-style main performance versus the 18.44% / -31.93% baseline, but it still misses the 30% / -15% final target and must be confirmed by fast replay artifact output.
 
+### 23:36 KST - alpha-selector-market-circuit-wrapper
+
+- scope:
+  - Remove the single-variant alpha-selector market-circuit hardcode. The new wrapper reads alpha-selector broker-grid rankings, tests several top source target books through the same account-ledger trend-circuit grid, and publishes the best production-compatible research candidate.
+- files:
+  - `tools/run_alpha_selector_market_circuit_grid.py` ->new wrapper that resolves top alpha-selector target books, runs market-circuit grids per source variant, and writes one best metrics file plus summary.
+  - `.github/workflows/full_rebuild_manual.yml` ->uses the wrapper instead of a fixed `monster_heavy_N3_cap0.5` target book.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->uses the wrapper in focused fast replay.
+  - `tests/alpha_selector_market_circuit_grid_smoke.py` ->adds regression coverage for multi-source-variant market-circuit selection.
+  - `tests/workflow_artifact_smoke.py` ->asserts wrapper tool wiring in full and fast replay workflows.
+  - `tools/run_pr_validation.py` ->adds the wrapper smoke test to fast validation.
+- symbols_added:
+  - `resolve_target_books(alpha_selector_dir: Path, explicit_target_book: str, top_variants: int) -> list[tuple[str, Path]]` ->selects alpha-selector source target books from best metrics and summary rankings.
+  - `target_path_for_variant(alpha_selector_dir: Path, variant_id: str) -> Path` ->resolves source target-book paths for alpha-selector variants.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_alpha_selector_market_circuit_grid.py` ->runs market-circuit grids across source target books and emits the best result.
+  - `test_alpha_selector_market_circuit_grid_selects_best_source_variant() -> None` ->smoke test for wrapper output and summary generation.
+- symbols_changed:
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->includes `tests/alpha_selector_market_circuit_grid_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_market_circuit_grid/<portfolio>/best_metrics.json` ->best wrapper-selected account-ledger trend-circuit candidate.
+  - `outputs/alpha_selector_market_circuit_grid/<portfolio>/summary.csv` ->one row per alpha-selector source variant tested.
+  - `outputs/alpha_selector_market_circuit_grid/<portfolio>/<source_variant>/` ->nested market-circuit grid outputs for each source target book.
+- validation:
+  - `py -3 tests\alpha_selector_market_circuit_grid_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_alpha_selector_market_circuit_grid.py --alpha-selector-dir _run_25921143832_artifacts\alphaops-replay-sidecars-25873418413-25921143832\alpha_selector_broker_grid\main --price-cache _local_hedge_cache --portfolio-kind main --output-dir _local_alpha_selector_market_circuit_wrapper_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 3 --trigger-modes ma50,ma50_200,trend60 --grid "0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25"` ->PASS, selected `monster_heavy_N3_cap0.5` with CAGR 28.93%, MaxDD -21.39%, Sharpe 1.148.
+- risks_or_notes:
+  - The wrapper is a robustness improvement rather than a new alpha source. In the current artifact it still selects the same strongest source variant, but future runs will no longer rely on a hard-coded alpha-selector variant.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
