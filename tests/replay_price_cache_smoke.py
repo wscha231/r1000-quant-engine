@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.build_replay_price_cache import run  # noqa: E402
+from tools.build_replay_price_cache import collect_candidate_tickers, run  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -111,7 +111,25 @@ def test_replay_price_cache_includes_bounded_historical_candidates() -> None:
         assert payload["missing_before"] == 3
 
 
+def test_candidate_cache_total_limit_prefers_recent_dates() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        candidates = root / "candidate_replay_book.csv"
+        pd.DataFrame(
+            [
+                {"rebalance_date": "2020-01-31", "ticker": "OLD1", "score": 0.99},
+                {"rebalance_date": "2020-01-31", "ticker": "OLD2", "score": 0.98},
+                {"rebalance_date": "2026-05-14", "ticker": "NEW1", "score": 0.97},
+                {"rebalance_date": "2026-05-14", "ticker": "NEW2", "score": 0.96},
+            ]
+        ).to_csv(candidates, index=False)
+
+        tickers = collect_candidate_tickers([candidates], max_per_date=2, max_total=2)
+        assert tickers == {"NEW1", "NEW2"}
+
+
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
     test_replay_price_cache_includes_bounded_historical_candidates()
+    test_candidate_cache_total_limit_prefers_recent_dates()
     print("replay_price_cache_smoke: PASS")

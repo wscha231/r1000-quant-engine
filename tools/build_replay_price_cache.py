@@ -139,7 +139,7 @@ def collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: i
         "relative_strength_composite",
         "dollar_vol_20d",
     ]
-    out: set[str] = set()
+    selected_frames: list[pd.DataFrame] = []
     for path in paths:
         frame = read_csv(path)
         if frame.empty or "ticker" not in frame.columns:
@@ -166,11 +166,26 @@ def collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: i
             .groupby("rebalance_date", sort=False)
             .head(int(max_per_date))
         )
-        for ticker in selected["_ticker_norm"]:
-            if ticker:
-                out.add(ticker)
-                if max_total > 0 and len(out) >= int(max_total):
-                    return out
+        selected_frames.append(selected[["rebalance_date", "_candidate_cache_rank", "_ticker_norm"]])
+    if not selected_frames:
+        return set()
+
+    selected_all = pd.concat(selected_frames, ignore_index=True)
+    selected_all["_rebalance_ts"] = pd.to_datetime(selected_all["rebalance_date"], errors="coerce")
+    latest_ts = pd.Timestamp.max.normalize()
+    selected_all["_rebalance_ts"] = selected_all["_rebalance_ts"].fillna(latest_ts)
+    selected_all = selected_all.sort_values(
+        ["_rebalance_ts", "_candidate_cache_rank", "_ticker_norm"],
+        ascending=[False, False, True],
+        kind="mergesort",
+    )
+
+    out: set[str] = set()
+    for ticker in selected_all["_ticker_norm"]:
+        if ticker:
+            out.add(ticker)
+            if max_total > 0 and len(out) >= int(max_total):
+                return out
     return out
 
 

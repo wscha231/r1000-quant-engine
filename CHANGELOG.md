@@ -794,6 +794,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is branch workflow behavior for fast alpha research. Broad operating reports remain available in full rebuild and can be restored in fast replay after the focused loop is no longer needed.
 
+### 21:35 KST - replay-candidate-cache-recency-priority
+
+- scope:
+  - Fix historical candidate price-cache truncation so bounded replay cache refreshes keep recent leader candidates instead of exhausting the total ticker budget on early backtest dates.
+- files:
+  - `tools/build_replay_price_cache.py` ->collects per-date candidate top-K rows across all candidate books, then applies the global max ticker budget with latest rebalance dates first.
+  - `tests/replay_price_cache_smoke.py` ->adds a regression test proving latest-date candidate tickers survive when `candidate_max_total` is smaller than all per-date selections.
+  - `CHANGELOG.md` ->documents the data-path fix.
+- symbols_added:
+  - `test_candidate_cache_total_limit_prefers_recent_dates() -> None` ->regression test for recent candidate retention under a bounded cache budget.
+- symbols_changed:
+  - `collect_candidate_tickers(paths: list[Path], max_per_date: int, max_total: int) -> set[str]` ->applies the global candidate ticker cap after ranking selected rows by rebalance-date recency, not while iterating chronological rows.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\replay_price_cache_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_shadow_drawdown_grid_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 38/38.
+- risks_or_notes:
+  - This should reduce cloud/local alpha-selector divergence caused by missing latest candidates. It does not change scoring logic or portfolio weights directly.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
