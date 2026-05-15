@@ -270,6 +270,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - The monthly research result improves CAGR versus the official Main broker-ledger baseline but still fails the user's 30% / -15% target. Official verdict must wait for `outputs/main_v3_alpha_concentration_broker_replay/metrics.json` from a run with price cache.
   - Main v3 is intentionally not wired into production target selection; it is a challenger target book for broker-ledger evaluation.
 
+### 14:11 KST - p6-concentrated-v2-challenger
+
+- scope:
+  - Add P6 Concentrated v2 challenger. The new research-only replay creates a broker-replayable concentrated target book that emphasizes future-winner leadership, staged entries, low non-bear cash, replacement-before-cash behavior, and regime-conditioned caps. It is wired to a companion broker-ledger replay so performance is judged under account-like next-close assumptions.
+- files:
+  - `tools/run_concentrated_v2_challenger.py` ->new research-only concentrated target-book replay with winner hold, stale drop, staged new entries, and same-theme/group cap logic.
+  - `tests/concentrated_v2_challenger_smoke.py` ->smoke coverage for target-book generation, max cap, drop decisions, and research-only flags.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs Concentrated v2 replay, companion broker-ledger replay, artifact upload, and Drive sync.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs Concentrated v2 replay and broker-ledger replay in the fast replay workflow.
+  - `tools/run_portfolio_goal_search.py` ->adds Concentrated v2 research and broker-ledger candidates to goal search.
+  - `tests/workflow_artifact_smoke.py` ->asserts full and replay workflow wiring for Concentrated v2 outputs.
+  - `tools/run_pr_validation.py` ->adds the Concentrated v2 smoke test to fast validation.
+- symbols_added:
+  - `score_candidates(frame: pd.DataFrame) -> pd.DataFrame` ->computes same-date Concentrated v2 leadership scores without forward labels.
+  - `gate_allows(row: pd.Series, *, min_market_cap_usd: float, min_dollar_volume_usd: float) -> tuple[bool, str]` ->applies liquidity, market-cap, risk, and monster override gates.
+  - `is_broken_holding(row: pd.Series | None, score: float) -> tuple[bool, str]` ->decides whether a held name should be dropped due to stale/risk/relative-strength decay.
+  - `allocate_weights(selected: list[pd.Series], previous: dict[str, float], policy: dict[str, float]) -> tuple[dict[str, float], dict[str, str]]` ->builds staged, capped target weights from selected leaders.
+  - `replay(candidate_book: Path, output_dir: Path, *, cost_bps: float, target_n: int | None, single_cap: float | None, min_market_cap_usd: float, min_dollar_volume_usd: float) -> dict[str, Any]` ->runs the historical Concentrated v2 research replay and writes a broker target book.
+  - `test_concentrated_v2_challenger_outputs_replay_book() -> None` ->regression test for Concentrated v2 output shape and constraints.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes Concentrated v2 research and broker-ledger candidates in goal search.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/concentrated_v2_challenger_smoke.py`.
+  - `test_workflow_keeps_monthly_books() -> None` ->requires Concentrated v2 artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars() -> None` ->requires Concentrated v2 workflow commands and logs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/concentrated_v2_challenger/metrics.json` ->monthly research metrics for Concentrated v2.
+  - `outputs/concentrated_v2_challenger/monthly_holdings.csv` ->broker-replayable Concentrated v2 target book.
+  - `outputs/concentrated_v2_challenger/decisions.csv` ->hold/drop/add decisions by signal date.
+  - `outputs/concentrated_v2_challenger_broker_replay/metrics.json` ->official-style broker-ledger next-close replay for Concentrated v2.
+- validation:
+  - `py -3 tests\concentrated_v2_challenger_smoke.py` ->PASS
+  - `py -3 tools\run_concentrated_v2_challenger.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_concentrated_v2_challenger_check4 --cost-bps 50` ->PASS, 26.33% CAGR / -38.04% MaxDD research-only
+  - `py -3 tools\run_concentrated_v2_challenger.py --latest-run _run_25873418413_artifacts\full-rebuild-global_alpha_universe-25873418413 --output-dir _local_concentrated_v2_grid_n7 --cost-bps 50 --target-n 7 --single-cap 0.25` ->PASS, 33.52% CAGR / -26.20% MaxDD research-only
+- risks_or_notes:
+  - The default local monthly research result does not beat the current official Concentrated broker-ledger baseline. The sidecar is kept research-only so full runs can compare its broker-ledger conversion without changing production selection.
+  - The local grid suggests the broad 7-name / 25% cap variant is more stable than the 3-name / 50% target, but it still fails the user's 50% / -18% concentrated goal. Further improvement likely requires weekly/daily leader entry plus better drawdown exits rather than monthly candidate-book ranking alone.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

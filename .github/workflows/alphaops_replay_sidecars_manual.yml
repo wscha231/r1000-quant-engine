@@ -77,7 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_broker_replacement_swap_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_broker_replacement_swap_replay.py tools/run_concentrated_v2_challenger.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -118,6 +118,7 @@ jobs:
           set -o pipefail
           python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           python tools/run_main_v3_alpha_concentration.py --latest-run outputs --output-dir outputs/main_v3_alpha_concentration --single-name-cap 0.33 --cash-floor 0.00 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration.log || true
+          python tools/run_concentrated_v2_challenger.py --latest-run outputs --output-dir outputs/concentrated_v2_challenger --target-n 7 --single-cap 0.25 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger.log || true
           python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log
           if [ -s outputs/main_v2_backtest/monthly_holdings.csv ]; then
@@ -126,6 +127,9 @@ jobs:
           if [ -s outputs/main_v3_alpha_concentration/monthly_holdings.csv ]; then
             python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v3_alpha_concentration/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v3_alpha_concentration 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v3_alpha_concentration.log || true
             python tools/run_broker_ledger_replay.py --target-book outputs/main_v3_alpha_concentration/monthly_holdings.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/main_v3_alpha_concentration_broker_replay --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration_broker_replay.log || true
+          fi
+          if [ -s outputs/concentrated_v2_challenger/monthly_holdings.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/concentrated_v2_challenger/monthly_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/concentrated_v2_challenger_broker_replay --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger_broker_replay.log || true
           fi
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
           python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
@@ -229,6 +233,8 @@ jobs:
             outputs/trade_attribution/
             outputs/main_v3_alpha_concentration/
             outputs/main_v3_alpha_concentration_broker_replay/
+            outputs/concentrated_v2_challenger/
+            outputs/concentrated_v2_challenger_broker_replay/
             outputs/churn_filter/
             outputs/churn_filtered_broker_replay/
             outputs/macro_circuit_filter/
@@ -294,7 +300,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution main_v3_alpha_concentration main_v3_alpha_concentration_broker_replay broker_position_risk_replay broker_execution_policy_replay broker_replacement_swap_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation leader_drop_diagnostics monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution main_v3_alpha_concentration main_v3_alpha_concentration_broker_replay concentrated_v2_challenger concentrated_v2_challenger_broker_replay broker_position_risk_replay broker_execution_policy_replay broker_replacement_swap_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation leader_drop_diagnostics monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi
