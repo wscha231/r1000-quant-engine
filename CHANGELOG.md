@@ -377,6 +377,42 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Tier-2 replay run `25902646482` showed `broker_market_circuit_replay` was blocked because benchmark price cache was missing even though target books existed. This fix is expected to unblock the sidecar; it does not change production portfolio selection.
 
+### 15:34 KST - broker-market-circuit-grid
+
+- scope:
+  - Add a research-only broker-ledger grid for daily market-circuit exposure multipliers so drawdown defense can be tuned from evidence instead of a single hard-coded caution/crisis setting.
+- files:
+  - `tools/run_broker_market_circuit_grid.py` ->new wrapper that runs multiple broker-market-circuit variants, writes per-variant metrics, and emits `best_metrics.json`.
+  - `tests/broker_market_circuit_grid_smoke.py` ->fixture-based regression test for grid output and best-metric selection.
+  - `tools/run_pr_validation.py` ->adds the grid smoke test to fast validation.
+  - `tools/run_portfolio_goal_search.py` ->adds best grid variants to production-compatible candidate ranking.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs market-circuit grid sidecars in fast replay and includes their artifacts/GDrive sync.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs market-circuit grid sidecars in full rebuild and includes their artifacts/GDrive sync.
+- symbols_added:
+  - `parse_grid(value: str) -> list[tuple[float, float]]` ->parses caution/crisis multiplier pairs.
+  - `variant_id(caution: float, crisis: float) -> str` ->creates stable output directory names for grid variants.
+  - `target_distance(portfolio_kind: str, metrics: dict[str, Any]) -> float` ->scores variant distance to configured CAGR/MaxDD targets.
+  - `rank_key(portfolio_kind: str, metrics: dict[str, Any]) -> tuple[float, float, float]` ->orders completed grid variants.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_broker_market_circuit_grid.py` ->executes the grid and writes summary/best outputs.
+  - `test_broker_market_circuit_grid_writes_best_metrics() -> None` ->smoke test for grid outputs.
+- symbols_changed:
+  - `collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]` ->includes market-circuit grid best candidates.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds `tests/broker_market_circuit_grid_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_market_circuit_grid/<portfolio>/summary.csv` ->all tested multiplier variants and broker-ledger metrics.
+  - `outputs/broker_market_circuit_grid/<portfolio>/best_metrics.json` ->best valid broker-ledger variant by target distance.
+  - `outputs/broker_market_circuit_grid/<portfolio>/report.md` ->human-readable grid summary.
+- validation:
+  - `py -3 tests\broker_market_circuit_grid_smoke.py` ->PASS
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS
+  - `py -3 tools\run_pr_validation.py` ->PASS, 32/32 tests
+- risks_or_notes:
+  - Grid variants are production-compatible evaluation artifacts but remain research-only; promotion still requires target gates and stress-window review.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression

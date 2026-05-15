@@ -472,6 +472,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible account-ledger challenger that injects daily SPY/QQQ crash circuit target rows before next-close replay.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a grid of daily SPY/QQQ market-circuit multipliers.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_position_risk_replay",
@@ -559,6 +566,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_market_circuit_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger challenger that injects daily SPY/QQQ crash circuit target rows before next-close replay.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a grid of daily SPY/QQQ market-circuit multipliers.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "concentrated" / "metrics.json",
