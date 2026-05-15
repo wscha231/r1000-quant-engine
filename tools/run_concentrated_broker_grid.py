@@ -91,28 +91,51 @@ def load_variants(target_book: Path, max_variants: int) -> list[dict[str, Any]]:
     d["_target_pass"] = (d["strategy_cagr"] >= target["cagr"]) & (d["max_dd"] >= target["max_dd"])
     d["_distance"] = (target["cagr"] - d["strategy_cagr"]).clip(lower=0) + (target["max_dd"] - d["max_dd"]).clip(lower=0)
     d = d.sort_values(["_target_pass", "_distance", "strategy_cagr", "sharpe"], ascending=[False, True, False, False])
-    variants: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for _, row in d.iterrows():
+    def row_to_variant(row: pd.Series) -> dict[str, Any] | None:
         n = filter_value(row.get("target_stock_names"))
         mode = filter_value(row.get("weighting_mode") or "score_power")
         interval = filter_value(row.get("rebalance_interval_months") or row.get("active_rebalance_interval_months") or 1)
         if not n or not mode:
-            continue
-        key = (n, mode, interval or "1")
-        if key in seen:
-            continue
-        variants.append(
-            {
-                "target_stock_names": n,
-                "weighting_mode": mode,
-                "active_rebalance_interval_months": interval or "1",
-                "research_strategy_cagr": safe_float(row.get("strategy_cagr"), math.nan),
-                "research_max_dd": safe_float(row.get("max_dd"), math.nan),
-                "research_sharpe": safe_float(row.get("sharpe"), math.nan),
-            }
+            return None
+        return {
+            "target_stock_names": n,
+            "weighting_mode": mode,
+            "active_rebalance_interval_months": interval or "1",
+            "research_strategy_cagr": safe_float(row.get("strategy_cagr"), math.nan),
+            "research_max_dd": safe_float(row.get("max_dd"), math.nan),
+            "research_sharpe": safe_float(row.get("sharpe"), math.nan),
+        }
+
+    variants: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add_variant(row: pd.Series) -> None:
+        variant = row_to_variant(row)
+        if variant is None:
+            return
+        key = (
+            str(variant["target_stock_names"]),
+            str(variant["weighting_mode"]),
+            str(variant["active_rebalance_interval_months"]),
         )
+        if key in seen:
+            return
+        variants.append(variant)
         seen.add(key)
+
+    # Ensure the grid tests representative concentration levels. Pure top-N
+    # sorting often selects many N2-N5 rows because their proxy CAGR is highest,
+    # which can hide whether N7/N10 variants reduce broker-ledger drawdown.
+    for n in [2, 3, 4, 5, 7, 10]:
+        bucket = d[d["target_stock_names"].round().eq(float(n))].copy()
+        if bucket.empty:
+            continue
+        add_variant(bucket.iloc[0])
+        if len(variants) >= max_variants:
+            return variants
+
+    for _, row in d.iterrows():
+        add_variant(row)
         if len(variants) >= max_variants:
             break
     return variants
@@ -200,7 +223,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             completed.append(metrics)
     summary = pd.DataFrame(rows)
     if not summary.empty:
-        summary = summary.sort_values(["target_distance", "cagr"], ascending=[True, False]).reset_index(drop=True)
+        summary = summary.sort_values(["target_distance", "cagr", "max_dd"], ascending=[True, False, False]).reset_index(drop=True)
     summary.to_csv(output_dir / "summary.csv", index=False)
     if completed:
         best = sorted(
@@ -208,7 +231,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             key=lambda m: (
                 target_distance(m),
                 -safe_float(m.get("cagr"), -1.0),
-                safe_float(m.get("max_dd", m.get("max_drawdown")), -1.0),
+                abs(safe_float(m.get("max_dd", m.get("max_drawdown")), -1.0)),
             ),
         )[0]
         best_payload = dict(best)

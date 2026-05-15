@@ -42,12 +42,16 @@ def test_concentrated_broker_grid_replays_comparison_variants() -> None:
             {"rebalance_date": "2020-01-31", "ticker": "AAA", "weight": 0.34, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
             {"rebalance_date": "2020-01-31", "ticker": "BBB", "weight": 0.33, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
             {"rebalance_date": "2020-01-31", "ticker": "CCC", "weight": 0.33, "target_stock_names": 3, "weighting_mode": "score_power", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2020-01-31", "ticker": "AAA", "weight": 0.34, "target_stock_names": 10, "weighting_mode": "winner_take_all", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2020-01-31", "ticker": "BBB", "weight": 0.33, "target_stock_names": 10, "weighting_mode": "winner_take_all", "active_rebalance_interval_months": 1},
+            {"rebalance_date": "2020-01-31", "ticker": "CCC", "weight": 0.33, "target_stock_names": 10, "weighting_mode": "winner_take_all", "active_rebalance_interval_months": 1},
         ]
     ).to_csv(target, index=False)
     pd.DataFrame(
         [
             {"portfolio_mode": "concentrated_alpha", "target_stock_names": 2, "weighting_mode": "winner_take_all", "rebalance_interval_months": 1, "strategy_cagr": 0.8, "max_dd": -0.3, "sharpe": 1.2},
             {"portfolio_mode": "concentrated_alpha", "target_stock_names": 3, "weighting_mode": "score_power", "rebalance_interval_months": 1, "strategy_cagr": 0.5, "max_dd": -0.1, "sharpe": 1.4},
+            {"portfolio_mode": "concentrated_alpha", "target_stock_names": 10, "weighting_mode": "winner_take_all", "rebalance_interval_months": 1, "strategy_cagr": 0.45, "max_dd": -0.05, "sharpe": 1.5},
         ]
     ).to_csv(reports / "concentrated_strategy_comparison.csv", index=False)
 
@@ -55,7 +59,7 @@ def test_concentrated_broker_grid_replays_comparison_variants() -> None:
         target_book = str(target)
         price_cache = str(cache)
         output_dir = str(tmp / "grid")
-        max_variants = 2
+        max_variants = 3
         starting_capital = 100000.0
         fill_mode = "next_close"
         cost_bps = 25.0
@@ -66,10 +70,10 @@ def test_concentrated_broker_grid_replays_comparison_variants() -> None:
     payload = run(Args())
     assert payload["status"] == "completed"
     assert payload["valid_for_production"] is True
-    assert payload["variant_count"] == 2
+    assert payload["variant_count"] == 3
     summary = pd.read_csv(tmp / "grid" / "summary.csv")
-    assert len(summary) == 2
-    assert set(summary["target_stock_names"].astype(str)) == {"2", "3"}
+    assert len(summary) == 3
+    assert set(summary["target_stock_names"].astype(str)) == {"2", "3", "10"}
     best = json.loads((tmp / "grid" / "best_metrics.json").read_text(encoding="utf-8"))
     assert best["metric_mode"] == "concentrated_broker_grid_best_next_close"
     shutil.rmtree(tmp)

@@ -419,15 +419,15 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add a concentrated-only broker-ledger grid that converts top `concentrated_strategy_comparison.csv` research variants into official next-close, integer-share, 25bps-compatible metrics. This addresses the current gap where concentrated weight-level variants look attractive but only one selected champion path is measured in account-like broker replay.
 - files:
-  - `tools/run_concentrated_broker_grid.py` ->new sidecar that loads top concentrated research variants, filters the operating concentrated target book by variant metadata, runs broker-ledger replay for each, and writes best/summary outputs.
-  - `tests/concentrated_broker_grid_smoke.py` ->fixture regression test for replaying multiple concentrated variants and producing `best_metrics.json`.
+  - `tools/run_concentrated_broker_grid.py` ->new sidecar that loads representative concentrated research variants across N2/N3/N4/N5/N7/N10, filters the operating concentrated target book by variant metadata, runs broker-ledger replay for each, and writes best/summary outputs.
+  - `tests/concentrated_broker_grid_smoke.py` ->fixture regression test for replaying multiple concentrated variants, including an N10 representative, and producing `best_metrics.json`.
   - `tools/run_pr_validation.py` ->adds the concentrated broker-grid smoke test to fast PR validation.
   - `tools/run_portfolio_goal_search.py` ->adds `outputs/concentrated_broker_grid/best_metrics.json` to the production-compatible concentrated candidate ranking.
   - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs the concentrated broker grid in fast replay and syncs/uploads its outputs.
   - `.github/workflows/full_rebuild_manual.yml` ->runs the concentrated broker grid in full rebuild and syncs/uploads its outputs.
 - symbols_added:
   - `comparison_path(target_book: Path) -> Path` ->locates the concentrated research comparison table paired with the target book.
-  - `load_variants(target_book: Path, max_variants: int) -> list[dict[str, Any]]` ->selects top concentrated research variants for broker-ledger conversion.
+  - `load_variants(target_book: Path, max_variants: int) -> list[dict[str, Any]]` ->selects representative concentrated research variants by target-stock bucket before filling by top research rank.
   - `variant_id(row: dict[str, Any]) -> str` ->creates stable variant output directory names.
   - `target_distance(metrics: dict[str, Any]) -> float` ->scores concentrated variants against configured CAGR/MaxDD targets.
   - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_concentrated_broker_grid.py` ->executes all selected broker-ledger variants and writes summary/best outputs.
