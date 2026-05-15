@@ -768,6 +768,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This workflow is for fast challenger evidence only. It intentionally skips broader operating reports and should not replace full rebuild validation before promotion.
 
+### 21:16 KST - branch-fast-replay-focused-exit
+
+- scope:
+  - Work around GitHub's default-branch workflow-dispatch limitation for new workflow files by making the existing fast replay workflow finish after alpha-selector challenger evidence on this branch.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs goal search and account evaluation immediately after alpha-selector/dynamic/shadow sidecars, then exits the sidecar step before broader operational reports.
+  - `CHANGELOG.md` ->documents the temporary branch-scoped focused fast replay behavior.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alpha_selector_broker_grid/` ->focused selector metrics.
+  - `outputs/alpha_selector_dynamic_regime_grid/` ->focused dynamic regime metrics.
+  - `outputs/alpha_selector_shadow_drawdown_grid/` ->focused shadow drawdown metrics.
+  - `outputs/portfolio_goal_search/` ->focused goal ranking.
+  - `outputs/account_evaluation/` ->focused official evaluation summary.
+- validation:
+  - pending workflow smoke and GitHub replay rerun.
+- risks_or_notes:
+  - This is branch workflow behavior for fast alpha research. Broad operating reports remain available in full rebuild and can be restored in fast replay after the focused loop is no longer needed.
+
 ## 2026-05-14
 
 ### 00:30 KST - cagr-loop-iter1-halted-on-main-mdd-regression
