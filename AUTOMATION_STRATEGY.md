@@ -11,7 +11,9 @@ commit.
 | --- | --- | --- | --- |
 | PR / push CI | `pr_validation.yml` | Tier-1 code-level smoke + leakage audit + topology guard via `tools/run_pr_validation.py` | No data, no model impact |
 | Manual long-run | `full_rebuild_manual.yml` | full data rebuild, backtests, verdicts, GDrive sync, auto-learning diagnostics | Generates production artifacts; no blind baseline rotation |
-| Daily after close | `after_close_daily.yml` | scanner, macro pulse, ETF leadership, explosive alerts, tactical review, paper dry-run, Layer 4 suggestions | Dry-run/report-only unless manual `execute=true` |
+| Daily after close | `free_data_daily_update.yml` | latest-close data/cache refresh, free-data validation, broker-ledger account refresh, macro/ETF/theme/explosive diagnostics, daily AutoLearning diagnostics, branch/run-scoped GDrive sync | Single scheduled daily owner; report-only and no auto-promotion |
+| Manual after-close debug | `after_close_daily.yml` | legacy scanner, tactical review, Layer 4 suggestions, and paper-executor dry-run/debug | Manual only; scheduled execution disabled to avoid duplicate daily updates |
+| Manual AutoLearning debug | `daily_autolearning_scan.yml` | lifecycle/onset/shakeout diagnostics and challenger proposal reproduction | Manual only; scheduled daily diagnostics are merged into `free_data_daily_update.yml` |
 | Weekly | `weekly_data_refresh.yml` | Finnhub substrate refresh and theme discovery | Data refresh only |
 | Monthly | `monthly_research.yml` | cycle-play universe refresh, ADR/macro IC, tactical sleeve backtest, explosive pattern model retrain | Research/model artifacts only |
 | Quarterly | `quarterly_auto_learning.yml` | trade insights, feature-gate proposals, promotion dry-run or gated manual promotion | Scheduled runs diagnostic; manual promotion only after gates pass |
@@ -35,6 +37,34 @@ commit.
 6. Keep `full_rebuild_manual.yml` as the source of truth for artifact export:
    `outputs/reports/`, `outputs/trade_journal/`, and `outputs/auto_learning/`
    must reach artifacts, GDrive, and `cloud_results/`.
+
+## Automation Impact Checklist For Agents
+
+Every material patch must consider automation impact before it is committed.
+If a change touches data schemas, target books, recommendation files, account
+ledger outputs, AutoLearning proposals, GDrive paths, or any user-facing report,
+the same patch must either update the owning workflow or explicitly document
+why no workflow change is needed.
+
+Use this checklist:
+
+1. Identify the cadence owner: PR, daily after-close, weekly, monthly,
+   quarterly, manual sidecar, or full rebuild.
+2. Prefer extending the existing cadence owner over adding a new scheduled
+   workflow. Scheduled daily work should normally go into
+   `free_data_daily_update.yml`.
+3. Keep debug or legacy tools manual unless they are part of the official
+   broker-ledger/account-report path.
+4. Store scheduled daily outputs under branch/run-scoped GDrive paths such as
+   `research_runs/<branch>/<run_id>/...`; do not overwrite production latest
+   unless the workflow is the approved production owner.
+5. Update `tests/smoke_test.py`, `tests/workflow_artifact_smoke.py`, and this
+   file when schedules, artifact paths, or report ownership change.
+6. Add an `automation_impact` paragraph to the `CHANGELOG.md` entry describing
+   whether the patch changes schedules, GDrive outputs, report ownership, or
+   AutoLearning/proposal flow.
+7. Never let AutoLearning, scanner, or paper-executor outputs auto-promote
+   production weights. They may create proposals; promotion remains gated.
 
 ## Code-Level Validation Tiers
 

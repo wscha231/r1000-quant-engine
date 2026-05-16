@@ -1,13 +1,12 @@
 name: After-Close Daily Automation
 
-# Consolidated daily workflow for market-close intelligence.
-# Schedule runs are dry-run/report-only. Live paper execution still requires
-# workflow_dispatch with execute=true.
+# Manual legacy workflow for market-close intelligence and paper-executor
+# debugging. The scheduled daily owner is `free_data_daily_update.yml`, which
+# runs the merged data refresh + signal diagnostics + account-report refresh
+# path. Keep this workflow manual so scheduled automation does not create
+# duplicate after-close updates.
 
 on:
-  schedule:
-    - cron: '45 22 * * 1-5'  # Weekdays after US close, DST-safe buffer
-    - cron: '0 6 * * 6'      # Saturday KST weekend review
   workflow_dispatch:
     inputs:
       advisor:

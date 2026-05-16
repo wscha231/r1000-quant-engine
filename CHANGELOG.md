@@ -34,6 +34,8 @@ All entries must be written in English. Entries must be predictable and machine-
 - outputs:
   - `path/to/file.ext` ->what it contains
   - none
+- automation_impact:
+  - schedule/workflow/GDrive/report ownership impact, or `none`
 - validation:
   - list commands run and whether they passed
 - risks_or_notes:
@@ -47,6 +49,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - `symbols_added` and `symbols_changed` must enumerate function/class names explicitly ->not prose descriptions.
 - `config_fields_added` must list full `name: type = default` signatures.
 - `breaking_changes` must never be omitted. Write `none` if there are none.
+- `automation_impact` must describe the workflow cadence owner and whether schedules, GDrive paths, report ownership, or AutoLearning/proposal flow changed. Use `none` only for changes that cannot affect automation.
 - `HH:MM KST` must be a real timestamp. Do not write `KST` without a time.
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
@@ -79,6 +82,8 @@ All entries must be written in English. Entries must be predictable and machine-
   - `outputs/after_close_account_refresh/after_close_account_refresh_manifest.json` ->daily connector status, staged source, target-date enrichment, required/optional step status, and refreshed report dates.
   - `outputs/after_close_account_refresh/` ->daily broker-ledger, account preview, safety, risk-control, operating snapshot, user report, and account evaluation outputs when price-cache coverage is sufficient.
   - `outputs/full_rebuild_logs/after_close_account_refresh.log` ->daily connector log.
+- automation_impact:
+  - Daily free-data workflow now attempts a broker-ledger account-report refresh after data validation; outputs are branch/run-scoped artifacts and Drive research outputs, with no auto-promotion or live execution.
 - validation:
   - `py -3 -m py_compile tools\run_after_close_account_refresh.py tools\run_broker_ledger_replay.py` ->passed.
   - `py -3 tests\broker_ledger_correctness_smoke.py` ->passed.
@@ -88,6 +93,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - This connector affects future daily workflow runs only. Existing artifacts remain unchanged unless a manual backfill/rerun is launched.
   - Scheduled workflows run from the default branch; this branch's automation changes will not affect production schedules until merged or cherry-picked to the scheduled branch.
   - AutoLearning outputs remain proposal/report-only; this change does not auto-promote or trade.
+
+### 10:34 KST - merge-daily-automation-owner
+
+- scope:
+  - Reduce duplicate after-close scheduled updates by making `free_data_daily_update.yml` the single daily scheduled owner for data refresh, signal diagnostics, daily AutoLearning diagnostics, and account-report refresh. Legacy after-close and daily AutoLearning workflows remain manual/debug surfaces.
+- files:
+  - `.github/workflows/free_data_daily_update.yml` ->extends the single daily owner with merged macro/ETF/theme/explosive diagnostics and merged daily AutoLearning diagnostics, and exports/syncs those outputs under branch/run-scoped paths.
+  - `.github/workflows/after_close_daily.yml` ->removes scheduled triggers and documents the workflow as manual legacy/debug only.
+  - `.github/workflows/daily_autolearning_scan.yml` ->removes scheduled triggers and documents the workflow as manual diagnostics only.
+  - `AUTOMATION_STRATEGY.md` ->updates the cadence matrix and adds an Automation Impact Checklist for future agents.
+  - `CLAUDE.md` ->adds Automation Impact Rules telling agents to consider workflow/report/GDrive effects with every material patch.
+  - `CHANGELOG.md` ->adds the `automation_impact` field to the update contract.
+  - `tests/smoke_test.py` ->updates topology tests so daily scheduled ownership is checked against `free_data_daily_update.yml`.
+  - `tests/workflow_artifact_smoke.py` ->checks merged daily diagnostics and account-refresh artifact exports.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_paper_executor_weekday() -> None` ->now enforces manual-only legacy after-close workflow and single daily owner tokens in `free_data_daily_update.yml`.
+  - `test_tactical_after_close_workflow() -> None` ->checks manual tactical debug workflow without requiring a schedule.
+  - `test_workflow_topology_consolidated() -> None` ->requires `AUTOMATION_STRATEGY.md` to identify `free_data_daily_update.yml` and automation impact guidance.
+  - `test_free_data_daily_workflow_updates_metrics_after_close() -> None` ->requires merged after-close and AutoLearning daily artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Scheduled runs for `after_close_daily.yml` and `daily_autolearning_scan.yml` are intentionally removed. Use `free_data_daily_update.yml` for scheduled daily updates or manual dispatch for legacy/debug runs.
+- outputs:
+  - `outputs/merged_after_close/` ->daily macro/ETF/theme/explosive diagnostics generated by the single daily owner.
+  - `outputs/merged_daily_autolearning/` ->daily lifecycle/onset/shakeout/challenger diagnostics generated by the single daily owner.
+  - `outputs/full_rebuild_logs/merged_*.log` ->logs for the merged daily diagnostics.
+- automation_impact:
+  - Daily scheduled automation is consolidated from three separate scheduled workflows into one scheduled owner, `free_data_daily_update.yml`. This reduces duplicate GitHub runs/bot updates while preserving manual debug workflows.
+- validation:
+  - YAML parse for `free_data_daily_update.yml`, `after_close_daily.yml`, and `daily_autolearning_scan.yml` ->passed.
+  - `py -3 tests\smoke_test.py --quick` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -m py_compile tools\run_after_close_account_refresh.py tools\run_broker_ledger_replay.py` ->passed.
+  - `$env:PYTHONUTF8='1'; py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tools\run_pr_validation.py --only workflow_artifact --only smoke_test --quiet` ->passed.
+- risks_or_notes:
+  - This affects scheduled automation only after the branch is merged or cherry-picked to the default scheduled branch.
+  - Merged diagnostics are `continue-on-error` and proposal/report-only; they must not auto-promote production weights.
 
 ## 2026-05-15
 

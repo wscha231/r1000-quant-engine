@@ -1457,26 +1457,35 @@ def test_paper_executor_workflow() -> None:
 
 @_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """after_close_daily.yml must have weekday after-close schedule plus a
-    Saturday review pass. Live execution remains manual only.
+    """after_close_daily.yml is now manual-only.
+
+    The single scheduled daily owner is free_data_daily_update.yml, which runs
+    data refresh, account-report refresh, merged signal diagnostics, and merged
+    AutoLearning diagnostics after the NYSE close.
     """
     wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
-    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
-    assert "0 6 * * 6" in wf, (
-        "Saturday 06:00 UTC schedule must remain"
-    )
+    assert "workflow_dispatch" in wf, "manual after-close trigger missing"
+    assert "schedule:" not in wf, "after_close_daily.yml must remain manual-only"
+    daily = (ROOT / ".github" / "workflows" / "free_data_daily_update.yml").read_text(encoding="utf-8")
+    for token in (
+        "30 23 * * 1-5",
+        "Run merged after-close signal diagnostics",
+        "Run merged daily AutoLearning diagnostics",
+        "tools/run_after_close_account_refresh.py",
+    ):
+        assert token in daily, f"free_data_daily_update.yml missing daily owner token: {token}"
     assert "execute=true" in wf, "manual live execution guard not documented"
 
 
 @_test("regression.tactical_after_close_workflow")
 def test_tactical_after_close_workflow() -> None:
-    """Daily tactical alpha review must remain in the after-close workflow and
+    """Manual tactical alpha review must remain in the after-close workflow and
     call the separate tactical engine, not the core monthly rebuild.
     """
     wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
     assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
-    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "workflow_dispatch" in wf, "after-close manual trigger missing"
     assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
     assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
     req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
@@ -1578,8 +1587,8 @@ def test_workflow_topology_consolidated() -> None:
     strategy = ROOT / "AUTOMATION_STRATEGY.md"
     assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
     text = strategy.read_text(encoding="utf-8")
-    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
-                  "update `tests/smoke_test.py`"):
+    for token in ("Cadence Matrix", "free_data_daily_update.yml", "after_close_daily.yml",
+                  "full_rebuild_manual.yml", "automation impact", "update `tests/smoke_test.py`"):
         assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
 
 

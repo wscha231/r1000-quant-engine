@@ -149,6 +149,12 @@ cfg["companyfacts_refresh_days"] = 3        # SEC 데이터 갱신 주기
 - List function/class names explicitly in `symbols_added`/`symbols_changed`, not prose descriptions.
 - See the "Agent Update Contract" at the top of `CHANGELOG.md` for the full required format.
 
+## Automation Impact Rules
+- Before changing data schemas, target books, recommendations, broker-ledger/account reports, AutoLearning outputs, GDrive paths, or user-facing reports, read `AUTOMATION_STRATEGY.md`.
+- Prefer updating an existing cadence owner over adding another scheduled workflow. Daily scheduled after-close work belongs in `free_data_daily_update.yml`; `after_close_daily.yml` and `daily_autolearning_scan.yml` are manual/debug surfaces.
+- Every material patch must document automation impact in `CHANGELOG.md`: schedules changed or unchanged, workflow owner, GDrive/artifact path impact, and whether AutoLearning/proposal flow is affected.
+- If a patch changes scheduled outputs, update the relevant workflow plus `tests/smoke_test.py` / `tests/workflow_artifact_smoke.py` in the same commit.
+
 ## Result Analysis
 백테스트 결과에서 확인할 핵심 지표:
 - `excess_cagr` > 0 → S&P 500 초과수익
