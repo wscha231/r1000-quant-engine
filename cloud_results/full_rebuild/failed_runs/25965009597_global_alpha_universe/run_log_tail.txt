@@ -1,0 +1,89 @@
+Traceback (most recent call last):
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 672, in main
+    collector_summary = run_data_collection(collector_cfg)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_data_collector.py", line 272, in run_data_collection
+    monthly = build_universe_monthly(cfg_obj)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 7367, in build_universe_monthly
+    candidates = build_candidate_universe(cfg, paths)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 3870, in build_candidate_universe
+    uni.to_parquet(out_path, index=False)
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/util/_decorators.py", line 333, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/core/frame.py", line 3124, in to_parquet
+    return to_parquet(
+           ^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/io/parquet.py", line 482, in to_parquet
+    impl.write(
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pandas/io/parquet.py", line 191, in write
+    table = self.api.Table.from_pandas(df, **from_pandas_kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pyarrow/table.pxi", line 4768, in pyarrow.lib.Table.from_pandas
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pyarrow/pandas_compat.py", line 664, in dataframe_to_arrays
+    arrays[i] = maybe_fut.result()
+                ^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pyarrow/pandas_compat.py", line 639, in convert_column
+    raise e
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/pyarrow/pandas_compat.py", line 633, in convert_column
+    result = pa.array(col, type=type_, from_pandas=True, safe=safe)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pyarrow/array.pxi", line 390, in pyarrow.lib.array
+  File "pyarrow/array.pxi", line 91, in pyarrow.lib._ndarray_to_array
+  File "pyarrow/error.pxi", line 92, in pyarrow.lib.check_status
+pyarrow.lib.ArrowInvalid: ("Could not convert '0001565025' with type str: tried to convert to double", 'Conversion failed for column cik10 with type object')
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        f93a25f (DIRTY)
+  started:       2026-05-16 23:58:58 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-16
+  mode:          FULL REBUILD
+  fast_mode:     True
+  universe_mode: global_alpha_universe
+  backtest_years: 8
+  leader_rescue: latest_only
+  collector:     run
+  verdict_only:  False
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+WARNING: cache_prices missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_macro missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_sec_actual missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: feature_store missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+OK: companyfacts.zip 0.0d old, 1320 MB
+
+[2026-05-16 23:58:59 KST] >>> Step 1: Collector (FULL, fast_mode=True)
+[14:58:59] [fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.
+[14:58:59] Collector: building universe, prices, SEC fundamentals, and live fundamentals ...
+[14:58:59] Phase 1/2: building monthly universe ...
+[14:58:59] Building candidate universe from free sources ...
+[14:59:02] [WARN] IWB holdings fetch failed: No .ajax id found: https://www.ishares.com/us/products/239707/ishares-russell-1000-etf
+[14:59:02] [WARN] leader-rescue S&P500 fetch failed: HTTP Error 403: Forbidden
+[14:59:02] [WARN] leader-rescue Nasdaq-100 fetch failed: HTTP Error 403: Forbidden
+[14:59:02] Strategic global hardware universe injection: candidates=25, added_pre_dedup=25
+[14:59:02] Global alpha universe injection: mode=global_alpha_universe, whitelist=105, added=103
+[14:59:02] Cycle play universe injection: mode=global_alpha_universe, whitelist=42, added=41
+[14:59:02] Thematic ETF overlay: mode=global_alpha_universe, candidates=25, added=19
+[14:59:02] Recovered broad base universe from committed latest scored snapshot after live source failure: source=cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv, previous_base=698, mode=global_alpha_universe
+[14:59:02] Recovered broad base universe from previous candidate cache after live source failure: previous_base=698, added=674, mode=global_alpha_universe
+[14:59:02] Downloading SEC company_tickers.json ...
+[14:59:03] Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.
+[14:59:03] Universe change detected: current=862, added=862, removed=0
+[14:59:03] Universe added sample: A, AAON, AAPL, ABBV, ABEV, ABT, ACGL, ACHR, ACI, ACLS
+[2026-05-16 23:59:03 KST] Collector FAILED:
+Captured tail of: outputs/full_rebuild_logs/20260516_145857_global_alpha_universe.log (88 total lines)
