@@ -40,9 +40,10 @@ def test_selection_quality_report_emits_ic_and_topk_outputs() -> None:
         payload = run(latest, root / "out", top_n=5)
         assert payload["status"] == "completed", payload
         assert payload["rows"] == 90, payload
-        assert payload["best_factor_by_monthly_ic"] in {"score_total", "portfolio_monster_early_score"}, payload
+        assert payload["best_factor_by_monthly_ic"] in {"score_total", "portfolio_monster_early_score", "leader_onset_score"}, payload
         ic = pd.read_csv(root / "out" / "factor_ic_by_horizon.csv")
         assert not ic.empty
+        assert "leader_onset_score" in set(ic["factor"])
         assert float(ic.iloc[0]["avg_monthly_spearman_ic"]) > 0.9
         topk = pd.read_csv(root / "out" / "topk_forward_hit_rate.csv")
         assert not topk.empty

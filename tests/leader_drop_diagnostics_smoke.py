@@ -64,6 +64,30 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
         ).to_csv(latest / "scored_latest.csv", index=False)
         pd.DataFrame([{"ticker": "HOLD", "weight": 0.30}]).to_csv(latest / "portfolio_latest.csv", index=False)
         pd.DataFrame([{"ticker": "CONC", "weight": 0.50}]).to_csv(latest / "concentrated_portfolio_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-31",
+                    "ticker": "MISS",
+                    "portfolio_future_winner_engine_score": 0.90,
+                    "portfolio_monster_early_score": 0.75,
+                    "rs_acceleration_score": 0.70,
+                    "period_forward_return": 0.40,
+                },
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "HOLD",
+                    "portfolio_future_winner_engine_score": 0.80,
+                    "portfolio_monster_early_score": 0.70,
+                    "rs_acceleration_score": 0.60,
+                    "period_forward_return": 0.30,
+                },
+            ]
+        ).to_csv(reports / "candidate_replay_book.csv", index=False)
+        pd.DataFrame([{"rebalance_date": "2026-02-28", "ticker": "HOLD", "weight": 0.30}]).to_csv(
+            reports / "operating_main_target_book.csv",
+            index=False,
+        )
         for portfolio in ["main", "concentrated"]:
             out = latest / "account_ledger_preview" / portfolio
             out.mkdir(parents=True)
@@ -82,6 +106,18 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
                 ]
             ).to_csv(out / "orders_preview.csv", index=False)
             pd.DataFrame(columns=["ticker", "side", "quantity", "status"]).to_csv(out / "order_deltas_review.csv", index=False)
+            broker = latest / "broker_replay" / portfolio
+            broker.mkdir(parents=True)
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2026-03-02",
+                        "ticker": "HOLD" if portfolio == "main" else "CONC",
+                        "side": "BUY",
+                        "quantity": 10,
+                    }
+                ]
+            ).to_csv(broker / "trades.csv", index=False)
         payload = run(latest, root / "out", watchlist="DROP,MISS,ABSENT")
         assert payload["status"] == "completed", payload
         assert payload["rows"] >= 4, payload
@@ -94,6 +130,11 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
         assert absent["drop_reason"] == "not_in_latest_universe_or_missing_data"
         missed = pd.read_csv(root / "out" / "missed_leader_candidates.csv")
         assert "MISS" in set(missed["ticker"])
+        for col in ["first_scored_date", "first_target_date", "first_broker_buy_date", "missed_return_after_onset"]:
+            assert col in detail.columns
+        miss = detail[detail["ticker"].eq("MISS")].iloc[0]
+        assert str(miss["first_scored_date"]) == "2026-01-31"
+        assert float(miss["missed_return_after_onset"]) == 0.40
 
 
 def main() -> int:

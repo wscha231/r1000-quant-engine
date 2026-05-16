@@ -56,6 +56,77 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-16
 
+### 10:51 KST - post-codex-alphaops-attribution
+
+- scope:
+  - Add report-only post-Codex AlphaOps diagnostics for leader recovery, leader-onset shadow selection, market-circuit attribution, and concentrated proxy-to-broker conversion gaps without changing production defaults.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds a `leader_onset_shadow` selector style and writes `leader_onset_score` into target books for broker-ledger challengers.
+  - `tools/run_selection_quality_report.py` ->adds `leader_onset_score` to factor IC, top-k, and decile diagnostics using contemporaneous features only.
+  - `tools/run_leader_drop_diagnostics.py` ->extends the missed-leader path audit with first scored/target/broker dates and missed return after onset.
+  - `tools/run_market_circuit_attribution.py` ->adds a research-only attribution report for alpha-selector market-circuit drawdowns and wrong substitutions.
+  - `tools/run_concentrated_proxy_to_broker_reconciliation.py` ->adds a research-only conversion-gap report between concentrated proxy candidates and official broker-ledger results.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and exports the new report-only attribution and reconciliation sidecars.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs and syncs the new report-only sidecars in the fast replay path and includes `leader_onset_shadow` in the selector grid.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->checks the leader-onset selector path and no-forward-label behavior.
+  - `tests/selection_quality_report_smoke.py` ->checks leader-onset factor diagnostics.
+  - `tests/leader_drop_diagnostics_smoke.py` ->checks the new historical path audit columns.
+  - `tests/market_circuit_attribution_smoke.py` ->adds smoke coverage for drawdown/substitution attribution.
+  - `tests/concentrated_proxy_to_broker_reconciliation_smoke.py` ->adds smoke coverage for concentrated proxy-to-broker reconciliation.
+  - `tests/workflow_artifact_smoke.py` ->requires workflow export/log coverage for the new outputs.
+  - `tools/run_pr_validation.py` ->adds the new smoke tests to Tier-0/Tier-1 validation.
+  - `research/post_codex_alphaops_20260516/research.md` ->records the research-only interpretation, official baseline, and promotion gates.
+- symbols_added:
+  - `add_leader_onset_score(frame: pd.DataFrame) -> pd.DataFrame` ->creates a same-date early leader score without using forward-return labels.
+  - `output_relative_path(raw: Any) -> Path | None` ->maps GitHub-run absolute output paths back to artifact-relative paths.
+  - `resolve_from_latest(latest_run: Path, raw: Any) -> Path | None` ->resolves recorded output paths inside a downloaded/latest artifact tree.
+  - `find_best_variant_dir(latest_run: Path, portfolio_kind: str, explicit_dir: str | Path | None = None) -> tuple[Path, dict[str, Any]]` ->locates the selected market-circuit variant directory.
+  - `normalized_equity(frame: pd.DataFrame) -> pd.DataFrame` ->normalizes equity curves and drawdown columns.
+  - `state_by_date(states: pd.DataFrame) -> pd.DataFrame` ->normalizes circuit states by date.
+  - `dominant_state(states: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> str` ->summarizes the dominant circuit state in a date window.
+  - `drawdown_periods(equity: pd.DataFrame, states: pd.DataFrame, min_drawdown: float) -> pd.DataFrame` ->extracts market-circuit drawdown windows.
+  - `monthly_state_returns(equity: pd.DataFrame, states: pd.DataFrame) -> pd.DataFrame` ->summarizes monthly returns by dominant circuit state.
+  - `price_lookup(holdings_daily: pd.DataFrame) -> dict[str, pd.DataFrame]` ->creates per-ticker price histories from replay holdings.
+  - `forward_return(prices: dict[str, pd.DataFrame], ticker: str, date: pd.Timestamp, horizon_days: int) -> float` ->computes post-trade returns from observed replay prices.
+  - `wrong_substitutions(trades: pd.DataFrame, holdings_daily: pd.DataFrame, horizon_days: int) -> pd.DataFrame` ->flags sell/buy substitutions where the sold name outperformed the replacement.
+  - `best_concentrated_proxy(goal_summary: dict[str, Any]) -> dict[str, Any]` ->selects the best non-production concentrated proxy candidate.
+  - `trade_path_summary(trades: pd.DataFrame) -> pd.DataFrame` ->summarizes broker trades by ticker.
+  - `exit_timing_diff(latest_run: Path, trades: pd.DataFrame) -> pd.DataFrame` ->compares risk-action dates with later broker sell dates when action files exist.
+  - `cash_drag_windows(equity: pd.DataFrame, threshold: float = 0.15) -> pd.DataFrame` ->lists high-cash broker-equity rows.
+- symbols_changed:
+  - `prepare_candidates(frame: pd.DataFrame) -> pd.DataFrame` ->adds leader-onset shadow scoring before selector ranking.
+  - `build_target_book(...) -> pd.DataFrame` ->preserves `leader_onset_score` in selector target books.
+  - `prepare_frame(frame: pd.DataFrame) -> pd.DataFrame` in `tools/run_selection_quality_report.py` ->creates `leader_onset_score` when the candidate book lacks it.
+  - `build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]` ->adds historical leader path and broker buy/exit dates.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/market_circuit_attribution/main/main_drawdown_periods.csv` ->drawdown windows for the main market-circuit challenger.
+  - `outputs/market_circuit_attribution/main/wrong_substitutions.csv` ->candidate wrong substitutions for main.
+  - `outputs/market_circuit_attribution/main/report.md` ->human-readable market-circuit attribution report.
+  - `outputs/concentrated_proxy_to_broker_reconciliation/conversion_gap_summary.json` ->concentrated proxy-vs-official conversion gap summary.
+  - `outputs/concentrated_proxy_to_broker_reconciliation/trade_path_diff.csv` ->official concentrated broker trade path by ticker.
+  - `outputs/concentrated_proxy_to_broker_reconciliation/report.md` ->human-readable concentrated conversion-gap report.
+- automation_impact:
+  - `full_rebuild_manual.yml` and `alphaops_replay_sidecars_manual.yml` now emit report-only market-circuit attribution and concentrated reconciliation outputs and sync them to branch/run-scoped GDrive paths. No schedule, production default, broker execution, or automatic promotion behavior changes.
+- validation:
+  - `py -3 -m py_compile tools\run_alpha_selector_broker_grid.py tools\run_selection_quality_report.py tools\run_leader_drop_diagnostics.py tools\run_market_circuit_attribution.py tools\run_concentrated_proxy_to_broker_reconciliation.py` ->pass.
+  - `py -3 tests\market_circuit_attribution_smoke.py` ->pass.
+  - `py -3 tests\concentrated_proxy_to_broker_reconciliation_smoke.py` ->pass.
+  - `py -3 tests\leader_drop_diagnostics_smoke.py` ->pass.
+  - `py -3 tests\selection_quality_report_smoke.py` ->pass.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->pass.
+  - `py -3 tests\workflow_artifact_smoke.py` ->pass.
+  - `py -3 tools\run_pr_validation.py --only leader_drop --only alpha_selector_broker --only selection_quality --only market_circuit_attribution --only concentrated_proxy --only workflow_artifact --quiet` ->pass.
+  - `py -3 tools\run_market_circuit_attribution.py --latest-run _run_25923769806_artifacts\alphaops-replay-sidecars-25873418413-25923769806 --portfolio-kind main --output-dir _local_market_circuit_attribution_check` ->pass.
+  - `py -3 tools\run_concentrated_proxy_to_broker_reconciliation.py --latest-run _run_25923769806_artifacts\alphaops-replay-sidecars-25873418413-25923769806 --output-dir _local_concentrated_proxy_to_broker_reconciliation_check` ->pass.
+  - `py -3 tools\run_pr_validation.py --quiet` ->pass, 41/41.
+- risks_or_notes:
+  - The new leader-onset score is a shadow selector diagnostic only; promotion still requires broker-ledger evidence plus leakage and missed-leader audits.
+  - Market-circuit attribution uses replay holdings prices, so missing holding-price history can undercount wrong substitutions.
+
 ### 10:23 KST - after-close-account-refresh-connector
 
 - scope:

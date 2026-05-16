@@ -20,7 +20,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/leader_drop_diagnostics"
-DEFAULT_WATCHLIST = "SNDK,INTC,AMD,MU,WDC,STX,LITE,CIEN,GEV,PLTR,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,LEU,SMR,OKLO"
+DEFAULT_WATCHLIST = "SNDK,INTC,AMD,ARM,ASML,MU,WDC,STX,LITE,CIEN,GEV,PLTR,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,LEU,SMR,OKLO"
 CASH_TICKERS = {"CASH", "__CASH__"}
 
 
@@ -130,6 +130,109 @@ def rank_scores(scored: pd.DataFrame) -> dict[str, dict[str, Any]]:
     return out
 
 
+def parse_date(value: Any) -> pd.Timestamp | None:
+    dt = pd.to_datetime(value, errors="coerce")
+    if pd.isna(dt):
+        return None
+    return pd.Timestamp(dt).normalize()
+
+
+def first_date_by_ticker(frame: pd.DataFrame, date_cols: list[str], *, side: str | None = None) -> dict[str, str]:
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    d = frame.copy()
+    if side is not None and "side" in d.columns:
+        d = d[d["side"].astype(str).str.upper().eq(side.upper())].copy()
+    date_col = next((col for col in date_cols if col in d.columns), "")
+    if not date_col:
+        return {}
+    d["ticker"] = d["ticker"].map(ticker)
+    d["_dt"] = pd.to_datetime(d[date_col], errors="coerce")
+    d = d[(d["ticker"] != "") & d["_dt"].notna()].copy()
+    if d.empty:
+        return {}
+    grouped = d.groupby("ticker")["_dt"].min()
+    return {str(t): pd.Timestamp(dt).date().isoformat() for t, dt in grouped.items()}
+
+
+def historical_candidate_stats(frame: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    d = frame.copy()
+    if "rebalance_date" not in d.columns:
+        return {}
+    d["ticker"] = d["ticker"].map(ticker)
+    d["_dt"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    d = d[(d["ticker"] != "") & d["_dt"].notna()].copy()
+    if d.empty:
+        return {}
+    for col in [
+        "portfolio_monster_early_score",
+        "portfolio_future_winner_engine_score",
+        "portfolio_early_scout_engine_score",
+        "rs_acceleration_score",
+        "period_forward_return",
+    ]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    out: dict[str, dict[str, Any]] = {}
+    for t, group in d.groupby("ticker", sort=False):
+        g = group.sort_values("_dt").copy()
+        onset_mask = pd.Series(False, index=g.index)
+        if "portfolio_monster_early_score" in g.columns:
+            onset_mask = onset_mask | g["portfolio_monster_early_score"].fillna(0.0).ge(0.58)
+        if "portfolio_future_winner_engine_score" in g.columns:
+            onset_mask = onset_mask | g["portfolio_future_winner_engine_score"].fillna(0.0).ge(0.65)
+        if "rs_acceleration_score" in g.columns:
+            onset_mask = onset_mask | g["rs_acceleration_score"].fillna(0.0).ge(0.65)
+        onset = g[onset_mask].head(1)
+        first = g.iloc[0]
+        best_forward = safe_float(g.get("period_forward_return", pd.Series(dtype=float)).max(), math.nan)
+        if not onset.empty:
+            onset_row = onset.iloc[0]
+            onset_dt = pd.Timestamp(onset_row["_dt"]).date().isoformat()
+            onset_forward = safe_float(onset_row.get("period_forward_return"), math.nan)
+        else:
+            onset_dt = ""
+            onset_forward = math.nan
+        out[str(t)] = {
+            "first_scored_date": pd.Timestamp(first["_dt"]).date().isoformat(),
+            "first_onset_signal_date": onset_dt,
+            "missed_return_after_onset": onset_forward if math.isfinite(onset_forward) else best_forward,
+            "best_historical_forward_return": best_forward,
+            "historical_candidate_months": int(len(g)),
+        }
+    return out
+
+
+def target_history_maps(latest_run: Path) -> dict[str, str]:
+    paths = [
+        latest_run / "reports" / "operating_main_target_book.csv",
+        latest_run / "reports" / "operating_concentrated_target_book.csv",
+        latest_run / "reports" / "main_monthly_weights.csv",
+        latest_run / "reports" / "concentrated_strategy_holdings.csv",
+        latest_run / "reports" / "weekly_leader_main_target_book.csv",
+        latest_run / "reports" / "weekly_leader_concentrated_target_book.csv",
+    ]
+    merged: dict[str, str] = {}
+    for path in paths:
+        dates = first_date_by_ticker(read_csv(path), ["rebalance_date", "date", "signal_date"])
+        for t, dt in dates.items():
+            if t not in merged or dt < merged[t]:
+                merged[t] = dt
+    return merged
+
+
+def broker_trade_history(latest_run: Path, side: str) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for portfolio in ["main", "concentrated"]:
+        dates = first_date_by_ticker(read_csv(latest_run / "broker_replay" / portfolio / "trades.csv"), ["date", "fill_date"], side=side)
+        for t, dt in dates.items():
+            if t not in merged or dt < merged[t]:
+                merged[t] = dt
+    return merged
+
+
 def boolish(value: Any) -> bool:
     text = str(value).strip().lower()
     return text in {"true", "1", "yes", "y"}
@@ -179,7 +282,8 @@ def classify(row: dict[str, Any]) -> str:
 def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     pre = latest_by_ticker(read_csv(latest_run / "reports" / "leader_drop_diagnostics_latest.csv"))
     scored = latest_by_ticker(read_csv(latest_run / "scored_latest.csv"))
-    replay = latest_by_ticker(read_csv(latest_run / "reports" / "candidate_replay_book.csv"))
+    replay_frame = read_csv(latest_run / "reports" / "candidate_replay_book.csv")
+    replay = latest_by_ticker(replay_frame)
     if scored.empty and not replay.empty:
         scored = replay
     main_target = ticker_weight_map(latest_run / "portfolio_latest.csv")
@@ -189,9 +293,14 @@ def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, A
     main_actionable, main_blocked, main_status = order_maps(latest_run, "main")
     conc_actionable, conc_blocked, conc_status = order_maps(latest_run, "concentrated")
     ranks = rank_scores(scored)
+    candidate_history = historical_candidate_stats(replay_frame)
+    first_target_dates = target_history_maps(latest_run)
+    first_buy_dates = broker_trade_history(latest_run, "BUY")
+    first_sell_dates = broker_trade_history(latest_run, "SELL")
 
     all_tickers = set(pre.index.astype(str)) | set(scored.index.astype(str)) | set(main_target) | set(concentrated_target)
     all_tickers |= set(main_preview_target) | set(conc_preview_target)
+    all_tickers |= set(candidate_history) | set(first_target_dates) | set(first_buy_dates)
     all_tickers |= {ticker(t) for t in watchlist if ticker(t)}
     rows: list[dict[str, Any]] = []
     for t in sorted(all_tickers):
@@ -215,6 +324,14 @@ def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, A
             "main_order_status": main_status.get(t, ""),
             "concentrated_order_status": conc_status.get(t, ""),
             "prefilter_drop_reason": prefilter_reason(prow),
+            "first_scored_date": candidate_history.get(t, {}).get("first_scored_date", ""),
+            "first_onset_signal_date": candidate_history.get(t, {}).get("first_onset_signal_date", ""),
+            "first_target_date": first_target_dates.get(t, ""),
+            "first_broker_buy_date": first_buy_dates.get(t, ""),
+            "first_broker_exit_date": first_sell_dates.get(t, ""),
+            "missed_return_after_onset": candidate_history.get(t, {}).get("missed_return_after_onset", math.nan),
+            "best_historical_forward_return": candidate_history.get(t, {}).get("best_historical_forward_return", math.nan),
+            "historical_candidate_months": candidate_history.get(t, {}).get("historical_candidate_months", 0),
         }
         for col in [
             "price_cache_exists",

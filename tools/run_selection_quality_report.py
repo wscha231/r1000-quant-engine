@@ -23,6 +23,7 @@ FACTOR_COLUMNS = [
     "portfolio_monster_early_score",
     "portfolio_future_winner_engine_score",
     "portfolio_early_scout_engine_score",
+    "leader_onset_score",
     "relative_strength_composite",
     "oneil_leadership_score",
     "rs_acceleration_score",
@@ -85,6 +86,29 @@ def prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     d["forward_return"] = pd.to_numeric(d[return_col], errors="coerce")
     d = d[d["ticker"].ne("") & d["forward_return"].notna()].copy()
+    if "leader_onset_score" not in d.columns:
+        components = {
+            "portfolio_monster_early_score": 0.22,
+            "portfolio_future_winner_engine_score": 0.18,
+            "portfolio_early_scout_engine_score": 0.14,
+            "rs_acceleration_score": 0.14,
+            "h6_dynamic_leader_score": 0.12,
+            "industry_group_strength_score": 0.08,
+            "relative_strength_composite": 0.05,
+            "oneil_leadership_score": 0.04,
+            "governance_catalyst_score": 0.03,
+        }
+        score = pd.Series(0.0, index=d.index, dtype=float)
+        used_weight = 0.0
+        for col, weight in components.items():
+            if col in d.columns:
+                score += float(weight) * pd.to_numeric(d[col], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+                used_weight += float(weight)
+        if "dollar_vol_20d" in d.columns:
+            dollar_rank = d.groupby("rebalance_date")["dollar_vol_20d"].rank(pct=True).fillna(0.5)
+            score += 0.05 * dollar_rank
+            used_weight += 0.05
+        d["leader_onset_score"] = (score / used_weight).fillna(0.0).clip(0.0, 1.0) if used_weight else 0.0
     for col in FACTOR_COLUMNS:
         if col in d.columns:
             d[col] = pd.to_numeric(d[col], errors="coerce")

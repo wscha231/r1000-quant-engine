@@ -64,6 +64,15 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "industry_group_strength_score": 0.10,
         "score": 0.05,
     },
+    "leader_onset_shadow": {
+        "leader_onset_score": 0.35,
+        "portfolio_monster_early_score": 0.18,
+        "portfolio_future_winner_engine_score": 0.16,
+        "portfolio_early_scout_engine_score": 0.12,
+        "rs_acceleration_score": 0.10,
+        "h6_dynamic_leader_score": 0.06,
+        "industry_group_strength_score": 0.03,
+    },
 }
 RISK_COLUMNS = ("portfolio_risk_entry_block_score", "portfolio_stale_mega_leader_score")
 
@@ -131,6 +140,50 @@ def rank_feature(frame: pd.DataFrame, col: str, *, lower_is_better: bool = False
     )
 
 
+def add_leader_onset_score(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add a same-date, no-forward-label early-leader shadow score.
+
+    This score intentionally uses only contemporaneous candidate features and
+    liquidity/volume proxies. It is a selector diagnostic, not a production
+    model feature, and never reads forward-return columns.
+    """
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    components = {
+        "portfolio_monster_early_score": 0.22,
+        "portfolio_future_winner_engine_score": 0.18,
+        "portfolio_early_scout_engine_score": 0.14,
+        "rs_acceleration_score": 0.14,
+        "h6_dynamic_leader_score": 0.12,
+        "industry_group_strength_score": 0.08,
+        "relative_strength_composite": 0.05,
+        "oneil_leadership_score": 0.04,
+        "governance_catalyst_score": 0.03,
+    }
+    score = pd.Series(0.0, index=d.index, dtype=float)
+    used_weight = 0.0
+    for col, weight in components.items():
+        if col in d.columns:
+            values = pd.to_numeric(d[col], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+            score += float(weight) * values
+            used_weight += float(weight)
+    if "dollar_vol_20d" in d.columns:
+        dollar_vol_rank = rank_feature(d, "dollar_vol_20d")
+        score += 0.05 * dollar_vol_rank
+        used_weight += 0.05
+    if "px" in d.columns:
+        # Price rank is only a coarse liquidity/attention proxy. It is kept at
+        # tiny weight so small caps are not mechanically excluded.
+        score += 0.02 * rank_feature(d, "px")
+        used_weight += 0.02
+    if used_weight <= 0:
+        d["leader_onset_score"] = 0.0
+    else:
+        d["leader_onset_score"] = (score / used_weight).fillna(0.0).clip(0.0, 1.0)
+    return d
+
+
 def prepare_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns:
         return pd.DataFrame()
@@ -139,6 +192,7 @@ def prepare_candidates(frame: pd.DataFrame) -> pd.DataFrame:
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d = d.dropna(subset=["rebalance_date"])
     d = d[d["ticker"].ne("")].copy()
+    d = add_leader_onset_score(d)
     for col in sorted({c for weights in STYLE_WEIGHTS.values() for c in weights} | set(RISK_COLUMNS)):
         if col in d.columns:
             d[col] = pd.to_numeric(d[col], errors="coerce")
@@ -270,6 +324,7 @@ def build_target_book(
                     "weight": float(weight),
                     "portfolio_sleeve_label": row.get("portfolio_sleeve_label", ""),
                     "portfolio_candidate_gate_label": row.get("portfolio_candidate_gate_label", ""),
+                    "leader_onset_score": safe_float(row.get("leader_onset_score")),
                     "alpha_selector_style": style,
                     "alpha_selector_score": safe_float(row.get("alpha_selector_score")),
                     "target_stock_names": int(target_n),
@@ -488,7 +543,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--no-integer-shares", action="store_true")
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="future_heavy,monster_heavy,rs_heavy")
+    parser.add_argument("--styles", default="future_heavy,monster_heavy,rs_heavy,leader_onset_shadow")
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.33,0.50")
     parser.add_argument("--max-variants", type=int, default=18)
