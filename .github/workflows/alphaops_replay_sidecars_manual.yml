@@ -330,8 +330,7 @@ jobs:
 
       - name: Sync replay outputs to Google Drive
         if: always()
-        timeout-minutes: 10
-        continue-on-error: true
+        timeout-minutes: 25
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -366,7 +365,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay broker_market_circuit_replay broker_market_circuit_grid event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution main_v3_alpha_concentration main_v3_alpha_concentration_broker_replay concentrated_v2_challenger concentrated_v2_challenger_broker_replay concentrated_broker_grid alpha_selector_broker_grid alpha_selector_market_circuit_grid market_circuit_attribution alpha_selector_leader_circuit_grid alpha_selector_dynamic_regime_grid alpha_selector_shadow_drawdown_grid broker_position_risk_replay broker_execution_policy_replay broker_replacement_swap_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation leader_drop_diagnostics concentrated_proxy_to_broker_reconciliation monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation alpha_selector_market_circuit_grid full_rebuild_logs reports broker_replay target_snapshots data_readiness position_risk_weekly_validation broker_market_circuit_replay broker_market_circuit_grid event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution main_v3_alpha_concentration main_v3_alpha_concentration_broker_replay concentrated_v2_challenger concentrated_v2_challenger_broker_replay concentrated_broker_grid alpha_selector_broker_grid alpha_selector_leader_circuit_grid alpha_selector_dynamic_regime_grid alpha_selector_shadow_drawdown_grid broker_position_risk_replay broker_execution_policy_replay broker_replacement_swap_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls cash_policy_reconciliation monster_recommendations operating_snapshot user_portfolio_reports weekly_evaluation theme_leadership_tape theme_concentration_challenger selection_quality; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi
