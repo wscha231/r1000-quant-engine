@@ -1,0 +1,52 @@
+Traceback (most recent call last):
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/run_local.py", line 672, in main
+    collector_summary = run_data_collection(collector_cfg)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_data_collector.py", line 272, in run_data_collection
+    monthly = build_universe_monthly(cfg_obj)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 7329, in build_universe_monthly
+    candidates = build_candidate_universe(cfg, paths)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/r1000-quant-engine/r1000-quant-engine/r1000_pipeline.py", line 3805, in build_candidate_universe
+    raise RuntimeError(
+RuntimeError: Broad base universe unavailable: live holdings/member sources failed and candidate_universe_latest.parquet has no previous R1000/base rows. Refusing to continue with overlay-only universe.
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        df2e4be (DIRTY)
+  started:       2026-05-16 23:09:03 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-16
+  mode:          FULL REBUILD
+  fast_mode:     True
+  universe_mode: global_alpha_universe
+  backtest_years: 8
+  leader_rescue: latest_only
+  collector:     run
+  verdict_only:  False
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+WARNING: cache_prices missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_macro missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: cache_sec_actual missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+WARNING: feature_store missing under /home/runner/work/r1000-quant-engine/r1000-quant-engine -- first-time run, will be created
+OK: companyfacts.zip 0.0d old, 1320 MB
+
+[2026-05-16 23:09:05 KST] >>> Step 1: Collector (FULL, fast_mode=True)
+[14:09:05] [fast_mode] ON -- lighter collector refresh + ~5 backtests, retrain every 6m; Phase 9 CE concentrated grid expanded to 63 combos.
+[14:09:05] Collector: building universe, prices, SEC fundamentals, and live fundamentals ...
+[14:09:05] Phase 1/2: building monthly universe ...
+[14:09:05] Building candidate universe from free sources ...
+[14:09:06] [WARN] IWB holdings fetch failed: No .ajax id found: https://www.ishares.com/us/products/239707/ishares-russell-1000-etf
+[14:09:06] [WARN] leader-rescue S&P500 fetch failed: HTTP Error 403: Forbidden
+[14:09:06] [WARN] leader-rescue Nasdaq-100 fetch failed: HTTP Error 403: Forbidden
+[14:09:06] Strategic global hardware universe injection: candidates=25, added_pre_dedup=25
+[14:09:06] Global alpha universe injection: mode=global_alpha_universe, whitelist=105, added=103
+[14:09:06] Cycle play universe injection: mode=global_alpha_universe, whitelist=42, added=41
+[14:09:06] Thematic ETF overlay: mode=global_alpha_universe, candidates=25, added=19
+[2026-05-16 23:09:06 KST] Collector FAILED:
+Captured tail of: outputs/full_rebuild_logs/20260516_140903_global_alpha_universe.log (51 total lines)
