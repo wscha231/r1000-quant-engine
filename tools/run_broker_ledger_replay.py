@@ -801,6 +801,40 @@ def replay(
                     }
                 )
 
+    if not equity_rows:
+        metrics = {
+            "status": "blocked",
+            "reason": "no_equity_marks_generated",
+            "portfolio_kind": portfolio_kind,
+            "fill_mode": fill_mode,
+            "price_mode": "adjusted_close",
+            "integer_shares": bool(integer_shares),
+            "cost_bps_per_side": float(cost_bps),
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+            "price_cache": str(price_cache),
+            "valid_for_production": False,
+            "max_fill_lag_days": int(max_fill_lag_days),
+            "tail_row_fill_fallback_same_close_enabled": bool(tail_row_fill_fallback_same_close),
+            "tail_row_fill_fallback_activated_at": (
+                str(pd.Timestamp(tail_fallback_activated_signal_dt).date())
+                if tail_fallback_activated_signal_dt is not None
+                else None
+            ),
+            "hint": "No account equity rows were produced. The most common cause is missing price-cache coverage for target-book tickers.",
+            **weight_diag,
+        }
+        pd.DataFrame(columns=["date", "equity_usd", "cash_usd", "cash_weight", "stock_value_usd", "position_count", "fill_mode"]).to_csv(output_dir / "equity_curve.csv", index=False)
+        pd.DataFrame(trade_rows).to_csv(output_dir / "trades.csv", index=False)
+        pd.DataFrame(holdings_rows).to_csv(output_dir / "holdings_daily.csv", index=False)
+        pd.DataFrame(cash_rows).to_csv(output_dir / "cash_ledger.csv", index=False)
+        pd.DataFrame(target_vs_actual_rows).to_csv(output_dir / "target_vs_actual_weights.csv", index=False)
+        (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+        (output_dir / "replay_report.md").write_text(render_report(metrics), encoding="utf-8")
+        return metrics
+
     equity_df = pd.DataFrame(equity_rows).drop_duplicates("date", keep="last").sort_values("date")
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)

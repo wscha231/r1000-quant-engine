@@ -51,6 +51,44 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-16
+
+### 10:23 KST - after-close-account-refresh-connector
+
+- scope:
+  - Connect daily free-data refresh to the broker-ledger/account-report path without changing strategy weights or historical full-rebuild artifacts. The new wrapper stages the latest full-run outputs, repairs missing latest target signal dates from `scored_latest.csv`, rebuilds operating target books, reruns broker-ledger/account previews, and emits a manifest for daily after-close report freshness.
+- files:
+  - `tools/run_after_close_account_refresh.py` ->adds an orchestration wrapper for after-close account-like report refresh from the latest full rebuild plus refreshed price cache.
+  - `tools/run_broker_ledger_replay.py` ->returns a blocked metrics/report payload instead of throwing `KeyError` when no equity marks can be generated because price-cache coverage is missing.
+  - `.github/workflows/free_data_daily_update.yml` ->runs the after-close account refresh after free-data validation and syncs its outputs to the branch/run-scoped Drive research path.
+  - `tests/workflow_artifact_smoke.py` ->checks that the daily free-data workflow exports the new account-refresh outputs and log.
+- symbols_added:
+  - `latest_observable_date(frame: pd.DataFrame) -> str` ->extracts a non-future observable signal date from dated artifact columns.
+  - `enrich_target_dates(output_dir: Path) -> dict[str, Any]` ->fills missing latest target `feature_date/as_of_date` from `scored_latest.csv`.
+  - `staged_latest_run(source: Path, output_dir: Path) -> dict[str, Any]` ->stages the small set of latest-run inputs needed for daily account refresh.
+  - `latest_report_dates(output_dir: Path) -> dict[str, Any]` ->summarizes refreshed broker-ledger/report dates and headline fields.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_after_close_account_refresh.py` ->runs the daily account refresh connector and writes its manifest.
+- symbols_changed:
+  - `replay(...) -> dict[str, Any]` in `tools/run_broker_ledger_replay.py` ->writes blocked metrics/report files when no equity curve can be produced, preserving diagnostics for missing price cache instead of crashing.
+  - `test_free_data_daily_workflow_updates_metrics_after_close() -> None` ->requires the daily workflow to include account-refresh artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/after_close_account_refresh/after_close_account_refresh_manifest.json` ->daily connector status, staged source, target-date enrichment, required/optional step status, and refreshed report dates.
+  - `outputs/after_close_account_refresh/` ->daily broker-ledger, account preview, safety, risk-control, operating snapshot, user report, and account evaluation outputs when price-cache coverage is sufficient.
+  - `outputs/full_rebuild_logs/after_close_account_refresh.log` ->daily connector log.
+- validation:
+  - `py -3 -m py_compile tools\run_after_close_account_refresh.py tools\run_broker_ledger_replay.py` ->passed.
+  - `py -3 tests\broker_ledger_correctness_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tools\run_after_close_account_refresh.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --price-cache cache_prices --output-dir _local_after_close_account_refresh_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7` ->wrote a failed manifest because this local checkout's `cache_prices` lacks the latest target tickers; this is expected to be supplied by `Free Data Daily Update` before the workflow step runs.
+- risks_or_notes:
+  - This connector affects future daily workflow runs only. Existing artifacts remain unchanged unless a manual backfill/rerun is launched.
+  - Scheduled workflows run from the default branch; this branch's automation changes will not affect production schedules until merged or cherry-picked to the scheduled branch.
+  - AutoLearning outputs remain proposal/report-only; this change does not auto-promote or trade.
+
 ## 2026-05-15
 
 ### 11:48 KST - p0-actionable-orders-and-cash-target-reporting

@@ -171,6 +171,22 @@ jobs:
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
           python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
+      - name: Refresh broker-ledger account reports from latest close
+        if: steps.market.outputs.ready == 'yes'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          mkdir -p outputs/full_rebuild_logs
+          python tools/run_after_close_account_refresh.py \
+            --latest-run "$LATEST" \
+            --price-cache cache_prices \
+            --output-dir outputs/after_close_account_refresh \
+            --fill-mode next_close \
+            --cost-bps 25 \
+            --max-fill-lag-days 7 \
+            2>&1 | tee outputs/full_rebuild_logs/after_close_account_refresh.log
+
       - name: Upload daily validation artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -182,8 +198,10 @@ jobs:
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
             outputs/ten_year_backtest_readiness/
+            outputs/after_close_account_refresh/
             outputs/full_rebuild_logs/free_data_*.log
             outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+            outputs/full_rebuild_logs/after_close_account_refresh.log
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
           retention-days: 90
@@ -212,3 +230,6 @@ jobs:
           rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+          if [ -d outputs/after_close_account_refresh ]; then
+            rclone copy outputs/after_close_account_refresh "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/after_close_account_refresh/"
+          fi

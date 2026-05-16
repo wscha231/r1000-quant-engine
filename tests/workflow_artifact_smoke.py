@@ -492,8 +492,11 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         "outputs/free_data_proxy_backtest/",
         "tools/run_free_data_engine_validation.py",
         "tools/check_10y_backtest_readiness.py",
+        "tools/run_after_close_account_refresh.py",
         "outputs/free_data_engine_validation/",
         "outputs/ten_year_backtest_readiness/",
+        "outputs/after_close_account_refresh/",
+        "after_close_account_refresh.log",
         "CAGR",
         "MaxDD",
     ]:
