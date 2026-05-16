@@ -54,7 +54,7 @@ def test_previous_broad_base_cache_is_reused_when_iwb_fails() -> None:
         try:
             _patch("load_historical_universe_membership", lambda cfg, paths: pd.DataFrame(), originals)
             _patch("read_ishares_holdings", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("IWB unavailable")), originals)
-            _patch("load_sec_company_tickers", lambda cfg, paths: pd.DataFrame({"ticker": [], "title": [], "cik10": []}), originals)
+            _patch("load_sec_company_tickers", lambda cfg, paths: pd.DataFrame({"ticker": ["TSM"], "title": ["TSMC"], "cik10": [1046179]}), originals)
             _patch("load_adr_universe_frame", lambda min_mcap_usd_b=8.0: _source_frame(["TSM"], "adr_whitelist"), originals)
             _patch("load_cycle_play_universe_frame", lambda **kwargs: _source_frame(["RKLB"], "cycle_play_whitelist"), originals)
             _patch("load_strategic_global_hardware_universe_frame", lambda cfg: _source_frame(["ASML"], "strategic_global_hardware"), originals)
@@ -94,7 +94,7 @@ def test_committed_latest_scored_snapshot_seeds_first_cloud_run() -> None:
         try:
             _patch("load_historical_universe_membership", lambda cfg, paths: pd.DataFrame(), originals)
             _patch("read_ishares_holdings", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("IWB unavailable")), originals)
-            _patch("load_sec_company_tickers", lambda cfg, paths: pd.DataFrame({"ticker": [], "title": [], "cik10": []}), originals)
+            _patch("load_sec_company_tickers", lambda cfg, paths: pd.DataFrame({"ticker": ["TSM"], "title": ["TSMC"], "cik10": [1046179]}), originals)
             _patch("load_adr_universe_frame", lambda min_mcap_usd_b=8.0: _source_frame(["TSM"], "adr_whitelist"), originals)
             _patch("load_cycle_play_universe_frame", lambda **kwargs: _source_frame(["RKLB"], "cycle_play_whitelist"), originals)
             _patch("load_strategic_global_hardware_universe_frame", lambda cfg: _source_frame(["ASML"], "strategic_global_hardware"), originals)

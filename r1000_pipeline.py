@@ -3521,6 +3521,7 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
     d = d[d["ticker"].map(is_valid_ticker)].copy()
     d["Name"] = d["Name"].fillna("").astype(str)
     d["sector"] = d["sector"].fillna("Unknown").astype(str)
+    d["cik10"] = normalize_cik_series(d["cik10"], index=d.index)
     d["universe_source"] = d["universe_source"].fillna("unknown").astype(str)
 
     def _first_nonempty(s: pd.Series, default: str = "") -> str:
@@ -3859,6 +3860,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cik10_x = uni["cik10_x"] if "cik10_x" in uni.columns else pd.Series(np.nan, index=uni.index)
         cik10_y = uni["cik10_y"] if "cik10_y" in uni.columns else pd.Series(np.nan, index=uni.index)
         uni["cik10"] = cik10_x.fillna(cik10_y)
+    uni["cik10"] = normalize_cik_series(uni["cik10"], index=uni.index)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
     if include_adr:
         log("Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.")

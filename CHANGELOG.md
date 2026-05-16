@@ -243,16 +243,17 @@ All entries must be written in English. Entries must be predictable and machine-
 ### 23:46 KST - resilient-full-rebuild-base-universe
 
 - scope:
-  - Close the remaining first-cloud-run gap from full rebuild `25963935253`: when live IWB/Wikipedia broad-universe sources fail and `feature_store/candidate_universe_latest.parquet` is absent, the pipeline now seeds only broad-base rows from the committed latest full-rebuild scored snapshot before adding normal overlays. The full rebuild workflow also skips heavy portfolio sidecars when core rebuild outputs are missing, making failure diagnostics shorter and less noisy.
+  - Close the remaining first-cloud-run gap from full rebuild `25963935253`: when live IWB/Wikipedia broad-universe sources fail and `feature_store/candidate_universe_latest.parquet` is absent, the pipeline now seeds only broad-base rows from the committed latest full-rebuild scored snapshot before adding normal overlays. The recovery path also normalizes mixed numeric/string CIK values before parquet writes. The full rebuild workflow skips heavy portfolio sidecars when core rebuild outputs are missing, making failure diagnostics shorter and less noisy.
 - files:
-  - `r1000_pipeline.py` ->adds a committed latest scored snapshot fallback for broad-base universe recovery after live source failures.
-  - `tests/candidate_universe_fallback_smoke.py` ->adds regression coverage for first cloud runs that have committed latest scored artifacts but no candidate-universe cache.
+  - `r1000_pipeline.py` ->adds a committed latest scored snapshot fallback for broad-base universe recovery after live source failures and normalizes candidate-universe CIK values before parquet writes.
+  - `tests/candidate_universe_fallback_smoke.py` ->adds regression coverage for first cloud runs that have committed latest scored artifacts but no candidate-universe cache, including mixed numeric/string CIK inputs.
   - `.github/workflows/full_rebuild_manual.yml` ->restores the repo-local `feature_store/` cache and skips portfolio replay/goal-search sidecars when core full-rebuild outputs are missing.
   - `CHANGELOG.md` ->records the failed-run diagnosis and recovery patch.
 - symbols_added:
   - `_committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame` ->loads broad-base rows from committed latest scored artifacts without treating overlay-only rows as base membership.
   - `test_committed_latest_scored_snapshot_seeds_first_cloud_run() -> None` ->verifies committed latest scored artifacts can seed a first cloud run when live broad sources fail.
 - symbols_changed:
+  - `_combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame` ->normalizes `cik10` values before deduplicating candidate sources so recovered broad-base rows do not create mixed parquet types.
   - `build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame` ->tries committed latest scored broad-base recovery after previous-cache recovery and before the overlay-only hard failure.
 - config_fields_added:
   - none
