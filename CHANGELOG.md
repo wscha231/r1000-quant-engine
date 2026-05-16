@@ -240,6 +240,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - This patch reuses only previous broad-base rows when live broad sources fail; it does not reuse prior overlay-only rows as base membership.
   - A true first cloud run with no historical membership, no IWB/Wikipedia source, and no previous candidate cache still fails early by design because an overlay-only training universe is not valid evidence.
 
+### 23:46 KST - resilient-full-rebuild-base-universe
+
+- scope:
+  - Close the remaining first-cloud-run gap from full rebuild `25963935253`: when live IWB/Wikipedia broad-universe sources fail and `feature_store/candidate_universe_latest.parquet` is absent, the pipeline now seeds only broad-base rows from the committed latest full-rebuild scored snapshot before adding normal overlays. The full rebuild workflow also skips heavy portfolio sidecars when core rebuild outputs are missing, making failure diagnostics shorter and less noisy.
+- files:
+  - `r1000_pipeline.py` ->adds a committed latest scored snapshot fallback for broad-base universe recovery after live source failures.
+  - `tests/candidate_universe_fallback_smoke.py` ->adds regression coverage for first cloud runs that have committed latest scored artifacts but no candidate-universe cache.
+  - `.github/workflows/full_rebuild_manual.yml` ->restores the repo-local `feature_store/` cache and skips portfolio replay/goal-search sidecars when core full-rebuild outputs are missing.
+  - `CHANGELOG.md` ->records the failed-run diagnosis and recovery patch.
+- symbols_added:
+  - `_committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame` ->loads broad-base rows from committed latest scored artifacts without treating overlay-only rows as base membership.
+  - `test_committed_latest_scored_snapshot_seeds_first_cloud_run() -> None` ->verifies committed latest scored artifacts can seed a first cloud run when live broad sources fail.
+- symbols_changed:
+  - `build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame` ->tries committed latest scored broad-base recovery after previous-cache recovery and before the overlay-only hard failure.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/portfolio_system_guard/system_guard_report.md` ->writes a short skipped report when portfolio sidecars are skipped because core full-rebuild outputs are missing.
+  - `outputs/full_rebuild_logs/portfolio_sidecars_skipped.log` ->records the missing-core-output sidecar skip reason.
+- automation_impact:
+  - `full_rebuild_manual.yml` now restores `feature_store/` cache entries and short-circuits heavy portfolio sidecars after a core rebuild failure. No schedule, Drive path, production default, or promotion rule changes.
+- validation:
+  - `python -m py_compile r1000_pipeline.py tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python tests\smoke_test.py --quick` ->passed.
+- risks_or_notes:
+  - The committed scored fallback is deliberately limited to rows with broad-base `universe_source` evidence, so ADR/cycle/hardware/thematic overlays still come only from their normal sources.
+  - If both committed latest scored artifacts and live broad sources are unavailable, the pipeline still fails early rather than training on an overlay-only universe.
+
 ## 2026-05-15
 
 ### 11:48 KST - p0-actionable-orders-and-cash-target-reporting

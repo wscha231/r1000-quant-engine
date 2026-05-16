@@ -3596,6 +3596,42 @@ def _previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame:
     return _combine_candidate_universe_sources(d[columns].copy())
 
 
+def _committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame:
+    """Seed the broad base from committed latest artifacts when live sources fail.
+
+    This is narrower than reusing a full scored snapshot: only rows whose
+    `universe_source` already marks broad base membership are eligible. Overlay
+    rows remain overlays and are re-added by the normal YAML loaders below.
+    """
+    columns = ["ticker", "Name", "sector", "cik10", "universe_source"]
+    base = paths.get("base", Path("."))
+    mode_candidates = [universe_mode, "global_alpha_universe", "r1000+adr"]
+    seen: set[str] = set()
+    for mode in mode_candidates:
+        if not mode or mode in seen:
+            continue
+        seen.add(mode)
+        scored_path = base / "cloud_results" / "full_rebuild" / f"latest_{mode}" / "scored_latest.csv"
+        if not scored_path.exists():
+            continue
+        try:
+            header = pd.read_csv(scored_path, nrows=0)
+            usecols = [c for c in columns if c in header.columns]
+            if "ticker" not in usecols:
+                continue
+            d = pd.read_csv(scored_path, usecols=usecols)
+            fallback = _previous_broad_base_universe(d)
+            if not fallback.empty:
+                log(
+                    "Recovered broad base universe from committed latest scored snapshot after live source failure: "
+                    f"source={scored_path.relative_to(base)}, previous_base={len(fallback)}, mode={universe_mode}"
+                )
+                return fallback
+        except Exception as e:
+            log(f"[WARN] failed to read committed latest broad-base fallback {scored_path}: {e}")
+    return pd.DataFrame(columns=columns)
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3792,6 +3828,8 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
 
     if not adr_only and not bool(_broad_base_universe_mask(uni).any()):
         fallback_base = _previous_broad_base_universe(prev)
+        if fallback_base.empty:
+            fallback_base = _committed_latest_broad_base_universe(paths, universe_mode)
         if not fallback_base.empty:
             before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
             base_add = fallback_base[~fallback_base["ticker"].astype(str).isin(before)].copy()

@@ -144,6 +144,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            feature_store
             outputs/feature_store_*.parquet
             outputs/scored_*.csv
             outputs/walk_forward
@@ -305,6 +306,24 @@ jobs:
         run: |
           set -e
           set -o pipefail
+          CORE_READY="yes"
+          for required in outputs/scored_latest.csv outputs/backtest_metrics.json outputs/portfolio_latest.csv; do
+            if [ ! -s "$required" ]; then
+              CORE_READY="no"
+              echo "[sidecar] missing core output: $required"
+            fi
+          done
+          if [ "$CORE_READY" != "yes" ]; then
+            mkdir -p outputs/portfolio_system_guard
+            {
+              echo "# Portfolio System Guard"
+              echo
+              echo "Skipped because the core full rebuild did not produce scored_latest.csv, backtest_metrics.json, and portfolio_latest.csv."
+            } > outputs/portfolio_system_guard/system_guard_report.md
+            echo '{"status":"skipped","reason":"missing_core_full_rebuild_outputs"}' > outputs/portfolio_system_guard/error_check.json
+            echo "[sidecar] skipping portfolio replay/goal-search sidecars because core full rebuild outputs are missing" | tee outputs/full_rebuild_logs/portfolio_sidecars_skipped.log
+            exit 0
+          fi
           python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
           python tools/run_main_v3_alpha_concentration.py --latest-run outputs --output-dir outputs/main_v3_alpha_concentration --single-name-cap 0.33 --cash-floor 0.00 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration.log || true
           python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
