@@ -53,10 +53,9 @@ from pathlib import Path
 import pickle
 from typing import Any, Dict, Iterable, Mapping, Optional
 
-try:
-    from catboost import CatBoostClassifier, CatBoostRanker, CatBoostRegressor, Pool
-except Exception:  # catboost not strictly required at import time
-    CatBoostClassifier = CatBoostRanker = CatBoostRegressor = Pool = None  # type: ignore
+# CatBoost is imported lazily by resolve_optional_catboost(). Importing it at
+# module load can hang local CPU-only validation on CUDA-probing builds.
+CatBoostClassifier = CatBoostRanker = CatBoostRegressor = Pool = None  # type: ignore
 try:
     from sklearn.preprocessing import StandardScaler
 except Exception:
@@ -67,10 +66,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 from sklearn.linear_model import LogisticRegression, Ridge
-try:
-    import pandas_market_calendars as mcal
-except Exception:
-    mcal = None
+mcal = None
 
 # Refactor Phase A Stage 1a (2026-04-20): PHASE*_COLUMNS extracted to
 # r1000_config.py (pure-data whitelist constants). Other constants +
@@ -3560,6 +3556,46 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+_BROAD_BASE_UNIVERSE_SOURCE_TOKENS = (
+    "historical_membership_file",
+    "current_constituents_proxy",
+    "sp500_proxy",
+    "nasdaq100_proxy",
+)
+
+
+def _broad_base_universe_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows sourced from a broad investable base, not only overlay lists."""
+    if df is None:
+        return pd.Series(dtype=bool)
+    if df.empty or "universe_source" not in df.columns:
+        return pd.Series(False, index=df.index, dtype=bool)
+    source = df["universe_source"].fillna("").astype(str)
+    mask = pd.Series(False, index=df.index, dtype=bool)
+    for token in _BROAD_BASE_UNIVERSE_SOURCE_TOKENS:
+        mask |= source.str.contains(token, case=False, regex=False, na=False)
+    return mask
+
+
+def _previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame:
+    """Recover the prior R1000/base universe when a live source flakes out."""
+    columns = ["ticker", "Name", "sector", "cik10", "universe_source"]
+    if prev is None or prev.empty:
+        return pd.DataFrame(columns=columns)
+    d = prev.copy()
+    if "ticker" not in d.columns:
+        return pd.DataFrame(columns=columns)
+    for col, default in (("Name", ""), ("sector", "Unknown"), ("cik10", np.nan), ("universe_source", "")):
+        if col not in d.columns:
+            d[col] = default
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    d = d[_broad_base_universe_mask(d)].copy()
+    if d.empty:
+        return pd.DataFrame(columns=columns)
+    return _combine_candidate_universe_sources(d[columns].copy())
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3752,6 +3788,24 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             log(
                 "Thematic ETF overlay: "
                 f"mode={universe_mode}, candidates={len(etf_overlay)}, added={len(etf_add)}"
+            )
+
+    if not adr_only and not bool(_broad_base_universe_mask(uni).any()):
+        fallback_base = _previous_broad_base_universe(prev)
+        if not fallback_base.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            base_add = fallback_base[~fallback_base["ticker"].astype(str).isin(before)].copy()
+            if not base_add.empty:
+                uni = pd.concat([base_add, uni], ignore_index=True, sort=False)
+            log(
+                "Recovered broad base universe from previous candidate cache after live source failure: "
+                f"previous_base={len(fallback_base)}, added={len(base_add)}, mode={universe_mode}"
+            )
+        elif universe_mode in {"global_alpha_universe", "r1000+adr", "r1000+cycle", "historical_snapshot_preferred", "r1000"}:
+            raise RuntimeError(
+                "Broad base universe unavailable: live holdings/member sources failed and "
+                "candidate_universe_latest.parquet has no previous R1000/base rows. "
+                "Refusing to continue with overlay-only universe."
             )
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
@@ -5833,7 +5887,13 @@ def ensure_industry_metadata(
 
 
 def get_nyse_days(start_date: str, end_date: str) -> pd.DatetimeIndex:
-    if mcal is not None:
+    global mcal
+    if mcal is None:
+        try:
+            mcal = importlib.import_module("pandas_market_calendars")
+        except Exception:
+            mcal = False
+    if mcal:
         cal = mcal.get_calendar("NYSE")
         sch = cal.schedule(start_date=start_date, end_date=end_date)
         return pd.DatetimeIndex(pd.to_datetime(sch.index).tz_localize(None))

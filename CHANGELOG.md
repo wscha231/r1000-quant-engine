@@ -206,6 +206,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - This affects scheduled automation only after the branch is merged or cherry-picked to the default scheduled branch.
   - Merged diagnostics are `continue-on-error` and proposal/report-only; they must not auto-promote production weights.
 
+### 23:03 KST - recover-base-universe-after-source-flake
+
+- scope:
+  - Fix full rebuild `25953216813` failure where the collector built a full `global_alpha_universe`, but the subsequent pipeline rebuild lost the broad R1000/base source after IWB/Wikipedia source fetches failed and continued with an overlay-only ADR/cycle/hardware universe. That left walk-forward training with zero usable OOS rows and produced empty latest recommendation files.
+- files:
+  - `r1000_pipeline.py` ->adds broad-base universe detection and previous-cache recovery before overlay-only universes can reach feature/training stages; also makes optional `pandas_market_calendars` import lazy so local smoke validation cannot hang at module import.
+  - `tests/candidate_universe_fallback_smoke.py` ->adds regression coverage for prior broad-base cache recovery and first-run overlay-only hard failure.
+  - `tools/run_pr_validation.py` ->adds the new candidate-universe fallback smoke test to Tier-0/Tier-1 validation.
+  - `CHANGELOG.md` ->records the failed-run diagnosis and recovery patch.
+- symbols_added:
+  - `_BROAD_BASE_UNIVERSE_SOURCE_TOKENS` ->lists source labels that count as broad investable base membership.
+  - `_broad_base_universe_mask(df: pd.DataFrame) -> pd.Series` ->detects base-universe rows separately from ADR/cycle/hardware/thematic overlays.
+  - `_previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame` ->extracts reusable broad-base rows from `candidate_universe_latest.parquet`.
+  - `test_previous_broad_base_cache_is_reused_when_iwb_fails() -> None` ->verifies global-alpha runs recover the previous R1000/base cache when live broad sources fail.
+  - `test_overlay_only_first_run_fails_with_clear_error() -> None` ->verifies first-run overlay-only global-alpha builds fail clearly instead of producing zero OOS rows later.
+- symbols_changed:
+  - `build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame` ->recovers previous broad-base rows when current live base sources fail, and hard-fails early if no base universe is available.
+  - `get_nyse_days(start_date: str, end_date: str) -> pd.DatetimeIndex` ->imports `pandas_market_calendars` lazily with business-day fallback.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - Full rebuild and replay sidecars should stop publishing empty recommendation/operating target books after transient broad-universe source failures. No schedule, Drive path, or promotion rule changes.
+- validation:
+  - `python -m py_compile r1000_pipeline.py tools\run_pr_validation.py tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python - <<import r1000_pipeline smoke>>` ->passed and confirmed module import no longer hangs on optional market-calendar import.
+- risks_or_notes:
+  - This patch reuses only previous broad-base rows when live broad sources fail; it does not reuse prior overlay-only rows as base membership.
+  - A true first cloud run with no historical membership, no IWB/Wikipedia source, and no previous candidate cache still fails early by design because an overlay-only training universe is not valid evidence.
+
 ## 2026-05-15
 
 ### 11:48 KST - p0-actionable-orders-and-cash-target-reporting
