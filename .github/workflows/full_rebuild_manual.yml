@@ -771,11 +771,17 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation cash_policy_reconciliation live_trading_safety account_ledger_preview user_portfolio_reports broker_replay alpha_selector_market_circuit_grid full_rebuild_logs target_snapshots data_readiness main_v2_backtest main_v3_alpha_concentration main_v3_alpha_concentration_broker_replay concentrated_policy_replay concentrated_v2_challenger concentrated_v2_challenger_broker_replay concentrated_broker_grid alpha_selector_broker_grid alpha_selector_leader_circuit_grid alpha_selector_dynamic_regime_grid alpha_selector_shadow_drawdown_grid concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_market_circuit_replay broker_market_circuit_grid event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay broker_replacement_swap_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal live_trading_risk_controls monster_recommendations operating_snapshot portfolio_system_guard governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit selection_quality ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation cash_policy_reconciliation live_trading_safety account_ledger_preview user_portfolio_reports broker_replay target_snapshots data_readiness reports selection_quality weekly_evaluation theme_leadership_tape theme_concentration_challenger; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
               echo "[gdrive-sync] skip missing: outputs/$d"
+            fi
+          done
+          for p in outputs/alpha_selector_market_circuit_grid/*/best_metrics.json outputs/alpha_selector_market_circuit_grid/*/summary.csv outputs/alpha_selector_market_circuit_grid/*/report.md; do
+            if [ -e "$p" ]; then
+              rel="${p#outputs/}"
+              rclone copy "$p" "$DEST/$(dirname "$rel")/"
             fi
           done
 
