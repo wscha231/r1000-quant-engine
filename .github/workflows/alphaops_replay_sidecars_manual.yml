@@ -176,6 +176,7 @@ jobs:
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log
           python tools/run_concentrated_proxy_to_broker_reconciliation.py --latest-run outputs --output-dir outputs/concentrated_proxy_to_broker_reconciliation 2>&1 | tee outputs/full_rebuild_logs/concentrated_proxy_to_broker_reconciliation.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
           echo "[replay] focused alpha-selector loop complete; skipping broad operational sidecars in this branch workflow."
           exit 0
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
