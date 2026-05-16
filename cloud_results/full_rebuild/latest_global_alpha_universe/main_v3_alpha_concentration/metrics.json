@@ -1,0 +1,23 @@
+{
+  "avg_cash_weight": 0.09743758352726788,
+  "avg_position_count": 8.44578313253012,
+  "avg_turnover_monthly": 0.6104690716430746,
+  "broker_ledger_required_for_official_verdict": true,
+  "cagr": 0.15921411320541878,
+  "calmar": 0.5714755581196705,
+  "candidate_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "candidate_id": "main_v3_alpha_concentration",
+  "cash_floor": 0.0,
+  "data_mode": "historical_candidate_replay_book",
+  "ending_equity": 2.778424807422724,
+  "experiment_id": "main_v3_alpha_concentration",
+  "max_dd": -0.2786017896010845,
+  "months": 83,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "return_column": "period_forward_return",
+  "sharpe": 0.8105123080936678,
+  "single_name_cap": 0.33,
+  "status": "completed",
+  "vol_ann": 0.21027626919218237
+}
