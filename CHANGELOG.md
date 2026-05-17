@@ -54,6 +54,53 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-18
+
+### 00:42 KST - sec-form4-shadow-evidence-layer
+
+- scope:
+  - Add the first multi-agent recovery slice: operating-plan documents, SEC Form 4 filing-event shadow evidence, and PIT/CIK governance smokes without changing production scoring or target books.
+- files:
+  - `tools/run_sec_submissions_collector.py` ->collects SEC submissions filing index rows with accepted_at and available_from metadata.
+  - `tools/run_sec_form4_parser.py` ->parses Form 4 XML non-derivative transactions into normalized PIT transaction rows.
+  - `tools/run_sec_ownership_signals.py` ->builds research-only Form 4 ownership evidence scores and reports.
+  - `tests/sec_cik_schema_smoke.py` ->checks 10-character CIK string normalization.
+  - `tests/sec_form4_parser_smoke.py` ->checks Form 4 parser and shadow signal PIT filtering.
+  - `tests/sec_pit_available_from_smoke.py` ->checks SEC event available_from <= rebalance_date enforcement.
+  - `tools/run_pr_validation.py` ->adds the new SEC governance smokes to Tier-0/Tier-1 validation.
+  - `research/multi_agent_operating_plan_20260516/roadmap.md` ->records the staged multi-agent execution order and parallelism rules.
+  - `research/multi_agent_operating_plan_20260516/baseline_registry.md` ->locks portfolio-specific official baselines and the latest regression label.
+  - `research/multi_agent_operating_plan_20260516/agent_contracts.md` ->defines agent ownership boundaries and SEC evidence contracts.
+  - `research/multi_agent_operating_plan_20260516/promotion_gate.md` ->defines official promotion gates and automatic rejection rules.
+- symbols_added:
+  - `collect_filings_index(...) -> pd.DataFrame` ->collects filtered SEC submission index rows for a ticker universe.
+  - `filings_from_submissions(...) -> pd.DataFrame` ->normalizes SEC submissions recent filings metadata.
+  - `parse_form4_xml(xml_text: str, accession_number: str = "", filing: dict[str, Any] | None = None) -> list[dict[str, Any]]` ->extracts normalized Form 4 non-derivative transactions.
+  - `parse_form4_index(...) -> pd.DataFrame` ->downloads/caches and parses indexed Form 4 filings.
+  - `build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 90) -> pd.DataFrame` ->creates research-only Form 4 ownership evidence scores.
+  - `sec_available_from_violations(events: pd.DataFrame, *, rebalance_col: str = "rebalance_date", available_from_col: str = "available_from", source_col: str = "feature_source", sec_source_value: str = "sec") -> pd.DataFrame` ->finds SEC event lookahead rows in synthetic PIT checks.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds SEC CIK, Form 4, and PIT availability smoke tests to PR validation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/sec_filings_index.parquet` ->SEC filing index output from the submissions collector.
+  - `data_pit/sec/form4_transactions.parquet` ->normalized Form 4 transaction output.
+  - `outputs/sec_ownership_signals/form4_latest.csv` ->research-only Form 4 shadow evidence.
+  - `outputs/sec_ownership_signals/ownership_signal_summary.json` ->machine-readable research-only summary.
+  - `outputs/sec_ownership_signals/report.md` ->human-readable Form 4 evidence report.
+- automation_impact:
+  - PR validation now runs three additional SEC governance smoke tests; no schedule, GDrive path, production scoring, or target-book automation changes.
+- validation:
+  - `python -m py_compile tools\run_sec_submissions_collector.py tools\run_sec_form4_parser.py tools\run_sec_ownership_signals.py tests\sec_cik_schema_smoke.py tests\sec_form4_parser_smoke.py tests\sec_pit_available_from_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_cik_schema_smoke --only sec_form4_parser_smoke --only sec_pit_available_from_smoke` passed.
+  - `python tools\run_pr_validation.py` passed, 45/45 tests.
+- risks_or_notes:
+  - Form 4 evidence is shadow-only and must not be added to `score_total` until broker-ledger validation supports promotion.
+  - SEC `User-Agent` should be set with a real contact before live collection.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution
