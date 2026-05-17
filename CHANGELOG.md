@@ -98,6 +98,47 @@ All entries must be written in English. Entries must be predictable and machine-
   - Form 4 evidence is shadow-only and must not be added to `score_total` until broker-ledger validation supports promotion.
   - SEC `User-Agent` should be set with a real contact before live collection.
 
+### 01:37 KST - sec-form4-candidate-enrichment
+
+- scope:
+  - Connect Form 4 shadow evidence to the research-only candidate replay loop so alpha-selector broker-ledger challengers can test SEC evidence without changing production scores or target books.
+- files:
+  - `tools/run_sec_enriched_candidate_replay.py` ->adds a research-only sidecar that merges Form 4 shadow scores into `candidate_replay_book.csv` by `available_from` and writes an enriched candidate book.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `sec_evidence_shadow` style and carries SEC evidence columns into generated target books.
+  - `tools/run_selection_quality_report.py` ->adds SEC evidence shadow factors to report-only factor diagnostics.
+  - `tests/sec_candidate_enrichment_smoke.py` ->checks PIT-safe Form 4 candidate enrichment, no `score_total` mutation, and research-only metadata.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->checks the SEC evidence selector style remains broker-ledger compatible and does not select unfillable/leakage rows.
+  - `tools/run_pr_validation.py` ->adds the SEC candidate enrichment smoke to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `enrich_candidate_book(candidates: pd.DataFrame, form4: pd.DataFrame, *, lookback_days: int = 90) -> pd.DataFrame` ->adds SEC shadow evidence to candidate rows without changing `score_total`.
+  - `build_form4_features_by_date(form4: pd.DataFrame, dates: list[pd.Timestamp], *, lookback_days: int) -> pd.DataFrame` ->builds date-specific PIT Form 4 evidence using `available_from`.
+  - `add_leader_onset_sec_v2(frame: pd.DataFrame) -> pd.DataFrame` ->creates a research-only SEC-enhanced leader onset score.
+  - `summary_payload(enriched: pd.DataFrame, candidate_path: Path, form4_path: Path, output_path: Path) -> dict[str, Any]` ->summarizes SEC enrichment coverage and output paths.
+- symbols_changed:
+  - `STYLE_WEIGHTS` ->adds `sec_evidence_shadow` as an explicit alpha-selector style.
+  - `build_target_book(...)` ->carries SEC evidence columns into research target books when present.
+  - `FACTOR_COLUMNS` ->adds SEC shadow factors to selection-quality diagnostics.
+  - `DEFAULT_TESTS` ->adds `tests/sec_candidate_enrichment_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` ->candidate replay book with Form 4 shadow evidence columns.
+  - `outputs/sec_enriched_candidate_replay/summary.json` ->research-only enrichment coverage summary.
+  - `outputs/sec_enriched_candidate_replay/report.md` ->human-readable SEC enrichment report.
+- automation_impact:
+  - PR validation runs one additional SEC enrichment smoke test; no schedules, GDrive paths, production scoring, or default target-book automation changes.
+- validation:
+  - `python -m py_compile tools\run_sec_enriched_candidate_replay.py tests\sec_candidate_enrichment_smoke.py tools\run_alpha_selector_broker_grid.py tools\run_selection_quality_report.py tests\alpha_selector_broker_grid_smoke.py` passed.
+  - `python tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tests\alpha_selector_broker_grid_smoke.py` passed.
+  - `python tests\selection_quality_report_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_candidate_enrichment_smoke --only alpha_selector_broker_grid_smoke --only selection_quality_report_smoke` passed.
+- risks_or_notes:
+  - SEC-enriched candidate books are research-only inputs; they must be replayed through broker-ledger before any strategy claim.
+  - The sidecar intentionally preserves `period_forward_return` for diagnostics but never uses it to compute SEC evidence or selector scores.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution
