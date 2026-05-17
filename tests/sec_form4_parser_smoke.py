@@ -10,7 +10,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_form4_parser import parse_form4_xml  # noqa: E402
+from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_xml, raw_form4_primary_document  # noqa: E402
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
 
 
@@ -93,7 +93,22 @@ def test_form4_signal_is_shadow_only_and_uses_available_from_filter() -> None:
     assert "score_total" not in after.columns
 
 
+def test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name() -> None:
+    primary_doc = "xslF345X06/form4-05152026_080501.xml"
+    assert raw_form4_primary_document(primary_doc) == "form4-05152026_080501.xml"
+    assert "/" not in cache_name("0001778564-26-000049", primary_doc)
+    urls = form4_url_candidates(
+        "0001535527",
+        "0001778564-26-000049",
+        primary_doc,
+        "https://www.sec.gov/Archives/edgar/data/1535527/000177856426000049/xslF345X06/form4-05152026_080501.xml",
+    )
+    assert urls[0].endswith("/000177856426000049/form4-05152026_080501.xml")
+    assert "/xslF345X06/" not in urls[0]
+
+
 if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
+    test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
     print("sec_form4_parser_smoke passed")
