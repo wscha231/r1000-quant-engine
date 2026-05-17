@@ -54,6 +54,43 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-18
+
+### 01:19 KST - manual-chatgpt-pro-bridge
+
+- scope:
+  - Add a no-API manual ChatGPT Pro bridge so agents can generate copy/paste review packets and response templates for external advisory review.
+- files:
+  - `tools/run_chatgpt_pro_bridge.py` ->generates `[PRO_QUESTION]` packets and `[PRO_RESPONSE]` templates for A0/A2/A3/A4/A5/A7/A10 without network or API calls.
+  - `tests/chatgpt_pro_bridge_smoke.py` ->checks packet generation, response templates, all-agent output, baseline text, and no-API manifest metadata.
+  - `docs/MANUAL_CHATGPT_PRO_BRIDGE.md` ->documents the operator workflow for manually using ChatGPT Pro and returning full responses to Codex.
+  - `tools/run_pr_validation.py` ->adds the manual bridge smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `render_question_packet(...) -> str` ->renders a paste-ready ChatGPT Pro question packet with locked baselines and local run summaries.
+  - `render_response_template(agent_key: str) -> str` ->renders the paste-back template for manual Pro responses.
+  - `latest_run_summary(latest_run: Path) -> str` ->summarizes available official broker/account metrics and sidecar summaries.
+  - `extra_inputs(paths: list[str], *, max_lines: int) -> str` ->embeds truncated operator-selected input files in the question packet.
+  - `write_packet(output_dir: Path, agent_key: str, question: str, response: str) -> dict[str, str]` ->writes generated bridge artifacts and returns their paths.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/chatgpt_pro_bridge_smoke.py` to PR validation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/chatgpt_pro_bridge/pro_question_<agent>.md` ->copy/paste prompt for ChatGPT Pro.
+  - `outputs/chatgpt_pro_bridge/pro_response_template_<agent>.md` ->template for returning the full Pro response to Codex.
+  - `outputs/chatgpt_pro_bridge/manifest.json` ->generated file manifest with `api_used=false`.
+- automation_impact:
+  - PR validation runs one additional smoke test; no schedules, GDrive paths, production scoring, target books, or API billing are changed.
+- validation:
+  - `python -m py_compile tools\run_chatgpt_pro_bridge.py tests\chatgpt_pro_bridge_smoke.py` passed.
+  - `python tests\chatgpt_pro_bridge_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only chatgpt_pro_bridge_smoke` passed.
+- risks_or_notes:
+  - ChatGPT Pro output remains advisory and must be verified against repo artifacts before implementation.
+  - The bridge intentionally does not call the OpenAI API.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution
