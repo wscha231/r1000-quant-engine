@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -173,6 +174,45 @@ def sec_get_text(url: str, *, user_agent: str | None = None, sleep_s: float = 0.
     return response.text
 
 
+def raw_form4_primary_document(primary_doc: str) -> str:
+    """Return the raw XML document name from SEC's XSL-rendered path.
+
+    SEC submissions often report Form 4 primary documents as
+    ``xslF345X06/doc.xml``. That URL returns an HTML-rendered page. The raw XML
+    sits next to the accession directory as ``doc.xml``.
+    """
+    text = str(primary_doc or "").strip().replace("\\", "/")
+    if "/" in text and text.lower().startswith("xslf345"):
+        return text.rsplit("/", 1)[-1]
+    return text
+
+
+def cache_name(accession: str, primary_doc: str) -> str:
+    raw_doc = raw_form4_primary_document(primary_doc)
+    safe_doc = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_doc).strip("_") or "form4.xml"
+    return f"{accession.replace('-', '')}_{safe_doc}"
+
+
+def form4_url_candidates(cik: str, accession: str, primary_doc: str, filing_url: str = "") -> list[str]:
+    raw_doc = raw_form4_primary_document(primary_doc)
+    candidates: list[str] = []
+    if raw_doc and raw_doc != str(primary_doc or "").strip():
+        candidates.append(filing_archive_url(cik, accession, raw_doc))
+    if filing_url:
+        candidates.append(str(filing_url))
+    if primary_doc:
+        candidates.append(filing_archive_url(cik, accession, str(primary_doc)))
+    if raw_doc:
+        candidates.append(filing_archive_url(cik, accession, raw_doc))
+    out: list[str] = []
+    seen: set[str] = set()
+    for url in candidates:
+        if url and url not in seen:
+            out.append(url)
+            seen.add(url)
+    return out
+
+
 def cache_form4_document(
     filing: dict[str, Any],
     raw_dir: Path,
@@ -188,10 +228,21 @@ def cache_form4_document(
         return None, ""
     out_dir = raw_dir / "filings" / "form4"
     out_dir.mkdir(parents=True, exist_ok=True)
-    cache = out_dir / f"{accession.replace('-', '')}_{primary_doc}"
+    cache = out_dir / cache_name(accession, primary_doc)
     if refresh or not cache.exists():
-        url = str(filing.get("filing_url") or "") or filing_archive_url(cik, accession, primary_doc)
-        text = sec_get_text(url, user_agent=user_agent, sleep_s=sleep_s)
+        errors: list[str] = []
+        text = ""
+        for url in form4_url_candidates(cik, accession, primary_doc, str(filing.get("filing_url") or "")):
+            try:
+                candidate = sec_get_text(url, user_agent=user_agent, sleep_s=sleep_s)
+                if "<ownershipDocument" in candidate or "<?xml" in candidate[:200]:
+                    text = candidate
+                    break
+                errors.append(f"{url}: non-xml response")
+            except Exception as exc:
+                errors.append(f"{url}: {exc}")
+        if not text:
+            raise RuntimeError("; ".join(errors)[:500] or "no Form 4 document URL candidates")
         cache.write_text(text, encoding="utf-8")
     return cache, cache.read_text(encoding="utf-8")
 

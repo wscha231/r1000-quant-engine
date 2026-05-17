@@ -56,6 +56,38 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-18
 
+### 09:05 KST - sec-form4-live-xsl-parser-fix
+
+- scope:
+  - Fix live SEC Form 4 parsing for submissions rows whose primary document uses SEC's `xslF345X06/` rendered path.
+- files:
+  - `tools/run_sec_form4_parser.py` ->normalizes XSL-rendered Form 4 document paths to raw XML URLs and writes sanitized cache filenames.
+  - `tests/sec_form4_parser_smoke.py` ->checks raw XML URL preference and slash-free cache naming for XSL Form 4 documents.
+- symbols_added:
+  - `raw_form4_primary_document(primary_doc: str) -> str` ->returns the raw XML filename when SEC submissions report an XSL-rendered Form 4 path.
+  - `cache_name(accession: str, primary_doc: str) -> str` ->builds a filesystem-safe Form 4 cache filename.
+  - `form4_url_candidates(cik: str, accession: str, primary_doc: str, filing_url: str = "") -> list[str]` ->orders raw XML URL candidates before rendered HTML URLs.
+- symbols_changed:
+  - `cache_form4_document(...)` ->tries raw XML Form 4 URLs first, rejects non-XML rendered responses, and caches with a sanitized filename.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/form4_transactions.parquet` ->live local output can now be built from XSL-style submissions rows.
+  - `outputs/sec_ownership_signals/ownership_signal_summary.json` ->live local Form 4 signal summary generated after the parser fix.
+- automation_impact:
+  - SEC Form 4 collector/parser automation no longer stalls on `xslF345X06/` rendered primary documents; no schedule, GDrive path, or production scoring changes.
+- validation:
+  - `python -m py_compile tools\run_sec_form4_parser.py tests\sec_form4_parser_smoke.py` passed.
+  - `python tests\sec_form4_parser_smoke.py` passed.
+  - `python tools\run_sec_submissions_collector.py --tickers <80 seed tickers> --forms '4,4/A' --user-agent R1000QuantEngine research andrewcha231@gmail.com` passed, 38,199 index rows.
+  - `python tools\run_sec_form4_parser.py --filings-index data_pit\sec\sec_filings_index_recent_300.parquet --user-agent R1000QuantEngine research andrewcha231@gmail.com` passed, 765 transaction rows.
+  - `python tools\run_sec_ownership_signals.py --form4 data_pit\sec\form4_transactions.parquet --output-dir outputs\sec_ownership_signals --lookback-days 90` passed, 51 signal tickers.
+- risks_or_notes:
+  - The initial live Form 4 parse covered only the latest 300 filings from the 80-ticker seed universe; longer PIT history is still required before SEC evidence can affect historical CAGR/MDD replay.
+  - Current candidate replay book ends before the live May 2026 Form 4 window, so the first live SEC signals are current-operating evidence rather than historical replay evidence.
+
 ### 02:15 KST - agent-board-automation
 
 - scope:
