@@ -53,6 +53,46 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-18
 
+### 02:15 KST - agent-board-automation
+
+- scope:
+  - Add an artifact-only multi-agent board that compares official broker-ledger evidence to locked baselines, emits agent task queues, and writes manual ChatGPT Pro packets without changing production defaults.
+- files:
+  - `tools/run_agent_board.py` ->builds the research-only agent board, promotion gate review, agent task queue, report, and manual Pro review packets.
+  - `tests/agent_board_smoke.py` ->checks baseline regression blocking, proxy rejection, task creation, and Pro packet output.
+  - `.github/workflows/agent_board_manual.yml` ->runs the board manually or on a weekday schedule and uploads board artifacts.
+  - `tools/run_pr_validation.py` ->adds the Agent Board smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `load_portfolio_status(latest_run: Path, portfolio: str) -> dict[str, Any]` ->loads official account/broker metrics and compares them with locked portfolio baselines.
+  - `load_artifact_status(latest_run: Path) -> dict[str, Any]` ->summarizes SEC, selection, diagnostics, goal-search, and AutoLearning artifacts for agent routing.
+  - `build_task_queue(board: dict[str, Any]) -> list[dict[str, Any]]` ->creates ordered A0/A2/A3/A4/A5/A6/A7/A10 tasks from board status.
+  - `promotion_gate(board: dict[str, Any]) -> dict[str, Any]` ->blocks automatic production activation and lists official-metric blockers.
+  - `render_pro_packet(board: dict[str, Any], task_row: dict[str, Any]) -> str` ->writes copy/paste manual ChatGPT Pro review packets per agent task.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->writes Agent Board JSON, Markdown, manifest, and Pro packet artifacts.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/agent_board_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/agent_board/board_summary.json` ->official baseline comparison, artifact status, contracts, and promotion gate state.
+  - `outputs/agent_board/agent_task_queue.json` ->ordered specialist agent work queue.
+  - `outputs/agent_board/promotion_gate_review.json` ->machine-readable production promotion blockers.
+  - `outputs/agent_board/report.md` ->human-readable Agent Board summary.
+  - `outputs/agent_board/pro_packets/*.md` ->manual ChatGPT Pro question packets for selected agent tasks.
+- automation_impact:
+  - Adds `.github/workflows/agent_board_manual.yml` for manual and weekday scheduled artifact-only board generation; no production scoring, GDrive path, or default target-book activation changes.
+- validation:
+  - `python -m py_compile tools\run_agent_board.py tests\agent_board_smoke.py` passed.
+  - `python tests\agent_board_smoke.py` passed.
+  - `python tools\run_agent_board.py --latest-run outputs --output-dir outputs\agent_board --run-url https://github.com/wscha231/r1000-quant-engine/actions/runs/25965312414` passed.
+  - `python tools\run_pr_validation.py --only agent_board_smoke --only workflow_artifact_smoke` passed.
+  - `python tools\run_pr_validation.py` passed, 47/47 tests.
+- risks_or_notes:
+  - Agent Board commands are suggested research tasks; they still require the relevant sidecar workflows and official broker-ledger validation before promotion.
+  - The workflow can report missing official artifacts when a scheduled run has no committed/cloud latest result path.
+
 ### 00:42 KST - sec-form4-shadow-evidence-layer
 
 - scope:
