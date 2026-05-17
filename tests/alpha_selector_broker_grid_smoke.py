@@ -57,6 +57,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "h6_dynamic_leader_score": 0.75,
                         "rs_acceleration_score": 0.60,
                         "industry_group_strength_score": 0.50,
+                        "selection_market_confirmation_score": 0.80,
+                        "entry_quality_score": 0.70,
+                        "early_evidence_score": 0.90,
+                        "evidence_confidence_score": 0.80,
+                        "leader_onset_sec_v2_score": 0.95,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 100.0,
@@ -78,6 +83,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "h6_dynamic_leader_score": 0.10,
                         "rs_acceleration_score": 0.05,
                         "industry_group_strength_score": 0.05,
+                        "selection_market_confirmation_score": 0.20,
+                        "entry_quality_score": 0.20,
+                        "early_evidence_score": 0.00,
+                        "evidence_confidence_score": 0.00,
+                        "leader_onset_sec_v2_score": 0.10,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 50.0,
@@ -99,6 +109,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "h6_dynamic_leader_score": 0.0,
                         "rs_acceleration_score": 0.0,
                         "industry_group_strength_score": 0.0,
+                        "selection_market_confirmation_score": 0.0,
+                        "entry_quality_score": 0.0,
+                        "early_evidence_score": 0.0,
+                        "evidence_confidence_score": 0.0,
+                        "leader_onset_sec_v2_score": 0.0,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 10.0,
@@ -120,6 +135,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "h6_dynamic_leader_score": 1.0,
                         "rs_acceleration_score": 1.0,
                         "industry_group_strength_score": 1.0,
+                        "selection_market_confirmation_score": 1.0,
+                        "entry_quality_score": 1.0,
+                        "early_evidence_score": 1.0,
+                        "evidence_confidence_score": 1.0,
+                        "leader_onset_sec_v2_score": 1.0,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 20.0,
@@ -141,10 +161,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,leader_onset_shadow",
+                styles="future_heavy,leader_onset_shadow,sec_evidence_shadow",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=2,
+                max_variants=3,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -153,7 +173,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 2
+        assert len(summary) == 3
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -163,6 +183,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         onset_targets = pd.read_csv(next(out.glob("leader_onset_shadow_N1_cap*/target_book.csv")))
         assert set(onset_targets["ticker"]) == {"AAA"}
         assert "leader_onset_score" in onset_targets.columns
+        sec_targets = pd.read_csv(next(out.glob("sec_evidence_shadow_N1_cap*/target_book.csv")))
+        assert set(sec_targets["ticker"]) == {"AAA"}
+        assert "leader_onset_sec_v2_score" in sec_targets.columns
+        assert "early_evidence_score" in sec_targets.columns
         assert payload.get("require_price_cache") is True
 
 
