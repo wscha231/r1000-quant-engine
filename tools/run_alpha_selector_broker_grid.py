@@ -73,6 +73,15 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "h6_dynamic_leader_score": 0.06,
         "industry_group_strength_score": 0.03,
     },
+    "sec_evidence_shadow": {
+        "leader_onset_sec_v2_score": 0.35,
+        "portfolio_future_winner_engine_score": 0.20,
+        "selection_market_confirmation_score": 0.15,
+        "early_evidence_score": 0.15,
+        "rs_acceleration_score": 0.08,
+        "entry_quality_score": 0.04,
+        "industry_group_strength_score": 0.03,
+    },
 }
 RISK_COLUMNS = ("portfolio_risk_entry_block_score", "portfolio_stale_mega_leader_score")
 
@@ -325,6 +334,9 @@ def build_target_book(
                     "portfolio_sleeve_label": row.get("portfolio_sleeve_label", ""),
                     "portfolio_candidate_gate_label": row.get("portfolio_candidate_gate_label", ""),
                     "leader_onset_score": safe_float(row.get("leader_onset_score")),
+                    "leader_onset_sec_v2_score": safe_float(row.get("leader_onset_sec_v2_score")),
+                    "early_evidence_score": safe_float(row.get("early_evidence_score")),
+                    "evidence_confidence_score": safe_float(row.get("evidence_confidence_score")),
                     "alpha_selector_style": style,
                     "alpha_selector_score": safe_float(row.get("alpha_selector_score")),
                     "target_stock_names": int(target_n),
