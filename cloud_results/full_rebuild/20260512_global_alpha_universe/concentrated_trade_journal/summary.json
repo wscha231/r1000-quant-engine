@@ -1,0 +1,110 @@
+{
+  "champion": {
+    "max_dd": -0.1666546421642882,
+    "rebalance_interval_months": 1,
+    "sharpe": 1.7406704160388329,
+    "strategy_cagr": 0.4894016706042674,
+    "target_stock_names": 3,
+    "weighting_mode": "score_power"
+  },
+  "holding_rows": 249,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "monthly_rows": 83,
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_trade_journal",
+  "research_only": true,
+  "source": "concentrated_strategy_grid_champion",
+  "status": "completed",
+  "trade_digest": {
+    "by_regime": {
+      "balanced": {
+        "GOOD_EXIT": 20,
+        "LOSS": 2,
+        "NEUTRAL": 59,
+        "WIN": 29
+      },
+      "growth_reentry_alert": {
+        "GOOD_EXIT": 0,
+        "LOSS": 0,
+        "NEUTRAL": 10,
+        "WIN": 3
+      },
+      "risk_off_alert": {
+        "GOOD_EXIT": 3,
+        "LOSS": 0,
+        "NEUTRAL": 16,
+        "WIN": 4
+      },
+      "systemic_alert": {
+        "GOOD_EXIT": 1,
+        "LOSS": 0,
+        "NEUTRAL": 3,
+        "WIN": 0
+      }
+    },
+    "label_counts": {
+      "GOOD_EXIT": 24,
+      "LOSS": 2,
+      "NEUTRAL": 88,
+      "WIN": 36
+    },
+    "loss_rate": 0.013333333333333334,
+    "mean_realized": 0.06984840449081554,
+    "median_realized": 0.04257436089647826,
+    "n_trades": 150,
+    "top_losses": [
+      {
+        "grade_label": "LOSS",
+        "realized_return": -0.1304259405131325,
+        "ticker": "LRCX"
+      },
+      {
+        "grade_label": "LOSS",
+        "realized_return": -0.11100313217349866,
+        "ticker": "MA"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.08079120608419077,
+        "ticker": "TSCO"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.07999999999999996,
+        "ticker": "AVGO"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.07999999999999996,
+        "ticker": "AXON"
+      }
+    ],
+    "top_wins": [
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.7344420505960996,
+        "ticker": "LRCX"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.7264728606170967,
+        "ticker": "DKS"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.7207407407407407,
+        "ticker": "SMCI"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.5599828015896311,
+        "ticker": "DUOL"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.5566953553152281,
+        "ticker": "AVGO"
+      }
+    ],
+    "win_rate": 0.4
+  }
+}

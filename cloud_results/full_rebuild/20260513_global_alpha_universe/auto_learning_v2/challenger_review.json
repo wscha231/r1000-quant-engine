@@ -1,0 +1,16 @@
+{
+  "approved_for_production": false,
+  "approved_for_shadow": true,
+  "discovery_ready_count": 2,
+  "hard_blockers": [
+    "counterfactual:concentrated_neutral_25_v1:needs_full_challenger_backtest",
+    "human_approval_required"
+  ],
+  "missing_counterfactual_count": 1,
+  "production_ready_count": 0,
+  "status": "blocked",
+  "validation": {
+    "issues": [],
+    "valid": true
+  }
+}

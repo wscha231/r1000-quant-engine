@@ -1,0 +1,4 @@
+portfolio,cagr,cagr_target,cagr_gap_pp,cagr_pass,max_dd,max_dd_target,max_dd_improvement_needed_pp,max_dd_pass,target_pass
+main_proxy,0.3228245180529805,0.25,0.0,True,-0.13978976431215318,-0.2,0.0,True,True
+concentrated,0.46257028232939956,0.4,0.0,True,-0.15083761706560894,-0.22,0.0,True,True
+unified_balanced,0.2664699021316117,0.28,1.3530097868388324,False,-0.1057400892527246,-0.22,0.0,True,False

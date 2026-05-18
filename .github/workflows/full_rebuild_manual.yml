@@ -55,6 +55,18 @@ on:
         description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
         type: boolean
         default: false
+      mode_y_enabled:
+        description: 'Mode Y engine port: apply regime-conditioned capacity filter inline at operating-book build time so the headline broker_replay metrics reflect the filter (vs Mode X sidecar parallel measurement).'
+        type: boolean
+        default: false
+      mode_y_main_multipliers:
+        description: 'Mode Y Main portfolio multipliers (e.g. "bear=0.5,deep_bear=0.25"). Pass "" to disable Main filter while keeping Conc filter.'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25'
+      mode_y_concentrated_multipliers:
+        description: 'Mode Y Concentrated portfolio multipliers (e.g. "bear=0.5,deep_bear=0.25,neutral=0.85").'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25,neutral=0.85'
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -110,6 +122,55 @@ jobs:
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
 
+      - name: Restore SEC companyfacts from Google Drive data lake
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          set -euo pipefail
+          mkdir -p outputs data_raw/free/sec outputs/full_rebuild_logs
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[gdrive-restore] no Google Drive auth configured; companyfacts will use cache or download"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -qo /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if rclone lsf "${BASE}data_raw/free/sec" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive-restore] restoring ${BASE}data_raw/free/sec/companyfacts.zip -> outputs/companyfacts.zip"
+            rclone copyto "${BASE}data_raw/free/sec/companyfacts.zip" outputs/companyfacts.zip --drive-acknowledge-abuse
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+          elif rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive-restore] restoring legacy root companyfacts.zip -> outputs/companyfacts.zip"
+            rclone copyto "${BASE}companyfacts.zip" outputs/companyfacts.zip --drive-acknowledge-abuse
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+          else
+            echo "[gdrive-restore] no companyfacts.zip found in Drive data lake"
+          fi
+          rm -f /tmp/sa.json
+
       # Refresh SEC companyfacts.zip bulk archive if missing or older than 7d.
       # Without this, the pipeline silently falls back to per-CIK API calls
       # which respect companyfacts_refresh_days, but with --no-collector that
@@ -126,12 +187,15 @@ jobs:
             --base-dir "$(pwd)/outputs" \
             --max-age-days 7 \
             --required
+          mkdir -p data_raw/free/sec
+          cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
       - name: Restore engine cache
         uses: actions/cache@v4
         with:
           path: |
+            feature_store
             outputs/feature_store_*.parquet
             outputs/scored_*.csv
             outputs/walk_forward
@@ -286,23 +350,148 @@ jobs:
 
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
+        env:
+          MODE_Y_ENABLED: ${{ inputs.mode_y_enabled }}
+          MODE_Y_MAIN_MULTIPLIERS: ${{ inputs.mode_y_main_multipliers }}
+          MODE_Y_CONC_MULTIPLIERS: ${{ inputs.mode_y_concentrated_multipliers }}
         run: |
+          set -e
+          set -o pipefail
+          CORE_READY="yes"
+          for required in outputs/scored_latest.csv outputs/backtest_metrics.json outputs/portfolio_latest.csv; do
+            if [ ! -s "$required" ]; then
+              CORE_READY="no"
+              echo "[sidecar] missing core output: $required"
+            fi
+          done
+          if [ "$CORE_READY" != "yes" ]; then
+            mkdir -p outputs/portfolio_system_guard
+            {
+              echo "# Portfolio System Guard"
+              echo
+              echo "Skipped because the core full rebuild did not produce scored_latest.csv, backtest_metrics.json, and portfolio_latest.csv."
+            } > outputs/portfolio_system_guard/system_guard_report.md
+            echo '{"status":"skipped","reason":"missing_core_full_rebuild_outputs"}' > outputs/portfolio_system_guard/error_check.json
+            echo "[sidecar] skipping portfolio replay/goal-search sidecars because core full rebuild outputs are missing" | tee outputs/full_rebuild_logs/portfolio_sidecars_skipped.log
+            exit 0
+          fi
           python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
+          python tools/run_main_v3_alpha_concentration.py --latest-run outputs --output-dir outputs/main_v3_alpha_concentration --single-name-cap 0.33 --cash-floor 0.00 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration.log || true
           python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
+          python tools/run_concentrated_v2_challenger.py --latest-run outputs --output-dir outputs/concentrated_v2_challenger --target-n 7 --single-cap 0.25 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger.log || true
           python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
           python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
           python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
+          if [ "$MODE_Y_ENABLED" = "true" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "$MODE_Y_MAIN_MULTIPLIERS" --concentrated-multipliers "$MODE_Y_CONC_MULTIPLIERS" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          else
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          fi
+          python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
+          python tools/build_replay_price_cache.py --books outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv --candidate-books outputs/reports/candidate_replay_book.csv --candidate-max-per-date 20 --candidate-max-total 600 --extra-tickers QQQ SPY '^IXIC' '^GSPC' --max-scored 0 --output-dir cache_prices --batch-size 8 --refresh-stale-days -1 2>&1 | tee outputs/full_rebuild_logs/benchmark_price_cache_preflight.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
+          python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v3_alpha_concentration/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v3_alpha_concentration 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v3_alpha_concentration.log || true
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --tail-row-fill-fallback-same-close 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --tail-row-fill-fallback-same-close 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+          python tools/run_broker_market_circuit_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_market_circuit_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_replay_main.log || true
+          python tools/run_broker_market_circuit_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_market_circuit_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_replay_concentrated.log || true
+          python tools/run_broker_market_circuit_grid.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_market_circuit_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_grid_main.log || true
+          python tools/run_broker_market_circuit_grid.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_market_circuit_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_grid_concentrated.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/main_v3_alpha_concentration/monthly_holdings.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/main_v3_alpha_concentration_broker_replay --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration_broker_replay.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/concentrated_v2_challenger/monthly_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/concentrated_v2_challenger_broker_replay --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger_broker_replay.log || true
+          python tools/run_concentrated_broker_grid.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --output-dir outputs/concentrated_broker_grid --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-variants 10 --tail-row-fill-fallback-same-close 2>&1 | tee outputs/full_rebuild_logs/concentrated_broker_grid.log || true
+          python tools/build_event_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/event_target_books --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/event_target_books.log || true
+          if [ -s outputs/reports/event_main_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/event_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/event_concentrated_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/event_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_concentrated.log || true
+          fi
+          python tools/build_weekly_leader_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_leader_snapshots --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_target_books.log || true
+          if [ -s outputs/reports/weekly_leader_main_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/weekly_leader_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/weekly_leader_concentrated_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/weekly_leader_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/cost_sensitivity/main --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_churn_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_churn_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/churn_filtered_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/churn_filtered_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/main/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/concentrated/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/macro_circuit_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_concentrated.log || true
+          fi
+          # F9 (2026-05-14): Mode X sidecar SKIPPED when Mode Y is enabled.
+          # Mode Y already applies the regime capacity filter inline at
+          # operating-book build time; running Mode X on top would double-filter
+          # and produce misleading regime_capacity_broker_replay metrics.
+          if [ "$MODE_Y_ENABLED" != "true" ]; then
+            if [ -s outputs/reports/operating_main_target_book.csv ]; then
+              python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv --diagnostics outputs/regime_capacity_filter/main/diagnostics.json --multipliers "bear=0.5,deep_bear=0.25" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_main.log || true
+            fi
+            if [ -s outputs/reports/operating_main_target_book_regime_capacity_filtered.csv ]; then
+              python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/regime_capacity_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_main.log || true
+            fi
+            if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+              python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv --diagnostics outputs/regime_capacity_filter/concentrated/diagnostics.json --multipliers "bear=0.5,deep_bear=0.25,neutral=0.85" --regime-source-book outputs/reports/operating_main_target_book.csv 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_concentrated.log || true
+            fi
+            if [ -s outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv ]; then
+              python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/regime_capacity_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_concentrated.log || true
+            fi
+          else
+            echo "[mode-y] skipping Mode X sidecar (Mode Y already inlines the regime capacity filter; running Mode X on top would double-filter)"
+            mkdir -p outputs/regime_capacity_filter/main outputs/regime_capacity_filter/concentrated outputs/regime_capacity_broker_replay/main outputs/regime_capacity_broker_replay/concentrated
+            echo '{"status":"skipped","reason":"mode_y_enabled","note":"Mode Y inlines the same filter at operating-book build time."}' > outputs/regime_capacity_filter/main/diagnostics.json
+            echo '{"status":"skipped","reason":"mode_y_enabled","note":"Mode Y inlines the same filter at operating-book build time."}' > outputs/regime_capacity_filter/concentrated/diagnostics.json
+          fi
+          python tools/run_trade_attribution_analysis.py --latest-run outputs --output-dir outputs/trade_attribution 2>&1 | tee outputs/full_rebuild_logs/trade_attribution_analysis.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
+          # F11 (2026-05-14): weekly-cadence stops sidecar. Hypothesized
+          # sweet spot between daily (whipsaw) and monthly (too slow).
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay_weekly/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --stop-check-cadence weekly 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_weekly_main.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay_weekly/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --stop-check-cadence weekly 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_weekly_concentrated.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
+          python tools/run_broker_replacement_swap_replay.py --target-book outputs/reports/operating_main_target_book.csv --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replacement_swap_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-swaps-per-date 2 --min-score-advantage 0.20 2>&1 | tee outputs/full_rebuild_logs/broker_replacement_swap_replay_main.log || true
+          python tools/run_broker_replacement_swap_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replacement_swap_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-swaps-per-date 1 --min-score-advantage 0.20 2>&1 | tee outputs/full_rebuild_logs/broker_replacement_swap_replay_concentrated.log || true
+          python tools/run_alpha_selector_broker_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_broker_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --target-ns 2,3,4,5,7 --single-name-caps 0.25,0.33,0.40,0.50 --max-variants 80 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_broker_grid_main.log || true
+          python tools/run_alpha_selector_broker_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_broker_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --target-ns 2,3,4,5,7 --single-name-caps 0.25,0.33,0.40,0.50 --max-variants 80 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_broker_grid_concentrated.log || true
+          python tools/run_alpha_selector_market_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_market_circuit_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 4 --trigger-modes ma50,ma50_200,trend60 --grid '0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25' 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_market_circuit_grid_main.log || true
+          python tools/run_alpha_selector_market_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_market_circuit_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 4 --trigger-modes ma50,ma50_200,trend60 --grid '0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25' 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_market_circuit_grid_concentrated.log || true
+          python tools/run_market_circuit_attribution.py --latest-run outputs --portfolio-kind main --output-dir outputs/market_circuit_attribution/main 2>&1 | tee outputs/full_rebuild_logs/market_circuit_attribution_main.log || true
+          python tools/run_market_circuit_attribution.py --latest-run outputs --portfolio-kind concentrated --output-dir outputs/market_circuit_attribution/concentrated 2>&1 | tee outputs/full_rebuild_logs/market_circuit_attribution_concentrated.log || true
+          python tools/run_alpha_selector_dynamic_regime_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_dynamic_regime_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-variants 54 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_dynamic_regime_grid_main.log || true
+          python tools/run_alpha_selector_dynamic_regime_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_dynamic_regime_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --max-variants 54 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_dynamic_regime_grid_concentrated.log || true
+          python tools/run_alpha_selector_leader_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_leader_circuit_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_leader_circuit_grid_main.log || true
+          python tools/run_alpha_selector_leader_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_leader_circuit_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_leader_circuit_grid_concentrated.log || true
+          python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_shadow_drawdown_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_main.log || true
+          python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_shadow_drawdown_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_concentrated.log || true
+          python tools/run_main_v4_future_winner_evidence.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/main_v4_future_winner_evidence --fill-mode next_close --cost-bps 25 --cost-bps-list 25,50,75,100 --max-fill-lag-days 7 --target-ns 12,15,18 --score-sources future_winner,future_winner_market_confirmation,leader_onset_shadow,leader_onset_sec_shadow --single-name-caps 0.33 --cash-floor 0.03 2>&1 | tee outputs/full_rebuild_logs/main_v4_future_winner_evidence.log || true
+          python tools/run_concentrated_v3_broker_selected_leaders.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/concentrated_v3_broker_selected_leaders --fill-mode next_close --cost-bps 25 --cost-bps-list 25,50,75,100 --max-fill-lag-days 7 --target-ns 2,3,5 --single-name-caps 0.40,0.45,0.50 --same-theme-caps 0.70,0.80 --staged-entry 0.50,0.80,1.00 --score-sources future_market,monster_future,leader_onset_sec 2>&1 | tee outputs/full_rebuild_logs/concentrated_v3_broker_selected_leaders.log || true
+          python tools/run_operating_event_backtest.py --latest-run outputs --output-dir outputs/operating_event_backtest 2>&1 | tee outputs/full_rebuild_logs/operating_event_backtest.log || true
           python tools/run_broker_gap_attribution.py --latest-run outputs --output-dir outputs/broker_gap_attribution 2>&1 | tee outputs/full_rebuild_logs/broker_gap_attribution.log || true
           python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
+          python tools/run_hold_vs_replace_audit.py --latest-run outputs --price-cache cache_prices --output-dir outputs/hold_vs_replace_audit 2>&1 | tee outputs/full_rebuild_logs/hold_vs_replace_audit.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
           python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
@@ -313,17 +502,24 @@ jobs:
           python tools/run_monster_lifecycle_replay.py --latest-run outputs --policy lifecycle_review_concentrated --output-dir outputs/monster_lifecycle_review_concentrated 2>&1 | tee outputs/full_rebuild_logs/monster_lifecycle_review_concentrated.log || true
           python tools/run_orchestrator_replay.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/orchestrator_replay.log || true
           python tools/run_leader_drop_diagnostics_sidecar.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics_sidecar.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
           python tools/run_governance_catalyst_report.py --latest-run outputs --output-dir outputs/governance_catalyst 2>&1 | tee outputs/full_rebuild_logs/governance_catalyst_report.log || true
           python tools/run_style_regime_report.py --latest-run outputs --output-dir outputs/style_regime_report 2>&1 | tee outputs/full_rebuild_logs/style_regime_report.log || true
           python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
           python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
           python tools/run_main_cash_drag_replay.py --latest-run outputs --output-dir outputs/main_cash_drag_replay 2>&1 | tee outputs/full_rebuild_logs/main_cash_drag_replay.log || true
           python tools/run_crisis_reentry_replay.py --latest-run outputs --output-dir outputs/crisis_reentry_replay 2>&1 | tee outputs/full_rebuild_logs/crisis_reentry_replay.log || true
+          python tools/run_broker_crisis_reentry_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/broker_crisis_reentry_replay/main --policy-id fast_reentry --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_crisis_reentry_replay.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+          python tools/run_concentrated_proxy_to_broker_reconciliation.py --latest-run outputs --output-dir outputs/concentrated_proxy_to_broker_reconciliation 2>&1 | tee outputs/full_rebuild_logs/concentrated_proxy_to_broker_reconciliation.log || true
           python tools/run_historical_trade_journey.py --latest-run outputs --output-dir outputs/historical_trade_journey 2>&1 | tee outputs/full_rebuild_logs/historical_trade_journey.log || true
           python tools/run_selection_audit.py --latest-run outputs --output-dir outputs/selection_audit 2>&1 | tee outputs/full_rebuild_logs/selection_audit.log || true
+          python tools/run_selection_quality_report.py --latest-run outputs --output-dir outputs/selection_quality 2>&1 | tee outputs/full_rebuild_logs/selection_quality_report.log || true
           python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
+          python tools/check_10y_backtest_readiness.py --latest-run outputs --output-dir outputs/ten_year_backtest_readiness 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log || true
+          python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
+          python tools/run_survivorship_audit.py --membership data_raw/historical_universe_membership.csv --price-cache cache_prices --output outputs/audit/survivorship_coverage.json 2>&1 | tee outputs/full_rebuild_logs/survivorship_audit.log || true
           python tools/run_weekly_evaluation.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_evaluation --stale-days-threshold 10 2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log || true
           python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --price-cache cache_prices --output-dir outputs/theme_leadership_tape 2>&1 | tee outputs/full_rebuild_logs/theme_leadership_tape.log || true
           python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n 3 --single-name-cap 0.50 --cost-bps 50 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
@@ -335,6 +531,9 @@ jobs:
           python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir outputs/policy_fusion 2>&1 | tee outputs/full_rebuild_logs/policy_fusion.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+          python tools/run_cash_policy_reconciliation.py --latest-run outputs --output-dir outputs/cash_policy_reconciliation 2>&1 | tee outputs/full_rebuild_logs/cash_policy_reconciliation.log || true
+          python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+          python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 
       - name: Upload artifact (logs + scored CSVs)
         if: always()
@@ -357,6 +556,13 @@ jobs:
             outputs/reports/global_alpha_sleeve_audit_*.csv
             outputs/reports/concentrated_strategy_*.csv
             outputs/reports/main_monthly_weights.csv
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
+            outputs/reports/event_*_target_book.csv
+            outputs/reports/weekly_leader_*_target_book.csv
+            outputs/target_snapshots/
+            outputs/data_readiness/
+            outputs/audit/
             outputs/reports/tactical_monthly_weights.csv
             outputs/reports/alpha_sprint_monthly_weights.csv
             outputs/reports/regime_by_month.csv
@@ -371,36 +577,75 @@ jobs:
             outputs/concentrated_trade_journal/
             outputs/auto_learning/
             outputs/orchestrator_replay/
+            outputs/leader_drop_diagnostics/
             outputs/portfolio_goal_search/
             outputs/main_v2_backtest/
+            outputs/main_v3_alpha_concentration/
+            outputs/main_v3_alpha_concentration_broker_replay/
             outputs/concentrated_policy_replay/
+            outputs/concentrated_v2_challenger/
+            outputs/concentrated_v2_challenger_broker_replay/
+            outputs/concentrated_broker_grid/
             outputs/concentrated_position_risk_replay/
             outputs/alpha_sprint_backtest/
             outputs/position_aware_risk_replay/
             outputs/position_risk_weekly_validation/
             outputs/broker_replay/
+            outputs/broker_market_circuit_replay/
+            outputs/broker_market_circuit_grid/
+            outputs/event_target_books/
+            outputs/event_broker_replay/
+            outputs/weekly_leader_snapshots/
+            outputs/weekly_leader_broker_replay/
+            outputs/cost_sensitivity/
+            outputs/trade_attribution/
+            outputs/churn_filter/
+            outputs/churn_filtered_broker_replay/
+            outputs/macro_circuit_filter/
+            outputs/macro_circuit_broker_replay/
+            outputs/regime_capacity_filter/
+            outputs/regime_capacity_broker_replay/
             outputs/broker_position_risk_replay/
+            outputs/broker_position_risk_replay_weekly/
             outputs/broker_execution_policy_replay/
+            outputs/broker_replacement_swap_replay/
+            outputs/alpha_selector_broker_grid/
+            outputs/alpha_selector_market_circuit_grid/
+            outputs/market_circuit_attribution/
+            outputs/alpha_selector_leader_circuit_grid/
+            outputs/alpha_selector_dynamic_regime_grid/
+            outputs/alpha_selector_shadow_drawdown_grid/
+            outputs/main_v4_future_winner_evidence/
+            outputs/concentrated_v3_broker_selected_leaders/
+            outputs/operating_event_backtest/
             outputs/broker_gap_attribution/
             outputs/broker_trade_journal/
+            outputs/hold_vs_replace_audit/
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
+            outputs/cash_policy_reconciliation/
             outputs/monster_recommendations/
             outputs/operating_snapshot/
+            outputs/user_portfolio_reports/
+            outputs/portfolio_system_guard/
             outputs/account_evaluation/
+            outputs/concentrated_proxy_to_broker_reconciliation/
             outputs/governance_catalyst/
             outputs/style_regime_report/
             outputs/macro_policy_engine/
             outputs/cash_policy/
             outputs/main_cash_drag_replay/
             outputs/crisis_reentry_replay/
+            outputs/broker_crisis_reentry_replay/
             outputs/monster_lifecycle_replay/
             outputs/lifecycle_review_overlay_main/
             outputs/monster_lifecycle_review_main/
             outputs/monster_lifecycle_review_concentrated/
             outputs/historical_trade_journey/
             outputs/selection_audit/
+            outputs/selection_quality/
+            outputs/ten_year_backtest_readiness/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
@@ -435,7 +680,7 @@ jobs:
 
           # Install rclone (~5MB, ~3s)
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
 
@@ -486,11 +731,17 @@ jobs:
               LOG_DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/full_rebuild_logs"
             fi
           fi
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
+          else
+            echo "[gdrive-sync] WARN: portfolio_system_guard/error_check.json missing; preserving canonical outputs."
+          fi
           VALID_PRIMARY_OUTPUTS="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
             VALID_PRIMARY_OUTPUTS="yes"
           else
-            echo "[gdrive-sync] WARN: core metrics missing; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            echo "[gdrive-sync] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
             if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
               if [ "$BRANCH_NAME" = "master" ]; then
                 DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
@@ -550,6 +801,12 @@ jobs:
           # the file refreshed inside the GHA runner cache but never reached
           # gdrive — user could only see "stale" file from a manual upload.
           copy_if_exists outputs/companyfacts.zip "$DEST"
+          if [ -f outputs/companyfacts.zip ]; then
+            mkdir -p data_raw/free/sec
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+            echo "[gdrive-sync] syncing canonical companyfacts.zip -> ${BASE}data_raw/free/sec/"
+            rclone copy data_raw/free/sec "${BASE}data_raw/free/sec/" --include "companyfacts.zip" --drive-acknowledge-abuse
+          fi
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
           copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"
@@ -557,6 +814,10 @@ jobs:
           copy_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
           copy_if_exists outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports"
           copy_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
+          copy_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
+          copy_if_exists outputs/reports/operating_target_books_report.md "$DEST/reports"
           copy_if_exists outputs/reports/tactical_monthly_weights.csv "$DEST/reports"
           copy_if_exists outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports"
           copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
@@ -592,11 +853,17 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation main_v4_future_winner_evidence concentrated_v3_broker_selected_leaders hold_vs_replace_audit cash_policy_reconciliation live_trading_safety account_ledger_preview user_portfolio_reports broker_replay target_snapshots data_readiness reports selection_quality weekly_evaluation theme_leadership_tape theme_concentration_challenger; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
               echo "[gdrive-sync] skip missing: outputs/$d"
+            fi
+          done
+          for p in outputs/alpha_selector_market_circuit_grid/*/best_metrics.json outputs/alpha_selector_market_circuit_grid/*/summary.csv outputs/alpha_selector_market_circuit_grid/*/report.md; do
+            if [ -e "$p" ]; then
+              rel="${p#outputs/}"
+              rclone copy "$p" "$DEST/$(dirname "$rel")/"
             fi
           done
 
@@ -613,6 +880,7 @@ jobs:
             "safe_branch": "${SAFE_BRANCH}",
             "gdrive_scope": "${GDRIVE_SCOPE}",
             "valid_primary_outputs": "${VALID_PRIMARY_OUTPUTS}",
+            "portfolio_system_guard_hard_errors": "${GUARD_HARD_ERRORS}",
             "dest": "${DEST}",
             "log_dest": "${LOG_DEST}",
             "synced_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -628,6 +896,15 @@ jobs:
           verify_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
           verify_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
           verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
+          verify_if_exists outputs/reports/event_main_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/event_concentrated_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/weekly_leader_main_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/reports/weekly_leader_concentrated_target_book.csv "$DEST/reports"
+          verify_if_exists outputs/target_snapshots/latest_manifest.json "$DEST/target_snapshots"
+          verify_if_exists outputs/data_readiness/summary.json "$DEST/data_readiness"
           verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
           verify_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
           verify_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
@@ -677,106 +954,45 @@ jobs:
             -d "disable_web_page_preview=true" > /dev/null \
             || echo "[telegram] rich notification failed (length=$MSG_LEN)"
 
-          # Mobile-friendly: bundle key results into a zip and send as Telegram
-          # document so user can download directly on phone (no PC sync needed).
-          # Telegram document limit = 50MB.
-          BUNDLE="/tmp/full_rebuild_${{ inputs.universe_mode }}_$(date +%Y%m%d_%H%M).zip"
-          mkdir -p /tmp/bundle
-          copy_dir_clean() {
-            local src="$1"
-            local dst="$2"
-            if [ -d "$src" ]; then
-              rm -rf "$dst"
-              mkdir -p "$dst"
-              cp -R "$src"/. "$dst"/ 2>/dev/null || true
+          # Mobile-friendly: send a small curated set of result files as
+          # individual Telegram documents. The previous full-output ZIP
+          # bundle frequently exceeded Telegram's 50MB sendDocument
+          # limit (run 25713620719 produced a 54.4MB bundle). Sending
+          # individual high-signal files avoids the size ceiling and
+          # gives the operator the most useful numbers on phone. A
+          # richer bundling story can be revisited later.
+          TG_FILES=(
+            "outputs/broker_replay/main/metrics.json"
+            "outputs/broker_replay/concentrated/metrics.json"
+            "outputs/weekly_leader_broker_replay/main/metrics.json"
+            "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
+            "outputs/cost_sensitivity/main/summary.json"
+            "outputs/cost_sensitivity/concentrated/summary.json"
+            "outputs/portfolio_latest.csv"
+            "outputs/concentrated_portfolio_latest.csv"
+          )
+          MAX_TG_FILE_BYTES=5000000
+          for FILE in "${TG_FILES[@]}"; do
+            if [ ! -s "$FILE" ]; then
+              echo "[telegram] skip missing: $FILE"
+              continue
             fi
-          }
-          cp outputs/scored_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/scored_unified.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/concentrated_portfolio_latest.csv /tmp/bundle/ 2>/dev/null || true
-          cp outputs/backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
-          cp outputs/concentrated_backtest_metrics.json /tmp/bundle/ 2>/dev/null || true
-          cp outputs/equity_curve.csv /tmp/bundle/ 2>/dev/null || true
-          copy_dir_clean outputs/orchestrator /tmp/bundle/orchestrator
-          mkdir -p /tmp/bundle/reports
-          cp outputs/reports/baseline_registry.* /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/config_audit.* /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/global_alpha_sleeve_audit_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/global_alpha_sleeve_audit_summary.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/backtest_window_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_comparison.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_monthly.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/concentrated_strategy_holdings.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/main_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/tactical_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/alpha_sprint_monthly_weights.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/regime_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/sleeve_returns_by_month.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/candidate_replay_book.csv /tmp/bundle/reports/ 2>/dev/null || true
-          cp outputs/reports/dataset_coverage_audit.* /tmp/bundle/reports/ 2>/dev/null || true
-          copy_dir_clean outputs/full_rebuild_logs /tmp/bundle/logs
-          copy_dir_clean outputs/trade_journal /tmp/bundle/trade_journal
-          copy_dir_clean outputs/concentrated_trade_journal /tmp/bundle/concentrated_trade_journal
-          copy_dir_clean outputs/auto_learning /tmp/bundle/auto_learning
-          copy_dir_clean outputs/orchestrator_replay /tmp/bundle/orchestrator_replay
-          copy_dir_clean outputs/portfolio_goal_search /tmp/bundle/portfolio_goal_search
-          copy_dir_clean outputs/main_v2_backtest /tmp/bundle/main_v2_backtest
-          copy_dir_clean outputs/concentrated_policy_replay /tmp/bundle/concentrated_policy_replay
-          copy_dir_clean outputs/concentrated_position_risk_replay /tmp/bundle/concentrated_position_risk_replay
-          copy_dir_clean outputs/alpha_sprint_backtest /tmp/bundle/alpha_sprint_backtest
-          copy_dir_clean outputs/position_aware_risk_replay /tmp/bundle/position_aware_risk_replay
-          copy_dir_clean outputs/position_risk_weekly_validation /tmp/bundle/position_risk_weekly_validation
-          copy_dir_clean outputs/broker_replay /tmp/bundle/broker_replay
-          copy_dir_clean outputs/broker_position_risk_replay /tmp/bundle/broker_position_risk_replay
-          copy_dir_clean outputs/broker_execution_policy_replay /tmp/bundle/broker_execution_policy_replay
-          copy_dir_clean outputs/broker_gap_attribution /tmp/bundle/broker_gap_attribution
-          copy_dir_clean outputs/broker_trade_journal /tmp/bundle/broker_trade_journal
-          copy_dir_clean outputs/account_ledger_preview /tmp/bundle/account_ledger_preview
-          copy_dir_clean outputs/live_trading_safety /tmp/bundle/live_trading_safety
-          copy_dir_clean outputs/live_trading_risk_controls /tmp/bundle/live_trading_risk_controls
-          copy_dir_clean outputs/monster_recommendations /tmp/bundle/monster_recommendations
-          copy_dir_clean outputs/operating_snapshot /tmp/bundle/operating_snapshot
-          copy_dir_clean outputs/account_evaluation /tmp/bundle/account_evaluation
-          copy_dir_clean outputs/governance_catalyst /tmp/bundle/governance_catalyst
-          copy_dir_clean outputs/macro_policy_engine /tmp/bundle/macro_policy_engine
-          copy_dir_clean outputs/cash_policy /tmp/bundle/cash_policy
-          copy_dir_clean outputs/main_cash_drag_replay /tmp/bundle/main_cash_drag_replay
-          copy_dir_clean outputs/crisis_reentry_replay /tmp/bundle/crisis_reentry_replay
-          copy_dir_clean outputs/monster_lifecycle_replay /tmp/bundle/monster_lifecycle_replay
-          copy_dir_clean outputs/lifecycle_review_overlay_main /tmp/bundle/lifecycle_review_overlay_main
-          copy_dir_clean outputs/monster_lifecycle_review_main /tmp/bundle/monster_lifecycle_review_main
-          copy_dir_clean outputs/monster_lifecycle_review_concentrated /tmp/bundle/monster_lifecycle_review_concentrated
-          copy_dir_clean outputs/historical_trade_journey /tmp/bundle/historical_trade_journey
-          copy_dir_clean outputs/selection_audit /tmp/bundle/selection_audit
-          copy_dir_clean outputs/weekly_evaluation /tmp/bundle/weekly_evaluation
-          copy_dir_clean outputs/theme_leadership_tape /tmp/bundle/theme_leadership_tape
-          copy_dir_clean outputs/theme_concentration_challenger /tmp/bundle/theme_concentration_challenger
-          copy_dir_clean outputs/auto_learning_v2 /tmp/bundle/auto_learning_v2
-          copy_dir_clean outputs/winner_lifecycle /tmp/bundle/winner_lifecycle
-          copy_dir_clean outputs/winner_onset_study /tmp/bundle/winner_onset_study
-          copy_dir_clean outputs/shakeout_breakdown_study /tmp/bundle/shakeout_breakdown_study
-          copy_dir_clean outputs/autolearning_winner_challenger /tmp/bundle/autolearning_winner_challenger
-          copy_dir_clean outputs/policy_fusion /tmp/bundle/policy_fusion
-          if [ "$(ls -A /tmp/bundle 2>/dev/null)" ]; then
-            (cd /tmp/bundle && zip -qr "$BUNDLE" .)
-            BUNDLE_SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || echo 0)
-            echo "[telegram] bundle size: $BUNDLE_SIZE bytes"
-            if [ "$BUNDLE_SIZE" -lt 49000000 ] && [ "$BUNDLE_SIZE" -gt 0 ]; then
-              CAPTION="📊 r1000 [${{ inputs.universe_mode }}] ${STATUS}%0A${VERDICT}"
-              curl -sf -F "document=@${BUNDLE}" \
-                   -F "chat_id=${TELEGRAM_CHAT_ID}" \
-                   -F "caption=${CAPTION}" \
-                   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-                   > /dev/null \
-                || echo "[telegram] document send failed (size $BUNDLE_SIZE)"
-              echo "[telegram] sent zip to mobile ($((BUNDLE_SIZE/1024)) KB)"
+            FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
+            if [ "$FILE_SIZE" -gt "$MAX_TG_FILE_BYTES" ]; then
+              echo "[telegram] skip oversized $FILE ($FILE_SIZE bytes > $MAX_TG_FILE_BYTES)"
+              continue
+            fi
+            CAPTION_TG="r1000 ${{ inputs.universe_mode }} ${STATUS} :: $FILE"
+            if curl -sf -F "document=@${FILE}" \
+                 -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                 -F "caption=${CAPTION_TG}" \
+                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+                 > /dev/null 2>&1; then
+              echo "[telegram] sent $FILE ($FILE_SIZE bytes)"
             else
-              echo "[telegram] bundle too large or empty ($BUNDLE_SIZE), skipping document send"
+              echo "[telegram] failed to send $FILE ($FILE_SIZE bytes)"
             fi
-          else
-            echo "[telegram] no output files to bundle"
-          fi
+          done
 
       - name: Commit verdict + portfolio CSVs (always — diagnostics on fail)
         if: always()    # ← changed from success() to capture fail-state logs
@@ -801,13 +1017,19 @@ jobs:
             echo "[push] WARN: could not fetch origin/${RESULT_BRANCH}; continuing without pre-stage rebase."
           fi
           mkdir -p cloud_results/full_rebuild
+          GUARD_HARD_ERRORS="999"
+          if [ -s outputs/portfolio_system_guard/error_check.json ]; then
+            GUARD_HARD_ERRORS="$(python -c 'import json; from pathlib import Path; p=Path("outputs/portfolio_system_guard/error_check.json"); print(int(json.loads(p.read_text()).get("hard_error_count", 999))) if p.exists() else print(999)' 2>/dev/null || echo 999)"
+          else
+            echo "[push] WARN: portfolio_system_guard/error_check.json missing; preserving latest pointer."
+          fi
           RUN_ARTIFACT_VALID="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
             RUN_ARTIFACT_VALID="yes"
             DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           else
             DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
-            echo "[push] WARN: core metrics missing; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
           fi
           mkdir -p "$DEST"
           copy_dir_clean() {
@@ -849,18 +1071,35 @@ jobs:
           cp outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/event_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+          cp outputs/reports/weekly_leader_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/tactical_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/sleeve_returns_by_month.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           cp outputs/reports/dataset_coverage_audit.* "$DEST/reports/" 2>/dev/null || true
+          copy_dir_clean outputs/target_snapshots "$DEST/target_snapshots"
+          copy_dir_clean outputs/data_readiness "$DEST/data_readiness"
           copy_dir_clean outputs/trade_journal "$DEST/trade_journal"
           copy_dir_clean outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal"
           copy_dir_clean outputs/auto_learning "$DEST/auto_learning"
           copy_dir_clean outputs/orchestrator_replay "$DEST/orchestrator_replay"
           copy_dir_clean outputs/portfolio_goal_search "$DEST/portfolio_goal_search"
           copy_dir_clean outputs/main_v2_backtest "$DEST/main_v2_backtest"
+          copy_dir_clean outputs/main_v3_alpha_concentration "$DEST/main_v3_alpha_concentration"
+          copy_dir_clean outputs/main_v3_alpha_concentration_broker_replay "$DEST/main_v3_alpha_concentration_broker_replay"
+          copy_dir_clean outputs/concentrated_v2_challenger "$DEST/concentrated_v2_challenger"
+          copy_dir_clean outputs/concentrated_v2_challenger_broker_replay "$DEST/concentrated_v2_challenger_broker_replay"
+          copy_dir_clean outputs/concentrated_broker_grid "$DEST/concentrated_broker_grid"
+          copy_dir_clean outputs/event_target_books "$DEST/event_target_books"
+          copy_dir_clean outputs/event_broker_replay "$DEST/event_broker_replay"
+          copy_dir_clean outputs/broker_market_circuit_replay "$DEST/broker_market_circuit_replay"
+          copy_dir_clean outputs/weekly_leader_snapshots "$DEST/weekly_leader_snapshots"
+          copy_dir_clean outputs/weekly_leader_broker_replay "$DEST/weekly_leader_broker_replay"
+          copy_dir_clean outputs/cost_sensitivity "$DEST/cost_sensitivity"
           copy_dir_clean outputs/concentrated_policy_replay "$DEST/concentrated_policy_replay"
           copy_dir_clean outputs/concentrated_position_risk_replay "$DEST/concentrated_position_risk_replay"
           copy_dir_clean outputs/alpha_sprint_backtest "$DEST/alpha_sprint_backtest"
@@ -869,26 +1108,42 @@ jobs:
           copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
           copy_dir_clean outputs/broker_execution_policy_replay "$DEST/broker_execution_policy_replay"
+          copy_dir_clean outputs/broker_replacement_swap_replay "$DEST/broker_replacement_swap_replay"
+          copy_dir_clean outputs/alpha_selector_broker_grid "$DEST/alpha_selector_broker_grid"
+          copy_dir_clean outputs/alpha_selector_market_circuit_grid "$DEST/alpha_selector_market_circuit_grid"
+          copy_dir_clean outputs/market_circuit_attribution "$DEST/market_circuit_attribution"
+          copy_dir_clean outputs/alpha_selector_leader_circuit_grid "$DEST/alpha_selector_leader_circuit_grid"
+          copy_dir_clean outputs/alpha_selector_dynamic_regime_grid "$DEST/alpha_selector_dynamic_regime_grid"
+          copy_dir_clean outputs/alpha_selector_shadow_drawdown_grid "$DEST/alpha_selector_shadow_drawdown_grid"
+          copy_dir_clean outputs/operating_event_backtest "$DEST/operating_event_backtest"
           copy_dir_clean outputs/broker_gap_attribution "$DEST/broker_gap_attribution"
           copy_dir_clean outputs/broker_trade_journal "$DEST/broker_trade_journal"
           copy_dir_clean outputs/account_ledger_preview "$DEST/account_ledger_preview"
           copy_dir_clean outputs/live_trading_safety "$DEST/live_trading_safety"
           copy_dir_clean outputs/live_trading_risk_controls "$DEST/live_trading_risk_controls"
+          copy_dir_clean outputs/cash_policy_reconciliation "$DEST/cash_policy_reconciliation"
           copy_dir_clean outputs/monster_recommendations "$DEST/monster_recommendations"
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
+          copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
+          copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/concentrated_proxy_to_broker_reconciliation "$DEST/concentrated_proxy_to_broker_reconciliation"
+          copy_dir_clean outputs/leader_drop_diagnostics "$DEST/leader_drop_diagnostics"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
           copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"
           copy_dir_clean outputs/cash_policy "$DEST/cash_policy"
           copy_dir_clean outputs/main_cash_drag_replay "$DEST/main_cash_drag_replay"
           copy_dir_clean outputs/crisis_reentry_replay "$DEST/crisis_reentry_replay"
+          copy_dir_clean outputs/broker_crisis_reentry_replay "$DEST/broker_crisis_reentry_replay"
           copy_dir_clean outputs/monster_lifecycle_replay "$DEST/monster_lifecycle_replay"
           copy_dir_clean outputs/lifecycle_review_overlay_main "$DEST/lifecycle_review_overlay_main"
           copy_dir_clean outputs/monster_lifecycle_review_main "$DEST/monster_lifecycle_review_main"
           copy_dir_clean outputs/monster_lifecycle_review_concentrated "$DEST/monster_lifecycle_review_concentrated"
           copy_dir_clean outputs/historical_trade_journey "$DEST/historical_trade_journey"
           copy_dir_clean outputs/selection_audit "$DEST/selection_audit"
+          copy_dir_clean outputs/selection_quality "$DEST/selection_quality"
+          copy_dir_clean outputs/ten_year_backtest_readiness "$DEST/ten_year_backtest_readiness"
           copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
           copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"

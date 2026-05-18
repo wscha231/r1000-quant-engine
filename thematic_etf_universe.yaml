@@ -1,0 +1,210 @@
+# thematic_etf_universe.yaml — curated thematic ETF top-holdings overlay
+#
+# Purpose:
+#   Keep important small/mid-cap thematic names visible to scoring even
+#   though they are outside R1000 / ADR universes. Curated from the top
+#   holdings of category ETFs (QTUM for quantum, ARKX for space, ARKG for
+#   genomics, etc.). Treated like leader-rescue + strategic_global_hardware
+#   rows: latest-month only by default (PIT-safe under latest_only mode).
+#
+# Refresh policy:
+#   For v1, this file is MANUAL. tools/refresh_etf_top_holdings.py (planned)
+#   will rotate top-5 per ETF monthly with a 5-tier fallback (yfinance ->
+#   issuer CSV -> stockanalysis -> nasdaq -> previous month). Until that
+#   ships, edit by hand based on quarterly ETF holdings reviews.
+#
+# Inclusion criteria (curator's heuristic):
+#   - Names NOT already in R1000 / adr_whitelist / strategic_global_hardware
+#     (no duplicate coverage)
+#   - Liquidity floor: dollar_vol_20d > $30M (engine will recheck)
+#   - Multi-year structural theme exposure
+#   - Avoid pure micro-cap pumps (mktcap > $500M recommended)
+#
+# Theme alignment:
+#   Each ticker carries a primary `theme` tag matching the active themes
+#   listed in themes.yaml. The short_extension_risk_penalty's structural
+#   exemption will fire when theme_horizon='structural_growth' is tagged
+#   on that theme.
+
+thematic_etf_universe:
+  # ---------- Quantum computing (QTUM holdings) ----------
+  - ticker: IONQ
+    name: IonQ
+    theme: quantum_computing
+    source_etf: QTUM
+    domicile: US
+  - ticker: RGTI
+    name: Rigetti Computing
+    theme: quantum_computing
+    source_etf: QTUM
+    domicile: US
+  - ticker: QBTS
+    name: D-Wave Quantum
+    theme: quantum_computing
+    source_etf: QTUM
+    domicile: US
+  - ticker: QUBT
+    name: Quantum Computing Inc
+    theme: quantum_computing
+    source_etf: QTUM
+    domicile: US
+  - ticker: ARQQ
+    name: Arqit Quantum
+    theme: quantum_computing
+    source_etf: QTUM
+    domicile: US
+
+  # ---------- eVTOL / advanced air mobility (ARKQ / ARKX) ----------
+  - ticker: JOBY
+    name: Joby Aviation
+    theme: evtol_advanced_air
+    source_etf: ARKQ
+    domicile: US
+  - ticker: ACHR
+    name: Archer Aviation
+    theme: evtol_advanced_air
+    source_etf: ARKQ
+    domicile: US
+  - ticker: EH
+    name: EHang Holdings
+    theme: evtol_advanced_air
+    source_etf: ARKQ
+    domicile: CN
+  - ticker: LILM
+    name: Lilium NV
+    theme: evtol_advanced_air
+    source_etf: ARKQ
+    domicile: DE
+  - ticker: BLDE
+    name: Blade Air Mobility
+    theme: evtol_advanced_air
+    source_etf: ARKQ
+    domicile: US
+
+  # ---------- Space economy speculative (ARKX) ----------
+  # RKLB is already in R1000 / strategic curated lists; PLTR is in
+  # ai_software + defense_drones + space_economy via themes.yaml — these
+  # entries cover the smaller-cap pure-play space names.
+  - ticker: ASTS
+    name: AST SpaceMobile
+    theme: space_economy
+    source_etf: ARKX
+    domicile: US
+  - ticker: IRDM
+    name: Iridium Communications
+    theme: space_economy
+    source_etf: ARKX
+    domicile: US
+  - ticker: MAXR
+    name: Maxar Technologies
+    theme: space_economy
+    source_etf: ARKX
+    domicile: US
+  - ticker: PL
+    name: Planet Labs
+    theme: space_economy
+    source_etf: ARKX
+    domicile: US
+
+  # ---------- Defense drones / autonomous tech speculative (ARKQ / ITA) ----------
+  - ticker: KTOS
+    name: Kratos Defense
+    theme: defense_drones
+    source_etf: ITA
+    domicile: US
+  - ticker: AVAV
+    name: AeroVironment
+    theme: defense_drones
+    source_etf: ARKQ
+    domicile: US
+  - ticker: ONTO
+    name: Onto Innovation
+    theme: defense_drones
+    source_etf: ITA
+    domicile: US
+
+  # ---------- AI software speculative (AIQ / BOTZ holdings outside R1000) ----------
+  - ticker: BBAI
+    name: BigBear.ai
+    theme: ai_software
+    source_etf: AIQ
+    domicile: US
+  - ticker: SOUN
+    name: SoundHound AI
+    theme: ai_software
+    source_etf: AIQ
+    domicile: US
+  - ticker: AI
+    name: C3.ai
+    theme: ai_software
+    source_etf: AIQ
+    domicile: US
+
+  # ---------- Genomics speculative (ARKG) ----------
+  - ticker: BEAM
+    name: Beam Therapeutics
+    theme: oncology_mrna
+    source_etf: ARKG
+    domicile: US
+  - ticker: CRSP
+    name: CRISPR Therapeutics
+    theme: oncology_mrna
+    source_etf: ARKG
+    domicile: CH
+  - ticker: EDIT
+    name: Editas Medicine
+    theme: oncology_mrna
+    source_etf: ARKG
+    domicile: US
+  - ticker: NTLA
+    name: Intellia Therapeutics
+    theme: oncology_mrna
+    source_etf: ARKG
+    domicile: US
+  - ticker: VERV
+    name: Verve Therapeutics
+    theme: oncology_mrna
+    source_etf: ARKG
+    domicile: US
+
+# ETF source list (for refresh tool when it ships):
+etf_sources:
+  - ticker: QTUM
+    issuer: Defiance
+    theme: quantum_computing
+    refresh_priority: 1
+  - ticker: ARKQ
+    issuer: ARK
+    theme: autonomous_robotics
+    refresh_priority: 1
+  - ticker: ARKX
+    issuer: ARK
+    theme: space_economy
+    refresh_priority: 1
+  - ticker: ARKG
+    issuer: ARK
+    theme: genomics
+    refresh_priority: 2
+  - ticker: AIQ
+    issuer: Global X
+    theme: ai_software
+    refresh_priority: 2
+  - ticker: ITA
+    issuer: iShares
+    theme: defense_aerospace
+    refresh_priority: 2
+  - ticker: BOTZ
+    issuer: Global X
+    theme: ai_robotics
+    refresh_priority: 3
+  - ticker: HACK
+    issuer: ETFMG
+    theme: cybersecurity
+    refresh_priority: 3
+
+# Refresh exclusion patterns (when refresh tool ships):
+# Avoid leveraged / inverse / fixed-income / non-US-listed names where R1000
+# coverage logic would not apply cleanly.
+exclude_patterns:
+  - "(3X|2X|Ultra|Pro|Bull|Bear|Inverse|Short)"
+  - "(Bond|Treasury|TIPS|HYG|LQD)"

@@ -1,0 +1,45 @@
+portfolio,ticker,row_role,target_weight,monster_recommendation,monster_stage,monster_priority_score,monster_reason,replacement_candidate,production_activation_allowed
+main,GOOG,current_target,0.1789140872012445,hold_target,,0.1789140872012445,existing target holding,,False
+main,PLTR,current_target,0.0609664208489582,review_trim_or_replace,,1.0209174208489582,"weak_3m_absolute_momentum,negative_6m_absolute_momentum,under_benchmark_3m,under_benchmark_6m,high_weight_low_relative_strength,broken_momentum_penalty",SNDK,False
+main,LRCX,current_target,0.0609664208489582,review_rotation,,5.671108420848958,challenger SNDK outranks held name,SNDK,False
+main,VRT,current_target,0.0609664208489582,review_rotation,,0.4264154208489582,challenger RKLB outranks held name,RKLB,False
+main,GLW,current_target,0.0595206270011178,review_rotation,,4.4318056270011175,challenger SNDK outranks held name,SNDK,False
+main,FTI,current_target,0.056898740829369,review_rotation,,0.377179740829369,challenger CVX outranks held name,CVX,False
+main,FIX,current_target,0.0566464468687113,review_rotation,,0.4153134468687113,challenger GEV outranks held name,GEV,False
+main,PWR,current_target,0.0565631406386838,review_rotation,,1.5487451406386836,challenger RKLB outranks held name,RKLB,False
+main,UMC,current_target,0.0562924863585598,review_rotation,,0.8467944863585598,challenger STM outranks held name,STM,False
+main,OKE,current_target,0.0561550728003203,review_rotation,,1.3439370728003204,challenger CHRD outranks held name,CHRD,False
+main,SU,current_target,0.0561101357551186,review_rotation,scout,0.4934461357551186,challenger CHRD outranks held name,CHRD,False
+main,ON,current_target,0.04,review_rotation,,4.872272,challenger SNDK outranks held name,SNDK,False
+main,NXPI,current_target,0.04,review_rotation,,2.878042,challenger STM outranks held name,STM,False
+main,AKAM,current_target,0.04,review_rotation,,5.71013,challenger SNDK outranks held name,SNDK,False
+main,PR,current_target,0.04,review_rotation,,0.62154,challenger CHRD outranks held name,CHRD,False
+main,MLI,current_target,0.04,review_rotation,,2.921802,challenger RKLB outranks held name,RKLB,False
+main,TKR,current_target,0.04,review_rotation,,2.794949,challenger RKLB outranks held name,RKLB,False
+main,SNDK,candidate,0.0,consider_main_scout,,7.9502131614920835,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,STX,candidate,0.0,consider_main_scout,,6.394370722947351,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty",,False
+main,LITE,candidate,0.0,consider_main_scout,,6.1933308361598645,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+main,FLEX,candidate,0.0,consider_main_scout,,5.951263182356574,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,RKLB,candidate,0.0,consider_main_scout,,5.864493161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,CIEN,candidate,0.0,consider_main_scout,,5.842277344181527,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+main,HIMX,candidate,0.0,consider_main_scout,,5.823640911644167,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,AMD,candidate,0.0,consider_main_scout,,5.759088161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,BE,candidate,0.0,consider_main_scout,,5.694223056656633,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+main,SNDK,candidate,0.0,consider_rotation_candidate,,4.6331889366205266,rotation candidate for GLW,,False
+main,MRVL,candidate,0.0,consider_main_scout,,4.539824161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+main,COHR,candidate,0.0,consider_main_scout,,4.537039015550919,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty",,False
+concentrated,GLW,current_target,0.3777706389406775,review_rotation,,4.750055638940677,challenger SNDK outranks held name,SNDK,False
+concentrated,WDC,current_target,0.3568348105118002,defend_or_hold_monster,monster,1.3320369177039084,monster lifecycle stage=monster,,False
+concentrated,MU,current_target,0.2653945505475223,hold_target,,0.2653945505475223,existing target holding,,False
+concentrated,SNDK,candidate,0.0,consider_concentrated_challenger,,7.9502131614920835,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,STX,candidate,0.0,consider_concentrated_challenger,,6.394370722947351,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty",,False
+concentrated,LITE,candidate,0.0,consider_concentrated_challenger,,6.1933308361598645,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+concentrated,FLEX,candidate,0.0,consider_concentrated_challenger,,5.951263182356574,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,RKLB,candidate,0.0,consider_concentrated_challenger,,5.864493161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,CIEN,candidate,0.0,consider_concentrated_challenger,,5.842277344181527,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+concentrated,HIMX,candidate,0.0,consider_concentrated_challenger,,5.823640911644167,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,AMD,candidate,0.0,consider_concentrated_challenger,,5.759088161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,BE,candidate,0.0,consider_concentrated_challenger,,5.694223056656633,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name,ranking_mismatch",,False
+concentrated,SNDK,candidate,0.0,consider_rotation_candidate,,4.6331889366205266,rotation candidate for GLW,,False
+concentrated,MRVL,candidate,0.0,consider_concentrated_challenger,,4.539824161492083,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty,engine_likes_nonheld_name",,False
+concentrated,COHR,candidate,0.0,consider_concentrated_challenger,,4.537039015550919,"strong_3m_momentum,strong_6m_momentum,strong_12m_momentum,high_relative_strength,entry_quality_chase_penalty",,False

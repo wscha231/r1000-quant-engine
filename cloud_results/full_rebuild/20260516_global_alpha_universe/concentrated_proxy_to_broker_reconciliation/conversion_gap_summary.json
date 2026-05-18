@@ -1,0 +1,38 @@
+{
+  "cagr_gap": 0.17959572243297228,
+  "exit_timing_rows": 0,
+  "generated_at_utc": "2026-05-16T18:49:58.030497+00:00",
+  "high_cash_rows": 0,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "max_dd_gap": 0.10864353856038955,
+  "official_metrics": {
+    "avg_cash_weight": 0.000941717924495457,
+    "cagr": 0.16889553858006412,
+    "candidate_id": "concentrated_broker_ledger_replay",
+    "max_dd": -0.33804466965479363,
+    "sharpe": 0.72196241424563,
+    "total_fees_usd": 49153.67563196182,
+    "trade_count": 936.0,
+    "valid_for_production": true
+  },
+  "production_activation_allowed": false,
+  "proxy_candidate": {
+    "cagr": 0.3484912610130364,
+    "candidate_id": "experiment_E4_concentrated_balanced",
+    "max_dd": -0.22940113109440408,
+    "sharpe": 1.4286886669635341,
+    "source": "experiment:outputs/experiments/E4_concentrated_balanced/metrics.json",
+    "valid_for_production": false
+  },
+  "research_only": true,
+  "schema_version": "concentrated-proxy-to-broker-reconciliation-v1",
+  "source_files": {
+    "broker_equity_curve": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/equity_curve.csv",
+    "broker_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/metrics.json",
+    "broker_trades": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_replay/concentrated/trades.csv",
+    "goal_search_summary": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_goal_search/goal_search_summary.json"
+  },
+  "status": "completed",
+  "trade_path_rows": 174,
+  "uses_forward_labels_for_selection": false
+}

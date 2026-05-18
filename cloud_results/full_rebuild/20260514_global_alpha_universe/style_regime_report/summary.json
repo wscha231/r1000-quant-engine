@@ -1,0 +1,241 @@
+{
+  "candidate_replay_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+  "latest": {
+    "market_style_regime_label": "breakout_growth",
+    "style_breakout_preference": 0.6730814330108248,
+    "style_cash_defense_preference": 0.0278540014102581,
+    "style_inflation_pressure_score": 0.3283102916044535,
+    "style_liquidity_tailwind_score": 0.2776566856834376,
+    "style_overheat_risk_score": 0.1520082951088782,
+    "style_quality_compounder_preference": 0.4532231916914581,
+    "style_rate_pressure_score": 0.1641551458022267,
+    "style_turnaround_preference": 0.4641846643068537,
+    "top_breakout": [
+      {
+        "Name": "LAM RESEARCH CORP",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.836432742864006,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "LRCX"
+      },
+      {
+        "Name": "APPLIED MATERIAL INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.157993193694372,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "AMAT"
+      },
+      {
+        "Name": "TEXAS INSTRUMENT INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.100405918887069,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "TXN"
+      },
+      {
+        "Name": "NVIDIA CORP",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.785049682800269,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "NVDA"
+      },
+      {
+        "Name": "BROADCOM INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 3.1817569585467864,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "AVGO"
+      },
+      {
+        "Name": "FORTINET INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 2.133939049883081,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6730814330108248,
+        "ticker": "FTNT"
+      },
+      {
+        "Name": "F5 INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 1.3320050183235514,
+        "sector": "Information Technology",
+        "style_row_breakout_fit": 0.6697744090676147,
+        "ticker": "FFIV"
+      },
+      {
+        "Name": "ALPHABET INC CLASS C",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 7.560910517280424,
+        "sector": "Communication",
+        "style_row_breakout_fit": 0.6629852115156624,
+        "ticker": "GOOG"
+      }
+    ],
+    "top_compounder": [
+      {
+        "Name": "NVIDIA CORP",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.785049682800269,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8685992640387047,
+        "ticker": "NVDA"
+      },
+      {
+        "Name": "NetEase",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 2.612994441059857,
+        "sector": "Internet",
+        "style_row_compounder_fit": 0.857553232577868,
+        "ticker": "NTES"
+      },
+      {
+        "Name": "UBIQUITI INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "unassigned",
+        "score": -4.051372476993202,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8455139369671165,
+        "ticker": "UI"
+      },
+      {
+        "Name": "VERISK ANALYTICS INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "early_scout",
+        "score": -0.7335090158645946,
+        "sector": "Industrials",
+        "style_row_compounder_fit": 0.8414017750610459,
+        "ticker": "VRSK"
+      },
+      {
+        "Name": "COSTCO WHOLESALE CORP",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.6949611027967055,
+        "sector": "Consumer Staples",
+        "style_row_compounder_fit": 0.8291711858843517,
+        "ticker": "COST"
+      },
+      {
+        "Name": "APPLE INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.269996238492873,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8203464685479327,
+        "ticker": "AAPL"
+      },
+      {
+        "Name": "WESTERN DIGITAL CORP",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 6.55052194408848,
+        "sector": "Information Technology",
+        "style_row_compounder_fit": 0.8077028879279698,
+        "ticker": "WDC"
+      },
+      {
+        "Name": "ZTO Express",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "future_winner",
+        "score": 1.4666458696895754,
+        "sector": "Industrials",
+        "style_row_compounder_fit": 0.781784929529501,
+        "ticker": "ZTO"
+      }
+    ],
+    "top_turnaround": [
+      {
+        "Name": "PDD Holdings (Pinduoduo / Temu)",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "unassigned",
+        "score": 1.9213759574763245,
+        "sector": "Internet",
+        "style_row_turnaround_fit": 0.5174557786521308,
+        "ticker": "PDD"
+      },
+      {
+        "Name": "PALANTIR TECHNOLOGIES INC CLASS A",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 6.11508667978894,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.4737058163970826,
+        "ticker": "PLTR"
+      },
+      {
+        "Name": "APPLOVIN CORP CLASS A",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 4.208641760221466,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.3218485607674132,
+        "ticker": "APP"
+      },
+      {
+        "Name": "AMAZON.COM INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 5.288097221911943,
+        "sector": "Consumer Discretionary",
+        "style_row_turnaround_fit": 0.3067286287557029,
+        "ticker": "AMZN"
+      },
+      {
+        "Name": "Quantum Computing Inc",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "unassigned",
+        "score": -3.3368643709784878,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.2951052990946984,
+        "ticker": "QUBT"
+      },
+      {
+        "Name": "COGNIZANT TECHNOLOGY SOLUTIONS COR",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "unassigned",
+        "score": -2.790669066407495,
+        "sector": "Information Technology",
+        "style_row_turnaround_fit": 0.2884077803400401,
+        "ticker": "CTSH"
+      },
+      {
+        "Name": "MAPLEBEAR INC",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "unassigned",
+        "score": -0.4669450695149679,
+        "sector": "Consumer Staples",
+        "style_row_turnaround_fit": 0.2797990829873232,
+        "ticker": "CART"
+      },
+      {
+        "Name": "ALPHABET INC CLASS A",
+        "market_style_regime_label": "breakout_growth",
+        "portfolio_sleeve_label": "core_compounder",
+        "score": 7.528157807284011,
+        "sector": "Communication",
+        "style_row_turnaround_fit": 0.2766974858714293,
+        "ticker": "GOOGL"
+      }
+    ]
+  },
+  "latest_scored": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv",
+  "months": 84,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "status": "completed"
+}

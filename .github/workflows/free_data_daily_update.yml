@@ -21,7 +21,7 @@ permissions:
 jobs:
   daily_update:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -103,7 +103,7 @@ jobs:
             exit 0
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
           mkdir -p ~/.config/rclone
@@ -143,6 +143,11 @@ jobs:
               rclone copy "$BASE$d" "$d/"
             fi
           done
+          mkdir -p data_raw/free/sec
+          if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive] restoring existing root companyfacts.zip -> data_raw/free/sec/companyfacts.zip"
+            rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+          fi
 
       - name: Run free data daily validation
         if: steps.market.outputs.ready == 'yes'
@@ -164,6 +169,146 @@ jobs:
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
+          python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+
+      - name: Refresh broker-ledger account reports from latest close
+        if: steps.market.outputs.ready == 'yes'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          mkdir -p outputs/full_rebuild_logs
+          python tools/run_after_close_account_refresh.py \
+            --latest-run "$LATEST" \
+            --price-cache cache_prices \
+            --output-dir outputs/after_close_account_refresh \
+            --fill-mode next_close \
+            --cost-bps 25 \
+            --max-fill-lag-days 7 \
+            2>&1 | tee outputs/full_rebuild_logs/after_close_account_refresh.log
+
+      - name: Run merged after-close signal diagnostics
+        if: steps.market.outputs.ready == 'yes'
+        continue-on-error: true
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -o pipefail
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          mkdir -p outputs/full_rebuild_logs
+          python tools/macro_daily_snapshot.py --telegram 2>&1 | tee outputs/full_rebuild_logs/merged_macro_daily_snapshot.log || true
+          python tools/etf_leadership_snapshot.py --telegram 2>&1 | tee outputs/full_rebuild_logs/merged_etf_leadership_snapshot.log || true
+
+          SCORED_CSV=""
+          for p in \
+            "$LATEST/scored_latest.csv" \
+            outputs/scored_latest.csv \
+            cloud_results/full_rebuild/latest/scored_latest.csv
+          do
+            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
+          done
+          if [ -n "$SCORED_CSV" ]; then
+            python tools/run_theme_leadership_tape.py \
+              --scored "$SCORED_CSV" \
+              --price-cache cache_prices \
+              --output-dir outputs/merged_after_close/theme_leadership_tape \
+              2>&1 | tee outputs/full_rebuild_logs/merged_theme_leadership_tape.log || true
+            python tools/explosive_mover_scan_daily.py \
+              --scored "$SCORED_CSV" \
+              --top-n 10 \
+              --entry-threshold 0.65 \
+              --telegram \
+              2>&1 | tee outputs/full_rebuild_logs/merged_explosive_mover_scan.log || true
+          else
+            echo "::warning::merged after-close diagnostics skipped scored-dependent scans: no scored_latest.csv found"
+          fi
+
+      - name: Run merged daily AutoLearning diagnostics
+        if: steps.market.outputs.ready == 'yes'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          BASE="outputs/merged_daily_autolearning"
+          mkdir -p "$BASE" outputs/full_rebuild_logs
+
+          python tools/run_winner_lifecycle_reports.py \
+            --latest-run "$LATEST" \
+            --output-dir "$BASE/winner_lifecycle" \
+            2>&1 | tee outputs/full_rebuild_logs/merged_winner_lifecycle.log || true
+
+          if [ -f "$LATEST/scored_latest.csv" ]; then
+            python tools/run_winner_onset_study.py \
+              --scored "$LATEST/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir "$BASE/winner_onset_study" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_winner_onset_study.log || true
+            python tools/run_shakeout_breakdown_study.py \
+              --scored "$LATEST/scored_latest.csv" \
+              --top-tickers 120 \
+              --limit 80 \
+              --years 10 \
+              --sleep 0 \
+              --output-dir "$BASE/shakeout_breakdown_study" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_shakeout_breakdown_study.log || true
+          else
+            echo "::warning::merged AutoLearning skipped onset/shakeout studies: $LATEST/scored_latest.csv missing"
+          fi
+
+          if [ -f "$LATEST/reports/main_monthly_weights.csv" ]; then
+            python tools/run_main_cash_drag_replay.py \
+              --latest-run "$LATEST" \
+              --output-dir "$BASE/main_cash_drag_replay" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_main_cash_drag_replay.log || true
+            python tools/run_historical_trade_journey.py \
+              --latest-run "$LATEST" \
+              --output-dir "$BASE/historical_trade_journey" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_historical_trade_journey.log || true
+          fi
+
+          if [ -f "$LATEST/reports/candidate_replay_book.csv" ]; then
+            python tools/run_main_v2_backtest.py \
+              --latest-run "$LATEST" \
+              --output-dir "$BASE/main_v2_backtest" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_main_v2_backtest.log || true
+            python tools/run_concentrated_policy_replay.py \
+              --latest-run "$LATEST" \
+              --output-dir "$BASE/concentrated_policy_replay" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_concentrated_policy_replay.log || true
+            python tools/run_alpha_sprint_backtest.py \
+              --latest-run "$LATEST" \
+              --output-dir "$BASE/alpha_sprint_backtest" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_alpha_sprint_backtest.log || true
+            if [ -f "$BASE/main_v2_backtest/monthly_holdings.csv" ]; then
+              python tools/run_position_aware_risk_replay.py \
+                --holdings "$BASE/main_v2_backtest/monthly_holdings.csv" \
+                --output-dir "$BASE/position_aware_risk_replay" \
+                2>&1 | tee outputs/full_rebuild_logs/merged_position_aware_risk_replay.log || true
+            fi
+            python tools/run_monster_lifecycle_replay.py \
+              --latest-run "$LATEST" \
+              --policy concentrated \
+              --output-dir "$BASE/monster_lifecycle_replay" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_monster_lifecycle_replay.log || true
+            python tools/run_lifecycle_review_overlay.py \
+              --latest-run "$LATEST" \
+              --policy lifecycle_review_main \
+              --output-dir "$BASE/lifecycle_review_overlay_main" \
+              2>&1 | tee outputs/full_rebuild_logs/merged_lifecycle_review_overlay_main.log || true
+          fi
+
+          python tools/run_autolearning_winner_challenger.py \
+            --latest-run "$LATEST" \
+            --lifecycle-dir "$BASE/winner_lifecycle" \
+            --onset-dir "$BASE/winner_onset_study" \
+            --shakeout-dir "$BASE/shakeout_breakdown_study" \
+            --output-dir "$BASE/autolearning_winner_challenger" \
+            2>&1 | tee outputs/full_rebuild_logs/merged_autolearning_winner_challenger.log || true
 
       - name: Upload daily validation artifact
         if: always()
@@ -175,7 +320,17 @@ jobs:
             outputs/free_data_lake_bootstrap/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
+            outputs/ten_year_backtest_readiness/
+            outputs/after_close_account_refresh/
+            outputs/merged_after_close/
+            outputs/merged_daily_autolearning/
             outputs/full_rebuild_logs/free_data_*.log
+            outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+            outputs/full_rebuild_logs/after_close_account_refresh.log
+            outputs/full_rebuild_logs/merged_*.log
+            cloud_results/macro_daily/
+            cloud_results/etf_leadership/
+            cloud_results/explosive_movers/
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
           retention-days: 90
@@ -203,3 +358,13 @@ jobs:
           done
           rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
+          rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+          if [ -d outputs/after_close_account_refresh ]; then
+            rclone copy outputs/after_close_account_refresh "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/after_close_account_refresh/"
+          fi
+          if [ -d outputs/merged_after_close ]; then
+            rclone copy outputs/merged_after_close "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/merged_after_close/"
+          fi
+          if [ -d outputs/merged_daily_autolearning ]; then
+            rclone copy outputs/merged_daily_autolearning "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/merged_daily_autolearning/"
+          fi

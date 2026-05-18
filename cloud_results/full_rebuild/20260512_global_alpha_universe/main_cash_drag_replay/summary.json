@@ -1,0 +1,55 @@
+{
+  "base_metrics": {
+    "avg_cash_weight": 0.20926166140086266,
+    "avg_monthly_return": 0.025655055257112057,
+    "avg_turnover_monthly": 0.5050866702632754,
+    "cagr": 0.3440025431580862,
+    "max_dd": -0.05421716020226974,
+    "months": 83,
+    "sharpe": 2.3147029355936604,
+    "terminal_multiple": 7.728596358287788,
+    "vol_ann": 0.13300223469340636
+  },
+  "base_vs_production_delta": {
+    "avg_cash_weight": -8.326672684688674e-17,
+    "cagr": 0.052131465245395026,
+    "max_dd": 0.12041070026576572
+  },
+  "best_by_cagr": {
+    "avg_cash_weight": -4.493560811265223e-18,
+    "avg_monthly_return": 0.02707653480053202,
+    "avg_turnover_monthly": 0.4923715096859872,
+    "cagr": 0.35868955754540366,
+    "cash_cap": 0.0,
+    "delta_cagr_vs_base": 0.014687014387317454,
+    "delta_max_dd_vs_base": -0.0853772423312893,
+    "max_dd": -0.13959440253355904,
+    "model": "cash0.00_cap0.18",
+    "months": 83,
+    "production_activation_allowed": false,
+    "sharpe": 1.875055428601023,
+    "single_name_cap": 0.18,
+    "terminal_multiple": 8.331981746506672,
+    "vol_ann": 0.17328470009486896
+  },
+  "candidate_count": 16,
+  "cash_alignment": {
+    "avg_cash_gap_before_alignment": 0.1590059515907154,
+    "avg_explicit_cash_before_alignment": 0.050255709810147306,
+    "avg_reported_cash_weight": 0.20926166140086266,
+    "cash_source": "reported_regime_by_month",
+    "regime_rows": 83
+  },
+  "generated_at_utc": "2026-05-12T23:25:17.481279+00:00",
+  "mode": "research_only",
+  "note": "Uses existing monthly selected holdings only; it cannot discover missed tickers.",
+  "production_activation_allowed": false,
+  "production_metrics": {
+    "avg_cash_weight": 0.20926166140086275,
+    "avg_turnover_monthly": 0.529198387898223,
+    "cagr": 0.2918710779126912,
+    "max_dd": -0.17462786046803547,
+    "months": 83,
+    "sharpe": 1.7248976396719429
+  }
+}

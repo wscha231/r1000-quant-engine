@@ -6,6 +6,7 @@ portfolio construction or order execution.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -76,10 +77,30 @@ def infer_regime(rows: list[dict[str, Any]], default: str = "neutral") -> str:
 
 
 def _first_float(row: dict[str, Any], keys: tuple[str, ...], default: float = 0.0) -> float:
+    """Return the first finite float across keys in fallback order.
+
+    Critical: NaN and inf must NOT be treated as valid values. The
+    historical PIT candidate book leaves `market_cap_live` /
+    `current_price_live` as NaN on rows where the legacy snapshot was
+    missing; the intended fallback is the older `mktcap` / `px` column.
+    Pre-fix this function accepted NaN as "not None/empty" and
+    immediately returned safe_float(NaN, default) = 0.0, which silently
+    failed every universe filter (market_cap >= 1B, price >= 10) across
+    84/84 backtest months. alpha_sprint sleeve was therefore dormant
+    for purely a data-handling reason, not a strategy reason. The fix
+    requires both NaN AND inf to fall through to the next key.
+    """
     for key in keys:
         value = row.get(key)
-        if value not in (None, ""):
-            return safe_float(value, default)
+        if value is None or value == "":
+            continue
+        try:
+            out = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(out):
+            continue
+        return out
     return default
 
 

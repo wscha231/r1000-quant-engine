@@ -331,7 +331,6 @@ def _long_trend_damage_score(row: dict[str, Any]) -> float:
     label = str(row.get("regime_label") or "").lower()
     state = str(row.get("regime_state") or "").lower()
     dd_before = safe_float(row.get("drawdown_before_month"), 0.0)
-    dd_after = safe_float(row.get("drawdown_after_month"), 0.0)
     score = 0.0
     if "systemic" in label:
         score += 0.60
@@ -347,11 +346,11 @@ def _long_trend_damage_score(row: dict[str, Any]) -> float:
     elif state in {"bull", "strong_bull"}:
         score -= 0.15
 
-    if dd_before <= -0.15 or dd_after <= -0.15:
+    if dd_before <= -0.15:
         score += 0.35
-    elif dd_before <= -0.08 or dd_after <= -0.08:
+    elif dd_before <= -0.08:
         score += 0.15
-    elif dd_before <= -0.04 or dd_after <= -0.04:
+    elif dd_before <= -0.04:
         score += 0.04
     return _clip_score(score)
 
@@ -396,12 +395,11 @@ def _cash_raise_confirmation_count(
     label = str(row.get("regime_label") or "").lower()
     state = str(row.get("regime_state") or "").lower()
     dd_before = safe_float(row.get("drawdown_before_month"), 0.0)
-    dd_after = safe_float(row.get("drawdown_after_month"), 0.0)
     checks = [
         trend_score >= 0.35 or state in {"bear", "deep_bear"},
         liquidity_score >= 0.35,
         breadth_credit_score >= 0.35 or any(token in label for token in CONFIRMED_RISK_LABEL_TOKENS),
-        dd_before <= -0.15 or dd_after <= -0.15,
+        dd_before <= -0.15,
     ]
     return sum(1 for item in checks if item)
 
@@ -409,7 +407,6 @@ def _cash_raise_confirmation_count(
 def _risk_state(row: dict[str, Any], risk_score: float) -> str:
     label = str(row.get("regime_label") or "").lower()
     dd_before = safe_float(row.get("drawdown_before_month"), 0.0)
-    dd_after = safe_float(row.get("drawdown_after_month"), 0.0)
     trend = _long_trend_damage_score(row)
     liquidity = _liquidity_drain_score(row)
     breadth_credit = _breadth_credit_stress_score(row)
@@ -418,11 +415,11 @@ def _risk_state(row: dict[str, Any], risk_score: float) -> str:
 
     if "systemic" in label and confirmations >= 2:
         return "crisis"
-    if confirmations >= 3 and (dd_before <= -0.15 or dd_after <= -0.15 or risk_score >= 0.65):
+    if confirmations >= 3 and (dd_before <= -0.15 or risk_score >= 0.65):
         return "crisis"
     if confirmations >= 2 and risk_score >= 0.40:
         return "red"
-    if "growth_reentry" in label and confirmations <= 1 and dd_before > -0.12 and dd_after > -0.08:
+    if "growth_reentry" in label and confirmations <= 1 and dd_before > -0.12:
         return "recovery"
     if confirmations >= 1 or risk_score >= 0.28 or event_shock >= 0.50:
         return "yellow"

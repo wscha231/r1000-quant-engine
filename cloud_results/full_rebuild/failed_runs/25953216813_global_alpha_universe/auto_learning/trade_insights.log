@@ -1,0 +1,2 @@
+[insights] ERROR: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/trades.parquet not found or empty.
+[insights] Run a backtest first to populate outputs/trade_journal/

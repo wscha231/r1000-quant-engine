@@ -34,11 +34,12 @@ from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 DEFAULT_OUT_DIR = "outputs/broker_replay"
-CONCENTRATED_CHAMPION_FILTERS = {
+DEFAULT_CONCENTRATED_CHAMPION_FILTERS = {
     "target_stock_names": "3",
     "weighting_mode": "score_power",
     "active_rebalance_interval_months": "1",
 }
+CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -67,24 +68,152 @@ def read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def filter_concentrated_champion(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+def filter_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if math.isfinite(number) and abs(number - round(number)) < 1e-9:
+            return str(int(round(number)))
+    except (TypeError, ValueError):
+        pass
+    return text
+
+
+def comparison_path_for_target_book(target_book: Path) -> Path:
+    return target_book.parent / "concentrated_strategy_comparison.csv"
+
+
+def resolve_concentrated_champion_filters(
+    *,
+    target_book: Path,
+    raw_targets: pd.DataFrame,
+    portfolio_kind: str,
+    explicit_filters: dict[str, Any] | None = None,
+) -> tuple[dict[str, str], str, str]:
+    if portfolio_kind != "concentrated":
+        return {}, "not_applicable", ""
+    if explicit_filters:
+        filters = {str(k): filter_value(v) for k, v in explicit_filters.items() if filter_value(v)}
+        if filters:
+            return filters, "explicit", ""
+
+    comparison_path = comparison_path_for_target_book(target_book)
+    comparison = read_csv(comparison_path)
+    if not comparison.empty:
+        d = comparison.copy()
+        if "portfolio_mode" in d.columns:
+            d = d[d["portfolio_mode"].astype(str).eq("concentrated_alpha")].copy()
+        for col in ["target_stock_names", "strategy_cagr", "sharpe", "max_dd"]:
+            if col not in d.columns:
+                d[col] = np.nan
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+        d = d[
+            d["target_stock_names"].notna()
+            & d["strategy_cagr"].notna()
+            & d["sharpe"].notna()
+            & d["max_dd"].notna()
+        ].copy()
+        if not d.empty:
+            row = d.iloc[0].to_dict()
+            filters = {
+                "target_stock_names": filter_value(row.get("target_stock_names")),
+                "weighting_mode": filter_value(row.get("weighting_mode") or "score_power"),
+                "active_rebalance_interval_months": filter_value(row.get("rebalance_interval_months") or 1),
+            }
+            filters = {k: v for k, v in filters.items() if v}
+            missing_cols = [col for col in filters if col not in raw_targets.columns]
+            if missing_cols:
+                warning = "comparison champion could not be fully applied; missing target-book columns: " + ",".join(missing_cols)
+                return DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(), "default_static", warning
+            return filters, str(comparison_path), ""
+
+    return (
+        DEFAULT_CONCENTRATED_CHAMPION_FILTERS.copy(),
+        "default_static",
+        f"champion comparison artifact missing or invalid: {comparison_path}",
+    )
+
+
+def filter_concentrated_champion(
+    frame: pd.DataFrame,
+    portfolio_kind: str,
+    champion_filters: dict[str, Any] | None = None,
+    preserve_tail_row: bool = True,
+) -> pd.DataFrame:
+    """F13 (2026-05-14): preserve_tail_row defaults TRUE. The champion filter
+    historically dropped the latest-recommendation row when its champion
+    metadata (target_stock_names / weighting_mode / etc.) differed from the
+    historical-strategy params. Symptom in run 25860138864: Concentrated
+    operating_target_book had a 2026-05-13 row with target_stock_names=3 /
+    weighting_mode=winner_take_all, while the champion filter required N=2 /
+    conviction_curve, so the 5/13 row was silently dropped and F4 tail-row
+    same_close fallback never had a chance to fire.
+
+    With preserve_tail_row=True, the row(s) with the maximum rebalance_date
+    in the frame are kept regardless of metadata mismatch. Historical rows
+    still go through the filter normally. Set False to recover the previous
+    behavior (legacy strict filter).
+    """
     if portfolio_kind != "concentrated" or frame.empty:
         return frame
     out = frame.copy()
-    for col, expected in CONCENTRATED_CHAMPION_FILTERS.items():
+    filters = champion_filters or DEFAULT_CONCENTRATED_CHAMPION_FILTERS
+    # F13 (2026-05-14): remember the original tail date so we can detect
+    # whether the post-filter result accidentally dropped ALL tail rows.
+    original_tail_date: pd.Timestamp | None = None
+    original_tail_rows: pd.DataFrame | None = None
+    distinct_dates = 0
+    if preserve_tail_row and "rebalance_date" in out.columns:
+        rd = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        if rd.notna().any():
+            distinct_dates = int(rd.dt.normalize().nunique())
+            if distinct_dates >= 2:
+                # Only meaningful to "preserve the tail row" when there are
+                # multiple distinct rebalance dates -- otherwise every row
+                # IS a tail row and the filter must apply normally.
+                original_tail_date = rd.max()
+                original_tail_rows = frame.loc[rd == original_tail_date].copy()
+    for col, expected_raw in filters.items():
         if col not in out.columns:
             continue
-        values = out[col].astype(str).str.strip()
+        expected = filter_value(expected_raw)
+        if not expected:
+            continue
+        values = out[col].map(filter_value)
         mask = values.eq(expected)
         if mask.any():
             out = out[mask].copy()
+    # F13: if all tail-date rows were dropped by the champion filter, splice
+    # them back in. Symptom this fixes: Concentrated 2026-05-13 row carries
+    # winner_take_all/N=3 metadata while champion filter wants conviction_curve
+    # /N=2 -- without this carve-out, the 5/13 latest-recommendation row gets
+    # silently dropped, F4 tail-row fallback never fires, operating account
+    # stays frozen at the prior historical rebalance.
+    if (
+        original_tail_date is not None
+        and original_tail_rows is not None
+        and not original_tail_rows.empty
+        and "rebalance_date" in out.columns
+    ):
+        rd_post = pd.to_datetime(out["rebalance_date"], errors="coerce")
+        post_has_tail = bool((rd_post == original_tail_date).any())
+        if not post_has_tail:
+            out = pd.concat([out, original_tail_rows], ignore_index=True)
     return out
 
 
-def normalize_targets(frame: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
+def normalize_targets(
+    frame: pd.DataFrame,
+    portfolio_kind: str,
+    champion_filters: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     if frame.empty or "rebalance_date" not in frame.columns or "ticker" not in frame.columns or "weight" not in frame.columns:
         return pd.DataFrame()
-    d = filter_concentrated_champion(frame.copy(), portfolio_kind)
+    d = filter_concentrated_champion(frame.copy(), portfolio_kind, champion_filters)
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
@@ -221,15 +350,53 @@ class LedgerState:
     realized_pnl: dict[str, float] = field(default_factory=dict)
 
 
-def account_equity(state: LedgerState, prices: dict[str, pd.DataFrame], date: pd.Timestamp) -> tuple[float, dict[str, float]]:
+def account_equity(
+    state: LedgerState,
+    prices: dict[str, pd.DataFrame],
+    date: pd.Timestamp,
+    delisted_recovery_rate: float = 0.0,
+    delisted_log: list[dict[str, Any]] | None = None,
+) -> tuple[float, dict[str, float]]:
+    """Mark-to-market the LedgerState at `date`.
+
+    2026-05-14 hard-gate fix (broker_accounting_audit.delisted_cost_basis_fallback_eliminated):
+    when `price_at_or_before` returns None / <=0 / NaN (ticker has no usable
+    cache data on-or-before `date` -- typically a delisted-to-zero / fire-sale
+    bankruptcy / cache gap), DO NOT fall back to `state.cost_basis`. Falling
+    back to cost basis silently held dead positions at their original purchase
+    value, understating MaxDD over multi-year windows.
+
+    New behavior:
+      px = qty * (last_known_close OR delisted_recovery_rate * cost_basis)
+    Default delisted_recovery_rate = 0.0 -> a dead position contributes $0 to
+    equity (the honest accounting for delisting/bankruptcy). The position
+    stays in state.shares so downstream diagnostics can see it, but it does
+    NOT prop up account_equity.
+
+    `delisted_log` (optional) captures per-ticker zero-marks for diagnostics;
+    callers should pass a list to collect events.
+    """
     values: dict[str, float] = {}
     equity = float(state.cash)
     for ticker, qty in list(state.shares.items()):
         if abs(qty) <= 1e-12:
             continue
         px = price_at_or_before(prices, ticker, date)
+        marked_via = "last_close"
         if px is None or px <= 0:
-            px = safe_float(state.cost_basis.get(ticker), 0.0)
+            cost = safe_float(state.cost_basis.get(ticker), 0.0)
+            px = float(delisted_recovery_rate) * cost
+            marked_via = "delisted_zero_mark" if delisted_recovery_rate == 0.0 else "delisted_partial_recovery"
+            if delisted_log is not None:
+                delisted_log.append({
+                    "as_of_date": pd.Timestamp(date).date().isoformat(),
+                    "ticker": ticker,
+                    "qty": float(qty),
+                    "cost_basis_per_share": float(cost),
+                    "recovery_rate": float(delisted_recovery_rate),
+                    "marked_price": float(px),
+                    "marked_via": marked_via,
+                })
         value = float(qty) * float(px)
         values[ticker] = value
         equity += value
@@ -294,7 +461,12 @@ def execute_order(
     }
 
 
-def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capital: float) -> dict[str, Any]:
+def calc_metrics(
+    equity_curve: pd.DataFrame,
+    trades: pd.DataFrame,
+    starting_capital: float,
+    risk_free_annual: float = 0.025,
+) -> dict[str, Any]:
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve"}
     eq = pd.to_numeric(equity_curve["equity_usd"], errors="coerce").dropna()
@@ -308,7 +480,14 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
     trough_pos = int(drawdown.argmin()) if not drawdown.empty else 0
     peak_pos = int(eq.iloc[: trough_pos + 1].argmax()) if not eq.empty else 0
     vol = float(returns.std(ddof=0) * math.sqrt(252.0)) if not returns.empty else 0.0
-    sharpe = float((returns.mean() * 252.0) / (vol + 1e-12)) if not returns.empty else 0.0
+    # 2026-05-14 soft-gate fix (broker_accounting_audit.sharpe_uses_excess_return):
+    # subtract a constant annual risk-free rate from the strategy's annualized
+    # return before dividing by vol. Default 2.5% reflects the 2019-2026 average
+    # T-bill yield; callers can override via `risk_free_annual`. Previously this
+    # used risk_free=0 implicitly, overstating Sharpe by ~0.20-0.30.
+    rf_annual = float(risk_free_annual)
+    ann_return = float(returns.mean() * 252.0) if not returns.empty else 0.0
+    sharpe = float((ann_return - rf_annual) / (vol + 1e-12)) if not returns.empty else 0.0
     fees = float(pd.to_numeric(trades.get("fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
     gross_traded = float(pd.to_numeric(trades.get("gross_value", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not trades.empty else 0.0
     return {
@@ -323,6 +502,7 @@ def calc_metrics(equity_curve: pd.DataFrame, trades: pd.DataFrame, starting_capi
         "total_return": float(eq.iloc[-1] / max(starting_capital, 1e-12) - 1.0),
         "cagr": cagr,
         "sharpe": sharpe,
+        "sharpe_risk_free_annual": rf_annual,
         "max_dd": float(drawdown.min()),
         "max_dd_peak_date": dates.iloc[peak_pos].date().isoformat() if len(dates) else None,
         "max_dd_trough_date": dates.iloc[trough_pos].date().isoformat() if len(dates) else None,
@@ -411,12 +591,38 @@ def replay(
     integer_shares: bool = True,
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
+    concentrated_champion_filters: dict[str, Any] | None = None,
+    tail_row_fill_fallback_same_close: bool = False,
 ) -> dict[str, Any]:
+    """Run a broker-ledger replay.
+
+    2026-05-14 F4: `tail_row_fill_fallback_same_close` (default False) makes
+    the LAST signal_date in the target book retry with `same_close` fill mode
+    when `next_close` / `next_open` returns no price (typical scenario: the
+    latest recommendation lands on the same date as the most recent cache
+    close, so there is no `next_close` available yet). Historical rows
+    continue to use the requested fill_mode; only the tail row is allowed
+    the fallback. This closes the "33 pending orders" gap visible in
+    user_portfolio_reports without changing historical metric semantics.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
-    targets = normalize_targets(raw, portfolio_kind)
+    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+        target_book=target_book,
+        raw_targets=raw,
+        portfolio_kind=portfolio_kind,
+        explicit_filters=concentrated_champion_filters,
+    )
+    targets = normalize_targets(raw, portfolio_kind, champion_filters)
     if targets.empty:
-        payload = {"status": "blocked", "reason": "target book is empty or invalid", "target_book": str(target_book)}
+        payload = {
+            "status": "blocked",
+            "reason": "target book is empty or invalid",
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+        }
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
@@ -427,6 +633,9 @@ def replay(
             "target_book": str(target_book),
             "research_only": True,
             "valid_for_production": False,
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
         (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -443,19 +652,50 @@ def replay(
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
 
-    for signal_dt in sorted(periods.keys()):
+    sorted_signal_dts = sorted(periods.keys())
+    tail_signal_dt = sorted_signal_dts[-1] if sorted_signal_dts else None
+    tail_fallback_activated_signal_dt: pd.Timestamp | None = None
+    for signal_dt in sorted_signal_dts:
         target = targets[targets["rebalance_date"].eq(signal_dt)].copy()
         if target.empty:
             continue
+        # Tail-row fallback (2026-05-14 F4): if the requested fill_mode is
+        # next_close / next_open and we're processing the LAST signal_dt,
+        # try the requested mode first; if all tickers come back unfillable
+        # (typical when latest cache close == signal_dt and there is no
+        # next_close yet), retry with same_close on the same signal_dt.
+        effective_fill_mode = fill_mode
         fill_dt_by_ticker: dict[str, pd.Timestamp] = {}
         fill_px_by_ticker: dict[str, float] = {}
         for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
             if ticker in CASH_TICKERS:
                 continue
-            actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
+            actual_dt, px = fill_price(prices, ticker, signal_dt, effective_fill_mode, max_fill_lag_days)
             if actual_dt is not None and px is not None:
                 fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
                 fill_px_by_ticker[ticker] = float(px)
+        # If tail row produced zero fills under next_close, retry with
+        # same_close. Diagnostic stamped on the trade rows so downstream
+        # reports can flag the synthetic-fill semantics.
+        tail_fallback_used = False
+        if (
+            tail_row_fill_fallback_same_close
+            and tail_signal_dt is not None
+            and pd.Timestamp(signal_dt) == pd.Timestamp(tail_signal_dt)
+            and not fill_dt_by_ticker
+            and fill_mode in {"next_close", "next_open"}
+        ):
+            effective_fill_mode = "same_close"
+            for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
+                if ticker in CASH_TICKERS:
+                    continue
+                actual_dt, px = fill_price(prices, ticker, signal_dt, effective_fill_mode, max_fill_lag_days)
+                if actual_dt is not None and px is not None:
+                    fill_dt_by_ticker[ticker] = pd.Timestamp(actual_dt).normalize()
+                    fill_px_by_ticker[ticker] = float(px)
+            if fill_dt_by_ticker:
+                tail_fallback_used = True
+                tail_fallback_activated_signal_dt = pd.Timestamp(signal_dt)
         if not fill_dt_by_ticker:
             continue
         fill_dt = min(fill_dt_by_ticker.values())
@@ -561,6 +801,40 @@ def replay(
                     }
                 )
 
+    if not equity_rows:
+        metrics = {
+            "status": "blocked",
+            "reason": "no_equity_marks_generated",
+            "portfolio_kind": portfolio_kind,
+            "fill_mode": fill_mode,
+            "price_mode": "adjusted_close",
+            "integer_shares": bool(integer_shares),
+            "cost_bps_per_side": float(cost_bps),
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+            "price_cache": str(price_cache),
+            "valid_for_production": False,
+            "max_fill_lag_days": int(max_fill_lag_days),
+            "tail_row_fill_fallback_same_close_enabled": bool(tail_row_fill_fallback_same_close),
+            "tail_row_fill_fallback_activated_at": (
+                str(pd.Timestamp(tail_fallback_activated_signal_dt).date())
+                if tail_fallback_activated_signal_dt is not None
+                else None
+            ),
+            "hint": "No account equity rows were produced. The most common cause is missing price-cache coverage for target-book tickers.",
+            **weight_diag,
+        }
+        pd.DataFrame(columns=["date", "equity_usd", "cash_usd", "cash_weight", "stock_value_usd", "position_count", "fill_mode"]).to_csv(output_dir / "equity_curve.csv", index=False)
+        pd.DataFrame(trade_rows).to_csv(output_dir / "trades.csv", index=False)
+        pd.DataFrame(holdings_rows).to_csv(output_dir / "holdings_daily.csv", index=False)
+        pd.DataFrame(cash_rows).to_csv(output_dir / "cash_ledger.csv", index=False)
+        pd.DataFrame(target_vs_actual_rows).to_csv(output_dir / "target_vs_actual_weights.csv", index=False)
+        (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+        (output_dir / "replay_report.md").write_text(render_report(metrics), encoding="utf-8")
+        return metrics
+
     equity_df = pd.DataFrame(equity_rows).drop_duplicates("date", keep="last").sort_values("date")
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)
@@ -575,9 +849,18 @@ def replay(
             "integer_shares": bool(integer_shares),
             "cost_bps_per_side": float(cost_bps),
             "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
             "max_fill_lag_days": int(max_fill_lag_days),
+            "tail_row_fill_fallback_same_close_enabled": bool(tail_row_fill_fallback_same_close),
+            "tail_row_fill_fallback_activated_at": (
+                str(pd.Timestamp(tail_fallback_activated_signal_dt).date())
+                if tail_fallback_activated_signal_dt is not None
+                else None
+            ),
             **weight_diag,
         }
     )
@@ -655,6 +938,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fractional-shares", action="store_true")
     parser.add_argument("--max-reasonable-weight-sum", type=float, default=1.05)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
+    parser.add_argument(
+        "--tail-row-fill-fallback-same-close",
+        action="store_true",
+        help=(
+            "F4 (2026-05-14): when the LAST signal_date in target_book "
+            "cannot fill under next_close/next_open (typically because the "
+            "latest cache close IS the signal_date), retry that single row "
+            "with same_close. Closes the 'N pending orders' gap between "
+            "recommendation and operating account. Historical rows still "
+            "use the requested fill_mode."
+        ),
+    )
+    parser.add_argument("--concentrated-target-stock-n", type=int, default=0)
+    parser.add_argument("--concentrated-weighting-mode", default="")
+    parser.add_argument("--concentrated-rebalance-interval-months", type=int, default=0)
     return parser.parse_args()
 
 
@@ -671,6 +969,16 @@ def main() -> int:
         integer_shares=not bool(args.fractional_shares),
         max_reasonable_weight_sum=args.max_reasonable_weight_sum,
         max_fill_lag_days=args.max_fill_lag_days,
+        tail_row_fill_fallback_same_close=bool(args.tail_row_fill_fallback_same_close),
+        concentrated_champion_filters={
+            key: value
+            for key, value in {
+                "target_stock_names": args.concentrated_target_stock_n or None,
+                "weighting_mode": args.concentrated_weighting_mode or None,
+                "active_rebalance_interval_months": args.concentrated_rebalance_interval_months or None,
+            }.items()
+            if value is not None
+        },
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

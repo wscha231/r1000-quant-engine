@@ -1,0 +1,21 @@
+{
+  "account_mode": "simulated",
+  "error_count": 0,
+  "fill_template_order_count": 32,
+  "generated_at_utc": "2026-05-13T14:40:54.301931+00:00",
+  "issues": [
+    {
+      "check_id": "simulated_broker_account",
+      "details": "{}",
+      "message": "simulated broker-ledger account is the intended account source; live broker snapshot reconciliation was intentionally skipped",
+      "path": "",
+      "severity": "info"
+    }
+  ],
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "manifest_order_count": 32,
+  "schema_version": "live-trading-risk-controls-v1",
+  "status": "pass",
+  "strict_live": false,
+  "warning_count": 0
+}

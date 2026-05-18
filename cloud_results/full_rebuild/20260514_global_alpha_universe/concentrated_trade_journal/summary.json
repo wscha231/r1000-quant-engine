@@ -1,0 +1,110 @@
+{
+  "champion": {
+    "max_dd": -0.1482922030415612,
+    "rebalance_interval_months": 1,
+    "sharpe": 1.8844929489164728,
+    "strategy_cagr": 0.5629735833612635,
+    "target_stock_names": 5,
+    "weighting_mode": "winner_take_all"
+  },
+  "holding_rows": 415,
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "monthly_rows": 83,
+  "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_trade_journal",
+  "research_only": true,
+  "source": "concentrated_strategy_grid_champion",
+  "status": "completed",
+  "trade_digest": {
+    "by_regime": {
+      "balanced": {
+        "GOOD_EXIT": 29,
+        "LOSS": 2,
+        "NEUTRAL": 102,
+        "WIN": 40
+      },
+      "growth_reentry_alert": {
+        "GOOD_EXIT": 3,
+        "LOSS": 1,
+        "NEUTRAL": 11,
+        "WIN": 4
+      },
+      "risk_off_alert": {
+        "GOOD_EXIT": 5,
+        "LOSS": 0,
+        "NEUTRAL": 19,
+        "WIN": 9
+      },
+      "systemic_alert": {
+        "GOOD_EXIT": 1,
+        "LOSS": 0,
+        "NEUTRAL": 4,
+        "WIN": 1
+      }
+    },
+    "label_counts": {
+      "GOOD_EXIT": 38,
+      "LOSS": 3,
+      "NEUTRAL": 136,
+      "WIN": 54
+    },
+    "loss_rate": 0.012987012987012988,
+    "mean_realized": 0.07517411875478289,
+    "median_realized": 0.039868173616611324,
+    "n_trades": 231,
+    "top_losses": [
+      {
+        "grade_label": "LOSS",
+        "realized_return": -0.13042599432487367,
+        "ticker": "LRCX"
+      },
+      {
+        "grade_label": "LOSS",
+        "realized_return": -0.11100346220349933,
+        "ticker": "MA"
+      },
+      {
+        "grade_label": "LOSS",
+        "realized_return": -0.10735591293189606,
+        "ticker": "AVGO"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.0961766802813232,
+        "ticker": "DKS"
+      },
+      {
+        "grade_label": "NEUTRAL",
+        "realized_return": -0.0826002973293154,
+        "ticker": "META"
+      }
+    ],
+    "top_wins": [
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 1.0092781593182956,
+        "ticker": "SE"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.897687790429627,
+        "ticker": "NVDA"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.7344420505960996,
+        "ticker": "LRCX"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.726473310749407,
+        "ticker": "DKS"
+      },
+      {
+        "grade_label": "GOOD_EXIT",
+        "realized_return": 0.7207407407407407,
+        "ticker": "SMCI"
+      }
+    ],
+    "win_rate": 0.39826839826839827
+  }
+}

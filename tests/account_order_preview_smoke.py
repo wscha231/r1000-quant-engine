@@ -82,14 +82,70 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert "idempotency_key" in orders.columns
         assert orders["client_order_id"].is_unique
         assert (out / "positions_current.csv").exists()
+        assert (out / "projected_positions_after_orders.csv").exists()
         assert (out / "preview_metrics.json").exists()
+        assert "projected_cash_weight" in payload
+        assert "target_cash_weight" in payload
+        projected = pd.read_csv(out / "projected_positions_after_orders.csv")
+        assert "projected_weight" in projected.columns
+        assert "CASH" in set(projected["ticker"])
         manifest = json.loads((out / "order_batch_manifest.json").read_text(encoding="utf-8"))
         assert manifest["order_count"] == len(orders)
         assert manifest["order_batch_id"] == payload["order_batch_id"]
 
 
+def test_order_preview_separates_blocked_deltas_from_actionable_orders() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        out = root / "preview"
+        cache.mkdir()
+        _write_px(cache, "AAA", [100.0, 100.0, 100.0])
+        _write_px(cache, "BBB", [50.0, 50.0, 50.0])
+        account = {
+            "as_of_date": "2026-01-02",
+            "cash_usd": 0.0,
+            "positions": [
+                {"ticker": "AAA", "shares": 100.0, "cost_basis": 90.0},
+            ],
+        }
+        account_path = root / "account_state_latest.json"
+        account_path.write_text(json.dumps(account), encoding="utf-8")
+        target = root / "target.csv"
+        pd.DataFrame(
+            [
+                {"ticker": "AAA", "weight": 1.00},
+                {"ticker": "BBB", "weight": 0.50},
+            ]
+        ).to_csv(target, index=False)
+        args = Args()
+        args.account_state = str(account_path)
+        args.target = str(target)
+        args.price_cache = str(cache)
+        args.portfolio_kind = "main"
+        args.output_dir = str(out)
+        args.as_of_date = ""
+        args.target_date = ""
+        args.cost_bps = 25.0
+        args.limit_margin_pct = 0.25
+        args.min_trade_usd = 25.0
+        args.fractional_shares = False
+        payload = run(args)
+        assert payload["status"] == "completed"
+        assert payload["order_count"] == 0
+        assert payload["blocked_order_count"] == 1
+        actionable = pd.read_csv(out / "orders_preview.csv")
+        review = pd.read_csv(out / "order_deltas_review.csv")
+        blocked = pd.read_csv(out / "non_actionable_order_deltas.csv")
+        assert actionable.empty
+        assert len(review) == 1
+        assert len(blocked) == 1
+        assert review.iloc[0]["status"] == "blocked_insufficient_cash"
+
+
 def main() -> int:
     test_order_preview_builds_sell_first_orders()
+    test_order_preview_separates_blocked_deltas_from_actionable_orders()
     print("account_order_preview_smoke: PASS")
     return 0
 

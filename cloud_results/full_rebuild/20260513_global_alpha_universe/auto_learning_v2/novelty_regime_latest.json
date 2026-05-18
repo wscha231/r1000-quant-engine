@@ -1,0 +1,21 @@
+{
+  "category_counts": {
+    "capital_allocation_mismatch": 1,
+    "dormant_signal_stack": 1,
+    "research_infrastructure_gap": 1,
+    "risk_policy_tradeoff": 1
+  },
+  "flags": [
+    "leadership_concentration",
+    "sprint_signal_gap",
+    "defense_return_tradeoff"
+  ],
+  "known_regime_confidence": 0.595,
+  "novelty_score": 12.96,
+  "production_activation_allowed": false,
+  "recommended_mode": "shadow_only",
+  "regime_counts": {
+    "system": 4
+  },
+  "status": "regime_assumption_review"
+}

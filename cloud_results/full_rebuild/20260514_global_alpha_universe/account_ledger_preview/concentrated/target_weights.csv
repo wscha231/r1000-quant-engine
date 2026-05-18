@@ -1,0 +1,6 @@
+ticker,target_weight,Name,sector,portfolio_sleeve_label
+FIX,0.5,COMFORT SYSTEMS USA INC,Industrials,future_winner
+CIEN,0.125,CIENA CORP,Information Technology,future_winner
+MRVL,0.125,MARVELL TECHNOLOGY INC,Information Technology,future_winner
+MU,0.125,MICRON TECHNOLOGY INC,Information Technology,future_winner
+NVDA,0.125,NVIDIA CORP,Information Technology,future_winner

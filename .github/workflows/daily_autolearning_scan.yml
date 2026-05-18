@@ -1,8 +1,9 @@
 name: Daily AutoLearning Scan
 
-# Report-only daily scan after the US market close. This workflow detects
-# missed winners, stale holdings, and leadership rotations; it never changes
-# production portfolio behavior.
+# Manual report-only scan for missed winners, stale holdings, and leadership
+# rotations. Scheduled daily AutoLearning diagnostics are owned by
+# `free_data_daily_update.yml` so after-close automation has a single daily
+# update surface.
 
 on:
   workflow_dispatch:
@@ -11,10 +12,6 @@ on:
         description: 'artifact source path to inspect'
         type: string
         default: cloud_results/full_rebuild/latest_global_alpha_universe
-  schedule:
-    # 22:30 UTC is after the regular US close in both DST and standard time.
-    # In Korea this is 07:30 KST on the following day.
-    - cron: '30 22 * * 1-5'
 
 permissions:
   contents: read

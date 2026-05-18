@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Concentrated Recommendation Weights</text>
+<path d="M 210.00 220.00 L 210.00 85.00 A 135.00 135.00 0 0 1 344.82 213.08 Z" fill="#2563eb" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 344.82 213.08 A 135.00 135.00 0 0 1 230.74 353.40 Z" fill="#16a34a" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 230.74 353.40 A 135.00 135.00 0 0 1 86.33 274.14 Z" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 86.33 274.14 A 135.00 135.00 0 0 1 124.85 115.24 Z" fill="#9333ea" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 124.85 115.24 A 135.00 135.00 0 0 1 163.43 93.29 Z" fill="#ea580c" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 163.43 93.29 A 135.00 135.00 0 0 1 192.62 86.12 Z" fill="#0891b2" stroke="#ffffff" stroke-width="2"/>
+<path d="M 210.00 220.00 L 192.62 86.12 A 135.00 135.00 0 0 1 210.00 85.00 Z" fill="#4f46e5" stroke="#ffffff" stroke-width="2"/>
+<rect x="400" y="70" width="14" height="14" fill="#2563eb"/>
+<text x="424" y="82" font-family="Arial" font-size="14" fill="#111827">NVDA 24.2%</text>
+<rect x="400" y="94" width="14" height="14" fill="#16a34a"/>
+<text x="424" y="106" font-family="Arial" font-size="14" fill="#111827">ADI 23.4%</text>
+<rect x="400" y="118" width="14" height="14" fill="#dc2626"/>
+<text x="424" y="130" font-family="Arial" font-size="14" fill="#111827">EXPE 20.9%</text>
+<rect x="400" y="142" width="14" height="14" fill="#9333ea"/>
+<text x="424" y="154" font-family="Arial" font-size="14" fill="#111827">JHG 20.7%</text>
+<rect x="400" y="166" width="14" height="14" fill="#ea580c"/>
+<text x="424" y="178" font-family="Arial" font-size="14" fill="#111827">MRVL 5.3%</text>
+<rect x="400" y="190" width="14" height="14" fill="#0891b2"/>
+<text x="424" y="202" font-family="Arial" font-size="14" fill="#111827">CIEN 3.6%</text>
+<rect x="400" y="214" width="14" height="14" fill="#4f46e5"/>
+<text x="424" y="226" font-family="Arial" font-size="14" fill="#111827">MU 2.1%</text>
+</svg>

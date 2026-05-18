@@ -1,0 +1,17 @@
+{
+  "as_of_date": "2026-05-08",
+  "client_order_ids": [
+    "r1k-C-20260508-S-ETR-13ef60042afa",
+    "r1k-C-20260508-S-PR-0eb014745c5a",
+    "r1k-C-20260508-S-PEG-3f0966df0cb0",
+    "r1k-C-20260508-B-ON-000157f7cdad",
+    "r1k-C-20260508-B-MU-799f211f7425",
+    "r1k-C-20260508-B-WDC-459fb11d6831",
+    "r1k-C-20260508-B-SNDK-5ce63b356318"
+  ],
+  "order_batch_id": "14296fd8f7c6e0f5587c6baed2bef577635c82fc4831802f6bf574582b7c6efa",
+  "order_count": 7,
+  "portfolio_kind": "concentrated",
+  "ready_order_count": 6,
+  "schema_version": "account-ledger-preview-order-batch-v1"
+}

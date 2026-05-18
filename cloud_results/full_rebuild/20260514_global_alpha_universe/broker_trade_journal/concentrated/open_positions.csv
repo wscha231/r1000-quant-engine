@@ -1,0 +1,6 @@
+portfolio_kind,ticker,entry_date,entry_signal_date,entry_reason,quantity_open,entry_price,entry_value_usd,entry_fee_unrealized_usd,entry_target_weight,fill_mode,entry_regime_state,entry_sleeve,entry_signal_breakdown
+concentrated,NVDA,2026-05-14,2026-05-14,target_rebalance,441.0,235.72000122070312,103952.52053833008,259.8813013458252,0.125,next_close,unknown,unknown,{}
+concentrated,MU,2026-05-14,2026-05-14,target_rebalance,131.0,794.0999755859375,104027.09680175781,260.0677420043945,0.125,next_close,unknown,unknown,{}
+concentrated,CIEN,2026-05-14,2026-05-14,target_rebalance,178.0,584.6799926757812,104073.03869628906,260.18259674072266,0.125,next_close,unknown,unknown,{}
+concentrated,FIX,2026-05-14,2026-05-14,target_rebalance,202.0,2043.239990234375,412734.47802734375,1031.8361950683593,0.5,next_close,unknown,unknown,{}
+concentrated,MRVL,2026-05-14,2026-05-14,target_rebalance,563.0,184.6132049560547,103937.23439025879,259.843085975647,0.125,next_close,unknown,unknown,{}

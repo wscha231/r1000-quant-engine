@@ -44,6 +44,7 @@ from run_broker_ledger_replay import (  # noqa: E402
     normalize_targets,
     price_at_or_before,
     read_csv,
+    resolve_concentrated_champion_filters,
     target_period_ends,
     weight_book_diagnostics,
 )
@@ -298,12 +299,40 @@ def replay(
     trailing_activation: float = 0.15,
     relative_trim_threshold: float = -0.06,
     relative_exit_threshold: float = -0.12,
+    stop_check_cadence: str = "daily",
 ) -> dict[str, Any]:
+    """Broker-ledger replay with per-position risk stops.
+
+    F11 (2026-05-14): `stop_check_cadence` controls how often the stop logic
+    runs:
+      "daily"  - check stops on every trading day (default; original
+                 behavior; intra-day noise can cause whipsaws).
+      "weekly" - check stops only on Fridays (or last trading day of each
+                 ISO week); reduces whipsaw exits on intraweek volatility.
+      "monthly"- check stops only on the period_end mark; matches the
+                 prior monthly research backtest cadence.
+
+    From Iter 2 analysis (run 25840490595) the daily cadence reported
+    CAGR 15.42% / MaxDD -31.54% -- WORSE than no-stops headline. The
+    weekly cadence is hypothesized to be the sweet spot.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
-    targets = normalize_targets(raw, portfolio_kind)
+    champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
+        target_book=target_book,
+        raw_targets=raw,
+        portfolio_kind=portfolio_kind,
+    )
+    targets = normalize_targets(raw, portfolio_kind, champion_filters)
     if targets.empty:
-        payload = {"status": "blocked", "reason": "target book is empty or invalid", "target_book": str(target_book)}
+        payload = {
+            "status": "blocked",
+            "reason": "target book is empty or invalid",
+            "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
+        }
         write_json(output_dir / "metrics.json", payload)
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
@@ -313,6 +342,9 @@ def replay(
             "reason": "target weight sum exceeds maximum reasonable exposure",
             "target_book": str(target_book),
             "valid_for_production": False,
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
         write_json(output_dir / "metrics.json", payload)
@@ -355,6 +387,32 @@ def replay(
         period_marks = mark_dates_for_period(active_tickers, prices, fill_dt, period_end)
         if not period_marks:
             period_marks = [fill_dt]
+        # F11 (2026-05-14): apply stop_check_cadence filter to determine
+        # which marks fire the stop logic. Equity is still tracked daily;
+        # only the SELL trigger evaluation is gated.
+        cadence = str(stop_check_cadence or "daily").lower()
+        if cadence == "weekly":
+            # Keep last trading day of each ISO week + the period_end.
+            kept: list = []
+            seen_weeks: set = set()
+            sorted_marks = sorted(period_marks)
+            for mk in sorted_marks:
+                ts = pd.Timestamp(mk)
+                wk = (ts.isocalendar().year, ts.isocalendar().week)
+                if wk in seen_weeks:
+                    # replace with the later mark in same week
+                    if kept:
+                        kept[-1] = mk
+                    else:
+                        kept.append(mk)
+                else:
+                    seen_weeks.add(wk)
+                    kept.append(mk)
+            stop_check_marks = set(kept)
+        elif cadence == "monthly":
+            stop_check_marks = {period_marks[-1]}
+        else:
+            stop_check_marks = set(period_marks)
         pending_keys: set[str] = {str(row.get("ticker")) for row in pending}
         for date in period_marks:
             date = pd.Timestamp(date).normalize()
@@ -421,6 +479,10 @@ def replay(
                     }
                 )
 
+            # F11 (2026-05-14): cadence gate -- only evaluate stops on
+            # selected marks. Equity recording happens unconditionally above.
+            if pd.Timestamp(date) not in {pd.Timestamp(m) for m in stop_check_marks}:
+                continue
             for ticker in sorted(list(state.shares.keys())):
                 if ticker in pending_keys:
                     continue
@@ -484,6 +546,9 @@ def replay(
             "integer_shares": bool(integer_shares),
             "cost_bps_per_side": float(cost_bps),
             "target_book": str(target_book),
+            "target_book_filter": champion_filters,
+            "target_book_filter_source": champion_filter_source,
+            "target_book_filter_warning": champion_filter_warning,
             "price_cache": str(price_cache),
             "benchmark_ticker": benchmark_ticker,
             "hard_stop": hard_stop,
@@ -542,6 +607,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trailing-activation", type=float, default=0.15)
     parser.add_argument("--relative-trim-threshold", type=float, default=-0.06)
     parser.add_argument("--relative-exit-threshold", type=float, default=-0.12)
+    parser.add_argument(
+        "--stop-check-cadence",
+        choices=["daily", "weekly", "monthly"],
+        default="daily",
+        help=(
+            "F11 (2026-05-14): how often the per-position stop logic fires. "
+            "daily = every trading day (default, original behavior, intra-day "
+            "noise causes whipsaws); weekly = last trading day of each ISO "
+            "week (hypothesized sweet spot); monthly = only at period_end "
+            "(matches prior research backtest stop cadence)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -563,6 +640,7 @@ def main() -> int:
         trailing_activation=args.trailing_activation,
         relative_trim_threshold=args.relative_trim_threshold,
         relative_exit_threshold=args.relative_exit_threshold,
+        stop_check_cadence=args.stop_check_cadence,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0

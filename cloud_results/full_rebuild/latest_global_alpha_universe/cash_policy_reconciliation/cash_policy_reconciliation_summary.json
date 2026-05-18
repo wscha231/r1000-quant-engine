@@ -1,0 +1,55 @@
+{
+  "actual_total_invested_after_merge": 0.7500000000000001,
+  "annual_opportunity_cost_at_10pct_return": 0.021999999999999992,
+  "by_mandate_capacity": {
+    "concentrated": 0.1,
+    "main": 0.65,
+    "tactical": 0.0
+  },
+  "capacity_leftover_cash_weight": 0.25,
+  "cash_policy_flag": "target_cash_above_macro_floor_without_confirmation",
+  "cash_policy_review_action": "CASH_POLICY_REVIEW",
+  "conflict_merge_cash_weight": 0.0,
+  "current_cash_gap_to_target": 0.24067295472079706,
+  "decision_point": "target_cash_exceeds_macro_floor_without_confirmation",
+  "expected_total_invested": 0.75,
+  "generated_at_utc": "2026-05-16T18:52:22.623336+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "macro_cash_raise_confirmation_count": 0.0,
+  "macro_cash_raise_gate": "none",
+  "macro_confirmed_cash_raise": false,
+  "macro_recommended_cash_floor": 0.03,
+  "macro_risk_state": "green",
+  "macro_style_state": "breakout_growth",
+  "notes": [
+    "A high orchestrator target cash in a green/recovery macro state should be treated as a decision point, not as confirmed risk defense.",
+    "Capacity leftover cash means mandate weights sum below 100%; conflict merge cash means max-merge overlap reduced invested exposure.",
+    "This sidecar does not redeploy cash. It only separates macro defense from mechanical cash drag candidates."
+  ],
+  "operating_current_cash_weight": 0.009327045279202846,
+  "operating_target_cash_weight": 0.2499999999999999,
+  "orchestrator_target_cash_weight": 0.2499999999999999,
+  "outputs": {
+    "by_source_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/cash_policy_reconciliation/cash_target_by_source.csv",
+    "report_md": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/cash_policy_reconciliation/cash_policy_reconciliation_report.md",
+    "summary_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/cash_policy_reconciliation/cash_policy_reconciliation_summary.json"
+  },
+  "preview": {
+    "concentrated_preview_blocked_order_count": 0,
+    "concentrated_preview_current_cash_weight": 0.002403619391185368,
+    "concentrated_preview_order_count": 0,
+    "concentrated_preview_projected_cash_weight": 0.002403619391185368,
+    "concentrated_preview_target_cash_weight": 0.0,
+    "main_preview_blocked_order_count": 0,
+    "main_preview_current_cash_weight": 0.018159942157374306,
+    "main_preview_order_count": 0,
+    "main_preview_projected_cash_weight": 0.018159942157374306,
+    "main_preview_target_cash_weight": 0.0
+  },
+  "production_activation_allowed": false,
+  "research_only": true,
+  "review_required": true,
+  "schema_version": "cash-policy-reconciliation-v1",
+  "status": "completed",
+  "target_cash_above_macro_floor": 0.2199999999999999
+}

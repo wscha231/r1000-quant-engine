@@ -1,0 +1,47 @@
+{
+  "blocked_reason": "latest recommendation files are missing or empty",
+  "files": {
+    "concentrated_recommendation": {
+      "exists": false,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16/concentrated_recommendation.csv",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv"
+    },
+    "main_recommendation": {
+      "exists": false,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16/main_recommendation.csv",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv"
+    },
+    "operating_concentrated_target_book": {
+      "exists": false,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16/operating_concentrated_target_book.csv",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv"
+    },
+    "operating_main_target_book": {
+      "exists": false,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16/operating_main_target_book.csv",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv"
+    },
+    "operating_target_books_summary": {
+      "exists": true,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16/operating_target_books_summary.json",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_summary.json"
+    }
+  },
+  "generated_at_utc": "2026-05-16T06:46:00.524660+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "missing_required": [
+    "main_recommendation",
+    "concentrated_recommendation"
+  ],
+  "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+  "schema_version": "target-snapshot-archive-v1",
+  "snapshot_date": "2026-05-16",
+  "snapshot_date_source": "generated_date_fallback",
+  "snapshot_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-16",
+  "status": "blocked"
+}

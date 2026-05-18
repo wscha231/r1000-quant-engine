@@ -1,0 +1,9 @@
+ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
+NVDA,NVIDIA CORP,Information Technology,core_compounder,5.266302310627882,0.161119385947878,balanced
+CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,2.369413683173423,0.161119385947878,balanced
+AMAT,APPLIED MATERIAL INC,Information Technology,core_compounder,5.887436634311971,0.1587025951586598,balanced
+TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,5.458855197620912,0.1587025951586598,balanced
+ADI,ANALOG DEVICES INC,Information Technology,future_winner,5.121114482652412,0.1587025951586598,balanced
+CDNS,CADENCE DESIGN SYSTEMS INC,Information Technology,unassigned,1.973475885623695,0.1587025951586598,balanced
+EXEL,EXELIXIS INC,Health Care,future_winner,1.7144283524179125,0.1587025951586598,balanced
+FTNT,FORTINET INC,Information Technology,core_compounder,1.344880665683783,0.1587025951586598,balanced

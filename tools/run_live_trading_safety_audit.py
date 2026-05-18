@@ -40,6 +40,7 @@ FORWARD_EXACT = {
     "risk_adjusted_forward_return",
     "future_return",
     "forward_return",
+    "forward_return_coverage_score",
 }
 FORWARD_PREFIXES = ("bench_r_",)
 FORWARD_SUFFIXES = ("_forward_return",)
@@ -226,6 +227,8 @@ def audit_account_preview(
 
     orders_path = preview_dir / "orders_preview.csv"
     orders = read_csv(orders_path)
+    review_deltas_path = preview_dir / "order_deltas_review.csv"
+    review_deltas = read_csv(review_deltas_path)
     positions_path = preview_dir / "positions_current.csv"
     positions = read_csv(positions_path)
     target_weights_path = preview_dir / "target_weights.csv"
@@ -238,6 +241,16 @@ def audit_account_preview(
         banned = banned_columns(list(frame.columns)) if not frame.empty else []
         if banned:
             issue(issues, "error", f"{portfolio}_{check_id}_leakage_columns", f"{check_id} contains forward-return columns", path, {"columns": banned})
+    review_banned = banned_columns(list(review_deltas.columns)) if not review_deltas.empty else []
+    if review_banned:
+        issue(
+            issues,
+            "error",
+            f"{portfolio}_order_deltas_review_leakage_columns",
+            "order_deltas_review contains forward-return columns",
+            review_deltas_path,
+            {"columns": review_banned},
+        )
 
     if not positions.empty and "shares" in positions.columns:
         shares = pd.to_numeric(positions["shares"], errors="coerce")
@@ -285,7 +298,7 @@ def audit_account_preview(
     if "status" in orders.columns:
         blocked = orders[orders["status"].astype(str).str.startswith("blocked", na=False)]
         if not blocked.empty:
-            issue(issues, "error", f"{portfolio}_orders_blocked", "orders_preview contains blocked orders", orders_path, {"count": int(len(blocked))})
+            issue(issues, "error", f"{portfolio}_orders_blocked", "orders_preview must contain actionable orders only, but it contains blocked rows", orders_path, {"count": int(len(blocked))})
     if "estimated_cash_after_usd" in orders.columns:
         min_cash_after = safe_float(pd.to_numeric(orders["estimated_cash_after_usd"], errors="coerce").min())
         if min_cash_after is not None and min_cash_after < -1e-6:

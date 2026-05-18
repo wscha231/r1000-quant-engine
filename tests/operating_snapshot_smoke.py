@@ -211,8 +211,18 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         assert cash_rows["cash_policy_flag"].iloc[0] == "target_cash_above_macro_floor_without_confirmation"
         summary = json.loads((root / "operating_snapshot" / "current_portfolio_snapshot_summary.json").read_text())
         assert summary["status"] == "completed"
+        assert summary["schema_version"] == "current-portfolio-snapshot-v2"
+        assert summary["primary_user_view"] == "current_operating_holdings_latest.csv"
         assert summary["portfolio_position_counts"]["main"] == 2
         assert summary["cash_policy_review_action"] == "CASH_POLICY_REVIEW"
+        current_only = pd.read_csv(root / "operating_snapshot" / "current_operating_holdings_latest.csv")
+        assert "target_portfolio_weight" not in set(current_only.columns)
+        assert "daily_review_action" in set(current_only.columns)
+        assert set(current_only["portfolio_kind"]) == {"main", "concentrated"}
+        assert (root / "operating_snapshot" / "current_operating_holdings_main_latest.csv").exists()
+        assert (root / "operating_snapshot" / "current_operating_holdings_concentrated_latest.csv").exists()
+        deltas = pd.read_csv(root / "operating_snapshot" / "proposed_target_deltas_latest.csv")
+        assert "target_portfolio_weight" in set(deltas.columns)
 
 
 def main() -> int:

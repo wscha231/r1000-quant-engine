@@ -1,0 +1,12 @@
+{
+  "hard_failures": [
+    "challenger_not_approved_for_production",
+    "human_approval_missing"
+  ],
+  "human_approved": false,
+  "next_allowed_stage": "shadow",
+  "production_activation_allowed": false,
+  "promoted": false,
+  "status": "blocked",
+  "write_active_policy": false
+}

@@ -66,6 +66,12 @@ def _write_preview(root: Path, portfolio: str) -> None:
             {"ticker": "BBB", "side": "BUY", "quantity": 10, "gross_value_usd": 500, "estimated_fee_usd": 1.25, "estimated_cash_after_usd": 10496.25, "status": "ready"},
         ]
     ).to_csv(out / "orders_preview.csv", index=False)
+    pd.DataFrame(
+        [
+            {"ticker": "AAA", "side": "SELL", "quantity": 10, "gross_value_usd": 1000, "estimated_fee_usd": 2.5, "estimated_cash_after_usd": 10997.5, "status": "ready"},
+            {"ticker": "BBB", "side": "BUY", "quantity": 10, "gross_value_usd": 500, "estimated_fee_usd": 1.25, "estimated_cash_after_usd": 10496.25, "status": "ready"},
+        ]
+    ).to_csv(out / "order_deltas_review.csv", index=False)
 
 
 def test_live_trading_safety_passes_clean_preview() -> None:
@@ -80,10 +86,39 @@ def test_live_trading_safety_passes_clean_preview() -> None:
         assert (root / "live_trading_safety" / "safety_audit_summary.json").exists()
 
 
+def test_live_trading_safety_ignores_non_actionable_review_deltas() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10}, {"ticker": "BBB", "weight": 0.20}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.50}, {"ticker": "BBB", "weight": 0.50}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
+        _write_preview(root, "main")
+        _write_preview(root, "concentrated")
+        for portfolio in ["main", "concentrated"]:
+            out = root / "account_ledger_preview" / portfolio
+            pd.DataFrame(
+                columns=["ticker", "side", "quantity", "gross_value_usd", "estimated_fee_usd", "estimated_cash_after_usd", "status"]
+            ).to_csv(out / "orders_preview.csv", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "ticker": "BBB",
+                        "side": "BUY",
+                        "quantity": 0,
+                        "gross_value_usd": 0,
+                        "estimated_fee_usd": 0,
+                        "estimated_cash_after_usd": 10000,
+                        "status": "blocked_insufficient_cash",
+                    }
+                ]
+            ).to_csv(out / "order_deltas_review.csv", index=False)
+        payload = run(_args(root))
+        assert payload["status"] == "pass", payload
+
+
 def test_live_trading_safety_blocks_forward_columns() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        pd.DataFrame([{"ticker": "AAA", "weight": 0.10, "period_forward_return": 0.50, "r_1m": 0.20, "bench_r_6m": 0.10}]).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "AAA", "weight": 0.10, "period_forward_return": 0.50, "forward_return_coverage_score": 1.0, "r_1m": 0.20, "bench_r_6m": 0.10}]).to_csv(root / "portfolio_latest.csv", index=False)
         pd.DataFrame([{"ticker": "AAA", "weight": 0.50}]).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
         _write_preview(root, "main")
         _write_preview(root, "concentrated")
@@ -101,6 +136,7 @@ def test_actionable_export_hygiene_strips_forward_columns() -> None:
                 "r_1m": 0.20,
                 "bench_r_12m": 0.15,
                 "period_forward_return": 0.33,
+                "forward_return_coverage_score": 1.0,
                 "future_winner_scout_score": 0.70,
             }
         ]
@@ -109,11 +145,13 @@ def test_actionable_export_hygiene_strips_forward_columns() -> None:
     assert "r_1m" not in out.columns
     assert "bench_r_12m" not in out.columns
     assert "period_forward_return" not in out.columns
+    assert "forward_return_coverage_score" not in out.columns
     assert "future_winner_scout_score" in out.columns
 
 
 def main() -> int:
     test_live_trading_safety_passes_clean_preview()
+    test_live_trading_safety_ignores_non_actionable_review_deltas()
     test_live_trading_safety_blocks_forward_columns()
     test_actionable_export_hygiene_strips_forward_columns()
     print("live_trading_safety_audit_smoke: PASS")

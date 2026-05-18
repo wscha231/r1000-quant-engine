@@ -6,10 +6,11 @@ purpose is to answer the first cash-policy question after each full rebuild:
 
     Was cash intentional defense, or did selected capital sit idle?
 
-It also compares the backtest source of truth (`regime_by_month.cash_weight`)
-with explicit CASH rows in `main_monthly_weights.csv`. A large gap means
-downstream replays that read only `main_monthly_weights.csv` may be overstating
-deployment unless they reintroduce reported cash from `regime_by_month.csv`.
+It compares the target-book source of truth (`regime_by_month.cash_weight_start`)
+with explicit CASH rows in `main_monthly_weights.csv`. End-of-period cash
+(`regime_by_month.cash_weight` / `cash_weight_end`) is tracked separately
+because it can include intra-period risk exits and should not be mistaken for
+the starting allocation used by broker-ledger replays.
 """
 from __future__ import annotations
 
@@ -113,7 +114,8 @@ def _rows_by_month(holdings: pd.DataFrame, regime: pd.DataFrame) -> list[dict[st
         stock_sum = float(weights.loc[~cash_mask].sum()) if len(weights) else 0.0
         stock_count = int((~cash_mask & (weights > 1e-10)).sum()) if len(weights) else 0
 
-        reported_cash = safe_float(rrow.get("cash_weight"), explicit_cash)
+        reported_cash = safe_float(rrow.get("cash_weight_start"), safe_float(rrow.get("cash_weight"), explicit_cash))
+        period_end_cash = safe_float(rrow.get("cash_weight_end"), safe_float(rrow.get("cash_weight"), reported_cash))
         cash_target = safe_float(rrow.get("cash_target_used"), safe_float(group.get("cash_target", pd.Series([0.0])).iloc[0] if not group.empty and "cash_target" in group.columns else 0.0, 0.0))
         drawdown_before = safe_float(rrow.get("drawdown_before_month"), 0.0)
         drawdown_after = safe_float(rrow.get("drawdown_after_month"), 0.0)
@@ -138,6 +140,7 @@ def _rows_by_month(holdings: pd.DataFrame, regime: pd.DataFrame) -> list[dict[st
             "regime_label": regime_label,
             "rebalance_action": action,
             "reported_cash_weight": reported_cash,
+            "period_end_cash_weight": period_end_cash,
             "book_explicit_cash_weight": explicit_cash,
             "book_stock_weight_sum": stock_sum,
             "book_total_weight_sum": stock_sum + explicit_cash,
@@ -189,6 +192,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "production_activation_allowed": False,
         "months": months,
         "avg_reported_cash_weight": avg("reported_cash_weight"),
+        "avg_period_end_cash_weight": avg("period_end_cash_weight"),
         "avg_book_explicit_cash_weight": avg("book_explicit_cash_weight"),
         "avg_reported_vs_book_cash_gap": avg("reported_vs_book_cash_gap"),
         "avg_target_defense_cash": avg("target_defense_cash"),
@@ -203,6 +207,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "rebalance_date": row.get("rebalance_date"),
                 "reported_cash_weight": row.get("reported_cash_weight"),
+                "period_end_cash_weight": row.get("period_end_cash_weight"),
                 "book_explicit_cash_weight": row.get("book_explicit_cash_weight"),
                 "reported_vs_book_cash_gap": row.get("reported_vs_book_cash_gap"),
                 "cash_target_used": row.get("cash_target_used"),
@@ -219,6 +224,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "rebalance_date": row.get("rebalance_date"),
                 "reported_cash_weight": row.get("reported_cash_weight"),
+                "period_end_cash_weight": row.get("period_end_cash_weight"),
                 "book_explicit_cash_weight": row.get("book_explicit_cash_weight"),
                 "reported_vs_book_cash_gap": row.get("reported_vs_book_cash_gap"),
                 "cash_target_used": row.get("cash_target_used"),
@@ -231,8 +237,9 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             for row in high_idle
         ],
         "notes": [
-            "Use reported_cash_weight from regime_by_month as the source of truth for backtest avg_cash_weight.",
-            "A large reported_vs_book_cash_gap means main_monthly_weights does not explicitly carry the cash that influenced backtest_metrics.",
+            "Use reported_cash_weight from regime_by_month.cash_weight_start as the source of truth for target-book cash.",
+            "Use period_end_cash_weight only to diagnose intra-period/month-end risk exits.",
+            "A large reported_vs_book_cash_gap means main_monthly_weights does not explicitly carry the starting cash used for broker-ledger target weights.",
             "The existing main cash-drag replay must be repaired or it can understate cash by relying on explicit CASH rows only.",
             "Idle-cash redeploy A/B should preserve confirmed macro-defense cash and only test excess cash in non-risk regimes.",
             "Event shocks without long-trend/liquidity confirmation should be reviewed separately so monster leaders are not sold purely because the index wobbled.",
@@ -252,6 +259,7 @@ def _render_report(payload: dict[str, Any]) -> str:
         "",
         f"- months: {payload.get('months', 0)}",
         f"- avg reported cash: {_pct(payload.get('avg_reported_cash_weight'))}",
+        f"- avg period-end cash: {_pct(payload.get('avg_period_end_cash_weight'))}",
         f"- avg explicit CASH in monthly book: {_pct(payload.get('avg_book_explicit_cash_weight'))}",
         f"- avg reported-vs-book cash gap: {_pct(payload.get('avg_reported_vs_book_cash_gap'))}",
         f"- avg target defense cash: {_pct(payload.get('avg_target_defense_cash'))}",

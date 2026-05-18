@@ -1,0 +1,13 @@
+# Broker Market Circuit Replay
+
+Research-only broker-ledger challenger. Daily benchmark crash states scale the target book before next-close replay.
+
+- Portfolio: `main`
+- Status: `completed`
+- CAGR: 18.78%
+- Sharpe: 0.869
+- MaxDD: -18.70%
+- Avg cash: 25.62%
+- Trade count: 649
+
+Promotion requires target gates, stress review, and human approval.

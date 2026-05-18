@@ -1,0 +1,25 @@
+{
+  "available_columns": [
+    "ownership_flow_pillar_score",
+    "insider_cluster_boost_score",
+    "event_revision_pillar_score",
+    "selection_flow_confirmation_score",
+    "event_reaction_score",
+    "live_event_growth_reentry_score",
+    "live_event_defensive_score",
+    "live_event_risk_score",
+    "focus_live_event_growth_score",
+    "focus_event_stress_penalty"
+  ],
+  "label_counts": {
+    "growth_reentry": 584,
+    "revision_event+growth_reentry": 148
+  },
+  "nonzero_catalyst_rows": 465,
+  "production_activation_allowed": false,
+  "research_only": true,
+  "rows": 80,
+  "scored_rows": 732,
+  "status": "completed",
+  "watchlist_count": 0
+}

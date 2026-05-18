@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="550" viewBox="0 0 760 550">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Main Recommendation Weights</text>
+<text x="24" y="86" font-family="Arial" font-size="14" fill="#111827">GOOG</text>
+<rect x="120" y="70" width="500.00" height="20" fill="#2563eb" rx="3"/>
+<text x="630.00" y="86" font-family="Arial" font-size="14" fill="#111827">16.0%</text>
+<text x="24" y="116" font-family="Arial" font-size="14" fill="#111827">MRVL</text>
+<rect x="120" y="100" width="209.37" height="20" fill="#16a34a" rx="3"/>
+<text x="339.37" y="116" font-family="Arial" font-size="14" fill="#111827">6.7%</text>
+<text x="24" y="146" font-family="Arial" font-size="14" fill="#111827">VRT</text>
+<rect x="120" y="130" width="209.37" height="20" fill="#dc2626" rx="3"/>
+<text x="339.37" y="146" font-family="Arial" font-size="14" fill="#111827">6.7%</text>
+<text x="24" y="176" font-family="Arial" font-size="14" fill="#111827">LRCX</text>
+<rect x="120" y="160" width="205.36" height="20" fill="#9333ea" rx="3"/>
+<text x="335.36" y="176" font-family="Arial" font-size="14" fill="#111827">6.6%</text>
+<text x="24" y="206" font-family="Arial" font-size="14" fill="#111827">FIX</text>
+<rect x="120" y="190" width="201.40" height="20" fill="#ea580c" rx="3"/>
+<text x="331.40" y="206" font-family="Arial" font-size="14" fill="#111827">6.4%</text>
+<text x="24" y="236" font-family="Arial" font-size="14" fill="#111827">FTI</text>
+<rect x="120" y="220" width="200.20" height="20" fill="#0891b2" rx="3"/>
+<text x="330.20" y="236" font-family="Arial" font-size="14" fill="#111827">6.4%</text>
+<text x="24" y="266" font-family="Arial" font-size="14" fill="#111827">PWR</text>
+<rect x="120" y="250" width="199.89" height="20" fill="#4f46e5" rx="3"/>
+<text x="329.89" y="266" font-family="Arial" font-size="14" fill="#111827">6.4%</text>
+<text x="24" y="296" font-family="Arial" font-size="14" fill="#111827">UMC</text>
+<rect x="120" y="280" width="199.12" height="20" fill="#65a30d" rx="3"/>
+<text x="329.12" y="296" font-family="Arial" font-size="14" fill="#111827">6.4%</text>
+<text x="24" y="326" font-family="Arial" font-size="14" fill="#111827">CBOE</text>
+<rect x="120" y="310" width="199.03" height="20" fill="#be123c" rx="3"/>
+<text x="329.03" y="326" font-family="Arial" font-size="14" fill="#111827">6.4%</text>
+<text x="24" y="356" font-family="Arial" font-size="14" fill="#111827">AMD</text>
+<rect x="120" y="340" width="124.93" height="20" fill="#0f766e" rx="3"/>
+<text x="254.93" y="356" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="386" font-family="Arial" font-size="14" fill="#111827">ON</text>
+<rect x="120" y="370" width="124.93" height="20" fill="#7c3aed" rx="3"/>
+<text x="254.93" y="386" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="416" font-family="Arial" font-size="14" fill="#111827">NXPI</text>
+<rect x="120" y="400" width="124.93" height="20" fill="#ca8a04" rx="3"/>
+<text x="254.93" y="416" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="446" font-family="Arial" font-size="14" fill="#111827">STM</text>
+<rect x="120" y="430" width="124.93" height="20" fill="#2563eb" rx="3"/>
+<text x="254.93" y="446" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="476" font-family="Arial" font-size="14" fill="#111827">HPE</text>
+<rect x="120" y="460" width="124.93" height="20" fill="#16a34a" rx="3"/>
+<text x="254.93" y="476" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="506" font-family="Arial" font-size="14" fill="#111827">PR</text>
+<rect x="120" y="490" width="124.93" height="20" fill="#dc2626" rx="3"/>
+<text x="254.93" y="506" font-family="Arial" font-size="14" fill="#111827">4.0%</text>
+<text x="24" y="536" font-family="Arial" font-size="14" fill="#111827">OTHER</text>
+<rect x="120" y="520" width="249.85" height="20" fill="#9333ea" rx="3"/>
+<text x="379.85" y="536" font-family="Arial" font-size="14" fill="#111827">8.0%</text>
+</svg>

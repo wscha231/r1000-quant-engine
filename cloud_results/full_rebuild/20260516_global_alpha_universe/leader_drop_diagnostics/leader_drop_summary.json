@@ -1,0 +1,41 @@
+{
+  "gate_counts": {
+    "candidate_gate_rejected": 484,
+    "filtered_before_scoring": 116,
+    "not_in_latest_universe_or_missing_data": 1,
+    "rank_or_cap_not_selected": 238,
+    "selected_target_no_order_needed_or_no_preview_delta": 24
+  },
+  "generated_at_utc": "2026-05-16T18:49:26.415173+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "missed_leader_candidate_count": 100,
+  "production_activation_allowed": false,
+  "reason_counts": {
+    "candidate_gate_rejected": 484,
+    "filtered_before_scoring:failed_dd_1y": 22,
+    "filtered_before_scoring:failed_dollar_vol+failed_mktcap": 1,
+    "filtered_before_scoring:failed_dollar_vol+failed_mktcap+failed_dd_1y": 4,
+    "filtered_before_scoring:failed_min_price+failed_dd_1y": 2,
+    "filtered_before_scoring:failed_min_price+failed_dollar_vol+failed_mktcap+failed_dd_1y": 1,
+    "filtered_before_scoring:failed_min_price+failed_mktcap": 4,
+    "filtered_before_scoring:failed_min_price+failed_mktcap+failed_dd_1y": 2,
+    "filtered_before_scoring:failed_mktcap": 52,
+    "filtered_before_scoring:failed_mktcap+failed_dd_1y": 21,
+    "filtered_before_scoring:price_blacklisted": 7,
+    "not_in_latest_universe_or_missing_data": 1,
+    "rank_or_cap_not_selected": 238,
+    "selected_target_no_order_needed_or_no_preview_delta": 24
+  },
+  "research_only": true,
+  "rows": 863,
+  "schema_version": "leader-drop-diagnostics-v1",
+  "source_files": {
+    "candidate_replay_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
+    "concentrated_target": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv",
+    "main_target": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv",
+    "prefilter_diagnostics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/leader_drop_diagnostics_latest.csv",
+    "scored_latest": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv"
+  },
+  "status": "completed",
+  "watchlist_count": 21
+}

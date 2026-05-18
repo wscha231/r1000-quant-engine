@@ -1,0 +1,30 @@
+{
+  "drawdown_period_count": 11,
+  "generated_at_utc": "2026-05-16T18:40:10.864889+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "metrics": {
+    "avg_cash_weight": 0.07209683677616265,
+    "cagr": 0.23251823786214554,
+    "candidate_id": "concentrated_alpha_selector_market_circuit_grid",
+    "max_dd": -0.22882979788393065,
+    "metric_mode": "alpha_selector_market_circuit_grid_best_next_close",
+    "sharpe": 0.8956104008320681,
+    "trade_count": 649.0,
+    "valid_for_production": true
+  },
+  "portfolio_kind": "concentrated",
+  "production_activation_allowed": false,
+  "research_only": true,
+  "schema_version": "market-circuit-attribution-v1",
+  "source_files": {
+    "best_metrics": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/best_metrics.json",
+    "equity_curve": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/future_heavy_N2_cap0.5/ma50_200_caution_0p90_crisis_0p70/equity_curve.csv",
+    "holdings_daily": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/future_heavy_N2_cap0.5/ma50_200_caution_0p90_crisis_0p70/holdings_daily.csv",
+    "market_circuit_states": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/future_heavy_N2_cap0.5/ma50_200_caution_0p90_crisis_0p70/market_circuit_states.csv",
+    "trades": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/future_heavy_N2_cap0.5/ma50_200_caution_0p90_crisis_0p70/trades.csv"
+  },
+  "status": "completed",
+  "variant_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alpha_selector_market_circuit_grid/concentrated/future_heavy_N2_cap0.5/ma50_200_caution_0p90_crisis_0p70",
+  "worst_drawdown": -0.22882979788393065,
+  "wrong_substitution_count": 119
+}

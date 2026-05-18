@@ -16,6 +16,7 @@ import argparse
 import csv
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,77 @@ def write_json(path: Path, payload: Any) -> None:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return [dict(row) for row in csv.DictReader(handle)]
+    except Exception:
+        return []
+
+
+def parse_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def csv_date_summary(path: Path, date_col: str) -> dict[str, Any]:
+    rows = read_csv_rows(path)
+    dates = [parse_date(row.get(date_col)) for row in rows]
+    dates = [dt for dt in dates if dt is not None]
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "row_count": len(rows),
+        "date_col": date_col,
+        "min_date": min(dates).date().isoformat() if dates else None,
+        "max_date": max(dates).date().isoformat() if dates else None,
+        "unique_date_count": len({dt.date().isoformat() for dt in dates}),
+    }
+
+
+def csv_row_count(path: Path) -> int:
+    return len(read_csv_rows(path))
+
+
+def target_book_summaries(latest_run: Path, portfolio: str) -> dict[str, dict[str, Any]]:
+    if portfolio == "main":
+        historical = latest_run / "reports" / "main_monthly_weights.csv"
+        operating = latest_run / "reports" / "operating_main_target_book.csv"
+    else:
+        historical = latest_run / "reports" / "concentrated_strategy_holdings.csv"
+        operating = latest_run / "reports" / "operating_concentrated_target_book.csv"
+    historical_summary = csv_date_summary(historical, "rebalance_date")
+    historical_summary["target_book_role"] = "historical_research_book"
+    operating_summary = csv_date_summary(operating, "rebalance_date")
+    operating_summary["target_book_role"] = "operating_target_book"
+    selected = operating_summary if operating_summary["exists"] and int(operating_summary["row_count"]) > 0 else historical_summary
+    return {
+        "selected": selected,
+        "historical": historical_summary,
+        "operating": operating_summary,
+    }
+
+
+def filter_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if abs(number - round(number)) < 1e-9:
+            return str(int(round(number)))
+    except ValueError:
+        pass
+    return text
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -174,8 +246,107 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         or read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
         "account_evaluation": read_json(latest_run / "account_evaluation" / "account_evaluation_summary.json")
         or read_json(REPO_ROOT / "outputs" / "account_evaluation" / "account_evaluation_summary.json"),
+        "operating_event_backtest": read_json(latest_run / "operating_event_backtest" / "operating_event_backtest_summary.json")
+        or read_json(REPO_ROOT / "outputs" / "operating_event_backtest" / "operating_event_backtest_summary.json"),
         "workflows": existing_workflows(),
     }
+
+
+def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    target_books = {portfolio: target_book_summaries(latest_run, portfolio) for portfolio in ("main", "concentrated")}
+    broker_end = {
+        "main": inputs.get("main_metrics", {}).get("end_date"),
+        "concentrated": inputs.get("concentrated_metrics", {}).get("end_date"),
+    }
+    for portfolio, summaries in target_books.items():
+        summary = summaries["selected"]
+        historical = summaries["historical"]
+        operating = summaries["operating"]
+        max_dt = parse_date(summary.get("max_date"))
+        end_dt = parse_date(broker_end.get(portfolio))
+        passed = bool(max_dt and end_dt and max_dt.date() >= end_dt.date())
+        checks.append(
+            {
+                "check": f"{portfolio}_target_book_reaches_broker_end",
+                "passed": passed,
+                "severity": "error" if not passed else "ok",
+                "detail": f"selected_role={summary.get('target_book_role')}; target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}; path={summary.get('path')}",
+            }
+        )
+        operating_exists = bool(operating.get("exists") and int(operating.get("row_count") or 0) > 0)
+        checks.append(
+            {
+                "check": f"{portfolio}_operating_target_book_available",
+                "passed": operating_exists,
+                "severity": "error" if not operating_exists else "ok",
+                "detail": f"operating_book={operating.get('path')}; rows={operating.get('row_count')}; max_date={operating.get('max_date')}",
+            }
+        )
+        historical_max_dt = parse_date(historical.get("max_date"))
+        historical_recent = bool(historical_max_dt and end_dt and historical_max_dt.date() >= end_dt.date())
+        checks.append(
+            {
+                "check": f"{portfolio}_historical_research_book_reaches_broker_end",
+                "passed": historical_recent,
+                "severity": "warn" if not historical_recent else "ok",
+                "detail": f"historical_book_max={historical.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={historical.get('row_count')}; operating_book_max={operating.get('max_date')}; operating_rows={operating.get('row_count')}",
+            }
+        )
+        metrics = inputs.get(f"{portfolio}_metrics", {}) or {}
+        metric_target_book = str(metrics.get("target_book") or "")
+        uses_operating = f"operating_{portfolio}_target_book.csv" in metric_target_book.replace("\\", "/")
+        checks.append(
+            {
+                "check": f"{portfolio}_broker_replay_uses_operating_target_book",
+                "passed": uses_operating,
+                "severity": "error" if not uses_operating else "ok",
+                "detail": f"metric_target_book={metric_target_book or 'missing'}",
+            }
+        )
+
+    current_only = latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv"
+    legacy_current = latest_run / "operating_snapshot" / "current_portfolio_snapshot_latest.csv"
+    current_only_rows = csv_row_count(current_only)
+    checks.append(
+        {
+            "check": "current_only_operating_holdings_available",
+            "passed": current_only_rows > 0,
+            "severity": "warn" if current_only_rows == 0 else "ok",
+            "detail": f"{current_only}; rows={current_only_rows}; legacy_snapshot_exists={legacy_current.exists()}",
+        }
+    )
+
+    main_positions = csv_row_count(latest_run / "broker_replay" / "main" / "positions_latest.csv")
+    main_target_rows = csv_row_count(latest_run / "portfolio_latest.csv")
+    main_excess = max(0, main_positions - main_target_rows)
+    checks.append(
+        {
+            "check": "main_current_position_count_near_latest_target_count",
+            "passed": main_excess <= 5,
+            "severity": "warn" if main_excess > 5 else "ok",
+            "detail": f"main_positions={main_positions}; latest_target_rows={main_target_rows}; excess={main_excess}",
+        }
+    )
+
+    concentrated_metrics = inputs.get("concentrated_metrics", {})
+    metric_filter = concentrated_metrics.get("target_book_filter") or {}
+    latest_conc_rows = read_csv_rows(latest_run / "concentrated_portfolio_latest.csv")
+    latest_conc = latest_conc_rows[0] if latest_conc_rows else {}
+    metric_n = filter_value(metric_filter.get("target_stock_names"))
+    latest_n = filter_value(latest_conc.get("target_stock_names"))
+    metric_mode = filter_value(metric_filter.get("weighting_mode"))
+    latest_mode = filter_value(latest_conc.get("weighting_mode"))
+    filter_match = bool(metric_n and latest_n and metric_n == latest_n and metric_mode == latest_mode)
+    checks.append(
+        {
+            "check": "concentrated_replay_filter_matches_latest_target",
+            "passed": filter_match,
+            "severity": "warn" if not filter_match else "ok",
+            "detail": f"broker_filter_n={metric_n or 'missing'}; latest_target_n={latest_n or 'missing'}; broker_mode={metric_mode or 'missing'}; latest_mode={latest_mode or 'missing'}",
+        }
+    )
+    return checks
 
 
 def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifacts: bool = False) -> list[dict[str, Any]]:
@@ -228,6 +399,35 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
             "detail": f"production_ready_count={production_ready}",
         }
     )
+    operating_event = inputs.get("operating_event_backtest") or {}
+    out.append(
+        {
+            "check": "operating_event_backtest_available",
+            "passed": bool(operating_event),
+            "severity": "warn" if not operating_event else "ok",
+            "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+        }
+    )
+    if operating_event:
+        daily_risk = bool(operating_event.get("daily_risk_overlay_validated"))
+        full_entries = bool(operating_event.get("full_nonmonthly_entry_replacement_validated"))
+        action_count = int(safe_float(operating_event.get("daily_risk_action_evidence_count"), 0))
+        out.append(
+            {
+                "check": "daily_risk_overlay_backtest_validated",
+                "passed": daily_risk,
+                "severity": "warn" if not daily_risk else "ok",
+                "detail": f"daily_risk_overlay_validated={daily_risk}; nonmonthly_risk_action_count={action_count}",
+            }
+        )
+        out.append(
+            {
+                "check": "full_nonmonthly_entry_replacement_backtest_validated",
+                "passed": full_entries,
+                "severity": "warn" if not full_entries else "ok",
+                "detail": f"full_nonmonthly_entry_replacement_validated={full_entries}; daily_risk_action_evidence_count={action_count}",
+            }
+        )
     replay = inputs.get("orchestrator_replay") or {}
     replay_valid = bool(replay.get("valid_for_promotion"))
     out.append(
@@ -238,6 +438,7 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
             "detail": f"status={replay.get('status')}; data_mode={replay.get('data_mode')}",
         }
     )
+    out.extend(operating_alignment_checks(inputs, latest_run))
     return out
 
 

@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Smoke test for unified leader-drop diagnostics."""
+from __future__ import annotations
+
+import sys
+import tempfile
+from pathlib import Path
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from tools.run_leader_drop_diagnostics import run  # noqa: E402
+
+
+def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        reports = latest / "reports"
+        reports.mkdir(parents=True)
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "DROP",
+                    "Name": "Dropped Leader",
+                    "universe_source": "theme_overlay",
+                    "in_latest_pre_filter": True,
+                    "in_latest_scoring_universe": False,
+                    "failed_dd_1y": True,
+                    "drop_reason": "failed_dd_1y",
+                },
+                {
+                    "ticker": "HOLD",
+                    "Name": "Held Leader",
+                    "universe_source": "r1000",
+                    "in_latest_pre_filter": True,
+                    "in_latest_scoring_universe": True,
+                },
+            ]
+        ).to_csv(reports / "leader_drop_diagnostics_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "HOLD",
+                    "Name": "Held Leader",
+                    "sector": "Tech",
+                    "score_total": 5.0,
+                    "portfolio_future_winner_engine_score": 0.8,
+                    "portfolio_monster_early_score": 0.7,
+                    "period_forward_return": 0.30,
+                },
+                {
+                    "ticker": "MISS",
+                    "Name": "Missed Leader",
+                    "sector": "Tech",
+                    "score_total": 4.5,
+                    "portfolio_future_winner_engine_score": 0.9,
+                    "portfolio_monster_early_score": 0.75,
+                    "period_forward_return": 0.40,
+                },
+            ]
+        ).to_csv(latest / "scored_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "HOLD", "weight": 0.30}]).to_csv(latest / "portfolio_latest.csv", index=False)
+        pd.DataFrame([{"ticker": "CONC", "weight": 0.50}]).to_csv(latest / "concentrated_portfolio_latest.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-31",
+                    "ticker": "MISS",
+                    "portfolio_future_winner_engine_score": 0.90,
+                    "portfolio_monster_early_score": 0.75,
+                    "rs_acceleration_score": 0.70,
+                    "period_forward_return": 0.40,
+                },
+                {
+                    "rebalance_date": "2026-02-28",
+                    "ticker": "HOLD",
+                    "portfolio_future_winner_engine_score": 0.80,
+                    "portfolio_monster_early_score": 0.70,
+                    "rs_acceleration_score": 0.60,
+                    "period_forward_return": 0.30,
+                },
+            ]
+        ).to_csv(reports / "candidate_replay_book.csv", index=False)
+        pd.DataFrame([{"rebalance_date": "2026-02-28", "ticker": "HOLD", "weight": 0.30}]).to_csv(
+            reports / "operating_main_target_book.csv",
+            index=False,
+        )
+        sec_path = root / "sec_ownership_signals.parquet"
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "MISS",
+                    "as_of_date": "2026-01-15",
+                    "early_evidence_score": 0.85,
+                    "sec_form4_cluster_buy_score": 0.90,
+                    "evidence_confidence_score": 0.75,
+                }
+            ]
+        ).to_parquet(sec_path, index=False)
+        for portfolio in ["main", "concentrated"]:
+            out = latest / "account_ledger_preview" / portfolio
+            out.mkdir(parents=True)
+            pd.DataFrame([{"ticker": "HOLD" if portfolio == "main" else "CONC", "target_weight": 0.30}]).to_csv(
+                out / "target_weights.csv",
+                index=False,
+            )
+            pd.DataFrame(
+                [
+                    {
+                        "ticker": "HOLD" if portfolio == "main" else "CONC",
+                        "side": "BUY",
+                        "quantity": 10,
+                        "status": "ready",
+                    }
+                ]
+            ).to_csv(out / "orders_preview.csv", index=False)
+            pd.DataFrame(columns=["ticker", "side", "quantity", "status"]).to_csv(out / "order_deltas_review.csv", index=False)
+            broker = latest / "broker_replay" / portfolio
+            broker.mkdir(parents=True)
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2026-03-02",
+                        "ticker": "HOLD" if portfolio == "main" else "CONC",
+                        "side": "BUY",
+                        "quantity": 10,
+                    }
+                ]
+            ).to_csv(broker / "trades.csv", index=False)
+        payload = run(latest, root / "out", watchlist="DROP,MISS,ABSENT", sec_signals=sec_path)
+        assert payload["status"] == "completed", payload
+        assert payload["rows"] >= 4, payload
+        detail = pd.read_csv(root / "out" / "leader_drop_by_gate.csv")
+        drop = detail[detail["ticker"].eq("DROP")].iloc[0]
+        assert drop["drop_reason"] == "filtered_before_scoring:failed_dd_1y"
+        hold = detail[detail["ticker"].eq("HOLD")].iloc[0]
+        assert hold["drop_reason"] == "selected_target_actionable_order"
+        absent = detail[detail["ticker"].eq("ABSENT")].iloc[0]
+        assert absent["drop_reason"] == "not_in_latest_universe_or_missing_data"
+        missed = pd.read_csv(root / "out" / "missed_leader_candidates.csv")
+        assert "MISS" in set(missed["ticker"])
+        for col in ["first_scored_date", "first_target_date", "first_broker_buy_date", "missed_return_after_onset"]:
+            assert col in detail.columns
+        miss = detail[detail["ticker"].eq("MISS")].iloc[0]
+        assert str(miss["first_scored_date"]) == "2026-01-31"
+        assert float(miss["early_evidence_score"]) == 0.85
+        assert str(miss["sec_signal_as_of_date"]) == "2026-01-15"
+        assert float(miss["missed_return_after_onset"]) == 0.40
+
+
+def main() -> int:
+    test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility()
+    print("leader_drop_diagnostics_smoke: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

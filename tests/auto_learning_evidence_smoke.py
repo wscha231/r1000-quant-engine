@@ -23,6 +23,9 @@ def test_autolearning_prefers_broker_ledger_evidence() -> None:
         (run / "broker_replay" / "concentrated").mkdir(parents=True)
         (run / "broker_trade_journal" / "main").mkdir(parents=True)
         (run / "broker_trade_journal" / "concentrated").mkdir(parents=True)
+        (run / "weekly_leader_snapshots").mkdir(parents=True)
+        (run / "weekly_leader_broker_replay" / "main").mkdir(parents=True)
+        (run / "weekly_leader_broker_replay" / "concentrated").mkdir(parents=True)
         (run / "broker_trade_journal").mkdir(parents=True, exist_ok=True)
         (run / "reports").mkdir(parents=True, exist_ok=True)
         (run / "broker_replay" / "main" / "metrics.json").write_text(
@@ -31,6 +34,18 @@ def test_autolearning_prefers_broker_ledger_evidence() -> None:
         )
         (run / "broker_replay" / "concentrated" / "metrics.json").write_text(
             json.dumps({"status": "completed", "cagr": 0.35, "sharpe": 1.1, "max_dd": -0.40}),
+            encoding="utf-8",
+        )
+        (run / "weekly_leader_snapshots" / "summary.json").write_text(
+            json.dumps({"status": "completed", "data_mode": "monthly_candidate_book_plus_weekly_price_snapshot"}),
+            encoding="utf-8",
+        )
+        (run / "weekly_leader_broker_replay" / "main" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.24, "sharpe": 1.2, "max_dd": -0.34}),
+            encoding="utf-8",
+        )
+        (run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({"status": "completed", "cagr": 0.42, "sharpe": 1.3, "max_dd": -0.38}),
             encoding="utf-8",
         )
         rows = [
@@ -58,6 +73,8 @@ def test_autolearning_prefers_broker_ledger_evidence() -> None:
         assert evidence["metrics"]["concentrated"]["max_dd"] == -0.40
         assert evidence["combined_trade_journal"]["trade_count"] == 1
         assert evidence["combined_trade_journal"]["avg_return_by_sleeve"]["future_winner"] == 0.25
+        assert evidence["weekly_leader_entry"]["available"] is True
+        assert round(evidence["weekly_leader_entry"]["concentrated_cagr_delta_vs_broker"], 2) == 0.07
 
 
 def main() -> int:

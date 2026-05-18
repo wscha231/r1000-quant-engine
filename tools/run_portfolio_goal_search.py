@@ -417,6 +417,21 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         valid_for_production=False,
         notes="Research-only Main v2 replay from candidate_replay_book.",
     )
+    main += candidate_from_json(
+        latest_run / "main_v3_alpha_concentration" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v3_alpha_concentration",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only concentrated Main v3 replay from candidate_replay_book. Official evidence requires the companion broker-ledger replay.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "main_v3_alpha_concentration_broker_replay" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_v3_alpha_concentration_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of Main v3 alpha-concentration target book.",
+    )
     main += candidate_from_nested_metrics(
         latest_run / "position_aware_risk_replay" / "metrics.json",
         portfolio="main",
@@ -450,6 +465,20 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_market_circuit_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that injects daily SPY/QQQ crash circuit target rows before next-close replay.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a grid of daily SPY/QQQ market-circuit multipliers.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_position_risk_replay",
@@ -463,6 +492,77 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with no-trade bands, staged entries, minimum holding, and winner trim deferral.",
     )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_replacement_swap_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_replacement_swap_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "main" / "best_target_distance_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_broker_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector variant ranked by shortest distance to the configured CAGR/MaxDD target pair.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_market_circuit_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by daily QQQ/SPY trend-circuit states.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_leader_circuit_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_leader_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from alpha-selector targets with selected-leader-basket circuit overlays.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_dynamic_regime_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_dynamic_regime_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from same-date regime-adaptive alpha-selector concentration.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_dynamic_regime_grid" / "main" / "best_target_distance_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_dynamic_regime_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger regime-adaptive alpha-selector variant ranked by shortest distance to the CAGR/MaxDD target pair.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_shadow_drawdown_grid" / "main" / "best_metrics.json",
+        portfolio="main",
+        candidate_id="main_alpha_selector_shadow_drawdown_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by an observable full-risk shadow account drawdown circuit.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_crisis_reentry_fast_reentry",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger conversion of the crisis cash ladder / bargain re-entry target book.",
+    )
+    main += candidate_from_json(
+        latest_run / "weekly_leader_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_weekly_leader_entry_broker_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only account-ledger replay of weekly new-leader entries from monthly PIT candidates plus daily price leadership signals.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
         portfolio="concentrated",
@@ -470,6 +570,28 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         valid_for_production=False,
         notes="Research-only concentrated policy replay from candidate_replay_book.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "concentrated_v2_challenger" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_v2_challenger",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only concentrated v2 leader-hold/replacement target book. Official evidence requires the companion broker-ledger replay.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "concentrated_v2_challenger_broker_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_v2_challenger_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of the concentrated v2 challenger target book.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "concentrated_broker_grid" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from the concentrated research strategy grid.",
     )
     concentrated += candidate_from_json(
         latest_run / "concentrated_position_risk_replay" / "metrics.json",
@@ -495,6 +617,20 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_market_circuit_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that injects daily SPY/QQQ crash circuit target rows before next-close replay.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_market_circuit_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a grid of daily SPY/QQQ market-circuit multipliers.",
+    )
+    concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "concentrated" / "metrics.json",
         portfolio="concentrated",
         candidate_id="concentrated_broker_position_risk_replay",
@@ -507,6 +643,70 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_execution_policy_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with concentrated no-trade bands, staged entries, minimum holding, and winner trim deferral.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_replacement_swap_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_replacement_swap_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger challenger that swaps weak/stale holdings into stronger same-date candidates.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_broker_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from a simple future/early/monster/RS leader selector grid.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_broker_grid" / "concentrated" / "best_target_distance_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_broker_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector variant ranked by shortest distance to the configured CAGR/MaxDD target pair.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_market_circuit_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_market_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by daily QQQ/SPY trend-circuit states.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_leader_circuit_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_leader_circuit_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from alpha-selector targets with selected-leader-basket circuit overlays.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_dynamic_regime_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_dynamic_regime_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger best variant from same-date regime-adaptive alpha-selector concentration.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_dynamic_regime_grid" / "concentrated" / "best_target_distance_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_dynamic_regime_grid_best_target_distance",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger regime-adaptive alpha-selector variant ranked by shortest distance to the CAGR/MaxDD target pair.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "alpha_selector_shadow_drawdown_grid" / "concentrated" / "best_metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_alpha_selector_shadow_drawdown_grid_best",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger alpha-selector target book scaled by an observable full-risk shadow account drawdown circuit.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_weekly_leader_entry_broker_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only account-ledger replay of concentrated weekly new-leader entries from monthly PIT candidates plus daily price leadership signals.",
     )
     concentrated += candidate_from_json(
         latest_run / "monster_lifecycle_replay" / "metrics.json",

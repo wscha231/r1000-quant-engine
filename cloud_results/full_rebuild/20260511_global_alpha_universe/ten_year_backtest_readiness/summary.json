@@ -1,0 +1,86 @@
+{
+  "blockers": [
+    "10-year price cache/manifest is not ready for proxy replay",
+    "monthly target books do not cover the requested 10-year window",
+    "broker-ledger official replay does not yet cover the requested 10-year window"
+  ],
+  "broker_replay": {
+    "concentrated": {
+      "cagr": 0.31306004125285103,
+      "end_date": "2026-05-08",
+      "exists": true,
+      "max_dd": -0.3923096979843662,
+      "metric_mode": "broker_ledger_next_close",
+      "sharpe": 1.0506311027845716,
+      "start_date": "2019-05-01",
+      "status": "completed",
+      "valid_for_production": true,
+      "years": 7.0198
+    },
+    "main": {
+      "cagr": 0.21091695275130307,
+      "end_date": "2026-05-08",
+      "exists": true,
+      "max_dd": -0.31687963309928746,
+      "metric_mode": "broker_ledger_next_close",
+      "sharpe": 1.0028760256935103,
+      "start_date": "2019-05-01",
+      "status": "completed",
+      "valid_for_production": true,
+      "years": 7.0198
+    },
+    "ten_year_ready": false
+  },
+  "coverage_readiness": null,
+  "free_data": {
+    "coverage_exists": false,
+    "manifest_exists": false,
+    "manifest_generated_at_utc": null,
+    "sec_companyfacts_available": false
+  },
+  "generated_at_utc": "2026-05-11T12:03:42.986791+00:00",
+  "min_years": 9.8,
+  "next_actions": [
+    "Run free_data_lake_bootstrap.yml with price_mode=target_books and max_price_tickers=0.",
+    "Restore or copy companyfacts.zip into data_raw/free/sec/companyfacts.zip, or run with sec_companyfacts=true.",
+    "After 10-year target books exist, rerun broker-ledger replay and account evaluation."
+  ],
+  "official_10y_ready": false,
+  "pit_label": null,
+  "price_cache": {
+    "cache_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+    "effective_price_files": 1124,
+    "end_date": null,
+    "local_price_files": 1124,
+    "manifest_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/data_raw/free/prices/replay_price_cache_manifest.json",
+    "manifest_price_files": 0,
+    "requested_tickers": 0,
+    "required_target_book_tickers": 0,
+    "start_date": null,
+    "ten_year_ready": false
+  },
+  "proxy_10y_price_ready": false,
+  "schema_version": "ten-year-backtest-readiness-v1",
+  "status": "not_ready",
+  "target_books": {
+    "concentrated": {
+      "exists": true,
+      "max_date": "2026-02-27",
+      "min_date": "2019-04-30",
+      "rows": 23445,
+      "unique_months": 83
+    },
+    "main": {
+      "exists": true,
+      "max_date": "2026-02-27",
+      "min_date": "2019-04-30",
+      "rows": 1985,
+      "unique_months": 83
+    },
+    "ten_year_ready": false
+  },
+  "warnings": [
+    "SEC companyfacts archive is not available under data_raw/free/sec",
+    "universe is labeled proxy, not PIT-safe official Russell 1000 history"
+  ]
+}

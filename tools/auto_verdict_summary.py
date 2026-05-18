@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""auto_verdict_summary — generate Telegram-ready verdict text from outputs.
+"""Generate Telegram-ready full-rebuild summary text.
 
-Reads:
-  outputs/backtest_metrics.json
-  outputs/concentrated_backtest_metrics.json
-  outputs/portfolio_latest.csv
-  outputs/concentrated_portfolio_latest.csv
-  outputs/scored_latest.csv
+Official performance evidence is account-like broker-ledger replay:
 
-Compares to CURRENT_BASELINE in run_local.py.
-Emits multi-line text suitable for Telegram sendMessage (uses \\n separators).
+- next-close fills after the signal date
+- integer shares
+- cash accounting
+- transaction costs
+- daily account equity and drawdown
 
-Usage:
-    py -3 tools/auto_verdict_summary.py
-    py -3 tools/auto_verdict_summary.py --base outputs/
-
-Output goes to stdout; pipe into Telegram curl.
+Monthly/weight-level backtest metrics are retained only as research context.
+They must not trigger baseline rotation or production SHIP decisions.
 """
 from __future__ import annotations
 
@@ -23,11 +18,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def safe_load_json(path: Path) -> dict:
+def safe_load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
@@ -41,95 +37,184 @@ def safe_load_csv(path: Path):
         return None
     try:
         import pandas as pd
+
         return pd.read_csv(path)
     except Exception:
         return None
 
 
+def fnum(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        out = float(value)
+        if out != out:
+            return default
+        return out
+    except (TypeError, ValueError):
+        return default
+
+
+def pct(value: Any) -> str:
+    return f"{fnum(value) * 100:.2f}%"
+
+
+def fmt_money(value: Any) -> str:
+    return f"${fnum(value):,.0f}"
+
+
+def official_rows(official: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    portfolios = official.get("portfolios")
+    if isinstance(portfolios, dict):
+        return {str(k): dict(v or {}) for k, v in portfolios.items()}
+    if isinstance(portfolios, list):
+        return {str(row.get("portfolio")): dict(row) for row in portfolios if isinstance(row, dict)}
+    return {}
+
+
+def legacy_metric(metrics: dict[str, Any], *names: str) -> float | None:
+    for name in names:
+        if name in metrics:
+            return fnum(metrics.get(name))
+    return None
+
+
+def render_portfolio_snapshot(lines: list[str], portfolio) -> None:
+    if portfolio is None or getattr(portfolio, "empty", True):
+        return
+    lines.append("")
+    lines.append(f"Latest target snapshot: {len(portfolio)} rows")
+    if "portfolio_sleeve_label" in portfolio.columns:
+        sleeves = portfolio["portfolio_sleeve_label"].value_counts()
+        sleeve_str = " / ".join(f"{k}:{v}" for k, v in sleeves.items())
+        lines.append(f"  Sleeves: {sleeve_str}")
+    if "ticker" in portfolio.columns and "weight" in portfolio.columns:
+        top5 = portfolio.nlargest(min(5, len(portfolio)), "weight")[["ticker", "weight"]]
+        top_str = ", ".join(f"{r['ticker']} {float(r['weight']) * 100:.1f}%" for _, r in top5.iterrows())
+        lines.append(f"  Top 5: {top_str}")
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--base", default="outputs", help="output directory")
-    p.add_argument("--mode", default="r1000+adr", help="universe_mode label")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base", default="outputs", help="output directory")
+    parser.add_argument("--mode", default="global_alpha_universe", help="universe_mode label")
+    args = parser.parse_args()
 
     out = Path(args.base)
-
-    # 1. Load CURRENT_BASELINE
-    sys.path.insert(0, str(ROOT))
-    try:
-        from run_local import CURRENT_BASELINE as bl
-    except Exception:
-        bl = {"name": "?", "cagr": 0, "sharpe": 0, "max_dd": 0, "ir": 0}
-
-    # 2. Load main backtest metrics
-    main_metrics = safe_load_json(out / "backtest_metrics.json")
-    conc_metrics = safe_load_json(out / "concentrated_backtest_metrics.json")
+    official = safe_load_json(out / "account_evaluation" / "official_metrics.json")
+    account_summary = safe_load_json(out / "account_evaluation" / "account_evaluation_summary.json")
+    main_legacy = safe_load_json(out / "backtest_metrics.json")
+    concentrated_legacy = safe_load_json(out / "concentrated_backtest_metrics.json")
     portfolio = safe_load_csv(out / "portfolio_latest.csv")
-    conc_port = safe_load_csv(out / "concentrated_portfolio_latest.csv")
+    concentrated_portfolio = safe_load_csv(out / "concentrated_portfolio_latest.csv")
+
+    rows = official_rows(official)
+    production_pass = bool(official.get("production_target_pass"))
 
     lines: list[str] = []
-    lines.append(f"📊 r1000 [{args.mode}]")
+    lines.append(f"r1000 [{args.mode}]")
+    lines.append("OFFICIAL metric mode: broker-ledger next-close account replay")
+    lines.append("Monthly/weight-level SHIP verdicts are deprecated research context.")
     lines.append("")
 
-    # 3. Verdict via compare_adr_backtest logic
-    if main_metrics:
-        try:
-            from tools.compare_adr_backtest import verdict, SHIP_GATE
-            v, deltas = verdict(bl, main_metrics)
-            emoji = {"SHIP": "✅", "PARTIAL": "🟡", "REGRESS": "❌"}.get(v, "❓")
-            lines.append(f"{emoji} verdict: {v}")
-            lines.append("")
-            lines.append("Main diversified:")
-            lines.append(f"  CAGR    {deltas['baseline_cagr']*100:+5.2f}% → {deltas['variant_cagr']*100:+5.2f}%   Δ{deltas['delta_cagr_pp']:+.2f}pp")
-            lines.append(f"  Sharpe  {deltas['baseline_sharpe']:5.3f} → {deltas['variant_sharpe']:5.3f}   Δ{deltas['delta_sharpe']:+.3f}")
-            lines.append(f"  MaxDD   {deltas['baseline_max_dd']*100:+5.2f}% → {deltas['variant_max_dd']*100:+5.2f}%   Δ{deltas['delta_max_dd_pp']:+.2f}pp")
-            lines.append("")
-            lines.append(f"Ship gate: ΔCAGR≥{SHIP_GATE['delta_cagr_min_pp']}pp ΔSharpe≥{SHIP_GATE['delta_sharpe_min']} ΔMaxDD≥{SHIP_GATE['delta_max_dd_min_pp']}pp")
-        except Exception as e:
-            lines.append(f"verdict comparison failed: {e}")
+    if rows:
+        lines.append("Official account performance:")
+        for name in ("main", "concentrated"):
+            row = rows.get(name, {})
+            if not row:
+                lines.append(f"  {name}: missing broker-ledger metrics")
+                continue
+            lines.append(
+                "  {name}: CAGR {cagr} / Sharpe {sharpe:.3f} / MaxDD {maxdd} / "
+                "cash {cash} / trades {trades} / equity {equity}".format(
+                    name=name,
+                    cagr=pct(row.get("cagr")),
+                    sharpe=fnum(row.get("sharpe")),
+                    maxdd=pct(row.get("max_dd")),
+                    cash=pct(row.get("avg_cash_weight")),
+                    trades=int(fnum(row.get("broker_trade_count"))),
+                    equity=fmt_money(row.get("ending_capital_usd")),
+                )
+            )
+        lines.append("")
+        if production_pass:
+            lines.append("OFFICIAL RESULT: production target pass. Review before baseline rotation.")
+        else:
+            lines.append("OFFICIAL RESULT: NO PRODUCTION SHIP. Improve broker-ledger CAGR/MaxDD first.")
     else:
-        lines.append("⚠️ no backtest_metrics.json — pipeline likely failed")
+        lines.append("Official account performance missing. Do not ship from legacy metrics.")
 
-    # 4. Concentrated metrics
-    if conc_metrics and "strategy_cagr" in conc_metrics:
-        lines.append("")
-        lines.append("Concentrated 3-name:")
-        lines.append(f"  CAGR  {conc_metrics.get('strategy_cagr', 0)*100:+5.2f}%  Sharpe  {conc_metrics.get('sharpe', 0):.3f}  MaxDD  {conc_metrics.get('max_dd', 0)*100:+.2f}%")
-
-    # 5. Sleeve composition
-    if portfolio is not None and not portfolio.empty:
-        lines.append("")
-        lines.append(f"Portfolio: {len(portfolio)} positions")
-        if "portfolio_sleeve_label" in portfolio.columns:
-            sleeves = portfolio["portfolio_sleeve_label"].value_counts()
-            sleeve_str = " / ".join(f"{k}:{v}" for k, v in sleeves.items())
-            lines.append(f"  Sleeves: {sleeve_str}")
-        # Top 5 by weight
-        if "ticker" in portfolio.columns and "weight" in portfolio.columns:
-            top5 = portfolio.nlargest(5, "weight")[["ticker", "weight"]]
-            top_str = ", ".join(f"{r['ticker']} {r['weight']*100:.1f}%" for _, r in top5.iterrows())
-            lines.append(f"  Top 5: {top_str}")
-
-    # 6. Concentrated portfolio
-    if conc_port is not None and not conc_port.empty:
-        if "ticker" in conc_port.columns and "weight" in conc_port.columns:
-            cstr = ", ".join(f"{r['ticker']} {r['weight']*100:.0f}%" for _, r in conc_port.head(3).iterrows())
-            lines.append(f"  Concentrated: {cstr}")
-
-    # 7. Action recommendation
     lines.append("")
-    if main_metrics:
-        try:
-            from tools.compare_adr_backtest import verdict as _v
-            v, _ = _v(bl, main_metrics)
-            if v == "SHIP":
-                lines.append("→ Action: rotate CURRENT_BASELINE (run_local.py + CLAUDE.md + CHANGELOG)")
-            elif v == "PARTIAL":
-                lines.append("→ Action: investigate sleeve/regime; tune; retest")
-            elif v == "REGRESS":
-                lines.append("→ Action: isolate ADR vs Phase 14 fault (3rd workflow with phase14_off)")
-        except Exception:
-            pass
+    # F12 (2026-05-14): cross-mode comparison table -- headline vs all the
+    # alternate broker-replay measurement modes. Lets the reader see if any
+    # mode delivers materially better risk-adjusted returns.
+    lines.append("Mode comparison (broker-ledger, account-like):")
+    mode_dirs = [
+        ("headline (no-stops)",        "broker_replay"),
+        ("position-risk daily stops",  "broker_position_risk_replay"),
+        ("position-risk WEEKLY stops", "broker_position_risk_replay_weekly"),
+        ("regime-capacity (Mode X)",   "regime_capacity_broker_replay"),
+        ("macro-circuit",              "macro_circuit_broker_replay"),
+    ]
+    header_printed = False
+    for label, sub in mode_dirs:
+        for portfolio in ("main", "concentrated"):
+            metrics = safe_load_json(out / sub / portfolio / "metrics.json")
+            if not metrics or metrics.get("status") != "completed":
+                continue
+            cagr_v = metrics.get("cagr")
+            sharpe_v = metrics.get("sharpe")
+            maxdd_v = metrics.get("max_dd")
+            trades_v = metrics.get("trade_count")
+            if not header_printed:
+                lines.append(
+                    f"  {'mode':28} {'portfolio':14} {'CAGR':>8}  {'MaxDD':>8}  {'Sharpe':>7}  {'trades':>7}"
+                )
+                header_printed = True
+            lines.append(
+                f"  {label:28} {portfolio:14} {pct(cagr_v):>8}  {pct(maxdd_v):>8}  "
+                f"{fnum(sharpe_v):7.3f}  {int(fnum(trades_v)):>7}"
+            )
+    if not header_printed:
+        lines.append("  (no alternate-mode metrics found)")
+    lines.append("")
+    lines.append("Research-only legacy metrics:")
+    if main_legacy:
+        lines.append(
+            "  main weight-level: CAGR {cagr} / Sharpe {sharpe:.3f} / MaxDD {maxdd}".format(
+                cagr=pct(legacy_metric(main_legacy, "cagr", "strategy_cagr")),
+                sharpe=fnum(legacy_metric(main_legacy, "sharpe")),
+                maxdd=pct(legacy_metric(main_legacy, "max_dd", "max_drawdown")),
+            )
+        )
+    if concentrated_legacy:
+        lines.append(
+            "  concentrated weight-level: CAGR {cagr} / Sharpe {sharpe:.3f} / MaxDD {maxdd}".format(
+                cagr=pct(legacy_metric(concentrated_legacy, "strategy_cagr", "cagr")),
+                sharpe=fnum(legacy_metric(concentrated_legacy, "sharpe")),
+                maxdd=pct(legacy_metric(concentrated_legacy, "max_dd", "max_drawdown")),
+            )
+        )
+        if concentrated_legacy.get("production_valid") is False:
+            lines.append("  concentrated weight-level production_valid=false")
+
+    render_portfolio_snapshot(lines, portfolio)
+    if concentrated_portfolio is not None and not concentrated_portfolio.empty:
+        if "ticker" in concentrated_portfolio.columns and "weight" in concentrated_portfolio.columns:
+            cstr = ", ".join(
+                f"{r['ticker']} {float(r['weight']) * 100:.0f}%"
+                for _, r in concentrated_portfolio.head(5).iterrows()
+            )
+            lines.append(f"  Concentrated latest: {cstr}")
+
+    if account_summary:
+        lines.append("")
+        lines.append(
+            "Governance: production_target_pass={p} research_target_pass={r}".format(
+                p=str(account_summary.get("production_target_pass")).lower(),
+                r=str(account_summary.get("research_target_pass")).lower(),
+            )
+        )
 
     print("\n".join(lines))
     return 0

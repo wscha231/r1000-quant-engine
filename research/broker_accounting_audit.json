@@ -1,0 +1,40 @@
+{
+  "schema_version": "broker-accounting-audit-v1",
+  "as_of_utc": "2026-05-14T10:00:00Z",
+  "purpose": "Single source of truth for broker-ledger replay accounting known biases. tools/auto_policy_challenger.py reads this file and refuses to mark a policy production-ready while critical bias flags are still false. Update one flag per bug fix; do not flip a flag without landing a regression test that demonstrates the fix.",
+  "hard_gates": {
+    "delisted_cost_basis_fallback_eliminated": {
+      "value": true,
+      "evidence_path": "tools/run_broker_ledger_replay.py:307-353 (account_equity now uses delisted_recovery_rate * cost_basis, default 0.0; cost_basis fallback removed)",
+      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_delisted_position_with_zero_last_close_marks_at_zero",
+      "fix_commit": "TBD-after-commit",
+      "fix_date": "2026-05-14",
+      "rationale": "FIXED 2026-05-14. account_equity no longer falls back to state.cost_basis when price_at_or_before returns None / <=0 / NaN. Instead the position is marked at delisted_recovery_rate * cost_basis (default 0.0 = honest delisted-to-zero accounting). Position remains in state.shares for downstream diagnostics but no longer inflates equity. Regression test exercises both the synthetic 'last close still positive' case (marks at last close) and the 'last close <= 0' case (marks at 0.0). Effect on existing metrics: MaxDD widens by ~0-3pp depending on how many positions in the test universe ever fall to non-positive last close."
+    },
+    "survivorship_coverage_audited": {
+      "value": false,
+      "evidence_path": "tools/run_survivorship_audit.py (audit tool added 2026-05-14; reads historical_universe_membership + price_cache, emits outputs/audit/survivorship_coverage.json with coverage_ratio / hard_gate_flip_eligible flag)",
+      "smoke_test": "tests/survivorship_audit_smoke.py (verifies tool logic; gate flip in production requires real coverage_ratio >= 0.85 AND delisted_count >= 100)",
+      "tool_added_date": "2026-05-14",
+      "flip_path": "After next Tier-3 the workflow emits outputs/audit/survivorship_coverage.json; flip this value to true when payload.hard_gate_flip_eligible == true.",
+      "rationale": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD. As of 2026-05-14 the AUDIT TOOL ships (tools/run_survivorship_audit.py + smoke test) but the gate flip awaits a real-data measurement showing coverage_ratio >= 0.85 over a >= 100-ticker delisted set."
+    }
+  },
+  "soft_gates": {
+    "multi_day_fill_date_stamping_corrected": {
+      "value": false,
+      "evidence_path": "tools/run_broker_ledger_replay.py:552-611",
+      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_multi_day_fill_uses_min_fill_date_for_stamp",
+      "rationale": "When per-ticker fill dates span multiple days, every trade is stamped with min(fill_dt_by_ticker.values()) instead of each ticker's actual_dt. Cash is debited earlier than the trade could have happened in reality. Minor for liquid R1000 universe but should be corrected."
+    },
+    "sharpe_uses_excess_return": {
+      "value": true,
+      "evidence_path": "tools/run_broker_ledger_replay.py:calc_metrics (Sharpe now (ann_return - risk_free_annual) / vol; default risk_free_annual=0.025)",
+      "smoke_test": null,
+      "fix_commit": "TBD-after-commit",
+      "fix_date": "2026-05-14",
+      "rationale": "FIXED 2026-05-14. calc_metrics now takes a `risk_free_annual` parameter (default 0.025 = 2.5% annual T-bill yield proxy) and subtracts it from the strategy's annualized return before dividing by volatility. metrics.json emits sharpe_risk_free_annual alongside sharpe for transparency. Effect on existing reported Sharpe: -0.10 to -0.30 (e.g. Iter 2 Main Sharpe 1.090 -> ~0.80-0.90; Conc 1.094 -> ~0.80-0.90). Numbers are now honest; downstream Sharpe-based gates inherit the correction."
+    }
+  },
+  "promotion_policy": "While any hard gate is false, auto_policy_challenger.py emits a hard failure for that bias and refuses to approve production promotion of broker-ledger-derived policies. Soft gates emit warnings but do not block. Sidecars and counterfactual reviews remain useful at the proposal-only level."
+}

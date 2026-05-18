@@ -1,0 +1,2 @@
+[auto-policy-promote] status=blocked promoted=False
+[auto-policy-promote] wrote /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/promotion/promotion_decision.json

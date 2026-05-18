@@ -1,0 +1,349 @@
+rebalance_date,ticker,weight,Name,sector,portfolio_sleeve_label,leader_circuit_state,leader_circuit_multiplier,leader_circuit_source_rebalance_date,leader_circuit_target_book
+2019-05-31,FDS,0.33,FACTSET RESEARCH SYSTEMS INC,Financials,early_scout,normal,1.0,2019-05-31,True
+2019-05-31,HEI,0.33,HEICO CORP,Industrials,future_winner,normal,1.0,2019-05-31,True
+2019-06-28,HD,0.33,HOME DEPOT INC,Consumer Discretionary,core_compounder,normal,1.0,2019-06-28,True
+2019-06-28,HEI,0.33,HEICO CORP,Industrials,future_winner,normal,1.0,2019-06-28,True
+2019-07-31,CTAS,0.33,CINTAS CORP,Industrials,early_scout,normal,1.0,2019-07-31,True
+2019-07-31,HD,0.33,HOME DEPOT INC,Consumer Discretionary,core_compounder,normal,1.0,2019-07-31,True
+2019-08-30,HD,0.33,HOME DEPOT INC,Consumer Discretionary,core_compounder,normal,1.0,2019-08-30,True
+2019-08-30,RMD,0.33,RESMED INC,Health Care,future_winner,normal,1.0,2019-08-30,True
+2019-09-30,MLM,0.33,MARTIN MARIETTA MATERIALS INC,Materials,early_scout,normal,1.0,2019-09-30,True
+2019-09-30,SHW,0.33,SHERWIN WILLIAMS,Materials,future_winner,normal,1.0,2019-09-30,True
+2019-10-31,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,normal,1.0,2019-10-31,True
+2019-10-31,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2019-10-31,True
+2019-11-29,AAPL,0.33,APPLE INC,Information Technology,core_compounder,normal,1.0,2019-11-29,True
+2019-11-29,BABA,0.33,Alibaba Group,Internet,future_winner,normal,1.0,2019-11-29,True
+2019-12-31,BABA,0.33,Alibaba Group,Internet,future_winner,normal,1.0,2019-12-31,True
+2019-12-31,TSLA,0.33,TESLA INC,Consumer Discretionary,early_scout,normal,1.0,2019-12-31,True
+2020-01-31,BABA,0.33,Alibaba Group,Internet,future_winner,normal,1.0,2020-01-31,True
+2020-01-31,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-01-31,True
+2020-02-25,BABA,0.29700000000000004,Alibaba Group,Internet,future_winner,caution,0.9,2020-01-31,True
+2020-02-25,GOOG,0.29700000000000004,ALPHABET INC CLASS C,Communication,future_winner,caution,0.9,2020-01-31,True
+2020-02-28,BABA,0.29700000000000004,Alibaba Group,Internet,future_winner,caution,0.9,2020-02-28,True
+2020-02-28,NOW,0.29700000000000004,SERVICENOW INC,Information Technology,future_winner,caution,0.9,2020-02-28,True
+2020-03-09,BABA,0.23099999999999998,Alibaba Group,Internet,future_winner,crisis,0.7,2020-02-28,True
+2020-03-09,NOW,0.23099999999999998,SERVICENOW INC,Information Technology,future_winner,crisis,0.7,2020-02-28,True
+2020-03-26,BABA,0.33,Alibaba Group,Internet,future_winner,normal,1.0,2020-02-28,True
+2020-03-26,NOW,0.33,SERVICENOW INC,Information Technology,future_winner,normal,1.0,2020-02-28,True
+2020-03-27,BABA,0.23099999999999998,Alibaba Group,Internet,future_winner,crisis,0.7,2020-02-28,True
+2020-03-27,NOW,0.23099999999999998,SERVICENOW INC,Information Technology,future_winner,crisis,0.7,2020-02-28,True
+2020-03-30,BABA,0.29700000000000004,Alibaba Group,Internet,future_winner,caution,0.9,2020-02-28,True
+2020-03-30,NOW,0.29700000000000004,SERVICENOW INC,Information Technology,future_winner,caution,0.9,2020-02-28,True
+2020-03-31,JD,0.33,JD.com,Internet,early_scout,normal,1.0,2020-03-31,True
+2020-03-31,VRTX,0.33,VERTEX PHARMACEUTICALS INC,Health Care,future_winner,normal,1.0,2020-03-31,True
+2020-04-01,JD,0.23099999999999998,JD.com,Internet,early_scout,crisis,0.7,2020-03-31,True
+2020-04-01,VRTX,0.23099999999999998,VERTEX PHARMACEUTICALS INC,Health Care,future_winner,crisis,0.7,2020-03-31,True
+2020-04-02,JD,0.33,JD.com,Internet,early_scout,normal,1.0,2020-03-31,True
+2020-04-02,VRTX,0.33,VERTEX PHARMACEUTICALS INC,Health Care,future_winner,normal,1.0,2020-03-31,True
+2020-04-30,AMZN,0.33,AMAZON.COM INC,Consumer Discretionary,future_winner,normal,1.0,2020-04-30,True
+2020-04-30,ZTO,0.33,ZTO Express,Industrials,early_scout,normal,1.0,2020-04-30,True
+2020-05-01,AMZN,0.29700000000000004,AMAZON.COM INC,Consumer Discretionary,future_winner,caution,0.9,2020-04-30,True
+2020-05-01,ZTO,0.29700000000000004,ZTO Express,Industrials,early_scout,caution,0.9,2020-04-30,True
+2020-05-08,AMZN,0.33,AMAZON.COM INC,Consumer Discretionary,future_winner,normal,1.0,2020-04-30,True
+2020-05-08,ZTO,0.33,ZTO Express,Industrials,early_scout,normal,1.0,2020-04-30,True
+2020-05-29,ABT,0.33,ABBOTT LABORATORIES,Health Care,future_winner,normal,1.0,2020-05-29,True
+2020-05-29,RGEN,0.33,Repligen,Health Care,early_scout,normal,1.0,2020-05-29,True
+2020-06-03,ABT,0.29700000000000004,ABBOTT LABORATORIES,Health Care,future_winner,caution,0.9,2020-05-29,True
+2020-06-03,RGEN,0.29700000000000004,Repligen,Health Care,early_scout,caution,0.9,2020-05-29,True
+2020-06-15,ABT,0.23099999999999998,ABBOTT LABORATORIES,Health Care,future_winner,crisis,0.7,2020-05-29,True
+2020-06-15,RGEN,0.23099999999999998,Repligen,Health Care,early_scout,crisis,0.7,2020-05-29,True
+2020-06-30,CDNS,0.29700000000000004,CADENCE DESIGN SYSTEMS INC,Information Technology,future_winner,caution,0.9,2020-06-30,True
+2020-06-30,MELI,0.29700000000000004,MercadoLibre,Internet,future_winner,caution,0.9,2020-06-30,True
+2020-07-01,CDNS,0.33,CADENCE DESIGN SYSTEMS INC,Information Technology,future_winner,normal,1.0,2020-06-30,True
+2020-07-01,MELI,0.33,MercadoLibre,Internet,future_winner,normal,1.0,2020-06-30,True
+2020-07-31,CTAS,0.33,CINTAS CORP,Industrials,early_scout,normal,1.0,2020-07-31,True
+2020-07-31,MELI,0.33,MercadoLibre,Internet,future_winner,normal,1.0,2020-07-31,True
+2020-08-31,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-08-31,True
+2020-08-31,HD,0.33,HOME DEPOT INC,Consumer Discretionary,core_compounder,normal,1.0,2020-08-31,True
+2020-09-08,GOOG,0.29700000000000004,ALPHABET INC CLASS C,Communication,future_winner,caution,0.9,2020-08-31,True
+2020-09-08,HD,0.29700000000000004,HOME DEPOT INC,Consumer Discretionary,core_compounder,caution,0.9,2020-08-31,True
+2020-09-23,GOOG,0.23099999999999998,ALPHABET INC CLASS C,Communication,future_winner,crisis,0.7,2020-08-31,True
+2020-09-23,HD,0.23099999999999998,HOME DEPOT INC,Consumer Discretionary,core_compounder,crisis,0.7,2020-08-31,True
+2020-09-30,ENTG,0.29700000000000004,ENTEGRIS INC,Information Technology,future_winner,caution,0.9,2020-09-30,True
+2020-09-30,HD,0.29700000000000004,HOME DEPOT INC,Consumer Discretionary,core_compounder,caution,0.9,2020-09-30,True
+2020-10-01,ENTG,0.33,ENTEGRIS INC,Information Technology,future_winner,normal,1.0,2020-09-30,True
+2020-10-01,HD,0.33,HOME DEPOT INC,Consumer Discretionary,core_compounder,normal,1.0,2020-09-30,True
+2020-10-26,ENTG,0.29700000000000004,ENTEGRIS INC,Information Technology,future_winner,caution,0.9,2020-09-30,True
+2020-10-26,HD,0.29700000000000004,HOME DEPOT INC,Consumer Discretionary,core_compounder,caution,0.9,2020-09-30,True
+2020-10-30,GOOG,0.29700000000000004,ALPHABET INC CLASS C,Communication,future_winner,caution,0.9,2020-10-30,True
+2020-10-30,GOOGL,0.29700000000000004,ALPHABET INC CLASS A,Communication,future_winner,caution,0.9,2020-10-30,True
+2020-11-03,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-10-30,True
+2020-11-03,GOOGL,0.33,ALPHABET INC CLASS A,Communication,future_winner,normal,1.0,2020-10-30,True
+2020-11-30,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-11-30,True
+2020-11-30,GOOGL,0.33,ALPHABET INC CLASS A,Communication,future_winner,normal,1.0,2020-11-30,True
+2020-12-18,GOOG,0.29700000000000004,ALPHABET INC CLASS C,Communication,future_winner,caution,0.9,2020-11-30,True
+2020-12-18,GOOGL,0.29700000000000004,ALPHABET INC CLASS A,Communication,future_winner,caution,0.9,2020-11-30,True
+2020-12-28,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-11-30,True
+2020-12-28,GOOGL,0.33,ALPHABET INC CLASS A,Communication,future_winner,normal,1.0,2020-11-30,True
+2020-12-31,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2020-12-31,True
+2020-12-31,HPQ,0.33,HP INC,Information Technology,early_scout,normal,1.0,2020-12-31,True
+2021-01-29,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2021-01-29,True
+2021-01-29,GOOGL,0.33,ALPHABET INC CLASS A,Communication,future_winner,normal,1.0,2021-01-29,True
+2021-02-26,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2021-02-26,True
+2021-02-26,LPX,0.33,LOUISIANA PACIFIC CORP,Materials,early_scout,normal,1.0,2021-02-26,True
+2021-03-31,MCO,0.33,MOODYS CORP,Financials,future_winner,normal,1.0,2021-03-31,True
+2021-03-31,NDAQ,0.33,NASDAQ INC,Financials,early_scout,normal,1.0,2021-03-31,True
+2021-04-30,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2021-04-30,True
+2021-04-30,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2021-04-30,True
+2021-05-28,IRM,0.33,IRON MOUNTAIN INC,Real Estate,future_winner,normal,1.0,2021-05-28,True
+2021-05-28,NDAQ,0.33,NASDAQ INC,Financials,early_scout,normal,1.0,2021-05-28,True
+2021-06-30,IDXX,0.33,IDEXX LABORATORIES INC,Health Care,future_winner,normal,1.0,2021-06-30,True
+2021-06-30,NDAQ,0.33,NASDAQ INC,Financials,future_winner,normal,1.0,2021-06-30,True
+2021-07-30,MCO,0.33,MOODYS CORP,Financials,future_winner,normal,1.0,2021-07-30,True
+2021-07-30,TROW,0.33,T ROWE PRICE GROUP INC,Financials,future_winner,normal,1.0,2021-07-30,True
+2021-08-31,DHR,0.33,DANAHER CORP,Health Care,core_compounder,normal,1.0,2021-08-31,True
+2021-08-31,TROW,0.33,T ROWE PRICE GROUP INC,Financials,future_winner,normal,1.0,2021-08-31,True
+2021-09-28,DHR,0.29700000000000004,DANAHER CORP,Health Care,core_compounder,caution,0.9,2021-08-31,True
+2021-09-28,TROW,0.29700000000000004,T ROWE PRICE GROUP INC,Financials,future_winner,caution,0.9,2021-08-31,True
+2021-09-30,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2021-09-30,True
+2021-09-30,RGEN,0.29700000000000004,Repligen,Health Care,future_winner,caution,0.9,2021-09-30,True
+2021-10-01,ORLY,0.23099999999999998,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,crisis,0.7,2021-09-30,True
+2021-10-01,RGEN,0.23099999999999998,Repligen,Health Care,future_winner,crisis,0.7,2021-09-30,True
+2021-10-18,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2021-09-30,True
+2021-10-18,RGEN,0.29700000000000004,Repligen,Health Care,future_winner,caution,0.9,2021-09-30,True
+2021-10-19,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2021-09-30,True
+2021-10-19,RGEN,0.33,Repligen,Health Care,future_winner,normal,1.0,2021-09-30,True
+2021-10-29,CPRT,0.33,COPART INC,Industrials,early_scout,normal,1.0,2021-10-29,True
+2021-10-29,ODFL,0.33,OLD DOMINION FREIGHT LINE INC,Industrials,future_winner,normal,1.0,2021-10-29,True
+2021-11-30,AZO,0.33,AUTOZONE INC,Consumer Discretionary,future_winner,normal,1.0,2021-11-30,True
+2021-11-30,FDS,0.33,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,normal,1.0,2021-11-30,True
+2021-12-01,AZO,0.29700000000000004,AUTOZONE INC,Consumer Discretionary,future_winner,caution,0.9,2021-11-30,True
+2021-12-01,FDS,0.29700000000000004,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,caution,0.9,2021-11-30,True
+2021-12-02,AZO,0.33,AUTOZONE INC,Consumer Discretionary,future_winner,normal,1.0,2021-11-30,True
+2021-12-02,FDS,0.33,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,normal,1.0,2021-11-30,True
+2021-12-31,FDS,0.33,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,normal,1.0,2021-12-31,True
+2021-12-31,STE,0.33,STERIS,Health Care,future_winner,normal,1.0,2021-12-31,True
+2022-01-10,FDS,0.29700000000000004,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,caution,0.9,2021-12-31,True
+2022-01-10,STE,0.29700000000000004,STERIS,Health Care,future_winner,caution,0.9,2021-12-31,True
+2022-01-25,FDS,0.23099999999999998,FACTSET RESEARCH SYSTEMS INC,Financials,future_winner,crisis,0.7,2021-12-31,True
+2022-01-25,STE,0.23099999999999998,STERIS,Health Care,future_winner,crisis,0.7,2021-12-31,True
+2022-01-31,AAPL,0.23099999999999998,APPLE INC,Information Technology,core_compounder,crisis,0.7,2022-01-31,True
+2022-01-31,ATO,0.23099999999999998,ATMOS ENERGY CORP,Utilities,early_scout,crisis,0.7,2022-01-31,True
+2022-02-16,AAPL,0.29700000000000004,APPLE INC,Information Technology,core_compounder,caution,0.9,2022-01-31,True
+2022-02-16,ATO,0.29700000000000004,ATMOS ENERGY CORP,Utilities,early_scout,caution,0.9,2022-01-31,True
+2022-02-17,AAPL,0.33,APPLE INC,Information Technology,core_compounder,normal,1.0,2022-01-31,True
+2022-02-17,ATO,0.33,ATMOS ENERGY CORP,Utilities,early_scout,normal,1.0,2022-01-31,True
+2022-02-24,AAPL,0.29700000000000004,APPLE INC,Information Technology,core_compounder,caution,0.9,2022-01-31,True
+2022-02-24,ATO,0.29700000000000004,ATMOS ENERGY CORP,Utilities,early_scout,caution,0.9,2022-01-31,True
+2022-02-25,AAPL,0.33,APPLE INC,Information Technology,core_compounder,normal,1.0,2022-01-31,True
+2022-02-25,ATO,0.33,ATMOS ENERGY CORP,Utilities,early_scout,normal,1.0,2022-01-31,True
+2022-02-28,BYD,0.33,BOYD GAMING CORP,Consumer Discretionary,early_scout,normal,1.0,2022-02-28,True
+2022-02-28,FCX,0.33,FREEPORT MCMORAN INC,Materials,future_winner,normal,1.0,2022-02-28,True
+2022-03-07,BYD,0.23099999999999998,BOYD GAMING CORP,Consumer Discretionary,early_scout,crisis,0.7,2022-02-28,True
+2022-03-07,FCX,0.23099999999999998,FREEPORT MCMORAN INC,Materials,future_winner,crisis,0.7,2022-02-28,True
+2022-03-16,BYD,0.29700000000000004,BOYD GAMING CORP,Consumer Discretionary,early_scout,caution,0.9,2022-02-28,True
+2022-03-16,FCX,0.29700000000000004,FREEPORT MCMORAN INC,Materials,future_winner,caution,0.9,2022-02-28,True
+2022-03-17,BYD,0.33,BOYD GAMING CORP,Consumer Discretionary,early_scout,normal,1.0,2022-02-28,True
+2022-03-17,FCX,0.33,FREEPORT MCMORAN INC,Materials,future_winner,normal,1.0,2022-02-28,True
+2022-03-31,OKE,0.33,ONEOK INC,Energy,future_winner,normal,1.0,2022-03-31,True
+2022-03-31,STLD,0.33,STEEL DYNAMICS INC,Materials,future_winner,normal,1.0,2022-03-31,True
+2022-04-29,FCX,0.33,FREEPORT MCMORAN INC,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-04-29,LYB,0.33,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-05-02,FCX,0.29700000000000004,FREEPORT MCMORAN INC,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-02,LYB,0.29700000000000004,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-04,FCX,0.33,FREEPORT MCMORAN INC,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-05-04,LYB,0.33,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-05-05,FCX,0.29700000000000004,FREEPORT MCMORAN INC,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-05,LYB,0.29700000000000004,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-12,FCX,0.23099999999999998,FREEPORT MCMORAN INC,Materials,future_winner,crisis,0.7,2022-04-29,True
+2022-05-12,LYB,0.23099999999999998,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,crisis,0.7,2022-04-29,True
+2022-05-17,FCX,0.29700000000000004,FREEPORT MCMORAN INC,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-17,LYB,0.29700000000000004,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-18,FCX,0.23099999999999998,FREEPORT MCMORAN INC,Materials,future_winner,crisis,0.7,2022-04-29,True
+2022-05-18,LYB,0.23099999999999998,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,crisis,0.7,2022-04-29,True
+2022-05-19,FCX,0.29700000000000004,FREEPORT MCMORAN INC,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-19,LYB,0.29700000000000004,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,caution,0.9,2022-04-29,True
+2022-05-23,FCX,0.33,FREEPORT MCMORAN INC,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-05-23,LYB,0.33,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,future_winner,normal,1.0,2022-04-29,True
+2022-05-31,AEE,0.33,AMEREN CORP,Utilities,early_scout,normal,1.0,2022-05-31,True
+2022-05-31,VICI,0.33,VICI PPTYS INC,Real Estate,future_winner,normal,1.0,2022-05-31,True
+2022-06-13,AEE,0.29700000000000004,AMEREN CORP,Utilities,early_scout,caution,0.9,2022-05-31,True
+2022-06-13,VICI,0.29700000000000004,VICI PPTYS INC,Real Estate,future_winner,caution,0.9,2022-05-31,True
+2022-06-24,AEE,0.33,AMEREN CORP,Utilities,early_scout,normal,1.0,2022-05-31,True
+2022-06-24,VICI,0.33,VICI PPTYS INC,Real Estate,future_winner,normal,1.0,2022-05-31,True
+2022-06-30,NOC,0.33,NORTHROP GRUMMAN CORP,Industrials,future_winner,normal,1.0,2022-06-30,True
+2022-06-30,VRTX,0.33,VERTEX PHARMACEUTICALS INC,Health Care,future_winner,normal,1.0,2022-06-30,True
+2022-07-22,NOC,0.29700000000000004,NORTHROP GRUMMAN CORP,Industrials,future_winner,caution,0.9,2022-06-30,True
+2022-07-22,VRTX,0.29700000000000004,VERTEX PHARMACEUTICALS INC,Health Care,future_winner,caution,0.9,2022-06-30,True
+2022-07-29,ENPH,0.33,Enphase Energy,Information Technology,future_winner,normal,1.0,2022-07-29,True
+2022-07-29,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2022-07-29,True
+2022-08-31,BJ,0.33,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,future_winner,normal,1.0,2022-08-31,True
+2022-08-31,FSLR,0.33,FIRST SOLAR INC,Information Technology,early_scout,normal,1.0,2022-08-31,True
+2022-09-23,BJ,0.29700000000000004,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,future_winner,caution,0.9,2022-08-31,True
+2022-09-23,FSLR,0.29700000000000004,FIRST SOLAR INC,Information Technology,early_scout,caution,0.9,2022-08-31,True
+2022-09-27,BJ,0.33,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,future_winner,normal,1.0,2022-08-31,True
+2022-09-27,FSLR,0.33,FIRST SOLAR INC,Information Technology,early_scout,normal,1.0,2022-08-31,True
+2022-09-30,HUBB,0.33,HUBBELL INC,Industrials,future_winner,normal,1.0,2022-09-30,True
+2022-09-30,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2022-09-30,True
+2022-10-31,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2022-10-31,True
+2022-10-31,GILD,0.33,GILEAD SCIENCES INC,Health Care,future_winner,normal,1.0,2022-10-31,True
+2022-11-30,CPRT,0.33,COPART INC,Industrials,early_scout,normal,1.0,2022-11-30,True
+2022-11-30,DKS,0.33,DICKS SPORTING INC,Consumer Discretionary,early_scout,normal,1.0,2022-11-30,True
+2022-12-15,CPRT,0.29700000000000004,COPART INC,Industrials,early_scout,caution,0.9,2022-11-30,True
+2022-12-15,DKS,0.29700000000000004,DICKS SPORTING INC,Consumer Discretionary,early_scout,caution,0.9,2022-11-30,True
+2022-12-30,JBL,0.33,JABIL INC,Information Technology,early_scout,normal,1.0,2022-12-30,True
+2022-12-30,TPR,0.33,TAPESTRY INC,Consumer Discretionary,early_scout,normal,1.0,2022-12-30,True
+2023-01-31,BEN,0.33,FRANKLIN RESOURCES INC,Financials,early_scout,normal,1.0,2023-01-31,True
+2023-01-31,TPR,0.33,TAPESTRY INC,Consumer Discretionary,early_scout,normal,1.0,2023-01-31,True
+2023-02-16,BEN,0.29700000000000004,FRANKLIN RESOURCES INC,Financials,early_scout,caution,0.9,2023-01-31,True
+2023-02-16,TPR,0.29700000000000004,TAPESTRY INC,Consumer Discretionary,early_scout,caution,0.9,2023-01-31,True
+2023-02-28,BKNG,0.29700000000000004,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,caution,0.9,2023-02-28,True
+2023-02-28,MGM,0.29700000000000004,MGM RESORTS INTERNATIONAL,Consumer Discretionary,early_scout,caution,0.9,2023-02-28,True
+2023-03-02,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,normal,1.0,2023-02-28,True
+2023-03-02,MGM,0.33,MGM RESORTS INTERNATIONAL,Consumer Discretionary,early_scout,normal,1.0,2023-02-28,True
+2023-03-15,BKNG,0.29700000000000004,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,caution,0.9,2023-02-28,True
+2023-03-15,MGM,0.29700000000000004,MGM RESORTS INTERNATIONAL,Consumer Discretionary,early_scout,caution,0.9,2023-02-28,True
+2023-03-22,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,normal,1.0,2023-02-28,True
+2023-03-22,MGM,0.33,MGM RESORTS INTERNATIONAL,Consumer Discretionary,early_scout,normal,1.0,2023-02-28,True
+2023-03-31,ADI,0.33,ANALOG DEVICES INC,Information Technology,future_winner,normal,1.0,2023-03-31,True
+2023-03-31,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,normal,1.0,2023-03-31,True
+2023-04-28,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,early_scout,normal,1.0,2023-04-28,True
+2023-04-28,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2023-04-28,True
+2023-05-31,AAPL,0.33,APPLE INC,Information Technology,core_compounder,normal,1.0,2023-05-31,True
+2023-05-31,NOW,0.33,SERVICENOW INC,Information Technology,early_scout,normal,1.0,2023-05-31,True
+2023-06-30,ALSN,0.33,ALLISON TRANSMISSION HOLDINGS INC,Industrials,early_scout,normal,1.0,2023-06-30,True
+2023-06-30,OC,0.33,OWENS CORNING,Industrials,early_scout,normal,1.0,2023-06-30,True
+2023-07-31,CARR,0.33,CARRIER GLOBAL CORP,Industrials,future_winner,normal,1.0,2023-07-31,True
+2023-07-31,ON,0.33,ON SEMICONDUCTOR CORP,Information Technology,future_winner,normal,1.0,2023-07-31,True
+2023-08-10,CARR,0.29700000000000004,CARRIER GLOBAL CORP,Industrials,future_winner,caution,0.9,2023-07-31,True
+2023-08-10,ON,0.29700000000000004,ON SEMICONDUCTOR CORP,Information Technology,future_winner,caution,0.9,2023-07-31,True
+2023-08-24,CARR,0.23099999999999998,CARRIER GLOBAL CORP,Industrials,future_winner,crisis,0.7,2023-07-31,True
+2023-08-24,ON,0.23099999999999998,ON SEMICONDUCTOR CORP,Information Technology,future_winner,crisis,0.7,2023-07-31,True
+2023-08-29,CARR,0.29700000000000004,CARRIER GLOBAL CORP,Industrials,future_winner,caution,0.9,2023-07-31,True
+2023-08-29,ON,0.29700000000000004,ON SEMICONDUCTOR CORP,Information Technology,future_winner,caution,0.9,2023-07-31,True
+2023-08-30,CARR,0.33,CARRIER GLOBAL CORP,Industrials,future_winner,normal,1.0,2023-07-31,True
+2023-08-30,ON,0.33,ON SEMICONDUCTOR CORP,Information Technology,future_winner,normal,1.0,2023-07-31,True
+2023-08-31,EXE,0.33,EXPAND ENERGY CORP,Energy,early_scout,normal,1.0,2023-08-31,True
+2023-08-31,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2023-08-31,True
+2023-09-22,EXE,0.29700000000000004,EXPAND ENERGY CORP,Energy,early_scout,caution,0.9,2023-08-31,True
+2023-09-22,FANG,0.29700000000000004,DIAMONDBACK ENERGY INC,Energy,future_winner,caution,0.9,2023-08-31,True
+2023-09-27,EXE,0.33,EXPAND ENERGY CORP,Energy,early_scout,normal,1.0,2023-08-31,True
+2023-09-27,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2023-08-31,True
+2023-09-29,DTM,0.33,DT MIDSTREAM INC,Energy,early_scout,normal,1.0,2023-09-29,True
+2023-09-29,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2023-09-29,True
+2023-10-31,AIZ,0.33,ASSURANT INC,Financials,early_scout,normal,1.0,2023-10-31,True
+2023-10-31,CHRD,0.33,CHORD ENERGY CORP,Energy,early_scout,normal,1.0,2023-10-31,True
+2023-11-16,AIZ,0.29700000000000004,ASSURANT INC,Financials,early_scout,caution,0.9,2023-10-31,True
+2023-11-16,CHRD,0.29700000000000004,CHORD ENERGY CORP,Energy,early_scout,caution,0.9,2023-10-31,True
+2023-11-17,AIZ,0.33,ASSURANT INC,Financials,early_scout,normal,1.0,2023-10-31,True
+2023-11-17,CHRD,0.33,CHORD ENERGY CORP,Energy,early_scout,normal,1.0,2023-10-31,True
+2023-11-30,AIZ,0.33,ASSURANT INC,Financials,early_scout,normal,1.0,2023-11-30,True
+2023-11-30,CTAS,0.33,CINTAS CORP,Industrials,early_scout,normal,1.0,2023-11-30,True
+2023-12-29,CTAS,0.33,CINTAS CORP,Industrials,early_scout,normal,1.0,2023-12-29,True
+2023-12-29,DKS,0.33,DICKS SPORTING INC,Consumer Discretionary,early_scout,normal,1.0,2023-12-29,True
+2024-01-31,DKS,0.33,DICKS SPORTING INC,Consumer Discretionary,early_scout,normal,1.0,2024-01-31,True
+2024-01-31,FICO,0.33,FAIR ISAAC CORP,Information Technology,future_winner,normal,1.0,2024-01-31,True
+2024-02-29,AWI,0.33,ARMSTRONG WORLD INDUSTRIES INC,Industrials,early_scout,normal,1.0,2024-02-29,True
+2024-02-29,MLI,0.33,MUELLER INDUSTRIES INC,Industrials,early_scout,normal,1.0,2024-02-29,True
+2024-03-28,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2024-03-28,True
+2024-03-28,STLD,0.33,STEEL DYNAMICS INC,Materials,early_scout,normal,1.0,2024-03-28,True
+2024-04-24,FANG,0.29700000000000004,DIAMONDBACK ENERGY INC,Energy,future_winner,caution,0.9,2024-03-28,True
+2024-04-24,STLD,0.29700000000000004,STEEL DYNAMICS INC,Materials,early_scout,caution,0.9,2024-03-28,True
+2024-04-30,CMG,0.29700000000000004,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,early_scout,caution,0.9,2024-04-30,True
+2024-04-30,FANG,0.29700000000000004,DIAMONDBACK ENERGY INC,Energy,future_winner,caution,0.9,2024-04-30,True
+2024-05-09,CMG,0.33,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,early_scout,normal,1.0,2024-04-30,True
+2024-05-09,FANG,0.33,DIAMONDBACK ENERGY INC,Energy,future_winner,normal,1.0,2024-04-30,True
+2024-05-31,FSLR,0.33,FIRST SOLAR INC,Information Technology,future_winner,normal,1.0,2024-05-31,True
+2024-05-31,PEG,0.33,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,early_scout,normal,1.0,2024-05-31,True
+2024-06-26,FSLR,0.29700000000000004,FIRST SOLAR INC,Information Technology,future_winner,caution,0.9,2024-05-31,True
+2024-06-26,PEG,0.29700000000000004,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,early_scout,caution,0.9,2024-05-31,True
+2024-06-28,HALO,0.29700000000000004,HALOZYME THERAPEUTICS INC,Health Care,early_scout,caution,0.9,2024-06-28,True
+2024-06-28,UTHR,0.29700000000000004,UNITED THERAPEUTICS CORP,Health Care,early_scout,caution,0.9,2024-06-28,True
+2024-07-10,HALO,0.33,HALOZYME THERAPEUTICS INC,Health Care,early_scout,normal,1.0,2024-06-28,True
+2024-07-10,UTHR,0.33,UNITED THERAPEUTICS CORP,Health Care,early_scout,normal,1.0,2024-06-28,True
+2024-07-31,HALO,0.33,HALOZYME THERAPEUTICS INC,Health Care,early_scout,normal,1.0,2024-07-31,True
+2024-07-31,UTHR,0.33,UNITED THERAPEUTICS CORP,Health Care,early_scout,normal,1.0,2024-07-31,True
+2024-08-06,HALO,0.29700000000000004,HALOZYME THERAPEUTICS INC,Health Care,early_scout,caution,0.9,2024-07-31,True
+2024-08-06,UTHR,0.29700000000000004,UNITED THERAPEUTICS CORP,Health Care,early_scout,caution,0.9,2024-07-31,True
+2024-08-08,HALO,0.33,HALOZYME THERAPEUTICS INC,Health Care,early_scout,normal,1.0,2024-07-31,True
+2024-08-08,UTHR,0.33,UNITED THERAPEUTICS CORP,Health Care,early_scout,normal,1.0,2024-07-31,True
+2024-08-30,HALO,0.33,HALOZYME THERAPEUTICS INC,Health Care,early_scout,normal,1.0,2024-08-30,True
+2024-08-30,UTHR,0.33,UNITED THERAPEUTICS CORP,Health Care,future_winner,normal,1.0,2024-08-30,True
+2024-09-12,HALO,0.29700000000000004,HALOZYME THERAPEUTICS INC,Health Care,early_scout,caution,0.9,2024-08-30,True
+2024-09-12,UTHR,0.29700000000000004,UNITED THERAPEUTICS CORP,Health Care,future_winner,caution,0.9,2024-08-30,True
+2024-09-16,HALO,0.33,HALOZYME THERAPEUTICS INC,Health Care,early_scout,normal,1.0,2024-08-30,True
+2024-09-16,UTHR,0.33,UNITED THERAPEUTICS CORP,Health Care,future_winner,normal,1.0,2024-08-30,True
+2024-09-30,AEE,0.33,AMEREN CORP,Utilities,early_scout,normal,1.0,2024-09-30,True
+2024-09-30,PEG,0.33,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,future_winner,normal,1.0,2024-09-30,True
+2024-10-31,KIM,0.33,KIMCO REALTY REIT CORP,Real Estate,early_scout,normal,1.0,2024-10-31,True
+2024-10-31,PANW,0.33,PALO ALTO NETWORKS INC,Information Technology,future_winner,normal,1.0,2024-10-31,True
+2024-11-29,AEE,0.33,AMEREN CORP,Utilities,early_scout,normal,1.0,2024-11-29,True
+2024-11-29,APO,0.33,APOLLO GLOBAL MANAGEMENT INC,Financials,future_winner,normal,1.0,2024-11-29,True
+2024-12-31,BR,0.33,BROADRIDGE FINANCIAL SOLUTIONS INC,Industrials,future_winner,normal,1.0,2024-12-31,True
+2024-12-31,TPR,0.33,TAPESTRY INC,Consumer Discretionary,future_winner,normal,1.0,2024-12-31,True
+2025-01-31,GRMN,0.33,GARMIN LTD,Consumer Discretionary,future_winner,normal,1.0,2025-01-31,True
+2025-01-31,TPR,0.33,TAPESTRY INC,Consumer Discretionary,future_winner,normal,1.0,2025-01-31,True
+2025-02-28,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2025-02-28,True
+2025-02-28,WH,0.33,WYNDHAM HOTELS RESORTS INC,Consumer Discretionary,early_scout,normal,1.0,2025-02-28,True
+2025-03-05,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2025-02-28,True
+2025-03-05,WH,0.29700000000000004,WYNDHAM HOTELS RESORTS INC,Consumer Discretionary,early_scout,caution,0.9,2025-02-28,True
+2025-03-19,ORLY,0.23099999999999998,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,crisis,0.7,2025-02-28,True
+2025-03-19,WH,0.23099999999999998,WYNDHAM HOTELS RESORTS INC,Consumer Discretionary,early_scout,crisis,0.7,2025-02-28,True
+2025-03-20,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2025-02-28,True
+2025-03-20,WH,0.29700000000000004,WYNDHAM HOTELS RESORTS INC,Consumer Discretionary,early_scout,caution,0.9,2025-02-28,True
+2025-03-27,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2025-02-28,True
+2025-03-27,WH,0.33,WYNDHAM HOTELS RESORTS INC,Consumer Discretionary,early_scout,normal,1.0,2025-02-28,True
+2025-03-31,AM,0.33,ANTERO MIDSTREAM CORP,Energy,early_scout,normal,1.0,2025-03-31,True
+2025-03-31,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2025-03-31,True
+2025-04-07,AM,0.23099999999999998,ANTERO MIDSTREAM CORP,Energy,early_scout,crisis,0.7,2025-03-31,True
+2025-04-07,ORLY,0.23099999999999998,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,crisis,0.7,2025-03-31,True
+2025-04-14,AM,0.29700000000000004,ANTERO MIDSTREAM CORP,Energy,early_scout,caution,0.9,2025-03-31,True
+2025-04-14,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2025-03-31,True
+2025-04-15,AM,0.33,ANTERO MIDSTREAM CORP,Energy,early_scout,normal,1.0,2025-03-31,True
+2025-04-15,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2025-03-31,True
+2025-04-16,AM,0.29700000000000004,ANTERO MIDSTREAM CORP,Energy,early_scout,caution,0.9,2025-03-31,True
+2025-04-16,ORLY,0.29700000000000004,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,caution,0.9,2025-03-31,True
+2025-04-17,AM,0.33,ANTERO MIDSTREAM CORP,Energy,early_scout,normal,1.0,2025-03-31,True
+2025-04-17,ORLY,0.33,OREILLY AUTOMOTIVE INC,Consumer Discretionary,early_scout,normal,1.0,2025-03-31,True
+2025-04-30,RGLD,0.33,ROYAL GOLD INC,Materials,early_scout,normal,1.0,2025-04-30,True
+2025-04-30,RSG,0.33,REPUBLIC SERVICES INC,Industrials,future_winner,normal,1.0,2025-04-30,True
+2025-05-14,RGLD,0.29700000000000004,ROYAL GOLD INC,Materials,early_scout,caution,0.9,2025-04-30,True
+2025-05-14,RSG,0.29700000000000004,REPUBLIC SERVICES INC,Industrials,future_winner,caution,0.9,2025-04-30,True
+2025-05-19,RGLD,0.33,ROYAL GOLD INC,Materials,early_scout,normal,1.0,2025-04-30,True
+2025-05-19,RSG,0.33,REPUBLIC SERVICES INC,Industrials,future_winner,normal,1.0,2025-04-30,True
+2025-05-30,CEG,0.33,CONSTELLATION ENERGY CORP,Utilities,future_winner,normal,1.0,2025-05-30,True
+2025-05-30,MELI,0.33,MercadoLibre,Internet,future_winner,normal,1.0,2025-05-30,True
+2025-06-13,CEG,0.29700000000000004,CONSTELLATION ENERGY CORP,Utilities,future_winner,caution,0.9,2025-05-30,True
+2025-06-13,MELI,0.29700000000000004,MercadoLibre,Internet,future_winner,caution,0.9,2025-05-30,True
+2025-06-16,CEG,0.33,CONSTELLATION ENERGY CORP,Utilities,future_winner,normal,1.0,2025-05-30,True
+2025-06-16,MELI,0.33,MercadoLibre,Internet,future_winner,normal,1.0,2025-05-30,True
+2025-06-17,CEG,0.29700000000000004,CONSTELLATION ENERGY CORP,Utilities,future_winner,caution,0.9,2025-05-30,True
+2025-06-17,MELI,0.29700000000000004,MercadoLibre,Internet,future_winner,caution,0.9,2025-05-30,True
+2025-06-23,CEG,0.33,CONSTELLATION ENERGY CORP,Utilities,future_winner,normal,1.0,2025-05-30,True
+2025-06-23,MELI,0.33,MercadoLibre,Internet,future_winner,normal,1.0,2025-05-30,True
+2025-06-30,BKNG,0.33,BOOKING HOLDINGS INC,Consumer Discretionary,future_winner,normal,1.0,2025-06-30,True
+2025-06-30,CEG,0.33,CONSTELLATION ENERGY CORP,Utilities,future_winner,normal,1.0,2025-06-30,True
+2025-07-31,HEI,0.33,HEICO CORP,Industrials,future_winner,normal,1.0,2025-07-31,True
+2025-07-31,TNL,0.33,TRAVEL LEISURE,Consumer Discretionary,early_scout,normal,1.0,2025-07-31,True
+2025-08-29,PDD,0.33,PDD Holdings (Pinduoduo / Temu),Internet,future_winner,normal,1.0,2025-08-29,True
+2025-08-29,TNL,0.33,TRAVEL LEISURE,Consumer Discretionary,early_scout,normal,1.0,2025-08-29,True
+2025-09-30,PDD,0.33,PDD Holdings (Pinduoduo / Temu),Internet,future_winner,normal,1.0,2025-09-30,True
+2025-09-30,PPL,0.33,PPL CORP,Utilities,early_scout,normal,1.0,2025-09-30,True
+2025-10-31,GOOG,0.33,ALPHABET INC CLASS C,Communication,future_winner,normal,1.0,2025-10-31,True
+2025-10-31,GOOGL,0.33,ALPHABET INC CLASS A,Communication,future_winner,normal,1.0,2025-10-31,True
+2025-11-28,GOOG,0.33,ALPHABET INC CLASS C,Communication,core_compounder,normal,1.0,2025-11-28,True
+2025-11-28,GOOGL,0.33,ALPHABET INC CLASS A,Communication,core_compounder,normal,1.0,2025-11-28,True
+2025-12-17,GOOG,0.29700000000000004,ALPHABET INC CLASS C,Communication,core_compounder,caution,0.9,2025-11-28,True
+2025-12-17,GOOGL,0.29700000000000004,ALPHABET INC CLASS A,Communication,core_compounder,caution,0.9,2025-11-28,True
+2025-12-22,GOOG,0.33,ALPHABET INC CLASS C,Communication,core_compounder,normal,1.0,2025-11-28,True
+2025-12-22,GOOGL,0.33,ALPHABET INC CLASS A,Communication,core_compounder,normal,1.0,2025-11-28,True
+2025-12-31,GOOG,0.33,ALPHABET INC CLASS C,Communication,core_compounder,normal,1.0,2025-12-31,True
+2025-12-31,GOOGL,0.33,ALPHABET INC CLASS A,Communication,core_compounder,normal,1.0,2025-12-31,True
+2026-01-30,CNQ,0.33,Canadian Natural Resources,Energy,future_winner,normal,1.0,2026-01-30,True
+2026-01-30,PBA,0.33,Pembina Pipeline,Energy,early_scout,normal,1.0,2026-01-30,True
+2026-02-27,PR,0.33,PERMIAN RESOURCES CORP CLASS A,Energy,early_scout,normal,1.0,2026-02-27,True
+2026-02-27,TRGP,0.33,TARGA RESOURCES CORP,Energy,future_winner,normal,1.0,2026-02-27,True
+2026-03-31,CNQ,0.33,Canadian Natural Resources,Energy,future_winner,normal,1.0,2026-03-31,True
+2026-03-31,LNG,0.33,CHENIERE ENERGY INC,Energy,future_winner,normal,1.0,2026-03-31,True
+2026-04-09,CNQ,0.29700000000000004,Canadian Natural Resources,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-04-09,LNG,0.29700000000000004,CHENIERE ENERGY INC,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-04-24,CNQ,0.23099999999999998,Canadian Natural Resources,Energy,future_winner,crisis,0.7,2026-03-31,True
+2026-04-24,LNG,0.23099999999999998,CHENIERE ENERGY INC,Energy,future_winner,crisis,0.7,2026-03-31,True
+2026-04-28,CNQ,0.29700000000000004,Canadian Natural Resources,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-04-28,LNG,0.29700000000000004,CHENIERE ENERGY INC,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-04-29,CNQ,0.33,Canadian Natural Resources,Energy,future_winner,normal,1.0,2026-03-31,True
+2026-04-29,LNG,0.33,CHENIERE ENERGY INC,Energy,future_winner,normal,1.0,2026-03-31,True
+2026-05-13,CNQ,0.29700000000000004,Canadian Natural Resources,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-05-13,LNG,0.29700000000000004,CHENIERE ENERGY INC,Energy,future_winner,caution,0.9,2026-03-31,True
+2026-05-15,CNQ,0.33,Canadian Natural Resources,Energy,future_winner,normal,1.0,2026-03-31,True
+2026-05-15,LNG,0.33,CHENIERE ENERGY INC,Energy,future_winner,normal,1.0,2026-03-31,True

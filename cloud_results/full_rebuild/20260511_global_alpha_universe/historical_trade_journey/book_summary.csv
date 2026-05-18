@@ -1,0 +1,7 @@
+book,holding_run_count,unique_tickers,avg_run_months,median_run_months,runs_ge_6m,runs_ge_12m,long_winner_count,open_winner_hold_count,open_stale_watch_count,quick_loss_count,short_big_win_review_count,avg_total_return,total_weighted_contribution
+concentrated_grid_presence,453,228,2.719646799116998,2.0,38,3,8,1,0,7,27,0.07582876490865162,13.287516413655762
+production_main,751,338,2.6191744340878826,2.0,69,5,12,0,0,6,42,0.06681495394862892,2.116929338590842
+main_v2_research,509,231,1.7583497053045187,1.0,16,1,8,1,0,75,29,0.04923370330832641,1.7483122167427403
+lifecycle_review_overlay_main,170,119,5.458823529411765,4.0,51,13,16,0,3,6,0,0.1385904231210329,1.5994113822734093
+monster_lifecycle_main,201,150,4.36318407960199,3.0,49,8,7,1,0,32,3,0.05531791743000763,1.1669421910634965
+monster_lifecycle_concentrated,142,109,3.908450704225352,3.0,32,1,6,0,0,27,3,0.0527637337215775,1.121919279022328

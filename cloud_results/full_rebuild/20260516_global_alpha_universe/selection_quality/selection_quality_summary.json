@@ -1,0 +1,31 @@
+{
+  "best_factor_by_monthly_ic": "portfolio_future_winner_engine_score",
+  "best_factor_by_topk_excess": "portfolio_future_winner_engine_score",
+  "decile_rows": 8,
+  "factor_count": 8,
+  "generated_at_utc": "2026-05-16T18:50:08.854467+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "missed_winner_rows": 30,
+  "months": 83,
+  "notes": [
+    "Positive IC and top-k excess mean the score ranks are useful before broker conversion.",
+    "If IC is strong but broker-ledger CAGR is weak, focus on execution churn, cash, and replacement-swap mechanics.",
+    "If IC is weak, selection features or universe admission need priority before more execution tuning."
+  ],
+  "outputs": {
+    "factor_ic_by_horizon_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/factor_ic_by_horizon.csv",
+    "missed_winner_onset_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/missed_winner_onset.csv",
+    "report_md": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/selection_quality_report.md",
+    "score_decile_spread_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/score_decile_spread.csv",
+    "sleeve_alpha_attribution_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/sleeve_alpha_attribution.csv",
+    "summary_json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/selection_quality_summary.json",
+    "topk_forward_hit_rate_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/selection_quality/topk_forward_hit_rate.csv"
+  },
+  "production_activation_allowed": false,
+  "research_only": true,
+  "rows": 38098,
+  "schema_version": "selection-quality-v1",
+  "sleeve_rows": 4,
+  "status": "completed",
+  "topk_rows": 24
+}

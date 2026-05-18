@@ -289,6 +289,37 @@ themes:
     max_hold_months: 18
     tickers: [MP, LAC, ALB, SQM, FCX, SCCO, TECK, BHP, RIO]
 
+  # ============== Frontier / Structural (promoted from pending 2026-05-14) ==============
+  # Promoted to active so short_extension_risk_penalty can find these tickers'
+  # theme_horizon_primary='structural_growth' tag and exempt multi-year
+  # structural names from single-month parabolic-move penalties.
+  quantum_computing:
+    description: "Quantum hardware/cloud — multi-year structural; volatile single-month moves are common but the trend is multi-year"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.55
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [IONQ, RGTI, QBTS, QUBT]
+
+  evtol_advanced_air:
+    description: "eVTOL / advanced air mobility — structural product cycle, multi-year"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.60
+    target_hold_months: 12
+    max_hold_months: 36
+    tickers: [JOBY, ACHR, EH, LILM, BLDE]
+
+  space_economy:
+    description: "Commercial space — launch + sats + defense space; structural multi-year"
+    theme_horizon: structural_growth
+    holding_profile: long_duration
+    event_risk_sensitivity: 0.55
+    target_hold_months: 12
+    max_hold_months: 48
+    tickers: [RKLB, PLTR, ASTS, IRDM, MAXR]
+
   # ============== Meta grouping ==============
   # These aren't themes per se but lifecycle metadata — will populate
   # dynamically based on member momentum:
@@ -310,9 +341,8 @@ overrides: {}
 dead_themes: []
 
 # Themes to ADD next review
+# (quantum_computing, space_economy, evtol_advanced_air promoted to active 2026-05-14)
 pending_themes:
-  - quantum_computing: [RGTI, IONQ, QBTS]
   - ar_vr_wearables: [META, AAPL]
-  - space_economy: [RKLB, PLTR]
   - clean_hydrogen: []
   - ev_charging: []

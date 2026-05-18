@@ -1,0 +1,9 @@
+source,cash_weight,notes
+macro_policy_floor,0.03,minimum cash from macro policy
+orchestrator_target_cash,0.2499999999999999,target cash after mandate merge
+orchestrator_capacity_leftover,0.25,cash implied by total mandate capacity below 100%
+orchestrator_conflict_merge_cash,0.0,extra cash from max-merge conflicts below expected invested
+operating_target_cash,0.2499999999999999,target cash from operating snapshot
+operating_current_cash,0.009327045279202846,current broker-ledger cash
+main_preview_target_cash,0.0,main account preview target cash
+concentrated_preview_target_cash,0.0,concentrated account preview target cash

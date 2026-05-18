@@ -1,0 +1,2 @@
+portfolio,client_order_id,broker_order_id,ticker,side,submitted_qty,filled_qty,remaining_qty,avg_fill_price,fees_usd,fill_status,submitted_at,last_update_at,notes
+main,r1k-M-20260514-S-LRCX-5882d1e1d444,,LRCX,SELL,1.0,,,,,pending,,,

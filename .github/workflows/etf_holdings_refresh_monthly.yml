@@ -1,0 +1,85 @@
+name: ETF Holdings Refresh (Monthly)
+
+# F7: monthly refresh of thematic_etf_universe.yaml top holdings from
+# yfinance. Silent-rollback if all fetches fail (yaml not overwritten).
+# Commits the snapshot CSV + summary.json + (optionally) refreshed yaml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      top_n:
+        description: 'Top-N holdings per ETF'
+        type: string
+        default: '5'
+      apply:
+        description: 'Rewrite thematic_etf_universe.yaml (false = dry-run snapshot only)'
+        type: boolean
+        default: false
+  schedule:
+    # First day of each month 04:00 UTC = 13:00 KST. Runs after the
+    # monthly cycle finishes so the next full rebuild picks up the
+    # refreshed universe.
+    - cron: '0 4 1 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh_holdings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Refresh ETF top holdings
+        env:
+          TOP_N: ${{ inputs.top_n }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -e
+          set -o pipefail
+          mkdir -p outputs
+          if [ "$APPLY" = "true" ]; then
+            python tools/refresh_etf_top_holdings.py --yaml thematic_etf_universe.yaml --output-dir outputs --top-n "${TOP_N:-5}" --apply 2>&1 | tee refresh.log
+          else
+            python tools/refresh_etf_top_holdings.py --yaml thematic_etf_universe.yaml --output-dir outputs --top-n "${TOP_N:-5}" --dry-run 2>&1 | tee refresh.log
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etf_holdings_refresh_${{ github.run_id }}
+          path: |
+            outputs/etf_holdings_history/
+            refresh.log
+
+      - name: Commit refresh snapshot
+        if: success() && inputs.apply == true
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add thematic_etf_universe.yaml outputs/etf_holdings_history/ || true
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(etf-refresh): monthly thematic ETF top-holdings refresh [skip ci]" || true
+          git push || echo "[warn] push failed; continuing"

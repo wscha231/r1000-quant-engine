@@ -1,0 +1,8 @@
+{
+  "avg_cash_weight": 0.18384615384615385,
+  "months": 83,
+  "policy_id": "fast_reentry",
+  "rows": 2214,
+  "source_holdings": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/crisis_reentry_replay/holdings.csv",
+  "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/broker_crisis_reentry_replay/main/target_book.csv"
+}

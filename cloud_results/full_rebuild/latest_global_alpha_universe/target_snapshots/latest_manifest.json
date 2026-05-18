@@ -1,0 +1,52 @@
+{
+  "blocked_reason": "",
+  "files": {
+    "concentrated_recommendation": {
+      "exists": true,
+      "max_date": "2026-05-15",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15/concentrated_recommendation.csv",
+      "row_count": 7,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv",
+      "weight_sum": 0.9999999999999996
+    },
+    "main_recommendation": {
+      "exists": true,
+      "max_date": "",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15/main_recommendation.csv",
+      "row_count": 17,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv",
+      "weight_sum": 0.9999999999999987
+    },
+    "operating_concentrated_target_book": {
+      "exists": true,
+      "max_date": "2026-05-15",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15/operating_concentrated_target_book.csv",
+      "row_count": 22915,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "weight_sum": 4940.499999999999
+    },
+    "operating_main_target_book": {
+      "exists": true,
+      "max_date": "2026-05-15",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15/operating_main_target_book.csv",
+      "row_count": 1994,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "weight_sum": 82.99999999999991
+    },
+    "operating_target_books_summary": {
+      "exists": true,
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15/operating_target_books_summary.json",
+      "row_count": 0,
+      "source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_target_books_summary.json"
+    }
+  },
+  "generated_at_utc": "2026-05-16T18:05:56.638270+00:00",
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "missing_required": [],
+  "price_cache": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/cache_prices",
+  "schema_version": "target-snapshot-archive-v1",
+  "snapshot_date": "2026-05-15",
+  "snapshot_date_source": "latest_common_price_close",
+  "snapshot_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/target_snapshots/2026-05-15",
+  "status": "completed"
+}

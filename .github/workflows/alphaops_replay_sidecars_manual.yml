@@ -1,4 +1,4 @@
-﻿name: AlphaOps Replay Sidecars (Manual / Fast)
+name: AlphaOps Replay Sidecars (Manual / Fast)
 
 # Fast artifact-only replay. Use this after a successful full rebuild when the
 # research question is portfolio accounting, weekly validation, broker ledger
@@ -12,6 +12,14 @@ on:
         description: 'Completed full_rebuild_manual run id to replay from'
         type: string
         required: true
+      replay_mode:
+        description: 'focused_challenger skips official operating account refresh; official_operating always refreshes broker_replay/account_evaluation'
+        type: choice
+        default: official_operating
+        options:
+          - official_operating
+          - focused_challenger
+          - full_sidecars
       cost_bps:
         description: 'Per-side transaction cost for broker ledger/theme challenger'
         type: string
@@ -32,6 +40,18 @@ on:
         description: 'Max trading-day lag for next-close fills'
         type: string
         default: '7'
+      mode_y_enabled:
+        description: 'Apply the same regime-capacity filter used by the latest Mode Y full rebuild'
+        type: boolean
+        default: true
+      mode_y_main_multipliers:
+        description: 'Mode Y main capacity multipliers, e.g. bear=0.5,deep_bear=0.25'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25'
+      mode_y_concentrated_multipliers:
+        description: 'Mode Y concentrated capacity multipliers, e.g. bear=0.5,deep_bear=0.25,neutral=0.85'
+        type: string
+        default: 'bear=0.5,deep_bear=0.25,neutral=0.85'
 
 permissions:
   contents: read
@@ -72,12 +92,57 @@ jobs:
             collector-cache-${{ runner.os }}-
             replay-price-cache-${{ runner.os }}-
 
+      - name: Restore SEC evidence data lake from Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          mkdir -p data_raw/sec data_pit/sec manifests/sec_edgar outputs/full_rebuild_logs
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[sec-evidence] no Google Drive auth configured; SEC shadow signals will use local/source artifacts only"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -qo /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          rclone copy "${BASE}data_raw/sec/" data_raw/sec/ --drive-acknowledge-abuse || true
+          rclone copy "${BASE}data_pit/sec/" data_pit/sec/ --drive-acknowledge-abuse || true
+          rclone copy "${BASE}manifests/sec_edgar/" manifests/sec_edgar/ || true
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("data_pit/sec/sec_ownership_signals.parquet")
+          print(f"[sec-evidence] sec_ownership_signals_exists={p.exists()} size={p.stat().st_size if p.exists() else 0}")
+          PY
+
       - name: Download source full rebuild artifact
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_market_circuit_replay.py tools/run_broker_market_circuit_grid.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_broker_replacement_swap_replay.py tools/run_concentrated_v2_challenger.py tools/run_concentrated_broker_grid.py tools/run_alpha_selector_broker_grid.py tools/run_alpha_selector_market_circuit_grid.py tools/run_market_circuit_attribution.py tools/run_concentrated_proxy_to_broker_reconciliation.py tools/run_alpha_selector_leader_circuit_grid.py tools/run_alpha_selector_dynamic_regime_grid.py tools/run_alpha_selector_shadow_drawdown_grid.py tools/run_main_v4_future_winner_evidence.py tools/run_concentrated_v3_broker_selected_leaders.py tools/run_hold_vs_replace_audit.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -97,49 +162,181 @@ jobs:
           test -s outputs/reports/regime_by_month.csv
           PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
           echo "[replay] restored price cache files=$PRICE_FILES"
+          echo "[replay] refreshing missing/stale replay price cache from target books + top scored names"
+          python tools/build_replay_price_cache.py \
+            --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
+            --scored outputs/scored_latest.csv \
+            --candidate-books outputs/reports/candidate_replay_book.csv \
+            --candidate-max-per-date 20 \
+            --candidate-max-total 600 \
+            --extra-tickers QQQ SPY '^IXIC' '^GSPC' \
+            --max-scored 250 \
+            --output-dir cache_prices \
+            --batch-size 40 \
+            --refresh-stale-days 2
+          PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "[replay] price cache files after refresh=$PRICE_FILES"
           if [ "${PRICE_FILES:-0}" -lt 10 ]; then
-            echo "[replay] price cache missing; building minimal replay cache from target books + top scored names"
-            python tools/build_replay_price_cache.py \
-              --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
-              --scored outputs/scored_latest.csv \
-              --max-scored 250 \
-              --output-dir cache_prices \
-              --batch-size 40
-            PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
-            echo "[replay] price cache files after fallback=$PRICE_FILES"
-            if [ "${PRICE_FILES:-0}" -lt 10 ]; then
-              echo "[replay] ERROR: price cache fallback did not produce enough files."
-              exit 3
-            fi
+            echo "[replay] ERROR: price cache refresh did not produce enough files."
+            exit 3
           fi
 
       - name: Run fast replay sidecars
+        env:
+          COST_BPS: ${{ inputs.cost_bps }}
+          MAX_FILL_LAG_DAYS: ${{ inputs.max_fill_lag_days }}
+          THEME_COST_BPS: ${{ inputs.theme_cost_bps }}
+          THEME_TOP_N: ${{ inputs.theme_top_n }}
+          THEME_SINGLE_NAME_CAP: ${{ inputs.theme_single_name_cap }}
+          MODE_Y_ENABLED: ${{ inputs.mode_y_enabled }}
+          MODE_Y_MAIN_MULTIPLIERS: ${{ inputs.mode_y_main_multipliers }}
+          MODE_Y_CONCENTRATED_MULTIPLIERS: ${{ inputs.mode_y_concentrated_multipliers }}
+          REPLAY_MODE: ${{ inputs.replay_mode }}
         run: |
           set -e
+          set -o pipefail
+          echo "[replay] mode=${REPLAY_MODE}"
+          if [ "$MODE_Y_ENABLED" = "true" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --apply-regime-capacity-filter --main-multipliers "$MODE_Y_MAIN_MULTIPLIERS" --concentrated-multipliers "$MODE_Y_CONCENTRATED_MULTIPLIERS" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          else
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          fi
+          python tools/run_main_v3_alpha_concentration.py --latest-run outputs --output-dir outputs/main_v3_alpha_concentration --single-name-cap 0.33 --cash-floor 0.00 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration.log || true
+          python tools/run_concentrated_v2_challenger.py --latest-run outputs --output-dir outputs/concentrated_v2_challenger --target-n 7 --single-cap 0.25 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger.log || true
+          python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log
           if [ -s outputs/main_v2_backtest/monthly_holdings.csv ]; then
             python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
           fi
+          if [ -s outputs/main_v3_alpha_concentration/monthly_holdings.csv ]; then
+            python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v3_alpha_concentration/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v3_alpha_concentration 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v3_alpha_concentration.log || true
+            python tools/run_broker_ledger_replay.py --target-book outputs/main_v3_alpha_concentration/monthly_holdings.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/main_v3_alpha_concentration_broker_replay --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/main_v3_alpha_concentration_broker_replay.log || true
+          fi
+          if [ -s outputs/concentrated_v2_challenger/monthly_holdings.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/concentrated_v2_challenger/monthly_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/concentrated_v2_challenger_broker_replay --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/concentrated_v2_challenger_broker_replay.log || true
+          fi
+          python tools/run_concentrated_broker_grid.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --output-dir outputs/concentrated_broker_grid --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --max-variants 10 --tail-row-fill-fallback-same-close 2>&1 | tee outputs/full_rebuild_logs/concentrated_broker_grid.log || true
+          python tools/run_alpha_selector_broker_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_broker_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --target-ns 2,3,5 --single-name-caps 0.25,0.50 --styles rs_heavy,monster_heavy,leader_onset_shadow --max-variants 18 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_broker_grid_main.log || true
+          python tools/run_alpha_selector_broker_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_broker_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --target-ns 2,3,5 --single-name-caps 0.25,0.50 --styles rs_heavy,monster_heavy,leader_onset_shadow --max-variants 18 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_broker_grid_concentrated.log || true
+          python tools/run_alpha_selector_market_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_market_circuit_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 3 --trigger-modes ma50,ma50_200,trend60 --grid '0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25' 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_market_circuit_grid_main.log || true
+          python tools/run_alpha_selector_market_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_market_circuit_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 3 --trigger-modes ma50,ma50_200,trend60 --grid '0.90:0.70,0.80:0.50,0.70:0.40,0.60:0.25' 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_market_circuit_grid_concentrated.log || true
+          python tools/run_market_circuit_attribution.py --latest-run outputs --portfolio-kind main --output-dir outputs/market_circuit_attribution/main 2>&1 | tee outputs/full_rebuild_logs/market_circuit_attribution_main.log || true
+          python tools/run_market_circuit_attribution.py --latest-run outputs --portfolio-kind concentrated --output-dir outputs/market_circuit_attribution/concentrated 2>&1 | tee outputs/full_rebuild_logs/market_circuit_attribution_concentrated.log || true
+          python tools/run_alpha_selector_dynamic_regime_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_dynamic_regime_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --max-variants 18 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_dynamic_regime_grid_main.log || true
+          python tools/run_alpha_selector_dynamic_regime_grid.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_dynamic_regime_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --max-variants 18 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_dynamic_regime_grid_concentrated.log || true
+          python tools/run_alpha_selector_leader_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_leader_circuit_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_leader_circuit_grid_main.log || true
+          python tools/run_alpha_selector_leader_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_leader_circuit_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_leader_circuit_grid_concentrated.log || true
+          python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_shadow_drawdown_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 1 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_main.log || true
+          python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_shadow_drawdown_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --top-variants 1 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_concentrated.log || true
+          python tools/run_main_v4_future_winner_evidence.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/main_v4_future_winner_evidence --fill-mode next_close --cost-bps "$COST_BPS" --cost-bps-list "$COST_BPS,50,75,100" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --target-ns 12,15,18 --score-sources future_winner,future_winner_market_confirmation,leader_onset_sec_shadow --single-name-caps 0.33 --cash-floor 0.03 2>&1 | tee outputs/full_rebuild_logs/main_v4_future_winner_evidence.log || true
+          python tools/run_concentrated_v3_broker_selected_leaders.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/concentrated_v3_broker_selected_leaders --fill-mode next_close --cost-bps "$COST_BPS" --cost-bps-list "$COST_BPS,50,75,100" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --target-ns 2,3,5 --single-name-caps 0.40,0.50 --same-theme-caps 0.70 --staged-entry 0.50,0.80,1.00 --score-sources leader_onset_sec 2>&1 | tee outputs/full_rebuild_logs/concentrated_v3_broker_selected_leaders.log || true
+          python tools/run_concentrated_proxy_to_broker_reconciliation.py --latest-run outputs --output-dir outputs/concentrated_proxy_to_broker_reconciliation 2>&1 | tee outputs/full_rebuild_logs/concentrated_proxy_to_broker_reconciliation.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
+          if [ "$REPLAY_MODE" = "focused_challenger" ]; then
+            python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+            mkdir -p outputs/account_evaluation
+            python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          payload = {
+              "status": "focused_challenger_only",
+              "official_operating_replay_refreshed": False,
+              "message": "Focused challenger replay intentionally skipped operating broker_replay/account_evaluation refresh. Do not use this run as official performance evidence.",
+              "generated_at": datetime.now(timezone.utc).isoformat(),
+          }
+          Path("outputs/account_evaluation/focused_challenger_notice.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            echo "[replay] focused_challenger mode complete; official operating account refresh intentionally skipped."
+            exit 0
+          fi
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log || true
-          python tools/run_broker_ledger_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
-          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
-          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
+          python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+          python tools/run_broker_market_circuit_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_market_circuit_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_replay_main.log || true
+          python tools/run_broker_market_circuit_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_market_circuit_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_replay_concentrated.log || true
+          python tools/run_broker_market_circuit_grid.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_market_circuit_grid/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_grid_main.log || true
+          python tools/run_broker_market_circuit_grid.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_market_circuit_grid/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_market_circuit_grid_concentrated.log || true
+          python tools/build_event_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/event_target_books --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/event_target_books.log || true
+          if [ -s outputs/reports/event_main_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/event_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/event_concentrated_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/event_broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_concentrated.log || true
+          fi
+          python tools/build_weekly_leader_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_leader_snapshots --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_target_books.log || true
+          if [ -s outputs/reports/weekly_leader_main_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/weekly_leader_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/weekly_leader_concentrated_target_book.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/weekly_leader_broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/cost_sensitivity/main --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_churn_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_churn_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/churn_filtered_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/churn_filtered_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/main/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/concentrated/diagnostics.json --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book_macro_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/macro_circuit_broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book.csv ]; then
+            python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv --diagnostics outputs/regime_capacity_filter/main/diagnostics.json --multipliers "bear=0.5,deep_bear=0.25" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_main.log || true
+          fi
+          if [ -s outputs/reports/operating_main_target_book_regime_capacity_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/regime_capacity_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+            python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv --diagnostics outputs/regime_capacity_filter/concentrated/diagnostics.json --multipliers "bear=0.5,deep_bear=0.25,neutral=0.85" --regime-source-book outputs/reports/operating_main_target_book.csv 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_concentrated.log || true
+          fi
+          if [ -s outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/regime_capacity_broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_concentrated.log || true
+          fi
+          python tools/run_trade_attribution_analysis.py --latest-run outputs --output-dir outputs/trade_attribution 2>&1 | tee outputs/full_rebuild_logs/trade_attribution_analysis.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log || true
+          python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
+          python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --buy-band 0.04 --sell-band 0.06 --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log || true
+          python tools/run_broker_replacement_swap_replay.py --target-book outputs/reports/operating_main_target_book.csv --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replacement_swap_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --max-swaps-per-date 2 --min-score-advantage 0.20 2>&1 | tee outputs/full_rebuild_logs/broker_replacement_swap_replay_main.log || true
+          python tools/run_broker_replacement_swap_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replacement_swap_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --max-swaps-per-date 1 --min-score-advantage 0.20 2>&1 | tee outputs/full_rebuild_logs/broker_replacement_swap_replay_concentrated.log || true
+          python tools/run_operating_event_backtest.py --latest-run outputs --output-dir outputs/operating_event_backtest 2>&1 | tee outputs/full_rebuild_logs/operating_event_backtest.log || true
           python tools/run_broker_gap_attribution.py --latest-run outputs --output-dir outputs/broker_gap_attribution 2>&1 | tee outputs/full_rebuild_logs/broker_gap_attribution.log || true
           python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
-          python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps "${{ inputs.cost_bps }}" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
-          python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps "${{ inputs.cost_bps }}" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
+          python tools/run_hold_vs_replace_audit.py --latest-run outputs --price-cache cache_prices --output-dir outputs/hold_vs_replace_audit 2>&1 | tee outputs/full_rebuild_logs/hold_vs_replace_audit.log || true
+          python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps "$COST_BPS" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
+          python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps "$COST_BPS" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
           python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
           python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
           python tools/run_weekly_evaluation.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_evaluation --stale-days-threshold 10 2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log || true
           python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --price-cache cache_prices --output-dir outputs/theme_leadership_tape 2>&1 | tee outputs/full_rebuild_logs/theme_leadership_tape.log || true
-          python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n "${{ inputs.theme_top_n }}" --single-name-cap "${{ inputs.theme_single_name_cap }}" --cost-bps "${{ inputs.theme_cost_bps }}" 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
+          python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n "$THEME_TOP_N" --single-name-cap "$THEME_SINGLE_NAME_CAP" --cost-bps "$THEME_COST_BPS" 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
+          python tools/run_selection_quality_report.py --latest-run outputs --output-dir outputs/selection_quality 2>&1 | tee outputs/full_rebuild_logs/selection_quality_report.log || true
           python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
           python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+          python tools/run_leader_drop_diagnostics.py --latest-run outputs --output-dir outputs/leader_drop_diagnostics 2>&1 | tee outputs/full_rebuild_logs/leader_drop_diagnostics.log || true
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+          python tools/run_cash_policy_reconciliation.py --latest-run outputs --output-dir outputs/cash_policy_reconciliation 2>&1 | tee outputs/full_rebuild_logs/cash_policy_reconciliation.log || true
+          python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+          python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
 
       - name: Upload replay artifact
         if: always()
@@ -147,20 +344,63 @@ jobs:
         with:
           name: alphaops-replay-sidecars-${{ inputs.source_run_id }}-${{ github.run_id }}
           path: |
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
+            outputs/reports/candidate_replay_book.csv
+            outputs/reports/concentrated_strategy_comparison.csv
+            outputs/reports/event_*_target_book.csv
+            outputs/reports/weekly_leader_*_target_book.csv
+            outputs/target_snapshots/
+            outputs/data_readiness/
             outputs/position_risk_weekly_validation/
             outputs/broker_replay/
+            outputs/broker_market_circuit_replay/
+            outputs/broker_market_circuit_grid/
+            outputs/event_target_books/
+            outputs/event_broker_replay/
+            outputs/weekly_leader_snapshots/
+            outputs/weekly_leader_broker_replay/
+            outputs/cost_sensitivity/
+            outputs/trade_attribution/
+            outputs/main_v3_alpha_concentration/
+            outputs/main_v3_alpha_concentration_broker_replay/
+            outputs/concentrated_v2_challenger/
+            outputs/concentrated_v2_challenger_broker_replay/
+            outputs/concentrated_broker_grid/
+            outputs/alpha_selector_broker_grid/
+            outputs/alpha_selector_market_circuit_grid/
+            outputs/market_circuit_attribution/
+            outputs/alpha_selector_leader_circuit_grid/
+            outputs/alpha_selector_dynamic_regime_grid/
+            outputs/alpha_selector_shadow_drawdown_grid/
+            outputs/main_v4_future_winner_evidence/
+            outputs/concentrated_v3_broker_selected_leaders/
+            outputs/churn_filter/
+            outputs/churn_filtered_broker_replay/
+            outputs/macro_circuit_filter/
+            outputs/macro_circuit_broker_replay/
+            outputs/regime_capacity_filter/
+            outputs/regime_capacity_broker_replay/
             outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
+            outputs/broker_replacement_swap_replay/
+            outputs/operating_event_backtest/
             outputs/broker_gap_attribution/
             outputs/broker_trade_journal/
+            outputs/hold_vs_replace_audit/
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
+            outputs/cash_policy_reconciliation/
             outputs/monster_recommendations/
             outputs/operating_snapshot/
+            outputs/user_portfolio_reports/
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
+            outputs/selection_quality/
+            outputs/leader_drop_diagnostics/
+            outputs/concentrated_proxy_to_broker_reconciliation/
             outputs/portfolio_goal_search/
             outputs/account_evaluation/
             outputs/full_rebuild_logs/
@@ -168,6 +408,7 @@ jobs:
 
       - name: Sync replay outputs to Google Drive
         if: always()
+        timeout-minutes: 25
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -180,7 +421,7 @@ jobs:
             exit 0
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
           mkdir -p ~/.config/rclone
@@ -202,9 +443,15 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in position_risk_weekly_validation broker_replay broker_position_risk_replay broker_execution_policy_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation full_rebuild_logs; do
+          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation main_v4_future_winner_evidence concentrated_v3_broker_selected_leaders hold_vs_replace_audit full_rebuild_logs reports broker_replay target_snapshots data_readiness cost_sensitivity trade_attribution; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
+            fi
+          done
+          for p in outputs/alpha_selector_market_circuit_grid/*/best_metrics.json outputs/alpha_selector_market_circuit_grid/*/summary.csv outputs/alpha_selector_market_circuit_grid/*/report.md; do
+            if [ -e "$p" ]; then
+              rel="${p#outputs/}"
+              rclone copy "$p" "$DEST/$(dirname "$rel")/"
             fi
           done
           cat > outputs/replay_gdrive_manifest.json <<EOF

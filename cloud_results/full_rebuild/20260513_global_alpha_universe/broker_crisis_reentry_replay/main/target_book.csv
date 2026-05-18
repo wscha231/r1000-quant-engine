@@ -1,0 +1,1639 @@
+rebalance_date,ticker,weight,Name,sector,portfolio_sleeve_label,portfolio_sleeve_role,policy_id
+2019-04-30,CHTR,0.1954966941191099,CHARTER COMMUNICATIONS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2019-04-30,V,0.1478831991352493,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-04-30,NOW,0.07145141578696,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-04-30,AVGO,0.07145141578696,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-04-30,DHR,0.0586922270663725,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2019-04-30,AMT,0.0573493484368295,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-04-30,CSX,0.0533397616781279,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2019-04-30,MELI,0.053318261949641,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2019-04-30,CDNS,0.0525698998505046,CADENCE DESIGN SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-04-30,FDS,0.0476895552380489,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2019-04-30,PAYC,0.0476895552380489,PAYCOM SOFTWARE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-04-30,VICI,0.0476895552380489,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-04-30,KEYS,0.0476895552380489,KEYSIGHT TECHNOLOGIES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-04-30,CPRT,0.0476895552380489,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-05-31,CASH,0.2800000000000002,Cash,Cash,cash,cash,fast_reentry
+2019-05-31,NOW,0.1059640579945549,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-05-31,V,0.0788584363739062,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-05-31,DHR,0.0639628975943502,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2019-05-31,MA,0.0633570194271671,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-05-31,AMT,0.0593486984646977,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-05-31,HD,0.0539487127331086,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-05-31,UNH,0.0521588656931295,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-05-31,ADBE,0.0415033916993322,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-05-31,PAYC,0.0399360488459203,PAYCOM SOFTWARE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-05-31,SUI,0.0322287632089182,SUN COMMUNITIES REIT INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-05-31,AZO,0.0307681675318719,AUTOZONE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-05-31,ELS,0.0290884439459253,EQUITY LIFESTYLE PROPERTIES REIT I,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-05-31,PEG,0.0290884439459253,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,core_compounder,core_compounder,fast_reentry
+2019-05-31,SHOP,0.0290884439459253,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2019-05-31,CHTR,0.0020140411442273,CHARTER COMMUNICATIONS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2019-05-31,MELI,0.0017526652546165,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2019-05-31,CSX,0.0017374851568425,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2019-05-31,CPRT,0.0017345004669266,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-05-31,FDS,0.0017315984846697,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2019-05-31,VICI,0.0017293180879836,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-06-28,HD,0.1621891871940401,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-06-28,MA,0.1518432169199716,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-06-28,V,0.1332873938057711,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-06-28,FDS,0.075027179377081,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2019-06-28,SHOP,0.0695294831792911,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2019-06-28,NOW,0.0636923927254583,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-06-28,ORCL,0.0558513283241789,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-06-28,DHR,0.0490784433021827,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2019-06-28,AMT,0.0452917741562534,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-06-28,MELI,0.0387005882481757,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2019-06-28,AVGO,0.0381715706607175,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-06-28,VEEV,0.0347575541894732,VEEVA SYSTEMS INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2019-06-28,PAYC,0.0261609111996352,PAYCOM SOFTWARE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-06-28,HEI,0.0227965688014486,HEICO CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2019-06-28,UNH,0.0062429886497188,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-06-28,ADBE,0.0055241056506167,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-06-28,AZO,0.0043140029798406,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-06-28,SUI,0.0043107163358256,SUN COMMUNITIES REIT INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-06-28,ELS,0.003955501851922,EQUITY LIFESTYLE PROPERTIES REIT I,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-06-28,PEG,0.0039473953392438,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,core_compounder,core_compounder,fast_reentry
+2019-06-28,CHTR,0.0013533106737388,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-06-28,CSX,0.0013252325401299,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2019-06-28,CPRT,0.001324939962866,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-06-28,VICI,0.0013242139324183,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-07-31,V,0.1859281336481394,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-07-31,MA,0.1373435502317737,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-07-31,HD,0.1026927216075058,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-07-31,NOW,0.0812107668835754,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-07-31,SHOP,0.0799999999999999,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2019-07-31,AVGO,0.0748220113471524,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-07-31,ORCL,0.0580383083900205,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-07-31,ADBE,0.0468815603440697,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-07-31,NEE,0.0425786771401587,NEXTERA ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-07-31,DHR,0.0425099601562386,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2019-07-31,WRB,0.0399999999999999,WR BERKLEY CORP,Financials,core_compounder,core_compounder,fast_reentry
+2019-07-31,TSCO,0.0399999999999999,TRACTOR SUPPLY,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-07-31,T,0.0397648839932762,AT&T INC,Communication,core_compounder,core_compounder,fast_reentry
+2019-07-31,SBUX,0.0282294262580892,STARBUCKS CORP,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-08-30,V,0.1600000000000001,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-08-30,HD,0.1036502847253473,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-08-30,ORCL,0.099780201357784,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-08-30,MA,0.0994114055252891,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-08-30,NOW,0.0810085315709021,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-08-30,NEE,0.0707980479112016,NEXTERA ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-08-30,AMGN,0.0691309313992741,AMGEN INC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-08-30,PG,0.0609585750657487,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-08-30,AEP,0.04966273091075,AMERICAN ELECTRIC POWER INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-08-30,AMT,0.0462538734436407,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-08-30,DG,0.040134151018748,DOLLAR GENERAL CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-08-30,BKNG,0.04,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-08-30,DUK,0.04,DUKE ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2019-08-30,LRCX,0.0392112670713138,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-09-30,MA,0.1303071540102127,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-09-30,AEP,0.0976438848602117,AMERICAN ELECTRIC POWER INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-09-30,NEE,0.0957899755770868,NEXTERA ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-09-30,HD,0.0896757029725628,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-09-30,AMT,0.0804264949015991,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-09-30,DUK,0.08,DUKE ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2019-09-30,NOW,0.078159273312383,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-09-30,BKNG,0.0744264497598581,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-09-30,LRCX,0.0731200968727296,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-09-30,ORCL,0.0679991869905667,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-09-30,VICI,0.04,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-09-30,PG,0.0398395449611597,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-09-30,MDT,0.0314522593178262,MEDTRONIC PLC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-09-30,SBUX,0.0211599764638032,STARBUCKS CORP,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-10-31,BKNG,0.1446295705978351,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-10-31,ORCL,0.0963667179812549,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-10-31,HD,0.0818760311400851,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-10-31,UNH,0.0767594970949765,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-10-31,V,0.0761652357833349,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-10-31,DUK,0.0714237349785187,DUKE ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2019-10-31,PG,0.0563658840983002,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-10-31,LPX,0.0501827391767477,LOUISIANA PACIFIC CORP,Materials,core_compounder,core_compounder,fast_reentry
+2019-10-31,T,0.0456218179884657,AT&T INC,Communication,core_compounder,core_compounder,fast_reentry
+2019-10-31,LRCX,0.0376735270357234,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-10-31,COST,0.0349266399243689,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-10-31,CBRE,0.0338512159037043,CBRE GROUP INC CLASS A,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-10-31,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2019-10-31,WU,0.0244354671075244,WESTERN UNION,Financials,core_compounder,core_compounder,fast_reentry
+2019-10-31,ORLY,0.0242292133222757,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-10-31,MSFT,0.0231699174019868,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-10-31,RNG,0.0219020791190942,RINGCENTRAL INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-10-31,MA,0.0162348615780429,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-10-31,AEP,0.0119983650878432,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-10-31,NEE,0.0119253152808424,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-10-31,AMT,0.0096703287064053,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-10-31,NOW,0.0092276973137852,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-10-31,VICI,0.0050918198178268,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-10-31,MDT,0.0038211053160658,MEDTRONIC PLC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-10-31,SBUX,0.0024512182449908,STARBUCKS CORP,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-11-29,MA,0.1433924895055179,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-11-29,V,0.1188559957932316,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-11-29,ORCL,0.1067327061170195,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,CPRT,0.0706020082096594,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-11-29,PG,0.0658928321223885,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-11-29,AAPL,0.0597635326117665,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,ORLY,0.0516315515739306,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-11-29,DIS,0.046779148710354,WALT DISNEY,Communication,core_compounder,core_compounder,fast_reentry
+2019-11-29,COST,0.039232536874479,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-11-29,MDT,0.0376039629490552,MEDTRONIC PLC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-11-29,JKHY,0.0353396771648611,JACK HENRY AND ASSOCIATES INC,Financials,core_compounder,core_compounder,fast_reentry
+2019-11-29,BIO,0.0334620566606286,BIO RAD LABORATORIES INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2019-11-29,BABA,0.0328805405171936,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2019-11-29,RNG,0.0321121697200572,RINGCENTRAL INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,LRCX,0.0316284538912414,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,BAC,0.0223809667484428,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2019-11-29,BKNG,0.0163174196917033,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-11-29,UNH,0.0102424758445092,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2019-11-29,HD,0.0092149031135696,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-11-29,DUK,0.0080911739691723,DUKE ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2019-11-29,LPX,0.0060408420531499,LOUISIANA PACIFIC CORP,Materials,core_compounder,core_compounder,fast_reentry
+2019-11-29,T,0.0052801214731703,AT&T INC,Communication,core_compounder,core_compounder,fast_reentry
+2019-11-29,CBRE,0.0043156591461392,CBRE GROUP INC CLASS A,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-11-29,WU,0.0031229800478349,WESTERN UNION,Financials,core_compounder,core_compounder,fast_reentry
+2019-11-29,MSFT,0.0029426142608584,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,NEE,0.0014119174759413,NEXTERA ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2019-11-29,AEP,0.0013975318289177,,Unknown,core_compounder,core_compounder,fast_reentry
+2019-11-29,NOW,0.0012617237215134,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-11-29,AMT,0.0011365723010436,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-11-29,VICI,0.0006350776484482,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2019-11-29,SBUX,0.0002983582542008,STARBUCKS CORP,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2019-12-31,CPRT,0.1349875193075167,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2019-12-31,COST,0.1259138297652706,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-12-31,MA,0.1104,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-12-31,MSFT,0.0808587192667711,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-12-31,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2019-12-31,AAPL,0.0753226241713494,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-12-31,V,0.0739101197205509,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2019-12-31,DIS,0.0533554382211439,WALT DISNEY,Communication,core_compounder,core_compounder,fast_reentry
+2019-12-31,LRCX,0.0528659829320262,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-12-31,BABA,0.0476434201773926,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2019-12-31,PG,0.0470121055560159,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2019-12-31,RNG,0.0412755653031754,RINGCENTRAL INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2019-12-31,BAC,0.0390199158148531,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2019-12-31,SHOP,0.0192372164756676,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2019-12-31,RH,0.0181975432882663,RH,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-01-31,MA,0.14066098983832,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-01-31,CHTR,0.1119006922802057,CHARTER COMMUNICATIONS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-01-31,AAPL,0.0918541358927584,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-01-31,CPRT,0.0854310208158077,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2020-01-31,ADBE,0.0853562379024382,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-01-31,MSFT,0.0820788173297836,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-01-31,SHOP,0.0705546152537414,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-01-31,LRCX,0.0671001826757288,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-01-31,PG,0.0526305042278996,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-01-31,JD,0.0478586743189507,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-01-31,DIS,0.0435245386733937,WALT DISNEY,Communication,core_compounder,core_compounder,fast_reentry
+2020-01-31,BABA,0.0426424785087622,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-01-31,PCTY,0.0404942271028338,PAYLOCITY HOLDING CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2020-01-31,COST,0.0379128851793756,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-02-28,CASH,0.2799999999999999,Cash,Cash,cash,cash,fast_reentry
+2020-02-28,MA,0.0643623272711002,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-02-28,ADBE,0.0581112443948578,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-02-28,NOW,0.0534413323460998,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-02-28,LRCX,0.0513349526399225,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-02-28,COST,0.0510647940944972,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-02-28,BABA,0.0504270993367889,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-02-28,MSFT,0.0501860817221565,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-02-28,RNG,0.050148658602122,RINGCENTRAL INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-02-28,UNH,0.0496896808061387,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-02-28,SHOP,0.0496403883841997,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-02-28,TSLA,0.0493425941229318,TESLA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-02-28,BKNG,0.0480223606450617,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-02-28,AMT,0.0473729708521924,AMERICAN TOWER REIT CORP,Real Estate,core_compounder,core_compounder,fast_reentry
+2020-02-28,GPN,0.04685551478193,GLOBAL PAYMENTS INC,Financials,core_compounder,core_compounder,fast_reentry
+2020-03-31,CASH,0.5,Cash,Cash,cash,cash,fast_reentry
+2020-03-31,ADBE,0.059393668349315,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-03-31,COST,0.0504857927472028,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-03-31,UNH,0.0461749601841962,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-03-31,NOW,0.045,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-03-31,TSLA,0.0443137389806372,TESLA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-03-31,VRTX,0.0437509807228055,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-03-31,MA,0.0382888816094426,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-03-31,JD,0.0377887031954938,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-03-31,VZ,0.0250875509110011,VERIZON COMMUNICATIONS INC,Communication,core_compounder,core_compounder,fast_reentry
+2020-03-31,MRNA,0.0243903914277008,MODERNA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-03-31,BABA,0.0234921335516693,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-03-31,AMD,0.0209615093125331,ADVANCED MICRO DEVICES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-03-31,SHOP,0.0208716890080022,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-03-31,VEEV,0.02,VEEVA SYSTEMS INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2020-04-30,CASH,0.15,Cash,Cash,cash,cash,fast_reentry
+2020-04-30,ADBE,0.1479623176119196,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-04-30,NOW,0.0857429600735501,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-04-30,UNH,0.0853087684086714,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-04-30,COST,0.0804144717507318,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-04-30,VEEV,0.0673458525581492,VEEVA SYSTEMS INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2020-04-30,SHOP,0.0548223101317507,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-04-30,BABA,0.0532173258542107,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-04-30,VRTX,0.0514043305214708,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-04-30,AMZN,0.0478157065679092,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-04-30,JD,0.0446913413768492,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-04-30,ZTO,0.0335073629547564,ZTO Express,Industrials,core_compounder,core_compounder,fast_reentry
+2020-04-30,FTNT,0.0335073629547564,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-04-30,NVDA,0.0335073629547564,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-04-30,CHTR,0.0237088488937911,CHARTER COMMUNICATIONS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-04-30,TSLA,0.0023071447600154,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-04-30,MA,0.0015507160869934,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-04-30,MRNA,0.0013740813713946,MODERNA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-04-30,VZ,0.000969598230595,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-04-30,AMD,0.0008421369377278,ADVANCED MICRO DEVICES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-05-29,NOW,0.1232188557878002,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-05-29,COST,0.1138408242580954,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-05-29,UNH,0.1138408242580954,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-05-29,ADBE,0.0962394677643803,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-05-29,NVDA,0.0800965466143833,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-05-29,VEEV,0.0800965466143833,VEEVA SYSTEMS INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2020-05-29,AMZN,0.0577533723277483,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-05-29,FTNT,0.0544820644476254,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-05-29,ZTO,0.0540171776435121,ZTO Express,Industrials,core_compounder,core_compounder,fast_reentry
+2020-05-29,V,0.0515493985662438,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-05-29,JD,0.0477154350575728,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-05-29,VRTX,0.0467247384906061,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-05-29,META,0.0442765718681872,META PLATFORMS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-05-29,DPZ,0.0361481763013655,DOMINOS PIZZA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-06-30,UNH,0.1302443677234289,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-06-30,META,0.1019872929526005,META PLATFORMS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-06-30,JD,0.0926432586208338,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-06-30,NOW,0.0848290402484278,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-06-30,ADBE,0.0832770151744258,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-06-30,NVDA,0.080428622960887,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-06-30,ZTO,0.0804286229608869,ZTO Express,Industrials,core_compounder,core_compounder,fast_reentry
+2020-06-30,PYPL,0.0772645907813251,PAYPAL HOLDINGS INC,Financials,core_compounder,core_compounder,fast_reentry
+2020-06-30,AMZN,0.0691962464861334,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-06-30,VRTX,0.0601721802533731,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-06-30,SHOP,0.0514546463564294,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-06-30,CSGP,0.0405041780650556,COSTAR GROUP INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2020-06-30,AVGO,0.0275843647470547,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-06-30,AKAM,0.0199855726691374,AKAMAI TECHNOLOGIES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-07-31,HD,0.136110930599984,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-07-31,UNH,0.1334527580291281,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-07-31,JD,0.1206371276734437,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-07-31,ADBE,0.1126176509108553,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-07-31,NOW,0.0918679032758775,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-07-31,NVDA,0.0645682753231309,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-07-31,XYZ,0.0603916966864112,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-07-31,SHOP,0.0526005682697624,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-07-31,MA,0.0420588426897836,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-07-31,MNST,0.0420588426897836,MONSTER BEVERAGE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-07-31,ORLY,0.0420588426897836,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-07-31,CTAS,0.0420588426897836,CINTAS CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2020-07-31,DOCU,0.0300103329038708,DOCUSIGN INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-07-31,LULU,0.0295073855684008,LULULEMON ATHLETICA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-08-31,UNH,0.113699246696462,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-08-31,ADBE,0.1078321047745624,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-08-31,HD,0.1056950294895298,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-08-31,NOW,0.1027004869760602,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-08-31,CASH,0.0799999999999998,Cash,Cash,cash,cash,fast_reentry
+2020-08-31,MA,0.0730714574812253,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-08-31,JD,0.0694896317605118,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-08-31,META,0.0694850754768199,META PLATFORMS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-08-31,GOOGL,0.0588280961497829,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-08-31,AMZN,0.0473789137745975,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-08-31,BIO,0.0431425102252959,BIO RAD LABORATORIES INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2020-08-31,BKNG,0.0431425102252959,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-08-31,TSCO,0.0431425102252959,TRACTOR SUPPLY,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-08-31,WDAY,0.0423924267445598,WORKDAY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-09-30,UNH,0.117502448096644,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-09-30,ORCL,0.109100858896217,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-09-30,NOW,0.0980497532576529,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-09-30,HD,0.097496616311458,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-09-30,BIO,0.0818526932190586,BIO RAD LABORATORIES INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2020-09-30,JD,0.0772993919895654,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-09-30,SE,0.0560597963614427,Sea Limited,Internet,core_compounder,core_compounder,fast_reentry
+2020-09-30,NVDA,0.0554535666257395,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-09-30,META,0.0544238903846649,META PLATFORMS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-09-30,BABA,0.0539137039780251,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-09-30,DDOG,0.0515402136804365,DATADOG INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-09-30,CPRT,0.0491023557330315,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2020-09-30,DPZ,0.0491023557330315,DOMINOS PIZZA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-09-30,CSX,0.0491023557330315,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2020-10-30,CASH,0.28,Cash,Cash,cash,cash,fast_reentry
+2020-10-30,HD,0.1010399841931566,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-10-30,UNH,0.0875232267817296,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-10-30,BABA,0.0610235808960399,Alibaba Group,Internet,core_compounder,core_compounder,fast_reentry
+2020-10-30,GOOGL,0.0570405295518229,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-10-30,CPRT,0.0537486570521703,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2020-10-30,MELI,0.048629272313726,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2020-10-30,NVDA,0.0481400652797757,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-10-30,SAM,0.0412936723754116,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-10-30,XYZ,0.038108739231081,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-10-30,ETSY,0.0373849793243264,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-10-30,LRCX,0.0277929051697881,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-10-30,CBRE,0.0277929051697881,CBRE GROUP INC CLASS A,Real Estate,core_compounder,core_compounder,fast_reentry
+2020-10-30,AEP,0.0263745066088262,AMERICAN ELECTRIC POWER INC,Utilities,core_compounder,core_compounder,fast_reentry
+2020-10-30,ORCL,0.0115066988593236,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-10-30,NOW,0.0111049604216151,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-10-30,BIO,0.0103816918886936,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-10-30,JD,0.0094811223454548,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-10-30,SE,0.0074813722887563,Sea Limited,Internet,core_compounder,core_compounder,fast_reentry
+2020-10-30,META,0.0072680809152595,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-10-30,CSX,0.0068830493332538,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2020-11-30,V,0.1684256340789729,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-11-30,AAPL,0.0912577474624912,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,XYZ,0.0800577353778481,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-11-30,CPRT,0.0731836325523574,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2020-11-30,SE,0.0713002594894778,Sea Limited,Internet,core_compounder,core_compounder,fast_reentry
+2020-11-30,GOOG,0.0655053685564615,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2020-11-30,LRCX,0.0602759900322369,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,QCOM,0.0544650171037011,QUALCOMM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,NVDA,0.0470741277027599,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,HD,0.0334267571633278,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-11-30,CHPT,0.0317831104431137,ChargePoint Holdings,Industrials,core_compounder,core_compounder,fast_reentry
+2020-11-30,TECH,0.0317831104431137,BIO TECHNE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2020-11-30,UNH,0.0307304979024886,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2020-11-30,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2020-11-30,TTWO,0.0291420577760198,TAKE TWO INTERACTIVE SOFTWARE INC,Communication,core_compounder,core_compounder,fast_reentry
+2020-11-30,SHOP,0.0239991068290587,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-11-30,GOOGL,0.0192038544533703,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-11-30,MELI,0.0187674809066885,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2020-11-30,ETSY,0.01449472196012,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2020-11-30,CBRE,0.009541311921843,CBRE GROUP INC CLASS A,Real Estate,core_compounder,core_compounder,fast_reentry
+2020-11-30,AEP,0.006970587954901,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-11-30,ORCL,0.0024584225866629,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,NOW,0.0024151788601988,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-11-30,JD,0.0017753453562196,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2020-11-30,META,0.0010161920814389,,Unknown,core_compounder,core_compounder,fast_reentry
+2020-11-30,CSX,0.0009467510051268,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2020-12-31,V,0.1384173067860541,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2020-12-31,AAPL,0.113039780762157,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-12-31,GOOGL,0.096136061697595,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2020-12-31,CPRT,0.0866264999367661,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2020-12-31,MELI,0.0737871526021421,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2020-12-31,ORCL,0.0719035905738653,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-12-31,LRCX,0.0705807734841209,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2020-12-31,TTWO,0.0673740044133266,TAKE TWO INTERACTIVE SOFTWARE INC,Communication,core_compounder,core_compounder,fast_reentry
+2020-12-31,CHPT,0.0661845005096977,ChargePoint Holdings,Industrials,core_compounder,core_compounder,fast_reentry
+2020-12-31,PDD,0.0600204034148452,PDD Holdings (Pinduoduo / Temu),Internet,core_compounder,core_compounder,fast_reentry
+2020-12-31,SAM,0.0525831026658546,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2020-12-31,SHOP,0.0517137192727904,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2020-12-31,Z,0.0516331038807844,ZILLOW GROUP INC CLASS C,Real Estate,core_compounder,core_compounder,fast_reentry
+2021-01-29,CASH,0.2799999999999999,Cash,Cash,cash,cash,fast_reentry
+2021-01-29,MELI,0.0904495147087219,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2021-01-29,QCOM,0.0640515188182774,QUALCOMM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,GOOG,0.0520298046982721,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-01-29,Z,0.0507705173931932,ZILLOW GROUP INC CLASS C,Real Estate,core_compounder,core_compounder,fast_reentry
+2021-01-29,MSFT,0.0481196586839967,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,VEEV,0.0466604639509719,VEEVA SYSTEMS INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2021-01-29,JD,0.0457731074980628,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2021-01-29,PYPL,0.0453027307577301,PAYPAL HOLDINGS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-01-29,BIO,0.0450807069989694,BIO RAD LABORATORIES INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2021-01-29,LRCX,0.042965257153521,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,AMAT,0.0326972205485058,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,TECH,0.0284229670148078,BIO TECHNE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-01-29,FRHC,0.0284229670148078,FREEDOM HOLDING CORP,Financials,core_compounder,core_compounder,fast_reentry
+2021-01-29,AAPL,0.0158777086091778,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,GOOGL,0.0147321210258597,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-01-29,ORCL,0.0121804734205894,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-01-29,CHPT,0.0119517547340073,ChargePoint Holdings,Industrials,core_compounder,core_compounder,fast_reentry
+2021-01-29,TTWO,0.011898673065382,TAKE TWO INTERACTIVE SOFTWARE INC,Communication,core_compounder,core_compounder,fast_reentry
+2021-01-29,PDD,0.0113441793469131,PDD Holdings (Pinduoduo / Temu),Internet,core_compounder,core_compounder,fast_reentry
+2021-01-29,SHOP,0.0106343699834196,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-01-29,SAM,0.0106342845748122,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-02-26,CASH,0.28,Cash,Cash,cash,cash,fast_reentry
+2021-02-26,PYPL,0.1367644686744378,PAYPAL HOLDINGS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-02-26,GOOGL,0.0804450716655413,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-02-26,AMAT,0.0689261404371208,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-02-26,LRCX,0.0571850546166911,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-02-26,SAM,0.0555480544275965,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-02-26,Z,0.0553669851776987,ZILLOW GROUP INC CLASS C,Real Estate,core_compounder,core_compounder,fast_reentry
+2021-02-26,NVDA,0.049788817941808,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-02-26,NOW,0.0388095314153942,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-02-26,ETSY,0.0382935415344162,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-02-26,XYZ,0.03703423166183,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-02-26,AMZN,0.0358927645195373,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-02-26,DXCM,0.0337793445997068,DEXCOM INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-02-26,BKNG,0.0321659933282206,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,UNH,0.1165435736264017,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-03-31,HD,0.0928214242827381,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,AMAT,0.0654460906724977,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-03-31,LRCX,0.0642612972551787,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-03-31,GOOG,0.0588526693835644,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-03-31,MCO,0.0588526693835644,MOODYS CORP,Financials,core_compounder,core_compounder,fast_reentry
+2021-03-31,NOW,0.0585599322738037,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-03-31,LOW,0.0567564329764554,LOWES COMPANIES INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,PYPL,0.0471492631933514,PAYPAL HOLDINGS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-03-31,TGT,0.0374174606800311,TARGET CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-03-31,ORLY,0.0357506266508228,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,CSX,0.034731536513259,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2021-03-31,WSM,0.0344819297571796,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,GOOGL,0.0338954763879577,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-03-31,ETSY,0.0323600916495935,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,CASH,0.0300000000000001,Cash,Cash,cash,cash,fast_reentry
+2021-03-31,NDAQ,0.029659881290537,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-03-31,SAM,0.0283644090851791,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-03-31,NVDA,0.0241716300937553,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-03-31,XYZ,0.020438756759269,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-03-31,AMZN,0.0203045583218813,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-03-31,BKNG,0.0191802897629779,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-04-30,HD,0.1453697566987704,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-04-30,GOOG,0.1086875964305185,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-04-30,MA,0.0979796634192049,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-04-30,ORLY,0.0731433907838901,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-04-30,UNH,0.0725842485677468,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-04-30,NVDA,0.0652643502886476,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-04-30,WSM,0.0588846197651557,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-04-30,CSX,0.0556481550123364,CSX CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2021-04-30,AMAT,0.047017419772461,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-04-30,WSC,0.0376358406123854,WILLSCOT HOLDINGS CORP CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2021-04-30,LOW,0.0370278947940993,LOWES COMPANIES INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-04-30,FTNT,0.0329569481991431,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-04-30,XYZ,0.0295105327084709,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-04-30,MORN,0.0257931151609098,MORNINGSTAR INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-04-30,PWR,0.0239416272427872,QUANTA SERVICES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-04-30,DHR,0.0205500079822874,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-04-30,LRCX,0.012072088357893,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-04-30,MCO,0.0115791701424795,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-04-30,PYPL,0.0096754860244382,PAYPAL HOLDINGS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-04-30,TGT,0.0080972796303845,TARGET CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-04-30,GOOGL,0.0077813392404701,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-04-30,NDAQ,0.00698590446334,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-04-30,SAM,0.0065521208223191,BOSTON BEER INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-04-30,BKNG,0.00526144387986,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-05-28,GOOGL,0.1427883495921102,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-05-28,NVDA,0.141451851455006,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-05-28,MA,0.1313350233982869,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-05-28,HD,0.1006247798774053,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-05-28,WSM,0.0794260657421401,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-05-28,FTNT,0.0720097862265565,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-05-28,AMAT,0.0699041151747426,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-05-28,UNH,0.06544353812709,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-05-28,DHR,0.0541660933020922,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-05-28,CRWD,0.0461667039150575,CROWDSTRIKE HOLDINGS INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-05-28,NDAQ,0.0424667042467723,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-05-28,SHOP,0.0273494994072812,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-05-28,MS,0.0268674895354583,MORGAN STANLEY,Financials,core_compounder,core_compounder,fast_reentry
+2021-06-30,DHR,0.1341157739037078,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-06-30,NVDA,0.1108524133938111,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,NDAQ,0.0838950355356528,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-06-30,CRWD,0.0769821058681128,CROWDSTRIKE HOLDINGS INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,FTNT,0.0768836454026954,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,SHOP,0.0734773623349046,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-06-30,GOOG,0.05411518885204,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-06-30,NOW,0.0483073085261342,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,ETSY,0.0475776641704267,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-06-30,TROW,0.0472616223120001,T ROWE PRICE GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-06-30,DXCM,0.035272499427249,DEXCOM INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-06-30,ABT,0.035272499427249,ABBOTT LABORATORIES,Health Care,core_compounder,core_compounder,fast_reentry
+2021-06-30,NET,0.0342379200478899,CLOUDFLARE INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,BILL,0.0319304505644908,BILL HOLDINGS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,GOOGL,0.0317866134778446,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-06-30,HD,0.0224748983597281,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-06-30,WSM,0.017132797246796,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-06-30,AMAT,0.0163119234671045,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-06-30,UNH,0.0149093139661781,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-06-30,MS,0.0072029637159836,MORGAN STANLEY,Financials,core_compounder,core_compounder,fast_reentry
+2021-07-30,UNH,0.1280286093089591,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-07-30,GOOG,0.1030743777308359,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-07-30,ORCL,0.0945240140028493,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,DXCM,0.070746965922251,DEXCOM INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-07-30,NVDA,0.0705252660604837,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,SHOP,0.0658397899434992,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-07-30,BILL,0.0609290814126172,BILL HOLDINGS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,MA,0.05528311652387,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-07-30,MCO,0.05528311652387,MOODYS CORP,Financials,core_compounder,core_compounder,fast_reentry
+2021-07-30,AMAT,0.0540960659288688,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,CRWD,0.0530609682796459,CROWDSTRIKE HOLDINGS INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,CROX,0.0346344455242868,CROCS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-07-30,NET,0.0308422244601134,CLOUDFLARE INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,DHR,0.0280680976937186,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-07-30,NDAQ,0.0179799217178002,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-07-30,FTNT,0.0178817199535096,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,NOW,0.011859809031193,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-07-30,TROW,0.0113438402055578,T ROWE PRICE GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-07-30,ABT,0.0093996871823561,ABBOTT LABORATORIES,Health Care,core_compounder,core_compounder,fast_reentry
+2021-07-30,GOOGL,0.0090366686278995,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-07-30,HD,0.0070842683801302,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-07-30,WSM,0.0060022622187246,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-07-30,MS,0.0044756833669589,MORGAN STANLEY,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,GOOG,0.0957004108634173,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-08-31,DXCM,0.0882286697949401,DEXCOM INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,SHOP,0.0779694246025643,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-08-31,MSFT,0.0724581364031628,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,MRNA,0.055116533931187,MODERNA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,NVDA,0.0542832425003538,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,XYZ,0.0534037859235253,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,BIO,0.0533853347154848,BIO RAD LABORATORIES INC CLASS A,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,CRWD,0.0517071461498286,CROWDSTRIKE HOLDINGS INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,MA,0.0351424010272107,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,ETSY,0.0351424010272107,ETSY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-08-31,LRCX,0.0289156849847047,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,HUBS,0.0289156849847047,HUBSPOT INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,UNH,0.0239328174387776,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,ORCL,0.0214284508120246,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,BILL,0.0201270557320386,BILL HOLDINGS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,MCO,0.0183378952792896,MOODYS CORP,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,AMAT,0.018084303712547,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-08-31,CROX,0.0168314787535298,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-08-31,DHR,0.0163862948378329,DANAHER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,FTNT,0.0156260085226769,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,NDAQ,0.0155134834119657,NASDAQ INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,NOW,0.0150562746322042,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-08-31,TROW,0.0150094508177784,T ROWE PRICE GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-08-31,ABT,0.0148261112685997,ABBOTT LABORATORIES,Health Care,core_compounder,core_compounder,fast_reentry
+2021-08-31,GOOGL,0.0148121428634788,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-08-31,HD,0.0146331901217859,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-08-31,WSM,0.014587299703807,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-08-31,MS,0.0144388851833671,MORGAN STANLEY,Financials,core_compounder,core_compounder,fast_reentry
+2021-09-30,CASH,0.28,Cash,Cash,cash,cash,fast_reentry
+2021-09-30,HD,0.098138782635403,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-09-30,ORCL,0.0853859395189319,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-09-30,DXCM,0.0723164716871212,DEXCOM INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-09-30,NVDA,0.0703581191985203,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-09-30,GOOG,0.059815901153835,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-09-30,CROX,0.0591476204896188,CROCS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-09-30,MA,0.0576,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-09-30,SE,0.0434588453955833,Sea Limited,Internet,core_compounder,core_compounder,fast_reentry
+2021-09-30,MDB,0.0407998019855785,MONGODB INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-09-30,XYZ,0.0388195760409878,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-09-30,PCTY,0.0387884553590126,PAYLOCITY HOLDING CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2021-09-30,PANW,0.0288,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-09-30,GTM,0.0265704865354072,ZOOMINFO TECHNOLOGIES INC,Communication,core_compounder,core_compounder,fast_reentry
+2021-10-29,MSFT,0.1257777788488641,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,SE,0.0783101163005512,Sea Limited,Internet,core_compounder,core_compounder,fast_reentry
+2021-10-29,XYZ,0.0743207819178555,BLOCK INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-10-29,PCTY,0.073547484420262,PAYLOCITY HOLDING CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2021-10-29,GTM,0.0625995244250238,ZOOMINFO TECHNOLOGIES INC,Communication,core_compounder,core_compounder,fast_reentry
+2021-10-29,GOOGL,0.0561451478024909,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-10-29,NVDA,0.0533613989675441,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,MDB,0.0527378912778259,MONGODB INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,FDS,0.0495106369650906,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-10-29,PANW,0.0486964676128556,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,CPRT,0.0394366653149001,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-10-29,ORLY,0.0394366653149001,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-10-29,INTU,0.0353596911880554,INTUIT INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,HD,0.0346573966923702,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-10-29,ORCL,0.0321526749497029,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-10-29,DXCM,0.0305383350911306,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-10-29,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2021-10-29,CROX,0.0283563643532439,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-10-29,GOOG,0.0283067354561488,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-10-29,MA,0.0267482431011834,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-11-30,COST,0.1809725495142446,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-11-30,MSFT,0.1328049606202223,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,GOOG,0.094253797216965,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-11-30,FDS,0.0761066330418371,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-11-30,ORLY,0.0702984894320124,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-11-30,PANW,0.069127679901424,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,NET,0.0418795420290469,CLOUDFLARE INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,STE,0.0370976643723359,STERIS,Health Care,core_compounder,core_compounder,fast_reentry
+2021-11-30,BLDR,0.0370976643723359,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-11-30,SAIA,0.0370976643723359,SAIA INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-11-30,LRCX,0.0343875727651677,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,AZO,0.0331293849769805,AUTOZONE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-11-30,SHOP,0.0319481293498077,Shopify,Software,core_compounder,core_compounder,fast_reentry
+2021-11-30,NVDA,0.0205924086597801,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,GOOGL,0.0180660763455964,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-11-30,MDB,0.0169559097471763,MONGODB INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,CPRT,0.0130144211899845,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-11-30,INTU,0.0124181332606754,INTUIT INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,HD,0.0122867022512345,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-11-30,ORCL,0.0109644840690715,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-11-30,CROX,0.0100869531003349,CROCS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-11-30,MA,0.0094131794114295,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-12-31,MA,0.1661398041333316,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-12-31,MSFT,0.1142569926261733,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-12-31,PANW,0.0719404076645177,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-12-31,ORLY,0.0696224550544575,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-12-31,FDS,0.0659543322069944,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2021-12-31,GOOGL,0.0585446707742673,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2021-12-31,AZO,0.0563967439094457,AUTOZONE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2021-12-31,AVGO,0.0486662115099009,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-12-31,LRCX,0.0445557674065861,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-12-31,V,0.0399845877581614,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2021-12-31,FTNT,0.0399845877581614,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2021-12-31,COO,0.0399845877581614,COOPER INC,Health Care,core_compounder,core_compounder,fast_reentry
+2021-12-31,EXP,0.0399197179740449,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2021-12-31,COST,0.0242948532198605,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2021-12-31,GOOG,0.0186493643350366,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2021-12-31,BLDR,0.0155612264324333,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2021-12-31,STE,0.0153821356237959,STERIS,Health Care,core_compounder,core_compounder,fast_reentry
+2021-12-31,SAIA,0.0151703284323831,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-12-31,MDB,0.0139917358143998,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-12-31,HD,0.013705878987002,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-12-31,INTU,0.013689490350402,,Unknown,core_compounder,core_compounder,fast_reentry
+2021-12-31,ORCL,0.0136041202704822,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,MA,0.1588925660893488,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-01-31,AAPL,0.1193627598097941,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,GOOG,0.1012906834082211,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2022-01-31,AZO,0.0845230833719092,AUTOZONE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-01-31,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2022-01-31,ORLY,0.0731574731550008,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-01-31,BAC,0.0554532380254371,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2022-01-31,AVGO,0.0436735176969634,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,LNG,0.0435063115078707,CHENIERE ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-01-31,KLAC,0.0415401808705491,KLA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,FICO,0.0317237411850951,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,LRCX,0.0317237411850951,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,BLDR,0.0317237411850951,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-01-31,COR,0.0317237411850951,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-01-31,MSFT,0.0273313616905215,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,PANW,0.0158946816143792,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-01-31,GOOGL,0.0125390690674723,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2022-01-31,V,0.0081217108075447,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-01-31,COO,0.0072185963561985,COOPER INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-01-31,STE,0.0005401525875377,STERIS,Health Care,core_compounder,core_compounder,fast_reentry
+2022-01-31,ORCL,5.964920087050987e-05,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,KO,0.1369296442236524,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-02-28,MA,0.1135869198671793,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-02-28,ORLY,0.0846650633306349,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-02-28,AAPL,0.0830185483262353,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2022-02-28,GOOGL,0.0716050011461352,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2022-02-28,COO,0.058202979233729,COOPER INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-02-28,FCX,0.0546450913291322,FREEPORT MCMORAN INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-02-28,PANW,0.0513411259503963,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,NUE,0.0505469915330909,NUCOR CORP,Materials,core_compounder,core_compounder,fast_reentry
+2022-02-28,AVGO,0.0459804258530964,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,CNC,0.0429937785284584,CENTENE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-02-28,WMB,0.0423455311218474,WILLIAMS INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-02-28,NXST,0.0294898409560023,NEXSTAR MEDIA GROUP INC,Communication,core_compounder,core_compounder,fast_reentry
+2022-02-28,LRCX,0.0229587299729882,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,GOOG,0.0080040108537301,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-02-28,AZO,0.0064898892526816,AUTOZONE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-02-28,LNG,0.0042736843218186,CHENIERE ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-02-28,BAC,0.0042482660443901,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2022-02-28,BLDR,0.0028606574932466,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-02-28,COR,0.00270098904554,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-02-28,FICO,0.002443741221147,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-02-28,V,0.0006227958584538,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-02-28,STE,4.629453641312482e-05,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-03-31,AAPL,0.0969004521836564,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-03-31,COST,0.0957626864623104,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-03-31,AVGO,0.0764704503193649,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-03-31,FCX,0.0745233604860379,FREEPORT MCMORAN INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-03-31,ORLY,0.0723673937179598,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-03-31,GOOGL,0.0670995624657385,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2022-03-31,PANW,0.0658399687542397,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-03-31,CNC,0.0635003077335977,CENTENE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-03-31,NI,0.0609862028956224,NISOURCE INC,Utilities,core_compounder,core_compounder,fast_reentry
+2022-03-31,BLDR,0.0609862028956224,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-03-31,BRO,0.059536478890835,BROWN & BROWN INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-03-31,WEC,0.0594490907255263,WEC ENERGY GROUP INC,Utilities,core_compounder,core_compounder,fast_reentry
+2022-03-31,AEE,0.0583643610879557,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-03-31,OKE,0.0582134813815325,ONEOK INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-03-31,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2022-04-29,CASH,0.5,Cash,Cash,cash,cash,fast_reentry
+2022-04-29,PEP,0.0650465135164573,PEPSICO INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-04-29,KO,0.0568919569011463,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-04-29,AVGO,0.036326412346245,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-04-29,VLO,0.0322404401751692,VALERO ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2022-04-29,COST,0.0320786919926566,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-04-29,STLD,0.030634496747839,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-04-29,FCX,0.0304464372090113,FREEPORT MCMORAN INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-04-29,LYB,0.0298098461922112,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,core_compounder,core_compounder,fast_reentry
+2022-04-29,COR,0.0293931520502512,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-04-29,RS,0.0288715622150427,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2022-04-29,PLD,0.0281125711229134,PROLOGIS REIT INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2022-04-29,MKC,0.0175130184988708,MCCORMICK & CO NON-VOTING INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-04-29,NFG,0.0175130184988708,NATIONAL FUEL GAS,Utilities,core_compounder,core_compounder,fast_reentry
+2022-04-29,BLDR,0.0175130184988708,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-04-29,FDS,0.0175130184988708,FACTSET RESEARCH SYSTEMS INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-04-29,CNC,0.0095526808866985,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-04-29,NI,0.0075150874124236,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-04-29,WEC,0.0069622714957306,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-04-29,AEE,0.0060658057407202,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,CASH,0.15,Cash,Cash,cash,cash,fast_reentry
+2022-05-31,PEP,0.0903559530273699,PEPSICO INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-05-31,KO,0.081353621781254,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-05-31,VLO,0.0666315876592948,VALERO ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2022-05-31,AVGO,0.0557785651530156,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-05-31,AEE,0.0528872658165293,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,STLD,0.0481560375474857,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-05-31,NFG,0.0479150434579888,NATIONAL FUEL GAS,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,NVDA,0.0370161664537214,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-05-31,VICI,0.036506766139424,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2022-05-31,EXE,0.0358297508670247,EXPAND ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2022-05-31,EXC,0.0357734637461163,EXELON CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,ETR,0.0349402258081029,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,FANG,0.0349402258081029,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-05-31,ORLY,0.0349090351451983,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-05-31,LYB,0.0209162397886128,LYONDELLBASELL INDUSTRIES NV CLASS,Materials,core_compounder,core_compounder,fast_reentry
+2022-05-31,COR,0.0207736399103995,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-05-31,FCX,0.0207357791758976,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-05-31,RS,0.0205846179023201,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2022-05-31,BLDR,0.0194060159086638,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-05-31,CNC,0.0183472220031641,CENTENE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-05-31,NI,0.0181654768574877,NISOURCE INC,Utilities,core_compounder,core_compounder,fast_reentry
+2022-05-31,WEC,0.0180773000428246,WEC ENERGY GROUP INC,Utilities,core_compounder,core_compounder,fast_reentry
+2022-06-30,VICI,0.1418374295514996,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2022-06-30,PEP,0.1119961117616413,PEPSICO INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-06-30,HD,0.0984101691231881,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-06-30,UNH,0.08239334440713,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-06-30,AEE,0.0800916751386668,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-06-30,CASH,0.0799999999999997,Cash,Cash,cash,cash,fast_reentry
+2022-06-30,KO,0.0671516013821156,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-06-30,ORLY,0.0626307500604159,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-06-30,JD,0.049146185515959,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2022-06-30,NOC,0.0456262526210269,NORTHROP GRUMMAN CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2022-06-30,UTHR,0.0350172086016916,UNITED THERAPEUTICS CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-06-30,NOW,0.0349968326069157,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-06-30,LI,0.0349968326069157,Li Auto,Auto,core_compounder,core_compounder,fast_reentry
+2022-06-30,EXC,0.0343542052095597,EXELON CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-06-30,LNG,0.0339632458589566,CHENIERE ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-06-30,ETR,0.0062631018193786,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-06-30,CNC,0.0004535572259771,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-06-30,NI,0.0003480450771678,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-06-30,WEC,0.0003234514317932,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-07-29,UNH,0.1034039260121612,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-07-29,KO,0.1023715579041862,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-07-29,MA,0.0986724423186568,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-07-29,CASH,0.0799999999999998,Cash,Cash,cash,cash,fast_reentry
+2022-07-29,KLAC,0.0686682494156079,KLA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-07-29,NOC,0.0667002317304403,NORTHROP GRUMMAN CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2022-07-29,LNG,0.062776676192498,CHENIERE ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-07-29,EXC,0.0596441300039996,EXELON CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-07-29,ORLY,0.0578934133739381,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-07-29,AEE,0.0559362723033486,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-07-29,ON,0.054014106745876,ON SEMICONDUCTOR CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-07-29,STLD,0.0456109148469838,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-07-29,SQM,0.0351747729033798,Sociedad Quimica y Minera de Chile,Materials,core_compounder,core_compounder,fast_reentry
+2022-07-29,FANG,0.0349138958468808,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-07-29,LI,0.0216868630923134,Li Auto,Auto,core_compounder,core_compounder,fast_reentry
+2022-07-29,VICI,0.0128222104672239,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2022-07-29,PEP,0.0099773091226308,PEPSICO INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-07-29,HD,0.0093533430535436,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-07-29,UTHR,0.0047805417244244,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-07-29,NOW,0.0046492362103205,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-07-29,ETR,0.0030186322717234,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-07-29,CNC,0.0026501320896407,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-07-29,NI,0.0026414740406207,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-07-29,WEC,0.0026396683296004,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,PEP,0.1045566416833359,PEPSICO INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-08-31,ON,0.0918946304125,ON SEMICONDUCTOR CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-08-31,TSLA,0.0873214809744154,TESLA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-08-31,CASH,0.0799999999999999,Cash,Cash,cash,cash,fast_reentry
+2022-08-31,UNH,0.0786223242699755,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-08-31,MCK,0.0681925438155844,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-08-31,FANG,0.0606378128557349,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-08-31,ENPH,0.0574737996632108,ENPHASE ENERGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-08-31,ORLY,0.0554806023228192,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-08-31,AEE,0.0528637817825156,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-08-31,WCC,0.0460557761518635,WESCO INTERNATIONAL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-08-31,TMUS,0.0311583657990073,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2022-08-31,ELV,0.0276932037191046,ELEVANCE HEALTH INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-08-31,FSLR,0.0271873459165147,FIRST SOLAR INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-08-31,GIS,0.0253978753077209,GENERAL MILLS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-08-31,KO,0.0216784168699574,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-08-31,MA,0.0202803812440192,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-08-31,LNG,0.0148541967561784,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,NOC,0.0146533096421341,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,EXC,0.0125926825529503,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,STLD,0.0103858362962742,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2022-08-31,VICI,0.0029495156930303,VICI PPTYS INC,Real Estate,core_compounder,core_compounder,fast_reentry
+2022-08-31,HD,0.0022239538310638,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-08-31,UTHR,0.0012683051807211,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,NOW,0.0012409167955202,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,ETR,0.000896271034981,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,CNC,0.0008145918438199,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-08-31,NI,0.0008128311170087,NISOURCE INC,Utilities,core_compounder,core_compounder,fast_reentry
+2022-08-31,WEC,0.0008126064680371,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-09-30,CASH,0.5,Cash,Cash,cash,cash,fast_reentry
+2022-09-30,UNH,0.088,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-09-30,TSLA,0.0699533014705206,TESLA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-09-30,ENPH,0.0627127171708592,ENPHASE ENERGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-09-30,MCK,0.0489920475455897,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-09-30,BIIB,0.0373004180532773,BIOGEN INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-09-30,ON,0.0346943550156041,ON SEMICONDUCTOR CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-09-30,BLDR,0.0272097505381116,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-09-30,NOC,0.026544711284737,NORTHROP GRUMMAN CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2022-09-30,ORLY,0.0248766389031303,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-09-30,VRTX,0.0219294088282627,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-09-30,DKS,0.0175980711379125,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-09-30,HUBB,0.0139069012580729,HUBBELL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-09-30,BJ,0.0137260195219948,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-09-30,WCC,0.0125556592719267,WESCO INTERNATIONAL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-10-31,CASH,0.15,Cash,Cash,cash,cash,fast_reentry
+2022-10-31,MCK,0.1312123197199211,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-10-31,V,0.1179544511244099,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-10-31,UNH,0.0855307297227752,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-10-31,TMUS,0.083290472501428,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2022-10-31,ORLY,0.0702967639480832,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-10-31,FANG,0.0688592867175624,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-10-31,BLDR,0.0523722709410057,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-10-31,VRTX,0.0475869393619126,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-10-31,WCC,0.0384845541155271,WESCO INTERNATIONAL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-10-31,TRV,0.0253635364971285,TRAVELERS COMPANIES INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-10-31,DTM,0.0244276425112368,DT MIDSTREAM INC,Energy,core_compounder,core_compounder,fast_reentry
+2022-10-31,RJF,0.0215415143869073,RAYMOND JAMES INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-10-31,AJG,0.0213442052205334,ARTHUR J GALLAGHER,Financials,core_compounder,core_compounder,fast_reentry
+2022-10-31,RYAN,0.0179200648242673,RYAN SPECIALTY HOLDINGS INC CLASS,Financials,core_compounder,core_compounder,fast_reentry
+2022-10-31,ENPH,0.013811812891103,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-10-31,BIIB,0.0076925784181825,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-10-31,ON,0.0067604250804507,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-10-31,NOC,0.0059935167478692,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-10-31,DKS,0.0037935897239481,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-10-31,HUBB,0.0029010263791724,HUBBELL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-10-31,BJ,0.0028622991665745,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-11-30,V,0.1366808951898774,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,PG,0.1021812997080838,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-11-30,MA,0.0978808736089106,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,MCK,0.0916670687707831,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-11-30,ORLY,0.0765621857912288,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-11-30,CSCO,0.0717996589546484,CISCO SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-11-30,COR,0.0502999286634833,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-11-30,FICO,0.0488550206855868,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-11-30,JBL,0.038099709557191,JABIL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-11-30,TRV,0.0320883516591907,TRAVELERS COMPANIES INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,CPRT,0.0310838927877382,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-11-30,PFG,0.0253897329945833,PRINCIPAL FINANCIAL GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,GS,0.0253336537453671,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,MS,0.0250716901061005,MORGAN STANLEY,Financials,core_compounder,core_compounder,fast_reentry
+2022-11-30,UNH,0.018088671783416,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,TMUS,0.0177605489236243,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,FANG,0.0151422689622849,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,VRTX,0.0127043976742384,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,WCC,0.0107940404234282,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,DTM,0.009167646603079,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,AJG,0.0089151277621893,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,RJF,0.0086733877008445,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,ENPH,0.0076485044983101,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,BIIB,0.0067877273152329,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,ON,0.0067649423933261,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,NOC,0.0064285080047586,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-11-30,DKS,0.0061428616074951,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-11-30,HUBB,0.0060199676236646,HUBBELL INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-11-30,BJ,0.0059674365013338,,Unknown,core_compounder,core_compounder,fast_reentry
+2022-12-30,V,0.1574752159260482,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-12-30,MA,0.1574752159260482,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2022-12-30,COR,0.1111282282269996,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-12-30,PG,0.0984700722602207,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2022-12-30,MCK,0.0925075521112401,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2022-12-30,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2022-12-30,CSCO,0.0650305126136612,CISCO SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-12-30,AVGO,0.0504499044216261,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2022-12-30,AEE,0.039787105494147,AMEREN CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2022-12-30,REGN,0.0317448540505631,REGENERON PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2022-12-30,URI,0.0288698112439691,UNITED RENTALS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2022-12-30,AJG,0.0281057182551305,ARTHUR J GALLAGHER,Financials,core_compounder,core_compounder,fast_reentry
+2022-12-30,PFG,0.024943849892773,PRINCIPAL FINANCIAL GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2022-12-30,DKS,0.0196692746197323,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2022-12-30,FICO,0.0143426849578402,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-01-31,V,0.1358948686685474,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-01-31,MA,0.1358948686685474,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-01-31,PG,0.1041504396423656,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-01-31,MCK,0.0946298863534886,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-01-31,AVGO,0.0936868656235011,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-01-31,COR,0.0888417450130087,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-01-31,JBL,0.0509900383170679,JABIL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-01-31,AXP,0.0442950199117584,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2023-01-31,PFG,0.0434324967012622,PRINCIPAL FINANCIAL GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2023-01-31,LRCX,0.0416367542200905,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-01-31,NOW,0.0416367542200905,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-01-31,JD,0.0416367542200905,JD.com,Internet,core_compounder,core_compounder,fast_reentry
+2023-01-31,AXON,0.0416367542200905,AXON ENTERPRISE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-01-31,CPRT,0.0416367542200905,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-02-28,V,0.1416572030569014,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-02-28,AVGO,0.0969307574657935,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-02-28,TMUS,0.0881971062128102,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2023-02-28,LIN,0.0827639292906752,LINDE PLC,Materials,core_compounder,core_compounder,fast_reentry
+2023-02-28,NOW,0.0705872774611258,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-02-28,LRCX,0.061407275867008,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-02-28,BKNG,0.0552126879821688,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-02-28,BLDR,0.0502646504377466,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-02-28,RS,0.0399906878054345,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-02-28,STLD,0.0398555764332418,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-02-28,ORLY,0.03324288306805,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-02-28,MPWR,0.03324288306805,MONOLITHIC POWER SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-02-28,TSCO,0.03324288306805,TRACTOR SUPPLY,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-02-28,MLI,0.030073177377101,MUELLER INDUSTRIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-02-28,MA,0.0280176918773591,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-02-28,PG,0.0221541136134898,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-02-28,MCK,0.0195707460097341,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-02-28,COR,0.0183926433606834,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-02-28,JBL,0.0127852682598047,JABIL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-02-28,AXP,0.0107783060165491,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-02-28,AXON,0.0106861287952124,AXON ENTERPRISE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-02-28,CPRT,0.0106833227584877,COPART INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-02-28,PFG,0.0102628007145219,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-03-31,BKNG,0.1299441365532856,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-03-31,BLDR,0.1170976408465909,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-03-31,AVGO,0.1136869653861687,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-03-31,V,0.1136161770277138,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-03-31,ORLY,0.079290683976916,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-03-31,ADBE,0.0730990368606583,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-03-31,TMUS,0.0730340828915955,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2023-03-31,PG,0.0621436015154066,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-03-31,MSFT,0.0535633133777632,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-03-31,RS,0.0439825727639376,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-03-31,PODD,0.0426008254179747,INSULET CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-03-31,AXON,0.0426008254179747,AXON ENTERPRISE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-03-31,ADI,0.0296997393703704,ANALOG DEVICES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-03-31,ULTA,0.0256403985936436,ULTA BEAUTY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,BLDR,0.1422995608692805,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-04-28,AVGO,0.1201696493943406,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-04-28,HD,0.0962331400944516,HOME DEPOT INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,BKNG,0.0959825387384966,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,KO,0.0778840243590384,COCA-COLA,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-04-28,MA,0.074438385549694,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-04-28,NOW,0.0615557923775526,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-04-28,AAPL,0.043363861591474,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-04-28,ANET,0.0413435505739635,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-04-28,AXON,0.0358667705363193,AXON ENTERPRISE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-04-28,LNG,0.0328457663614639,CHENIERE ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2023-04-28,VRTX,0.0228027603596988,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-04-28,V,0.0211549503471458,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-04-28,ULTA,0.0206763491504343,ULTA BEAUTY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,CHDN,0.0194376034005916,CHURCHILL DOWNS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,ORLY,0.016591455540565,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-04-28,TMUS,0.014871587729875,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2023-04-28,ADBE,0.014802558325252,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-04-28,PG,0.0138222792117388,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-04-28,MSFT,0.0126309244375485,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-04-28,RS,0.0106460312931148,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-04-28,PODD,0.0105804597579593,INSULET CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-05-31,MA,0.156021694639742,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-05-31,AMZN,0.1155268986764213,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-05-31,BKNG,0.1029489681881159,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-05-31,BLDR,0.084307851130418,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-05-31,ORLY,0.083661035485516,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-05-31,NOW,0.0682381957685339,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-05-31,ANET,0.0655984746165533,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-05-31,AAPL,0.0609601469257127,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-05-31,AVGO,0.0588162296570408,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-05-31,VRTX,0.0495793272692894,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-05-31,MCK,0.0489055582310811,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-05-31,EXP,0.0414116567407367,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-05-31,FCNCA,0.0359546567171536,FIRST CITIZENS BANCSHARES INC CLAS,Financials,core_compounder,core_compounder,fast_reentry
+2023-05-31,AMAT,0.0280693059536849,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-06-30,MA,0.1678693784022136,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-06-30,AVGO,0.1009626270165258,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-06-30,EXP,0.0858939737109703,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-06-30,AMZN,0.0764659230881476,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-06-30,ORLY,0.0760948143645737,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-06-30,NOW,0.0738674835662964,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-06-30,BLDR,0.0654503447549194,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-06-30,ADBE,0.0582174525183134,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-06-30,STLD,0.0578369943597487,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-06-30,AAPL,0.0566122259845452,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-06-30,LPX,0.0417484640115016,LOUISIANA PACIFIC CORP,Materials,core_compounder,core_compounder,fast_reentry
+2023-06-30,VRTX,0.0392641769005958,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-06-30,CELH,0.0389213820732714,CELSIUS HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-06-30,TM,0.0307947592483764,Toyota Motor,Auto,core_compounder,core_compounder,fast_reentry
+2023-06-30,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2023-07-31,AMZN,0.1298708110743404,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-07-31,GOOGL,0.1235734842042403,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2023-07-31,MA,0.12,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-07-31,AAPL,0.1027970182233282,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-07-31,AVGO,0.0933181384633599,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-07-31,EXP,0.0778595646441482,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-07-31,BLDR,0.0710198902900033,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-07-31,ON,0.0576138168745914,ON SEMICONDUCTOR CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-07-31,ORLY,0.049489396766154,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-07-31,NOW,0.041704540917343,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-07-31,BKNG,0.04,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-07-31,FANG,0.0322137087256129,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2023-07-31,MELI,0.0316913714844855,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2023-07-31,ODFL,0.0288482583323924,OLD DOMINION FREIGHT LINE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-08-31,GOOGL,0.1404379903034132,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2023-08-31,AMZN,0.1035499751851805,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-08-31,MA,0.0946135540545064,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-08-31,AVGO,0.081847310585807,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-08-31,MELI,0.0662972867793228,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2023-08-31,FANG,0.0644324377305823,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2023-08-31,EXP,0.064386438178357,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-08-31,ADBE,0.0622409304506774,ADOBE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-08-31,BLDR,0.0596463430316596,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-08-31,EXE,0.056426523847084,EXPAND ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-08-31,LRCX,0.0558874130851275,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-08-31,CELH,0.0512572670149915,CELSIUS HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-08-31,OC,0.0497531701522575,OWENS CORNING,Industrials,core_compounder,core_compounder,fast_reentry
+2023-08-31,RS,0.0492233596010326,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-09-29,CASH,0.5,Cash,Cash,cash,cash,fast_reentry
+2023-09-29,CSCO,0.084,CISCO SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-09-29,UNH,0.071271635926771,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-09-29,FANG,0.0663754581278214,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2023-09-29,MA,0.0399034417356792,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-09-29,OC,0.0378926798393692,OWENS CORNING,Industrials,core_compounder,core_compounder,fast_reentry
+2023-09-29,MELI,0.0307017813213468,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2023-09-29,BLDR,0.0277854832235446,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-09-29,EQT,0.0263609774574404,EQT CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-09-29,DINO,0.0262691451290514,HF SINCLAIR CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-09-29,EXE,0.023513742845586,EXPAND ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-09-29,RS,0.0234734339967881,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-09-29,AJG,0.0197487979383719,ARTHUR J GALLAGHER,Financials,core_compounder,core_compounder,fast_reentry
+2023-09-29,WFRD,0.0133011472452263,WEATHERFORD INTERNATIONAL PLC,Energy,core_compounder,core_compounder,fast_reentry
+2023-09-29,LRCX,0.0094022752130031,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,CASH,0.15,Cash,Cash,cash,cash,fast_reentry
+2023-10-31,CSCO,0.1050881876508573,CISCO SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,MSFT,0.0826987777258109,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,COST,0.0666026452719552,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-10-31,DINO,0.0663970334651544,HF SINCLAIR CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-10-31,INTU,0.0595865035091978,INTUIT INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,RS,0.0589576004388924,RELIANCE STEEL & ALUMINUM,Materials,core_compounder,core_compounder,fast_reentry
+2023-10-31,NVDA,0.0554797684232491,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,LRCX,0.048290919618053,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,STLD,0.0466891380242065,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-10-31,FLEX,0.0404065967888086,FLEX LTD,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-10-31,HII,0.0290184192287177,HUNTINGTON INGALLS INDUSTRIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-10-31,CHRD,0.0290184192287177,CHORD ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-10-31,ORLY,0.0290184192287177,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-10-31,WSM,0.0290184192287177,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-10-31,UNH,0.0259470001260003,UNITEDHEALTH GROUP INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-10-31,FANG,0.0240584606053052,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2023-10-31,MA,0.0133506731085124,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-10-31,MELI,0.0105207068641356,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2023-10-31,EQT,0.0095878226331156,EQT CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-10-31,EXE,0.0083582482558789,EXPAND ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2023-10-31,AJG,0.0071241807638135,ARTHUR J GALLAGHER,Financials,core_compounder,core_compounder,fast_reentry
+2023-10-31,WFRD,0.0047820598121813,WEATHERFORD INTERNATIONAL PLC,Energy,core_compounder,core_compounder,fast_reentry
+2023-11-30,MSFT,0.1295596641671078,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,V,0.1098403396619676,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-11-30,COST,0.102993920130366,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-11-30,LRCX,0.0817304065811489,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,PANW,0.060262276197745,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,CNM,0.0582402106973304,CORE & MAIN INC CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2023-11-30,DKS,0.0407198948723183,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-11-30,FICO,0.0404095298032665,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,MCK,0.0392557639229113,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-11-30,COR,0.0380486880481755,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-11-30,CBOE,0.030732631453875,CBOE GLOBAL MARKETS INC,Financials,core_compounder,core_compounder,fast_reentry
+2023-11-30,NOW,0.030732631453875,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,EXPE,0.030732631453875,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-11-30,DECK,0.030732631453875,DECKERS OUTDOOR CORP,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-11-30,CSCO,0.0293177655771447,CISCO SYSTEMS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-11-30,INTU,0.0208029908169236,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,RS,0.019358406159201,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,DINO,0.0190856939509405,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,STLD,0.0157736475399019,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2023-11-30,FLEX,0.0121008535060513,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,WSM,0.0109644159739449,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-11-30,HII,0.0094310624724738,HUNTINGTON INGALLS INDUSTRIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2023-11-30,CHRD,0.0086817709593911,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,UNH,0.0081862473431739,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,FANG,0.0071004094905146,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,MA,0.0044424205718288,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,MELI,0.00417492394885,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2023-11-30,EQT,0.0027973084416926,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-11-30,AJG,0.0023322188334364,ARTHUR J GALLAGHER,Financials,core_compounder,core_compounder,fast_reentry
+2023-11-30,WFRD,0.0014586445166919,,Unknown,core_compounder,core_compounder,fast_reentry
+2023-12-29,V,0.1198946961665046,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-12-29,COST,0.0883197898269839,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2023-12-29,PANW,0.0868135015827758,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-12-29,INTU,0.0836426013155957,INTUIT INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-12-29,DKS,0.0808944299042806,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-12-29,MA,0.0791919949338644,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2023-12-29,MCK,0.0768987400325336,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2023-12-29,COR,0.0707766285937604,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2023-12-29,AVGO,0.0680402956951303,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-12-29,GOOGL,0.0651845356490739,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2023-12-29,EXPE,0.0611506609353705,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2023-12-29,LRCX,0.0601569262962721,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2023-12-29,CTAS,0.0295893470940932,CINTAS CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2023-12-29,BAC,0.0294458519737606,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2024-01-31,COST,0.1568554095383059,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-01-31,MA,0.1494954768657617,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-01-31,GOOGL,0.0923370109919233,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2024-01-31,PANW,0.0753716583971489,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-01-31,MSFT,0.0648433920699992,MICROSOFT CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-01-31,DKS,0.0604723176898547,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-01-31,LRCX,0.0558046337012428,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-01-31,AVGO,0.0545084381831253,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-01-31,SMCI,0.0545084381831253,SUPER MICRO COMPUTER INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-01-31,BAC,0.0526809567650501,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2024-01-31,COR,0.0502590905556818,CENCORA INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-01-31,CTAS,0.0473229604706742,CINTAS CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-01-31,ORLY,0.042770108294053,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-01-31,EXP,0.042770108294053,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2024-02-29,MA,0.1518300981411934,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-02-29,NVDA,0.1411629100558824,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-02-29,COST,0.1048029510771576,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-02-29,AMZN,0.1043059604616825,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-02-29,SMCI,0.0792255994475662,SUPER MICRO COMPUTER INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-02-29,LRCX,0.0652909043258011,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-02-29,DKS,0.0630995487428857,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-02-29,AVGO,0.0600400395685974,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-02-29,BLDR,0.041844364441219,BUILDERS FIRSTSOURCE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-02-29,CELH,0.0408879127989705,CELSIUS HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-02-29,ANET,0.0406325151795714,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-02-29,VRT,0.0377789903203274,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-02-29,MOH,0.0347726354828732,MOLINA HEALTHCARE INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-02-29,VRTX,0.0343255699562715,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-03-28,NVDA,0.1357453814449145,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-03-28,MA,0.1329492180565479,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-03-28,PG,0.0989717130390901,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-03-28,AMZN,0.0987113470010232,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-03-28,SMCI,0.0666606098998611,SUPER MICRO COMPUTER INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-03-28,LRCX,0.0664721266751793,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-03-28,ANET,0.0662290686477163,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-03-28,FANG,0.0521295162783473,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2024-03-28,CNM,0.0497885214225254,CORE & MAIN INC CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-03-28,CHRD,0.0497885214225254,CHORD ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-03-28,DAL,0.0497885214225254,DELTA AIR LINES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-03-28,AVGO,0.0489042947629649,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-03-28,VRT,0.0438706841140686,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-03-28,CRH,0.03999047581271,CRH PUBLIC LIMITED PLC,Materials,core_compounder,core_compounder,fast_reentry
+2024-04-30,NVDA,0.1337862027769982,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-04-30,GOOG,0.1118528347932412,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2024-04-30,AVGO,0.0821146643103356,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-04-30,CASH,0.0799999999999999,Cash,Cash,cash,cash,fast_reentry
+2024-04-30,FANG,0.0755172395652521,DIAMONDBACK ENERGY INC,Energy,core_compounder,core_compounder,fast_reentry
+2024-04-30,CMG,0.0507214786384425,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-04-30,MRK,0.0445853991506391,MERCK & CO INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-04-30,PANW,0.0408960476195001,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-04-30,MA,0.0406815260672734,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-04-30,AMAT,0.0402049518405401,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-04-30,VRT,0.0401321815531664,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-04-30,TT,0.036357620501348,TRANE TECHNOLOGIES PLC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-04-30,PG,0.0314670434468648,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-04-30,AMZN,0.031055109300463,AMAZON.COM INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-04-30,CMS,0.0305910192294699,CMS ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-04-30,UAL,0.0305910192294699,UNITED AIRLINES HOLDINGS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-04-30,WFRD,0.0305910192294699,WEATHERFORD INTERNATIONAL PLC,Energy,core_compounder,core_compounder,fast_reentry
+2024-04-30,P,0.0304429565240143,EVERPURE INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-04-30,DAL,0.013126646236921,DELTA AIR LINES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-04-30,CNM,0.0126532444515799,CORE & MAIN INC CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-04-30,CHRD,0.0126317955350098,CHORD ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-05-31,CMG,0.1313991823127548,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-05-31,GOOG,0.1237427015942268,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2024-05-31,NVDA,0.114172449116592,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,COST,0.0873838269568156,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-05-31,CHRD,0.0778240254409509,CHORD ENERGY CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-05-31,AMAT,0.0762189195155582,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,AVGO,0.0737416029727023,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,TT,0.0522489693134759,TRANE TECHNOLOGIES PLC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-05-31,ANET,0.0518281730121614,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,VRT,0.0516593516916197,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-05-31,DKS,0.0505285412550018,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-05-31,FSLR,0.0383438888011974,FIRST SOLAR INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,APH,0.0367392007767905,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-05-31,P,0.0341691672401522,EVERPURE INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,TMUS,0.14738424363155,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2024-06-28,CMG,0.1270102189348486,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-06-28,AMAT,0.0877833714747898,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,NVDA,0.0770339390505922,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,TT,0.0762459076968272,TRANE TECHNOLOGIES PLC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-06-28,VRT,0.0633365791644153,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-06-28,CW,0.0615623039466567,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-06-28,VRTX,0.0606193518548421,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-06-28,ANET,0.0566968819402584,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,DKS,0.0537650051116337,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-06-28,ETR,0.0537650051116337,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-06-28,AVGO,0.0525096843920804,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,APH,0.0448093197579102,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-06-28,LRCX,0.0374781879319613,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-07-31,CASH,0.5,Cash,Cash,cash,cash,fast_reentry
+2024-07-31,ETR,0.08,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-07-31,TMUS,0.0776521427871989,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2024-07-31,AAPL,0.0757466061558404,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-07-31,AVGO,0.0491226055275127,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-07-31,ANET,0.0348245975404848,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-07-31,CW,0.0300395149052092,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-07-31,NVDA,0.0239418850027258,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-07-31,WSM,0.0227174653962873,WILLIAMS SONOMA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-07-31,DKS,0.02,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-07-31,ALSN,0.02,ALLISON TRANSMISSION HOLDINGS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-07-31,VRT,0.0192723356659166,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-07-31,MCK,0.0177023904827388,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2024-07-31,VRTX,0.0171448813616536,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-07-31,AMAT,0.0118355751744312,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,CASH,0.1500000000000001,Cash,Cash,cash,cash,fast_reentry
+2024-08-30,TMUS,0.1131868467307755,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2024-08-30,MA,0.1021834446962473,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-08-30,WMT,0.0950354505724845,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-08-30,AVGO,0.0762986350266926,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,ANET,0.0644853068748989,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,DKS,0.0610216042994796,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-08-30,CMG,0.0355261626743901,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-08-30,UBER,0.0334240296716182,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-08-30,ISRG,0.030595653002758,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-08-30,BKNG,0.0301869887646804,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-08-30,NRG,0.0301869887646804,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2024-08-30,TPL,0.0301869887646804,TEXAS PACIFIC LAND CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-08-30,CEG,0.0299583300304805,CONSTELLATION ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-08-30,ETR,0.0247015875068682,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-08-30,GDDY,0.0238561130955541,GODADDY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,AAPL,0.0231907079723848,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,CW,0.0107473649318042,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-08-30,NVDA,0.0084510180123309,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-08-30,ALSN,0.0076835239291854,ALLISON TRANSMISSION HOLDINGS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-08-30,VRT,0.0074184890669062,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-08-30,VRTX,0.0066371049374044,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-08-30,AMAT,0.0050376606736943,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-09-30,TMUS,0.2451414972932267,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2024-09-30,BKNG,0.0838454288479473,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-09-30,TPL,0.0713116591330522,TEXAS PACIFIC LAND CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-09-30,ANET,0.0703790354113478,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-09-30,CEG,0.0688674474891168,CONSTELLATION ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-09-30,VRT,0.059872302689411,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-09-30,VST,0.0402683648758018,VISTRA CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-09-30,PANW,0.0369562785737789,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-09-30,SN,0.0348602503712581,SHARKNINJA INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-09-30,TLN,0.0348602503712581,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-09-30,CRS,0.0348602503712581,CARPENTER TECHNOLOGY CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-09-30,DUOL,0.0348602503712581,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-09-30,SPGI,0.0346592892513006,S&P GLOBAL INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-09-30,PEG,0.0343840963083647,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,core_compounder,core_compounder,fast_reentry
+2024-09-30,WMT,0.0217931279451093,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-09-30,AVGO,0.0184140061444835,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-09-30,CMG,0.0094073375777613,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-09-30,UBER,0.0090553196625992,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-09-30,NRG,0.0085351955549982,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2024-09-30,ISRG,0.0082291349336893,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-09-30,ETR,0.0074838681584162,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-09-30,AAPL,0.0067694979324511,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-09-30,GDDY,0.0065893363360819,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-09-30,CW,0.0043590540070922,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-09-30,NVDA,0.0038937710701491,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-09-30,ALSN,0.0037269676892184,ALLISON TRANSMISSION HOLDINGS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-09-30,VRTX,0.0034312156246825,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-09-30,AMAT,0.0031857660048863,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-10-31,WMT,0.1714676654310422,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-10-31,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2024-10-31,TPL,0.0768687486022214,TEXAS PACIFIC LAND CORP,Energy,core_compounder,core_compounder,fast_reentry
+2024-10-31,ANET,0.0736195129756143,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,CEG,0.0702956038509794,CONSTELLATION ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-10-31,DUOL,0.0676312983740778,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-10-31,AXP,0.0623663516390485,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2024-10-31,NVDA,0.0545830846618751,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,UBER,0.0477575088567212,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-10-31,PANW,0.0473162200925028,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,TMUS,0.0442484701449573,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2024-10-31,VRTX,0.0421451531478432,VERTEX PHARMACEUTICALS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-10-31,TW,0.0312003454693683,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-10-31,EXP,0.0261468695417802,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2024-10-31,AMP,0.0240729321577834,AMERIPRISE FINANCE INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-10-31,PFGC,0.0233530281940153,PERFORMANCE FOOD GROUP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-10-31,BKNG,0.0150761677458628,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-10-31,VRT,0.0106210772331204,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2024-10-31,VST,0.0066892196050163,VISTRA CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-10-31,TLN,0.0055372261014301,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-10-31,PEG,0.005356418377008,PUBLIC SERVICE ENTERPRISE GROUP IN,Utilities,core_compounder,core_compounder,fast_reentry
+2024-10-31,SPGI,0.0050106919738654,S&P GLOBAL INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-10-31,AVGO,0.0026048231895181,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,CMG,0.0011244935461414,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-10-31,NRG,0.0010008207572579,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2024-10-31,ISRG,0.0009734563049184,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-10-31,ETR,0.0009710883049782,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-10-31,GDDY,0.0007328927154607,GODADDY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,AAPL,0.0006834548736504,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-10-31,CW,0.0003231961752825,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2024-10-31,ALSN,0.0002221799566572,ALLISON TRANSMISSION HOLDINGS INC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-11-29,WMT,0.081288226912114,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-11-29,V,0.0651980200711497,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,DUOL,0.061086734227089,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-11-29,ORCL,0.060498425814157,ORACLE CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,TW,0.0579460879446203,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,EXP,0.0493943455631174,EAGLE MATERIALS INC,Materials,core_compounder,core_compounder,fast_reentry
+2024-11-29,PLTR,0.0488107475639911,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,TLN,0.0468247386401977,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-11-29,PG,0.0452409609898301,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-11-29,CASH,0.0299999999999999,Cash,Cash,cash,cash,fast_reentry
+2024-11-29,FICO,0.0291873448503151,FAIR ISAAC CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,TPL,0.0274172611527217,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,WDAY,0.0270792299639912,WORKDAY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,SCHW,0.0259349059406987,CHARLES SCHWAB CORP,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,GS,0.0257428933524398,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,TT,0.0252069689993472,TRANE TECHNOLOGIES PLC,Industrials,core_compounder,core_compounder,fast_reentry
+2024-11-29,ANET,0.0220709773730062,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,AXP,0.020776092613121,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,CEG,0.020542631235117,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,NVDA,0.0182102477136571,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,PANW,0.0173176445658296,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,TMUS,0.0169008731773211,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,UBER,0.0163986325274886,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,VRTX,0.0155416934212539,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,AMP,0.0128337334071328,AMERIPRISE FINANCE INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-11-29,PFGC,0.012476035600969,PERFORMANCE FOOD GROUP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-11-29,BKNG,0.0109165099475139,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,VRT,0.0101129663632828,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,VST,0.0094121196026105,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,PEG,0.0088590832988464,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,SPGI,0.0088141773732781,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,AVGO,0.0082743852660204,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,CMG,0.0080351251791552,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,NRG,0.0080176530776228,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2024-11-29,ISRG,0.0080038089016274,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,ETR,0.0079911311871109,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,GDDY,0.0079676638111948,GODADDY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,AAPL,0.0079437801238047,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-11-29,CW,0.0078726377311396,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-11-29,ALSN,0.0078535045161145,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-12-31,PLTR,0.1352333574652631,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,V,0.106091476776748,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,CASH,0.08,Cash,Cash,cash,cash,fast_reentry
+2024-12-31,TW,0.0773383307244439,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,MA,0.0691654645844906,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,AVGO,0.0669438302163104,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,GOOGL,0.0535558490946995,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2024-12-31,DKS,0.0503231089362248,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-12-31,APO,0.0453633646647071,APOLLO GLOBAL MANAGEMENT INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,MCK,0.042966026097489,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2024-12-31,C,0.0401347617821298,CITIGROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,GS,0.0390355246762853,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,DBX,0.0313995910060839,DROPBOX INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,ACN,0.0313995910060839,ACCENTURE PLC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,ACI,0.0313995910060839,ALBERTSONS COMPANY INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-12-31,WMT,0.0257821940223633,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-12-31,DUOL,0.0181286963659691,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-12-31,TLN,0.0134384337421082,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2024-12-31,PG,0.0126863365546362,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-12-31,WDAY,0.0073616185744738,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-12-31,ANET,0.0056517738970289,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,AXP,0.0045884259790413,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,NVDA,0.003680434208022,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,PANW,0.0032474722151602,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,AMP,0.0016895710681535,AMERIPRISE FINANCE INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,PFGC,0.0016247803587462,PERFORMANCE FOOD GROUP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2024-12-31,BKNG,0.0010779159937389,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-12-31,SPGI,0.0003477020235833,S&P GLOBAL INC,Financials,core_compounder,core_compounder,fast_reentry
+2024-12-31,CMG,8.102369512455178e-05,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2024-12-31,ISRG,6.748873705097829e-05,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2024-12-31,ETR,6.460316960860729e-05,,Unknown,core_compounder,core_compounder,fast_reentry
+2024-12-31,GDDY,5.804823354168802e-05,GODADDY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,AAPL,5.147200806425343e-05,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2024-12-31,CW,2.214111654057474e-05,CURTISS WRIGHT CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2025-01-31,TMUS,0.1513238230691231,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-01-31,PLTR,0.1107647957690013,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-01-31,ISRG,0.1023012981752521,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-01-31,DKS,0.0679255891579826,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-01-31,DUOL,0.0628969741625924,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-01-31,TLN,0.0536308588396913,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-01-31,ACN,0.0520993539887247,ACCENTURE PLC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-01-31,MCK,0.0413481179904017,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-01-31,NOW,0.0411662189200302,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-01-31,IBKR,0.0319287800027931,INTERACTIVE BROKERS GROUP INC CLAS,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,GS,0.0284113613835871,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,V,0.0243671258714694,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,DASH,0.023893669428696,DOORDASH INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-01-31,TPR,0.0219782884095405,TAPESTRY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-01-31,SYK,0.0199852272597055,STRYKER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-01-31,TW,0.017198475929806,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,MA,0.0170223605411198,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,GOOGL,0.0141751590186923,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-01-31,APO,0.0121761849760067,APOLLO GLOBAL MANAGEMENT INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,C,0.0120957206024811,CITIGROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,DBX,0.009942928349047,DROPBOX INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-01-31,ACI,0.0097853356942392,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,WMT,0.0090645986997841,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,PG,0.0063596899258763,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-01-31,WDAY,0.0054267245103092,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,ANET,0.0051115493547206,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,AXP,0.00497206603339,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,PANW,0.0046883615999309,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,PFGC,0.0044200763282904,PERFORMANCE FOOD GROUP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-01-31,AMP,0.0044185552970737,AMERIPRISE FINANCE INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-01-31,BKNG,0.0042982206373144,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,SPGI,0.0041825476783375,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,CMG,0.0041316809234934,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,ETR,0.0041303927697914,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,GDDY,0.0041290878273928,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-01-31,AAPL,0.0041267639120742,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-01-31,CW,0.004122036962236,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-02-28,CASH,0.2800000000000001,Cash,Cash,cash,cash,fast_reentry
+2025-02-28,MA,0.0410022163321978,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,ISRG,0.0359877173614074,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-02-28,TMUS,0.0333578551869039,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-02-28,BKNG,0.033044822715756,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,DASH,0.0309287907097292,DOORDASH INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,MELI,0.02896789364658,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-02-28,PANW,0.0253338439836115,PALO ALTO NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-02-28,AVGO,0.0244847657402423,BROADCOM INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-02-28,COST,0.0237221748512699,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-02-28,GS,0.0236453470487961,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,ETR,0.0227253520461949,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-02-28,PLTR,0.0222497747283455,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-02-28,ORLY,0.020995488379439,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,FTNT,0.0209335598901141,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-02-28,GILD,0.0202073416542953,GILEAD SCIENCES INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-02-28,DKS,0.0186252963034412,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,TLN,0.0177213638141122,TALEN ENERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-02-28,MCK,0.017208391193398,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-02-28,NOW,0.0168486376539082,SERVICENOW INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-02-28,IBKR,0.0164097211056333,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-02-28,V,0.0160198652470567,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-02-28,TPR,0.0160164278118976,TAPESTRY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,SYK,0.0156475842628657,STRYKER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-02-28,TW,0.0155484077318973,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,C,0.0151440262177232,CITIGROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,ACI,0.0150047654457354,ALBERTSONS COMPANY INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-02-28,WMT,0.0149418753370183,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-02-28,PG,0.0147698237955129,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-02-28,WDAY,0.0147037721697738,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-02-28,AXP,0.0146709467237233,AMERICAN EXPRESS,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,AMP,0.0146373369546614,AMERIPRISE FINANCE INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,PFGC,0.0146363995003033,PERFORMANCE FOOD GROUP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-02-28,SPGI,0.0146218608172839,S&P GLOBAL INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-02-28,CMG,0.0146184112975892,CHIPOTLE MEXICAN GRILL INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-02-28,AAPL,0.0146181423415803,APPLE INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-03-31,CASH,0.2800000000000002,Cash,Cash,cash,cash,fast_reentry
+2025-03-31,MA,0.1094484725006656,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-03-31,ORLY,0.0916372685778864,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-03-31,VZ,0.0712717823450022,VERIZON COMMUNICATIONS INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-03-31,TMUS,0.0617379940754627,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-03-31,TW,0.0554535815683918,TRADEWEB MARKETS INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-03-31,MELI,0.052146278086,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-03-31,BKNG,0.0506129726396662,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-03-31,PG,0.0466285520436322,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-03-31,CME,0.0420145636871479,CME GROUP INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-03-31,ETR,0.0362397525568269,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-03-31,WSO,0.0247682805269839,WATSCO INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-03-31,APP,0.0215080221048525,APPLOVIN CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-03-31,ISRG,0.0190103956477856,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-03-31,RYAN,0.0180530375983927,RYAN SPECIALTY HOLDINGS INC CLASS,Financials,core_compounder,core_compounder,fast_reentry
+2025-03-31,PLTR,0.0036906485013594,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-03-31,GILD,0.0035054700104987,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-03-31,MCK,0.0032144202872709,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-03-31,V,0.0030663445176506,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-03-31,SYK,0.0030262730455197,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-03-31,ACI,0.0029658896790032,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-04-30,ISRG,0.127852417219481,INTUITIVE SURGICAL INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-04-30,BKNG,0.0949849685632803,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-04-30,MELI,0.0861202674182173,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-04-30,CASH,0.0799999999999998,Cash,Cash,cash,cash,fast_reentry
+2025-04-30,PLTR,0.0744421588368042,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-04-30,ORLY,0.0735723733750383,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-04-30,WMT,0.0684905734203406,WALMART INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-04-30,MA,0.0648799186829124,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-04-30,UBER,0.0452602447173498,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-04-30,FTNT,0.0346526203269114,FORTINET INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-04-30,TKO,0.0323847876857705,TKO GROUP HOLDINGS INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-04-30,NRG,0.0323847876857705,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-04-30,DUOL,0.0323847876857705,DUOLINGO INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-04-30,RSG,0.0284664094744305,REPUBLIC SERVICES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-04-30,BJ,0.0218603047866697,BJS WHOLESALE CLUB HOLDINGS INC,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-04-30,VZ,0.0172392384815144,VERIZON COMMUNICATIONS INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-04-30,TMUS,0.0145877848010438,T MOBILE US INC,Communication,core_compounder,core_compounder,fast_reentry
+2025-04-30,TW,0.0134413583428637,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-04-30,PG,0.0118858484803275,PROCTER & GAMBLE,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-04-30,CME,0.0117465350252147,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-04-30,ETR,0.0100126937052011,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-04-30,APP,0.0073356836535407,APPLOVIN CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-04-30,GILD,0.0032703549666077,GILEAD SCIENCES INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-04-30,MCK,0.0032189331870305,MCKESSON CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-04-30,V,0.0031844953477055,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-04-30,SYK,0.0031766547922525,STRYKER CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-04-30,ACI,0.0031637993379498,ALBERTSONS COMPANY INC CLASS A,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-05-30,NVDA,0.1657039946671921,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-05-30,BKNG,0.0870115099622289,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-05-30,MA,0.0870115099622289,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-05-30,NRG,0.0791560651366551,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-05-30,ORLY,0.0740968529121359,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-05-30,PLTR,0.0729742447552024,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-05-30,ETR,0.070214769523672,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-05-30,RSG,0.0660384946131189,REPUBLIC SERVICES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-05-30,MELI,0.0650633751588035,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-05-30,UBER,0.0613937514384487,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-05-30,LI,0.0430944278322646,Li Auto,Auto,core_compounder,core_compounder,fast_reentry
+2025-05-30,DASH,0.0430944278322646,DOORDASH INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-05-30,RBRK,0.0430944278322646,RUBRIK INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-05-30,ZS,0.0420521483735188,ZSCALER INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-06-30,NVDA,0.1211794951497407,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-06-30,PLTR,0.1055383905572635,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-06-30,BKNG,0.0956560455921216,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-06-30,ORLY,0.077405978505477,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-06-30,DASH,0.0764705269392471,DOORDASH INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-06-30,BAC,0.0709721441470352,BANK OF AMERICA CORP,Financials,core_compounder,core_compounder,fast_reentry
+2025-06-30,MELI,0.0692937558600304,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-06-30,UBER,0.0687873521984439,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-06-30,NRG,0.0621357462266288,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-06-30,EQT,0.0526616107065199,EQT CORP,Energy,core_compounder,core_compounder,fast_reentry
+2025-06-30,THC,0.051476706427031,TENET HEALTHCARE CORP,Health Care,core_compounder,core_compounder,fast_reentry
+2025-06-30,AXON,0.0504267026020348,AXON ENTERPRISE INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-06-30,MSTR,0.0492858714251044,STRATEGY INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-06-30,CCJ,0.0487096736633209,Cameco,Energy,core_compounder,core_compounder,fast_reentry
+2025-07-31,PLTR,0.1467991025007298,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-07-31,NVDA,0.129673643346665,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-07-31,BKNG,0.119803647980104,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-07-31,ORLY,0.0994946284400394,OREILLY AUTOMOTIVE INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-07-31,GOOGL,0.0985942319004581,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-07-31,GEV,0.0690141549206394,GE VERNOVA INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-07-31,DASH,0.0659829307961033,DOORDASH INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-07-31,UBER,0.050214425428071,UBER TECHNOLOGIES INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-07-31,NRG,0.0427264933912442,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-07-31,PR,0.0416338863771556,PERMIAN RESOURCES CORP CLASS A,Energy,core_compounder,core_compounder,fast_reentry
+2025-07-31,EBAY,0.0368400404743854,EBAY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-07-31,APH,0.0354311323341759,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-07-31,GTLS,0.0341639469706707,Chart Industries,Industrials,core_compounder,core_compounder,fast_reentry
+2025-07-31,SCHW,0.0296277351395576,CHARLES SCHWAB CORP,Financials,core_compounder,core_compounder,fast_reentry
+2025-08-29,NVDA,0.1443557439616461,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-08-29,GOOGL,0.1156917152309733,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-08-29,PLTR,0.0952487030767903,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-08-29,BKNG,0.0882633283720591,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-08-29,MELI,0.0807317226637444,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-08-29,PDD,0.0807317226637444,PDD Holdings (Pinduoduo / Temu),Internet,core_compounder,core_compounder,fast_reentry
+2025-08-29,GTLS,0.0787680999899111,Chart Industries,Industrials,core_compounder,core_compounder,fast_reentry
+2025-08-29,APH,0.0536091030332373,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-08-29,GS,0.0485520555412954,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-08-29,MA,0.0445169667036593,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-08-29,PPL,0.0445169667036593,PPL CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-08-29,NEU,0.0445169667036593,NEWMARKET CORP,Materials,core_compounder,core_compounder,fast_reentry
+2025-08-29,EXPE,0.0426898245999837,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-08-29,ANET,0.0378070807556364,ARISTA NETWORKS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-09-30,PLTR,0.1559114414155205,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-09-30,GOOGL,0.1067885185760099,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-09-30,NVDA,0.0831102048319989,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-09-30,GTLS,0.0829496626909105,Chart Industries,Industrials,core_compounder,core_compounder,fast_reentry
+2025-09-30,BKNG,0.0703341543365894,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-09-30,GS,0.0678844151507724,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-09-30,MELI,0.0647197234153524,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-09-30,APH,0.0628788132684527,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-09-30,PPL,0.0590576881851557,PPL CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-09-30,PDD,0.0565787164146607,PDD Holdings (Pinduoduo / Temu),Internet,core_compounder,core_compounder,fast_reentry
+2025-09-30,FUTU,0.0485296305799496,Futu Holdings,Financial,core_compounder,core_compounder,fast_reentry
+2025-09-30,LITE,0.0470856770448756,LUMENTUM HOLDINGS INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-09-30,CCJ,0.0470856770448756,Cameco,Energy,core_compounder,core_compounder,fast_reentry
+2025-09-30,DKS,0.0470856770448756,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-10-31,MA,0.0888124402063858,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-10-31,PLTR,0.0861587415468296,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,NVDA,0.0787743716594,NVIDIA CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,GOOG,0.0787648818014305,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2025-10-31,MELI,0.0718540087320911,MercadoLibre,Internet,core_compounder,core_compounder,fast_reentry
+2025-10-31,DKS,0.0590269769643697,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-10-31,MU,0.0483559028790301,MICRON TECHNOLOGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,LRCX,0.0471399090082639,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,RKLB,0.044972196539342,ROCKET LAB CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2025-10-31,FSLR,0.0417200844593707,FIRST SOLAR INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,NRG,0.0417200844593707,NRG ENERGY INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-10-31,WBS,0.0417200844593707,WEBSTER FINANCIAL CORP,Financials,core_compounder,core_compounder,fast_reentry
+2025-10-31,WEC,0.0417200844593707,WEC ENERGY GROUP INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-10-31,GOOGL,0.039560813588542,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-10-31,APH,0.0325285690835024,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-10-31,GS,0.0323088152546966,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-10-31,BKNG,0.0322812376014799,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-10-31,PPL,0.0310648473067775,PPL CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2025-10-31,PDD,0.0309291388244799,PDD Holdings (Pinduoduo / Temu),Internet,core_compounder,core_compounder,fast_reentry
+2025-10-31,CCJ,0.0305868111658954,Cameco,Energy,core_compounder,core_compounder,fast_reentry
+2025-11-28,MA,0.1595093348237966,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-11-28,GOOGL,0.1482003452821761,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-11-28,MU,0.106608624609151,MICRON TECHNOLOGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-11-28,TPR,0.0779478568514235,TAPESTRY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-11-28,EXPE,0.0691350613809703,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-11-28,DKS,0.0598335214091037,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-11-28,LRCX,0.0533904302005622,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-11-28,WDC,0.0403010475805465,WESTERN DIGITAL CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-11-28,AEM,0.0358468707782006,Agnico Eagle Mines,Materials,core_compounder,core_compounder,fast_reentry
+2025-11-28,SEB,0.0358304250410901,SEABOARD CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2025-11-28,MEDP,0.0358304250410901,MEDPACE HOLDINGS INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-11-28,AKAM,0.0358304250410901,AKAMAI TECHNOLOGIES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-11-28,PLNT,0.0358304250410901,PLANET FITNESS INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-11-28,GOOG,0.0302965394680655,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2025-11-28,CASH,0.03,Cash,Cash,cash,cash,fast_reentry
+2025-11-28,WBS,0.010189220807889,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-11-28,WEC,0.0098878457216976,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-11-28,FSLR,0.009864589025142,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-11-28,GS,0.0054614345010266,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-11-28,APH,0.0054310811624048,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-11-28,PPL,0.0047744962334826,,Unknown,core_compounder,core_compounder,fast_reentry
+2025-12-31,GOOG,0.1649402029216171,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2025-12-31,V,0.1408498548646957,VISA INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-12-31,TPR,0.0934282661828305,TAPESTRY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-12-31,MU,0.0794945000224708,MICRON TECHNOLOGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,EXPE,0.0613147612073034,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-12-31,WDC,0.0505850136315992,WESTERN DIGITAL CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,LRCX,0.0490567110965698,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,RVMD,0.0389125532530592,REVOLUTION MEDICINES INC,Health Care,core_compounder,core_compounder,fast_reentry
+2025-12-31,RKLB,0.0389125532530592,ROCKET LAB CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2025-12-31,ATI,0.0389125532530592,ATI INC,Industrials,core_compounder,core_compounder,fast_reentry
+2025-12-31,STLD,0.0389125532530592,STEEL DYNAMICS INC,Materials,core_compounder,core_compounder,fast_reentry
+2025-12-31,FSLR,0.0365157155728027,FIRST SOLAR INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,AEM,0.0343256271660652,Agnico Eagle Mines,Materials,core_compounder,core_compounder,fast_reentry
+2025-12-31,MA,0.0199431556055225,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2025-12-31,GOOGL,0.0189330231457044,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2025-12-31,DKS,0.0139700959973916,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-12-31,PLNT,0.0126889301399388,PLANET FITNESS INC CLASS A,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2025-12-31,AKAM,0.0126714850398517,AKAMAI TECHNOLOGIES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,WBS,0.0113195834440667,WEBSTER FINANCIAL CORP,Financials,core_compounder,core_compounder,fast_reentry
+2025-12-31,WEC,0.0112532022175355,WEC ENERGY GROUP INC,Utilities,core_compounder,core_compounder,fast_reentry
+2025-12-31,GS,0.0110463935035332,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2025-12-31,APH,0.0110260336636479,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2025-12-31,PPL,0.0109872315646152,PPL CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2026-01-30,GOOGL,0.1459967836765998,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2026-01-30,TPR,0.0724244883201306,TAPESTRY INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2026-01-30,EXPE,0.0681907826641679,EXPEDIA GROUP INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2026-01-30,MU,0.0668191861469731,MICRON TECHNOLOGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-01-30,LRCX,0.0620609817160116,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-01-30,CCJ,0.042483138305433,Cameco,Energy,core_compounder,core_compounder,fast_reentry
+2026-01-30,NOC,0.0423128774897762,NORTHROP GRUMMAN CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2026-01-30,AMAT,0.0400345799890147,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-01-30,GOOG,0.0382439117270738,ALPHABET INC CLASS C,Communication,core_compounder,core_compounder,fast_reentry
+2026-01-30,SEB,0.0357296986230275,SEABOARD CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2026-01-30,STE,0.0357296986230275,STERIS,Health Care,core_compounder,core_compounder,fast_reentry
+2026-01-30,PBA,0.0357296986230275,Pembina Pipeline,Energy,core_compounder,core_compounder,fast_reentry
+2026-01-30,CIB,0.0357296986230275,Bancolombia,Financial,core_compounder,core_compounder,fast_reentry
+2026-01-30,SYY,0.0357296986230275,SYSCO CORP,Consumer Staples,core_compounder,core_compounder,fast_reentry
+2026-01-30,WDC,0.023944964968622,WESTERN DIGITAL CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-01-30,RVMD,0.021190452776042,,Unknown,core_compounder,core_compounder,fast_reentry
+2026-01-30,RKLB,0.0208898294868378,ROCKET LAB CORP,Industrials,core_compounder,core_compounder,fast_reentry
+2026-01-30,STLD,0.0205943303102133,,Unknown,core_compounder,core_compounder,fast_reentry
+2026-01-30,AEM,0.0201592031317578,Agnico Eagle Mines,Materials,core_compounder,core_compounder,fast_reentry
+2026-01-30,MA,0.0178860101343882,MASTERCARD INC CLASS A,Financials,core_compounder,core_compounder,fast_reentry
+2026-01-30,DKS,0.0171666555214735,DICKS SPORTING INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2026-01-30,AKAM,0.017014382033155,AKAMAI TECHNOLOGIES INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-01-30,WBS,0.0168140133999376,WEBSTER FINANCIAL CORP,Financials,core_compounder,core_compounder,fast_reentry
+2026-01-30,WEC,0.0168053889050064,,Unknown,core_compounder,core_compounder,fast_reentry
+2026-01-30,GS,0.0167769949105658,GOLDMAN SACHS GROUP INC,Financials,core_compounder,core_compounder,fast_reentry
+2026-01-30,APH,0.0167740679075735,,Unknown,core_compounder,core_compounder,fast_reentry
+2026-01-30,PPL,0.0167684833641077,,Unknown,core_compounder,core_compounder,fast_reentry
+2026-02-27,CASH,0.28,Cash,Cash,cash,cash,fast_reentry
+2026-02-27,AMAT,0.0602340445852372,APPLIED MATERIAL INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-02-27,MU,0.0579590161121214,MICRON TECHNOLOGY INC,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-02-27,LRCX,0.0576543274226974,LAM RESEARCH CORP,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-02-27,GOOGL,0.057232618069263,ALPHABET INC CLASS A,Communication,core_compounder,core_compounder,fast_reentry
+2026-02-27,SCCO,0.0535818294994185,SOUTHERN COPPER CORP,Materials,core_compounder,core_compounder,fast_reentry
+2026-02-27,VZ,0.0527496319109738,VERIZON COMMUNICATIONS INC,Communication,core_compounder,core_compounder,fast_reentry
+2026-02-27,APH,0.0515679941758651,AMPHENOL CORP CLASS A,Information Technology,core_compounder,core_compounder,fast_reentry
+2026-02-27,RGLD,0.051184715318318,ROYAL GOLD INC,Materials,core_compounder,core_compounder,fast_reentry
+2026-02-27,FTI,0.0504496267424362,TECHNIPFMC PLC,Energy,core_compounder,core_compounder,fast_reentry
+2026-02-27,VRT,0.0503465233372207,VERTIV HOLDINGS CLASS A,Industrials,core_compounder,core_compounder,fast_reentry
+2026-02-27,PR,0.044259918206612,PERMIAN RESOURCES CORP CLASS A,Energy,core_compounder,core_compounder,fast_reentry
+2026-02-27,ETR,0.044259918206612,ENTERGY CORP,Utilities,core_compounder,core_compounder,fast_reentry
+2026-02-27,BKNG,0.044259918206612,BOOKING HOLDINGS INC,Consumer Discretionary,core_compounder,core_compounder,fast_reentry
+2026-02-27,ATI,0.044259918206612,ATI INC,Industrials,core_compounder,core_compounder,fast_reentry

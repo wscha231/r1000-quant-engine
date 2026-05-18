@@ -33,7 +33,7 @@ jobs:
           echo "[gdrive-smoke] auth=$AUTH"
 
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
 

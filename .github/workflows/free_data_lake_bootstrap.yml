@@ -12,7 +12,7 @@ on:
       sec_companyfacts:
         description: 'Download/refresh SEC companyfacts.zip into data_raw/free/sec (large, 1GB+)'
         type: boolean
-        default: false
+        default: true
       price_mode:
         description: 'none | dry_run | target_books'
         type: choice
@@ -29,6 +29,50 @@ on:
         description: 'Run broker-ledger proxy replay after price bootstrap when target books are available'
         type: boolean
         default: true
+      sec_form4_backfill:
+        description: 'Run SEC Form 4 PIT evidence backfill into data_raw/sec and data_pit/sec'
+        type: boolean
+        default: false
+      sec_form4_merge_shards:
+        description: 'Merge data_pit/sec/shards/* Form 4 outputs into canonical PIT files'
+        type: boolean
+        default: false
+      form4_tickers:
+        description: 'Comma-separated Form 4 ticker list when all_sec_tickers=false'
+        type: string
+        default: 'SNDK,MU,AMD,ARM,ASML,INTC,WDC,STX,LITE,CIEN,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
+      form4_all_sec_tickers:
+        description: 'Poll the full SEC ticker map, normally with shard_count > 1'
+        type: boolean
+        default: false
+      form4_lookback_years:
+        description: 'SEC Form 4 filing lookback years'
+        type: string
+        default: '8'
+      form4_max_tickers:
+        description: 'Maximum tickers for this shard. Use 0 with all_sec_tickers=true for full shard'
+        type: string
+        default: '80'
+      form4_max_filings_per_ticker:
+        description: 'Maximum filings per ticker after date filtering. Use 0 for full 8y backfill'
+        type: string
+        default: '0'
+      form4_include_archive_files:
+        description: 'Fetch older SEC submissions file shards'
+        type: boolean
+        default: true
+      form4_shard_index:
+        description: 'Zero-based SEC Form 4 shard index'
+        type: string
+        default: '0'
+      form4_shard_count:
+        description: 'Total SEC Form 4 shard count'
+        type: string
+        default: '1'
+      form4_required:
+        description: 'Fail the workflow if Form 4 backfill fails'
+        type: boolean
+        default: false
       sync_to_gdrive:
         description: 'Restore/sync free data lake paths with Google Drive when auth is configured'
         type: boolean
@@ -87,7 +131,7 @@ jobs:
             exit 0
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
           mkdir -p ~/.config/rclone
@@ -134,8 +178,16 @@ jobs:
           }
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
+          restore_dir data_raw/sec data_raw/sec
+          restore_dir data_pit/sec data_pit/sec
           restore_dir manifests/free_data manifests/free_data
+          restore_dir manifests/sec_edgar manifests/sec_edgar
           restore_dir cache_prices cache_prices
+          mkdir -p data_raw/free/sec
+          if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive] restoring existing root companyfacts.zip -> data_raw/free/sec/companyfacts.zip"
+            rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+          fi
 
       - name: Bootstrap free data lake
         env:
@@ -173,6 +225,125 @@ jobs:
           set -euo pipefail
           python tools/run_free_data_engine_validation.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
 
+      - name: Audit 10-year backtest readiness
+        if: always()
+        run: |
+          set -euo pipefail
+          python tools/check_10y_backtest_readiness.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+
+      - name: Backfill SEC Form 4 evidence shard
+        if: ${{ inputs.sec_form4_backfill }}
+        env:
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs manifests/sec_edgar data_raw/sec data_pit/sec
+          REQUIRED="${{ inputs.form4_required }}"
+          START_DATE="$(python - <<'PY'
+          from datetime import date
+          years = int("${{ inputs.form4_lookback_years }}")
+          today = date.today()
+          try:
+              start = today.replace(year=today.year - years)
+          except ValueError:
+              start = today.replace(year=today.year - years, day=28)
+          print(start.isoformat())
+          PY
+          )"
+          SHARD_INDEX="${{ inputs.form4_shard_index }}"
+          SHARD_COUNT="${{ inputs.form4_shard_count }}"
+          RAW_ROOT="data_raw/sec"
+          PIT_ROOT="data_pit/sec"
+          if [ "$SHARD_COUNT" != "1" ]; then
+            RAW_ROOT="data_raw/sec/shards/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
+            PIT_ROOT="data_pit/sec/shards/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
+          fi
+          ARCHIVE_FLAG=""
+          if [ "${{ inputs.form4_include_archive_files }}" = "true" ]; then
+            ARCHIVE_FLAG="--include-archive-files"
+          fi
+          ALL_FLAG=""
+          TICKERS_ARG=(--tickers "${{ inputs.form4_tickers }}")
+          if [ "${{ inputs.form4_all_sec_tickers }}" = "true" ]; then
+            ALL_FLAG="--all-sec-tickers"
+            TICKERS_ARG=(--tickers "")
+          fi
+          echo "[sec-form4] shard=${SHARD_INDEX}/${SHARD_COUNT} start_date=$START_DATE raw_root=$RAW_ROOT pit_root=$PIT_ROOT"
+          set +e
+          python tools/run_sec_submissions_collector.py \
+            "${TICKERS_ARG[@]}" \
+            --max-tickers "${{ inputs.form4_max_tickers }}" \
+            --max-filings-per-ticker "${{ inputs.form4_max_filings_per_ticker }}" \
+            --forms 4,4/A \
+            --raw-root "$RAW_ROOT" \
+            --pit-root "$PIT_ROOT" \
+            --sec-user-agent "$SEC_USER_AGENT" \
+            --start-date "$START_DATE" \
+            --append-existing \
+            --shard-index "$SHARD_INDEX" \
+            --shard-count "$SHARD_COUNT" \
+            $ARCHIVE_FLAG \
+            $ALL_FLAG \
+            2>&1 | tee outputs/full_rebuild_logs/sec_submissions_collector.log
+          COLLECT_RC=${PIPESTATUS[0]}
+          python tools/run_sec_form4_parser.py \
+            --filings-index "$PIT_ROOT/sec_filings_index.parquet" \
+            --raw-root "$RAW_ROOT" \
+            --output "$PIT_ROOT/form4_transactions.parquet" \
+            --sec-user-agent "$SEC_USER_AGENT" \
+            --append-existing \
+            --skip-existing-accessions \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          PARSE_RC=${PIPESTATUS[0]}
+          python tools/run_sec_ownership_signals.py \
+            --transactions "$PIT_ROOT/form4_transactions.parquet" \
+            --pit-output "$PIT_ROOT/sec_ownership_signals.parquet" \
+            --output-dir "outputs/sec_ownership_signals/shard_${SHARD_INDEX}_of_${SHARD_COUNT}" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_ownership_signals.log
+          SIGNAL_RC=${PIPESTATUS[0]}
+          set -e
+          python - <<PY
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          payload = {
+              "schema_version": "sec-form4-shard-backfill-v1",
+              "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+              "run_id": "${GITHUB_RUN_ID}",
+              "head_sha": "${GITHUB_SHA}",
+              "shard_index": int("${SHARD_INDEX}"),
+              "shard_count": int("${SHARD_COUNT}"),
+              "raw_root": "${RAW_ROOT}",
+              "pit_root": "${PIT_ROOT}",
+              "start_date": "${START_DATE}",
+              "collect_rc": int("${COLLECT_RC}"),
+              "parse_rc": int("${PARSE_RC}"),
+              "signal_rc": int("${SIGNAL_RC}"),
+          }
+          Path("manifests/sec_edgar").mkdir(parents=True, exist_ok=True)
+          Path("manifests/sec_edgar/latest_form4_shard_manifest.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+          if [ "$REQUIRED" = "true" ] && { [ "$COLLECT_RC" -ne 0 ] || [ "$PARSE_RC" -ne 0 ] || [ "$SIGNAL_RC" -ne 0 ]; }; then
+            echo "[sec-form4] required backfill failed collect=$COLLECT_RC parse=$PARSE_RC signal=$SIGNAL_RC"
+            exit 1
+          fi
+
+      - name: Merge SEC Form 4 shards
+        if: ${{ inputs.sec_form4_merge_shards }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_ownership_signals data_pit/sec
+          ASOF_ARGS=()
+          if [ -s "${{ inputs.latest_run }}/reports/candidate_replay_book.csv" ]; then
+            ASOF_ARGS=(--as-of-dates-csv "${{ inputs.latest_run }}/reports/candidate_replay_book.csv" --as-of-date-column rebalance_date)
+          fi
+          python tools/run_sec_form4_merge_shards.py \
+            --pit-root data_pit/sec \
+            --output-dir outputs/sec_ownership_signals \
+            "${ASOF_ARGS[@]}" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_merge_shards.log
+
       - name: Upload bootstrap artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -183,11 +354,20 @@ jobs:
             outputs/free_data_lake_bootstrap/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
+            outputs/ten_year_backtest_readiness/
             outputs/full_rebuild_logs/free_data_proxy_replay_*.log
             outputs/full_rebuild_logs/free_data_engine_validation.log
+            outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+            outputs/full_rebuild_logs/sec_*.log
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
+            manifests/sec_edgar/
             data_raw/free/prices/replay_price_cache_manifest.json
+            data_pit/sec/sec_filings_index.parquet
+            data_pit/sec/form4_transactions.parquet
+            data_pit/sec/sec_ownership_signals.parquet
+            data_pit/sec/sec_form4_merge_manifest.json
+            outputs/sec_ownership_signals/
           retention-days: 90
 
       - name: Sync free data lake to Google Drive
@@ -220,8 +400,13 @@ jobs:
           }
           sync_dir data_raw/free data_raw/free
           sync_dir data_pit/free data_pit/free
+          sync_dir data_raw/sec data_raw/sec
+          sync_dir data_pit/sec data_pit/sec
           sync_dir manifests/free_data manifests/free_data
+          sync_dir manifests/sec_edgar manifests/sec_edgar
           sync_dir cache_prices cache_prices
+          sync_dir outputs/sec_ownership_signals research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/sec_ownership_signals
           sync_dir outputs/free_data_lake_bootstrap research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap
           sync_dir outputs/free_data_proxy_backtest research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest
           sync_dir outputs/free_data_engine_validation research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation
+          sync_dir outputs/ten_year_backtest_readiness research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness

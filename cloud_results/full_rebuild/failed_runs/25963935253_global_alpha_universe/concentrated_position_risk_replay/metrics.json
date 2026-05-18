@@ -1,0 +1,9 @@
+{
+  "data_mode": "concentrated_monthly_position_proxy",
+  "experiment_id": "concentrated_position_risk_replay",
+  "holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
+  "monthly_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_monthly.csv",
+  "production_activation_allowed": false,
+  "research_only": true,
+  "status": "blocked_missing_inputs"
+}

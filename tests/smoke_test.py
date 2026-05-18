@@ -1457,26 +1457,35 @@ def test_paper_executor_workflow() -> None:
 
 @_test("regression.after_close_daily_schedule")
 def test_paper_executor_weekday() -> None:
-    """after_close_daily.yml must have weekday after-close schedule plus a
-    Saturday review pass. Live execution remains manual only.
+    """after_close_daily.yml is now manual-only.
+
+    The single scheduled daily owner is free_data_daily_update.yml, which runs
+    data refresh, account-report refresh, merged signal diagnostics, and merged
+    AutoLearning diagnostics after the NYSE close.
     """
     wf = (ROOT / ".github" / "workflows" / "after_close_daily.yml").read_text(encoding="utf-8")
-    assert "45 22 * * 1-5" in wf, "weekday after-close schedule missing"
-    assert "0 6 * * 6" in wf, (
-        "Saturday 06:00 UTC schedule must remain"
-    )
+    assert "workflow_dispatch" in wf, "manual after-close trigger missing"
+    assert "schedule:" not in wf, "after_close_daily.yml must remain manual-only"
+    daily = (ROOT / ".github" / "workflows" / "free_data_daily_update.yml").read_text(encoding="utf-8")
+    for token in (
+        "30 23 * * 1-5",
+        "Run merged after-close signal diagnostics",
+        "Run merged daily AutoLearning diagnostics",
+        "tools/run_after_close_account_refresh.py",
+    ):
+        assert token in daily, f"free_data_daily_update.yml missing daily owner token: {token}"
     assert "execute=true" in wf, "manual live execution guard not documented"
 
 
 @_test("regression.tactical_after_close_workflow")
 def test_tactical_after_close_workflow() -> None:
-    """Daily tactical alpha review must remain in the after-close workflow and
+    """Manual tactical alpha review must remain in the after-close workflow and
     call the separate tactical engine, not the core monthly rebuild.
     """
     wf_path = ROOT / ".github" / "workflows" / "after_close_daily.yml"
     assert wf_path.exists(), "after_close_daily.yml workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
-    assert "45 22 * * 1-5" in wf, "after-close weekday schedule missing"
+    assert "workflow_dispatch" in wf, "after-close manual trigger missing"
     assert "r1000_tactical_alpha.py" in wf, "tactical workflow does not invoke tactical engine"
     assert "--mirror-cloud-results" in wf, "tactical results are not mirrored to cloud_results"
     req = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
@@ -1551,6 +1560,7 @@ def test_workflow_topology_consolidated() -> None:
         "unified_monthly.yml",
         "layer4_monthly_swap.yml",
         "gdrive_smoke_test.yml",
+        "pr_validation.yml",
     }
     missing = sorted(name for name in expected if not (wf_dir / name).exists())
     assert not missing, f"missing consolidated workflows: {missing}"
@@ -1577,8 +1587,8 @@ def test_workflow_topology_consolidated() -> None:
     strategy = ROOT / "AUTOMATION_STRATEGY.md"
     assert strategy.exists(), "AUTOMATION_STRATEGY.md missing"
     text = strategy.read_text(encoding="utf-8")
-    for token in ("Cadence Matrix", "after_close_daily.yml", "full_rebuild_manual.yml",
-                  "update `tests/smoke_test.py`"):
+    for token in ("Cadence Matrix", "free_data_daily_update.yml", "after_close_daily.yml",
+                  "full_rebuild_manual.yml", "automation impact", "update `tests/smoke_test.py`"):
         assert token in text, f"AUTOMATION_STRATEGY.md missing: {token}"
 
 
@@ -2703,6 +2713,397 @@ def test_production_exact_banned_full_coverage() -> None:
         f"exact_banned in r1000_pipeline.py missing {missing} — "
         f"defensive gap from audit 6c0a496 still open. "
         f"Forward returns 12m/24m/36m would silently pass leakage check."
+    )
+
+
+@_test("regression.short_rs_trap_columns_wired")
+def test_short_rs_trap_columns_wired() -> None:
+    """SHORT_RS_TRAP_COLUMNS must be exported + spliced into build_feature_store.
+
+    Adds protection for the 2026-05-13 PLTR/IONQ-class fix: short-term RS
+    breakdown + chase-extension penalty. The 4 columns must all reach the
+    feature_store_latest.parquet keep_cols + hard_sanitize whitelist, AND
+    the constant must be exported from r1000_features.py.
+    """
+    features_src = _features_src() if "_features_src" in globals() else _combined_src()
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    combined = _combined_src()
+
+    expected = [
+        "rs_short_score",
+        "rs_long_score",
+        "rs_short_breakdown_penalty",
+        "short_extension_risk_penalty",
+    ]
+
+    # Constant must exist
+    assert "SHORT_RS_TRAP_COLUMNS" in combined, (
+        "SHORT_RS_TRAP_COLUMNS constant not found in r1000_features.py"
+    )
+    # All 4 columns must be in the constant list
+    m = re.search(r"SHORT_RS_TRAP_COLUMNS\s*=\s*\[(.*?)\]", combined, re.DOTALL)
+    assert m, "SHORT_RS_TRAP_COLUMNS list literal not found"
+    body = m.group(1)
+    missing = [c for c in expected if f'"{c}"' not in body]
+    assert not missing, (
+        f"SHORT_RS_TRAP_COLUMNS missing expected names: {missing}"
+    )
+    # Must be wired into build_feature_store
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SHORT_RS_TRAP_COLUMNS" in fs_m.group(0), (
+        "SHORT_RS_TRAP_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.short_rs_trap_compute_fns_invoked")
+def test_short_rs_trap_compute_fns_invoked() -> None:
+    """compute_rs_short_long_scores + compute_short_extension_risk_penalty
+    must be invoked in build_feature_store body.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "build_feature_store not found"
+    body = m.group(0)
+    assert "compute_rs_short_long_scores" in body, (
+        "compute_rs_short_long_scores() not invoked in build_feature_store"
+    )
+    assert "compute_short_extension_risk_penalty" in body, (
+        "compute_short_extension_risk_penalty() not invoked in build_feature_store"
+    )
+
+
+@_test("regression.strategic_turnaround_pass_wired")
+def test_strategic_turnaround_pass_wired() -> None:
+    """add_core_fundamental_minimum_flags must include strategic_turnaround_pass
+    as a 5th lane in core_fundamental_minimum_pass.
+
+    Without this, INTC-class megacap turnaround candidates (negative NI but
+    profitability_turn_positive / ni_loss_narrowing trending up) get cut at
+    the gate and never reach scoring.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_core_fundamental_minimum_flags\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_core_fundamental_minimum_flags not found"
+    body = m.group(0)
+    assert "strategic_turnaround_pass" in body, (
+        "strategic_turnaround_pass not defined in add_core_fundamental_minimum_flags"
+    )
+    # Must be unioned into the final core_fundamental_minimum_pass
+    final_line_m = re.search(
+        r'd\["core_fundamental_minimum_pass"\]\s*=\s*\(?\s*([^)\n]+)',
+        body,
+    )
+    assert final_line_m, "core_fundamental_minimum_pass assignment not found"
+    assert "strategic_turnaround_pass" in final_line_m.group(1), (
+        "core_fundamental_minimum_pass does not union strategic_turnaround_pass — "
+        "INTC-class turnaround bypass disabled"
+    )
+
+
+@_test("structural.short_rs_trap_weight_cfg_fields")
+def test_short_rs_trap_weight_cfg_fields() -> None:
+    """3 new EngineConfig fields must exist: w_rs_short_score,
+    w_rs_short_breakdown_penalty, w_short_extension_penalty.
+    """
+    src = _combined_src()
+    for field in [
+        "w_rs_short_score",
+        "w_rs_short_breakdown_penalty",
+        "w_short_extension_penalty",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+# ======================================================================
+# Behavioral tests for short-RS trap (2026-05-14): exercise the actual
+# compute functions and gate logic on synthetic inputs, not just verify
+# that source strings exist. Regression-protect against typos in clip
+# bounds, exemption conditions, and gate union logic.
+# ======================================================================
+
+
+@_test("behavioral.compute_rs_short_long_scores_pltr_case")
+def test_compute_rs_short_long_scores_pltr_case() -> None:
+    """PLTR-like input (all 6 short RS columns strongly negative, all 6
+    long RS columns mildly positive) must produce:
+      - rs_short_score < -0.5 (cross-sectional z-mean of 6 negative cols)
+      - rs_short_breakdown_penalty > 0.30 (penalty fires)
+      - rs_long_score > 0.0
+    Tests that the breakdown is NOT averaged away with long signals.
+    """
+    import pandas as pd
+    from r1000_features import compute_rs_short_long_scores
+
+    # 5-row frame: row 0 is "PLTR" (all short cols negative, long positive),
+    # rows 1-4 are "neutral peers" so PLTR shows up as cross-sectional outlier.
+    short_cols = [
+        "rs_industry_1m", "rs_industry_3m",
+        "rs_industry_group_1m", "rs_industry_group_3m",
+        "rs_benchmark_1m", "rs_benchmark_3m",
+    ]
+    long_cols = [
+        "rs_industry_6m", "rs_industry_12m",
+        "rs_industry_group_6m", "rs_industry_group_12m",
+        "rs_benchmark_6m", "rs_benchmark_12m",
+    ]
+    data = {"ticker": ["PLTR", "NEUTRAL1", "NEUTRAL2", "NEUTRAL3", "NEUTRAL4"]}
+    for c in short_cols:
+        data[c] = [-0.20, 0.05, -0.02, 0.03, 0.01]  # PLTR very negative, peers near 0
+    for c in long_cols:
+        data[c] = [0.08, 0.02, -0.01, 0.04, 0.00]  # PLTR mildly positive on long
+    df = pd.DataFrame(data)
+
+    out = compute_rs_short_long_scores(df)
+    pltr = out.iloc[0]
+    assert pltr["rs_short_score"] < -0.5, (
+        f"PLTR rs_short_score expected < -0.5, got {pltr['rs_short_score']:.3f}"
+    )
+    assert pltr["rs_short_breakdown_penalty"] > 0.30, (
+        f"PLTR rs_short_breakdown_penalty expected > 0.30, got "
+        f"{pltr['rs_short_breakdown_penalty']:.3f}"
+    )
+    assert pltr["rs_long_score"] > 0.0, (
+        f"PLTR rs_long_score expected > 0, got {pltr['rs_long_score']:.3f}"
+    )
+
+
+@_test("behavioral.compute_short_extension_penalty_pump_fires")
+def test_compute_short_extension_penalty_pump_fires() -> None:
+    """A pump-like name (mom_1m=+30%, no structural-growth tag) must
+    produce a nonzero short_extension_risk_penalty. Tests that mom_part
+    actually triggers at the 20% threshold and reaches a meaningful value.
+    """
+    import pandas as pd
+    from r1000_features import compute_short_extension_risk_penalty
+
+    df = pd.DataFrame({
+        "ticker": ["PUMP"],
+        "mom_1m": [0.30],   # +30% in one month
+        "bb_pb": [0.5],     # neutral Bollinger
+        "mom_24m": [0.10],
+        "mom_36m": [0.05],
+        "industry_group_strength_score": [0.5],
+        "theme_horizon_primary": ["unknown"],  # NOT structural_growth
+    })
+    out = compute_short_extension_risk_penalty(df)
+    penalty = float(out.iloc[0]["short_extension_risk_penalty"])
+    # mom_1m=0.30 -> mom_part = (0.30 - 0.20)/0.20 = 0.50
+    assert 0.40 <= penalty <= 0.60, (
+        f"PUMP short_extension_risk_penalty expected ~0.50 at mom_1m=0.30, got {penalty:.3f}"
+    )
+
+
+@_test("behavioral.compute_short_extension_penalty_structural_exempt")
+def test_compute_short_extension_penalty_structural_exempt() -> None:
+    """An IONQ-like name (mom_1m=+30%, theme_horizon_primary='structural_growth',
+    mom_24m=+0.8, industry_group_strength_score > 0) must be EXEMPTED —
+    short_extension_risk_penalty == 0.0. Tests the structural-growth carve-out.
+    """
+    import pandas as pd
+    from r1000_features import compute_short_extension_risk_penalty
+
+    df = pd.DataFrame({
+        "ticker": ["IONQ"],
+        "mom_1m": [0.30],   # same +30% pump
+        "bb_pb": [0.98],    # also at Bollinger top
+        "mom_24m": [0.80],
+        "mom_36m": [0.40],
+        "industry_group_strength_score": [0.6],
+        "theme_horizon_primary": ["structural_growth"],
+    })
+    out = compute_short_extension_risk_penalty(df)
+    penalty = float(out.iloc[0]["short_extension_risk_penalty"])
+    assert penalty == 0.0, (
+        f"IONQ structural-growth name must be exempted (penalty=0), got {penalty:.3f}"
+    )
+
+
+@_test("behavioral.concentrated_short_rs_trap_exempt_score_columns_present")
+def test_concentrated_short_rs_trap_exempt_score_columns_present() -> None:
+    """The 2026-05-14 A+B bundle introduces two new score columns produced
+    by add_total_score_columns:
+      - score_core_pre_short_rs_trap : score_core BEFORE the additive
+        rs_short_long_separation component.
+      - score_pre_short_rs_trap      : full score WITHOUT additive trap and
+        WITHOUT multiplicative short_extension penalty.
+    Concentrated uses score_pre_short_rs_trap (when concentrated_uses_short_rs_trap=False)
+    so the Iter 1 baseline behavior is preserved for the N=3 high-conviction
+    portfolio while Main still benefits from the trap on `score`.
+
+    This test asserts BOTH columns are produced and that score_pre_short_rs_trap
+    equals score WHEN the trap signals are zero (no PLTR-class breakdown).
+    """
+    import pandas as pd
+    import numpy as np
+    from r1000_pipeline import add_total_score_columns
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    # Construct a minimal DataFrame that exercises add_total_score_columns
+    # with zero trap signal (rs_short_score=0, breakdown_penalty=0,
+    # short_extension_risk_penalty=0). In this case score_pre_short_rs_trap
+    # MUST equal score (trap contributes nothing).
+    n = 3
+    base_cols = {
+        "ticker": [f"T{i}" for i in range(n)],
+        "rebalance_date": pd.to_datetime(["2026-05-12"] * n),
+        # Score components that feed score_core
+        "score_model_core": [1.0, 2.0, 3.0],
+        "score_quality_core": [0.5, 0.4, 0.3],
+        "score_event_core": [0.0, 0.0, 0.0],
+        "score_actual_core": [0.0, 0.0, 0.0],
+        "score_garp_core": [0.0, 0.0, 0.0],
+        "score_anticipatory_growth": [0.0, 0.0, 0.0],
+        "score_archetype_mixture": [0.0, 0.0, 0.0],
+        "score_future_winner_scout": [0.0, 0.0, 0.0],
+        "score_future_winner_model": [0.0, 0.0, 0.0],
+        "score_strategy_blueprint": [0.0, 0.0, 0.0],
+        "score_multidimensional_confirmation": [0.0, 0.0, 0.0],
+        "score_fundamental_reliability_adjustment": [0.0, 0.0, 0.0],
+        "score_missing_fundamental_penalty": [0.0, 0.0, 0.0],
+        "score_flow_satellite": [0.0, 0.0, 0.0],
+        "score_forward_revision_satellite": [0.0, 0.0, 0.0],
+        # Trap signals all zero -> no trap effect
+        "rs_short_score": [0.0, 0.0, 0.0],
+        "rs_short_breakdown_penalty": [0.0, 0.0, 0.0],
+        "short_extension_risk_penalty": [0.0, 0.0, 0.0],
+    }
+    df = pd.DataFrame(base_cols)
+    out = add_total_score_columns(df, cfg, include_satellite=False)
+
+    # Both new columns must exist.
+    assert "score_core_pre_short_rs_trap" in out.columns, (
+        "score_core_pre_short_rs_trap column missing -- A+B bundle wiring failed"
+    )
+    assert "score_pre_short_rs_trap" in out.columns, (
+        "score_pre_short_rs_trap column missing -- A+B bundle wiring failed"
+    )
+    # When trap signals are zero, score_pre_short_rs_trap == score.
+    for i in range(n):
+        delta = abs(out.iloc[i]["score"] - out.iloc[i]["score_pre_short_rs_trap"])
+        assert delta < 1e-9, (
+            f"With zero trap signals row {i} expected score==pre_trap, "
+            f"got score={out.iloc[i]['score']:.6f}, pre_trap={out.iloc[i]['score_pre_short_rs_trap']:.6f}"
+        )
+
+
+@_test("behavioral.concentrated_short_rs_trap_exempt_diverges_when_trap_active")
+def test_concentrated_short_rs_trap_exempt_diverges_when_trap_active() -> None:
+    """When trap signals fire (negative rs_short, positive breakdown_penalty,
+    nonzero short_extension), score and score_pre_short_rs_trap MUST diverge.
+    score_pre_short_rs_trap > score (since trap is purely a penalty).
+    Tests the RELATIVE ordering only — absolute values depend on the function's
+    internal computation of score_model_core / score_quality_core from
+    primitives (score_linear / score_cat / quality_trend_score etc.) which
+    this test deliberately leaves at default 0.
+    """
+    import pandas as pd
+    from r1000_pipeline import add_total_score_columns
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    # Active trap signals on a single row. score_model_core etc. will be 0
+    # because the primitive inputs (score_linear / score_cat / etc.) are not
+    # supplied — that's intentional; we want to isolate the trap delta.
+    df = pd.DataFrame({
+        "ticker": ["PLTR"],
+        "rebalance_date": pd.to_datetime(["2026-05-12"]),
+        "rs_short_score": [-1.4],
+        "rs_short_breakdown_penalty": [0.9],
+        "short_extension_risk_penalty": [0.5],
+    })
+    out = add_total_score_columns(df, cfg, include_satellite=False)
+    score = float(out.iloc[0]["score"])
+    pre = float(out.iloc[0]["score_pre_short_rs_trap"])
+    assert pre > score, (
+        f"With active trap, expected pre_trap ({pre:.4f}) > score ({score:.4f})"
+    )
+    # Expected delta from additive separation:
+    #   rs_short_long_separation = 0.35 * (-1.4) - 0.40 * 0.9 = -0.85
+    # So score_core = pre_core + (-0.85) => score (no satellite) = pre - 0.85
+    # before the multiplicative penalty.
+    # Multiplicative: 1 - 0.15 * 0.5 = 0.925, so score *= 0.925.
+    # Final relationship: score = (pre - 0.85) * 0.925 (when satellite=0).
+    expected_score = (pre - 0.85) * (1.0 - 0.15 * 0.5)
+    assert abs(score - expected_score) < 0.01, (
+        f"score formula mismatch: got {score:.4f}, expected {expected_score:.4f} "
+        f"(pre={pre:.4f})"
+    )
+
+
+@_test("behavioral.strategic_turnaround_pass_intc_case")
+def test_strategic_turnaround_pass_intc_case() -> None:
+    """INTC-like input (mktcap=$95B, universe_source='strategic_global_hardware',
+    ni_loss_narrowing_4q=0.8, full CORE_FUNDAMENTAL_MINIMUM fails) must
+    pass via strategic_turnaround_pass lane.
+
+    Also: a small-cap penny-stock turnaround (mktcap=$500M) with the same
+    universe_source + turnaround evidence must NOT pass (megacap floor).
+    """
+    import pandas as pd
+    from r1000_pipeline import add_core_fundamental_minimum_flags
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    df = pd.DataFrame({
+        "ticker": ["INTC", "PENNY_TURN"],
+        # Fail CORE_FUNDAMENTAL_MINIMUM by setting net income negative
+        "net_income_ttm": [-2.0e9, -50e6],
+        "revenue_ttm": [55e9, 200e6],
+        "operating_cash_flow_ttm": [5.0e9, 10e6],
+        "gross_margin_ttm": [0.35, 0.25],
+        "op_margin_ttm": [-0.05, -0.10],
+        "fcf_ttm": [-1.0e9, -5e6],
+        # Required for sector_adjusted / partial_scout paths to fail too
+        "sector": ["Information Technology", "Information Technology"],
+        # Turnaround evidence
+        "ni_loss_narrowing_4q": [0.8, 0.8],
+        "any_profitability_turn_positive_4q": [0.0, 0.0],
+        "profit_turn_positive_4q": [0.0, 0.0],
+        # Universe source: strategic_global_hardware for both
+        "universe_source": ["strategic_global_hardware", "strategic_global_hardware"],
+        # Market cap: INTC megacap, PENNY_TURN sub-megacap
+        "market_cap_live": [95e9, 500e6],
+        "mktcap": [95e9, 500e6],
+    })
+    # Some fields the function may probe — provide safe defaults.
+    for col in [
+        "rev_yoy_4q_min", "rev_yoy_8q_min", "rev_yoy_avg_4q",
+        "fcf_margin_ttm", "fcf_yoy_4q_min", "fcf_yoy_8q_min",
+        "ni_yoy_4q_min", "ni_yoy_8q_min", "rev_qoq_2q_mean",
+        "ep_ttm", "fcf_yield",
+    ]:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    out = add_core_fundamental_minimum_flags(df, cfg)
+
+    intc_row = out.iloc[0]
+    penny_row = out.iloc[1]
+
+    assert bool(intc_row["strategic_turnaround_fundamental_pass"]), (
+        "INTC megacap turnaround must pass strategic_turnaround_pass"
+    )
+    assert bool(intc_row["core_fundamental_minimum_pass"]), (
+        "INTC megacap turnaround must reach core_fundamental_minimum_pass via the bypass"
+    )
+    assert not bool(penny_row["strategic_turnaround_fundamental_pass"]), (
+        "PENNY_TURN ($500M) must FAIL strategic_turnaround_pass (megacap floor)"
     )
 
 

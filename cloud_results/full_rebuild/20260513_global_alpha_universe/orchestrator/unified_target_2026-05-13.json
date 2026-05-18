@@ -1,0 +1,90 @@
+{
+  "unified_weights": {
+    "GOOG": 0.11392965948494843,
+    "GEV": 0.08559277697745322,
+    "AMZN": 0.07764423020426506,
+    "PLTR": 0.05402360016803591,
+    "VRT": 0.05402360016803591,
+    "GLW": 0.046207106821702586,
+    "LRCX": 0.04270137654701408,
+    "RKLB": 0.038477242667962964,
+    "FTI": 0.03340040696058192,
+    "AKAM": 0.026000000000000006,
+    "MLI": 0.026000000000000006,
+    "NXPI": 0.026000000000000006,
+    "ON": 0.026000000000000006,
+    "WDC": 0.023227180760057125,
+    "MU": 0.019098073419564206
+  },
+  "cash_target": 0.30767474582037857,
+  "by_mandate_capacity": {
+    "main": 0.65,
+    "concentrated": 0.1,
+    "tactical": 0.0
+  },
+  "conflicts": [
+    {
+      "ticker": "GLW",
+      "mandates": [
+        "main",
+        "concentrated"
+      ],
+      "weights_per_mandate": {
+        "main": 0.046207106821702586,
+        "concentrated": 0.0268824480782182
+      },
+      "max_weight_used": 0.046207106821702586,
+      "winning_mandate": "main"
+    },
+    {
+      "ticker": "VRT",
+      "mandates": [
+        "main",
+        "concentrated"
+      ],
+      "weights_per_mandate": {
+        "main": 0.05402360016803591,
+        "concentrated": 0.030792297742160486
+      },
+      "max_weight_used": 0.05402360016803591,
+      "winning_mandate": "main"
+    }
+  ],
+  "regime_state": "neutral",
+  "audit": {
+    "input_weights_sum": {
+      "main": 0.9999999999999999,
+      "concentrated": 1.0,
+      "tactical": 0
+    },
+    "scaled_weights_sum": {
+      "main": 0.6500000000000001,
+      "concentrated": 0.10000000000000002,
+      "tactical": 0
+    },
+    "policy_capacity": {
+      "main": 0.65,
+      "concentrated": 0.1,
+      "tactical": 0.0,
+      "expected_total_invested": 0.75,
+      "actual_total_invested_after_merge": 0.6923252541796214,
+      "merged_below_expected_due_to_conflicts": 0.05767474582037857
+    },
+    "merge_mode": "max",
+    "unified_single_name_cap": 1.0,
+    "n_unique_tickers": 15,
+    "n_conflicts": 2,
+    "generated_at": "2026-05-13T14:25:50Z"
+  },
+  "audit_checks": {
+    "weights_nonnegative": true,
+    "weights_at_most_one": true,
+    "cash_in_unit_range": true,
+    "invested_plus_cash_close_to_one": true,
+    "invested_amount": 0.6923252541796214,
+    "cash_amount": 0.30767474582037857,
+    "n_positions": 15,
+    "n_conflicts": 2,
+    "all_passed": true
+  }
+}

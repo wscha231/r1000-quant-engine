@@ -53,10 +53,9 @@ from pathlib import Path
 import pickle
 from typing import Any, Dict, Iterable, Mapping, Optional
 
-try:
-    from catboost import CatBoostClassifier, CatBoostRanker, CatBoostRegressor, Pool
-except Exception:  # catboost not strictly required at import time
-    CatBoostClassifier = CatBoostRanker = CatBoostRegressor = Pool = None  # type: ignore
+# CatBoost is imported lazily by resolve_optional_catboost(). Importing it at
+# module load can hang local CPU-only validation on CUDA-probing builds.
+CatBoostClassifier = CatBoostRanker = CatBoostRegressor = Pool = None  # type: ignore
 try:
     from sklearn.preprocessing import StandardScaler
 except Exception:
@@ -67,10 +66,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 from sklearn.linear_model import LogisticRegression, Ridge
-try:
-    import pandas_market_calendars as mcal
-except Exception:
-    mcal = None
+mcal = None
 
 # Refactor Phase A Stage 1a (2026-04-20): PHASE*_COLUMNS extracted to
 # r1000_config.py (pure-data whitelist constants). Other constants +
@@ -84,6 +80,7 @@ from r1000_config import (
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
+    SHORT_RS_TRAP_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
@@ -281,6 +278,9 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    # Short-RS trap (2026-05-13): split short/long RS + chase-extension penalty
+    compute_rs_short_long_scores,
+    compute_short_extension_risk_penalty,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
     compute_cycle_recovery_score,
@@ -719,16 +719,59 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
     d["early_scout_confirmation_score"] = early_confirmation
     d["adr_global_alpha_confirmation_score"] = adr_confirmation
     d["adr_global_alpha_fallback_pass"] = adr_fallback_pass
+
+    # Strategic turnaround bypass (2026-05-13): allow large-cap turnaround
+    # candidates (INTC, IBM, etc) that fail CORE_FUNDAMENTAL_MINIMUM (because
+    # net_income is negative or unstable) BUT show evidence of profitability
+    # recovery via ni_loss_narrowing_4q / any_profitability_turn_positive_4q.
+    # Gated to strategic_curated overlay tickers only — never opens the entire
+    # universe to negative-NI names.
+    universe_source = d.get("universe_source", pd.Series("", index=d.index)).astype(str)
+    strategic_curated = universe_source.str.contains(
+        "strategic_global_hardware", case=False, na=False, regex=False
+    )
+    ni_loss_narrowing = pd.to_numeric(
+        d.get("ni_loss_narrowing_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    any_profit_turn = pd.to_numeric(
+        d.get("any_profitability_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    profit_turn_4q = pd.to_numeric(
+        d.get("profit_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    mktcap_live = pd.to_numeric(
+        d.get("market_cap_live", d.get("mktcap", pd.Series(0.0, index=d.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    # Megacap floor: only $10B+ qualifies for the bypass (filters out
+    # speculative biotech/penny-stock turnaround stories).
+    megacap_floor = mktcap_live >= 10e9
+    turnaround_evidence = (
+        (ni_loss_narrowing > 0.5)
+        | (any_profit_turn > 0.5)
+        | (profit_turn_4q > 0.5)
+    )
+    strategic_turnaround_pass = (
+        strategic_curated & megacap_floor & turnaround_evidence
+    )
+
     d["sector_adjusted_fundamental_pass"] = sector_adjusted_pass
     d["partial_scout_fundamental_pass"] = partial_scout_pass
-    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass
-    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass
+    d["strategic_turnaround_fundamental_pass"] = strategic_turnaround_pass
+    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
+    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
     d["fundamental_lane_label"] = "insufficient"
     d.loc[adr_fallback_pass, "fundamental_lane_label"] = "adr_global_alpha_fallback"
     d.loc[partial_scout_pass, "fundamental_lane_label"] = "partial_scout"
     d.loc[sector_adjusted_pass, "fundamental_lane_label"] = "sector_adjusted"
+    d.loc[strategic_turnaround_pass, "fundamental_lane_label"] = "strategic_turnaround"
     d.loc[full_pass, "fundamental_lane_label"] = "full_ttm"
-    d["core_fundamental_minimum_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass
+    d["core_fundamental_minimum_pass"] = (
+        full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass | strategic_turnaround_pass
+    )
     return d
 
 
@@ -989,7 +1032,28 @@ def add_total_score_columns(
     )
     d["score_market_fallback_confirmation"] = market_fallback_confirmation
     d["score_fundamental_confidence"] = score_fundamental_confidence
-    d["score_core"] = (
+
+    # Short-RS separation component (2026-05-13): reward positive short-term RS,
+    # penalize negative. Acts independently of long-RS to give 1m/3m weakness
+    # explicit weight rather than averaging it out with 6m/12m signals.
+    rs_short_w = float(getattr(cfg, "w_rs_short_score", 0.35))
+    rs_short_breakdown_w = float(getattr(cfg, "w_rs_short_breakdown_penalty", 0.55))
+    rs_short = numeric_series_or_default(d, "rs_short_score", 0.0)
+    rs_short_breakdown = numeric_series_or_default(d, "rs_short_breakdown_penalty", 0.0)
+    d["score_rs_short_long_separation"] = (
+        rs_short_w * rs_short
+        - rs_short_breakdown_w * rs_short_breakdown
+    ).fillna(0.0)
+
+    # score_core_pre_short_rs_trap (2026-05-14): score_core BEFORE the short-RS
+    # trap additive component is added. Used by the concentrated-portfolio path
+    # when concentrated_uses_short_rs_trap=False, so Concentrated stays at the
+    # Iter 1 baseline behavior while Main continues to benefit from the trap.
+    # First measurement (run 25840490595) showed Main benefits +1.72pp CAGR /
+    # +3.21pp MaxDD from the trap but Concentrated regresses -4.35pp / -3.93pp
+    # because removing PLTR-class names from the high-conviction N=3 portfolio
+    # has outsized impact. Splitting score versions decouples these effects.
+    d["score_core_pre_short_rs_trap"] = (
         d["score_model_core"]
         + d["score_quality_core"]
         + d["score_event_core"]
@@ -1004,12 +1068,35 @@ def add_total_score_columns(
         + d["score_fundamental_reliability_adjustment"]
         - d["score_missing_fundamental_penalty"]
     )
+    d["score_core"] = (
+        d["score_core_pre_short_rs_trap"]
+        + d["score_rs_short_long_separation"]
+    )
     d["score_satellite"] = d["score_flow_satellite"]
     if include_latest_only_satellite:
         d["score_satellite"] = d["score_satellite"] + d["score_forward_revision_satellite"]
     d["score_model"] = d["score_core"]
     d["score_live_overlay"] = d["score_forward_revision_satellite"]
+    # score_pre_short_rs_trap: complete score with NO trap applied (no additive
+    # separation, no multiplicative extension penalty). Mirrors the score
+    # column's pre-trap value. Concentrated reads this when its config flag
+    # indicates exemption.
+    d["score_pre_short_rs_trap"] = (
+        d["score_core_pre_short_rs_trap"]
+        + (d["score_satellite"] if include_satellite else 0.0)
+    )
     d["score"] = d["score_core"] + (d["score_satellite"] if include_satellite else 0.0)
+
+    # Short-extension multiplicative penalty (2026-05-13): apply AFTER score is
+    # summed so a single-month parabolic move docks the entire score by up to
+    # 20% (when not exempted by structural-growth confirmation).
+    short_ext_w = float(getattr(cfg, "w_short_extension_penalty", 0.20))
+    short_ext_penalty = numeric_series_or_default(d, "short_extension_risk_penalty", 0.0).clip(
+        lower=0.0, upper=1.0
+    )
+    d["score"] = d["score"] * (1.0 - short_ext_w * short_ext_penalty).fillna(1.0)
+    # score_pre_short_rs_trap stays untouched by the multiplicative penalty —
+    # it is the "Iter 1 baseline equivalent" score.
     return d
 
 
@@ -2973,6 +3060,66 @@ def load_strategic_global_hardware_universe_frame(cfg: EngineConfig) -> pd.DataF
     return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
 
 
+def load_etf_thematic_overlay_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load thematic ETF top-holdings curated overlay (2026-05-14 D-2).
+
+    Brings in small/mid-cap thematic names that sit outside R1000 / ADR
+    universes — quantum (IONQ/RGTI/QBTS/QUBT/ARQQ), eVTOL (JOBY/ACHR/EH),
+    space economy (ASTS/IRDM/MAXR/PL), genomics speculatives (BEAM/CRSP/EDIT),
+    etc. Sourced from category ETF top-holdings reviews (QTUM/ARKQ/ARKX/ARKG).
+
+    This is a universe overlay ONLY. Names get the standard liquidity,
+    dd_1y, mktcap, ranking, and scoring gates. The leader-rescue PIT mode
+    filter applies (`latest_only` keeps them only for the latest rebalance
+    date so historical OOS months are not biased).
+
+    Returns DataFrame with columns: ticker, Name, sector, industry_group,
+    cik10, universe_source. Empty frame returned if YAML is missing,
+    malformed, or the overlay is disabled via config.
+    """
+    if not bool(getattr(cfg, "etf_thematic_overlay_enabled", True)):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    path_raw = str(getattr(cfg, "etf_thematic_overlay_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "thematic_etf_universe.yaml")
+    if not path.exists():
+        log(f"[INFO] thematic ETF overlay missing: {path}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] thematic ETF overlay requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] thematic ETF overlay load failed: {exc}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    raw = payload.get("thematic_etf_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Information Technology")),
+                "industry_group": str(rec.get("industry_group", rec.get("theme", "Thematic Overlay"))),
+                "cik10": np.nan,
+                "universe_source": "etf_thematic_overlay",
+            }
+        )
+    out = pd.DataFrame(rows, columns=["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"])
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
+
+
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
     explicit = (cfg.sec_actual_local_dir or "").strip()
     return Path(explicit) if explicit else (paths["data_raw"] / "sec_actual")
@@ -3374,6 +3521,7 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
     d = d[d["ticker"].map(is_valid_ticker)].copy()
     d["Name"] = d["Name"].fillna("").astype(str)
     d["sector"] = d["sector"].fillna("Unknown").astype(str)
+    d["cik10"] = normalize_cik_series(d["cik10"], index=d.index)
     d["universe_source"] = d["universe_source"].fillna("unknown").astype(str)
 
     def _first_nonempty(s: pd.Series, default: str = "") -> str:
@@ -3407,6 +3555,82 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
         )
         .copy()
     )
+
+
+_BROAD_BASE_UNIVERSE_SOURCE_TOKENS = (
+    "historical_membership_file",
+    "current_constituents_proxy",
+    "sp500_proxy",
+    "nasdaq100_proxy",
+)
+
+
+def _broad_base_universe_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows sourced from a broad investable base, not only overlay lists."""
+    if df is None:
+        return pd.Series(dtype=bool)
+    if df.empty or "universe_source" not in df.columns:
+        return pd.Series(False, index=df.index, dtype=bool)
+    source = df["universe_source"].fillna("").astype(str)
+    mask = pd.Series(False, index=df.index, dtype=bool)
+    for token in _BROAD_BASE_UNIVERSE_SOURCE_TOKENS:
+        mask |= source.str.contains(token, case=False, regex=False, na=False)
+    return mask
+
+
+def _previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame:
+    """Recover the prior R1000/base universe when a live source flakes out."""
+    columns = ["ticker", "Name", "sector", "cik10", "universe_source"]
+    if prev is None or prev.empty:
+        return pd.DataFrame(columns=columns)
+    d = prev.copy()
+    if "ticker" not in d.columns:
+        return pd.DataFrame(columns=columns)
+    for col, default in (("Name", ""), ("sector", "Unknown"), ("cik10", np.nan), ("universe_source", "")):
+        if col not in d.columns:
+            d[col] = default
+    d["ticker"] = d["ticker"].map(normalize_ticker)
+    d = d[d["ticker"].map(is_valid_ticker)].copy()
+    d = d[_broad_base_universe_mask(d)].copy()
+    if d.empty:
+        return pd.DataFrame(columns=columns)
+    return _combine_candidate_universe_sources(d[columns].copy())
+
+
+def _committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame:
+    """Seed the broad base from committed latest artifacts when live sources fail.
+
+    This is narrower than reusing a full scored snapshot: only rows whose
+    `universe_source` already marks broad base membership are eligible. Overlay
+    rows remain overlays and are re-added by the normal YAML loaders below.
+    """
+    columns = ["ticker", "Name", "sector", "cik10", "universe_source"]
+    base = paths.get("base", Path("."))
+    mode_candidates = [universe_mode, "global_alpha_universe", "r1000+adr"]
+    seen: set[str] = set()
+    for mode in mode_candidates:
+        if not mode or mode in seen:
+            continue
+        seen.add(mode)
+        scored_path = base / "cloud_results" / "full_rebuild" / f"latest_{mode}" / "scored_latest.csv"
+        if not scored_path.exists():
+            continue
+        try:
+            header = pd.read_csv(scored_path, nrows=0)
+            usecols = [c for c in columns if c in header.columns]
+            if "ticker" not in usecols:
+                continue
+            d = pd.read_csv(scored_path, usecols=usecols)
+            fallback = _previous_broad_base_universe(d)
+            if not fallback.empty:
+                log(
+                    "Recovered broad base universe from committed latest scored snapshot after live source failure: "
+                    f"source={scored_path.relative_to(base)}, previous_base={len(fallback)}, mode={universe_mode}"
+                )
+                return fallback
+        except Exception as e:
+            log(f"[WARN] failed to read committed latest broad-base fallback {scored_path}: {e}")
+    return pd.DataFrame(columns=columns)
 
 
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
@@ -3586,6 +3810,43 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                 f"mode={universe_mode}, candidates={len(strategic_hw)}, added={len(hw_add)}"
             )
 
+    # Thematic ETF top-holdings overlay (2026-05-14 D-2): inject small/mid-cap
+    # names from category ETFs that are outside R1000 / ADR / strategic_hw.
+    # Examples: quantum (IONQ/RGTI/QBTS/QUBT), eVTOL (JOBY/ACHR), space
+    # speculative (ASTS/IRDM), genomics speculative (BEAM/CRSP). Same
+    # leader-rescue PIT-mode filtering applies downstream.
+    if not adr_only and bool(getattr(cfg, "etf_thematic_overlay_enabled", True)):
+        etf_overlay = load_etf_thematic_overlay_frame(cfg)
+        if not etf_overlay.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            etf_add = etf_overlay[~etf_overlay["ticker"].astype(str).isin(before)].copy()
+            if not etf_add.empty:
+                uni = pd.concat([uni, etf_add], ignore_index=True, sort=False)
+            log(
+                "Thematic ETF overlay: "
+                f"mode={universe_mode}, candidates={len(etf_overlay)}, added={len(etf_add)}"
+            )
+
+    if not adr_only and not bool(_broad_base_universe_mask(uni).any()):
+        fallback_base = _previous_broad_base_universe(prev)
+        if fallback_base.empty:
+            fallback_base = _committed_latest_broad_base_universe(paths, universe_mode)
+        if not fallback_base.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            base_add = fallback_base[~fallback_base["ticker"].astype(str).isin(before)].copy()
+            if not base_add.empty:
+                uni = pd.concat([base_add, uni], ignore_index=True, sort=False)
+            log(
+                "Recovered broad base universe from previous candidate cache after live source failure: "
+                f"previous_base={len(fallback_base)}, added={len(base_add)}, mode={universe_mode}"
+            )
+        elif universe_mode in {"global_alpha_universe", "r1000+adr", "r1000+cycle", "historical_snapshot_preferred", "r1000"}:
+            raise RuntimeError(
+                "Broad base universe unavailable: live holdings/member sources failed and "
+                "candidate_universe_latest.parquet has no previous R1000/base rows. "
+                "Refusing to continue with overlay-only universe."
+            )
+
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
     uni = _combine_candidate_universe_sources(uni)
@@ -3599,6 +3860,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cik10_x = uni["cik10_x"] if "cik10_x" in uni.columns else pd.Series(np.nan, index=uni.index)
         cik10_y = uni["cik10_y"] if "cik10_y" in uni.columns else pd.Series(np.nan, index=uni.index)
         uni["cik10"] = cik10_x.fillna(cik10_y)
+    uni["cik10"] = normalize_cik_series(uni["cik10"], index=uni.index)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
     if include_adr:
         log("Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.")
@@ -3827,8 +4089,10 @@ def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
     candidates throughout historical backtests.
     """
     source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
-    has_rescue = source.str.contains("leader_rescue_", regex=False) | source.str.contains(
-        "strategic_global_hardware", regex=False
+    has_rescue = (
+        source.str.contains("leader_rescue_", regex=False)
+        | source.str.contains("strategic_global_hardware", regex=False)
+        | source.str.contains("etf_thematic_overlay", regex=False)
     )
     has_base = (
         source.str.contains("historical_membership_file", regex=False)
@@ -5663,7 +5927,13 @@ def ensure_industry_metadata(
 
 
 def get_nyse_days(start_date: str, end_date: str) -> pd.DatetimeIndex:
-    if mcal is not None:
+    global mcal
+    if mcal is None:
+        try:
+            mcal = importlib.import_module("pandas_market_calendars")
+        except Exception:
+            mcal = False
+    if mcal:
         cal = mcal.get_calendar("NYSE")
         sch = cal.schedule(start_date=start_date, end_date=end_date)
         return pd.DatetimeIndex(pd.to_datetime(sch.index).tz_localize(None))
@@ -7180,11 +7450,56 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
 
     leader_diag_pre_filter = monthly.copy()
+    # Strategic megacap dd_1y bypass (2026-05-14): INTC (dd_1y=0.689) and
+    # similar megacap turnaround candidates curated into
+    # strategic_global_hardware_universe.yaml were failing the dd_1y < 0.65
+    # threshold and never reaching scoring (verified via leader_drop_diagnostics
+    # run 25840490595). This bypass allows strategic megacap curated names
+    # (mktcap >= cfg.strategic_dd_bypass_min_mktcap, default $10B) to pass
+    # the dd_1y filter up to cfg.strategic_dd_1y_bypass_max (default 0.85).
+    # The downstream strategic_turnaround_pass in add_core_fundamental_minimum_flags
+    # still requires turnaround_evidence (ni_loss_narrowing / profit_turn etc.),
+    # so candidates without that evidence will fail scoring anyway.
+    #
+    # F10 (2026-05-14): same logic extended to etf_thematic_overlay source.
+    # Verified in run 25851747009: IONQ ($20B, dd_1y=0.676), RGTI ($6B,
+    # dd_1y=0.771), QBTS ($7.9B, dd_1y=0.710), ACHR ($4.9B, dd_1y=0.712)
+    # were all cut at the dd_1y filter despite mktcap > $4B and being the
+    # exact thematic exposure the D-2 overlay was designed to unlock. ETF
+    # overlay uses a lower mktcap floor (default $1B; thematic small-mid
+    # caps) and the same dd_1y upper bound (default 0.85).
+    universe_source_str = monthly.get(
+        "universe_source", pd.Series("", index=monthly.index, dtype=object)
+    ).astype(str)
+    strategic_curated_mask = universe_source_str.str.contains(
+        "strategic_global_hardware", case=False, na=False, regex=False
+    )
+    strategic_megacap_mask = strategic_curated_mask & (
+        pd.to_numeric(monthly.get("mktcap"), errors="coerce").fillna(0.0)
+        >= float(getattr(cfg, "strategic_dd_bypass_min_mktcap", 10e9))
+    )
+    etf_overlay_mask = universe_source_str.str.contains(
+        "etf_thematic_overlay", case=False, na=False, regex=False
+    )
+    etf_overlay_bypass_mask = etf_overlay_mask & (
+        pd.to_numeric(monthly.get("mktcap"), errors="coerce").fillna(0.0)
+        >= float(getattr(cfg, "etf_overlay_dd_bypass_min_mktcap", 1e9))
+    )
+    dd_1y_series = monthly["dd_1y"].fillna(9e9)
+    dd_1y_pass = dd_1y_series <= cfg.max_dd_1y
+    strategic_dd_bypass = strategic_megacap_mask & (
+        dd_1y_series <= float(getattr(cfg, "strategic_dd_1y_bypass_max", 0.85))
+    )
+    etf_overlay_dd_bypass = etf_overlay_bypass_mask & (
+        dd_1y_series <= float(getattr(cfg, "etf_overlay_dd_1y_bypass_max", 0.85))
+    )
+    dd_1y_pass = dd_1y_pass | strategic_dd_bypass | etf_overlay_dd_bypass
+
     base_mask = (
         (monthly["px"].fillna(0) >= cfg.min_price)
         & (monthly["dollar_vol_20d"].fillna(0) >= cfg.min_dollar_vol_20d)
         & (monthly["vol_252d"].fillna(9e9) <= cfg.max_vol_252)
-        & (monthly["dd_1y"].fillna(9e9) <= cfg.max_dd_1y)
+        & dd_1y_pass
     )
     if use_mktcap_filter:
         base_mask &= monthly["mktcap"].notna()
@@ -8001,6 +8316,20 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p14_col in PHASE14_HYBRID_ALPHA_COLUMNS:
             universe[_p14_col] = 0.0
 
+    # Short-RS trap (2026-05-13): split short/long RS components + short-horizon
+    # chase-extension penalty (PLTR/IONQ style protection). Runs after Phase 14
+    # so theme_horizon_primary is populated for the structural-growth exemption.
+    if phase_is_enabled("short_rs_trap", default=True):
+        universe = compute_rs_short_long_scores(universe)
+        universe = compute_short_extension_risk_penalty(universe)
+    else:
+        log(
+            "[short_rs_trap] disabled via env PHASE_SHORT_RS_TRAP_ENABLED=0 "
+            "- zero-filling short-RS trap columns."
+        )
+        for _srs_col in SHORT_RS_TRAP_COLUMNS:
+            universe[_srs_col] = 0.0
+
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst.
     # Runs AFTER Phase 14 because cycle_recovery uses any_profit_sign_flip_pos
     # (Phase 9 C3 flag) and mom_24m / mom_3m / mom_6m (already in universe).
@@ -8128,12 +8457,13 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
+            + SHORT_RS_TRAP_COLUMNS
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
             + PHASE20_THEME_POLICY_COLUMNS
             + PHASE21_STYLE_REGIME_COLUMNS
-            + ["applied_gates_count", "pattern_blocked"]
+            + ["applied_gates_count", "pattern_blocked", "strategic_turnaround_fundamental_pass"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -8164,6 +8494,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
+        + SHORT_RS_TRAP_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
         + [
@@ -8626,6 +8957,7 @@ _ACTIONABLE_LEAKAGE_EXACT_COLUMNS = {
     "risk_adjusted_forward_return",
     "future_return",
     "forward_return",
+    "forward_return_coverage_score",
 }
 
 
@@ -11781,6 +12113,28 @@ def backtest_portfolio(
         metrics["benchmark_ending_capital_usd"] = np.nan
     metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
 
+    # Phase X0 S3-1 (2026-05-12): bootstrap CI on backtest metrics.
+    # Wires r1000_bootstrap_ci.compute_bootstrap_ci_from_returns() so the
+    # single-path CAGR/Sharpe/MaxDD numbers gain explicit 95% confidence
+    # intervals. Block-bootstrap (3mo blocks) on monthly net_return +
+    # bench_return preserves autocorrelation. Non-fatal: if module missing or
+    # too few months, metrics["bootstrap_ci"] = {bootstrap_skipped: True}.
+    try:
+        from r1000_bootstrap_ci import compute_bootstrap_ci_from_returns
+        bench_for_ci = ret_df["bench_return"] if "bench_return" in ret_df.columns else None
+        metrics["bootstrap_ci"] = compute_bootstrap_ci_from_returns(
+            ret_df["net_return"].to_numpy(),
+            bench_rets=(bench_for_ci.to_numpy() if bench_for_ci is not None else None),
+            n_bootstrap=2000,
+            block_size=3,
+            seed=42,
+        )
+    except Exception as _bootstrap_exc:
+        metrics["bootstrap_ci"] = {
+            "bootstrap_skipped": True,
+            "reason": f"exception: {type(_bootstrap_exc).__name__}: {_bootstrap_exc}",
+        }
+
     holdings_df = pd.DataFrame(holdings_rows)
     if not holdings_df.empty:
         stock_names = holdings_df[
@@ -12381,7 +12735,11 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.02,
             early_scout_sleeve_max_weight=0.18,
             early_scout_growth_floor_weight=0.10,
-            early_scout_growth_floor_min_signal=0.34,
+            # Phase X0 S2-1 (2026-05-12): defensive policy growth_floor 0.34 -> 0.25
+            # so even when this defensive policy is chosen the early_scout floor
+            # can still fire, breaking the "defensive wins -> no early_scout"
+            # circular pattern that produced early_scout=3 PARTIAL verdicts.
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.60,
             future_winner_entry_weight_cap=0.07,
             future_winner_drift_weight_cap=0.12,
@@ -12393,7 +12751,12 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.25,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.07,
-            cash_target_mild_risk_cap=0.18,
+            # Phase X0 S2-5 (2026-05-12): defensive cash_target_mild_risk_cap
+            # 0.18 -> 0.10. The 18% was the primary contributor to the observed
+            # 28% cash. 10% retains drawdown protection but allows more capital
+            # to work in non-crisis periods (user critique #9: "8년간 평균 cash
+            # 18%는 명백한 실패").
+            cash_target_mild_risk_cap=0.10,
             min_dynamic_port_names=18,
         ),
         candidate(
@@ -12470,7 +12833,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.06,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.18,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.55,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.28,
@@ -12494,7 +12857,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.04,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.14,
             future_winner_drift_weight_cap=0.28,
@@ -12518,7 +12881,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.08,
             early_scout_sleeve_max_weight=0.48,
             early_scout_growth_floor_weight=0.22,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.30,
@@ -12542,7 +12905,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.05,
             early_scout_sleeve_max_weight=0.55,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.45,
             future_winner_entry_weight_cap=0.16,
             future_winner_drift_weight_cap=0.32,
@@ -12598,7 +12961,8 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.40,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.06,
-            cash_target_mild_risk_cap=0.16,
+            # Phase X0 S2-5: 0.16 -> 0.08
+            cash_target_mild_risk_cap=0.08,
             min_dynamic_port_names=12,
         ),
         candidate(
@@ -13862,9 +14226,21 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
     ).fillna(0.0)
     d["concentrated_preferred_sleeve"] = labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
     d["concentrated_preferred_sleeve_raw"] = raw_labels.isin(set(getattr(cfg, "concentrated_allowed_sleeves", ["future_winner", "early_scout"]))).astype(bool)
+    # Concentrated short-RS trap exemption (2026-05-14): if
+    # concentrated_uses_short_rs_trap=False, Concentrated reads the pre-trap
+    # score so PLTR-class high-conviction picks are not docked out of the
+    # N=3 portfolio. Main continues to use `score` (full trap applied).
+    # First measurement showed Main benefits from the trap while Concentrated
+    # regresses -4.35pp CAGR / -3.93pp MaxDD; splitting decouples the effects.
+    _conc_uses_trap = bool(getattr(cfg, "concentrated_uses_short_rs_trap", False))
+    _conc_score_col = "score" if _conc_uses_trap else "score_pre_short_rs_trap"
+    if _conc_score_col not in d.columns:
+        # Defensive fallback: pre-trap column absent (e.g. legacy run before
+        # 2026-05-14 wiring) -> use `score` so concentrated still produces.
+        _conc_score_col = "score"
     d["concentrated_score"] = row_mean(
         [
-            cross_sectional_robust_z(d, "score"),
+            cross_sectional_robust_z(d, _conc_score_col),
             float(getattr(cfg, "concentrated_score_future_weight", 0.95))
             * numeric_series_or_default(d, "portfolio_future_winner_engine_score", 0.0),
             float(getattr(cfg, "concentrated_score_early_weight", 1.05))
@@ -13899,6 +14275,20 @@ def prepare_concentrated_frame(cfg: EngineConfig, frame: pd.DataFrame) -> pd.Dat
         ],
         d.index,
     ).fillna(0.0) + pd.to_numeric(sleeve_bonus, errors="coerce").fillna(0.0)
+
+    # Sleeve-confidence floor damper (2026-05-14 F6): when
+    # portfolio_sleeve_confidence is below the configured floor, the sleeve
+    # assignment is essentially noise (the top sleeve barely beats the next).
+    # Audit observation: PLTR sleeve_confidence=0.019 was passing into
+    # Concentrated selection. Apply a negative additive penalty so low-
+    # confidence picks get docked out of the N=3 high-conviction portfolio.
+    # Default floor 0.05 + penalty weight 0.50 (additive on the
+    # concentrated_score scale, which is roughly [-2, +3] cross-sectionally).
+    sleeve_conf_floor = float(getattr(cfg, "concentrated_sleeve_confidence_floor", 0.05))
+    sleeve_conf_penalty_weight = float(getattr(cfg, "concentrated_sleeve_confidence_penalty_weight", 0.50))
+    sleeve_conf = numeric_series_or_default(d, "portfolio_sleeve_confidence", 0.5).fillna(0.0)
+    low_conf_mask = (sleeve_conf < sleeve_conf_floor).astype(float)
+    d["concentrated_score"] = d["concentrated_score"] - sleeve_conf_penalty_weight * low_conf_mask
     return d
 
 
@@ -14695,9 +15085,17 @@ def build_latest_concentrated_holdings(
         "target_cagr": float(getattr(cfg_obj, "concentrated_target_cagr", 0.40)),
         "target_max_dd": float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22)),
         "target_pass": bool(goal_pass),
-        "production_valid": bool(metrics_valid and len(selected) >= min_names),
+        "legacy_metric_mode": "weight_level_research_deprecated",
+        "official_metric_required": "broker_ledger_next_close",
+        "production_valid": False,
+        "production_valid_reason": (
+            "deprecated_weight_level_monthly_metric; official production evidence must come from "
+            "broker_replay/concentrated/metrics.json or account_evaluation/official_metrics.json"
+        ),
         "operating_notes": [
-            "Run a full rebalance monthly.",
+            "Research-only monthly comparison. Do not use these metrics as a production SHIP gate.",
+            "Official performance must be judged by broker-ledger replay with next-close fills, integer shares, cash, and costs.",
+            "Run a full rebalance monthly only if the broker-ledger/account evaluation also passes.",
             f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",
             "Use concentrated holdings as a separate sleeve from the main portfolio.",
             "Allow immediate review if exit risk spikes or breakout support fails.",

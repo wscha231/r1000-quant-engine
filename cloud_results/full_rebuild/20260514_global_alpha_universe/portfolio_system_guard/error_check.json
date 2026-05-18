@@ -1,0 +1,161 @@
+{
+  "checks": [
+    {
+      "check": "main_metrics_available",
+      "detail": "outputs/backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_metrics_available",
+      "detail": "outputs/concentrated_backtest_metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "experiment_matrix_available",
+      "detail": "outputs/experiments/experiment_matrix_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_challenger_available",
+      "detail": "outputs/auto_learning_v2/challenger_review.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "auto_learning_v2_policy_available",
+      "detail": "outputs/auto_learning_v2/policy_candidate.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "orchestrator_replay_available",
+      "detail": "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "portfolio_goal_search_available",
+      "detail": "outputs/portfolio_goal_search/goal_search_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "account_evaluation_available",
+      "detail": "outputs/account_evaluation/account_evaluation_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "github_workflows_available",
+      "detail": ".github/workflows",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "counterfactual_replay_coverage",
+      "detail": "missing_counterfactual_count=2",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "candidate_production_ready",
+      "detail": "production_ready_count=0",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "operating_event_backtest_available",
+      "detail": "outputs/operating_event_backtest/operating_event_backtest_summary.json",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "daily_risk_overlay_backtest_validated",
+      "detail": "daily_risk_overlay_validated=True; nonmonthly_risk_action_count=792",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "full_nonmonthly_entry_replacement_backtest_validated",
+      "detail": "full_nonmonthly_entry_replacement_validated=False; daily_risk_action_evidence_count=792",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "orchestrator_replay_valid_for_promotion",
+      "detail": "status=completed; data_mode=historical_concentrated_monthly",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-05-14; broker_end=2026-05-14; rows=2211; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2211; max_date=2026-05-14",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-14; rows=2194; operating_book_max=2026-05-14; operating_rows=2211",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "main_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_target_book_reaches_broker_end",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-05-14; broker_end=2026-05-14; rows=23387; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_operating_target_book_available",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23387; max_date=2026-05-14",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_historical_research_book_reaches_broker_end",
+      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-14; rows=23382; operating_book_max=2026-05-14; operating_rows=23387",
+      "passed": false,
+      "severity": "warn"
+    },
+    {
+      "check": "concentrated_broker_replay_uses_operating_target_book",
+      "detail": "metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "current_only_operating_holdings_available",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=24; legacy_snapshot_exists=True",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "main_current_position_count_near_latest_target_count",
+      "detail": "main_positions=17; latest_target_rows=17; excess=0",
+      "passed": true,
+      "severity": "ok"
+    },
+    {
+      "check": "concentrated_replay_filter_matches_latest_target",
+      "detail": "broker_filter_n=5; latest_target_n=5; broker_mode=winner_take_all; latest_mode=winner_take_all",
+      "passed": true,
+      "severity": "ok"
+    }
+  ],
+  "hard_error_count": 0
+}

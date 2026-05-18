@@ -1,0 +1,14 @@
+ticker,target_weight,Name,sector,portfolio_sleeve_label
+GOOG,0.1752763992076129,ALPHABET INC CLASS C,Communication,core_compounder
+GEV,0.131681195349928,GE VERNOVA INC,Industrials,core_compounder
+AMZN,0.1194526618527154,AMAZON.COM INC,Consumer Discretionary,core_compounder
+PLTR,0.0831132310277475,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder
+VRT,0.0831132310277475,VERTIV HOLDINGS CLASS A,Industrials,core_compounder
+GLW,0.0710878566487731,CORNING INC,Information Technology,future_winner
+LRCX,0.0656944254569447,LAM RESEARCH CORP,Information Technology,core_compounder
+RKLB,0.0591957579507122,ROCKET LAB CORP,Industrials,future_winner
+FTI,0.0513852414778183,TECHNIPFMC PLC,Energy,future_winner
+AKAM,0.04,AKAMAI TECHNOLOGIES INC,Information Technology,early_scout
+MLI,0.04,MUELLER INDUSTRIES INC,Industrials,future_winner
+NXPI,0.04,NXP Semiconductors,Semiconductors,future_winner
+ON,0.04,ON SEMICONDUCTOR CORP,Information Technology,early_scout
