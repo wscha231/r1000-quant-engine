@@ -51,6 +51,53 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-19
+
+### 00:08 KST - sec-evidence-learning-automation
+
+- scope:
+  - Add the research-only SEC Form 4 plus 13F learning pipeline and scheduled/manual workflows that reuse a Google Drive-backed SEC data lake while checking recent GitHub Actions overlap before heavy runs.
+- files:
+  - `tools/run_sec_evidence_learning_pipeline.py` ->orchestrates SEC candidate enrichment, selection-quality diagnostics, small evidence-weight learning, optional broker-ledger grids, and promotion-gate reporting.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->checks the SEC evidence learning pipeline emits research artifacts without allowing production activation.
+  - `tools/run_selection_quality_report.py` ->handles missing optional monster/score columns in missed-winner diagnostics.
+  - `tools/run_pr_validation.py` ->adds the SEC evidence learning pipeline smoke test to Tier-0/Tier-1 validation.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds daily Form 4 collection, parsing, scoring, GitHub Actions overlap preflight, artifact upload, and Google Drive restore/sync.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->adds 13F filing-window collection, parsing, institutional scoring, GitHub Actions overlap preflight, artifact upload, and Google Drive restore/sync.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->adds manual SEC evidence learning and optional broker-ledger challenger execution using restored Google Drive data.
+  - `research/sec_13f_form4_evidence_score_20260518/report.md` ->documents Google Drive data-lake reuse and GitHub Actions overlap-check policy.
+- symbols_added:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_evidence_learning_pipeline.py` ->runs the full research-only SEC evidence learning pipeline.
+  - `learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]` ->evaluates small Form 4/13F evidence weight presets against historical forward-return diagnostics.
+  - `apply_weight_preset(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Series` ->creates candidate scores from normalized SEC/future-winner/market-confirmation components.
+  - `evaluate_score(frame: pd.DataFrame, score: pd.Series, *, topks: list[int]) -> dict[str, Any]` ->computes monthly IC and top-k excess-return diagnostics.
+  - `run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: Path) -> dict[str, Any]` ->optionally runs official next-close broker-ledger grids for main and concentrated research challengers.
+  - `broker_gate(metrics: dict[str, Any], portfolio: str) -> dict[str, Any]` ->compares candidate broker metrics with locked portfolio baselines while blocking automatic promotion.
+- symbols_changed:
+  - `missed_winner_onset(frame: pd.DataFrame, top_n: int) -> pd.DataFrame` ->uses index-aligned default Series when optional score columns are absent.
+  - `DEFAULT_TESTS` ->adds `tests/sec_evidence_learning_pipeline_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/candidate_replay_book_sec_enriched.csv` ->Form 4 plus 13F enriched candidate replay book.
+  - `outputs/sec_evidence_learning/score_weight_grid.csv` ->research-only evidence weight diagnostics.
+  - `outputs/sec_evidence_learning/best_score_weights.json` ->best research-only preset from top-k/IC diagnostics.
+  - `outputs/sec_evidence_learning/summary.json` ->pipeline summary and promotion-gate status.
+  - `outputs/sec_evidence_learning/report.md` ->human-readable learning report.
+- automation_impact:
+  - Adds one daily Form 4 workflow, one 13F filing-window workflow, and one manual SEC learning workflow. These workflows restore/sync `data_raw/sec`, `data_pit/sec`, and SEC outputs through Google Drive when rclone credentials are configured, and use concurrency groups plus GitHub Actions preflight logs to avoid overlapping shared SEC data-lake writes.
+- validation:
+  - `python -m py_compile tools\run_sec_evidence_learning_pipeline.py tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `python tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `python tests\selection_quality_report_smoke.py` passed.
+  - `python tests\workflow_artifact_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_evidence_learning_pipeline_smoke --only selection_quality_report_smoke --only workflow_artifact_smoke --only sec_candidate_enrichment_smoke --only sec_13f_parser_smoke` passed.
+- risks_or_notes:
+  - SEC historical backfill still needs bounded shards and CUSIP/ticker mapping coverage before 8-year broker-ledger conclusions are reliable.
+  - GitHub Actions cache is only a speed layer; Google Drive remains the intended long-term shared data lake.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

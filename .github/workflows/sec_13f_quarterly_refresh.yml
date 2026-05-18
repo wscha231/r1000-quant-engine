@@ -1,0 +1,189 @@
+name: SEC 13F Quarterly Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      manager_ciks:
+        description: 'Comma-separated manager CIKs or label:CIK pairs'
+        type: string
+        default: 'BRK:0001067983'
+      max_filings:
+        description: 'Max indexed 13F filings to parse in this shard'
+        type: string
+        default: '200'
+      safety_delay_hours:
+        description: 'PIT safety delay after SEC accepted_at'
+        type: string
+        default: '0'
+  schedule:
+    # 08:40 KST during normal 13F filing windows: Feb/May/Aug/Nov day 1-20.
+    - cron: '40 23 1-20 2,5,8,11 *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sec-evidence-data-lake-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sec_13f_quarterly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check recent GitHub Actions overlap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p outputs/full_rebuild_logs
+          gh run list --repo "$GITHUB_REPOSITORY" --limit 20 --json databaseId,workflowName,status,conclusion,headBranch,createdAt,url \
+            | tee outputs/full_rebuild_logs/actions_overlap_preflight.json
+          gh run list --repo "$GITHUB_REPOSITORY" --status in_progress --limit 20 || true
+
+      - name: Restore SEC cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data_raw/sec
+            data_pit/sec
+          key: sec-13f-quarterly-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            sec-13f-quarterly-${{ runner.os }}-
+            sec-evidence-${{ runner.os }}-
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore SEC data lake from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
+
+      - name: Collect and score 13F
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
+          MANAGER_CIKS: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || 'BRK:0001067983' }}
+          MAX_FILINGS: ${{ github.event.inputs.max_filings || '200' }}
+          SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals data_pit/sec data_raw/sec
+          python tools/run_sec_submissions_collector.py \
+            --ciks "$MANAGER_CIKS" \
+            --universe-file ./.missing_universe.csv \
+            --forms '13F-HR,13F-HR/A' \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_submissions.log
+          python tools/run_sec_13f_parser.py \
+            --filings-index data_pit/sec/sec_filings_index.parquet \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --max-filings "$MAX_FILINGS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser.log
+          python tools/run_sec_institutional_signals.py \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --output-dir outputs/sec_institutional_signals \
+            --lookback-days 210 \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_signals.log
+
+      - name: Upload SEC 13F artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-13f-quarterly-${{ github.run_id }}
+          path: |
+            data_pit/sec/sec_filings_index.*
+            data_pit/sec/institutional_13f_holdings.*
+            data_pit/sec/*13f*summary.json
+            outputs/sec_institutional_signals/
+            outputs/full_rebuild_logs/sec_13f_*.log
+          retention-days: 30
+
+      - name: Sync SEC 13F data lake to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
+            if [ -d "$d" ]; then
+              rclone copy "$d" "$BASE$d/"
+            fi
+          done

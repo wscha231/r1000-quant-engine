@@ -251,8 +251,12 @@ def missed_winner_onset(frame: pd.DataFrame, top_n: int) -> pd.DataFrame:
     latest_dates = pd.to_datetime(d["rebalance_date"], errors="coerce")
     if latest_dates.notna().any():
         d = d.loc[latest_dates.eq(latest_dates.max())].copy()
-    d["monster_score"] = pd.to_numeric(d.get("portfolio_monster_early_score", 0.0), errors="coerce").fillna(0.0)
-    d["score_proxy"] = pd.to_numeric(d.get("score_total", d.get("score", 0.0)), errors="coerce").fillna(0.0)
+    d["monster_score"] = pd.to_numeric(
+        d["portfolio_monster_early_score"] if "portfolio_monster_early_score" in d.columns else pd.Series(0.0, index=d.index),
+        errors="coerce",
+    ).fillna(0.0)
+    score_source = "score_total" if "score_total" in d.columns else "score" if "score" in d.columns else ""
+    d["score_proxy"] = pd.to_numeric(d[score_source] if score_source else pd.Series(0.0, index=d.index), errors="coerce").fillna(0.0)
     selected = pd.Series(False, index=d.index)
     for col in ["selected_main_current", "selected_concentrated_current", "in_main_portfolio", "in_concentrated_portfolio"]:
         if col in d.columns:
