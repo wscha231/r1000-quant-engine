@@ -124,6 +124,30 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - GitHub artifacts remain the authoritative fallback when Drive sync times out; Drive is best-effort for these research-only SEC workflows.
 
+### 01:34 KST - alpha-selector-broker-grid-replay-compat
+
+- scope:
+  - Fix alpha selector broker-grid compatibility with the current broker replay signature so SEC evidence learning can produce completed broker variants.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->passes `concentrated_champion_filters` only when the installed broker replay supports that keyword.
+- symbols_added:
+  - `BROKER_REPLAY_PARAMS` ->captures the current broker replay keyword surface for compatibility checks.
+- symbols_changed:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->builds replay kwargs conditionally before invoking broker replay.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - SEC evidence learning broker-grid runs should no longer block every variant with `unexpected keyword argument 'concentrated_champion_filters'`.
+- validation:
+  - `python tests\alpha_selector_broker_grid_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only alpha_selector_broker_grid_smoke --only sec_evidence_learning_pipeline_smoke` passed.
+- risks_or_notes:
+  - This does not promote SEC evidence; it only allows research-only broker-grid validation to complete.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package
