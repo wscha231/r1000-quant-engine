@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke checks for SEC-enriched candidate replay books."""
+"""Smoke checks for SEC evidence learning pipeline orchestration."""
 from __future__ import annotations
 
 import argparse
@@ -13,44 +13,35 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_enriched_candidate_replay import run  # noqa: E402
+from tools.run_sec_evidence_learning_pipeline import run  # noqa: E402
 
 
-def _candidate_rows() -> list[dict[str, object]]:
+def candidate_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for dt in ["2026-05-12", "2026-05-13", "2026-05-16"]:
-        rows.extend(
-            [
+    dates = ["2026-05-12", "2026-05-13", "2026-05-16"]
+    for dt in dates:
+        for i in range(30):
+            ticker = "AAPL" if i == 0 else f"T{i:02d}"
+            base = 1.0 - i / 40.0
+            rows.append(
                 {
                     "rebalance_date": dt,
-                    "ticker": "AAPL",
-                    "Name": "Apple Inc.",
-                    "score_total": 1.23,
-                    "portfolio_future_winner_engine_score": 0.90,
-                    "selection_market_confirmation_score": 0.80,
-                    "industry_group_strength_score": 0.70,
-                    "rs_acceleration_score": 0.60,
-                    "entry_quality_score": 0.50,
-                    "period_forward_return": 9.99,
-                },
-                {
-                    "rebalance_date": dt,
-                    "ticker": "MSFT",
-                    "Name": "Microsoft Corporation",
-                    "score_total": 2.34,
-                    "portfolio_future_winner_engine_score": 0.30,
-                    "selection_market_confirmation_score": 0.40,
-                    "industry_group_strength_score": 0.20,
-                    "rs_acceleration_score": 0.10,
-                    "entry_quality_score": 0.20,
-                    "period_forward_return": -9.99,
-                },
-            ]
-        )
+                    "ticker": ticker,
+                    "Name": "Apple Inc." if ticker == "AAPL" else f"Ticker {i}",
+                    "score_total": base,
+                    "portfolio_future_winner_engine_score": base,
+                    "selection_market_confirmation_score": base * 0.8,
+                    "industry_group_strength_score": base * 0.7,
+                    "rs_acceleration_score": base * 0.6,
+                    "entry_quality_score": base * 0.5,
+                    "market_cap_live": 3_000_000_000_000.0 if ticker == "AAPL" else 10_000_000_000.0,
+                    "period_forward_return": 0.18 if ticker == "AAPL" else (0.06 - i * 0.002),
+                }
+            )
     return rows
 
 
-def _form4_rows() -> list[dict[str, object]]:
+def form4_rows() -> list[dict[str, object]]:
     return [
         {
             "issuer_ticker": "AAPL",
@@ -80,7 +71,7 @@ def _form4_rows() -> list[dict[str, object]]:
     ]
 
 
-def _thirteen_f_rows() -> list[dict[str, object]]:
+def thirteen_f_rows() -> list[dict[str, object]]:
     return [
         {
             "manager_cik": "0001067983",
@@ -92,7 +83,7 @@ def _thirteen_f_rows() -> list[dict[str, object]]:
             "cusip": "037833100",
             "issuer_name": "APPLE INC",
             "title_of_class": "COM",
-            "ticker_mapped": "",
+            "ticker_mapped": "AAPL",
             "shares": 100000.0,
             "share_type": "SH",
             "market_value_usd": 10_000_000.0,
@@ -115,7 +106,7 @@ def _thirteen_f_rows() -> list[dict[str, object]]:
             "cusip": "037833100",
             "issuer_name": "APPLE INC",
             "title_of_class": "COM",
-            "ticker_mapped": "",
+            "ticker_mapped": "AAPL",
             "shares": 180000.0,
             "share_type": "SH",
             "market_value_usd": 18_000_000.0,
@@ -131,55 +122,58 @@ def _thirteen_f_rows() -> list[dict[str, object]]:
     ]
 
 
-def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
+def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        candidate = root / "candidate_replay_book.csv"
-        form4 = root / "form4_transactions.parquet"
-        holdings_13f = root / "institutional_13f_holdings.parquet"
-        out = root / "sec_enriched"
-        pd.DataFrame(_candidate_rows()).to_csv(candidate, index=False)
-        pd.DataFrame(_form4_rows()).to_parquet(form4, index=False)
-        pd.DataFrame(_thirteen_f_rows()).to_parquet(holdings_13f, index=False)
+        candidate = root / "candidate.csv"
+        form4 = root / "form4.parquet"
+        holdings_13f = root / "13f.parquet"
+        out = root / "learning"
+        pd.DataFrame(candidate_rows()).to_csv(candidate, index=False)
+        pd.DataFrame(form4_rows()).to_parquet(form4, index=False)
+        pd.DataFrame(thirteen_f_rows()).to_parquet(holdings_13f, index=False)
 
         payload = run(
             argparse.Namespace(
                 candidate_book=str(candidate),
                 form4=str(form4),
                 institutional_13f=str(holdings_13f),
+                price_cache=str(root / "cache_prices"),
                 output_dir=str(out),
-                lookback_days=90,
+                form4_lookback_days=90,
                 institutional_lookback_days=210,
+                top_n=5,
+                run_broker_grid=False,
+                starting_capital=100000.0,
+                fill_mode="next_close",
+                cost_bps=25.0,
+                max_fill_lag_days=7,
+                styles="sec_evidence_shadow",
+                target_ns="1",
+                single_name_caps="1.0",
+                max_variants=1,
+                min_market_cap_usd=0.0,
+                min_dollar_volume_usd=0.0,
+                min_price=0.0,
+                allow_unfillable_targets=True,
             )
         )
 
+        assert payload["status"] == "completed"
         assert payload["research_only"] is True
         assert payload["production_activation_allowed"] is False
-        assert payload["score_total_changed"] is False
-        assert payload["rows_with_sec_evidence"] == 2
-        assert payload["rows_with_13f_evidence"] == 3
+        assert payload["enriched_rows"] == 90
+        assert payload["rows_with_form4_evidence"] > 0
+        assert payload["rows_with_13f_evidence"] > 0
+        assert payload["score_learning"]["status"] == "completed"
         enriched = pd.read_csv(out / "candidate_replay_book_sec_enriched.csv")
-        aapl_before = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-12")].iloc[0]
-        aapl_after = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-13")].iloc[0]
-        aapl_after_13f = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-16")].iloc[0]
-        msft_after = enriched[(enriched["ticker"] == "MSFT") & (enriched["rebalance_date"] == "2026-05-13")].iloc[0]
-        assert float(aapl_before["early_evidence_score"]) == 0.0
-        assert float(aapl_after["early_evidence_score"]) > 0.0
-        assert float(aapl_after["evidence_confidence_score"]) > 0.0
-        assert float(aapl_after["institutional_evidence_score"]) > 0.0
-        assert float(aapl_after_13f["institutional_evidence_score"]) > 0.0
-        assert float(aapl_after_13f["sec_13f_value_delta_usd"]) != float(aapl_after["sec_13f_value_delta_usd"])
-        assert float(aapl_after_13f["sec_combined_evidence_score"]) >= float(aapl_after["early_evidence_score"]) * 0.45
         assert "leader_onset_sec_v3_score" in enriched.columns
-        assert float(msft_after["early_evidence_score"]) == 0.0
-        assert list(enriched["score_total"]) == [1.23, 2.34, 1.23, 2.34, 1.23, 2.34]
-        assert "leader_onset_sec_v2_score" in enriched.columns
-        assert "period_forward_return" in enriched.columns
-        summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-        assert summary["columns_added"]
-        assert (out / "report.md").exists()
+        assert "score_total" in enriched.columns
+        assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["promotion_allowed"] is False
+        assert (out / "score_weight_grid.csv").exists()
+        assert (out / "selection_quality" / "selection_quality_summary.json").exists()
 
 
 if __name__ == "__main__":
-    test_sec_candidate_enrichment_is_pit_and_research_only()
-    print("sec_candidate_enrichment_smoke: PASS")
+    test_sec_evidence_learning_pipeline_outputs_research_artifacts()
+    print("sec_evidence_learning_pipeline_smoke: PASS")

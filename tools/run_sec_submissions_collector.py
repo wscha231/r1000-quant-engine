@@ -118,6 +118,30 @@ def tickers_from_inputs(tickers: str, universe_file: str | Path | None) -> list[
     return sorted({t for t in out if t and t != "NAN"})
 
 
+def cik_rows_from_inputs(ciks: str) -> pd.DataFrame:
+    """Parse comma-separated CIKs or label:CIK pairs for non-ticker filers.
+
+    13F managers are often not in `company_tickers.json`, so SEC evidence
+    collection needs a direct manager-CIK path in addition to issuer tickers.
+    """
+    rows: list[dict[str, str]] = []
+    for token in str(ciks or "").replace(";", ",").split(","):
+        text = token.strip()
+        if not text:
+            continue
+        label = ""
+        value = text
+        if ":" in text:
+            label, value = [part.strip() for part in text.split(":", 1)]
+        cik = cik10(value)
+        if not cik:
+            continue
+        rows.append({"ticker": (label or f"CIK{cik}").upper(), "cik10": cik, "name": label or ""})
+    if not rows:
+        return pd.DataFrame(columns=["ticker", "cik10", "name"])
+    return pd.DataFrame(rows).drop_duplicates("cik10", keep="first")
+
+
 def fetch_submissions(
     cik: str,
     raw_dir: Path,
@@ -204,6 +228,7 @@ def filings_from_submissions(
 def collect_filings_index(
     *,
     tickers: list[str],
+    cik_rows: pd.DataFrame | None = None,
     raw_dir: Path,
     forms: Iterable[str],
     user_agent: str | None = None,
@@ -215,6 +240,13 @@ def collect_filings_index(
     ticker_map = load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh)
     if tickers:
         ticker_map = ticker_map[ticker_map["ticker"].isin(set(tickers))].copy()
+    elif cik_rows is not None and not cik_rows.empty:
+        ticker_map = ticker_map.iloc[0:0].copy()
+    if cik_rows is not None and not cik_rows.empty:
+        ticker_map = pd.concat([ticker_map, cik_rows[["ticker", "cik10", "name"]]], ignore_index=True)
+        ticker_map["ticker"] = ticker_map["ticker"].astype(str).str.upper().str.strip()
+        ticker_map["cik10"] = ticker_map["cik10"].map(cik10)
+        ticker_map = ticker_map[ticker_map["cik10"].ne("")].drop_duplicates(["ticker", "cik10"], keep="last")
     if max_tickers and max_tickers > 0:
         ticker_map = ticker_map.head(int(max_tickers)).copy()
 
@@ -283,6 +315,7 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tickers", default="", help="Comma-separated ticker list. Empty uses --universe-file.")
+    parser.add_argument("--ciks", default="", help="Comma-separated CIKs or label:CIK pairs for non-ticker filers such as 13F managers.")
     parser.add_argument("--universe-file", default="outputs/scored_latest.csv")
     parser.add_argument("--forms", default=DEFAULT_FORMS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
@@ -296,8 +329,10 @@ def main() -> int:
 
     forms = [x.strip().upper() for x in args.forms.split(",") if x.strip()]
     tickers = tickers_from_inputs(args.tickers, args.universe_file)
+    cik_rows = cik_rows_from_inputs(args.ciks)
     frame = collect_filings_index(
         tickers=tickers,
+        cik_rows=cik_rows,
         raw_dir=repo_path(args.raw_dir),
         forms=forms,
         user_agent=args.user_agent,

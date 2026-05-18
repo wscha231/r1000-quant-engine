@@ -54,7 +54,213 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-19
+
+### 00:08 KST - sec-evidence-learning-automation
+
+- scope:
+  - Add the research-only SEC Form 4 plus 13F learning pipeline and scheduled/manual workflows that reuse a Google Drive-backed SEC data lake while checking recent GitHub Actions overlap before heavy runs.
+- files:
+  - `tools/run_sec_evidence_learning_pipeline.py` ->orchestrates SEC candidate enrichment, selection-quality diagnostics, small evidence-weight learning, optional broker-ledger grids, and promotion-gate reporting.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->checks the SEC evidence learning pipeline emits research artifacts without allowing production activation.
+  - `tools/run_selection_quality_report.py` ->handles missing optional monster/score columns in missed-winner diagnostics.
+  - `tools/run_pr_validation.py` ->adds the SEC evidence learning pipeline smoke test to Tier-0/Tier-1 validation.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds daily Form 4 collection, parsing, scoring, GitHub Actions overlap preflight, artifact upload, and Google Drive restore/sync.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->adds 13F filing-window collection, parsing, institutional scoring, GitHub Actions overlap preflight, artifact upload, and Google Drive restore/sync.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->adds manual SEC evidence learning and optional broker-ledger challenger execution using restored Google Drive data.
+  - `research/sec_13f_form4_evidence_score_20260518/report.md` ->documents Google Drive data-lake reuse and GitHub Actions overlap-check policy.
+- symbols_added:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_evidence_learning_pipeline.py` ->runs the full research-only SEC evidence learning pipeline.
+  - `learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]` ->evaluates small Form 4/13F evidence weight presets against historical forward-return diagnostics.
+  - `apply_weight_preset(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Series` ->creates candidate scores from normalized SEC/future-winner/market-confirmation components.
+  - `evaluate_score(frame: pd.DataFrame, score: pd.Series, *, topks: list[int]) -> dict[str, Any]` ->computes monthly IC and top-k excess-return diagnostics.
+  - `run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: Path) -> dict[str, Any]` ->optionally runs official next-close broker-ledger grids for main and concentrated research challengers.
+  - `broker_gate(metrics: dict[str, Any], portfolio: str) -> dict[str, Any]` ->compares candidate broker metrics with locked portfolio baselines while blocking automatic promotion.
+- symbols_changed:
+  - `missed_winner_onset(frame: pd.DataFrame, top_n: int) -> pd.DataFrame` ->uses index-aligned default Series when optional score columns are absent.
+  - `DEFAULT_TESTS` ->adds `tests/sec_evidence_learning_pipeline_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/candidate_replay_book_sec_enriched.csv` ->Form 4 plus 13F enriched candidate replay book.
+  - `outputs/sec_evidence_learning/score_weight_grid.csv` ->research-only evidence weight diagnostics.
+  - `outputs/sec_evidence_learning/best_score_weights.json` ->best research-only preset from top-k/IC diagnostics.
+  - `outputs/sec_evidence_learning/summary.json` ->pipeline summary and promotion-gate status.
+  - `outputs/sec_evidence_learning/report.md` ->human-readable learning report.
+- automation_impact:
+  - Adds one daily Form 4 workflow, one 13F filing-window workflow, and one manual SEC learning workflow. These workflows restore/sync `data_raw/sec`, `data_pit/sec`, and SEC outputs through Google Drive when rclone credentials are configured, and use concurrency groups plus GitHub Actions preflight logs to avoid overlapping shared SEC data-lake writes.
+- validation:
+  - `python -m py_compile tools\run_sec_evidence_learning_pipeline.py tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `python tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `python tests\selection_quality_report_smoke.py` passed.
+  - `python tests\workflow_artifact_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_evidence_learning_pipeline_smoke --only selection_quality_report_smoke --only workflow_artifact_smoke --only sec_candidate_enrichment_smoke --only sec_13f_parser_smoke` passed.
+- risks_or_notes:
+  - SEC historical backfill still needs bounded shards and CUSIP/ticker mapping coverage before 8-year broker-ledger conclusions are reliable.
+  - GitHub Actions cache is only a speed layer; Google Drive remains the intended long-term shared data lake.
+
 ## 2026-05-18
+
+### 09:03 KST - research-handoff-data-package
+
+- scope:
+  - Add a reusable research handoff packager so SEC data, CAGR/MDD recovery artifacts, manifests, checksums, and restore instructions can be shared through GitHub release assets, GitHub Actions artifacts, or Google Drive without committing large data files.
+- files:
+  - `tools/package_research_handoff.py` ->creates a zip bundle, manifest, README, checksums, and latest manifest for cross-machine/agent handoff.
+  - `tests/research_handoff_package_smoke.py` ->checks bundle creation, manifest flags, checksums, and zip contents.
+  - `tools/run_pr_validation.py` ->adds the research handoff package smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `collect_files(paths: list[str], *, include_heavy: bool) -> tuple[list[Path], list[str]]` ->collects unique existing handoff files and records missing configured inputs.
+  - `build_manifest(...) -> dict[str, Any]` ->builds the machine-readable bundle manifest with branch, commit, file checksums, and restore commands.
+  - `restore_readme(manifest_name: str) -> str` ->renders human restore instructions for another computer or agent.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->writes the handoff zip, manifest JSON, README, and latest manifest.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/research_handoff_package_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/research_handoff/r1000_research_handoff_*.zip` ->portable research data bundle for GitHub/GDrive handoff.
+  - `outputs/research_handoff/r1000_research_handoff_*.manifest.json` ->checksummed file manifest.
+  - `outputs/research_handoff/r1000_research_handoff_*.README.md` ->restore instructions.
+  - `outputs/research_handoff/latest_manifest.json` ->latest generated handoff manifest.
+- automation_impact:
+  - PR validation runs one additional handoff packaging smoke test; no production scoring, schedule, or target-book activation changes.
+- validation:
+  - `python -m py_compile tools\package_research_handoff.py tests\research_handoff_package_smoke.py` passed.
+  - `python tests\research_handoff_package_smoke.py` passed.
+  - `python tools\package_research_handoff.py --output-dir outputs\research_handoff --label "r1000 SEC and CAGR-MDD recovery handoff 2026-05-18" --include-heavy` passed, 73 files, 27,466,545-byte bundle.
+  - `python tools\run_pr_validation.py --only research_handoff_package_smoke --only sec_form4_parser_smoke --only agent_board_smoke` passed.
+- risks_or_notes:
+  - The package tool intentionally keeps generated data outside git; upload bundles as GitHub release assets, GitHub Actions artifacts, or Google Drive files.
+  - Heavy files such as enriched candidate replay CSVs require `--include-heavy`.
+
+### 09:05 KST - sec-form4-live-xsl-parser-fix
+
+- scope:
+  - Fix live SEC Form 4 parsing for submissions rows whose primary document uses SEC's `xslF345X06/` rendered path.
+- files:
+  - `tools/run_sec_form4_parser.py` ->normalizes XSL-rendered Form 4 document paths to raw XML URLs and writes sanitized cache filenames.
+  - `tests/sec_form4_parser_smoke.py` ->checks raw XML URL preference and slash-free cache naming for XSL Form 4 documents.
+- symbols_added:
+  - `raw_form4_primary_document(primary_doc: str) -> str` ->returns the raw XML filename when SEC submissions report an XSL-rendered Form 4 path.
+  - `cache_name(accession: str, primary_doc: str) -> str` ->builds a filesystem-safe Form 4 cache filename.
+  - `form4_url_candidates(cik: str, accession: str, primary_doc: str, filing_url: str = "") -> list[str]` ->orders raw XML URL candidates before rendered HTML URLs.
+- symbols_changed:
+  - `cache_form4_document(...)` ->tries raw XML Form 4 URLs first, rejects non-XML rendered responses, and caches with a sanitized filename.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/form4_transactions.parquet` ->live local output can now be built from XSL-style submissions rows.
+  - `outputs/sec_ownership_signals/ownership_signal_summary.json` ->live local Form 4 signal summary generated after the parser fix.
+- automation_impact:
+  - SEC Form 4 collector/parser automation no longer stalls on `xslF345X06/` rendered primary documents; no schedule, GDrive path, or production scoring changes.
+- validation:
+  - `python -m py_compile tools\run_sec_form4_parser.py tests\sec_form4_parser_smoke.py` passed.
+  - `python tests\sec_form4_parser_smoke.py` passed.
+  - `python tools\run_sec_submissions_collector.py --tickers <80 seed tickers> --forms '4,4/A' --user-agent R1000QuantEngine research andrewcha231@gmail.com` passed, 38,199 index rows.
+  - `python tools\run_sec_form4_parser.py --filings-index data_pit\sec\sec_filings_index_recent_300.parquet --user-agent R1000QuantEngine research andrewcha231@gmail.com` passed, 765 transaction rows.
+  - `python tools\run_sec_ownership_signals.py --form4 data_pit\sec\form4_transactions.parquet --output-dir outputs\sec_ownership_signals --lookback-days 90` passed, 51 signal tickers.
+- risks_or_notes:
+  - The initial live Form 4 parse covered only the latest 300 filings from the 80-ticker seed universe; longer PIT history is still required before SEC evidence can affect historical CAGR/MDD replay.
+  - Current candidate replay book ends before the live May 2026 Form 4 window, so the first live SEC signals are current-operating evidence rather than historical replay evidence.
+
+### 23:14 KST - sec-13f-institutional-evidence
+
+- scope:
+  - Add a research-only SEC 13F institutional evidence layer and connect it to Form 4 candidate enrichment, selection-quality diagnostics, and alpha-selector challenger scoring without changing production scores or target books.
+- files:
+  - `tools/run_sec_13f_parser.py` ->parses SEC 13F information-table XML into normalized point-in-time institutional holdings.
+  - `tools/run_sec_institutional_signals.py` ->builds 13F manager-count, accumulation, conviction, crowding, and smart-money shadow scores.
+  - `tools/run_sec_submissions_collector.py` ->adds direct `--ciks` collection for manager CIKs and other non-ticker SEC filers.
+  - `tools/run_sec_enriched_candidate_replay.py` ->adds optional 13F PIT enrichment, market-cap-relative value-delta scoring, combined SEC evidence, and `leader_onset_sec_v3_score`.
+  - `tools/run_alpha_selector_broker_grid.py` ->lets the `sec_evidence_shadow` selector consume combined Form 4 plus 13F evidence columns.
+  - `tools/run_selection_quality_report.py` ->adds 13F and combined SEC evidence factors to report-only IC/top-k/decile diagnostics.
+  - `tests/sec_13f_parser_smoke.py` ->checks 13F XML parsing, PIT availability, and accumulation scoring.
+  - `tests/sec_cik_schema_smoke.py` ->checks direct manager CIK input parsing preserves 10-character CIK strings.
+  - `tests/sec_candidate_enrichment_smoke.py` ->checks Form 4 plus 13F candidate enrichment remains PIT-safe and does not mutate `score_total`.
+  - `tools/run_pr_validation.py` ->adds the 13F parser smoke test to Tier-0/Tier-1 validation.
+  - `research/sec_13f_form4_evidence_score_20260518/report.md` ->documents the score design and 8-year backtest protocol.
+- symbols_added:
+  - `parse_13f_xml(xml_text: str, filing: dict[str, Any] | None = None, *, cusip_map: dict[str, str] | None = None) -> list[dict[str, Any]]` ->extracts normalized 13F holding rows from an information table.
+  - `parse_13f_index(...) -> pd.DataFrame` ->downloads/caches and parses indexed 13F filings.
+  - `build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 210) -> pd.DataFrame` ->creates PIT-safe institutional ownership shadow scores.
+  - `cik_rows_from_inputs(ciks: str) -> pd.DataFrame` ->parses direct CIK and label:CIK inputs for non-ticker SEC filers.
+  - `build_13f_features_by_date(holdings_13f: pd.DataFrame, dates: list[pd.Timestamp], *, lookback_days: int) -> pd.DataFrame` ->builds date-specific 13F signal rows for candidate enrichment.
+  - `add_combined_sec_scores(frame: pd.DataFrame) -> pd.DataFrame` ->adds market-cap-relative 13F value delta and combined Form 4 plus 13F evidence.
+  - `market_cap_series(frame: pd.DataFrame) -> pd.Series` ->selects the best available candidate market-cap column for 13F ratio scoring.
+  - `issuer_name_key(value: Any) -> str` ->normalizes SEC issuer names for conservative candidate-name ticker fallback mapping.
+  - `candidate_issuer_map(candidates: pd.DataFrame) -> dict[str, str]` ->builds unique issuer-name to ticker mappings from candidate books.
+  - `map_13f_tickers_from_candidates(holdings_13f: pd.DataFrame, candidates: pd.DataFrame) -> pd.DataFrame` ->fills blank 13F ticker mappings when issuer names uniquely match candidate names.
+- symbols_changed:
+  - `enrich_candidate_book(...)` ->accepts optional 13F holdings and emits `sec_combined_evidence_score` plus `leader_onset_sec_v3_score`.
+  - `STYLE_WEIGHTS` ->updates `sec_evidence_shadow` to prefer `leader_onset_sec_v3_score` while retaining Form 4-only fallback columns.
+  - `FACTOR_COLUMNS` ->adds 13F and combined SEC evidence factors to selection-quality diagnostics.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_parser_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/institutional_13f_holdings.parquet` ->normalized 13F holdings output when the parser is run.
+  - `outputs/sec_institutional_signals/13f_latest.csv` ->research-only 13F institutional signal output when the signal builder is run.
+  - `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` ->candidate replay book can now include Form 4 plus 13F shadow evidence columns.
+- automation_impact:
+  - PR validation runs one additional SEC 13F smoke test; no schedule, GDrive path, production scoring, or default target-book activation changes.
+- validation:
+  - `python -m py_compile tools\run_sec_submissions_collector.py tools\run_sec_13f_parser.py tools\run_sec_institutional_signals.py tools\run_sec_enriched_candidate_replay.py tools\run_alpha_selector_broker_grid.py tools\run_selection_quality_report.py tests\sec_cik_schema_smoke.py tests\sec_13f_parser_smoke.py tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tests\sec_cik_schema_smoke.py` passed.
+  - `python tests\sec_13f_parser_smoke.py` passed.
+  - `python tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_cik_schema_smoke --only sec_13f_parser_smoke --only sec_candidate_enrichment_smoke --only selection_quality_report_smoke --only alpha_selector_broker_grid_smoke` passed.
+- risks_or_notes:
+  - 13F is delayed quarterly ownership evidence and must be evaluated as validation/accumulation support, not as a fast entry trigger.
+  - Historical CAGR/MDD impact requires an 8-year PIT 13F backfill with ticker/CUSIP mapping before promotion can be considered.
+
+### 02:15 KST - agent-board-automation
+
+- scope:
+  - Add an artifact-only multi-agent board that compares official broker-ledger evidence to locked baselines, emits agent task queues, and writes manual ChatGPT Pro packets without changing production defaults.
+- files:
+  - `tools/run_agent_board.py` ->builds the research-only agent board, promotion gate review, agent task queue, report, and manual Pro review packets.
+  - `tests/agent_board_smoke.py` ->checks baseline regression blocking, proxy rejection, task creation, and Pro packet output.
+  - `.github/workflows/agent_board_manual.yml` ->runs the board manually or on a weekday schedule and uploads board artifacts.
+  - `tools/run_pr_validation.py` ->adds the Agent Board smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `load_portfolio_status(latest_run: Path, portfolio: str) -> dict[str, Any]` ->loads official account/broker metrics and compares them with locked portfolio baselines.
+  - `load_artifact_status(latest_run: Path) -> dict[str, Any]` ->summarizes SEC, selection, diagnostics, goal-search, and AutoLearning artifacts for agent routing.
+  - `build_task_queue(board: dict[str, Any]) -> list[dict[str, Any]]` ->creates ordered A0/A2/A3/A4/A5/A6/A7/A10 tasks from board status.
+  - `promotion_gate(board: dict[str, Any]) -> dict[str, Any]` ->blocks automatic production activation and lists official-metric blockers.
+  - `render_pro_packet(board: dict[str, Any], task_row: dict[str, Any]) -> str` ->writes copy/paste manual ChatGPT Pro review packets per agent task.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->writes Agent Board JSON, Markdown, manifest, and Pro packet artifacts.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/agent_board_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/agent_board/board_summary.json` ->official baseline comparison, artifact status, contracts, and promotion gate state.
+  - `outputs/agent_board/agent_task_queue.json` ->ordered specialist agent work queue.
+  - `outputs/agent_board/promotion_gate_review.json` ->machine-readable production promotion blockers.
+  - `outputs/agent_board/report.md` ->human-readable Agent Board summary.
+  - `outputs/agent_board/pro_packets/*.md` ->manual ChatGPT Pro question packets for selected agent tasks.
+- automation_impact:
+  - Adds `.github/workflows/agent_board_manual.yml` for manual and weekday scheduled artifact-only board generation; no production scoring, GDrive path, or default target-book activation changes.
+- validation:
+  - `python -m py_compile tools\run_agent_board.py tests\agent_board_smoke.py` passed.
+  - `python tests\agent_board_smoke.py` passed.
+  - `python tools\run_agent_board.py --latest-run outputs --output-dir outputs\agent_board --run-url https://github.com/wscha231/r1000-quant-engine/actions/runs/25965312414` passed.
+  - `python tools\run_pr_validation.py --only agent_board_smoke --only workflow_artifact_smoke` passed.
+  - `python tools\run_pr_validation.py` passed, 47/47 tests.
+- risks_or_notes:
+  - Agent Board commands are suggested research tasks; they still require the relevant sidecar workflows and official broker-ledger validation before promotion.
+  - The workflow can report missing official artifacts when a scheduled run has no committed/cloud latest result path.
 
 ### 00:42 KST - sec-form4-shadow-evidence-layer
 

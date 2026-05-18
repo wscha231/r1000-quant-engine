@@ -1,0 +1,212 @@
+name: SEC Evidence Learning (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Optional completed full_rebuild run id to download candidate replay artifacts'
+        type: string
+        required: false
+      latest_run:
+        description: 'Local/cloud latest run path when source_run_id is empty'
+        type: string
+        default: 'cloud_results/full_rebuild/latest_global_alpha_universe'
+      run_broker_grid:
+        description: 'Run broker-ledger alpha-selector grids after score learning'
+        type: boolean
+        default: false
+      cost_bps:
+        description: 'Per-side transaction cost for broker-ledger challenger'
+        type: string
+        default: '25'
+      max_variants:
+        description: 'Max broker-grid variants per portfolio'
+        type: string
+        default: '18'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sec-evidence-learning-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sec_evidence_learning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check recent GitHub Actions overlap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p outputs/full_rebuild_logs
+          gh run list --repo "$GITHUB_REPOSITORY" --limit 20 --json databaseId,workflowName,status,conclusion,headBranch,createdAt,url \
+            | tee outputs/full_rebuild_logs/actions_overlap_preflight.json
+          gh run list --repo "$GITHUB_REPOSITORY" --status in_progress --limit 20 || true
+
+      - name: Restore SEC and price caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            data_raw/sec
+            data_pit/sec
+            cache_prices
+          key: sec-evidence-learning-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            sec-evidence-learning-${{ runner.os }}-
+            sec-evidence-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore SEC data lake from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/sec data_pit/sec cache_prices; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
+
+      - name: Resolve candidate replay source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.inputs.source_run_id || '' }}
+          LATEST_RUN_INPUT: ${{ github.event.inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          LATEST_RUN="$LATEST_RUN_INPUT"
+          if [ -n "$SOURCE_RUN_ID" ]; then
+            mkdir -p source_artifacts
+            gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
+            SRC="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit | xargs -r dirname | xargs -r dirname)"
+            if [ -z "$SRC" ]; then
+              echo "[sec-learning] ERROR: candidate_replay_book.csv not found in source run"
+              find source_artifacts -maxdepth 4 -type f | head -100
+              exit 2
+            fi
+            mkdir -p outputs
+            cp -R "$SRC"/. outputs/
+            LATEST_RUN="outputs"
+          fi
+          if [ ! -s "$LATEST_RUN/reports/candidate_replay_book.csv" ]; then
+            echo "[sec-learning] ERROR: missing $LATEST_RUN/reports/candidate_replay_book.csv"
+            exit 3
+          fi
+          echo "LATEST_RUN=$LATEST_RUN" >> "$GITHUB_ENV"
+
+      - name: Run SEC evidence learning
+        env:
+          RUN_BROKER_GRID: ${{ github.event.inputs.run_broker_grid || 'false' }}
+          COST_BPS: ${{ github.event.inputs.cost_bps || '25' }}
+          MAX_VARIANTS: ${{ github.event.inputs.max_variants || '18' }}
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          if [ "$RUN_BROKER_GRID" = "true" ]; then
+            EXTRA="--run-broker-grid"
+          fi
+          python tools/run_sec_evidence_learning_pipeline.py \
+            --candidate-book "$LATEST_RUN/reports/candidate_replay_book.csv" \
+            --form4 data_pit/sec/form4_transactions.parquet \
+            --institutional-13f data_pit/sec/institutional_13f_holdings.parquet \
+            --price-cache cache_prices \
+            --output-dir outputs/sec_evidence_learning \
+            --cost-bps "$COST_BPS" \
+            --max-variants "$MAX_VARIANTS" \
+            --styles sec_evidence_shadow,leader_onset_shadow \
+            --target-ns 3,5,7 \
+            --single-name-caps 0.25,0.33,0.50 \
+            $EXTRA \
+            2>&1 | tee outputs/full_rebuild_logs/sec_evidence_learning.log
+
+      - name: Upload SEC evidence learning artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-evidence-learning-${{ github.run_id }}
+          path: |
+            outputs/sec_evidence_learning/
+            outputs/full_rebuild_logs/sec_evidence_learning.log
+          retention-days: 30
+
+      - name: Sync SEC evidence learning to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if [ -d outputs/sec_evidence_learning ]; then
+            rclone copy outputs/sec_evidence_learning "${BASE}outputs/sec_evidence_learning/"
+            rclone copy outputs/sec_evidence_learning "${BASE}research_runs/${GITHUB_REF_NAME}/${GITHUB_RUN_ID}/sec_evidence_learning/"
+          fi
