@@ -119,7 +119,20 @@ def rank_scores(scored: pd.DataFrame) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     if scored.empty:
         return out
-    score_cols = [col for col in ["score_total", "score", "concentrated_score", "portfolio_monster_early_score", "portfolio_future_winner_engine_score"] if col in scored.columns]
+    score_cols = [
+        col
+        for col in [
+            "score_total",
+            "score",
+            "concentrated_score",
+            "portfolio_monster_early_score",
+            "portfolio_future_winner_engine_score",
+            "leader_onset_score",
+            "early_evidence_score",
+            "sec_form4_cluster_buy_score",
+        ]
+        if col in scored.columns
+    ]
     for col in score_cols:
         values = pd.to_numeric(scored[col], errors="coerce")
         ranks = values.rank(ascending=False, method="min")

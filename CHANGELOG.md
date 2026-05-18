@@ -54,6 +54,62 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-18
+
+### 09:57 KST - sec-edgar-form4-evidence-mvp
+
+- scope:
+  - Add the first free SEC EDGAR evidence-layer MVP for point-in-time Form 4 insider transaction collection, parsing, and shadow scoring. The new layer uses accepted-at / available-from availability and does not change production scores, features, target books, broker execution, or promotion behavior.
+- files:
+  - `tools/sec_edgar_common.py` ->adds shared SEC helpers for User-Agent headers, CIK normalization, SEC timestamp parsing, archive URL construction, and parquet/json writes.
+  - `tools/run_sec_submissions_collector.py` ->collects SEC company ticker maps and submissions metadata into PIT filing index parquet with `accepted_at` and `available_from`.
+  - `tools/run_sec_form4_parser.py` ->parses Form 4 XML and rendered SEC HTML primary documents into normalized insider transaction parquet.
+  - `tools/run_sec_ownership_signals.py` ->builds Form 4 shadow ownership/evidence scores filtered by `available_from`.
+  - `tools/run_selection_quality_report.py` ->adds SEC evidence columns to the optional factor list when candidate books contain them.
+  - `tools/run_leader_drop_diagnostics.py` ->surfaces SEC evidence ranks when latest scored rows contain the new shadow columns.
+  - `tests/sec_cik_schema_smoke.py` ->adds CIK and submissions-index schema regression coverage.
+  - `tests/sec_form4_parser_smoke.py` ->adds Form 4 XML and rendered-HTML parser coverage.
+  - `tests/sec_pit_available_from_smoke.py` ->adds PIT availability regression coverage proving transaction date does not create early signal availability.
+  - `tools/run_pr_validation.py` ->adds the new SEC smoke tests to Tier-0/Tier-1 validation.
+  - `research/sec_edgar_evidence_layer_20260518/plan.md` ->documents rollout scope, anti-leakage rules, outputs, and next phases.
+- symbols_added:
+  - `normalize_cik10(value: Any) -> str` ->returns a 10-character SEC CIK string with leading zeros preserved.
+  - `available_from(accepted_at: Any, *, safety_delay_hours: float = 12.0) -> pd.Timestamp` ->derives conservative PIT feature availability from SEC accepted time.
+  - `archive_document_url(cik10: str, accession_number: str, primary_document: str) -> str` ->builds SEC archive document URLs.
+  - `filings_from_submissions(...) -> pd.DataFrame` ->normalizes SEC submissions recent filings into the PIT filing index schema.
+  - `parse_form4_xml(xml_text: str, accession_number: str) -> list[dict[str, Any]]` ->parses structured Form 4 XML non-derivative transactions.
+  - `parse_form4_html(html_text: str, accession_number: str) -> list[dict[str, Any]]` ->parses SEC rendered HTML Form 4 transaction tables when primary documents are not valid XML.
+  - `parse_form4_document(document_text: str, accession_number: str) -> list[dict[str, Any]]` ->dispatches XML first and rendered HTML fallback second.
+  - `build_form4_signals(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None, window_days: int = 90) -> pd.DataFrame` ->creates Form 4 shadow evidence scores using only rows available by the as-of timestamp.
+- symbols_changed:
+  - `FACTOR_COLUMNS` in `tools/run_selection_quality_report.py` ->adds optional SEC shadow evidence columns without requiring them.
+  - `rank_scores(scored: pd.DataFrame) -> dict[str, dict[str, Any]]` ->adds optional SEC evidence ranks when latest scored outputs contain them.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds SEC CIK, Form 4 parser, and PIT availability smoke tests.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/ticker_cik_map.parquet` ->SEC ticker to CIK map with `cik10` as string.
+  - `data_pit/sec/sec_filings_index.parquet` ->PIT filing metadata with accepted/available timestamps.
+  - `data_pit/sec/form4_transactions.parquet` ->normalized Form 4 insider transactions.
+  - `data_pit/sec/sec_ownership_signals.parquet` ->shadow ownership evidence scores.
+  - `outputs/sec_ownership_signals/form4_latest.csv` ->latest Form 4 shadow signal table.
+  - `outputs/sec_ownership_signals/ownership_signal_summary.json` ->run summary.
+  - `outputs/sec_ownership_signals/report.md` ->human-readable summary.
+- automation_impact:
+  - none. The SEC tools are manual/shadow only and are not wired into scheduled workflows, full rebuild defaults, production scores, broker execution, or auto-promotion.
+- validation:
+  - `py -3 -m py_compile tools\sec_edgar_common.py tools\run_sec_submissions_collector.py tools\run_sec_form4_parser.py tools\run_sec_ownership_signals.py tools\run_selection_quality_report.py tools\run_leader_drop_diagnostics.py` ->pass.
+  - `py -3 tests\sec_cik_schema_smoke.py` ->pass.
+  - `py -3 tests\sec_form4_parser_smoke.py` ->pass.
+  - `py -3 tests\sec_pit_available_from_smoke.py` ->pass.
+  - Live AAPL mini-check with SEC User-Agent `r1000-quant-engine contact: andrewcha231@gmail.com` ->pass; submissions collector found 2 Form 4 filings, parser extracted 4 transactions, ownership signal builder emitted 1 shadow row.
+- risks_or_notes:
+  - Form 4 rendered HTML fallback is intentionally minimal and focused on Table I non-derivative transactions; future work should expand derivative handling only if there is evidence it improves broker-ledger results.
+  - SEC evidence is not merged into candidate books yet. It is ready for a follow-up shadow merge and selection-quality evaluation.
+  - 13D/G, 8-K, 13F, and Form 144 are not implemented in this MVP.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution
