@@ -130,6 +130,18 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 ]
             )
         pd.DataFrame(rows).to_csv(candidate, index=False)
+        sec_path = root / "sec_ownership_signals.parquet"
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "BBB",
+                    "as_of_date": "2026-01-01",
+                    "sec_form4_cluster_buy_score": 1.0,
+                    "early_evidence_score": 1.0,
+                    "evidence_confidence_score": 1.0,
+                }
+            ]
+        ).to_parquet(sec_path, index=False)
         payload = run(
             argparse.Namespace(
                 candidate_book=str(candidate),
@@ -141,10 +153,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,leader_onset_shadow",
+                styles="future_heavy,leader_onset_shadow,leader_onset_sec_shadow",
+                sec_signals=str(sec_path),
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=2,
+                max_variants=3,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -152,8 +165,9 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         )
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
+        assert payload["sec_signal_rows_merged"] == 2
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 2
+        assert len(summary) == 3
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -163,6 +177,9 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         onset_targets = pd.read_csv(next(out.glob("leader_onset_shadow_N1_cap*/target_book.csv")))
         assert set(onset_targets["ticker"]) == {"AAA"}
         assert "leader_onset_score" in onset_targets.columns
+        sec_targets = pd.read_csv(next(out.glob("leader_onset_sec_shadow_N1_cap*/target_book.csv")))
+        assert "early_evidence_score" in sec_targets.columns
+        assert "sec_signal_as_of_date" in sec_targets.columns
         assert payload.get("require_price_cache") is True
 
 

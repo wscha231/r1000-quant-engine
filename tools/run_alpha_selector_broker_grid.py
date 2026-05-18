@@ -31,10 +31,12 @@ if str(REPO_ROOT) not in sys.path:
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
+from tools.sec_signal_merge import load_and_merge_sec_signals  # noqa: E402
 
 
 DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
 DEFAULT_OUT_DIR = "outputs/alpha_selector_broker_grid"
+DEFAULT_SEC_SIGNALS = "data_pit/sec/sec_ownership_signals.parquet"
 
 STYLE_WEIGHTS: dict[str, dict[str, float]] = {
     "future_heavy": {
@@ -72,6 +74,17 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "rs_acceleration_score": 0.10,
         "h6_dynamic_leader_score": 0.06,
         "industry_group_strength_score": 0.03,
+    },
+    "leader_onset_sec_shadow": {
+        "leader_onset_score": 0.30,
+        "portfolio_future_winner_engine_score": 0.16,
+        "portfolio_monster_early_score": 0.15,
+        "portfolio_early_scout_engine_score": 0.10,
+        "rs_acceleration_score": 0.08,
+        "early_evidence_score": 0.08,
+        "sec_form4_cluster_buy_score": 0.06,
+        "evidence_confidence_score": 0.04,
+        "h6_dynamic_leader_score": 0.03,
     },
 }
 RISK_COLUMNS = ("portfolio_risk_entry_block_score", "portfolio_stale_mega_leader_score")
@@ -160,6 +173,9 @@ def add_leader_onset_score(frame: pd.DataFrame) -> pd.DataFrame:
         "relative_strength_composite": 0.05,
         "oneil_leadership_score": 0.04,
         "governance_catalyst_score": 0.03,
+        "early_evidence_score": 0.06,
+        "sec_form4_cluster_buy_score": 0.04,
+        "evidence_confidence_score": 0.02,
     }
     score = pd.Series(0.0, index=d.index, dtype=float)
     used_weight = 0.0
@@ -325,6 +341,10 @@ def build_target_book(
                     "portfolio_sleeve_label": row.get("portfolio_sleeve_label", ""),
                     "portfolio_candidate_gate_label": row.get("portfolio_candidate_gate_label", ""),
                     "leader_onset_score": safe_float(row.get("leader_onset_score")),
+                    "early_evidence_score": safe_float(row.get("early_evidence_score")),
+                    "evidence_confidence_score": safe_float(row.get("evidence_confidence_score")),
+                    "sec_form4_cluster_buy_score": safe_float(row.get("sec_form4_cluster_buy_score")),
+                    "sec_signal_as_of_date": row.get("sec_signal_as_of_date", ""),
                     "alpha_selector_style": style,
                     "alpha_selector_score": safe_float(row.get("alpha_selector_score")),
                     "target_stock_names": int(target_n),
@@ -355,7 +375,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    candidates = prepare_candidates(read_csv(candidate_book))
+    raw_candidates = read_csv(candidate_book)
+    sec_path = repo_path(args.sec_signals) if args.sec_signals else Path("")
+    sec_signal_source = ""
+    if args.sec_signals and sec_path.exists() and not raw_candidates.empty:
+        raw_candidates = load_and_merge_sec_signals(raw_candidates, sec_path, date_col="rebalance_date", overwrite=False)
+        sec_signal_source = str(sec_path)
+    candidates = prepare_candidates(raw_candidates)
     require_price_cache = not bool(getattr(args, "allow_unfillable_targets", False))
     if require_price_cache:
         candidates = add_price_cache_tradeability(candidates, price_cache, int(args.max_fill_lag_days))
@@ -435,6 +461,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         "target_stock_names": int(n),
                         "single_name_cap": float(cap),
                         "require_price_cache": require_price_cache,
+                        "sec_signal_source": sec_signal_source,
+                        "sec_signal_rows_merged": int(candidates["sec_signal_available"].sum()) if "sec_signal_available" in candidates.columns else 0,
                         "candidate_book": str(candidate_book),
                         "target_book": str(target_path),
                         "research_only": True,
@@ -524,6 +552,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         f"- Best Sharpe: {safe_float(best_payload.get('sharpe')):.3f}",
         f"- Selection rule: `{best_payload.get('selection_rule', 'n/a')}`",
         f"- Variants: {variant_count}",
+        f"- SEC signal rows merged: {best_payload.get('sec_signal_rows_merged', 0)}",
         "",
         "Promotion requires target gates, stress windows, and human approval.",
         "",
@@ -543,10 +572,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--no-integer-shares", action="store_true")
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="future_heavy,monster_heavy,rs_heavy,leader_onset_shadow")
+    parser.add_argument("--styles", default="future_heavy,monster_heavy,rs_heavy,leader_onset_shadow,leader_onset_sec_shadow")
+    parser.add_argument("--sec-signals", default=DEFAULT_SEC_SIGNALS, help="Optional PIT SEC ownership signal parquet/csv.")
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.33,0.50")
-    parser.add_argument("--max-variants", type=int, default=18)
+    parser.add_argument("--max-variants", type=int, default=30)
     parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
     parser.add_argument("--min-price", type=float, default=5.0)

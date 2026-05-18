@@ -143,12 +143,33 @@ def build_form4_signals(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = Non
     return pd.DataFrame(rows).sort_values("early_evidence_score", ascending=False)
 
 
+def load_as_of_dates(path: Path, column: str) -> list[pd.Timestamp]:
+    if not path.exists():
+        return []
+    try:
+        frame = read_table(path)
+    except Exception:
+        return []
+    if frame.empty or column not in frame.columns:
+        return []
+    dates = pd.to_datetime(frame[column], errors="coerce", utc=True).dropna()
+    if dates.empty:
+        return []
+    return [pd.Timestamp(dt).normalize() for dt in sorted(dates.unique())]
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     tx = read_table(repo_path(args.transactions))
     as_of = pd.to_datetime(args.as_of_date, errors="coerce", utc=True) if args.as_of_date else None
     if as_of is not None and pd.isna(as_of):
         as_of = None
-    signals = build_form4_signals(tx, as_of=as_of, window_days=args.window_days)
+    as_of_dates = load_as_of_dates(repo_path(args.as_of_dates_csv), args.as_of_date_column) if args.as_of_dates_csv else []
+    if as_of_dates:
+        parts = [build_form4_signals(tx, as_of=dt, window_days=args.window_days) for dt in as_of_dates]
+        parts = [part for part in parts if not part.empty]
+        signals = pd.concat(parts, ignore_index=True) if parts else build_form4_signals(tx.iloc[0:0], as_of=as_of, window_days=args.window_days)
+    else:
+        signals = build_form4_signals(tx, as_of=as_of, window_days=args.window_days)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     pit_output = repo_path(args.pit_output)
@@ -161,6 +182,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "transaction_rows": int(len(tx)),
         "signal_rows": int(len(signals)),
+        "historical_as_of_dates": int(len(as_of_dates)),
         "as_of_date": str(signals["as_of_date"].iloc[0]) if not signals.empty and "as_of_date" in signals.columns else "",
         "top_tickers": signals["ticker"].head(10).tolist() if not signals.empty else [],
         "outputs": {
@@ -190,6 +212,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pit-output", default=DEFAULT_PIT_OUTPUT)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--as-of-date", default="", help="UTC timestamp/date. Features only use rows with available_from <= this.")
+    parser.add_argument("--as-of-dates-csv", default="", help="Optional CSV/parquet with PIT evaluation dates, e.g. candidate_replay_book.csv.")
+    parser.add_argument("--as-of-date-column", default="rebalance_date")
     parser.add_argument("--window-days", type=int, default=90)
     return parser.parse_args()
 

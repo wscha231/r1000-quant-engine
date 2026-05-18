@@ -15,6 +15,12 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/selection_quality"
+DEFAULT_SEC_SIGNALS = "data_pit/sec/sec_ownership_signals.parquet"
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.sec_signal_merge import SEC_SIGNAL_COLUMNS, load_and_merge_sec_signals  # noqa: E402
 
 FACTOR_COLUMNS = [
     "score_total",
@@ -103,6 +109,9 @@ def prepare_frame(frame: pd.DataFrame) -> pd.DataFrame:
             "relative_strength_composite": 0.05,
             "oneil_leadership_score": 0.04,
             "governance_catalyst_score": 0.03,
+            "early_evidence_score": 0.06,
+            "sec_form4_cluster_buy_score": 0.04,
+            "evidence_confidence_score": 0.02,
         }
         score = pd.Series(0.0, index=d.index, dtype=float)
         used_weight = 0.0
@@ -276,6 +285,8 @@ def render_report(summary: dict[str, Any]) -> str:
         f"- months: {summary.get('months')}",
         f"- best factor by IC: `{summary.get('best_factor_by_monthly_ic', '')}`",
         f"- best factor by top-k excess: `{summary.get('best_factor_by_topk_excess', '')}`",
+        f"- SEC signal rows merged: {summary.get('sec_signal_rows_merged', 0)}",
+        f"- SEC signal coverage: {safe_float(summary.get('sec_signal_coverage'), 0.0):.2%}",
         "",
         "Use this to decide whether weak performance is selection quality, broker conversion, or execution churn.",
         "",
@@ -283,11 +294,22 @@ def render_report(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DEFAULT_OUTPUT_DIR, top_n: int = 30) -> dict[str, Any]:
+def run(
+    latest_run: str | Path = DEFAULT_LATEST_RUN,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    top_n: int = 30,
+    sec_signals: str | Path = DEFAULT_SEC_SIGNALS,
+) -> dict[str, Any]:
     latest = repo_path(latest_run)
     out = repo_path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    frame = prepare_frame(load_candidate_book(latest))
+    raw = load_candidate_book(latest)
+    sec_path = repo_path(sec_signals) if sec_signals else Path("")
+    sec_signal_source = ""
+    if sec_signals and sec_path.exists() and not raw.empty:
+        raw = load_and_merge_sec_signals(raw, sec_path, date_col="rebalance_date", overwrite=False)
+        sec_signal_source = str(sec_path)
+    frame = prepare_frame(raw)
     if frame.empty:
         payload = {
             "status": "blocked",
@@ -322,6 +344,10 @@ def run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DE
         "latest_run": str(latest),
         "rows": int(len(frame)),
         "months": int(frame["rebalance_date"].nunique()),
+        "sec_signal_source": sec_signal_source,
+        "sec_signal_rows_merged": int(frame["sec_signal_available"].sum()) if "sec_signal_available" in frame.columns else 0,
+        "sec_signal_coverage": float(frame["sec_signal_available"].mean()) if "sec_signal_available" in frame.columns and len(frame) else 0.0,
+        "sec_factor_columns": [col for col in SEC_SIGNAL_COLUMNS if col in frame.columns],
         "best_factor_by_monthly_ic": best_ic,
         "best_factor_by_topk_excess": best_topk,
         "factor_count": int(len(ic)),
@@ -354,12 +380,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--top-n", type=int, default=30)
+    parser.add_argument("--sec-signals", default=DEFAULT_SEC_SIGNALS, help="Optional PIT SEC ownership signals parquet/csv.")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = run(args.latest_run, args.output_dir, args.top_n)
+    payload = run(args.latest_run, args.output_dir, args.top_n, args.sec_signals)
     print(json.dumps({"status": payload.get("status"), "rows": payload.get("rows")}, sort_keys=True))
     return 0
 

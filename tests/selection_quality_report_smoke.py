@@ -37,9 +37,22 @@ def test_selection_quality_report_emits_ic_and_topk_outputs() -> None:
         out_dir = latest / "reports"
         out_dir.mkdir(parents=True)
         pd.DataFrame(rows).to_csv(out_dir / "candidate_replay_book.csv", index=False)
-        payload = run(latest, root / "out", top_n=5)
+        sec_path = root / "sec_ownership_signals.parquet"
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "T29",
+                    "as_of_date": "2026-01-15",
+                    "early_evidence_score": 0.9,
+                    "sec_form4_cluster_buy_score": 0.8,
+                    "evidence_confidence_score": 0.7,
+                }
+            ]
+        ).to_parquet(sec_path, index=False)
+        payload = run(latest, root / "out", top_n=5, sec_signals=sec_path)
         assert payload["status"] == "completed", payload
         assert payload["rows"] == 90, payload
+        assert payload["sec_signal_rows_merged"] == 3, payload
         assert payload["best_factor_by_monthly_ic"] in {"score_total", "portfolio_monster_early_score", "leader_onset_score"}, payload
         ic = pd.read_csv(root / "out" / "factor_ic_by_horizon.csv")
         assert not ic.empty

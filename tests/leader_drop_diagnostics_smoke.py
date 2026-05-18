@@ -88,6 +88,18 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
             reports / "operating_main_target_book.csv",
             index=False,
         )
+        sec_path = root / "sec_ownership_signals.parquet"
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "MISS",
+                    "as_of_date": "2026-01-15",
+                    "early_evidence_score": 0.85,
+                    "sec_form4_cluster_buy_score": 0.90,
+                    "evidence_confidence_score": 0.75,
+                }
+            ]
+        ).to_parquet(sec_path, index=False)
         for portfolio in ["main", "concentrated"]:
             out = latest / "account_ledger_preview" / portfolio
             out.mkdir(parents=True)
@@ -118,7 +130,7 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
                     }
                 ]
             ).to_csv(broker / "trades.csv", index=False)
-        payload = run(latest, root / "out", watchlist="DROP,MISS,ABSENT")
+        payload = run(latest, root / "out", watchlist="DROP,MISS,ABSENT", sec_signals=sec_path)
         assert payload["status"] == "completed", payload
         assert payload["rows"] >= 4, payload
         detail = pd.read_csv(root / "out" / "leader_drop_by_gate.csv")
@@ -134,6 +146,8 @@ def test_leader_drop_diagnostics_tracks_prefilter_and_order_feasibility() -> Non
             assert col in detail.columns
         miss = detail[detail["ticker"].eq("MISS")].iloc[0]
         assert str(miss["first_scored_date"]) == "2026-01-31"
+        assert float(miss["early_evidence_score"]) == 0.85
+        assert str(miss["sec_signal_as_of_date"]) == "2026-01-15"
         assert float(miss["missed_return_after_onset"]) == 0.40
 
 

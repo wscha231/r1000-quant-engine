@@ -110,6 +110,59 @@ All entries must be written in English. Entries must be predictable and machine-
   - SEC evidence is not merged into candidate books yet. It is ready for a follow-up shadow merge and selection-quality evaluation.
   - 13D/G, 8-K, 13F, and Form 144 are not implemented in this MVP.
 
+### 10:11 KST - sec-shadow-leader-onset-merge
+
+- scope:
+  - Merge SEC ownership shadow signals into selection-quality, leader-drop, and leader-onset alpha-selector diagnostics with point-in-time date guards. This remains research-only and does not change production scores, portfolio defaults, broker execution, or promotion behavior.
+- files:
+  - `tools/sec_signal_merge.py` ->adds shared PIT merge helpers for SEC ownership signal parquet/csv files.
+  - `tools/run_sec_ownership_signals.py` ->adds historical as-of date panel generation from candidate replay dates.
+  - `tools/run_selection_quality_report.py` ->merges SEC ownership signals before factor IC/top-k/decile diagnostics and reports SEC coverage.
+  - `tools/run_alpha_selector_broker_grid.py` ->merges SEC signals into leader-onset scoring and adds a research-only `leader_onset_sec_shadow` selector style.
+  - `tools/run_leader_drop_diagnostics.py` ->merges SEC signals into missed-leader path diagnostics and surfaces SEC evidence/date columns.
+  - `tests/sec_signal_merge_smoke.py` ->adds no-lookahead coverage for PIT SEC signal joins.
+  - `tests/selection_quality_report_smoke.py` ->checks SEC signal coverage in selection-quality diagnostics.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->checks SEC-aware leader-onset selector output columns.
+  - `tests/leader_drop_diagnostics_smoke.py` ->checks SEC evidence appears in missed-leader path diagnostics.
+  - `tools/run_pr_validation.py` ->adds SEC signal merge smoke coverage.
+  - `research/sec_edgar_evidence_layer_20260518/plan.md` ->updates the rollout plan with the completed shadow merge phase.
+- symbols_added:
+  - `prepare_sec_signals(signals: pd.DataFrame) -> pd.DataFrame` ->normalizes SEC ownership signals and signal as-of dates for PIT joins.
+  - `merge_sec_ownership_signals(frame: pd.DataFrame, signals: pd.DataFrame, *, date_col: str = "rebalance_date", overwrite: bool = False) -> pd.DataFrame` ->joins only SEC signals available on or before each row date.
+  - `load_and_merge_sec_signals(frame: pd.DataFrame, signals_path: str | Path, *, date_col: str = "rebalance_date", overwrite: bool = False) -> pd.DataFrame` ->loads SEC signals from disk and applies the PIT join.
+  - `load_as_of_dates(path: Path, column: str) -> list[pd.Timestamp]` ->loads historical PIT evaluation dates for SEC ownership signal panel generation.
+- symbols_changed:
+  - `build_form4_signals(frame: pd.DataFrame, *, as_of: pd.Timestamp | None = None, window_days: int = 90) -> pd.DataFrame` ->now supports historical panel generation through the CLI wrapper.
+  - `prepare_frame(frame: pd.DataFrame) -> pd.DataFrame` in `tools/run_selection_quality_report.py` ->includes SEC evidence columns in generated `leader_onset_score` when PIT signals are available.
+  - `add_leader_onset_score(frame: pd.DataFrame) -> pd.DataFrame` ->includes SEC evidence columns in the research-only leader-onset shadow score when available.
+  - `STYLE_WEIGHTS` in `tools/run_alpha_selector_broker_grid.py` ->adds the `leader_onset_sec_shadow` research-only selector style.
+  - `historical_candidate_stats(frame: pd.DataFrame) -> dict[str, dict[str, Any]]` ->treats SEC evidence signals as possible leader-onset markers in path diagnostics.
+  - `build_rows(latest_run: Path, watchlist: list[str], sec_signals: str | Path = DEFAULT_SEC_SIGNALS) -> tuple[list[dict[str, Any]], dict[str, Any]]` ->merges SEC signal evidence into scored/replay leader-drop diagnostics.
+  - `DEFAULT_TESTS` in `tools/run_pr_validation.py` ->adds SEC PIT signal merge smoke coverage.
+- config_fields_added:
+  - `--sec-signals: str = data_pit/sec/sec_ownership_signals.parquet` ->optional SEC signal input for selection-quality, leader-drop, and alpha-selector diagnostics.
+  - `--as-of-dates-csv: str = ""` ->optional candidate/date file for historical SEC ownership signal panel generation.
+  - `--as-of-date-column: str = rebalance_date` ->date column used with `--as-of-dates-csv`.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/selection_quality/selection_quality_summary.json` ->now includes SEC signal source, merged row count, coverage, and SEC factor columns when signals exist.
+  - `outputs/leader_drop_diagnostics/leader_drop_by_gate.csv` ->now includes SEC evidence columns and signal as-of dates when signals exist.
+  - `outputs/alpha_selector_broker_grid/*/target_book.csv` ->now preserves SEC evidence columns for SEC-aware leader-onset selector variants.
+- automation_impact:
+  - none. Existing scheduled workflows are unchanged. If SEC signal parquet exists in the artifact/data layer, report-only diagnostics can consume it automatically; no production score, target book default, broker execution, GDrive path, or auto-promotion behavior changes.
+- validation:
+  - `py -3 tests\sec_signal_merge_smoke.py` ->pass.
+  - `py -3 tests\selection_quality_report_smoke.py` ->pass.
+  - `py -3 tests\leader_drop_diagnostics_smoke.py` ->pass.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->pass.
+  - `py -3 tests\sec_cik_schema_smoke.py; py -3 tests\sec_form4_parser_smoke.py; py -3 tests\sec_pit_available_from_smoke.py` ->pass.
+  - `py -3 -m py_compile tools\sec_signal_merge.py tools\run_sec_ownership_signals.py tools\run_selection_quality_report.py tools\run_leader_drop_diagnostics.py tools\run_alpha_selector_broker_grid.py` ->pass.
+  - `py -3 tools\run_pr_validation.py --quiet` ->pass; 46/46 tests passed.
+- risks_or_notes:
+  - SEC signal history is only as complete as the collected Form 4 filings. Run real artifact fast replay before treating SEC coverage as meaningful.
+  - `leader_onset_sec_shadow` is a challenger diagnostic only. Production use still requires broker-ledger improvement, leakage audit, cost sensitivity, stress windows, and human approval.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution

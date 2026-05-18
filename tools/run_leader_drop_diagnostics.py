@@ -21,7 +21,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/leader_drop_diagnostics"
 DEFAULT_WATCHLIST = "SNDK,INTC,AMD,ARM,ASML,MU,WDC,STX,LITE,CIEN,GEV,PLTR,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,LEU,SMR,OKLO"
+DEFAULT_SEC_SIGNALS = "data_pit/sec/sec_ownership_signals.parquet"
 CASH_TICKERS = {"CASH", "__CASH__"}
+
+import sys
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.sec_signal_merge import load_and_merge_sec_signals  # noqa: E402
 
 
 def repo_path(value: str | Path) -> Path:
@@ -184,6 +192,8 @@ def historical_candidate_stats(frame: pd.DataFrame) -> dict[str, dict[str, Any]]
         "portfolio_future_winner_engine_score",
         "portfolio_early_scout_engine_score",
         "rs_acceleration_score",
+        "early_evidence_score",
+        "sec_form4_cluster_buy_score",
         "period_forward_return",
     ]:
         if col in d.columns:
@@ -198,6 +208,10 @@ def historical_candidate_stats(frame: pd.DataFrame) -> dict[str, dict[str, Any]]
             onset_mask = onset_mask | g["portfolio_future_winner_engine_score"].fillna(0.0).ge(0.65)
         if "rs_acceleration_score" in g.columns:
             onset_mask = onset_mask | g["rs_acceleration_score"].fillna(0.0).ge(0.65)
+        if "early_evidence_score" in g.columns:
+            onset_mask = onset_mask | g["early_evidence_score"].fillna(0.0).ge(0.45)
+        if "sec_form4_cluster_buy_score" in g.columns:
+            onset_mask = onset_mask | g["sec_form4_cluster_buy_score"].fillna(0.0).ge(0.50)
         onset = g[onset_mask].head(1)
         first = g.iloc[0]
         best_forward = safe_float(g.get("period_forward_return", pd.Series(dtype=float)).max(), math.nan)
@@ -292,10 +306,19 @@ def classify(row: dict[str, Any]) -> str:
     return "rank_or_cap_not_selected"
 
 
-def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def build_rows(latest_run: Path, watchlist: list[str], sec_signals: str | Path = DEFAULT_SEC_SIGNALS) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     pre = latest_by_ticker(read_csv(latest_run / "reports" / "leader_drop_diagnostics_latest.csv"))
-    scored = latest_by_ticker(read_csv(latest_run / "scored_latest.csv"))
+    scored_raw = read_csv(latest_run / "scored_latest.csv")
     replay_frame = read_csv(latest_run / "reports" / "candidate_replay_book.csv")
+    sec_path = repo_path(sec_signals) if sec_signals else Path("")
+    sec_signal_source = ""
+    if sec_signals and sec_path.exists():
+        if not scored_raw.empty:
+            scored_raw = load_and_merge_sec_signals(scored_raw, sec_path, date_col="rebalance_date", overwrite=False)
+        if not replay_frame.empty:
+            replay_frame = load_and_merge_sec_signals(replay_frame, sec_path, date_col="rebalance_date", overwrite=False)
+        sec_signal_source = str(sec_path)
+    scored = latest_by_ticker(scored_raw)
     replay = latest_by_ticker(replay_frame)
     if scored.empty and not replay.empty:
         scored = replay
@@ -373,6 +396,14 @@ def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, A
             "oneil_leadership_score",
             "industry_group_strength_score",
             "relative_strength_composite",
+            "early_evidence_score",
+            "evidence_confidence_score",
+            "sec_form4_open_market_buy_score",
+            "sec_form4_cluster_buy_score",
+            "sec_form4_ceo_cfo_buy_score",
+            "sec_form4_sale_pressure_score",
+            "sec_signal_as_of_date",
+            "sec_signal_available",
             "period_forward_return",
         ]:
             row[col] = srow.get(col, "")
@@ -418,6 +449,7 @@ def build_rows(latest_run: Path, watchlist: list[str]) -> tuple[list[dict[str, A
             "prefilter_diagnostics": str(latest_run / "reports" / "leader_drop_diagnostics_latest.csv"),
             "scored_latest": str(latest_run / "scored_latest.csv"),
             "candidate_replay_book": str(latest_run / "reports" / "candidate_replay_book.csv"),
+            "sec_ownership_signals": sec_signal_source,
             "main_target": str(latest_run / "portfolio_latest.csv"),
             "concentrated_target": str(latest_run / "concentrated_portfolio_latest.csv"),
         },
@@ -447,12 +479,17 @@ def render_report(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run(latest_run: str | Path = DEFAULT_LATEST_RUN, output_dir: str | Path = DEFAULT_OUTPUT_DIR, watchlist: str = DEFAULT_WATCHLIST) -> dict[str, Any]:
+def run(
+    latest_run: str | Path = DEFAULT_LATEST_RUN,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    watchlist: str = DEFAULT_WATCHLIST,
+    sec_signals: str | Path = DEFAULT_SEC_SIGNALS,
+) -> dict[str, Any]:
     latest = repo_path(latest_run)
     out = repo_path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     watch = [ticker(t) for t in str(watchlist or "").replace(";", ",").split(",") if ticker(t)]
-    rows, payload = build_rows(latest, watch)
+    rows, payload = build_rows(latest, watch, sec_signals)
     missed = payload.pop("missed_leader_candidates", [])
     pd.DataFrame(rows).to_csv(out / "leader_drop_by_gate.csv", index=False)
     pd.DataFrame(missed).to_csv(out / "missed_leader_candidates.csv", index=False)
@@ -466,12 +503,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--watchlist", default=DEFAULT_WATCHLIST)
+    parser.add_argument("--sec-signals", default=DEFAULT_SEC_SIGNALS)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    payload = run(args.latest_run, args.output_dir, args.watchlist)
+    payload = run(args.latest_run, args.output_dir, args.watchlist, args.sec_signals)
     print(json.dumps({"status": payload.get("status"), "rows": payload.get("rows")}, sort_keys=True))
     return 0
 

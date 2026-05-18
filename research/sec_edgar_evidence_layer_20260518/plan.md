@@ -27,6 +27,23 @@ broker-ledger evidence and leakage audits justify promotion.
 - `tools/run_sec_ownership_signals.py`
   - creates shadow Form 4 evidence scores
   - filters strictly by `available_from <= as_of_date`
+  - can build historical PIT signal panels from candidate replay dates
+
+## Phase 2 Implemented
+
+- `tools/sec_signal_merge.py`
+  - merges `sec_ownership_signals.parquet` into dated candidate/scored frames
+  - enforces `signal.as_of_date <= row.rebalance_date` for historical rows
+  - uses latest-per-ticker only for latest snapshot frames without dates
+- `tools/run_selection_quality_report.py`
+  - merges SEC shadow signals before factor IC / top-k / decile diagnostics
+  - reports SEC signal coverage without changing target weights
+- `tools/run_alpha_selector_broker_grid.py`
+  - merges SEC signals before leader-onset scoring
+  - adds `leader_onset_sec_shadow` as a research-only broker-ledger challenger style
+- `tools/run_leader_drop_diagnostics.py`
+  - merges SEC signals into missed-leader path diagnostics
+  - surfaces SEC evidence and signal dates in leader drop reports
 
 ## Outputs
 
@@ -47,9 +64,10 @@ broker-ledger evidence and leakage audits justify promotion.
 - `early_evidence_score`
 - `evidence_confidence_score`
 
-These are available for diagnostics and selection-quality reports only. They
-are not added to `score`, `score_total`, `DEFAULT_FEATURES`, or live target
-selection.
+These are available for diagnostics, selection-quality reports, leader-drop
+reports, and research-only alpha-selector challenger styles. They are not added
+to `score`, `score_total`, `DEFAULT_FEATURES`, production portfolio defaults,
+or live target selection.
 
 ## Anti-Leakage Rules
 
@@ -62,12 +80,10 @@ selection.
 
 ## Next Phases
 
-1. Add 13D/G activist event parser.
-2. Add 8-K material event parser.
-3. Add 13F smart-money validation layer.
-4. Merge `sec_ownership_signals.parquet` into candidate replay books as shadow
-   features only.
-5. Evaluate Form 4 shadow features in selection quality and leader-drop reports.
-6. Consider tiny production weights only after broker-ledger challenger results
+1. Run a fast replay/full sidecar on real artifacts to measure SEC signal
+   coverage and whether `leader_onset_sec_shadow` changes broker-ledger results.
+2. Add 13D/G activist event parser.
+3. Add 8-K material event parser.
+4. Add 13F smart-money validation layer.
+5. Consider tiny production weights only after broker-ledger challenger results
    improve under cost/stress/leakage gates.
-
