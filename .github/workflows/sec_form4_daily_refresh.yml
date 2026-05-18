@@ -1,0 +1,189 @@
+name: SEC Form 4 Daily Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: 'Comma-separated issuer tickers. Keep bounded for SEC fair access.'
+        type: string
+        default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
+      max_filings:
+        description: 'Max indexed Form 4 filings to parse in this shard'
+        type: string
+        default: '500'
+      safety_delay_hours:
+        description: 'PIT safety delay after SEC accepted_at'
+        type: string
+        default: '0'
+  schedule:
+    # 08:20 KST Tue-Sat, after most prior US after-close Form 4 filings are visible.
+    - cron: '20 23 * * 1-5'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sec-evidence-data-lake-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sec_form4_daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check recent GitHub Actions overlap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p outputs/full_rebuild_logs
+          gh run list --repo "$GITHUB_REPOSITORY" --limit 20 --json databaseId,workflowName,status,conclusion,headBranch,createdAt,url \
+            | tee outputs/full_rebuild_logs/actions_overlap_preflight.json
+          gh run list --repo "$GITHUB_REPOSITORY" --status in_progress --limit 20 || true
+
+      - name: Restore SEC cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data_raw/sec
+            data_pit/sec
+          key: sec-form4-daily-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            sec-form4-daily-${{ runner.os }}-
+            sec-evidence-${{ runner.os }}-
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore SEC data lake from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
+
+      - name: Collect and score Form 4
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
+          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
+          MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
+          SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_ownership_signals data_pit/sec data_raw/sec
+          python tools/run_sec_submissions_collector.py \
+            --tickers "$TICKERS" \
+            --universe-file ./.missing_universe.csv \
+            --forms '4,4/A' \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
+          python tools/run_sec_form4_parser.py \
+            --filings-index data_pit/sec/sec_filings_index.parquet \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --max-filings "$MAX_FILINGS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          python tools/run_sec_ownership_signals.py \
+            --form4 data_pit/sec/form4_transactions.parquet \
+            --output-dir outputs/sec_ownership_signals \
+            --lookback-days 90 \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_signals.log
+
+      - name: Upload SEC Form 4 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-form4-daily-${{ github.run_id }}
+          path: |
+            data_pit/sec/sec_filings_index.*
+            data_pit/sec/form4_transactions.*
+            data_pit/sec/*summary.json
+            outputs/sec_ownership_signals/
+            outputs/full_rebuild_logs/sec_form4_*.log
+          retention-days: 14
+
+      - name: Sync SEC Form 4 data lake to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
+            if [ -d "$d" ]; then
+              rclone copy "$d" "$BASE$d/"
+            fi
+          done

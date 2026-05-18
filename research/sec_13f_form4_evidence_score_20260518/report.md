@@ -104,3 +104,36 @@ MDD -22.68%
 ```
 
 The final decision must use `broker_ledger_next_close`, not proxy or legacy metrics.
+
+## Operations
+
+SEC data is stored outside git and reused across computers.
+
+```text
+data_raw/sec/
+  Raw SEC company tickers, submissions JSON, and filing XML cache.
+
+data_pit/sec/
+  Normalized PIT parquet/csv tables used by evidence scoring and backtests.
+
+outputs/sec_ownership_signals/
+outputs/sec_institutional_signals/
+outputs/sec_evidence_learning/
+  Report and research artifacts.
+```
+
+Google Drive is the long-term shared data lake. GitHub Actions cache is only a
+speed layer and can expire. Scheduled SEC workflows restore from Google Drive
+first, update the local data lake, upload artifacts, then sync back to Google
+Drive.
+
+Before manually starting SEC or backtest workflows, check recent GitHub Actions
+runs for overlap:
+
+```powershell
+gh run list --repo wscha231/r1000-quant-engine --limit 20
+gh run list --repo wscha231/r1000-quant-engine --status in_progress --limit 20
+```
+
+The SEC workflows also use GitHub Actions `concurrency` groups so Form 4, 13F,
+and SEC learning jobs do not write the shared SEC data lake at the same time.
