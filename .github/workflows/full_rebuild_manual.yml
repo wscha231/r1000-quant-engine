@@ -486,9 +486,12 @@ jobs:
           python tools/run_alpha_selector_leader_circuit_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_leader_circuit_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_leader_circuit_grid_concentrated.log || true
           python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/main --price-cache cache_prices --portfolio-kind main --output-dir outputs/alpha_selector_shadow_drawdown_grid/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_main.log || true
           python tools/run_alpha_selector_shadow_drawdown_grid.py --alpha-selector-dir outputs/alpha_selector_broker_grid/concentrated --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/alpha_selector_shadow_drawdown_grid/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 --top-variants 2 2>&1 | tee outputs/full_rebuild_logs/alpha_selector_shadow_drawdown_grid_concentrated.log || true
+          python tools/run_main_v4_future_winner_evidence.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/main_v4_future_winner_evidence --fill-mode next_close --cost-bps 25 --cost-bps-list 25,50,75,100 --max-fill-lag-days 7 --target-ns 12,15,18 --score-sources future_winner,future_winner_market_confirmation,leader_onset_shadow,leader_onset_sec_shadow --single-name-caps 0.33 --cash-floor 0.03 2>&1 | tee outputs/full_rebuild_logs/main_v4_future_winner_evidence.log || true
+          python tools/run_concentrated_v3_broker_selected_leaders.py --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/concentrated_v3_broker_selected_leaders --fill-mode next_close --cost-bps 25 --cost-bps-list 25,50,75,100 --max-fill-lag-days 7 --target-ns 2,3,5 --single-name-caps 0.40,0.45,0.50 --same-theme-caps 0.70,0.80 --staged-entry 0.50,0.80,1.00 --score-sources future_market,monster_future,leader_onset_sec 2>&1 | tee outputs/full_rebuild_logs/concentrated_v3_broker_selected_leaders.log || true
           python tools/run_operating_event_backtest.py --latest-run outputs --output-dir outputs/operating_event_backtest 2>&1 | tee outputs/full_rebuild_logs/operating_event_backtest.log || true
           python tools/run_broker_gap_attribution.py --latest-run outputs --output-dir outputs/broker_gap_attribution 2>&1 | tee outputs/full_rebuild_logs/broker_gap_attribution.log || true
           python tools/run_broker_trade_journal.py --latest-run outputs --output-dir outputs/broker_trade_journal 2>&1 | tee outputs/full_rebuild_logs/broker_trade_journal.log || true
+          python tools/run_hold_vs_replace_audit.py --latest-run outputs --price-cache cache_prices --output-dir outputs/hold_vs_replace_audit 2>&1 | tee outputs/full_rebuild_logs/hold_vs_replace_audit.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
           python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
           python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
@@ -612,9 +615,12 @@ jobs:
             outputs/alpha_selector_leader_circuit_grid/
             outputs/alpha_selector_dynamic_regime_grid/
             outputs/alpha_selector_shadow_drawdown_grid/
+            outputs/main_v4_future_winner_evidence/
+            outputs/concentrated_v3_broker_selected_leaders/
             outputs/operating_event_backtest/
             outputs/broker_gap_attribution/
             outputs/broker_trade_journal/
+            outputs/hold_vs_replace_audit/
             outputs/account_ledger_preview/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
@@ -847,7 +853,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation cash_policy_reconciliation live_trading_safety account_ledger_preview user_portfolio_reports broker_replay target_snapshots data_readiness reports selection_quality weekly_evaluation theme_leadership_tape theme_concentration_challenger; do
+          for d in account_evaluation portfolio_goal_search leader_drop_diagnostics market_circuit_attribution concentrated_proxy_to_broker_reconciliation main_v4_future_winner_evidence concentrated_v3_broker_selected_leaders hold_vs_replace_audit cash_policy_reconciliation live_trading_safety account_ledger_preview user_portfolio_reports broker_replay target_snapshots data_readiness reports selection_quality weekly_evaluation theme_leadership_tape theme_concentration_challenger; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else

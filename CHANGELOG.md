@@ -194,6 +194,55 @@ All entries must be written in English. Entries must be predictable and machine-
   - First run may still download the large SEC archive if Drive has no canonical copy or the restored copy is stale.
   - Google Drive auth must be configured through `RCLONE_CONFIG_GDRIVE` or `GOOGLE_SERVICE_ACCOUNT_KEY`.
 
+### 13:50 KST - official-replay-and-v4-challengers
+
+- scope:
+  - Repair fast replay official-account freshness and add research-only broker-ledger challengers for Main v4 future-winner/evidence selection, Concentrated v3 broker-selected leaders, and hold-vs-replace diagnostics. Production defaults remain unchanged.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds explicit `replay_mode`, removes the stale unconditional focused replay exit from the default path, runs Main v4 / Concentrated v3 challengers, and syncs their outputs.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs and exports Main v4, Concentrated v3, and hold-vs-replace sidecars in Tier-3 full rebuilds.
+  - `.github/workflows/sec_edgar_form4_refresh.yml` ->adds scheduled/manual SEC Form 4 raw/PIT/signal restore, refresh, manifest, artifact, and Google Drive sync.
+  - `tools/run_main_v4_future_winner_evidence.py` ->adds a research-only main challenger using future-winner, market confirmation, leader-onset, and SEC shadow evidence variants with no-trade-band hold discipline.
+  - `tools/run_concentrated_v3_broker_selected_leaders.py` ->adds a research-only concentrated challenger that excludes N7 champion selection and evaluates N2/N3/N5 through broker-ledger replay.
+  - `tools/run_hold_vs_replace_audit.py` ->adds diagnostic-only sell-vs-replacement forward-path attribution from completed broker trades.
+  - `tests/fast_replay_official_freshness_smoke.py` ->checks fast replay cannot silently label focused challenger output as official account evidence.
+  - `tests/main_v4_future_winner_evidence_smoke.py` ->checks Main v4 target generation, SEC shadow merge, broker replay, and no-forward-label target output.
+  - `tests/concentrated_v3_broker_selected_leaders_smoke.py` ->checks Concentrated v3 excludes N7 and produces broker-ledger output.
+  - `tests/hold_vs_replace_audit_smoke.py` ->checks wrong-substitution detection.
+  - `tests/sec_edgar_form4_refresh_workflow_smoke.py` ->checks SEC Form 4 Drive data-lake restore/sync workflow wiring.
+  - `tools/run_pr_validation.py` ->adds the new smoke tests to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `run_main_v4_future_winner_evidence.run(args: argparse.Namespace) -> dict[str, Any]` ->builds and broker-replays Main v4 challenger variants.
+  - `run_main_v4_future_winner_evidence.build_target_book(...) -> pd.DataFrame` ->creates no-forward-label target books with winner-intact hold discipline.
+  - `run_concentrated_v3_broker_selected_leaders.run(args: argparse.Namespace) -> dict[str, Any]` ->builds and broker-replays Concentrated v3 N2/N3/N5 variants.
+  - `run_concentrated_v3_broker_selected_leaders.build_target_book(...) -> pd.DataFrame` ->creates staged-entry concentrated target books with same-theme caps.
+  - `run_hold_vs_replace_audit.run(args: argparse.Namespace) -> dict[str, Any]` ->writes hold-vs-replace summary and wrong substitution rows.
+  - `run_hold_vs_replace_audit.forward_return(price_cache: Path, ticker: str, start_date: Any, horizon_days: int) -> dict[str, Any]` ->computes diagnostic post-trade forward returns from price-cache bars.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `replay_mode: workflow_dispatch choice = official_operating` ->selects official operating replay, focused challenger replay, or full sidecars in the fast replay workflow.
+- breaking_changes:
+  - none. `focused_challenger` mode now writes a non-official notice instead of normal account evaluation; default fast replay remains official-operating mode.
+- outputs:
+  - `outputs/main_v4_future_winner_evidence/` ->research-only Main v4 target books, broker metrics, summary, and report.
+  - `outputs/concentrated_v3_broker_selected_leaders/` ->research-only Concentrated v3 target books, broker metrics, summary, and report.
+  - `outputs/hold_vs_replace_audit/` ->wrong substitution diagnostics by portfolio.
+  - `data_raw/sec/`, `data_pit/sec/`, `manifests/sec_edgar/latest_form4_manifest.json` ->SEC Form 4 raw/PIT/signal data-lake artifacts.
+- automation_impact:
+  - Fast replay default now refreshes operating broker replay/account evaluation instead of exiting early after focused challenger output. SEC Form 4 has a dedicated weekday scheduled/manual data-lake refresh. Full rebuild exports the new challenger and diagnostic artifacts to GitHub and Google Drive research-run paths.
+- validation:
+  - `py -3 tools\run_pr_validation.py` ->pass; 51/51 tests passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->pass.
+  - `py -3 tests\fast_replay_official_freshness_smoke.py` ->pass.
+  - `py -3 tests\main_v4_future_winner_evidence_smoke.py` ->pass.
+  - `py -3 tests\concentrated_v3_broker_selected_leaders_smoke.py` ->pass.
+  - `py -3 tests\hold_vs_replace_audit_smoke.py` ->pass.
+  - `py -3 tests\sec_edgar_form4_refresh_workflow_smoke.py` ->pass.
+- risks_or_notes:
+  - Main v4 and Concentrated v3 are challenger sidecars only. They are not production defaults and require Tier-2/Tier-3 broker-ledger evidence before promotion discussion.
+  - SEC Form 4 coverage depends on the refresh workflow and Drive auth; missing SEC signals reduce evidence confidence but do not block target generation.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution
