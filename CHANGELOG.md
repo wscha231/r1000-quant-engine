@@ -56,6 +56,41 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-18
 
+### 09:03 KST - research-handoff-data-package
+
+- scope:
+  - Add a reusable research handoff packager so SEC data, CAGR/MDD recovery artifacts, manifests, checksums, and restore instructions can be shared through GitHub release assets, GitHub Actions artifacts, or Google Drive without committing large data files.
+- files:
+  - `tools/package_research_handoff.py` ->creates a zip bundle, manifest, README, checksums, and latest manifest for cross-machine/agent handoff.
+  - `tests/research_handoff_package_smoke.py` ->checks bundle creation, manifest flags, checksums, and zip contents.
+  - `tools/run_pr_validation.py` ->adds the research handoff package smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `collect_files(paths: list[str], *, include_heavy: bool) -> tuple[list[Path], list[str]]` ->collects unique existing handoff files and records missing configured inputs.
+  - `build_manifest(...) -> dict[str, Any]` ->builds the machine-readable bundle manifest with branch, commit, file checksums, and restore commands.
+  - `restore_readme(manifest_name: str) -> str` ->renders human restore instructions for another computer or agent.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` ->writes the handoff zip, manifest JSON, README, and latest manifest.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/research_handoff_package_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/research_handoff/r1000_research_handoff_*.zip` ->portable research data bundle for GitHub/GDrive handoff.
+  - `outputs/research_handoff/r1000_research_handoff_*.manifest.json` ->checksummed file manifest.
+  - `outputs/research_handoff/r1000_research_handoff_*.README.md` ->restore instructions.
+  - `outputs/research_handoff/latest_manifest.json` ->latest generated handoff manifest.
+- automation_impact:
+  - PR validation runs one additional handoff packaging smoke test; no production scoring, schedule, or target-book activation changes.
+- validation:
+  - `python -m py_compile tools\package_research_handoff.py tests\research_handoff_package_smoke.py` passed.
+  - `python tests\research_handoff_package_smoke.py` passed.
+  - `python tools\package_research_handoff.py --output-dir outputs\research_handoff --label "r1000 SEC and CAGR-MDD recovery handoff 2026-05-18" --include-heavy` passed, 73 files, 27,466,545-byte bundle.
+  - `python tools\run_pr_validation.py --only research_handoff_package_smoke --only sec_form4_parser_smoke --only agent_board_smoke` passed.
+- risks_or_notes:
+  - The package tool intentionally keeps generated data outside git; upload bundles as GitHub release assets, GitHub Actions artifacts, or Google Drive files.
+  - Heavy files such as enriched candidate replay CSVs require `--include-heavy`.
+
 ### 09:05 KST - sec-form4-live-xsl-parser-fix
 
 - scope:
