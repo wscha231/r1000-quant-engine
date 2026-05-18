@@ -11,6 +11,7 @@ REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_man
 FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.yml"
 FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
+WEEKLY_COMPANYFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "weekly_companyfacts_refresh.yml"
 PIPELINE = ROOT / "r1000_pipeline.py"
 
 MONTHLY_BOOK_TOKENS = [
@@ -557,6 +558,29 @@ def test_data_readiness_preflight_workflow_restores_drive_and_audits_without_ful
         assert forbidden not in text, forbidden
 
 
+def test_weekly_companyfacts_refresh_workflow_uses_drive_cache_and_weekly_staleness() -> None:
+    text = WEEKLY_COMPANYFACTS_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Weekly SEC CompanyFacts Refresh",
+        "0 1 * * 1",
+        "data_raw/free/sec/companyfacts.zip",
+        "tools/refresh_companyfacts_bulk.py",
+        "--max-age-days",
+        "andrewcha231@gmail.com",
+        "rclone copyto",
+        "manifests/sec_companyfacts/latest_manifest.json",
+        "research_runs/weekly_companyfacts/${GITHUB_RUN_ID}/full_rebuild_logs",
+        "weekly-companyfacts-refresh-${{ github.run_id }}",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "python run_local.py --full",
+        "tools/run_broker_ledger_replay.py",
+        "git commit",
+    ]:
+        assert forbidden not in text, forbidden
+
+
 def main() -> int:
     test_workflow_yaml_files_parse()
     test_workflow_keeps_monthly_books()
@@ -567,6 +591,7 @@ def main() -> int:
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
+    test_weekly_companyfacts_refresh_workflow_uses_drive_cache_and_weekly_staleness()
     print("workflow artifact smoke passed")
     return 0
 

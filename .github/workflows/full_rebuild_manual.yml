@@ -122,6 +122,55 @@ jobs:
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
             collector-cache-${{ runner.os }}-
 
+      - name: Restore SEC companyfacts from Google Drive data lake
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          set -euo pipefail
+          mkdir -p outputs data_raw/free/sec outputs/full_rebuild_logs
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[gdrive-restore] no Google Drive auth configured; companyfacts will use cache or download"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if rclone lsf "${BASE}data_raw/free/sec" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive-restore] restoring ${BASE}data_raw/free/sec/companyfacts.zip -> outputs/companyfacts.zip"
+            rclone copyto "${BASE}data_raw/free/sec/companyfacts.zip" outputs/companyfacts.zip --drive-acknowledge-abuse
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+          elif rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive-restore] restoring legacy root companyfacts.zip -> outputs/companyfacts.zip"
+            rclone copyto "${BASE}companyfacts.zip" outputs/companyfacts.zip --drive-acknowledge-abuse
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+          else
+            echo "[gdrive-restore] no companyfacts.zip found in Drive data lake"
+          fi
+          rm -f /tmp/sa.json
+
       # Refresh SEC companyfacts.zip bulk archive if missing or older than 7d.
       # Without this, the pipeline silently falls back to per-CIK API calls
       # which respect companyfacts_refresh_days, but with --no-collector that
@@ -138,6 +187,8 @@ jobs:
             --base-dir "$(pwd)/outputs" \
             --max-age-days 7 \
             --required
+          mkdir -p data_raw/free/sec
+          cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
       - name: Restore engine cache
@@ -744,6 +795,12 @@ jobs:
           # the file refreshed inside the GHA runner cache but never reached
           # gdrive — user could only see "stale" file from a manual upload.
           copy_if_exists outputs/companyfacts.zip "$DEST"
+          if [ -f outputs/companyfacts.zip ]; then
+            mkdir -p data_raw/free/sec
+            cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
+            echo "[gdrive-sync] syncing canonical companyfacts.zip -> ${BASE}data_raw/free/sec/"
+            rclone copy data_raw/free/sec "${BASE}data_raw/free/sec/" --include "companyfacts.zip" --drive-acknowledge-abuse
+          fi
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
           copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
           copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"

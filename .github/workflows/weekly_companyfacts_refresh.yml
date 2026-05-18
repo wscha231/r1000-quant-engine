@@ -1,0 +1,169 @@
+name: Weekly SEC CompanyFacts Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: 'Refresh only when companyfacts.zip is older than this many days'
+        type: string
+        default: '7'
+      required:
+        description: 'Fail the workflow if refresh/download fails'
+        type: boolean
+        default: true
+  schedule:
+    # Mon 10:00 KST. The script still skips download when the Drive copy is fresh.
+    - cron: '0 1 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  weekly_companyfacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs data_raw/free/sec manifests/sec_companyfacts
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[companyfacts] no Google Drive auth configured; refresh will run local-only"
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore companyfacts from Google Drive
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if rclone lsf "${BASE}data_raw/free/sec" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[companyfacts] restoring canonical Drive companyfacts.zip"
+            rclone copyto "${BASE}data_raw/free/sec/companyfacts.zip" data_raw/free/sec/companyfacts.zip --drive-acknowledge-abuse
+          elif rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[companyfacts] restoring legacy root companyfacts.zip"
+            rclone copyto "${BASE}companyfacts.zip" data_raw/free/sec/companyfacts.zip --drive-acknowledge-abuse
+          else
+            echo "[companyfacts] no existing Drive copy found"
+          fi
+
+      - name: Refresh companyfacts if stale
+        env:
+          SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
+        run: |
+          set -euo pipefail
+          MAX_AGE="${{ github.event.inputs.max_age_days || '7' }}"
+          REQUIRED="${{ github.event.inputs.required || 'true' }}"
+          REQUIRED_FLAG=""
+          if [ "$REQUIRED" = "true" ]; then
+            REQUIRED_FLAG="--required"
+          fi
+          python tools/refresh_companyfacts_bulk.py \
+            --base-dir data_raw/free/sec \
+            --max-age-days "$MAX_AGE" \
+            $REQUIRED_FLAG \
+            2>&1 | tee outputs/full_rebuild_logs/weekly_companyfacts_refresh.log
+
+      - name: Write companyfacts manifest
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          path = Path("data_raw/free/sec/companyfacts.zip")
+          payload = {
+              "schema_version": "sec-companyfacts-weekly-refresh-v1",
+              "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+              "path": str(path),
+              "exists": path.exists(),
+              "size_bytes": path.stat().st_size if path.exists() else 0,
+              "mtime_utc": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat() if path.exists() else "",
+              "max_age_days": "${{ github.event.inputs.max_age_days || '7' }}",
+              "run_id": "${{ github.run_id }}",
+              "head_sha": "${{ github.sha }}",
+          }
+          Path("manifests/sec_companyfacts").mkdir(parents=True, exist_ok=True)
+          Path("manifests/sec_companyfacts/latest_manifest.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+
+      - name: Sync companyfacts to Google Drive
+        if: always()
+        env:
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            echo "[companyfacts] no Drive auth; skipping sync"
+            exit 0
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if [ -f data_raw/free/sec/companyfacts.zip ]; then
+            rclone copy data_raw/free/sec "${BASE}data_raw/free/sec/" --include "companyfacts.zip" --drive-acknowledge-abuse
+          fi
+          rclone copy manifests/sec_companyfacts "${BASE}manifests/sec_companyfacts/"
+          rclone copy outputs/full_rebuild_logs "${BASE}research_runs/weekly_companyfacts/${GITHUB_RUN_ID}/full_rebuild_logs/"
+
+      - name: Upload companyfacts artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-companyfacts-refresh-${{ github.run_id }}
+          path: |
+            manifests/sec_companyfacts/latest_manifest.json
+            outputs/full_rebuild_logs/weekly_companyfacts_refresh.log
+          retention-days: 90

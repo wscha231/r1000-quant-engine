@@ -163,6 +163,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - SEC signal history is only as complete as the collected Form 4 filings. Run real artifact fast replay before treating SEC coverage as meaningful.
   - `leader_onset_sec_shadow` is a challenger diagnostic only. Production use still requires broker-ledger improvement, leakage audit, cost sensitivity, stress windows, and human approval.
 
+### 11:19 KST - weekly-companyfacts-drive-cache
+
+- scope:
+  - Add a weekly Google Drive-backed SEC companyfacts bulk refresh path and make full rebuild restore the canonical Drive archive before deciding whether a new 1GB SEC download is needed.
+- files:
+  - `.github/workflows/weekly_companyfacts_refresh.yml` ->adds a scheduled/manual workflow that restores `data_raw/free/sec/companyfacts.zip` from Drive, refreshes it only when older than the configured max age, writes a manifest, and syncs back to Drive.
+  - `.github/workflows/full_rebuild_manual.yml` ->restores canonical Drive `companyfacts.zip` before the weekly freshness check and syncs the refreshed archive back to `data_raw/free/sec` on Drive.
+  - `.github/workflows/free_data_lake_bootstrap.yml` ->defaults manual free-data bootstrap to include the companyfacts weekly freshness check.
+  - `tests/workflow_artifact_smoke.py` ->adds static coverage for the new weekly companyfacts workflow.
+- symbols_added:
+  - `test_weekly_companyfacts_refresh_workflow_uses_drive_cache_and_weekly_staleness() -> None` ->checks the weekly workflow uses Drive restore/sync, 7-day freshness, and does not run a full rebuild.
+- symbols_changed:
+  - `test_workflow_yaml_files_parse() -> None` ->continues parsing all workflow YAML files, including the new companyfacts workflow.
+- config_fields_added:
+  - `max_age_days: workflow_dispatch string = "7"` ->companyfacts refresh staleness threshold.
+  - `required: workflow_dispatch boolean = true` ->whether companyfacts refresh failure fails the workflow.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_raw/free/sec/companyfacts.zip` ->canonical Google Drive data-lake copy of the SEC companyfacts bulk archive.
+  - `manifests/sec_companyfacts/latest_manifest.json` ->weekly refresh manifest with file size, mtime, run ID, and head SHA.
+  - `outputs/full_rebuild_logs/weekly_companyfacts_refresh.log` ->refresh log.
+- automation_impact:
+  - Adds weekly Monday 10:00 KST companyfacts refresh. Full rebuild now restores companyfacts from the common Drive data lake before downloading and syncs refreshed companyfacts back to the common Drive path. Daily after-close workflow remains price/report focused and does not download companyfacts directly.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->pass.
+  - YAML parse check for `full_rebuild_manual.yml`, `free_data_daily_update.yml`, `free_data_lake_bootstrap.yml`, and `weekly_companyfacts_refresh.yml` ->pass.
+- risks_or_notes:
+  - First run may still download the large SEC archive if Drive has no canonical copy or the restored copy is stale.
+  - Google Drive auth must be configured through `RCLONE_CONFIG_GDRIVE` or `GOOGLE_SERVICE_ACCOUNT_KEY`.
+
 ## 2026-05-16
 
 ### 10:51 KST - post-codex-alphaops-attribution

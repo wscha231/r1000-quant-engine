@@ -12,7 +12,7 @@ on:
       sec_companyfacts:
         description: 'Download/refresh SEC companyfacts.zip into data_raw/free/sec (large, 1GB+)'
         type: boolean
-        default: false
+        default: true
       price_mode:
         description: 'none | dry_run | target_books'
         type: choice
