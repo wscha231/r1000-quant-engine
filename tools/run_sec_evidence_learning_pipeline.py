@@ -33,6 +33,7 @@ from tools.run_sec_enriched_candidate_replay import (  # noqa: E402
     enrich_candidate_book,
     read_table,
 )
+from tools.run_sec_evidence_signal_audit import run as run_signal_audit  # noqa: E402
 from tools.run_selection_quality_report import run as run_selection_quality  # noqa: E402
 
 DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
@@ -51,6 +52,8 @@ COMPONENT_COLUMNS = {
     "form4": "early_evidence_score",
     "institutional": "institutional_evidence_score",
     "combined_sec": "sec_combined_evidence_score",
+    "support_sec": "sec_support_boost_score",
+    "13f_breadth": "sec_13f_breadth_score",
     "rs": "rs_acceleration_score",
     "industry": "industry_group_strength_score",
     "entry": "entry_quality_score",
@@ -79,7 +82,8 @@ WEIGHT_PRESETS: dict[str, dict[str, float]] = {
         "rs": 0.13,
         "industry": 0.12,
         "entry": 0.05,
-        "crowding_penalty": 0.05,
+        "13f_breadth": 0.05,
+        "crowding_penalty": 0.02,
     },
     "sec_balanced": {
         "future": 0.30,
@@ -89,7 +93,7 @@ WEIGHT_PRESETS: dict[str, dict[str, float]] = {
         "rs": 0.08,
         "industry": 0.12,
         "entry": 0.05,
-        "crowding_penalty": 0.08,
+        "crowding_penalty": 0.03,
     },
     "form4_fast": {
         "future": 0.30,
@@ -99,7 +103,7 @@ WEIGHT_PRESETS: dict[str, dict[str, float]] = {
         "rs": 0.10,
         "industry": 0.10,
         "entry": 0.05,
-        "crowding_penalty": 0.04,
+        "form4_sale_risk_penalty": 0.03,
     },
     "13f_validation": {
         "future": 0.30,
@@ -107,11 +111,49 @@ WEIGHT_PRESETS: dict[str, dict[str, float]] = {
         "form4": 0.05,
         "institutional": 0.15,
         "combined_sec": 0.08,
+        "13f_breadth": 0.05,
         "rs": 0.08,
         "industry": 0.10,
         "entry": 0.04,
-        "crowding_penalty": 0.10,
+        "crowding_penalty": 0.03,
         "stale_penalty": 0.06,
+    },
+    "sec_support_overlay": {
+        "future": 0.36,
+        "market": 0.22,
+        "support_sec": 0.08,
+        "institutional": 0.06,
+        "form4": 0.04,
+        "13f_breadth": 0.04,
+        "rs": 0.10,
+        "industry": 0.07,
+        "entry": 0.03,
+        "form4_sale_risk_penalty": 0.02,
+        "stale_penalty": 0.04,
+    },
+    "form4_buy_trigger_light": {
+        "future": 0.34,
+        "market": 0.22,
+        "form4": 0.10,
+        "support_sec": 0.04,
+        "institutional": 0.04,
+        "rs": 0.10,
+        "industry": 0.11,
+        "entry": 0.05,
+        "form4_sale_risk_penalty": 0.03,
+    },
+    "13f_breadth_support": {
+        "future": 0.34,
+        "market": 0.20,
+        "institutional": 0.12,
+        "support_sec": 0.06,
+        "13f_breadth": 0.06,
+        "form4": 0.03,
+        "rs": 0.10,
+        "industry": 0.05,
+        "entry": 0.04,
+        "crowding_penalty": 0.02,
+        "stale_penalty": 0.04,
     },
 }
 
@@ -182,10 +224,13 @@ def apply_weight_preset(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Se
             score += weight * rank_by_date(frame, col)
     crowding_penalty = float(weights.get("crowding_penalty", 0.0))
     stale_penalty = float(weights.get("stale_penalty", 0.0))
+    form4_sale_risk_penalty = float(weights.get("form4_sale_risk_penalty", 0.0))
     if crowding_penalty:
         score -= crowding_penalty * numeric(frame, "sec_13f_crowding_score", 0.0).clip(0.0, 1.0)
     if stale_penalty:
         score -= stale_penalty * numeric(frame, "sec_13f_stale_penalty", 0.0).clip(0.0, 1.0)
+    if form4_sale_risk_penalty:
+        score -= form4_sale_risk_penalty * numeric(frame, "sec_form4_sale_risk_score", 0.0).clip(0.0, 1.0)
     return score.fillna(0.0).clip(0.0, 1.0)
 
 
@@ -295,6 +340,8 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
         return {"status": "skipped", "reason": "run_broker_grid is false"}
     results: dict[str, Any] = {"status": "completed", "portfolios": {}}
     for portfolio in ["main", "concentrated"]:
+        target_ns = getattr(args, f"{portfolio}_target_ns", "") or args.target_ns
+        caps = getattr(args, f"{portfolio}_single_name_caps", "") or args.single_name_caps
         out = output_dir / "alpha_selector_broker_grid" / portfolio
         payload = run_alpha_selector_grid(
             argparse.Namespace(
@@ -308,8 +355,8 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
                 no_integer_shares=False,
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 styles=args.styles,
-                target_ns=args.target_ns,
-                single_name_caps=args.single_name_caps,
+                target_ns=target_ns,
+                single_name_caps=caps,
                 max_variants=int(args.max_variants),
                 min_market_cap_usd=float(args.min_market_cap_usd),
                 min_dollar_volume_usd=float(args.min_dollar_volume_usd),
@@ -324,6 +371,7 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
 def render_report(summary: dict[str, Any]) -> str:
     learning = summary.get("score_learning", {})
     broker = summary.get("broker_grid", {})
+    audit = summary.get("signal_audit", {})
     lines = [
         "# SEC Evidence Learning Pipeline",
         "",
@@ -334,6 +382,7 @@ def render_report(summary: dict[str, Any]) -> str:
         f"- rows with Form 4 evidence: {summary.get('rows_with_form4_evidence', 0)}",
         f"- rows with 13F evidence: {summary.get('rows_with_13f_evidence', 0)}",
         f"- best learned preset: `{learning.get('best_preset', '')}`",
+        f"- signal audit: `{audit.get('status', 'skipped')}`",
         "",
         "## Promotion",
         "",
@@ -386,6 +435,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     selection_quality = run_selection_quality(latest_dir, output_dir / "selection_quality", top_n=int(args.top_n))
     score_learning = learn_score_weights(enriched, output_dir)
+    signal_audit = run_signal_audit(
+        argparse.Namespace(
+            candidate_book=str(enriched_csv),
+            form4=str(form4_path),
+            institutional_13f=str(holdings_13f_path),
+            output_dir=str(output_dir / "signal_audit"),
+            form4_lookback_days=int(args.form4_lookback_days),
+            institutional_lookback_days=int(args.institutional_lookback_days),
+            already_enriched=True,
+            min_manager_observations=int(args.min_manager_observations),
+        )
+    )
     broker_grid = run_broker_grids(args, enriched_csv, output_dir)
 
     summary = {
@@ -412,6 +473,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         else 0,
         "selection_quality": selection_quality,
         "score_learning": score_learning,
+        "signal_audit": signal_audit,
         "broker_grid": broker_grid,
         "promotion_allowed": False,
     }
@@ -436,13 +498,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="sec_evidence_shadow,leader_onset_shadow")
+    parser.add_argument("--styles", default="sec_support_overlay,sec_evidence_shadow,leader_onset_shadow")
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.25,0.33,0.50")
+    parser.add_argument("--main-target-ns", default="")
+    parser.add_argument("--main-single-name-caps", default="")
+    parser.add_argument("--concentrated-target-ns", default="")
+    parser.add_argument("--concentrated-single-name-caps", default="")
     parser.add_argument("--max-variants", type=int, default=18)
     parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
     parser.add_argument("--min-price", type=float, default=5.0)
+    parser.add_argument("--min-manager-observations", type=int, default=3)
     parser.add_argument("--allow-unfillable-targets", action="store_true")
     return parser.parse_args()
 

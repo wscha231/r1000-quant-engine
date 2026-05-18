@@ -169,8 +169,10 @@ def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
         assert float(aapl_after["institutional_evidence_score"]) > 0.0
         assert float(aapl_after_13f["institutional_evidence_score"]) > 0.0
         assert float(aapl_after_13f["sec_13f_value_delta_usd"]) != float(aapl_after["sec_13f_value_delta_usd"])
-        assert float(aapl_after_13f["sec_combined_evidence_score"]) >= float(aapl_after["early_evidence_score"]) * 0.45
+        assert float(aapl_after_13f["sec_combined_evidence_score"]) >= float(aapl_after["early_evidence_score"]) * 0.40
+        assert "sec_support_boost_score" in enriched.columns
         assert "leader_onset_sec_v3_score" in enriched.columns
+        assert "leader_onset_sec_v4_support_score" in enriched.columns
         assert float(msft_after["early_evidence_score"]) == 0.0
         assert list(enriched["score_total"]) == [1.23, 2.34, 1.23, 2.34, 1.23, 2.34]
         assert "leader_onset_sec_v2_score" in enriched.columns

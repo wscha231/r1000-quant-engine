@@ -28,7 +28,9 @@ SIGNAL_COLUMNS = [
     "sec_form4_open_market_buy_score",
     "sec_form4_cluster_buy_score",
     "sec_form4_ceo_cfo_buy_score",
+    "sec_form4_net_buy_score",
     "sec_form4_sale_pressure_score",
+    "sec_form4_sale_risk_score",
     "early_evidence_score",
     "evidence_confidence_score",
 ]
@@ -100,7 +102,17 @@ def build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_d
         cluster_score = _safe_pct((raw / 5.0) + max(cluster_count - 1, 0) * 0.10)
         ceo_cfo_score = _safe_pct(ceo_cfo_raw / 3.0)
         sale_pressure = _safe_pct(sale_value / max(buy_value + sale_value, 1.0))
-        early_evidence = _safe_pct(0.55 * cluster_score + 0.30 * ceo_cfo_score + 0.15 * open_market_score - 0.20 * sale_pressure)
+        net_buy_score = _safe_pct((buy_value - sale_value) / max(buy_value + sale_value, 1.0))
+        sale_risk = _safe_pct(sale_pressure if buy_value <= 0.0 else 0.35 * sale_pressure)
+        # Open-market buys are the signal. Sales are common for taxes, scheduled
+        # plans, and diversification, so keep them as a light risk flag only.
+        early_evidence = _safe_pct(
+            0.50 * cluster_score
+            + 0.25 * ceo_cfo_score
+            + 0.15 * open_market_score
+            + 0.10 * net_buy_score
+            - 0.08 * sale_risk
+        )
         rows.append(
             {
                 "ticker": ticker,
@@ -113,7 +125,9 @@ def build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_d
                 "sec_form4_open_market_buy_score": open_market_score,
                 "sec_form4_cluster_buy_score": cluster_score,
                 "sec_form4_ceo_cfo_buy_score": ceo_cfo_score,
+                "sec_form4_net_buy_score": net_buy_score,
                 "sec_form4_sale_pressure_score": sale_pressure,
+                "sec_form4_sale_risk_score": sale_risk,
                 "early_evidence_score": early_evidence,
                 "evidence_confidence_score": _safe_pct(min(len(group), 10) / 10.0),
             }
@@ -137,18 +151,19 @@ def render_report(summary: dict[str, Any], latest: pd.DataFrame) -> str:
         "",
         "## Top Form 4 Evidence",
         "",
-        "| ticker | early evidence | cluster | CEO/CFO | buy value | sale pressure |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| ticker | early evidence | cluster | CEO/CFO | net buy | buy value | sale risk |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for _, row in latest.head(20).iterrows():
         lines.append(
-            "| {ticker} | {early:.3f} | {cluster:.3f} | {ceo:.3f} | ${buy:,.0f} | {sale:.3f} |".format(
+            "| {ticker} | {early:.3f} | {cluster:.3f} | {ceo:.3f} | {net:.3f} | ${buy:,.0f} | {sale:.3f} |".format(
                 ticker=row.get("ticker", ""),
                 early=float(row.get("early_evidence_score", 0.0)),
                 cluster=float(row.get("sec_form4_cluster_buy_score", 0.0)),
                 ceo=float(row.get("sec_form4_ceo_cfo_buy_score", 0.0)),
+                net=float(row.get("sec_form4_net_buy_score", 0.0)),
                 buy=float(row.get("insider_buy_value", 0.0)),
-                sale=float(row.get("sec_form4_sale_pressure_score", 0.0)),
+                sale=float(row.get("sec_form4_sale_risk_score", 0.0)),
             )
         )
     return "\n".join(lines) + "\n"

@@ -10,7 +10,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml  # noqa: E402
+from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml, sanitize_13f_frame  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
 
@@ -114,7 +114,27 @@ def test_13f_signal_is_pit_and_scores_accumulation() -> None:
     assert "score_total" not in after.columns
 
 
+def test_13f_export_schema_coerces_blank_numeric_fields() -> None:
+    dirty = pd.DataFrame(
+        [
+            {
+                "manager_cik": "2045724",
+                "shares": "",
+                "market_value_usd": "",
+                "voting_authority_sole": "",
+                "voting_authority_shared": "",
+                "voting_authority_none": "",
+            }
+        ]
+    )
+    clean = sanitize_13f_frame(dirty)
+    assert clean.loc[0, "manager_cik"] == "0002045724"
+    assert float(clean.loc[0, "shares"]) == 0.0
+    assert float(clean.loc[0, "market_value_usd"]) == 0.0
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
+    test_13f_export_schema_coerces_blank_numeric_fields()
     print("sec_13f_parser_smoke: PASS")

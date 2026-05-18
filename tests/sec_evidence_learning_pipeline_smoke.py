@@ -148,13 +148,18 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
                 fill_mode="next_close",
                 cost_bps=25.0,
                 max_fill_lag_days=7,
-                styles="sec_evidence_shadow",
+                styles="sec_evidence_shadow,sec_support_overlay",
                 target_ns="1",
                 single_name_caps="1.0",
                 max_variants=1,
                 min_market_cap_usd=0.0,
                 min_dollar_volume_usd=0.0,
                 min_price=0.0,
+                main_target_ns="",
+                main_single_name_caps="",
+                concentrated_target_ns="",
+                concentrated_single_name_caps="",
+                min_manager_observations=1,
                 allow_unfillable_targets=True,
             )
         )
@@ -168,9 +173,11 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
         assert payload["score_learning"]["status"] == "completed"
         enriched = pd.read_csv(out / "candidate_replay_book_sec_enriched.csv")
         assert "leader_onset_sec_v3_score" in enriched.columns
+        assert "leader_onset_sec_v4_support_score" in enriched.columns
         assert "score_total" in enriched.columns
         assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["promotion_allowed"] is False
         assert (out / "score_weight_grid.csv").exists()
+        assert (out / "signal_audit" / "13f_manager_alpha.csv").exists()
         assert (out / "selection_quality" / "selection_quality_summary.json").exists()
 
 

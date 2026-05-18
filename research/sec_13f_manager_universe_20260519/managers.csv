@@ -1,0 +1,4 @@
+label,manager_name,cik10,active,verified_cik,user_priority,external_performance_2y,performance_26q1,aum_13f_usd,holdings_count,performance_rank,allocation_tier,last_review_date,next_review_due,notes
+SITUATIONAL,Situational Awareness LP,0002045724,true,true,1,,0.3642,13680000000,24,,high_conviction,2026-05-19,2027-05-19,"User-requested AI-focused manager. SEC submissions show 13F-HR filings for 2024Q4 through 2026Q1. External performance/AUM fields are manual review inputs and must not override repo manager-alpha learning."
+DUQUESNE,Duquesne Family Office LLC,0001536411,true,true,2,,,,,,core_manager,2026-05-19,2027-05-19,"Druckenmiller-related seed manager. Use repo-learned manager_quality_score before overweighting."
+BRK,Berkshire Hathaway Inc,0001067983,true,true,3,,,,,,baseline_manager,2026-05-19,2027-05-19,"Large baseline 13F manager. Useful as validation data but not automatically a high-alpha signal."

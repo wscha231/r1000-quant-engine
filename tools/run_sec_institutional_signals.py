@@ -34,6 +34,7 @@ INSTITUTIONAL_SIGNAL_COLUMNS = [
     "sec_13f_conviction_score",
     "sec_13f_accumulation_score",
     "sec_13f_new_position_score",
+    "sec_13f_breadth_score",
     "sec_13f_crowding_score",
     "sec_13f_stale_penalty",
     "sec_13f_smart_money_score",
@@ -144,16 +145,18 @@ def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_day
         accumulation = _safe_pct(0.50 * _log_score(positive_delta, 250_000_000.0) + 0.50 * _safe_pct(buying_count / 8.0))
         conviction_score = _safe_pct(conviction / 0.20)
         new_position_score = _safe_pct(new_count / 5.0)
-        crowding = _safe_pct(manager_count / 35.0)
+        breadth = _safe_pct(manager_count / 12.0)
+        crowding = _safe_pct(max(manager_count - 20, 0) / 25.0)
         stale = _safe_pct(max(age_days - 120.0, 0.0) / 180.0)
         smart_money = _safe_pct(
-            0.32 * consensus
-            + 0.28 * accumulation
-            + 0.18 * conviction_score
+            0.28 * consensus
+            + 0.24 * accumulation
+            + 0.16 * conviction_score
             + 0.12 * new_position_score
+            + 0.08 * breadth
             + 0.10 * _safe_pct(net_delta / 250_000_000.0)
-            - 0.12 * crowding
-            - 0.10 * stale
+            - 0.06 * crowding
+            - 0.08 * stale
         )
         confidence = _safe_pct(min(manager_count, 20) / 20.0 + 0.25 * min(len(group), 40) / 40.0)
         rows.append(
@@ -171,6 +174,7 @@ def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_day
                 "sec_13f_conviction_score": conviction_score,
                 "sec_13f_accumulation_score": accumulation,
                 "sec_13f_new_position_score": new_position_score,
+                "sec_13f_breadth_score": breadth,
                 "sec_13f_crowding_score": crowding,
                 "sec_13f_stale_penalty": stale,
                 "sec_13f_smart_money_score": smart_money,
@@ -197,18 +201,19 @@ def render_report(summary: dict[str, Any], latest: pd.DataFrame) -> str:
         "",
         "## Top 13F Evidence",
         "",
-        "| ticker | institutional evidence | managers | buyers | new positions | net value delta | crowding | stale |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| ticker | institutional evidence | managers | buyers | new positions | net value delta | breadth | crowding risk | stale |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for _, row in latest.head(20).iterrows():
         lines.append(
-            "| {ticker} | {score:.3f} | {mgr:.0f} | {buy:.0f} | {new:.0f} | ${delta:,.0f} | {crowd:.3f} | {stale:.3f} |".format(
+            "| {ticker} | {score:.3f} | {mgr:.0f} | {buy:.0f} | {new:.0f} | ${delta:,.0f} | {breadth:.3f} | {crowd:.3f} | {stale:.3f} |".format(
                 ticker=row.get("ticker", ""),
                 score=float(row.get("institutional_evidence_score", 0.0)),
                 mgr=float(row.get("sec_13f_manager_count", 0.0)),
                 buy=float(row.get("sec_13f_buying_manager_count", 0.0)),
                 new=float(row.get("sec_13f_new_position_manager_count", 0.0)),
                 delta=float(row.get("sec_13f_value_delta_usd", 0.0)),
+                breadth=float(row.get("sec_13f_breadth_score", 0.0)),
                 crowd=float(row.get("sec_13f_crowding_score", 0.0)),
                 stale=float(row.get("sec_13f_stale_penalty", 0.0)),
             )
