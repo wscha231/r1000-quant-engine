@@ -17,6 +17,8 @@ def test_sec_edgar_form4_refresh_syncs_drive_data_lake_paths() -> None:
     assert "lookback_years" in text
     assert "include_archive_files" in text
     assert "all_sec_tickers" in text
+    assert "max_filings_per_ticker" in text
+    assert "--max-filings-per-ticker" in text
     assert "--append-existing" in text
     assert "--skip-existing-accessions" in text
     assert "--include-archive-files" in text

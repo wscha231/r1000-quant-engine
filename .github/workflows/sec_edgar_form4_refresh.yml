@@ -11,6 +11,10 @@ on:
         description: 'Maximum tickers to poll. Use 0 with all_sec_tickers=true for a full SEC ticker-map shard.'
         type: string
         default: '80'
+      max_filings_per_ticker:
+        description: 'Maximum Form 4 filings per ticker after date filtering. Use 0 for full 8y backfill.'
+        type: string
+        default: '0'
       lookback_years:
         description: 'Form 4 filing lookback years for PIT backfill'
         type: string
@@ -148,6 +152,7 @@ jobs:
           python tools/run_sec_submissions_collector.py \
             "${TICKERS_ARG[@]}" \
             --max-tickers "${{ github.event.inputs.max_tickers || '80' }}" \
+            --max-filings-per-ticker "${{ github.event.inputs.max_filings_per_ticker || '0' }}" \
             --forms 4,4/A \
             --raw-root data_raw/sec \
             --pit-root data_pit/sec \
