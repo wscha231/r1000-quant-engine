@@ -8,9 +8,29 @@ on:
         type: string
         default: 'SNDK,MU,AMD,ARM,ASML,INTC,WDC,STX,LITE,CIEN,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
       max_tickers:
-        description: 'Maximum tickers to poll'
+        description: 'Maximum tickers to poll. Use 0 with all_sec_tickers=true for a full SEC ticker-map shard.'
         type: string
         default: '80'
+      lookback_years:
+        description: 'Form 4 filing lookback years for PIT backfill'
+        type: string
+        default: '8'
+      include_archive_files:
+        description: 'Fetch older SEC submissions file shards for true multi-year backfill'
+        type: boolean
+        default: true
+      all_sec_tickers:
+        description: 'Ignore tickers input and poll the full SEC ticker map, usually with shard_count > 1'
+        type: boolean
+        default: false
+      shard_index:
+        description: 'Zero-based shard index for full SEC ticker-map backfills'
+        type: string
+        default: '0'
+      shard_count:
+        description: 'Total shard count for full SEC ticker-map backfills'
+        type: string
+        default: '1'
       required:
         description: 'Fail the workflow if EDGAR refresh fails'
         type: boolean
@@ -102,14 +122,42 @@ jobs:
         run: |
           set -euo pipefail
           REQUIRED="${{ github.event.inputs.required || 'false' }}"
+          START_DATE="$(python - <<'PY'
+          from datetime import date
+          years = int("${{ github.event.inputs.lookback_years || '8' }}")
+          today = date.today()
+          try:
+              start = today.replace(year=today.year - years)
+          except ValueError:
+              start = today.replace(year=today.year - years, day=28)
+          print(start.isoformat())
+          PY
+          )"
+          ARCHIVE_FLAG=""
+          if [ "${{ github.event.inputs.include_archive_files || 'true' }}" = "true" ]; then
+            ARCHIVE_FLAG="--include-archive-files"
+          fi
+          ALL_FLAG=""
+          TICKERS_ARG=(--tickers "${{ github.event.inputs.tickers || 'SNDK,MU,AMD,ARM,ASML,INTC,WDC,STX,LITE,CIEN,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}")
+          if [ "${{ github.event.inputs.all_sec_tickers || 'false' }}" = "true" ]; then
+            ALL_FLAG="--all-sec-tickers"
+            TICKERS_ARG=(--tickers "")
+          fi
+          echo "[sec-edgar] start_date=$START_DATE include_archive_files=${{ github.event.inputs.include_archive_files || 'true' }} all_sec_tickers=${{ github.event.inputs.all_sec_tickers || 'false' }} shard=${{ github.event.inputs.shard_index || '0' }}/${{ github.event.inputs.shard_count || '1' }}"
           set +e
           python tools/run_sec_submissions_collector.py \
-            --tickers "${{ github.event.inputs.tickers || 'SNDK,MU,AMD,ARM,ASML,INTC,WDC,STX,LITE,CIEN,NVDA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}" \
+            "${TICKERS_ARG[@]}" \
             --max-tickers "${{ github.event.inputs.max_tickers || '80' }}" \
             --forms 4,4/A \
             --raw-root data_raw/sec \
             --pit-root data_pit/sec \
             --sec-user-agent "$SEC_USER_AGENT" \
+            --start-date "$START_DATE" \
+            --append-existing \
+            --shard-index "${{ github.event.inputs.shard_index || '0' }}" \
+            --shard-count "${{ github.event.inputs.shard_count || '1' }}" \
+            $ARCHIVE_FLAG \
+            $ALL_FLAG \
             2>&1 | tee outputs/full_rebuild_logs/sec_submissions_collector.log
           COLLECT_RC=${PIPESTATUS[0]}
           python tools/run_sec_form4_parser.py \
@@ -117,6 +165,8 @@ jobs:
             --raw-root data_raw/sec \
             --output data_pit/sec/form4_transactions.parquet \
             --sec-user-agent "$SEC_USER_AGENT" \
+            --append-existing \
+            --skip-existing-accessions \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
           PARSE_RC=${PIPESTATUS[0]}
           python tools/run_sec_ownership_signals.py \

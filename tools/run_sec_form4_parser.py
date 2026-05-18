@@ -198,6 +198,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     user_agent = args.sec_user_agent or DEFAULT_SEC_USER_AGENT
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    existing = read_table(output) if args.append_existing and output.exists() else pd.DataFrame()
+    existing_accessions: set[str] = set()
+    if args.skip_existing_accessions and not existing.empty and "accession_number" in existing.columns:
+        existing_accessions = {str(x) for x in existing["accession_number"].dropna().astype(str).tolist()}
     if not filings_index.empty:
         d = filings_index.copy()
         d["form_type"] = d["form_type"].astype(str).str.upper().str.strip()
@@ -208,6 +212,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             cik10 = normalize_cik10(filing.get("cik10"))
             accession = str(filing.get("accession_number") or "")
             primary = str(filing.get("primary_document") or "")
+            if accession in existing_accessions:
+                continue
             if not cik10 or not accession or not primary:
                 failures.append({"accession_number": accession, "reason": "missing_doc_metadata"})
                 continue
@@ -273,11 +279,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         frame["reporting_owner_cik"] = frame["reporting_owner_cik"].map(normalize_cik10)
         for col in ["transaction_shares", "transaction_price", "transaction_value", "shares_owned_after"]:
             frame[col] = pd.to_numeric(frame[col], errors="coerce")
+    existing_rows = int(len(existing))
+    if args.append_existing and not existing.empty:
+        frame = pd.concat([existing, frame], ignore_index=True)
+        if not frame.empty:
+            for col in ["issuer_cik10", "reporting_owner_cik"]:
+                if col in frame.columns:
+                    frame[col] = frame[col].map(normalize_cik10)
+            dedupe_cols = [
+                col
+                for col in [
+                    "accession_number",
+                    "reporting_owner_cik",
+                    "transaction_date",
+                    "transaction_code",
+                    "security_title",
+                    "transaction_shares",
+                    "transaction_price",
+                ]
+                if col in frame.columns
+            ]
+            if dedupe_cols:
+                frame = frame.drop_duplicates(dedupe_cols, keep="last")
     write_table(frame, output)
     manifest = {
         "status": "completed",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "transaction_rows": int(len(frame)),
+        "new_transaction_rows_before_merge": int(len(rows)),
+        "existing_transaction_rows_before_merge": existing_rows,
+        "append_existing": bool(args.append_existing),
+        "skip_existing_accessions": bool(args.skip_existing_accessions),
         "failed_filings": failures[:200],
         "output": str(output),
     }
@@ -294,6 +326,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--throttle-seconds", type=float, default=0.12)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--no-download", action="store_true", help="Parse only already downloaded local XML docs.")
+    parser.add_argument("--append-existing", action="store_true", help="Merge parsed rows into an existing transaction parquet.")
+    parser.add_argument("--skip-existing-accessions", action="store_true", help="Skip downloads/parsing for accessions already present in the output parquet.")
     return parser.parse_args()
 
 

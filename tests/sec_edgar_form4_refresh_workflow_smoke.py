@@ -14,6 +14,13 @@ def test_sec_edgar_form4_refresh_syncs_drive_data_lake_paths() -> None:
     assert "tools/run_sec_submissions_collector.py" in text
     assert "tools/run_sec_form4_parser.py" in text
     assert "tools/run_sec_ownership_signals.py" in text
+    assert "lookback_years" in text
+    assert "include_archive_files" in text
+    assert "all_sec_tickers" in text
+    assert "--append-existing" in text
+    assert "--skip-existing-accessions" in text
+    assert "--include-archive-files" in text
+    assert "--shard-index" in text
     assert "andrewcha231@gmail.com" in text
     assert "data_raw/sec" in text
     assert "data_pit/sec" in text
