@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from r1000_helpers import normalize_cik10, normalize_cik_series  # noqa: E402
+from tools.run_sec_submissions_collector import cik_rows_from_inputs  # noqa: E402
 
 
 def assert_cik10(value: object, expected: str) -> None:
@@ -58,7 +59,17 @@ def test_normalize_cik_series_returns_object_ten_digit_strings() -> None:
     assert all(len(cik) == 10 and cik.isdigit() for cik in series.dropna())
 
 
+def test_cik_rows_from_inputs_supports_13f_manager_ciks() -> None:
+    rows = cik_rows_from_inputs("BRK:1067983,0001649339")
+    assert rows.to_dict("records") == [
+        {"ticker": "BRK", "cik10": "0001067983", "name": "BRK"},
+        {"ticker": "CIK0001649339", "cik10": "0001649339", "name": ""},
+    ]
+    assert str(rows["cik10"].dtype) == "object"
+
+
 if __name__ == "__main__":
     test_normalize_cik10_preserves_ten_digit_strings()
     test_normalize_cik_series_returns_object_ten_digit_strings()
+    test_cik_rows_from_inputs_supports_13f_manager_ciks()
     print("sec_cik_schema_smoke: PASS")

@@ -120,6 +120,58 @@ All entries must be written in English. Entries must be predictable and machine-
   - The initial live Form 4 parse covered only the latest 300 filings from the 80-ticker seed universe; longer PIT history is still required before SEC evidence can affect historical CAGR/MDD replay.
   - Current candidate replay book ends before the live May 2026 Form 4 window, so the first live SEC signals are current-operating evidence rather than historical replay evidence.
 
+### 23:14 KST - sec-13f-institutional-evidence
+
+- scope:
+  - Add a research-only SEC 13F institutional evidence layer and connect it to Form 4 candidate enrichment, selection-quality diagnostics, and alpha-selector challenger scoring without changing production scores or target books.
+- files:
+  - `tools/run_sec_13f_parser.py` ->parses SEC 13F information-table XML into normalized point-in-time institutional holdings.
+  - `tools/run_sec_institutional_signals.py` ->builds 13F manager-count, accumulation, conviction, crowding, and smart-money shadow scores.
+  - `tools/run_sec_submissions_collector.py` ->adds direct `--ciks` collection for manager CIKs and other non-ticker SEC filers.
+  - `tools/run_sec_enriched_candidate_replay.py` ->adds optional 13F PIT enrichment, market-cap-relative value-delta scoring, combined SEC evidence, and `leader_onset_sec_v3_score`.
+  - `tools/run_alpha_selector_broker_grid.py` ->lets the `sec_evidence_shadow` selector consume combined Form 4 plus 13F evidence columns.
+  - `tools/run_selection_quality_report.py` ->adds 13F and combined SEC evidence factors to report-only IC/top-k/decile diagnostics.
+  - `tests/sec_13f_parser_smoke.py` ->checks 13F XML parsing, PIT availability, and accumulation scoring.
+  - `tests/sec_cik_schema_smoke.py` ->checks direct manager CIK input parsing preserves 10-character CIK strings.
+  - `tests/sec_candidate_enrichment_smoke.py` ->checks Form 4 plus 13F candidate enrichment remains PIT-safe and does not mutate `score_total`.
+  - `tools/run_pr_validation.py` ->adds the 13F parser smoke test to Tier-0/Tier-1 validation.
+  - `research/sec_13f_form4_evidence_score_20260518/report.md` ->documents the score design and 8-year backtest protocol.
+- symbols_added:
+  - `parse_13f_xml(xml_text: str, filing: dict[str, Any] | None = None, *, cusip_map: dict[str, str] | None = None) -> list[dict[str, Any]]` ->extracts normalized 13F holding rows from an information table.
+  - `parse_13f_index(...) -> pd.DataFrame` ->downloads/caches and parses indexed 13F filings.
+  - `build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 210) -> pd.DataFrame` ->creates PIT-safe institutional ownership shadow scores.
+  - `cik_rows_from_inputs(ciks: str) -> pd.DataFrame` ->parses direct CIK and label:CIK inputs for non-ticker SEC filers.
+  - `build_13f_features_by_date(holdings_13f: pd.DataFrame, dates: list[pd.Timestamp], *, lookback_days: int) -> pd.DataFrame` ->builds date-specific 13F signal rows for candidate enrichment.
+  - `add_combined_sec_scores(frame: pd.DataFrame) -> pd.DataFrame` ->adds market-cap-relative 13F value delta and combined Form 4 plus 13F evidence.
+  - `market_cap_series(frame: pd.DataFrame) -> pd.Series` ->selects the best available candidate market-cap column for 13F ratio scoring.
+  - `issuer_name_key(value: Any) -> str` ->normalizes SEC issuer names for conservative candidate-name ticker fallback mapping.
+  - `candidate_issuer_map(candidates: pd.DataFrame) -> dict[str, str]` ->builds unique issuer-name to ticker mappings from candidate books.
+  - `map_13f_tickers_from_candidates(holdings_13f: pd.DataFrame, candidates: pd.DataFrame) -> pd.DataFrame` ->fills blank 13F ticker mappings when issuer names uniquely match candidate names.
+- symbols_changed:
+  - `enrich_candidate_book(...)` ->accepts optional 13F holdings and emits `sec_combined_evidence_score` plus `leader_onset_sec_v3_score`.
+  - `STYLE_WEIGHTS` ->updates `sec_evidence_shadow` to prefer `leader_onset_sec_v3_score` while retaining Form 4-only fallback columns.
+  - `FACTOR_COLUMNS` ->adds 13F and combined SEC evidence factors to selection-quality diagnostics.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_parser_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/institutional_13f_holdings.parquet` ->normalized 13F holdings output when the parser is run.
+  - `outputs/sec_institutional_signals/13f_latest.csv` ->research-only 13F institutional signal output when the signal builder is run.
+  - `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` ->candidate replay book can now include Form 4 plus 13F shadow evidence columns.
+- automation_impact:
+  - PR validation runs one additional SEC 13F smoke test; no schedule, GDrive path, production scoring, or default target-book activation changes.
+- validation:
+  - `python -m py_compile tools\run_sec_submissions_collector.py tools\run_sec_13f_parser.py tools\run_sec_institutional_signals.py tools\run_sec_enriched_candidate_replay.py tools\run_alpha_selector_broker_grid.py tools\run_selection_quality_report.py tests\sec_cik_schema_smoke.py tests\sec_13f_parser_smoke.py tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tests\sec_cik_schema_smoke.py` passed.
+  - `python tests\sec_13f_parser_smoke.py` passed.
+  - `python tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_cik_schema_smoke --only sec_13f_parser_smoke --only sec_candidate_enrichment_smoke --only selection_quality_report_smoke --only alpha_selector_broker_grid_smoke` passed.
+- risks_or_notes:
+  - 13F is delayed quarterly ownership evidence and must be evaluated as validation/accumulation support, not as a fast entry trigger.
+  - Historical CAGR/MDD impact requires an 8-year PIT 13F backfill with ticker/CUSIP mapping before promotion can be considered.
+
 ### 02:15 KST - agent-board-automation
 
 - scope:
