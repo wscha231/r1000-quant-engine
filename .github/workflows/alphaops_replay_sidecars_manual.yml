@@ -92,6 +92,51 @@ jobs:
             collector-cache-${{ runner.os }}-
             replay-price-cache-${{ runner.os }}-
 
+      - name: Restore SEC evidence data lake from Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          mkdir -p data_raw/sec data_pit/sec manifests/sec_edgar outputs/full_rebuild_logs
+          if [ -z "$RCLONE_CONFIG_GDRIVE" ] && [ -z "$GOOGLE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "[sec-evidence] no Google Drive auth configured; SEC shadow signals will use local/source artifacts only"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "$RCLONE_CONFIG_GDRIVE" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          rclone copy "${BASE}data_raw/sec/" data_raw/sec/ --drive-acknowledge-abuse || true
+          rclone copy "${BASE}data_pit/sec/" data_pit/sec/ --drive-acknowledge-abuse || true
+          rclone copy "${BASE}manifests/sec_edgar/" manifests/sec_edgar/ || true
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("data_pit/sec/sec_ownership_signals.parquet")
+          print(f"[sec-evidence] sec_ownership_signals_exists={p.exists()} size={p.stat().st_size if p.exists() else 0}")
+          PY
+
       - name: Download source full rebuild artifact
         env:
           GH_TOKEN: ${{ github.token }}

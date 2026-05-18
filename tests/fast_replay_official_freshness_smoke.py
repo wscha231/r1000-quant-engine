@@ -18,6 +18,8 @@ def test_fast_replay_has_explicit_modes_and_no_unconditional_focused_exit() -> N
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "replay_mode:" in text, "workflow must expose replay_mode"
     assert "official_operating" in text, "default official_operating mode missing"
+    assert "Restore SEC evidence data lake from Google Drive" in text, "SEC evidence restore step missing"
+    assert "data_pit/sec/sec_ownership_signals.parquet" in text, "SEC ownership signal restore audit missing"
     assert "focused_challenger_notice.json" in text, "focused mode must write non-official notice"
     assert "official_operating_replay_refreshed" in text, "focused notice must mark official replay stale"
 

@@ -199,7 +199,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Repair fast replay official-account freshness and add research-only broker-ledger challengers for Main v4 future-winner/evidence selection, Concentrated v3 broker-selected leaders, and hold-vs-replace diagnostics. Production defaults remain unchanged.
 - files:
-  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds explicit `replay_mode`, removes the stale unconditional focused replay exit from the default path, runs Main v4 / Concentrated v3 challengers, and syncs their outputs.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->adds explicit `replay_mode`, restores SEC evidence data lake inputs from Google Drive, removes the stale unconditional focused replay exit from the default path, runs Main v4 / Concentrated v3 challengers, and syncs their outputs.
   - `.github/workflows/full_rebuild_manual.yml` ->runs and exports Main v4, Concentrated v3, and hold-vs-replace sidecars in Tier-3 full rebuilds.
   - `.github/workflows/sec_edgar_form4_refresh.yml` ->adds scheduled/manual SEC Form 4 raw/PIT/signal restore, refresh, manifest, artifact, and Google Drive sync.
   - `tools/run_main_v4_future_winner_evidence.py` ->adds a research-only main challenger using future-winner, market confirmation, leader-onset, and SEC shadow evidence variants with no-trade-band hold discipline.
@@ -230,11 +230,11 @@ All entries must be written in English. Entries must be predictable and machine-
   - `outputs/hold_vs_replace_audit/` ->wrong substitution diagnostics by portfolio.
   - `data_raw/sec/`, `data_pit/sec/`, `manifests/sec_edgar/latest_form4_manifest.json` ->SEC Form 4 raw/PIT/signal data-lake artifacts.
 - automation_impact:
-  - Fast replay default now refreshes operating broker replay/account evaluation instead of exiting early after focused challenger output. SEC Form 4 has a dedicated weekday scheduled/manual data-lake refresh. Full rebuild exports the new challenger and diagnostic artifacts to GitHub and Google Drive research-run paths.
+  - Fast replay default now refreshes operating broker replay/account evaluation instead of exiting early after focused challenger output and restores `data_raw/sec`, `data_pit/sec`, and `manifests/sec_edgar` from the common Drive data lake before challenger scoring. SEC Form 4 has a dedicated weekday scheduled/manual data-lake refresh. Full rebuild exports the new challenger and diagnostic artifacts to GitHub and Google Drive research-run paths.
 - validation:
   - `py -3 tools\run_pr_validation.py` ->pass; 51/51 tests passed.
   - `py -3 tests\workflow_artifact_smoke.py` ->pass.
-  - `py -3 tests\fast_replay_official_freshness_smoke.py` ->pass.
+  - `py -3 tests\fast_replay_official_freshness_smoke.py` ->pass, including SEC evidence restore wiring.
   - `py -3 tests\main_v4_future_winner_evidence_smoke.py` ->pass.
   - `py -3 tests\concentrated_v3_broker_selected_leaders_smoke.py` ->pass.
   - `py -3 tests\hold_vs_replace_audit_smoke.py` ->pass.
