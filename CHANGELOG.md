@@ -98,6 +98,32 @@ All entries must be written in English. Entries must be predictable and machine-
   - SEC historical backfill still needs bounded shards and CUSIP/ticker mapping coverage before 8-year broker-ledger conclusions are reliable.
   - GitHub Actions cache is only a speed layer; Google Drive remains the intended long-term shared data lake.
 
+### 01:04 KST - sec-workflow-drive-sync-timeout
+
+- scope:
+  - Bound SEC workflow Google Drive sync steps so slow Drive copies do not block Form 4, 13F, or SEC evidence learning runs after artifacts are uploaded.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->wraps outbound Drive sync in a timed non-blocking helper.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->wraps outbound Drive sync in a timed non-blocking helper.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->wraps evidence-learning Drive sync in a timed non-blocking helper.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - Drive sync is now best-effort with per-directory time bounds; GitHub artifacts remain available even when Drive sync is slow.
+- validation:
+  - `python tests\workflow_artifact_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only workflow_artifact_smoke --only sec_evidence_learning_pipeline_smoke` passed.
+- risks_or_notes:
+  - GitHub artifacts remain the authoritative fallback when Drive sync times out; Drive is best-effort for these research-only SEC workflows.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

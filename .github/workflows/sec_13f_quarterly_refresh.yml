@@ -182,8 +182,16 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
+          sync_dir() {
+            local src="$1"
+            local dst="$2"
+            echo "[gdrive] sync $src -> $dst"
+            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+              echo "[gdrive] warning: sync for $src timed out or failed; GitHub artifact remains available"
+            fi
+          }
           for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
             if [ -d "$d" ]; then
-              rclone copy "$d" "$BASE$d/"
+              sync_dir "$d" "$BASE$d/"
             fi
           done
