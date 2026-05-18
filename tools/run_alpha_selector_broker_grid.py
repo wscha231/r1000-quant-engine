@@ -14,6 +14,7 @@ variant through the standard broker ledger:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import math
 import re
@@ -31,6 +32,8 @@ if str(REPO_ROOT) not in sys.path:
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
+
+BROKER_REPLAY_PARAMS = set(inspect.signature(broker_replay).parameters)
 
 
 DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
@@ -428,18 +431,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     else None
                 )
                 try:
-                    metrics = broker_replay(
-                        target_book=target_path,
-                        price_cache=price_cache,
-                        output_dir=variant_dir,
-                        portfolio_kind=args.portfolio_kind,
-                        starting_capital=float(args.starting_capital),
-                        fill_mode=args.fill_mode,
-                        cost_bps=float(args.cost_bps),
-                        integer_shares=not bool(args.no_integer_shares),
-                        max_fill_lag_days=int(args.max_fill_lag_days),
-                        concentrated_champion_filters=champion_filters,
-                    )
+                    replay_kwargs = {
+                        "target_book": target_path,
+                        "price_cache": price_cache,
+                        "output_dir": variant_dir,
+                        "portfolio_kind": args.portfolio_kind,
+                        "starting_capital": float(args.starting_capital),
+                        "fill_mode": args.fill_mode,
+                        "cost_bps": float(args.cost_bps),
+                        "integer_shares": not bool(args.no_integer_shares),
+                        "max_fill_lag_days": int(args.max_fill_lag_days),
+                    }
+                    if champion_filters is not None and "concentrated_champion_filters" in BROKER_REPLAY_PARAMS:
+                        replay_kwargs["concentrated_champion_filters"] = champion_filters
+                    metrics = broker_replay(**replay_kwargs)
                 except Exception as exc:
                     metrics = {
                         "status": "blocked",
