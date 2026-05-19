@@ -178,6 +178,10 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
         assert "score_total" in enriched.columns
         assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["promotion_allowed"] is False
         assert (out / "score_weight_grid.csv").exists()
+        grid = pd.read_csv(out / "score_weight_grid.csv")
+        assert "price_follow_adaptive_overlay" in set(grid["preset"])
+        best_weights = json.loads((out / "best_score_weights.json").read_text(encoding="utf-8"))
+        assert best_weights["policy_adaptive_preset_included"] is True
         assert (out / "signal_audit" / "13f_manager_alpha.csv").exists()
         assert (out / "signal_audit" / "sec_score_feature_diagnostics.csv").exists()
         assert (out / "signal_audit" / "sec_score_policy_recommendation.json").exists()

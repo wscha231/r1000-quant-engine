@@ -54,9 +54,39 @@ COMPONENT_COLUMNS = {
     "combined_sec": "sec_combined_evidence_score",
     "support_sec": "sec_support_boost_score",
     "13f_breadth": "sec_13f_breadth_score",
+    "leader_sec_v2": "leader_onset_sec_v2_score",
+    "leader_sec_v3": "leader_onset_sec_v3_score",
+    "leader_sec_v4": "leader_onset_sec_v4_support_score",
     "rs": "rs_acceleration_score",
     "industry": "industry_group_strength_score",
     "entry": "entry_quality_score",
+}
+
+POLICY_FEATURE_COMPONENT_MAP = {
+    "sec_form4_open_market_buy_score": "form4",
+    "sec_form4_cluster_buy_score": "form4",
+    "sec_form4_ceo_cfo_buy_score": "form4",
+    "sec_form4_ten_percent_owner_buy_score": "form4",
+    "sec_form4_net_buy_score": "form4",
+    "early_evidence_score": "form4",
+    "sec_13f_consensus_buy_score": "institutional",
+    "sec_13f_accumulation_score": "institutional",
+    "sec_13f_new_position_score": "institutional",
+    "sec_13f_smart_money_score": "institutional",
+    "institutional_evidence_score": "institutional",
+    "sec_13f_breadth_score": "13f_breadth",
+    "sec_combined_evidence_score": "combined_sec",
+    "sec_support_boost_score": "support_sec",
+    "leader_onset_sec_v2_score": "leader_sec_v2",
+    "leader_onset_sec_v3_score": "leader_sec_v3",
+    "leader_onset_sec_v4_support_score": "leader_sec_v4",
+}
+
+POLICY_FEATURE_PENALTY_MAP = {
+    "sec_13f_crowding_score": "crowding_penalty",
+    "sec_13f_stale_penalty": "stale_penalty",
+    "sec_form4_sale_risk_score": "form4_sale_risk_penalty",
+    "sec_form4_sale_pressure_score": "form4_sale_risk_penalty",
 }
 
 WEIGHT_PRESETS: dict[str, dict[str, float]] = {
@@ -234,6 +264,75 @@ def apply_weight_preset(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Se
     return score.fillna(0.0).clip(0.0, 1.0)
 
 
+def build_price_follow_adaptive_preset(policy: dict[str, Any]) -> dict[str, float]:
+    """Convert price-follow diagnostics into a research-only SEC overlay preset.
+
+    This does not change production scoring. It only creates one additional
+    learning-grid candidate so the historical data can challenge our hand-made
+    Form 4 / 13F assumptions.
+    """
+    if not policy or policy.get("status") != "completed":
+        return {}
+
+    component_strength: dict[str, float] = {}
+    for item in policy.get("support_features", []) or []:
+        feature = str(item.get("feature", ""))
+        component = POLICY_FEATURE_COMPONENT_MAP.get(feature)
+        if not component:
+            continue
+        try:
+            strength = float(item.get("suggested_support_weight", 0.0))
+        except (TypeError, ValueError):
+            strength = 0.0
+        if strength <= 0.0:
+            continue
+        component_strength[component] = component_strength.get(component, 0.0) + strength
+
+    if not component_strength:
+        return {}
+
+    weights: dict[str, float] = {
+        "future": 0.34,
+        "market": 0.21,
+        "rs": 0.10,
+        "industry": 0.08,
+        "entry": 0.04,
+    }
+    total_strength = sum(component_strength.values())
+    support_budget = min(0.24, max(0.08, total_strength))
+    for component, strength in component_strength.items():
+        weights[component] = weights.get(component, 0.0) + support_budget * (strength / total_strength)
+
+    # If a composite leader SEC score wins the diagnostic, reduce raw SEC
+    # evidence additions a little to avoid double-counting the same signal.
+    if any(k in component_strength for k in ["leader_sec_v2", "leader_sec_v3", "leader_sec_v4"]):
+        for component in ["form4", "institutional", "combined_sec", "support_sec", "13f_breadth"]:
+            if component in weights:
+                weights[component] *= 0.65
+
+    for item in policy.get("risk_penalty_features", []) or []:
+        feature = str(item.get("feature", ""))
+        penalty = POLICY_FEATURE_PENALTY_MAP.get(feature)
+        if not penalty:
+            continue
+        try:
+            strength = float(item.get("suggested_support_weight", 0.0))
+        except (TypeError, ValueError):
+            strength = 0.0
+        if strength > 0.0:
+            weights[penalty] = min(0.06, weights.get(penalty, 0.0) + strength * 0.35)
+
+    return weights
+
+
+def weight_presets_for_policy(policy: dict[str, Any] | None) -> dict[str, dict[str, float]]:
+    presets = dict(WEIGHT_PRESETS)
+    adaptive = build_price_follow_adaptive_preset(policy or {})
+    if adaptive:
+        presets["price_follow_adaptive_overlay"] = adaptive
+    return presets
+
+
 def evaluate_score(frame: pd.DataFrame, score: pd.Series, *, topks: list[int]) -> dict[str, Any]:
     d = frame[["rebalance_date", "ticker", "forward_return"]].copy()
     d["candidate_score"] = pd.to_numeric(score, errors="coerce")
@@ -268,7 +367,7 @@ def evaluate_score(frame: pd.DataFrame, score: pd.Series, *, topks: list[int]) -
     }
 
 
-def learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]:
+def learn_score_weights(enriched: pd.DataFrame, out_dir: Path, *, price_follow_policy: dict[str, Any] | None = None) -> dict[str, Any]:
     frame = prepare_learning_frame(enriched)
     if frame.empty:
         payload = {
@@ -282,7 +381,8 @@ def learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]
         return payload
 
     rows: list[dict[str, Any]] = []
-    for name, weights in WEIGHT_PRESETS.items():
+    presets = weight_presets_for_policy(price_follow_policy)
+    for name, weights in presets.items():
         score = apply_weight_preset(frame, weights)
         metrics = evaluate_score(frame, score, topks=[5, 10, 20])
         rows.append({"preset": name, "weights_json": json.dumps(weights, sort_keys=True), **metrics})
@@ -308,6 +408,7 @@ def learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]
             "research_only": True,
             "production_activation_allowed": False,
             "selection_rule": "best_top5_excess_then_ic",
+            "policy_adaptive_preset_included": "price_follow_adaptive_overlay" in presets,
             "best_preset": best.get("preset"),
             "best_weights": json.loads(str(best.get("weights_json") or "{}")),
             "best_metrics": {k: v for k, v in best.items() if k not in {"weights_json"}},
@@ -434,7 +535,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     enriched.to_csv(reports_dir / "candidate_replay_book.csv", index=False)
 
     selection_quality = run_selection_quality(latest_dir, output_dir / "selection_quality", top_n=int(args.top_n))
-    score_learning = learn_score_weights(enriched, output_dir)
     signal_audit = run_signal_audit(
         argparse.Namespace(
             candidate_book=str(enriched_csv),
@@ -447,6 +547,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             min_manager_observations=int(args.min_manager_observations),
             min_feature_nonzero_rows=int(args.min_feature_nonzero_rows),
         )
+    )
+    score_learning = learn_score_weights(
+        enriched,
+        output_dir,
+        price_follow_policy=(signal_audit or {}).get("price_follow_policy", {}),
     )
     broker_grid = run_broker_grids(args, enriched_csv, output_dir)
 
