@@ -56,7 +56,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: sec-evidence-data-lake-${{ github.ref }}
+  group: sec-form4-${{ github.ref }}-${{ github.event.inputs.shard_index || 'daily' }}
   cancel-in-progress: false
 
 jobs:

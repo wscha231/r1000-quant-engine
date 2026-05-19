@@ -377,6 +377,30 @@ All entries must be written in English. Entries must be predictable and machine-
   - More 13F managers increase coverage, but also increase crowding/noise; manager-quality learning must decide weights before any production use.
   - Full Form 4 expansion should run in bounded shards to avoid SEC rate abuse and GitHub timeout risk.
 
+### 11:13 KST - sec-workflow-concurrency-split
+
+- scope:
+  - Split SEC Form 4 and 13F workflow concurrency groups so broader evidence refreshes do not cancel each other or replace pending Form 4 shard runs.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->uses a Form 4 concurrency group keyed by branch and shard index.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->uses a separate 13F concurrency group keyed by branch.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - Multiple Form 4 shard backfills can be queued/run without cancelling unrelated 13F refreshes; 13F refresh remains serialized per branch.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` passed before this small workflow-only follow-up.
+- risks_or_notes:
+  - Do not launch all 40 Form 4 shards at once until SEC rate and Drive sync behavior are observed on a small batch.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

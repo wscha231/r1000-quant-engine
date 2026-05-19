@@ -24,7 +24,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: sec-evidence-data-lake-${{ github.ref }}
+  group: sec-13f-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
