@@ -93,6 +93,70 @@ def test_form4_signal_is_shadow_only_and_uses_available_from_filter() -> None:
     assert "score_total" not in after.columns
 
 
+def test_form4_signal_scores_all_insiders_with_ten_percent_owner_subscore() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "issuer_ticker": "ABCD",
+                "issuer_cik10": "0000000001",
+                "reporting_owner_cik": "0000001001",
+                "reporting_owner_name": "Large Holder",
+                "officer_title": "",
+                "is_director": False,
+                "is_officer": False,
+                "is_ten_percent_owner": True,
+                "transaction_code": "P",
+                "transaction_value": 2_000_000.0,
+                "available_from": "2026-05-13T00:00:00+00:00",
+            },
+            {
+                "issuer_ticker": "ABCD",
+                "issuer_cik10": "0000000001",
+                "reporting_owner_cik": "0000001002",
+                "reporting_owner_name": "Outside Director",
+                "officer_title": "",
+                "is_director": True,
+                "is_officer": False,
+                "is_ten_percent_owner": False,
+                "transaction_code": "P",
+                "transaction_value": 250_000.0,
+                "available_from": "2026-05-13T00:00:00+00:00",
+            },
+        ]
+    )
+    signals = build_form4_signal(frame, as_of="2026-05-14T00:00:00+00:00")
+    assert signals.loc[0, "ticker"] == "ABCD"
+    assert signals.loc[0, "insider_buy_count"] == 2
+    assert signals.loc[0, "ten_percent_owner_buy_count"] == 1
+    assert signals.loc[0, "sec_form4_ten_percent_owner_buy_score"] > 0
+    assert signals.loc[0, "sec_form4_ceo_cfo_buy_score"] == 0
+
+
+def test_form4_signal_filters_invalid_ticker_placeholders() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "issuer_ticker": "NONE",
+                "issuer_cik10": "0000000001",
+                "reporting_owner_cik": "0000001001",
+                "transaction_code": "P",
+                "transaction_value": 100_000_000.0,
+                "available_from": "2026-05-13T00:00:00+00:00",
+            },
+            {
+                "issuer_ticker": "REAL",
+                "issuer_cik10": "0000000002",
+                "reporting_owner_cik": "0000001002",
+                "transaction_code": "P",
+                "transaction_value": 1_000_000.0,
+                "available_from": "2026-05-13T00:00:00+00:00",
+            },
+        ]
+    )
+    signals = build_form4_signal(frame, as_of="2026-05-14T00:00:00+00:00")
+    assert list(signals["ticker"]) == ["REAL"]
+
+
 def test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name() -> None:
     primary_doc = "xslF345X06/form4-05152026_080501.xml"
     assert raw_form4_primary_document(primary_doc) == "form4-05152026_080501.xml"
@@ -110,5 +174,7 @@ def test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name() -> None:
 if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
+    test_form4_signal_scores_all_insiders_with_ten_percent_owner_subscore()
+    test_form4_signal_filters_invalid_ticker_placeholders()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
     print("sec_form4_parser_smoke passed")

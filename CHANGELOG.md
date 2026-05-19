@@ -401,6 +401,61 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Do not launch all 40 Form 4 shards at once until SEC rate and Drive sync behavior are observed on a small batch.
 
+### 12:09 KST - sec-insider-and-manager-reselection
+
+- scope:
+  - Expand Form 4 insider-role evidence beyond CEO/CFO-only interpretation and add a research-only semiannual 13F manager reselection pipeline.
+- files:
+  - `tools/run_sec_ownership_signals.py` ->adds 10 percent owner Form 4 buy counts/scores while keeping all reporting owners in the shadow signal and filtering invalid ticker placeholders.
+  - `tools/run_sec_enriched_candidate_replay.py` ->passes the new 10 percent owner Form 4 score through SEC-enriched candidate books.
+  - `tools/run_selection_quality_report.py` ->adds the 10 percent owner Form 4 score to factor diagnostics.
+  - `tools/build_sec_13f_manager_universe.py` ->marks the reviewed 13F manager universe as needing semiannual reselection using repo manager-alpha evidence.
+  - `tools/run_sec_13f_manager_reselection.py` ->creates research-only manager reselection candidates from the reviewed seed list, repo 13F manager-alpha diagnostics, and latest 13F holdings/AUM.
+  - `.github/workflows/sec_13f_manager_reselection.yml` ->adds manual and semiannual GitHub Actions reselection with Google Drive restore/sync.
+  - `tests/sec_form4_parser_smoke.py` ->checks all-insider Form 4 scoring and 10 percent owner subscore output.
+  - `tests/sec_13f_manager_universe_smoke.py` ->checks the semiannual review flag.
+  - `tests/sec_13f_manager_reselection_smoke.py` ->checks research-only manager reselection output and non-overwrite behavior.
+  - `tools/run_pr_validation.py` ->adds the manager reselection smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `bool_column(frame: pd.DataFrame, column: str) -> pd.Series` ->normalizes Form 4 role flags before role-weight scoring.
+  - `text_column(frame: pd.DataFrame, column: str) -> pd.Series` ->provides index-aligned blank text when optional Form 4 fields are absent.
+  - `valid_ticker_mask(series: pd.Series) -> pd.Series` ->filters SEC issuer ticker placeholders such as `NONE` before Form 4 signal scoring.
+  - `read_table(path: Path) -> pd.DataFrame` in `tools/run_sec_13f_manager_reselection.py` ->loads CSV or parquet manager evidence.
+  - `numeric_column(frame: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series` ->keeps manager reselection robust when optional manager-alpha fields are absent.
+  - `holdings_manager_stats(holdings: pd.DataFrame) -> pd.DataFrame` ->builds latest manager AUM, coverage, and concentration features from raw 13F holdings without requiring ticker mapping.
+  - `build_candidates(...) -> pd.DataFrame` ->scores semiannual 13F manager include/keep/review candidates.
+  - `render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str` ->renders the manager reselection report.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_13f_manager_reselection.py` ->writes manager reselection artifacts without changing the active manager CSV.
+- symbols_changed:
+  - `build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 90) -> pd.DataFrame` ->adds all-insider role normalization, CEO/CFO counts, 10 percent owner counts, and 10 percent owner shadow score.
+  - `render_report(summary: dict[str, Any], latest: pd.DataFrame) -> str` in `tools/run_sec_ownership_signals.py` ->shows the 10 percent owner Form 4 score in the report.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/build_sec_13f_manager_universe.py` ->adds semiannual review metadata to the manager universe summary.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_manager_reselection_smoke.py`.
+- config_fields_added:
+  - `min_observations: string = 10` ->workflow input for minimum repo manager-alpha observations in semiannual 13F manager reselection.
+  - `max_managers: string = 40` ->workflow input for manager reselection output breadth.
+  - `review_interval_days: string = 183` ->workflow input for semiannual review cadence metadata.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_ownership_signals/form4_latest.csv` ->now includes `ten_percent_owner_buy_count`, `ceo_cfo_buy_count`, and `sec_form4_ten_percent_owner_buy_score`.
+  - `outputs/sec_institutional_signals/manager_reselection_candidates.csv` ->ranked research-only 13F manager reselection candidates.
+  - `outputs/sec_institutional_signals/manager_reselection_summary.json` ->semiannual reselection status and output manifest.
+  - `outputs/sec_institutional_signals/manager_reselection_report.md` ->human-readable manager reselection report.
+  - `research/sec_13f_manager_universe_20260519/managers_candidate.csv` ->review candidate CSV that must not overwrite active managers without human approval.
+- automation_impact:
+  - Adds a semiannual 13F manager reselection workflow scheduled after May and November 13F filing windows, plus manual dispatch.
+  - Keeps Form 4 and 13F SEC evidence research-only; no production score or active manager list is auto-promoted.
+- validation:
+  - `py -3 tests\sec_form4_parser_smoke.py` passed.
+  - `py -3 tests\sec_13f_manager_reselection_smoke.py` passed.
+  - `py -3 tests\sec_13f_manager_universe_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_form4_parser --only sec_13f_manager_universe --only sec_13f_manager_reselection --only workflow_artifact` passed.
+- risks_or_notes:
+  - 13F performance ranking is derived from delayed 13F holdings after `available_from`; it remains support evidence, not a buy trigger.
+  - The new manager reselection candidate CSV is a review artifact and intentionally does not overwrite the active `managers.csv`.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

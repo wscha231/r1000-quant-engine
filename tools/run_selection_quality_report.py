@@ -34,6 +34,7 @@ FACTOR_COLUMNS = [
     "sec_form4_open_market_buy_score",
     "sec_form4_cluster_buy_score",
     "sec_form4_ceo_cfo_buy_score",
+    "sec_form4_ten_percent_owner_buy_score",
     "sec_form4_net_buy_score",
     "sec_form4_sale_pressure_score",
     "sec_form4_sale_risk_score",

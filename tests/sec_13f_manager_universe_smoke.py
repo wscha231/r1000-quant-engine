@@ -64,6 +64,7 @@ def test_manager_universe_builds_verified_priority_cik_tokens() -> None:
         assert "UNVERIFIED" not in text
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         assert summary["annual_review_required"] is True
+        assert summary["semiannual_review_required"] is True
 
 
 if __name__ == "__main__":

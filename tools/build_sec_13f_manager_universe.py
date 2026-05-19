@@ -146,7 +146,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "selected_managers": int(len(tokens)),
         "tokens": tokens,
         "annual_review_required": True,
-        "review_rule": "Refresh external performance/AUM fields at least yearly, but use repo manager_alpha before weighting.",
+        "semiannual_review_required": True,
+        "review_rule": "Refresh manager selection at least semiannually with repo manager_alpha; external performance/AUM fields are review notes only.",
     }
     write_json(output_summary, summary)
     print(json.dumps({"status": summary["status"], "selected_managers": summary["selected_managers"], "tokens": tokens}, sort_keys=True))
