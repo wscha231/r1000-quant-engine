@@ -159,6 +159,8 @@ jobs:
           python tools/run_sec_institutional_signals.py \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --output-dir outputs/sec_institutional_signals \
+            --company-tickers-json data_raw/sec/company_tickers.json \
+            --candidate-map cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv \
             --lookback-days 210 \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_signals.log
 

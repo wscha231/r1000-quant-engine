@@ -62,6 +62,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/candidate_universe_fallback_smoke.py", []),
     ("tests/sec_cik_schema_smoke.py", []),
     ("tests/sec_form4_parser_smoke.py", []),
+    ("tests/sec_form4_merge_shards_smoke.py", []),
     ("tests/sec_13f_parser_smoke.py", []),
     ("tests/sec_13f_manager_universe_smoke.py", []),
     ("tests/sec_pit_available_from_smoke.py", []),

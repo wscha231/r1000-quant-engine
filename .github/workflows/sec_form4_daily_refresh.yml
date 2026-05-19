@@ -11,6 +11,34 @@ on:
         description: 'Max indexed Form 4 filings to parse in this shard'
         type: string
         default: '500'
+      backfill_years:
+        description: '0 = daily/recent only; otherwise include older submissions archive files back this many years'
+        type: string
+        default: '0'
+      all_sec_tickers:
+        description: 'Backfill all SEC company_tickers entries instead of the bounded watchlist'
+        type: boolean
+        default: false
+      include_archive_files:
+        description: 'Fetch older submissions files listed under filings.files for long Form 4 backfills'
+        type: boolean
+        default: false
+      append_existing:
+        description: 'Merge with existing shard/canonical PIT files instead of replacing them'
+        type: boolean
+        default: true
+      shard_index:
+        description: 'Zero-based shard index for all-ticker Form 4 backfill'
+        type: string
+        default: '0'
+      shard_count:
+        description: 'Total shard count for all-ticker Form 4 backfill'
+        type: string
+        default: '1'
+      merge_shards:
+        description: 'Merge data_pit/sec/shards into canonical Form 4 PIT/signal files'
+        type: boolean
+        default: false
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -126,30 +154,68 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
           TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
+          BACKFILL_YEARS: ${{ github.event.inputs.backfill_years || '0' }}
+          ALL_SEC_TICKERS: ${{ github.event.inputs.all_sec_tickers || 'false' }}
+          INCLUDE_ARCHIVE_FILES: ${{ github.event.inputs.include_archive_files || 'false' }}
+          APPEND_EXISTING: ${{ github.event.inputs.append_existing || 'true' }}
+          SHARD_INDEX: ${{ github.event.inputs.shard_index || '0' }}
+          SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
+          MERGE_SHARDS: ${{ github.event.inputs.merge_shards || 'false' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_ownership_signals data_pit/sec data_raw/sec
-          python tools/run_sec_submissions_collector.py \
-            --tickers "$TICKERS" \
-            --universe-file ./.missing_universe.csv \
-            --forms '4,4/A' \
-            --output-dir data_pit/sec \
-            --raw-dir data_raw/sec \
-            --user-agent "$SEC_USER_AGENT" \
-            --sleep 0.12 \
-            --safety-delay-hours "$SAFETY_DELAY_HOURS" \
-            2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
+          PIT_OUT="data_pit/sec"
+          if [ "${SHARD_COUNT:-1}" != "1" ]; then
+            PIT_OUT="data_pit/sec/shards/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
+          fi
+          mkdir -p "$PIT_OUT"
+          ARGS=(
+            --forms '4,4/A'
+            --output-dir "$PIT_OUT"
+            --raw-dir data_raw/sec
+            --user-agent "$SEC_USER_AGENT"
+            --sleep 0.12
+            --safety-delay-hours "$SAFETY_DELAY_HOURS"
+            --max-filings-per-ticker "$MAX_FILINGS"
+          )
+          if [ "$ALL_SEC_TICKERS" = "true" ]; then
+            ARGS+=(--all-sec-tickers --universe-file ./.missing_universe.csv)
+          else
+            ARGS+=(--tickers "$TICKERS" --universe-file ./.missing_universe.csv)
+          fi
+          if [ "${BACKFILL_YEARS:-0}" != "0" ]; then
+            START_DATE="$(python -c "from datetime import date, timedelta; print((date.today() - timedelta(days=int(float('${BACKFILL_YEARS:-0}')*365.25))).isoformat())")"
+            ARGS+=(--start-date "$START_DATE" --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT")
+          fi
+          if [ "$INCLUDE_ARCHIVE_FILES" = "true" ]; then
+            ARGS+=(--include-archive-files)
+          fi
+          if [ "$APPEND_EXISTING" = "true" ]; then
+            ARGS+=(--append-existing)
+          fi
+          python tools/run_sec_submissions_collector.py "${ARGS[@]}" 2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
           python tools/run_sec_form4_parser.py \
-            --filings-index data_pit/sec/sec_filings_index.parquet \
-            --output-dir data_pit/sec \
+            --filings-index "$PIT_OUT/sec_filings_index.parquet" \
+            --output-dir "$PIT_OUT" \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          if [ "$MERGE_SHARDS" = "true" ]; then
+            python tools/run_sec_form4_merge_shards.py \
+              --pit-root data_pit/sec \
+              --output-dir outputs/sec_ownership_signals \
+              --window-days 90 \
+              2>&1 | tee outputs/full_rebuild_logs/sec_form4_merge_shards.log
+          fi
+          SIGNAL_FORM4="$PIT_OUT/form4_transactions.parquet"
+          if [ "$MERGE_SHARDS" = "true" ]; then
+            SIGNAL_FORM4="data_pit/sec/form4_transactions.parquet"
+          fi
           python tools/run_sec_ownership_signals.py \
-            --form4 data_pit/sec/form4_transactions.parquet \
+            --form4 "$SIGNAL_FORM4" \
             --output-dir outputs/sec_ownership_signals \
             --lookback-days 90 \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_signals.log
@@ -162,6 +228,9 @@ jobs:
           path: |
             data_pit/sec/sec_filings_index.*
             data_pit/sec/form4_transactions.*
+            data_pit/sec/sec_ownership_signals.*
+            data_pit/sec/sec_form4_merge_manifest.json
+            data_pit/sec/shards/**
             data_pit/sec/*summary.json
             outputs/sec_ownership_signals/
             outputs/full_rebuild_logs/sec_form4_*.log

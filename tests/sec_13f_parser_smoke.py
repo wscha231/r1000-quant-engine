@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml, sanitize_13f_frame  # noqa: E402
-from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
+from tools.run_sec_institutional_signals import build_13f_signal, map_13f_tickers  # noqa: E402
 
 
 SAMPLE_13F = """<?xml version="1.0" encoding="UTF-8"?>
@@ -133,8 +133,34 @@ def test_13f_export_schema_coerces_blank_numeric_fields() -> None:
     assert float(clean.loc[0, "market_value_usd"]) == 0.0
 
 
+def test_13f_issuer_name_mapping_fills_blank_tickers_without_cusip_map() -> None:
+    rows = parse_13f_xml(
+        SAMPLE_13F.replace("<ticker>AAPL</ticker>", ""),
+        {
+            "cik10": "0001067983",
+            "manager_name": "Example Manager",
+            "period_of_report": "2026-03-31",
+            "filing_date": "2026-05-15",
+            "accepted_at": "2026-05-15T18:00:00+00:00",
+            "available_from": "2026-05-15T18:00:00+00:00",
+            "accession_number": "0001067983-26-000003",
+        },
+    )
+    holdings = pd.DataFrame(rows)
+    mapped, summary = map_13f_tickers(
+        holdings,
+        company_tickers=pd.DataFrame([{"ticker": "AAPL", "name": "Apple Inc."}]),
+    )
+    assert summary["filled_ticker_count"] == 1
+    assert mapped.loc[0, "ticker_mapped"] == "AAPL"
+    latest = build_13f_signal(mapped, as_of="2026-05-15T23:59:59+00:00", lookback_days=210)
+    assert len(latest) == 1
+    assert latest.loc[0, "ticker"] == "AAPL"
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
     test_13f_export_schema_coerces_blank_numeric_fields()
+    test_13f_issuer_name_mapping_fills_blank_tickers_without_cusip_map()
     print("sec_13f_parser_smoke: PASS")

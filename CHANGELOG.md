@@ -288,6 +288,66 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Parse-error rows remain diagnostic rows with zero numeric values; downstream score builders already require valid tickers/holdings before scoring.
 
+### 10:48 KST - sec-form4-backfill-and-13f-mapping
+
+- scope:
+  - Port only the Form 4 long-history shard backfill support from the older SEC branch and fix research-only 13F signal generation when CUSIP/ticker mapping is unavailable.
+- files:
+  - `tools/run_sec_submissions_collector.py` ->adds date-bounded SEC archive-file collection, append-existing merge, all-SEC ticker mode, and shard arguments while preserving direct manager-CIK support.
+  - `tools/run_sec_form4_merge_shards.py` ->merges shard-level Form 4 filings and transaction outputs into canonical PIT evidence and signal files.
+  - `tools/run_sec_institutional_signals.py` ->adds conservative issuer-name fallback mapping from SEC company tickers, optional ticker maps, and candidate books before building 13F signals.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds manual 8-year/all-ticker shard backfill inputs and optional shard merge while keeping daily bounded refresh behavior.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->passes SEC company tickers and the latest candidate book to 13F signal generation for mapping fallback.
+  - `tests/sec_form4_merge_shards_smoke.py` ->checks shard merge deduplication and canonical Form 4 signal creation.
+  - `tests/sec_13f_parser_smoke.py` ->checks issuer-name 13F fallback mapping creates non-empty research-only signals without a CUSIP map.
+  - `tools/run_pr_validation.py` ->adds the Form 4 shard merge smoke test to SEC validation coverage.
+- symbols_added:
+  - `parse_date_bound(value: Any) -> pd.Timestamp` ->parses inclusive SEC filing-date backfill bounds.
+  - `filing_date_in_range(value: Any, start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool` ->filters filing rows for date-bounded backfills.
+  - `archive_file_overlaps(file_meta: dict[str, Any], start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool` ->selects older SEC submissions archive files that overlap the backfill window.
+  - `filings_from_recent_dict(...) -> pd.DataFrame` ->normalizes recent or archive submissions payload rows into the PIT filing index schema.
+  - `fetch_submissions_archive(...) -> dict[str, Any]` ->caches older SEC submissions archive payloads under `data_raw/sec/submissions`.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_form4_merge_shards.py` ->writes canonical merged Form 4 PIT files and ownership signal outputs.
+  - `issuer_name_key(value: Any) -> str` ->normalizes issuer names for conservative exact 13F ticker fallback.
+  - `issuer_ticker_map_from_frame(frame: pd.DataFrame) -> dict[str, str]` ->builds unique issuer-key to ticker mappings.
+  - `map_13f_tickers(...) -> tuple[pd.DataFrame, dict[str, int]]` ->fills blank `ticker_mapped` values from conservative issuer-name maps before 13F scoring.
+- symbols_changed:
+  - `collect_filings_index(...) -> pd.DataFrame` ->supports all-SEC ticker shards, archive-file collection, date bounds, max filings per ticker, and resilient per-ticker failure handling.
+  - `write_outputs(frame: pd.DataFrame, output_dir: Path, *, append_existing: bool = False) -> dict[str, str]` ->can merge new filing rows into existing PIT indexes before writing parquet/csv.
+  - `main()` in `tools/run_sec_institutional_signals.py` ->loads SEC company ticker and candidate maps, applies fallback ticker mapping, and records mapping coverage in the summary.
+  - `DEFAULT_TESTS` ->adds `tests/sec_form4_merge_shards_smoke.py`.
+- config_fields_added:
+  - `--max-filings-per-ticker: int = 0` ->caps per-issuer filing rows during SEC backfills.
+  - `--start-date: str = ""` ->inclusive filing-date lower bound for SEC submissions collection.
+  - `--end-date: str = ""` ->inclusive filing-date upper bound for SEC submissions collection.
+  - `--include-archive-files: bool = False` ->enables older SEC submissions file shards for long backfills.
+  - `--append-existing: bool = False` ->merges new filing rows into existing PIT files.
+  - `--all-sec-tickers: bool = False` ->collects every ticker from SEC company tickers when no explicit universe should constrain the backfill.
+  - `--shard-index: int = 0` ->zero-based backfill shard index.
+  - `--shard-count: int = 1` ->total backfill shard count.
+  - `--company-tickers-json: str = data_raw/sec/company_tickers.json` ->SEC company ticker source used for 13F issuer-name fallback.
+  - `--ticker-map: str = data_pit/sec/ticker_cik_map.parquet` ->optional ticker map source for 13F issuer-name fallback.
+  - `--candidate-map: str = ""` ->optional candidate book source for 13F issuer-name fallback.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/shards/shard_<i>_of_<n>/sec_filings_index.parquet` ->shard-level PIT filing metadata for long Form 4 backfills.
+  - `data_pit/sec/shards/shard_<i>_of_<n>/form4_transactions.parquet` ->shard-level normalized Form 4 transactions.
+  - `data_pit/sec/sec_ownership_signals.parquet` ->canonical merged Form 4 ownership signal output.
+  - `data_pit/sec/sec_form4_merge_manifest.json` ->Form 4 shard merge manifest.
+  - `outputs/sec_institutional_signals/institutional_signal_summary.json` ->now includes 13F ticker mapping coverage diagnostics.
+- automation_impact:
+  - `SEC Form 4 Daily Refresh` can now be manually run as bounded all-ticker 8-year shards and later merged without merging the older PR #11 branch.
+  - `SEC 13F Quarterly Refresh` can produce non-empty research-only 13F signals when issuer names map uniquely even if CUSIP mapping is absent.
+- validation:
+  - `py -3 -m py_compile tools\run_sec_submissions_collector.py tools\run_sec_form4_merge_shards.py tools\run_sec_institutional_signals.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_` passed, 9/9 SEC tests.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py` was attempted but the branch already lists many default smoke files that do not exist in this checkout; all SEC-related tests passed.
+- risks_or_notes:
+  - SEC evidence remains research-only and must not be promoted until broker-ledger official metrics beat the locked main/concentrated baselines.
+  - Issuer-name 13F fallback intentionally maps only unique normalized issuer names; ambiguous dual-share-class names are left unmapped until a proper CUSIP/ticker map is available.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package
