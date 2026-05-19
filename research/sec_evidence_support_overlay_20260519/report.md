@@ -149,3 +149,27 @@ The broker grid should now test portfolio-specific ranges:
 
 Promotion remains blocked unless a candidate improves the locked baseline on
 official broker-ledger metrics and passes human approval.
+
+## Price-Follow Adaptive Learning
+
+The fixed Form 4 / 13F score recipes are no longer the only research path.
+`run_sec_evidence_signal_audit.py` emits `sec_score_policy_recommendation.json`,
+which classifies each SEC feature as support, risk, neutral, disabled, or
+insufficient coverage based on historical forward-return alignment.
+
+`run_sec_evidence_learning_pipeline.py` now converts that policy into a
+research-only `price_follow_adaptive_overlay` preset:
+
+- Features with positive directional IC and positive top-vs-bottom decile
+  spread can receive small support weights.
+- Risk features are used only when price-follow diagnostics validate the
+  direction.
+- Low-coverage Form 4 fields are not trusted until the full shard backfill is
+  merged.
+- The generated preset is compared only inside `score_weight_grid.csv` and does
+  not change `score_total` or production target books.
+
+This keeps the SEC layer data-driven: if CEO/CFO buys, 10% owner buys, 13F
+breadth, or crowding do not align with later price behavior in the repo's own
+historical candidate book, the policy report can neutralize or disable them
+instead of forcing conventional assumptions into the engine.

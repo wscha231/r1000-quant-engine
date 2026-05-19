@@ -53,6 +53,38 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-19
 
+### 14:41 KST - sec-price-follow-adaptive-weights
+
+- scope:
+  - Connect SEC price-follow diagnostics to the research-only evidence learning grid so Form 4 and 13F weights can be challenged by historical forward-return alignment instead of only fixed assumptions.
+- files:
+  - `tools/run_sec_evidence_learning_pipeline.py` ->adds a `price_follow_adaptive_overlay` learning preset generated from `sec_score_policy_recommendation.json`.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->verifies the adaptive preset is emitted and tracked in `best_score_weights.json`.
+  - `research/sec_evidence_support_overlay_20260519/report.md` ->documents the adaptive research-only SEC evidence policy.
+- symbols_added:
+  - `build_price_follow_adaptive_preset(policy: dict[str, Any]) -> dict[str, float]` ->converts validated support/risk SEC feature diagnostics into a research-only overlay preset.
+  - `weight_presets_for_policy(policy: dict[str, Any] | None) -> dict[str, dict[str, float]]` ->adds the adaptive preset to the learning grid when diagnostics are available.
+- symbols_changed:
+  - `learn_score_weights(enriched: pd.DataFrame, out_dir: Path, *, price_follow_policy: dict[str, Any] | None = None) -> dict[str, Any]` ->uses the price-follow policy to include the adaptive research preset and records whether it was included.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_evidence_learning_pipeline.py` ->runs signal audit before score learning so the adaptive preset can use the same-run diagnostics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/score_weight_grid.csv` ->now can include `price_follow_adaptive_overlay`.
+  - `outputs/sec_evidence_learning/best_score_weights.json` ->now includes `policy_adaptive_preset_included`.
+- automation_impact:
+  - none
+- validation:
+  - `py -3 tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `py -3 tests\sec_evidence_signal_audit_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_evidence_signal_audit --only sec_evidence_learning_pipeline` passed.
+  - `py -3 tools\run_pr_validation.py` passed with 22 passed and 32 optional missing-file skips.
+- risks_or_notes:
+  - The adaptive preset remains research-only and does not update `score_total`, production defaults, or live target books.
+  - Current Form 4 fields may remain low coverage until all 40 historical shards are merged.
+
 ### 00:08 KST - sec-evidence-learning-automation
 
 - scope:
