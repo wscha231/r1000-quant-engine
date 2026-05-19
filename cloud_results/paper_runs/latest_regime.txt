@@ -1,10 +1,10 @@
 ======================================================================
-r1000 Regime Snapshot — 2026-05-18 23:48:23
+r1000 Regime Snapshot — 2026-05-19 23:49:00
 ======================================================================
-  SPY close:        $  738.65    (source: alpaca)
-  SPY 200MA:        $  676.60
+  SPY close:        $  733.73    (source: alpaca)
+  SPY 200MA:        $  677.16
   SPY > 200MA:      True
-  VIX level:            17.82    (source: yfinance)
+  VIX level:            18.06    (source: yfinance)
   Regime label:     normal
 
 Layer 3 actions: 0
