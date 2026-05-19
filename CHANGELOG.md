@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-19
 
+### 16:09 KST - sec-gdrive-restore-manifest
+
+- scope:
+  - Make Google Drive SEC data-lake restore observable and optionally enforceable for resumed Form 4 shard backfills and merge-only runs.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds restore logging, a restore manifest, artifact upload of restore diagnostics, and a `require_gdrive_restore` workflow input.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `require_gdrive_restore: boolean = false` ->fails the workflow when Drive restore is required but no restored Form 4 PIT files are present.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_gdrive_restore.log` ->Google Drive restore attempt log.
+  - `outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json` ->restored shard directory count, restored Form 4 PIT file count, canonical file presence, and restore status.
+- automation_impact:
+  - Future Form 4 artifacts can prove whether prior shards were restored from Google Drive before collection starts.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - static workflow token check for `require_gdrive_restore` and `sec_gdrive_restore_manifest.json` passed.
+- risks_or_notes:
+  - Existing in-flight shard runs started before this commit will not include the new restore manifest; the next triggered shards will.
+
 ### 14:41 KST - sec-price-follow-adaptive-weights
 
 - scope:
