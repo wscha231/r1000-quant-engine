@@ -51,6 +51,10 @@ on:
         description: 'Also sync raw SEC downloads to Google Drive; keep false for shard backfills to avoid long sync stalls'
         type: boolean
         default: false
+      sec_sleep_seconds:
+        description: 'Delay between SEC requests; use 0.25+ when running concurrent historical shards'
+        type: string
+        default: '0.25'
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -177,6 +181,7 @@ jobs:
           SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
           MERGE_SHARDS: ${{ github.event.inputs.merge_shards || 'false' }}
           MERGE_ONLY: ${{ github.event.inputs.merge_only || 'false' }}
+          SEC_SLEEP_SECONDS: ${{ github.event.inputs.sec_sleep_seconds || '0.25' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
@@ -191,7 +196,7 @@ jobs:
             --output-dir "$PIT_OUT"
             --raw-dir data_raw/sec
             --user-agent "$SEC_USER_AGENT"
-            --sleep 0.12
+            --sleep "$SEC_SLEEP_SECONDS"
             --safety-delay-hours "$SAFETY_DELAY_HOURS"
             --max-filings-per-ticker "$MAX_FILINGS_PER_TICKER"
           )
@@ -217,7 +222,7 @@ jobs:
               --output-dir "$PIT_OUT" \
               --raw-dir data_raw/sec \
               --user-agent "$SEC_USER_AGENT" \
-              --sleep 0.12 \
+              --sleep "$SEC_SLEEP_SECONDS" \
               --max-filings "$MAX_FILINGS" \
               2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
           else
