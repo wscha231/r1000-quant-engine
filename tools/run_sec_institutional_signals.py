@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from tools.run_sec_submissions_collector import cik10, repo_path  # noqa: E402
 
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/sec_institutional_signals"
+DEFAULT_COMPANY_TICKERS_JSON = "data_raw/sec/company_tickers.json"
 
 INSTITUTIONAL_SIGNAL_COLUMNS = [
     "ticker",
@@ -34,6 +36,7 @@ INSTITUTIONAL_SIGNAL_COLUMNS = [
     "sec_13f_conviction_score",
     "sec_13f_accumulation_score",
     "sec_13f_new_position_score",
+    "sec_13f_breadth_score",
     "sec_13f_crowding_score",
     "sec_13f_stale_penalty",
     "sec_13f_smart_money_score",
@@ -48,6 +51,24 @@ def read_table(path: Path) -> pd.DataFrame:
     if path.suffix.lower() == ".parquet":
         return pd.read_parquet(path)
     return pd.read_csv(path, low_memory=False)
+
+
+def read_company_tickers_json(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return pd.DataFrame()
+    rows: list[dict[str, str]] = []
+    for item in payload.values() if isinstance(payload, dict) else []:
+        rows.append(
+            {
+                "ticker": str(item.get("ticker") or "").upper().strip(),
+                "name": str(item.get("title") or "").strip(),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -65,6 +86,88 @@ def _log_score(value: float, scale: float) -> float:
     if value <= 0 or scale <= 0:
         return 0.0
     return _safe_pct(math.log1p(value) / math.log1p(scale))
+
+
+def issuer_name_key(value: Any) -> str:
+    text = re.sub(r"[^A-Z0-9 ]+", " ", str(value or "").upper().replace("&", " AND "))
+    aliases = {
+        "FINL": "FINANCIAL",
+        "TECH": "TECHNOLOGY",
+        "COMMUNICATIONS": "COMMUNICATION",
+    }
+    stop = {
+        "THE",
+        "INC",
+        "INCORPORATED",
+        "CORP",
+        "CORPORATION",
+        "CO",
+        "COMPANY",
+        "LTD",
+        "LIMITED",
+        "PLC",
+        "SA",
+        "NV",
+        "COM",
+        "COMMON",
+        "STOCK",
+        "CLASS",
+        "CL",
+        "NEW",
+        "ORD",
+        "SHS",
+    }
+    tokens = [aliases.get(tok, tok) for tok in text.split() if tok and tok not in stop]
+    return " ".join(tokens)
+
+
+def issuer_ticker_map_from_frame(frame: pd.DataFrame) -> dict[str, str]:
+    if frame.empty or "ticker" not in frame.columns:
+        return {}
+    name_col = next((col for col in ["name", "Name", "company_name", "issuer_name", "security_name"] if col in frame.columns), "")
+    if not name_col:
+        return {}
+    pairs = frame[["ticker", name_col]].dropna().copy()
+    pairs["ticker"] = pairs["ticker"].astype(str).str.upper().str.strip()
+    pairs["issuer_key"] = pairs[name_col].map(issuer_name_key)
+    pairs = pairs[pairs["ticker"].ne("") & pairs["issuer_key"].ne("")]
+    counts = pairs.groupby("issuer_key")["ticker"].nunique()
+    unique_keys = set(counts[counts.eq(1)].index)
+    if not unique_keys:
+        return {}
+    return pairs[pairs["issuer_key"].isin(unique_keys)].drop_duplicates("issuer_key").set_index("issuer_key")["ticker"].to_dict()
+
+
+def map_13f_tickers(
+    holdings: pd.DataFrame,
+    *,
+    company_tickers: pd.DataFrame | None = None,
+    ticker_map: pd.DataFrame | None = None,
+    candidate_map: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    if holdings.empty or "issuer_name" not in holdings.columns:
+        return holdings, {"filled_ticker_count": 0, "unmapped_row_count": int(len(holdings))}
+    mapping: dict[str, str] = {}
+    for source in [company_tickers, ticker_map, candidate_map]:
+        if source is not None and not source.empty:
+            for key, ticker in issuer_ticker_map_from_frame(source).items():
+                mapping.setdefault(key, ticker)
+    if not mapping:
+        return holdings, {"filled_ticker_count": 0, "unmapped_row_count": int(len(holdings))}
+    out = holdings.copy()
+    if "ticker_mapped" not in out.columns:
+        out["ticker_mapped"] = ""
+    blank = out["ticker_mapped"].astype(str).str.upper().str.strip().isin({"", "NAN", "NONE"})
+    before = int((~blank).sum())
+    out.loc[blank, "ticker_mapped"] = out.loc[blank, "issuer_name"].map(lambda value: mapping.get(issuer_name_key(value), ""))
+    out["ticker_mapped"] = out["ticker_mapped"].astype(str).str.upper().str.strip()
+    after = int(out["ticker_mapped"].ne("").sum())
+    return out, {
+        "filled_ticker_count": max(0, after - before),
+        "mapped_row_count": after,
+        "unmapped_row_count": int(out["ticker_mapped"].eq("").sum()),
+        "issuer_name_map_size": int(len(mapping)),
+    }
 
 
 def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
@@ -144,16 +247,18 @@ def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_day
         accumulation = _safe_pct(0.50 * _log_score(positive_delta, 250_000_000.0) + 0.50 * _safe_pct(buying_count / 8.0))
         conviction_score = _safe_pct(conviction / 0.20)
         new_position_score = _safe_pct(new_count / 5.0)
-        crowding = _safe_pct(manager_count / 35.0)
+        breadth = _safe_pct(manager_count / 12.0)
+        crowding = _safe_pct(max(manager_count - 20, 0) / 25.0)
         stale = _safe_pct(max(age_days - 120.0, 0.0) / 180.0)
         smart_money = _safe_pct(
-            0.32 * consensus
-            + 0.28 * accumulation
-            + 0.18 * conviction_score
+            0.28 * consensus
+            + 0.24 * accumulation
+            + 0.16 * conviction_score
             + 0.12 * new_position_score
+            + 0.08 * breadth
             + 0.10 * _safe_pct(net_delta / 250_000_000.0)
-            - 0.12 * crowding
-            - 0.10 * stale
+            - 0.06 * crowding
+            - 0.08 * stale
         )
         confidence = _safe_pct(min(manager_count, 20) / 20.0 + 0.25 * min(len(group), 40) / 40.0)
         rows.append(
@@ -171,6 +276,7 @@ def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_day
                 "sec_13f_conviction_score": conviction_score,
                 "sec_13f_accumulation_score": accumulation,
                 "sec_13f_new_position_score": new_position_score,
+                "sec_13f_breadth_score": breadth,
                 "sec_13f_crowding_score": crowding,
                 "sec_13f_stale_penalty": stale,
                 "sec_13f_smart_money_score": smart_money,
@@ -197,18 +303,19 @@ def render_report(summary: dict[str, Any], latest: pd.DataFrame) -> str:
         "",
         "## Top 13F Evidence",
         "",
-        "| ticker | institutional evidence | managers | buyers | new positions | net value delta | crowding | stale |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| ticker | institutional evidence | managers | buyers | new positions | net value delta | breadth | crowding risk | stale |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for _, row in latest.head(20).iterrows():
         lines.append(
-            "| {ticker} | {score:.3f} | {mgr:.0f} | {buy:.0f} | {new:.0f} | ${delta:,.0f} | {crowd:.3f} | {stale:.3f} |".format(
+            "| {ticker} | {score:.3f} | {mgr:.0f} | {buy:.0f} | {new:.0f} | ${delta:,.0f} | {breadth:.3f} | {crowd:.3f} | {stale:.3f} |".format(
                 ticker=row.get("ticker", ""),
                 score=float(row.get("institutional_evidence_score", 0.0)),
                 mgr=float(row.get("sec_13f_manager_count", 0.0)),
                 buy=float(row.get("sec_13f_buying_manager_count", 0.0)),
                 new=float(row.get("sec_13f_new_position_manager_count", 0.0)),
                 delta=float(row.get("sec_13f_value_delta_usd", 0.0)),
+                breadth=float(row.get("sec_13f_breadth_score", 0.0)),
                 crowd=float(row.get("sec_13f_crowding_score", 0.0)),
                 stale=float(row.get("sec_13f_stale_penalty", 0.0)),
             )
@@ -222,9 +329,21 @@ def main() -> int:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--as-of", default="")
     parser.add_argument("--lookback-days", type=int, default=210)
+    parser.add_argument("--company-tickers-json", default=DEFAULT_COMPANY_TICKERS_JSON)
+    parser.add_argument("--ticker-map", default="data_pit/sec/ticker_cik_map.parquet")
+    parser.add_argument("--candidate-map", default="")
     args = parser.parse_args()
 
     holdings = read_table(repo_path(args.holdings))
+    company_tickers = read_company_tickers_json(repo_path(args.company_tickers_json))
+    ticker_map = read_table(repo_path(args.ticker_map)) if args.ticker_map else pd.DataFrame()
+    candidate_map = read_table(repo_path(args.candidate_map)) if args.candidate_map else pd.DataFrame()
+    holdings, mapping_summary = map_13f_tickers(
+        holdings,
+        company_tickers=company_tickers,
+        ticker_map=ticker_map,
+        candidate_map=candidate_map,
+    )
     latest = build_13f_signal(holdings, as_of=args.as_of or None, lookback_days=int(args.lookback_days))
     out = repo_path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -236,6 +355,7 @@ def main() -> int:
         "score_total_changed": False,
         "holding_rows": int(len(holdings)),
         "signal_tickers": int(len(latest)),
+        "ticker_mapping": mapping_summary,
         "as_of": args.as_of or "",
         "latest_csv": str(latest_csv),
     }

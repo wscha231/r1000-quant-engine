@@ -62,6 +62,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "early_evidence_score": 0.90,
                         "evidence_confidence_score": 0.80,
                         "leader_onset_sec_v2_score": 0.95,
+                        "leader_onset_sec_v3_score": 0.95,
+                        "leader_onset_sec_v4_support_score": 0.95,
+                        "sec_support_boost_score": 0.90,
+                        "institutional_evidence_score": 0.80,
+                        "sec_combined_evidence_score": 0.85,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 100.0,
@@ -88,6 +93,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "early_evidence_score": 0.00,
                         "evidence_confidence_score": 0.00,
                         "leader_onset_sec_v2_score": 0.10,
+                        "leader_onset_sec_v3_score": 0.10,
+                        "leader_onset_sec_v4_support_score": 0.10,
+                        "sec_support_boost_score": 0.00,
+                        "institutional_evidence_score": 0.00,
+                        "sec_combined_evidence_score": 0.00,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 50.0,
@@ -114,6 +124,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "early_evidence_score": 0.0,
                         "evidence_confidence_score": 0.0,
                         "leader_onset_sec_v2_score": 0.0,
+                        "leader_onset_sec_v3_score": 0.0,
+                        "leader_onset_sec_v4_support_score": 0.0,
+                        "sec_support_boost_score": 0.0,
+                        "institutional_evidence_score": 0.0,
+                        "sec_combined_evidence_score": 0.0,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 10.0,
@@ -140,6 +155,11 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "early_evidence_score": 1.0,
                         "evidence_confidence_score": 1.0,
                         "leader_onset_sec_v2_score": 1.0,
+                        "leader_onset_sec_v3_score": 1.0,
+                        "leader_onset_sec_v4_support_score": 1.0,
+                        "sec_support_boost_score": 1.0,
+                        "institutional_evidence_score": 1.0,
+                        "sec_combined_evidence_score": 1.0,
                         "portfolio_risk_entry_block_score": 0.0,
                         "portfolio_stale_mega_leader_score": 0.0,
                         "px": 20.0,
@@ -161,10 +181,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,leader_onset_shadow,sec_evidence_shadow",
+                styles="future_heavy,leader_onset_shadow,sec_evidence_shadow,sec_support_overlay",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=3,
+                max_variants=4,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -173,7 +193,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 3
+        assert len(summary) == 4
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -187,6 +207,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert set(sec_targets["ticker"]) == {"AAA"}
         assert "leader_onset_sec_v2_score" in sec_targets.columns
         assert "early_evidence_score" in sec_targets.columns
+        support_targets = pd.read_csv(next(out.glob("sec_support_overlay_N1_cap*/target_book.csv")))
+        assert set(support_targets["ticker"]) == {"AAA"}
+        assert "leader_onset_sec_v4_support_score" in support_targets.columns
+        assert "sec_support_boost_score" in support_targets.columns
         assert payload.get("require_price_cache") is True
 
 

@@ -53,6 +53,86 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-19
 
+### 17:45 KST - sec-gdrive-manifest-artifact-path
+
+- scope:
+  - Ensure the SEC Google Drive restore manifest is included in Form 4 workflow artifacts.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds the explicit `sec_gdrive_restore_manifest.json` path to the artifact upload list.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json` ->now uploaded directly in SEC Form 4 artifacts.
+- automation_impact:
+  - Future shard artifacts can be inspected without reading raw job logs to prove Google Drive data-lake restore counts.
+- validation:
+  - static workflow inspection confirmed the explicit manifest upload path.
+- risks_or_notes:
+  - Runs 18/40 and 19/40 printed valid restore manifests in logs but started before this artifact-path fix; runs 20/40 and later should include the manifest file in artifacts.
+
+### 16:09 KST - sec-gdrive-restore-manifest
+
+- scope:
+  - Make Google Drive SEC data-lake restore observable and optionally enforceable for resumed Form 4 shard backfills and merge-only runs.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds restore logging, a restore manifest, artifact upload of restore diagnostics, and a `require_gdrive_restore` workflow input.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `require_gdrive_restore: boolean = false` ->fails the workflow when Drive restore is required but no restored Form 4 PIT files are present.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_gdrive_restore.log` ->Google Drive restore attempt log.
+  - `outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json` ->restored shard directory count, restored Form 4 PIT file count, canonical file presence, and restore status.
+- automation_impact:
+  - Future Form 4 artifacts can prove whether prior shards were restored from Google Drive before collection starts.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - static workflow token check for `require_gdrive_restore` and `sec_gdrive_restore_manifest.json` passed.
+- risks_or_notes:
+  - Existing in-flight shard runs started before this commit will not include the new restore manifest; the next triggered shards will.
+
+### 14:41 KST - sec-price-follow-adaptive-weights
+
+- scope:
+  - Connect SEC price-follow diagnostics to the research-only evidence learning grid so Form 4 and 13F weights can be challenged by historical forward-return alignment instead of only fixed assumptions.
+- files:
+  - `tools/run_sec_evidence_learning_pipeline.py` ->adds a `price_follow_adaptive_overlay` learning preset generated from `sec_score_policy_recommendation.json`.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->verifies the adaptive preset is emitted and tracked in `best_score_weights.json`.
+  - `research/sec_evidence_support_overlay_20260519/report.md` ->documents the adaptive research-only SEC evidence policy.
+- symbols_added:
+  - `build_price_follow_adaptive_preset(policy: dict[str, Any]) -> dict[str, float]` ->converts validated support/risk SEC feature diagnostics into a research-only overlay preset.
+  - `weight_presets_for_policy(policy: dict[str, Any] | None) -> dict[str, dict[str, float]]` ->adds the adaptive preset to the learning grid when diagnostics are available.
+- symbols_changed:
+  - `learn_score_weights(enriched: pd.DataFrame, out_dir: Path, *, price_follow_policy: dict[str, Any] | None = None) -> dict[str, Any]` ->uses the price-follow policy to include the adaptive research preset and records whether it was included.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_evidence_learning_pipeline.py` ->runs signal audit before score learning so the adaptive preset can use the same-run diagnostics.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/score_weight_grid.csv` ->now can include `price_follow_adaptive_overlay`.
+  - `outputs/sec_evidence_learning/best_score_weights.json` ->now includes `policy_adaptive_preset_included`.
+- automation_impact:
+  - none
+- validation:
+  - `py -3 tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `py -3 tests\sec_evidence_signal_audit_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_evidence_signal_audit --only sec_evidence_learning_pipeline` passed.
+  - `py -3 tools\run_pr_validation.py` passed with 22 passed and 32 optional missing-file skips.
+- risks_or_notes:
+  - The adaptive preset remains research-only and does not update `score_total`, production defaults, or live target books.
+  - Current Form 4 fields may remain low coverage until all 40 historical shards are merged.
+
 ### 00:08 KST - sec-evidence-learning-automation
 
 - scope:
@@ -147,6 +227,340 @@ All entries must be written in English. Entries must be predictable and machine-
   - `python tools\run_pr_validation.py --only alpha_selector_broker_grid_smoke --only sec_evidence_learning_pipeline_smoke` passed.
 - risks_or_notes:
   - This does not promote SEC evidence; it only allows research-only broker-grid validation to complete.
+
+### 05:59 KST - sec-evidence-support-overlay-audit
+
+- scope:
+  - Refine SEC Form 4 and 13F evidence into a support overlay for existing future-winner selectors, add signal audits for Form 4 buy/sell and 13F manager quality, and keep production activation blocked.
+- files:
+  - `tools/run_sec_ownership_signals.py` ->adds net-buy and sale-risk Form 4 fields so insider sales remain a light risk flag rather than a hard negative trigger.
+  - `tools/run_sec_institutional_signals.py` ->splits 13F manager breadth from overcrowding risk and softens stale/crowding penalties.
+  - `tools/run_sec_enriched_candidate_replay.py` ->adds SEC support boost and `leader_onset_sec_v4_support_score` for additive overlay testing.
+  - `tools/run_sec_evidence_signal_audit.py` ->adds research-only Form 4/13F bucket and manager-quality performance audits.
+  - `tools/run_sec_evidence_learning_pipeline.py` ->runs the signal audit inside the SEC learning pipeline and supports separate main/concentrated broker-grid target ranges.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds the `sec_support_overlay` selector style and carries new SEC audit fields into target books.
+  - `tools/run_selection_quality_report.py` ->adds the new SEC support, net-buy, sale-risk, breadth, and v4 overlay factors to report-only diagnostics.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->adds Duquesne Family Office LLC CIK `0001536411` to the default 13F manager shard alongside Berkshire Hathaway.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->uses portfolio-specific broker-grid ranges for main and concentrated SEC evidence tests.
+  - `tests/sec_evidence_signal_audit_smoke.py` ->checks Form 4 bucket outputs and 13F manager-quality ordering.
+  - `tests/sec_candidate_enrichment_smoke.py` ->checks new SEC support columns remain PIT-safe and do not mutate `score_total`.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->checks the learning pipeline emits signal-audit artifacts.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->checks `sec_support_overlay` can build broker-replay target books without forward-return selection.
+  - `research/sec_evidence_support_overlay_20260519/report.md` ->documents the support-overlay policy, 8-year replay protocol, and manager-quality learning plan.
+- symbols_added:
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_evidence_signal_audit.py` ->writes Form 4/13F bucket diagnostics, manager-quality tables, summary JSON, and report.
+  - `add_signal_buckets(frame: pd.DataFrame) -> pd.DataFrame` ->derives Form 4 buy/sell, Form 4 sale-risk, 13F flow, manager-count, and breadth/crowding buckets.
+  - `performance_by_bucket(frame: pd.DataFrame, bucket_col: str, score_col: str = "") -> pd.DataFrame` ->computes forward-return and excess-return diagnostics by evidence bucket.
+  - `form4_owner_activity(form4: pd.DataFrame) -> pd.DataFrame` ->summarizes Form 4 buyer/seller activity by reporting owner.
+  - `manager_alpha(candidates: pd.DataFrame, holdings_13f: pd.DataFrame, *, lookback_days: int, min_observations: int) -> pd.DataFrame` ->scores 13F managers by historical post-availability candidate performance.
+  - `render_report(summary: dict[str, Any], form4_perf: pd.DataFrame, inst_perf: pd.DataFrame, managers: pd.DataFrame) -> str` in `tools/run_sec_evidence_signal_audit.py` ->renders the SEC evidence signal audit report.
+- symbols_changed:
+  - `build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 90) -> pd.DataFrame` ->adds `sec_form4_net_buy_score`, adds `sec_form4_sale_risk_score`, and reduces sale impact because Form 4 sales are noisy.
+  - `build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 210) -> pd.DataFrame` ->adds `sec_13f_breadth_score` and treats high manager counts as support until extreme crowding thresholds are reached.
+  - `add_combined_sec_scores(frame: pd.DataFrame) -> pd.DataFrame` ->adds support boost scoring and uses net-buy/sale-risk/breadth in the combined SEC overlay.
+  - `add_leader_onset_sec_v2(frame: pd.DataFrame) -> pd.DataFrame` ->also emits `leader_onset_sec_v4_support_score`.
+  - `apply_weight_preset(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Series` ->adds support and breadth components plus a separate Form 4 sale-risk penalty.
+  - `run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: Path) -> dict[str, Any]` ->uses separate main and concentrated broker-grid target/cap ranges when supplied.
+  - `STYLE_WEIGHTS` ->adds `sec_support_overlay`.
+  - `FACTOR_COLUMNS` ->adds new SEC support overlay audit factors.
+  - `DEFAULT_TESTS` ->adds `tests/sec_evidence_signal_audit_smoke.py`.
+- config_fields_added:
+  - `--main-target-ns: str = ""` ->optional main-only alpha-selector broker-grid target counts.
+  - `--main-single-name-caps: str = ""` ->optional main-only broker-grid single-name caps.
+  - `--concentrated-target-ns: str = ""` ->optional concentrated-only broker-grid target counts.
+  - `--concentrated-single-name-caps: str = ""` ->optional concentrated-only broker-grid single-name caps.
+  - `--min-manager-observations: int = 3` ->minimum observations before a 13F manager-quality score is trusted.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_signal_audit/form4_buy_sell_performance.csv` ->Form 4 buy/sell bucket forward-return diagnostics when the audit is run.
+  - `outputs/sec_evidence_signal_audit/form4_sale_risk_performance.csv` ->Form 4 sale-risk bucket diagnostics when the audit is run.
+  - `outputs/sec_evidence_signal_audit/13f_flow_performance.csv` ->13F accumulation/distribution diagnostics when the audit is run.
+  - `outputs/sec_evidence_signal_audit/13f_manager_alpha.csv` ->13F manager-quality diagnostics when the audit is run.
+  - `outputs/sec_evidence_signal_audit/report.md` ->human-readable signal audit report when the audit is run.
+- automation_impact:
+  - The manual SEC evidence learning workflow now tests main with `target_n` 12/15/18 and concentrated with 2/3/5 instead of reusing a single 3/5/7 grid for both.
+  - The default 13F shard now includes Duquesne as a named manager; broader manager lists should still be configured through `SEC_13F_MANAGER_CIKS`.
+- validation:
+  - `python -m py_compile tools\run_sec_ownership_signals.py tools\run_sec_institutional_signals.py tools\run_sec_enriched_candidate_replay.py tools\run_sec_evidence_signal_audit.py tools\run_sec_evidence_learning_pipeline.py tools\run_alpha_selector_broker_grid.py tests\sec_evidence_signal_audit_smoke.py tests\sec_candidate_enrichment_smoke.py tests\sec_evidence_learning_pipeline_smoke.py tests\alpha_selector_broker_grid_smoke.py` passed.
+  - `python tests\sec_evidence_signal_audit_smoke.py` passed.
+  - `python tests\sec_candidate_enrichment_smoke.py` passed.
+  - `python tests\sec_13f_parser_smoke.py` passed.
+  - `python tests\sec_form4_parser_smoke.py` passed.
+  - `python tests\sec_evidence_learning_pipeline_smoke.py` passed.
+  - `python tests\alpha_selector_broker_grid_smoke.py` passed.
+  - `python tests\workflow_artifact_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_evidence_signal_audit --only sec_candidate_enrichment --only sec_evidence_learning_pipeline --only alpha_selector_broker_grid --only sec_13f_parser --only sec_form4_parser --only workflow_artifact` passed.
+  - Real artifact audit against SEC evidence learning run `26048424128`, Form 4 run `26044190414`, and 13F run `26044192541` completed: 38,098 candidate rows, 62 Form 4 evidence rows, 1,053 13F evidence rows, and 1 manager-alpha row.
+  - SEC evidence learning run `26062313611` on `codex/sec-evidence-support-audit` completed after the broader 13F refresh: 46,438 candidate rows, 63 Form 4 evidence rows, 2,828 13F evidence rows; best research preset `form4_light` with top5 average excess return 1.353%; broker-grid candidates remained below locked main/concentrated baselines.
+- risks_or_notes:
+  - The current real artifact audit is still data-limited: Form 4 history is sparse and the 13F shard only had Berkshire data, so Duquesne/top-manager ranking requires the next broader 13F refresh/backfill.
+  - Current real artifact audit showed 13F BRK-only support had slightly negative average excess return in the candidate replay, so 13F remains an additive support overlay, not a standalone selector.
+
+### 06:25 KST - sec-13f-manager-universe-control
+
+- scope:
+  - Add a reviewed 13F manager universe control file so high-performing, large-AUM managers can be tracked beyond Duquesne and re-evaluated annually.
+- files:
+  - `research/sec_13f_manager_universe_20260519/managers.csv` ->adds reviewed manager seed rows for Situational Awareness LP, Duquesne Family Office LLC, and Berkshire Hathaway with annual review fields.
+  - `tools/build_sec_13f_manager_universe.py` ->builds a verified `label:CIK` collection list from the reviewed manager universe plus optional extra manager CIKs.
+  - `tests/sec_13f_manager_universe_smoke.py` ->checks Situational Awareness and extra manager CIKs are emitted while unverified rows are excluded.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->generates the 13F manager CIK list from the reviewed universe before collecting filings.
+  - `tools/run_pr_validation.py` ->adds the SEC 13F manager universe smoke test to Tier-0/Tier-1 validation.
+  - `research/sec_evidence_support_overlay_20260519/report.md` ->documents the reviewed manager universe and annual review fields.
+- symbols_added:
+  - `load_manager_universe(path: Path, *, extra: str = "") -> pd.DataFrame` ->loads reviewed manager rows and optional extra CIK tokens.
+  - `manager_tokens(frame: pd.DataFrame, *, require_verified: bool, min_aum_usd: float, max_managers: int) -> list[str]` ->returns bounded `label:CIK` tokens for SEC collection.
+  - `parse_extra_tokens(value: str) -> pd.DataFrame` ->parses user-provided label/CIK additions.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/build_sec_13f_manager_universe.py` ->writes the manager CIK list and summary JSON.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_manager_universe_smoke.py`.
+- config_fields_added:
+  - `--input: str = research/sec_13f_manager_universe_20260519/managers.csv` ->reviewed manager universe CSV.
+  - `--output-ciks: str = outputs/sec_institutional_signals/manager_ciks.txt` ->generated manager CIK token list.
+  - `--output-summary: str = outputs/sec_institutional_signals/manager_universe_summary.json` ->manager universe selection summary.
+  - `--extra: str = ""` ->optional comma-separated label/CIK additions.
+  - `--min-aum-usd: float = 0.0` ->optional minimum 13F AUM filter, while preserving high-priority rows.
+  - `--max-managers: int = 50` ->bounded SEC collection shard size.
+  - `--require-verified: bool = True` ->exclude unverified CIK rows from SEC collection.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_institutional_signals/manager_ciks.txt` ->generated label/CIK tokens used by the 13F workflow.
+  - `outputs/sec_institutional_signals/manager_universe_summary.json` ->selected manager count, tokens, and annual-review reminder.
+- automation_impact:
+  - The 13F quarterly workflow now tracks reviewed manager-universe rows by default and uses workflow input / `SEC_13F_MANAGER_CIKS` only as optional extra managers.
+- validation:
+  - `python -m py_compile tools\build_sec_13f_manager_universe.py tests\sec_13f_manager_universe_smoke.py` passed.
+  - `python tools\build_sec_13f_manager_universe.py --output-ciks "$env:TEMP\sec_manager_ciks.txt" --output-summary "$env:TEMP\sec_manager_summary.json"` passed, selecting `SITUATIONAL:0002045724`, `DUQUESNE:0001536411`, and `BRK:0001067983`.
+  - `python tests\sec_13f_manager_universe_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_13f_manager_universe --only workflow_artifact` passed.
+  - `python tools\run_pr_validation.py --only sec_evidence_signal_audit --only sec_candidate_enrichment --only sec_evidence_learning_pipeline --only alpha_selector_broker_grid --only sec_13f_parser --only sec_13f_manager_universe --only sec_form4_parser --only workflow_artifact` passed.
+  - GitHub Actions 13F refresh run `26062152627` on `codex/sec-evidence-support-audit` passed, selecting 3 managers and producing 8,522 13F holding rows: SITUATIONAL 126, DUQUESNE 2,442, BRK 5,954.
+- risks_or_notes:
+  - External performance/AUM fields rank manager review priority only; actual manager weighting must still come from repo-learned `manager_quality_score`.
+  - Situational Awareness LP is included as CIK `0002045724`, verified from SEC submissions, but historical manager quality still needs a broader 13F backfill.
+
+### 06:39 KST - sec-13f-parser-schema-sanitize
+
+- scope:
+  - Fix broad 13F manager refreshes that expose blank numeric share fields by stabilizing parser output schema before parquet export.
+- files:
+  - `tools/run_sec_13f_parser.py` ->coerces 13F numeric export columns to float and identifier columns to string before writing parquet/csv.
+  - `tests/sec_13f_parser_smoke.py` ->adds a dirty-row schema regression test for blank `shares` and value fields.
+- symbols_added:
+  - `FORM13F_NUMERIC_COLUMNS` ->defines numeric 13F export fields.
+  - `sanitize_13f_frame(frame: pd.DataFrame) -> pd.DataFrame` ->stabilizes 13F parser output dtypes before parquet export.
+- symbols_changed:
+  - `write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]` ->sanitizes the 13F frame before writing outputs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - Fixes the 13F quarterly refresh failure seen on run `26061828049`, where a Situational Awareness manager shard produced blank `shares` values that pyarrow could not convert to double.
+- validation:
+  - `python -m py_compile tools\run_sec_13f_parser.py tests\sec_13f_parser_smoke.py` passed.
+  - `python tests\sec_13f_parser_smoke.py` passed.
+  - `python tools\run_pr_validation.py --only sec_13f_parser --only sec_13f_manager_universe --only sec_evidence_learning_pipeline --only workflow_artifact` passed.
+- risks_or_notes:
+  - Parse-error rows remain diagnostic rows with zero numeric values; downstream score builders already require valid tickers/holdings before scoring.
+
+### 10:48 KST - sec-form4-backfill-and-13f-mapping
+
+- scope:
+  - Port only the Form 4 long-history shard backfill support from the older SEC branch and fix research-only 13F signal generation when CUSIP/ticker mapping is unavailable.
+- files:
+  - `tools/run_sec_submissions_collector.py` ->adds date-bounded SEC archive-file collection, append-existing merge, all-SEC ticker mode, and shard arguments while preserving direct manager-CIK support.
+  - `tools/run_sec_form4_merge_shards.py` ->merges shard-level Form 4 filings and transaction outputs into canonical PIT evidence and signal files.
+  - `tools/run_sec_institutional_signals.py` ->adds conservative issuer-name fallback mapping from SEC company tickers, optional ticker maps, and candidate books before building 13F signals.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds manual 8-year/all-ticker shard backfill inputs and optional shard merge while keeping daily bounded refresh behavior.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->passes SEC company tickers and the latest candidate book to 13F signal generation for mapping fallback.
+  - `tests/sec_form4_merge_shards_smoke.py` ->checks shard merge deduplication and canonical Form 4 signal creation.
+  - `tests/sec_13f_parser_smoke.py` ->checks issuer-name 13F fallback mapping creates non-empty research-only signals without a CUSIP map.
+  - `tools/run_pr_validation.py` ->adds the Form 4 shard merge smoke test to SEC validation coverage.
+- symbols_added:
+  - `parse_date_bound(value: Any) -> pd.Timestamp` ->parses inclusive SEC filing-date backfill bounds.
+  - `filing_date_in_range(value: Any, start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool` ->filters filing rows for date-bounded backfills.
+  - `archive_file_overlaps(file_meta: dict[str, Any], start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool` ->selects older SEC submissions archive files that overlap the backfill window.
+  - `filings_from_recent_dict(...) -> pd.DataFrame` ->normalizes recent or archive submissions payload rows into the PIT filing index schema.
+  - `fetch_submissions_archive(...) -> dict[str, Any]` ->caches older SEC submissions archive payloads under `data_raw/sec/submissions`.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_form4_merge_shards.py` ->writes canonical merged Form 4 PIT files and ownership signal outputs.
+  - `issuer_name_key(value: Any) -> str` ->normalizes issuer names for conservative exact 13F ticker fallback.
+  - `issuer_ticker_map_from_frame(frame: pd.DataFrame) -> dict[str, str]` ->builds unique issuer-key to ticker mappings.
+  - `map_13f_tickers(...) -> tuple[pd.DataFrame, dict[str, int]]` ->fills blank `ticker_mapped` values from conservative issuer-name maps before 13F scoring.
+- symbols_changed:
+  - `collect_filings_index(...) -> pd.DataFrame` ->supports all-SEC ticker shards, archive-file collection, date bounds, max filings per ticker, and resilient per-ticker failure handling.
+  - `write_outputs(frame: pd.DataFrame, output_dir: Path, *, append_existing: bool = False) -> dict[str, str]` ->can merge new filing rows into existing PIT indexes before writing parquet/csv.
+  - `main()` in `tools/run_sec_institutional_signals.py` ->loads SEC company ticker and candidate maps, applies fallback ticker mapping, and records mapping coverage in the summary.
+  - `DEFAULT_TESTS` ->adds `tests/sec_form4_merge_shards_smoke.py`.
+- config_fields_added:
+  - `--max-filings-per-ticker: int = 0` ->caps per-issuer filing rows during SEC backfills.
+  - `--start-date: str = ""` ->inclusive filing-date lower bound for SEC submissions collection.
+  - `--end-date: str = ""` ->inclusive filing-date upper bound for SEC submissions collection.
+  - `--include-archive-files: bool = False` ->enables older SEC submissions file shards for long backfills.
+  - `--append-existing: bool = False` ->merges new filing rows into existing PIT files.
+  - `--all-sec-tickers: bool = False` ->collects every ticker from SEC company tickers when no explicit universe should constrain the backfill.
+  - `--shard-index: int = 0` ->zero-based backfill shard index.
+  - `--shard-count: int = 1` ->total backfill shard count.
+  - `--company-tickers-json: str = data_raw/sec/company_tickers.json` ->SEC company ticker source used for 13F issuer-name fallback.
+  - `--ticker-map: str = data_pit/sec/ticker_cik_map.parquet` ->optional ticker map source for 13F issuer-name fallback.
+  - `--candidate-map: str = ""` ->optional candidate book source for 13F issuer-name fallback.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/shards/shard_<i>_of_<n>/sec_filings_index.parquet` ->shard-level PIT filing metadata for long Form 4 backfills.
+  - `data_pit/sec/shards/shard_<i>_of_<n>/form4_transactions.parquet` ->shard-level normalized Form 4 transactions.
+  - `data_pit/sec/sec_ownership_signals.parquet` ->canonical merged Form 4 ownership signal output.
+  - `data_pit/sec/sec_form4_merge_manifest.json` ->Form 4 shard merge manifest.
+  - `outputs/sec_institutional_signals/institutional_signal_summary.json` ->now includes 13F ticker mapping coverage diagnostics.
+- automation_impact:
+  - `SEC Form 4 Daily Refresh` can now be manually run as bounded all-ticker 8-year shards and later merged without merging the older PR #11 branch.
+  - `SEC 13F Quarterly Refresh` can produce non-empty research-only 13F signals when issuer names map uniquely even if CUSIP mapping is absent.
+- validation:
+  - `py -3 -m py_compile tools\run_sec_submissions_collector.py tools\run_sec_form4_merge_shards.py tools\run_sec_institutional_signals.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_` passed, 9/9 SEC tests.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py` was attempted but the branch already lists many default smoke files that do not exist in this checkout; all SEC-related tests passed.
+- risks_or_notes:
+  - SEC evidence remains research-only and must not be promoted until broker-ledger official metrics beat the locked main/concentrated baselines.
+  - Issuer-name 13F fallback intentionally maps only unique normalized issuer names; ambiguous dual-share-class names are left unmapped until a proper CUSIP/ticker map is available.
+
+### 11:12 KST - sec-evidence-coverage-expansion
+
+- scope:
+  - Expand SEC evidence coverage by separating Form 4 parser capacity from per-issuer collection limits and broadening the reviewed 13F manager universe from 3 to 22 verified managers.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds `max_filings_per_ticker` so historical Form 4 shards can parse many issuers instead of being capped by the same per-ticker setting.
+  - `research/sec_13f_manager_universe_20260519/managers.csv` ->adds SEC-submissions-verified 13F managers including Bridgewater, Renaissance, D. E. Shaw, Citadel, Millennium, Tiger Global, Coatue, Lone Pine, Viking, Baupost, Pershing, Scion, Soros, ARK, Appaloosa, AQR, Baillie Gifford, FMR, and Jane Street.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `max_filings_per_ticker: string = 0` ->workflow input that bounds per-issuer SEC filing rows separately from total Form 4 parser capacity.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_institutional_signals/manager_ciks.txt` ->now selects 22 verified manager CIK tokens when the quarterly 13F workflow runs.
+- automation_impact:
+  - Form 4 backfills can use high `max_filings` for parser breadth while keeping per-issuer filing caps bounded.
+  - 13F refreshes now collect a broader manager universe by default, increasing ticker evidence coverage while preserving research-only status.
+- validation:
+  - `py -3 tools\build_sec_13f_manager_universe.py --output-ciks "$env:TEMP\sec_manager_ciks_expanded.txt" --output-summary "$env:TEMP\sec_manager_summary_expanded.json"` passed, selecting 22 managers.
+  - `py -3 tests\sec_13f_manager_universe_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_13f_manager_universe --only workflow_artifact --only sec_13f_parser` passed.
+- risks_or_notes:
+  - More 13F managers increase coverage, but also increase crowding/noise; manager-quality learning must decide weights before any production use.
+  - Full Form 4 expansion should run in bounded shards to avoid SEC rate abuse and GitHub timeout risk.
+
+### 11:13 KST - sec-workflow-concurrency-split
+
+- scope:
+  - Split SEC Form 4 and 13F workflow concurrency groups so broader evidence refreshes do not cancel each other or replace pending Form 4 shard runs.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->uses a Form 4 concurrency group keyed by branch and shard index.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->uses a separate 13F concurrency group keyed by branch.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - Multiple Form 4 shard backfills can be queued/run without cancelling unrelated 13F refreshes; 13F refresh remains serialized per branch.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` passed before this small workflow-only follow-up.
+- risks_or_notes:
+  - Do not launch all 40 Form 4 shards at once until SEC rate and Drive sync behavior are observed on a small batch.
+
+### 12:09 KST - sec-insider-and-manager-reselection
+
+- scope:
+  - Expand Form 4 insider-role evidence beyond CEO/CFO-only interpretation and add a research-only semiannual 13F manager reselection pipeline.
+- files:
+  - `tools/run_sec_ownership_signals.py` ->adds 10 percent owner Form 4 buy counts/scores while keeping all reporting owners in the shadow signal and filtering invalid ticker placeholders.
+  - `tools/run_sec_enriched_candidate_replay.py` ->passes the new 10 percent owner Form 4 score through SEC-enriched candidate books.
+  - `tools/run_selection_quality_report.py` ->adds the 10 percent owner Form 4 score to factor diagnostics.
+  - `tools/build_sec_13f_manager_universe.py` ->marks the reviewed 13F manager universe as needing semiannual reselection using repo manager-alpha evidence.
+  - `tools/run_sec_13f_manager_reselection.py` ->creates research-only manager reselection candidates from the reviewed seed list, repo 13F manager-alpha diagnostics, and latest 13F holdings/AUM.
+  - `.github/workflows/sec_13f_manager_reselection.yml` ->adds manual and semiannual GitHub Actions reselection with Google Drive restore/sync.
+  - `tests/sec_form4_parser_smoke.py` ->checks all-insider Form 4 scoring and 10 percent owner subscore output.
+  - `tests/sec_13f_manager_universe_smoke.py` ->checks the semiannual review flag.
+  - `tests/sec_13f_manager_reselection_smoke.py` ->checks research-only manager reselection output and non-overwrite behavior.
+  - `tools/run_pr_validation.py` ->adds the manager reselection smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `bool_column(frame: pd.DataFrame, column: str) -> pd.Series` ->normalizes Form 4 role flags before role-weight scoring.
+  - `text_column(frame: pd.DataFrame, column: str) -> pd.Series` ->provides index-aligned blank text when optional Form 4 fields are absent.
+  - `valid_ticker_mask(series: pd.Series) -> pd.Series` ->filters SEC issuer ticker placeholders such as `NONE` before Form 4 signal scoring.
+  - `read_table(path: Path) -> pd.DataFrame` in `tools/run_sec_13f_manager_reselection.py` ->loads CSV or parquet manager evidence.
+  - `numeric_column(frame: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series` ->keeps manager reselection robust when optional manager-alpha fields are absent.
+  - `holdings_manager_stats(holdings: pd.DataFrame) -> pd.DataFrame` ->builds latest manager AUM, coverage, and concentration features from raw 13F holdings without requiring ticker mapping.
+  - `build_candidates(...) -> pd.DataFrame` ->scores semiannual 13F manager include/keep/review candidates.
+  - `render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str` ->renders the manager reselection report.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/run_sec_13f_manager_reselection.py` ->writes manager reselection artifacts without changing the active manager CSV.
+- symbols_changed:
+  - `build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 90) -> pd.DataFrame` ->adds all-insider role normalization, CEO/CFO counts, 10 percent owner counts, and 10 percent owner shadow score.
+  - `render_report(summary: dict[str, Any], latest: pd.DataFrame) -> str` in `tools/run_sec_ownership_signals.py` ->shows the 10 percent owner Form 4 score in the report.
+  - `run(args: argparse.Namespace) -> dict[str, Any]` in `tools/build_sec_13f_manager_universe.py` ->adds semiannual review metadata to the manager universe summary.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_manager_reselection_smoke.py`.
+- config_fields_added:
+  - `min_observations: string = 10` ->workflow input for minimum repo manager-alpha observations in semiannual 13F manager reselection.
+  - `max_managers: string = 40` ->workflow input for manager reselection output breadth.
+  - `review_interval_days: string = 183` ->workflow input for semiannual review cadence metadata.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_ownership_signals/form4_latest.csv` ->now includes `ten_percent_owner_buy_count`, `ceo_cfo_buy_count`, and `sec_form4_ten_percent_owner_buy_score`.
+  - `outputs/sec_institutional_signals/manager_reselection_candidates.csv` ->ranked research-only 13F manager reselection candidates.
+  - `outputs/sec_institutional_signals/manager_reselection_summary.json` ->semiannual reselection status and output manifest.
+  - `outputs/sec_institutional_signals/manager_reselection_report.md` ->human-readable manager reselection report.
+  - `research/sec_13f_manager_universe_20260519/managers_candidate.csv` ->review candidate CSV that must not overwrite active managers without human approval.
+- automation_impact:
+  - Adds a semiannual 13F manager reselection workflow scheduled after May and November 13F filing windows, plus manual dispatch.
+  - Keeps Form 4 and 13F SEC evidence research-only; no production score or active manager list is auto-promoted.
+- validation:
+  - `py -3 tests\sec_form4_parser_smoke.py` passed.
+  - `py -3 tests\sec_13f_manager_reselection_smoke.py` passed.
+  - `py -3 tests\sec_13f_manager_universe_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_form4_parser --only sec_13f_manager_universe --only sec_13f_manager_reselection --only workflow_artifact` passed.
+- risks_or_notes:
+  - 13F performance ranking is derived from delayed 13F holdings after `available_from`; it remains support evidence, not a buy trigger.
+  - The new manager reselection candidate CSV is a review artifact and intentionally does not overwrite the active `managers.csv`.
+
+### 12:39 KST - sec-gdrive-restore-timeout
+
+- scope:
+  - Bound inbound Google Drive restore steps for SEC evidence workflows so large data-lake copies cannot stall backtests before code execution.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->wraps inbound Drive restore copies for SEC data and price cache with an 8-minute timeout per directory.
+  - `.github/workflows/sec_13f_manager_reselection.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - SEC evidence learning and Form 4 shard backfills now continue with GitHub cache/local files if Drive restore is slow, instead of hanging indefinitely before backtest execution.
+- validation:
+  - pending `tests/workflow_artifact_smoke.py` and targeted PR validation after workflow patch.
+- risks_or_notes:
+  - If Drive restore times out and cache is cold, downstream learning may fail with a clear missing-data error rather than silently hanging.
 
 ## 2026-05-18
 

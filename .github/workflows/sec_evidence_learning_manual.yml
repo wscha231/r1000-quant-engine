@@ -124,7 +124,9 @@ jobs:
           for d in data_raw/sec data_pit/sec cache_prices; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
+              if ! timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+                echo "[gdrive] warning: restore for $d timed out or failed; continuing with GitHub cache/local files"
+              fi
             fi
           done
 
@@ -175,9 +177,11 @@ jobs:
             --output-dir outputs/sec_evidence_learning \
             --cost-bps "$COST_BPS" \
             --max-variants "$MAX_VARIANTS" \
-            --styles sec_evidence_shadow,leader_onset_shadow \
-            --target-ns 3,5,7 \
-            --single-name-caps 0.25,0.33,0.50 \
+            --styles sec_support_overlay,sec_evidence_shadow,leader_onset_shadow \
+            --main-target-ns 12,15,18 \
+            --main-single-name-caps 0.10,0.15,0.20 \
+            --concentrated-target-ns 2,3,5 \
+            --concentrated-single-name-caps 0.33,0.45,0.50 \
             $EXTRA \
             2>&1 | tee outputs/full_rebuild_logs/sec_evidence_learning.log
 

@@ -62,6 +62,13 @@ FORM13F_COLUMNS = [
     "source_accession",
     "filing_url",
 ]
+FORM13F_NUMERIC_COLUMNS = {
+    "shares",
+    "market_value_usd",
+    "voting_authority_sole",
+    "voting_authority_shared",
+    "voting_authority_none",
+}
 
 
 def local_name(tag: str) -> str:
@@ -371,6 +378,7 @@ def parse_13f_index(
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    frame = sanitize_13f_frame(frame)
     parquet_path = output_dir / "institutional_13f_holdings.parquet"
     csv_path = output_dir / "institutional_13f_holdings.csv"
     frame.to_parquet(parquet_path, index=False)
@@ -387,6 +395,28 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     summary_path = output_dir / "institutional_13f_holdings_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     return {"parquet": str(parquet_path), "csv": str(csv_path), "summary": str(summary_path)}
+
+
+def sanitize_13f_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Stabilize 13F schema before parquet export.
+
+    Broader manager shards can include parse-error rows or option rows with
+    blank share fields. Pandas may then keep numeric columns as object dtype,
+    which makes pyarrow fail at write time. The PIT row is still useful for
+    diagnostics, so coerce numeric fields to zero and keep identifiers as
+    strings.
+    """
+    out = frame.copy() if not frame.empty else pd.DataFrame(columns=FORM13F_COLUMNS)
+    for col in FORM13F_COLUMNS:
+        if col not in out.columns:
+            out[col] = 0.0 if col in FORM13F_NUMERIC_COLUMNS else ""
+    out["manager_cik"] = out["manager_cik"].map(cik10)
+    for col in FORM13F_NUMERIC_COLUMNS:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0).astype(float)
+    for col in FORM13F_COLUMNS:
+        if col not in FORM13F_NUMERIC_COLUMNS:
+            out[col] = out[col].fillna("").astype(str)
+    return out[FORM13F_COLUMNS].copy()
 
 
 def main() -> int:
