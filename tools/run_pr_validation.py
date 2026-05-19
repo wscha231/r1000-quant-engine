@@ -24,8 +24,11 @@ Usage
     py -3 tools/run_pr_validation.py --include event_target_books_smoke
     py -3 tools/run_pr_validation.py --quiet
 
-Exits 0 on full pass, non-zero on first failure. Failure output is
-trimmed to the last 15 lines of stdout+stderr per failing test.
+Exits 0 on full pass, non-zero on first failure. Missing optional smoke
+files are skipped by default because research branches may not contain every
+sidecar test from sibling branches; use `--strict-missing` when validating a
+fully merged integration branch. Failure output is trimmed to the last 15
+lines of stdout+stderr per failing test.
 """
 from __future__ import annotations
 
@@ -104,10 +107,12 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
 ]
 
 
-def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, float, str]:
+def run_one(rel_path: str, extra_args: list[str], quiet: bool, *, strict_missing: bool) -> tuple[str, float, str]:
     full = ROOT / rel_path
     if not full.exists():
-        return False, 0.0, f"missing test file: {rel_path}"
+        if strict_missing:
+            return "fail", 0.0, f"missing test file: {rel_path}"
+        return "skip", 0.0, f"missing optional test file: {rel_path}"
     start = time.monotonic()
     cmd = [sys.executable, str(full), *extra_args]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=CHILD_ENV, encoding="utf-8", errors="replace")
@@ -115,11 +120,11 @@ def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, fl
     if proc.returncode != 0:
         combined = (proc.stdout + proc.stderr).strip()
         tail = "\n".join(combined.splitlines()[-15:]) if combined else "<no output>"
-        return False, elapsed, tail
+        return "fail", elapsed, tail
     if not quiet and proc.stdout.strip():
         last_line = proc.stdout.strip().splitlines()[-1]
-        return True, elapsed, last_line
-    return True, elapsed, ""
+        return "pass", elapsed, last_line
+    return "pass", elapsed, ""
 
 
 def main() -> int:
@@ -144,6 +149,7 @@ def main() -> int:
         default=[],
         help="If supplied, restrict to these tests (matched by substring against the path).",
     )
+    parser.add_argument("--strict-missing", action="store_true", help="Fail when a DEFAULT_TESTS file is absent.")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-test tail output on success.")
     args = parser.parse_args()
 
@@ -160,18 +166,24 @@ def main() -> int:
     print(f"PR validation: {len(tests)} test files")
     print("=" * 72)
     failures: list[tuple[str, str]] = []
+    skipped: list[tuple[str, str]] = []
     total_start = time.monotonic()
     for rel_path, extra_args in tests:
-        passed, elapsed, msg = run_one(rel_path, extra_args, args.quiet)
-        mark = "PASS" if passed else "FAIL"
+        status, elapsed, msg = run_one(rel_path, extra_args, args.quiet, strict_missing=bool(args.strict_missing))
+        mark = {"pass": "PASS", "fail": "FAIL", "skip": "SKIP"}[status]
         joined_args = " ".join(extra_args)
-        suffix = f"  {msg}" if (passed and msg and not args.quiet) else ""
+        suffix = f"  {msg}" if ((status in {"pass", "skip"}) and msg and not args.quiet) else ""
         print(f"  [{mark}] {elapsed:6.2f}s  {rel_path} {joined_args}{suffix}".rstrip())
-        if not passed:
+        if status == "fail":
             failures.append((rel_path, msg))
+        elif status == "skip":
+            skipped.append((rel_path, msg))
     total_elapsed = time.monotonic() - total_start
     print("=" * 72)
-    print(f"Total: {total_elapsed:6.2f}s  ({len(tests) - len(failures)}/{len(tests)} passed)")
+    print(
+        f"Total: {total_elapsed:6.2f}s  "
+        f"({len(tests) - len(failures) - len(skipped)}/{len(tests)} passed, {len(skipped)} skipped)"
+    )
     if failures:
         print()
         print("Failures (last 15 lines each):")

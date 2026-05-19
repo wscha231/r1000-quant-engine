@@ -157,6 +157,7 @@ def test_sec_evidence_signal_audit_outputs_bucket_and_manager_reports() -> None:
                 institutional_lookback_days=210,
                 already_enriched=False,
                 min_manager_observations=1,
+                min_feature_nonzero_rows=1,
             )
         )
 
@@ -174,6 +175,10 @@ def test_sec_evidence_signal_audit_outputs_bucket_and_manager_reports() -> None:
         assert float(good["manager_quality_score"]) > float(weak["manager_quality_score"])
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["score_total_changed"] is False
+        assert (out / "sec_score_feature_diagnostics.csv").exists()
+        assert (out / "sec_score_policy_recommendation.json").exists()
+        policy = json.loads((out / "sec_score_policy_recommendation.json").read_text(encoding="utf-8"))
+        assert policy["research_only"] is True
         assert (out / "report.md").exists()
 
 

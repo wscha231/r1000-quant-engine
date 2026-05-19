@@ -160,6 +160,7 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
                 concentrated_target_ns="",
                 concentrated_single_name_caps="",
                 min_manager_observations=1,
+                min_feature_nonzero_rows=1,
                 allow_unfillable_targets=True,
             )
         )
@@ -178,6 +179,8 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
         assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["promotion_allowed"] is False
         assert (out / "score_weight_grid.csv").exists()
         assert (out / "signal_audit" / "13f_manager_alpha.csv").exists()
+        assert (out / "signal_audit" / "sec_score_feature_diagnostics.csv").exists()
+        assert (out / "signal_audit" / "sec_score_policy_recommendation.json").exists()
         assert (out / "selection_quality" / "selection_quality_summary.json").exists()
 
 

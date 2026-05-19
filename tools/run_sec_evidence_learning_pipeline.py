@@ -445,6 +445,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             institutional_lookback_days=int(args.institutional_lookback_days),
             already_enriched=True,
             min_manager_observations=int(args.min_manager_observations),
+            min_feature_nonzero_rows=int(args.min_feature_nonzero_rows),
         )
     )
     broker_grid = run_broker_grids(args, enriched_csv, output_dir)
@@ -510,6 +511,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
     parser.add_argument("--min-price", type=float, default=5.0)
     parser.add_argument("--min-manager-observations", type=int, default=3)
+    parser.add_argument("--min-feature-nonzero-rows", type=int, default=30)
     parser.add_argument("--allow-unfillable-targets", action="store_true")
     return parser.parse_args()
 

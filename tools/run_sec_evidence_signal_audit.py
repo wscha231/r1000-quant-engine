@@ -276,7 +276,157 @@ def manager_alpha(
     return out
 
 
-def render_report(summary: dict[str, Any], form4_perf: pd.DataFrame, inst_perf: pd.DataFrame, managers: pd.DataFrame) -> str:
+PRICE_FOLLOW_FEATURES: dict[str, dict[str, Any]] = {
+    "sec_form4_open_market_buy_score": {"family": "form4", "expected": "support"},
+    "sec_form4_cluster_buy_score": {"family": "form4", "expected": "support"},
+    "sec_form4_ceo_cfo_buy_score": {"family": "form4", "expected": "support"},
+    "sec_form4_ten_percent_owner_buy_score": {"family": "form4", "expected": "support"},
+    "sec_form4_net_buy_score": {"family": "form4", "expected": "support"},
+    "early_evidence_score": {"family": "form4", "expected": "support"},
+    "sec_form4_sale_risk_score": {"family": "form4", "expected": "risk", "lower_is_better": True},
+    "sec_form4_sale_pressure_score": {"family": "form4", "expected": "risk", "lower_is_better": True},
+    "sec_13f_consensus_buy_score": {"family": "13f", "expected": "support"},
+    "sec_13f_accumulation_score": {"family": "13f", "expected": "support"},
+    "sec_13f_new_position_score": {"family": "13f", "expected": "support"},
+    "sec_13f_breadth_score": {"family": "13f", "expected": "support"},
+    "sec_13f_smart_money_score": {"family": "13f", "expected": "support"},
+    "institutional_evidence_score": {"family": "13f", "expected": "support"},
+    "sec_13f_crowding_score": {"family": "13f", "expected": "risk", "lower_is_better": True},
+    "sec_13f_stale_penalty": {"family": "13f", "expected": "risk", "lower_is_better": True},
+    "sec_combined_evidence_score": {"family": "combined", "expected": "support"},
+    "sec_support_boost_score": {"family": "combined", "expected": "support"},
+    "leader_onset_sec_v2_score": {"family": "combined", "expected": "support"},
+    "leader_onset_sec_v3_score": {"family": "combined", "expected": "support"},
+    "leader_onset_sec_v4_support_score": {"family": "combined", "expected": "support"},
+}
+
+
+def _mean_or_nan(values: list[float]) -> float:
+    clean = [float(v) for v in values if math.isfinite(float(v))]
+    return float(sum(clean) / len(clean)) if clean else math.nan
+
+
+def price_follow_feature_diagnostics(frame: pd.DataFrame, *, min_nonzero_rows: int) -> pd.DataFrame:
+    """Measure whether SEC evidence scores line up with later candidate returns.
+
+    The output is intentionally diagnostic only. It can tell us whether a
+    hand-written Form 4 / 13F score should be treated as support, a risk flag,
+    or ignored before we ever wire it into a broker-ledger challenger.
+    """
+    if frame.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for col, meta in PRICE_FOLLOW_FEATURES.items():
+        if col not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[col], errors="coerce")
+        d = frame[["rebalance_date", "ticker", "forward_return", "excess_forward_return"]].copy()
+        d["feature_value"] = values
+        d = d.dropna(subset=["feature_value", "forward_return", "excess_forward_return"])
+        if d.empty:
+            continue
+        nonzero = int((d["feature_value"].abs() > 1e-12).sum())
+        lower_is_better = bool(meta.get("lower_is_better", False))
+        ic_values: list[float] = []
+        directional_ic_values: list[float] = []
+        top_excess: list[float] = []
+        bottom_excess: list[float] = []
+        for _, group in d.groupby("rebalance_date"):
+            if len(group) < 8 or group["feature_value"].nunique(dropna=True) <= 1:
+                continue
+            corr = group["feature_value"].corr(group["forward_return"], method="spearman")
+            if pd.notna(corr):
+                corr_f = float(corr)
+                ic_values.append(corr_f)
+                directional_ic_values.append(-corr_f if lower_is_better else corr_f)
+            q = max(1, int(math.ceil(len(group) * 0.10)))
+            ranked = group.sort_values("feature_value", ascending=False)
+            top_excess.append(float(ranked.head(q)["excess_forward_return"].mean()))
+            bottom_excess.append(float(ranked.tail(q)["excess_forward_return"].mean()))
+        raw_ic = _mean_or_nan(ic_values)
+        directional_ic = _mean_or_nan(directional_ic_values)
+        top_avg = _mean_or_nan(top_excess)
+        bottom_avg = _mean_or_nan(bottom_excess)
+        raw_spread = top_avg - bottom_avg if math.isfinite(top_avg) and math.isfinite(bottom_avg) else math.nan
+        directional_spread = -raw_spread if lower_is_better and math.isfinite(raw_spread) else raw_spread
+        enough = nonzero >= int(min_nonzero_rows)
+        if not enough:
+            role = "insufficient_coverage"
+        elif math.isfinite(directional_ic) and math.isfinite(directional_spread) and directional_ic > 0.005 and directional_spread > 0.0:
+            role = "risk_penalty" if lower_is_better else "support"
+        elif math.isfinite(directional_ic) and directional_ic < -0.005:
+            role = "contra_or_disable"
+        else:
+            role = "neutral"
+        strength = 0.0
+        if math.isfinite(directional_ic):
+            strength += max(0.0, directional_ic) * 2.0
+        if math.isfinite(directional_spread):
+            strength += max(0.0, directional_spread) * 4.0
+        suggested_weight = float(np.clip(strength, 0.0, 0.15)) if enough else 0.0
+        rows.append(
+            {
+                "feature": col,
+                "family": str(meta.get("family", "")),
+                "expected_role": str(meta.get("expected", "support")),
+                "lower_is_better": lower_is_better,
+                "rows": int(len(d)),
+                "nonzero_rows": nonzero,
+                "coverage_ratio": float(nonzero / max(len(d), 1)),
+                "months": int(d["rebalance_date"].nunique()),
+                "avg_monthly_spearman_ic": raw_ic,
+                "directional_ic": directional_ic,
+                "positive_directional_ic_month_share": float(sum(1 for x in directional_ic_values if x > 0) / len(directional_ic_values))
+                if directional_ic_values
+                else math.nan,
+                "top_decile_avg_excess_return": top_avg,
+                "bottom_decile_avg_excess_return": bottom_avg,
+                "top_bottom_spread": raw_spread,
+                "directional_top_bottom_spread": directional_spread,
+                "suggested_role": role,
+                "suggested_support_weight": suggested_weight,
+                "research_only": True,
+            }
+        )
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values(
+            ["suggested_support_weight", "directional_ic", "directional_top_bottom_spread", "nonzero_rows"],
+            ascending=[False, False, False, False],
+            na_position="last",
+        )
+    return out
+
+
+def price_follow_policy(diagnostics: pd.DataFrame) -> dict[str, Any]:
+    if diagnostics.empty:
+        return {
+            "status": "blocked",
+            "reason": "no SEC feature diagnostics",
+            "research_only": True,
+            "production_activation_allowed": False,
+        }
+    support = diagnostics[diagnostics["suggested_role"].eq("support")].head(8)
+    risk = diagnostics[diagnostics["suggested_role"].eq("risk_penalty")].head(8)
+    disabled = diagnostics[diagnostics["suggested_role"].isin(["contra_or_disable", "insufficient_coverage"])]
+    return {
+        "status": "completed",
+        "research_only": True,
+        "production_activation_allowed": False,
+        "policy": "Use price-follow diagnostics to decide support/tie-breaker/risk roles; do not change production score_total.",
+        "support_features": support[["feature", "suggested_support_weight", "directional_ic", "directional_top_bottom_spread", "nonzero_rows"]].to_dict("records"),
+        "risk_penalty_features": risk[["feature", "suggested_support_weight", "directional_ic", "directional_top_bottom_spread", "nonzero_rows"]].to_dict("records"),
+        "disabled_or_low_coverage_features": disabled[["feature", "suggested_role", "nonzero_rows", "directional_ic"]].head(12).to_dict("records"),
+    }
+
+
+def render_report(
+    summary: dict[str, Any],
+    form4_perf: pd.DataFrame,
+    inst_perf: pd.DataFrame,
+    managers: pd.DataFrame,
+    feature_diag: pd.DataFrame,
+) -> str:
     lines = [
         "# SEC Evidence Signal Audit",
         "",
@@ -293,6 +443,7 @@ def render_report(summary: dict[str, Any], form4_perf: pd.DataFrame, inst_perf: 
         "- Form 4 sales stay as a light risk flag, not an automatic sell signal.",
         "- 13F manager breadth and accumulation are support signals; overcrowding risk is measured separately.",
         "- SEC evidence should be used as an overlay on future-winner / market-confirmed selectors, not as a standalone model.",
+        "- Price-follow diagnostics decide whether a specific SEC score is support, risk, neutral, or disabled.",
         "",
     ]
     if not form4_perf.empty:
@@ -316,6 +467,29 @@ def render_report(summary: dict[str, Any], form4_perf: pd.DataFrame, inst_perf: 
             quality_text = "" if pd.isna(quality) else f"{float(quality):.3f}"
             lines.append(
                 f"| {row.get('manager_name', '')} | {int(row.get('observations', 0))} | {float(row.get('avg_excess_return', 0.0)):.3%} | {quality_text} |"
+            )
+        lines.append("")
+    if not feature_diag.empty:
+        lines.extend(
+            [
+                "## Price-Follow Feature Diagnostics",
+                "",
+                "| feature | role | nonzero rows | directional IC | decile spread | suggested weight |",
+                "| --- | --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for _, row in feature_diag.head(12).iterrows():
+            lines.append(
+                "| {feature} | {role} | {rows} | {ic:.4f} | {spread:.3%} | {weight:.3f} |".format(
+                    feature=row.get("feature", ""),
+                    role=row.get("suggested_role", ""),
+                    rows=int(row.get("nonzero_rows", 0)),
+                    ic=float(row.get("directional_ic", 0.0)) if pd.notna(row.get("directional_ic")) else float("nan"),
+                    spread=float(row.get("directional_top_bottom_spread", 0.0))
+                    if pd.notna(row.get("directional_top_bottom_spread"))
+                    else float("nan"),
+                    weight=float(row.get("suggested_support_weight", 0.0)),
+                )
             )
     return "\n".join(lines) + "\n"
 
@@ -355,6 +529,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         lookback_days=int(args.institutional_lookback_days),
         min_observations=int(args.min_manager_observations),
     )
+    feature_diag = price_follow_feature_diagnostics(audit, min_nonzero_rows=int(args.min_feature_nonzero_rows))
+    feature_policy = price_follow_policy(feature_diag)
 
     form4_perf.to_csv(output_dir / "form4_buy_sell_performance.csv", index=False)
     form4_sale_perf.to_csv(output_dir / "form4_sale_risk_performance.csv", index=False)
@@ -364,6 +540,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     inst_breadth_perf.to_csv(output_dir / "13f_breadth_crowding_performance.csv", index=False)
     owners.to_csv(output_dir / "form4_owner_activity.csv", index=False)
     managers.to_csv(output_dir / "13f_manager_alpha.csv", index=False)
+    feature_diag.to_csv(output_dir / "sec_score_feature_diagnostics.csv", index=False)
+    write_json(output_dir / "sec_score_policy_recommendation.json", feature_policy)
 
     summary = {
         "status": "completed" if not audit.empty else "blocked",
@@ -387,11 +565,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "form4_sale_risk_performance": str(output_dir / "form4_sale_risk_performance.csv"),
             "13f_flow_performance": str(output_dir / "13f_flow_performance.csv"),
             "13f_manager_alpha": str(output_dir / "13f_manager_alpha.csv"),
+            "sec_score_feature_diagnostics": str(output_dir / "sec_score_feature_diagnostics.csv"),
+            "sec_score_policy_recommendation": str(output_dir / "sec_score_policy_recommendation.json"),
             "report": str(output_dir / "report.md"),
         },
+        "price_follow_policy": feature_policy,
     }
     write_json(output_dir / "summary.json", summary)
-    (output_dir / "report.md").write_text(render_report(summary, form4_perf, inst_flow_perf, managers), encoding="utf-8")
+    (output_dir / "report.md").write_text(
+        render_report(summary, form4_perf, inst_flow_perf, managers, feature_diag), encoding="utf-8"
+    )
     print(json.dumps({"status": summary["status"], "candidate_rows": summary["candidate_rows"]}, sort_keys=True))
     return summary
 
@@ -406,6 +589,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--institutional-lookback-days", type=int, default=210)
     parser.add_argument("--already-enriched", action="store_true")
     parser.add_argument("--min-manager-observations", type=int, default=3)
+    parser.add_argument("--min-feature-nonzero-rows", type=int, default=30)
     return parser.parse_args()
 
 

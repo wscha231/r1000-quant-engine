@@ -43,6 +43,14 @@ on:
         description: 'Merge data_pit/sec/shards into canonical Form 4 PIT/signal files'
         type: boolean
         default: false
+      merge_only:
+        description: 'Skip SEC collection/parsing and only merge restored shard files'
+        type: boolean
+        default: false
+      sync_raw_sec:
+        description: 'Also sync raw SEC downloads to Google Drive; keep false for shard backfills to avoid long sync stalls'
+        type: boolean
+        default: false
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -168,6 +176,7 @@ jobs:
           SHARD_INDEX: ${{ github.event.inputs.shard_index || '0' }}
           SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
           MERGE_SHARDS: ${{ github.event.inputs.merge_shards || 'false' }}
+          MERGE_ONLY: ${{ github.event.inputs.merge_only || 'false' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
@@ -201,15 +210,20 @@ jobs:
           if [ "$APPEND_EXISTING" = "true" ]; then
             ARGS+=(--append-existing)
           fi
-          python tools/run_sec_submissions_collector.py "${ARGS[@]}" 2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
-          python tools/run_sec_form4_parser.py \
-            --filings-index "$PIT_OUT/sec_filings_index.parquet" \
-            --output-dir "$PIT_OUT" \
-            --raw-dir data_raw/sec \
-            --user-agent "$SEC_USER_AGENT" \
-            --sleep 0.12 \
-            --max-filings "$MAX_FILINGS" \
-            2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          if [ "$MERGE_ONLY" != "true" ]; then
+            python tools/run_sec_submissions_collector.py "${ARGS[@]}" 2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
+            python tools/run_sec_form4_parser.py \
+              --filings-index "$PIT_OUT/sec_filings_index.parquet" \
+              --output-dir "$PIT_OUT" \
+              --raw-dir data_raw/sec \
+              --user-agent "$SEC_USER_AGENT" \
+              --sleep 0.12 \
+              --max-filings "$MAX_FILINGS" \
+              2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          else
+            echo "[sec-form4] merge_only=true; skipping SEC submissions collector and parser" | tee outputs/full_rebuild_logs/sec_form4_submissions.log
+            echo "[sec-form4] merge_only=true; skipping SEC parser" | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          fi
           if [ "$MERGE_SHARDS" = "true" ]; then
             python tools/run_sec_form4_merge_shards.py \
               --pit-root data_pit/sec \
@@ -248,6 +262,7 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          SYNC_RAW_SEC: ${{ github.event.inputs.sync_raw_sec || 'false' }}
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
@@ -262,11 +277,15 @@ jobs:
             local src="$1"
             local dst="$2"
             echo "[gdrive] sync $src -> $dst"
-            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --max-duration 7m --cutoff-mode soft --stats 30s --stats-one-line; then
               echo "[gdrive] warning: sync for $src timed out or failed; GitHub artifact remains available"
             fi
           }
-          for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
+          SYNC_DIRS="data_pit/sec outputs/sec_ownership_signals"
+          if [ "${SYNC_RAW_SEC:-false}" = "true" ]; then
+            SYNC_DIRS="data_raw/sec $SYNC_DIRS"
+          fi
+          for d in $SYNC_DIRS; do
             if [ -d "$d" ]; then
               sync_dir "$d" "$BASE$d/"
             fi
