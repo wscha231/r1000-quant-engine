@@ -53,6 +53,29 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-19
 
+### 17:45 KST - sec-gdrive-manifest-artifact-path
+
+- scope:
+  - Ensure the SEC Google Drive restore manifest is included in Form 4 workflow artifacts.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds the explicit `sec_gdrive_restore_manifest.json` path to the artifact upload list.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json` ->now uploaded directly in SEC Form 4 artifacts.
+- automation_impact:
+  - Future shard artifacts can be inspected without reading raw job logs to prove Google Drive data-lake restore counts.
+- validation:
+  - static workflow inspection confirmed the explicit manifest upload path.
+- risks_or_notes:
+  - Runs 18/40 and 19/40 printed valid restore manifests in logs but started before this artifact-path fix; runs 20/40 and later should include the manifest file in artifacts.
+
 ### 16:09 KST - sec-gdrive-restore-manifest
 
 - scope:

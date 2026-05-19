@@ -349,6 +349,7 @@ jobs:
             outputs/sec_ownership_signals/
             outputs/full_rebuild_logs/sec_form4_*.log
             outputs/full_rebuild_logs/sec_gdrive_restore.*
+            outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json
           retention-days: 14
 
       - name: Sync SEC Form 4 data lake to Google Drive
