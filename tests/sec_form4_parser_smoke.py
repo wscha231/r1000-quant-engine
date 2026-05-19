@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -10,7 +11,14 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_xml, raw_form4_primary_document  # noqa: E402
+from tools.run_sec_form4_parser import (  # noqa: E402
+    FORM4_COLUMNS,
+    cache_name,
+    form4_url_candidates,
+    parse_form4_xml,
+    raw_form4_primary_document,
+    write_outputs,
+)
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
 
 
@@ -171,10 +179,35 @@ def test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name() -> None:
     assert "/xslF345X06/" not in urls[0]
 
 
+def test_form4_output_schema_tolerates_parse_error_placeholders() -> None:
+    row = {col: "" for col in FORM4_COLUMNS}
+    row.update(
+        {
+            "issuer_ticker": "BROKEN",
+            "issuer_cik10": "123",
+            "reporting_owner_cik": "",
+            "is_director": "",
+            "is_officer": "",
+            "is_ten_percent_owner": "",
+            "is_derivative": "",
+            "transaction_code": "PARSE_ERROR",
+            "ownership_nature": "synthetic parse failure",
+        }
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = write_outputs(pd.DataFrame([row]), Path(tmp))
+        out = pd.read_parquet(paths["parquet"])
+    assert bool(out.loc[0, "is_director"]) is False
+    assert bool(out.loc[0, "is_officer"]) is False
+    assert bool(out.loc[0, "is_ten_percent_owner"]) is False
+    assert out.loc[0, "issuer_cik10"] == "0000000123"
+
+
 if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
     test_form4_signal_scores_all_insiders_with_ten_percent_owner_subscore()
     test_form4_signal_filters_invalid_ticker_placeholders()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
+    test_form4_output_schema_tolerates_parse_error_placeholders()
     print("sec_form4_parser_smoke passed")
