@@ -348,6 +348,35 @@ All entries must be written in English. Entries must be predictable and machine-
   - SEC evidence remains research-only and must not be promoted until broker-ledger official metrics beat the locked main/concentrated baselines.
   - Issuer-name 13F fallback intentionally maps only unique normalized issuer names; ambiguous dual-share-class names are left unmapped until a proper CUSIP/ticker map is available.
 
+### 11:12 KST - sec-evidence-coverage-expansion
+
+- scope:
+  - Expand SEC evidence coverage by separating Form 4 parser capacity from per-issuer collection limits and broadening the reviewed 13F manager universe from 3 to 22 verified managers.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds `max_filings_per_ticker` so historical Form 4 shards can parse many issuers instead of being capped by the same per-ticker setting.
+  - `research/sec_13f_manager_universe_20260519/managers.csv` ->adds SEC-submissions-verified 13F managers including Bridgewater, Renaissance, D. E. Shaw, Citadel, Millennium, Tiger Global, Coatue, Lone Pine, Viking, Baupost, Pershing, Scion, Soros, ARK, Appaloosa, AQR, Baillie Gifford, FMR, and Jane Street.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - `max_filings_per_ticker: string = 0` ->workflow input that bounds per-issuer SEC filing rows separately from total Form 4 parser capacity.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_institutional_signals/manager_ciks.txt` ->now selects 22 verified manager CIK tokens when the quarterly 13F workflow runs.
+- automation_impact:
+  - Form 4 backfills can use high `max_filings` for parser breadth while keeping per-issuer filing caps bounded.
+  - 13F refreshes now collect a broader manager universe by default, increasing ticker evidence coverage while preserving research-only status.
+- validation:
+  - `py -3 tools\build_sec_13f_manager_universe.py --output-ciks "$env:TEMP\sec_manager_ciks_expanded.txt" --output-summary "$env:TEMP\sec_manager_summary_expanded.json"` passed, selecting 22 managers.
+  - `py -3 tests\sec_13f_manager_universe_smoke.py` passed.
+  - `py -3 tests\workflow_artifact_smoke.py` passed.
+  - `py -3 tools\run_pr_validation.py --only sec_13f_manager_universe --only workflow_artifact --only sec_13f_parser` passed.
+- risks_or_notes:
+  - More 13F managers increase coverage, but also increase crowding/noise; manager-quality learning must decide weights before any production use.
+  - Full Form 4 expansion should run in bounded shards to avoid SEC rate abuse and GitHub timeout risk.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

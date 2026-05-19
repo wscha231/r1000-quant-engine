@@ -8,9 +8,13 @@ on:
         type: string
         default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
       max_filings:
-        description: 'Max indexed Form 4 filings to parse in this shard'
+        description: 'Max Form 4 filings to parse in this shard; use a larger value for historical shards'
         type: string
         default: '500'
+      max_filings_per_ticker:
+        description: 'Max indexed Form 4 filings to keep per issuer before parser; 0 = no per-ticker cap'
+        type: string
+        default: '0'
       backfill_years:
         description: '0 = daily/recent only; otherwise include older submissions archive files back this many years'
         type: string
@@ -154,6 +158,7 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
           TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
+          MAX_FILINGS_PER_TICKER: ${{ github.event.inputs.max_filings_per_ticker || '0' }}
           BACKFILL_YEARS: ${{ github.event.inputs.backfill_years || '0' }}
           ALL_SEC_TICKERS: ${{ github.event.inputs.all_sec_tickers || 'false' }}
           INCLUDE_ARCHIVE_FILES: ${{ github.event.inputs.include_archive_files || 'false' }}
@@ -177,7 +182,7 @@ jobs:
             --user-agent "$SEC_USER_AGENT"
             --sleep 0.12
             --safety-delay-hours "$SAFETY_DELAY_HOURS"
-            --max-filings-per-ticker "$MAX_FILINGS"
+            --max-filings-per-ticker "$MAX_FILINGS_PER_TICKER"
           )
           if [ "$ALL_SEC_TICKERS" = "true" ]; then
             ARGS+=(--all-sec-tickers --universe-file ./.missing_universe.csv)
