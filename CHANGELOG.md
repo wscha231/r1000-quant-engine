@@ -456,6 +456,32 @@ All entries must be written in English. Entries must be predictable and machine-
   - 13F performance ranking is derived from delayed 13F holdings after `available_from`; it remains support evidence, not a buy trigger.
   - The new manager reselection candidate CSV is a review artifact and intentionally does not overwrite the active `managers.csv`.
 
+### 12:39 KST - sec-gdrive-restore-timeout
+
+- scope:
+  - Bound inbound Google Drive restore steps for SEC evidence workflows so large data-lake copies cannot stall backtests before code execution.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->wraps inbound Drive restore copies for SEC data and price cache with an 8-minute timeout per directory.
+  - `.github/workflows/sec_13f_manager_reselection.yml` ->wraps inbound Drive restore copies with an 8-minute timeout per directory.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- automation_impact:
+  - SEC evidence learning and Form 4 shard backfills now continue with GitHub cache/local files if Drive restore is slow, instead of hanging indefinitely before backtest execution.
+- validation:
+  - pending `tests/workflow_artifact_smoke.py` and targeted PR validation after workflow patch.
+- risks_or_notes:
+  - If Drive restore times out and cache is cold, downstream learning may fail with a clear missing-data error rather than silently hanging.
+
 ## 2026-05-18
 
 ### 09:03 KST - research-handoff-data-package

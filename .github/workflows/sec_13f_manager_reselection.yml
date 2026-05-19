@@ -98,7 +98,9 @@ jobs:
           for d in data_pit/sec outputs/sec_evidence_signal_audit outputs/sec_institutional_signals; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
+              if ! timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+                echo "[gdrive] warning: restore for $d timed out or failed; continuing with GitHub cache/local files"
+              fi
             fi
           done
 
