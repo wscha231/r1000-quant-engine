@@ -261,6 +261,10 @@ jobs:
             --styles future_winner_smart_money,sec_evidence_shadow,leader_onset_shadow,smart_money_shadow \
             --target-ns 3,5,7 \
             --single-name-caps 0.25,0.33,0.50 \
+            --main-target-ns 12,15,18 \
+            --main-single-name-caps 0.10,0.12,0.15 \
+            --concentrated-target-ns 2,3,5 \
+            --concentrated-single-name-caps 0.25,0.33,0.50 \
             $EXTRA \
             2>&1 | tee outputs/full_rebuild_logs/sec_evidence_learning.log
 

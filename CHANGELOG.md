@@ -385,6 +385,33 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This does not promote SEC/SmartMoney evidence to production. It only adds a more conservative ablation path for broker-ledger validation.
 
+### 17:07 KST - sec-learning-portfolio-specific-broker-grids
+
+- scope:
+  - Split SEC evidence learning broker-grid target sizes and caps by portfolio so main/core and concentrated are no longer evaluated with identical N=3/5/7 grids. Main now defaults to broader N=12/15/18 with lower caps, while concentrated defaults to N=2/3/5 with concentrated caps.
+- files:
+  - `tools/run_sec_evidence_learning_pipeline.py` ->adds portfolio-specific target-N and single-name-cap arguments and passes them to each broker-grid run.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->passes main and concentrated grid defaults explicitly.
+  - `CHANGELOG.md` ->documents the evaluation fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `run_sec_evidence_learning_pipeline.run_broker_grids()` ->uses main-specific and concentrated-specific target/cap grids instead of one shared grid.
+  - `run_sec_evidence_learning_pipeline.parse_args()` ->adds CLI defaults for portfolio-specific broker grids.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/alpha_selector_broker_grid/main/*` ->now defaults to main-sized N=12/15/18 variants.
+  - `outputs/sec_evidence_learning/alpha_selector_broker_grid/concentrated/*` ->now defaults to concentrated-sized N=2/3/5 variants.
+- validation:
+  - `py -3 tests\sec_evidence_learning_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+- risks_or_notes:
+  - Historical results from prior SEC learning runs used identical target sizes for main and concentrated; compare new runs against them with this evaluation-method change in mind.
+
 ## 2026-05-14
 
 ## 2026-05-19
