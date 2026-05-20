@@ -313,6 +313,27 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local full artifact enrichment against 530k 13F rows exceeded the interactive timeout; GitHub evidence-learning workflow remains the intended Tier 2 validation path.
   - The prior SEC-only broker grid from run `26141692403` reached 22.00% CAGR but -35.74% MaxDD, so no promotion is allowed until the new Smart Money style proves better in broker-ledger metrics.
 
+### 14:58 KST - sec-learning-drive-restore-timeout
+
+- scope:
+  - Prevent SEC evidence learning runs from stalling indefinitely while restoring large Google Drive cache directories before broker-ledger ablation.
+- files:
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->wraps SEC/ETF data-lake restore calls with per-directory timeouts and skips `cache_prices` Drive restore in favor of `actions/cache`.
+- symbols_added:
+  - `restore_dir()` shell helper ->restores a Drive directory with a bounded timeout and warning-only failure behavior.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - pending GitHub workflow rerun after merge.
+- risks_or_notes:
+  - Broker-grid price availability still depends on the GitHub `actions/cache` price cache restore. If that cache misses, the run will fail safely or produce unfilled targets instead of hanging in Drive restore.
+
 ## 2026-05-14
 
 ## 2026-05-19
