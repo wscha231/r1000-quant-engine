@@ -311,6 +311,14 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
     if not bool(args.run_broker_grid):
         return {"status": "skipped", "reason": "run_broker_grid is false"}
     results: dict[str, Any] = {"status": "completed", "portfolios": {}}
+    target_ns_by_portfolio = {
+        "main": str(getattr(args, "main_target_ns", "") or args.target_ns),
+        "concentrated": str(getattr(args, "concentrated_target_ns", "") or args.target_ns),
+    }
+    caps_by_portfolio = {
+        "main": str(getattr(args, "main_single_name_caps", "") or args.single_name_caps),
+        "concentrated": str(getattr(args, "concentrated_single_name_caps", "") or args.single_name_caps),
+    }
     for portfolio in ["main", "concentrated"]:
         out = output_dir / "alpha_selector_broker_grid" / portfolio
         payload = run_alpha_selector_grid(
@@ -325,8 +333,8 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
                 no_integer_shares=False,
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 styles=args.styles,
-                target_ns=args.target_ns,
-                single_name_caps=args.single_name_caps,
+                target_ns=target_ns_by_portfolio[portfolio],
+                single_name_caps=caps_by_portfolio[portfolio],
                 max_variants=int(args.max_variants),
                 min_market_cap_usd=float(args.min_market_cap_usd),
                 min_dollar_volume_usd=float(args.min_dollar_volume_usd),
@@ -475,6 +483,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.25,0.33,0.50")
+    parser.add_argument("--main-target-ns", default="12,15,18")
+    parser.add_argument("--main-single-name-caps", default="0.10,0.12,0.15")
+    parser.add_argument("--concentrated-target-ns", default="2,3,5")
+    parser.add_argument("--concentrated-single-name-caps", default="0.25,0.33,0.50")
     parser.add_argument("--max-variants", type=int, default=36)
     parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
