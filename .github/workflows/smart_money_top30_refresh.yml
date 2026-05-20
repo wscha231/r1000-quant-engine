@@ -1,0 +1,128 @@
+name: Smart Money Top 30 Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      top_n:
+        description: 'Number of ranked tickers to publish'
+        type: string
+        default: '30'
+  schedule:
+    # 09:20 KST Tue-Sat, after the Form 4 daily refresh window.
+    - cron: '20 0 * * 2-6'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: smart-money-top30-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smart_money_top30:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Configure rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore evidence data lake from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
+
+      - name: Build Smart Money Top 30
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/smart_money
+          python tools/run_smart_money_top30.py \
+            --top-n "${{ github.event.inputs.top_n || '30' }}" \
+            2>&1 | tee outputs/full_rebuild_logs/smart_money_top30.log
+
+      - name: Upload Smart Money artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-money-top30-${{ github.run_id }}
+          path: |
+            outputs/smart_money/
+            outputs/full_rebuild_logs/smart_money_top30.log
+          retention-days: 30
+
+      - name: Sync Smart Money outputs to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if [ -d outputs/smart_money ]; then
+            rclone copy outputs/smart_money "$BASEoutputs/smart_money/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          fi
