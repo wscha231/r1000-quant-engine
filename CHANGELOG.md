@@ -174,10 +174,12 @@ All entries must be written in English. Entries must be predictable and machine-
   - Fix the 13F zero-signal blocker by adding a canonical CUSIP-to-ticker map builder and changing the quarterly 13F workflow to parse once, build a mapping audit, reparse with `--cusip-map`, and then score institutional evidence. This keeps 13F research-only while preventing healthy 13F holdings from collapsing to `signal_tickers=0`.
 - files:
   - `tools/build_sec_13f_cusip_ticker_map.py` ->new mapping builder using manual overrides, SEC company tickers, and repo seed tables.
+  - `tools/run_sec_13f_parser.py` ->normalizes numeric/string output dtypes before parquet export so parse-error rows cannot break 13F refreshes.
   - `tools/run_sec_submissions_collector.py` ->continues collecting remaining managers when one reviewed manager CIK returns a SEC fetch error.
   - `.github/workflows/sec_13f_quarterly_refresh.yml` ->runs 13F parser twice with a mapping build between passes and uploads `cusip_ticker_map` artifacts.
   - `research/sec_13f_cusip_map_overrides.csv` ->manual seed map for common large-cap 13F CUSIPs.
   - `tests/sec_13f_cusip_mapping_smoke.py` ->checks mapping output, unmapped audit, parser map loading, and downstream 13F signal creation.
+  - `tests/sec_13f_parser_smoke.py` ->checks parse-error rows still write parquet with numeric 13F columns.
   - `tests/sec_cik_schema_smoke.py` ->checks invalid manager CIKs produce fetch-error audit rows without aborting the whole index collection.
   - `tests/smoke_test.py` ->guards workflow CUSIP mapping wiring.
   - `tools/run_pr_validation.py` ->adds the CUSIP mapping smoke to Tier-0/Tier-1 validation.
@@ -186,6 +188,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `issuer_name_key(value)` ->normalizes 13F issuer names for conservative exact issuer-name matching.
   - `load_manual_overrides(path)` ->loads reviewed CUSIP/ticker overrides.
 - symbols_changed:
+  - `write_outputs()` in `tools/run_sec_13f_parser.py` ->coerces `shares`, `market_value_usd`, and voting authority columns to numeric before writing parquet.
   - `collect_filings_index()` ->records per-CIK `fetch_error` rows instead of failing the entire SEC refresh on one invalid manager.
   - `sec_13f_quarterly_refresh.yml` ->adds mapping audit and mapped reparse before institutional signal scoring.
   - `DEFAULT_TESTS` ->adds `tests/sec_13f_cusip_mapping_smoke.py`.
@@ -207,6 +210,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Mapping is intentionally conservative: ambiguous issuer names stay unmapped rather than risking a wrong ticker.
   - Invalid manager CIKs are no longer fatal, but they still appear as `fetch_error` rows and should be corrected in `managers.csv`.
+  - Parse-error rows are retained for audit but now use stable parquet dtypes.
   - Full rebuild remains blocked until a fresh 13F refresh shows nonzero mapped tickers and healthy institutional signals.
 
 ## 2026-05-14
