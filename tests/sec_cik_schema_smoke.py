@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from r1000_helpers import normalize_cik10, normalize_cik_series  # noqa: E402
+import tools.run_sec_submissions_collector as submissions  # noqa: E402
 from tools.run_sec_submissions_collector import cik_rows_from_inputs  # noqa: E402
 
 
@@ -68,8 +69,49 @@ def test_cik_rows_from_inputs_supports_13f_manager_ciks() -> None:
     assert str(rows["cik10"].dtype) == "object"
 
 
+def test_collect_filings_index_keeps_running_after_bad_manager_cik() -> None:
+    original_load = submissions.load_company_tickers
+    original_fetch = submissions.fetch_submissions
+    try:
+        submissions.load_company_tickers = lambda *args, **kwargs: pd.DataFrame(columns=["ticker", "cik10", "name"])
+
+        def fake_fetch(cik: str, *args: object, **kwargs: object) -> dict[str, object]:
+            if cik == "0000000001":
+                raise RuntimeError("404 test")
+            return {
+                "filings": {
+                    "recent": {
+                        "form": ["13F-HR"],
+                        "accessionNumber": ["0000000002-26-000001"],
+                        "primaryDocument": ["info.xml"],
+                        "acceptanceDateTime": ["2026-05-15T18:00:00.000Z"],
+                        "filingDate": ["2026-05-15"],
+                        "reportDate": ["2026-03-31"],
+                    }
+                }
+            }
+
+        submissions.fetch_submissions = fake_fetch
+        rows = submissions.cik_rows_from_inputs("BAD:1,GOOD:2")
+        frame = submissions.collect_filings_index(
+            tickers=[],
+            cik_rows=rows,
+            raw_dir=ROOT,
+            forms=["13F-HR"],
+        )
+        assert len(frame) == 2
+        statuses = dict(zip(frame["ticker"], frame["download_status"]))
+        assert statuses["BAD"] == "fetch_error"
+        assert statuses["GOOD"] == "indexed"
+        assert frame.loc[frame["ticker"].eq("BAD"), "parse_status"].iloc[0].startswith("fetch_error:")
+    finally:
+        submissions.load_company_tickers = original_load
+        submissions.fetch_submissions = original_fetch
+
+
 if __name__ == "__main__":
     test_normalize_cik10_preserves_ten_digit_strings()
     test_normalize_cik_series_returns_object_ten_digit_strings()
     test_cik_rows_from_inputs_supports_13f_manager_ciks()
+    test_collect_filings_index_keeps_running_after_bad_manager_cik()
     print("sec_cik_schema_smoke: PASS")

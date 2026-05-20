@@ -252,13 +252,37 @@ def collect_filings_index(
 
     frames: list[pd.DataFrame] = []
     for _, row in ticker_map.iterrows():
-        payload = fetch_submissions(
-            str(row["cik10"]),
-            raw_dir,
-            user_agent=user_agent,
-            refresh=refresh,
-            sleep_s=sleep_s,
-        )
+        try:
+            payload = fetch_submissions(
+                str(row["cik10"]),
+                raw_dir,
+                user_agent=user_agent,
+                refresh=refresh,
+                sleep_s=sleep_s,
+            )
+        except Exception as exc:
+            frames.append(
+                pd.DataFrame(
+                    [
+                        {
+                            "ticker": str(row.get("ticker") or "").upper().strip(),
+                            "cik10": cik10(row.get("cik10")),
+                            "accession_number": "",
+                            "form_type": "",
+                            "filing_date": "",
+                            "accepted_at": "",
+                            "available_from": "",
+                            "period_of_report": "",
+                            "primary_document": "",
+                            "filing_url": "",
+                            "source": "sec_submissions_recent",
+                            "download_status": "fetch_error",
+                            "parse_status": f"fetch_error: {type(exc).__name__}: {str(exc)[:180]}",
+                        }
+                    ]
+                )
+            )
+            continue
         frame = filings_from_submissions(
             str(row["ticker"]),
             str(row["cik10"]),
