@@ -8,57 +8,9 @@ on:
         type: string
         default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
       max_filings:
-        description: 'Max Form 4 filings to parse in this shard; use a larger value for historical shards'
+        description: 'Max indexed Form 4 filings to parse in this shard'
         type: string
         default: '500'
-      max_filings_per_ticker:
-        description: 'Max indexed Form 4 filings to keep per issuer before parser; 0 = no per-ticker cap'
-        type: string
-        default: '0'
-      backfill_years:
-        description: '0 = daily/recent only; otherwise include older submissions archive files back this many years'
-        type: string
-        default: '0'
-      all_sec_tickers:
-        description: 'Backfill all SEC company_tickers entries instead of the bounded watchlist'
-        type: boolean
-        default: false
-      include_archive_files:
-        description: 'Fetch older submissions files listed under filings.files for long Form 4 backfills'
-        type: boolean
-        default: false
-      append_existing:
-        description: 'Merge with existing shard/canonical PIT files instead of replacing them'
-        type: boolean
-        default: true
-      shard_index:
-        description: 'Zero-based shard index for all-ticker Form 4 backfill'
-        type: string
-        default: '0'
-      shard_count:
-        description: 'Total shard count for all-ticker Form 4 backfill'
-        type: string
-        default: '1'
-      merge_shards:
-        description: 'Merge data_pit/sec/shards into canonical Form 4 PIT/signal files'
-        type: boolean
-        default: false
-      merge_only:
-        description: 'Skip SEC collection/parsing and only merge restored shard files'
-        type: boolean
-        default: false
-      sync_raw_sec:
-        description: 'Also sync raw SEC downloads to Google Drive; keep false for shard backfills to avoid long sync stalls'
-        type: boolean
-        default: false
-      require_gdrive_restore:
-        description: 'Fail if Google Drive data_pit/sec restore is unavailable or empty; useful for merge-only and resumed shard backfills'
-        type: boolean
-        default: false
-      sec_sleep_seconds:
-        description: 'Delay between SEC requests; use 0.25+ when running concurrent historical shards'
-        type: string
-        default: '0.25'
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -72,7 +24,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: sec-form4-${{ github.ref }}-${{ github.event.inputs.shard_index || 'daily' }}
+  group: sec-evidence-data-lake-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -152,34 +104,9 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
-          SHARD_INDEX: ${{ github.event.inputs.shard_index || '0' }}
-          SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
-          MERGE_ONLY: ${{ github.event.inputs.merge_only || 'false' }}
-          REQUIRE_GDRIVE_RESTORE: ${{ github.event.inputs.require_gdrive_restore || 'false' }}
         run: |
           set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs data_raw/sec data_pit/sec outputs/sec_ownership_signals
-          RESTORE_LOG="outputs/full_rebuild_logs/sec_gdrive_restore.log"
-          RESTORE_MANIFEST="outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json"
-          : > "$RESTORE_LOG"
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            echo "[gdrive] restore skipped; auth not configured" | tee -a "$RESTORE_LOG"
-            python - <<'PY'
-          import json
-          from pathlib import Path
-          Path("outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json").write_text(json.dumps({
-              "status": "skipped",
-              "gdrive_ready": False,
-              "reason": "auth_not_configured",
-              "restored_shard_dirs": [],
-              "restored_shard_dir_count": 0,
-              "restored_form4_transaction_files": 0,
-          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-          PY
-            if [ "${REQUIRE_GDRIVE_RESTORE:-false}" = "true" ]; then
-              echo "[gdrive] require_gdrive_restore=true but auth is unavailable" >&2
-              exit 2
-            fi
             exit 0
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
@@ -187,149 +114,42 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          RESTORE_ATTEMPTED=0
-          RESTORE_SUCCEEDED=0
           for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              RESTORE_ATTEMPTED=$((RESTORE_ATTEMPTED + 1))
-              echo "[gdrive] restore $BASE$d -> $d/" | tee -a "$RESTORE_LOG"
-              if ! timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
-                echo "[gdrive] warning: restore for $d timed out or failed; continuing with GitHub cache/local files" | tee -a "$RESTORE_LOG"
-              else
-                RESTORE_SUCCEEDED=$((RESTORE_SUCCEEDED + 1))
-              fi
-            else
-              echo "[gdrive] no remote directory at $BASE$d" | tee -a "$RESTORE_LOG"
+              rclone copy "$BASE$d" "$d/"
             fi
           done
-          export BASE RESTORE_ATTEMPTED RESTORE_SUCCEEDED SHARD_INDEX SHARD_COUNT MERGE_ONLY REQUIRE_GDRIVE_RESTORE
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          pit = Path("data_pit/sec")
-          shard_dirs = sorted(str(p).replace("\\", "/") for p in (pit / "shards").glob("shard_*_of_*") if p.is_dir())
-          form4_files = sorted(str(p).replace("\\", "/") for p in pit.glob("**/form4_transactions.parquet"))
-          filing_files = sorted(str(p).replace("\\", "/") for p in pit.glob("**/sec_filings_index.parquet"))
-          manifest = {
-              "status": "completed",
-              "gdrive_ready": True,
-              "base": os.environ.get("BASE", ""),
-              "restore_attempted_dirs": int(os.environ.get("RESTORE_ATTEMPTED", "0")),
-              "restore_succeeded_dirs": int(os.environ.get("RESTORE_SUCCEEDED", "0")),
-              "shard_index": os.environ.get("SHARD_INDEX", ""),
-              "shard_count": os.environ.get("SHARD_COUNT", ""),
-              "merge_only": os.environ.get("MERGE_ONLY", ""),
-              "require_gdrive_restore": os.environ.get("REQUIRE_GDRIVE_RESTORE", ""),
-              "restored_shard_dirs": shard_dirs,
-              "restored_shard_dir_count": len(shard_dirs),
-              "restored_form4_transaction_files": len(form4_files),
-              "restored_sec_filings_index_files": len(filing_files),
-              "canonical_form4_transactions_exists": (pit / "form4_transactions.parquet").exists(),
-              "canonical_sec_filings_index_exists": (pit / "sec_filings_index.parquet").exists(),
-          }
-          Path("outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json").write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          print(json.dumps(manifest, sort_keys=True))
-          PY
-          RESTORED_SHARD_COUNT="$(python - <<'PY'
-          import json
-          print(json.loads(open("outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json", encoding="utf-8").read()).get("restored_shard_dir_count", 0))
-          PY
-          )"
-          RESTORED_FORM4_FILES="$(python - <<'PY'
-          import json
-          print(json.loads(open("outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json", encoding="utf-8").read()).get("restored_form4_transaction_files", 0))
-          PY
-          )"
-          if [ "${REQUIRE_GDRIVE_RESTORE:-false}" = "true" ] && [ "${RESTORED_FORM4_FILES:-0}" = "0" ]; then
-            echo "[gdrive] require_gdrive_restore=true but no restored Form 4 PIT files were found" >&2
-            exit 2
-          fi
-          if [ "${MERGE_ONLY:-false}" = "true" ] && [ "${RESTORED_SHARD_COUNT:-0}" = "0" ]; then
-            echo "[gdrive] merge_only=true but no restored shard directories were found" >&2
-            exit 2
-          fi
 
       - name: Collect and score Form 4
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
           TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
-          MAX_FILINGS_PER_TICKER: ${{ github.event.inputs.max_filings_per_ticker || '0' }}
-          BACKFILL_YEARS: ${{ github.event.inputs.backfill_years || '0' }}
-          ALL_SEC_TICKERS: ${{ github.event.inputs.all_sec_tickers || 'false' }}
-          INCLUDE_ARCHIVE_FILES: ${{ github.event.inputs.include_archive_files || 'false' }}
-          APPEND_EXISTING: ${{ github.event.inputs.append_existing || 'true' }}
-          SHARD_INDEX: ${{ github.event.inputs.shard_index || '0' }}
-          SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
-          MERGE_SHARDS: ${{ github.event.inputs.merge_shards || 'false' }}
-          MERGE_ONLY: ${{ github.event.inputs.merge_only || 'false' }}
-          SEC_SLEEP_SECONDS: ${{ github.event.inputs.sec_sleep_seconds || '0.25' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_ownership_signals data_pit/sec data_raw/sec
-          PIT_OUT="data_pit/sec"
-          if [ "${SHARD_COUNT:-1}" != "1" ]; then
-            PIT_OUT="data_pit/sec/shards/shard_${SHARD_INDEX}_of_${SHARD_COUNT}"
-          fi
-          mkdir -p "$PIT_OUT"
-          ARGS=(
-            --forms '4,4/A'
-            --output-dir "$PIT_OUT"
-            --raw-dir data_raw/sec
-            --user-agent "$SEC_USER_AGENT"
-            --sleep "$SEC_SLEEP_SECONDS"
-            --safety-delay-hours "$SAFETY_DELAY_HOURS"
-            --max-filings-per-ticker "$MAX_FILINGS_PER_TICKER"
-          )
-          if [ "$ALL_SEC_TICKERS" = "true" ]; then
-            ARGS+=(--all-sec-tickers --universe-file ./.missing_universe.csv)
-          else
-            ARGS+=(--tickers "$TICKERS" --universe-file ./.missing_universe.csv)
-          fi
-          if [ "${BACKFILL_YEARS:-0}" != "0" ]; then
-            START_DATE="$(python -c "from datetime import date, timedelta; print((date.today() - timedelta(days=int(float('${BACKFILL_YEARS:-0}')*365.25))).isoformat())")"
-            ARGS+=(--start-date "$START_DATE" --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT")
-          fi
-          if [ "$INCLUDE_ARCHIVE_FILES" = "true" ]; then
-            ARGS+=(--include-archive-files)
-          fi
-          if [ "$APPEND_EXISTING" = "true" ]; then
-            ARGS+=(--append-existing)
-          fi
-          if [ "$MERGE_ONLY" != "true" ]; then
-            python tools/run_sec_submissions_collector.py "${ARGS[@]}" 2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
-            python tools/run_sec_form4_parser.py \
-              --filings-index "$PIT_OUT/sec_filings_index.parquet" \
-              --output-dir "$PIT_OUT" \
-              --raw-dir data_raw/sec \
-              --user-agent "$SEC_USER_AGENT" \
-              --sleep "$SEC_SLEEP_SECONDS" \
-              --max-filings "$MAX_FILINGS" \
-              2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
-          else
-            echo "[sec-form4] merge_only=true; skipping SEC submissions collector and parser" | tee outputs/full_rebuild_logs/sec_form4_submissions.log
-            echo "[sec-form4] merge_only=true; skipping SEC parser" | tee outputs/full_rebuild_logs/sec_form4_parser.log
-          fi
-          if [ "$MERGE_SHARDS" = "true" ]; then
-            python tools/run_sec_form4_merge_shards.py \
-              --pit-root data_pit/sec \
-              --output-dir outputs/sec_ownership_signals \
-              --window-days 90 \
-              2>&1 | tee outputs/full_rebuild_logs/sec_form4_merge_shards.log
-          fi
-          SIGNAL_FORM4="$PIT_OUT/form4_transactions.parquet"
-          if [ "$MERGE_SHARDS" = "true" ]; then
-            SIGNAL_FORM4="data_pit/sec/form4_transactions.parquet"
-          fi
+          python tools/run_sec_submissions_collector.py \
+            --tickers "$TICKERS" \
+            --universe-file ./.missing_universe.csv \
+            --forms '4,4/A' \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
+          python tools/run_sec_form4_parser.py \
+            --filings-index data_pit/sec/sec_filings_index.parquet \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --max-filings "$MAX_FILINGS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
           python tools/run_sec_ownership_signals.py \
-            --form4 "$SIGNAL_FORM4" \
+            --form4 data_pit/sec/form4_transactions.parquet \
             --output-dir outputs/sec_ownership_signals \
             --lookback-days 90 \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_signals.log
@@ -342,14 +162,9 @@ jobs:
           path: |
             data_pit/sec/sec_filings_index.*
             data_pit/sec/form4_transactions.*
-            data_pit/sec/sec_ownership_signals.*
-            data_pit/sec/sec_form4_merge_manifest.json
-            data_pit/sec/shards/**
             data_pit/sec/*summary.json
             outputs/sec_ownership_signals/
             outputs/full_rebuild_logs/sec_form4_*.log
-            outputs/full_rebuild_logs/sec_gdrive_restore.*
-            outputs/full_rebuild_logs/sec_gdrive_restore_manifest.json
           retention-days: 14
 
       - name: Sync SEC Form 4 data lake to Google Drive
@@ -357,7 +172,6 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
-          SYNC_RAW_SEC: ${{ github.event.inputs.sync_raw_sec || 'false' }}
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
@@ -372,15 +186,11 @@ jobs:
             local src="$1"
             local dst="$2"
             echo "[gdrive] sync $src -> $dst"
-            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --max-duration 7m --cutoff-mode soft --stats 30s --stats-one-line; then
+            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
               echo "[gdrive] warning: sync for $src timed out or failed; GitHub artifact remains available"
             fi
           }
-          SYNC_DIRS="data_pit/sec outputs/sec_ownership_signals"
-          if [ "${SYNC_RAW_SEC:-false}" = "true" ]; then
-            SYNC_DIRS="data_raw/sec $SYNC_DIRS"
-          fi
-          for d in $SYNC_DIRS; do
+          for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
             if [ -d "$d" ]; then
               sync_dir "$d" "$BASE$d/"
             fi

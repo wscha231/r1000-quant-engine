@@ -38,10 +38,7 @@ ENRICHED_SCORE_COLUMNS = [
     "sec_form4_open_market_buy_score",
     "sec_form4_cluster_buy_score",
     "sec_form4_ceo_cfo_buy_score",
-    "sec_form4_ten_percent_owner_buy_score",
-    "sec_form4_net_buy_score",
     "sec_form4_sale_pressure_score",
-    "sec_form4_sale_risk_score",
     "sec_13f_manager_count",
     "sec_13f_buying_manager_count",
     "sec_13f_new_position_manager_count",
@@ -49,16 +46,13 @@ ENRICHED_SCORE_COLUMNS = [
     "sec_13f_value_delta_to_mcap",
     "sec_13f_consensus_buy_score",
     "sec_13f_accumulation_score",
-    "sec_13f_breadth_score",
     "sec_13f_smart_money_score",
     "institutional_evidence_score",
     "early_evidence_score",
     "evidence_confidence_score",
     "sec_combined_evidence_score",
-    "sec_support_boost_score",
     "leader_onset_sec_v2_score",
     "leader_onset_sec_v3_score",
-    "leader_onset_sec_v4_support_score",
 ]
 
 
@@ -226,11 +220,7 @@ def market_cap_series(frame: pd.DataFrame) -> pd.Series:
 def add_combined_sec_scores(frame: pd.DataFrame) -> pd.DataFrame:
     d = frame.copy()
     form4 = numeric(d, "early_evidence_score", 0.0).clip(0.0, 1.0)
-    net_buy = numeric(d, "sec_form4_net_buy_score", 0.0).clip(0.0, 1.0)
-    sale_risk = numeric(d, "sec_form4_sale_risk_score", 0.0).clip(0.0, 1.0)
     inst = numeric(d, "institutional_evidence_score", 0.0).clip(0.0, 1.0)
-    breadth = numeric(d, "sec_13f_breadth_score", 0.0).clip(0.0, 1.0)
-    stale = numeric(d, "sec_13f_stale_penalty", 0.0).clip(0.0, 1.0)
     confidence = numeric(d, "evidence_confidence_score", 0.0).clip(0.0, 1.0)
     inst_conf = numeric(d, "institutional_evidence_confidence_score", 0.0).clip(0.0, 1.0)
     mcap = market_cap_series(d)
@@ -240,21 +230,11 @@ def add_combined_sec_scores(frame: pd.DataFrame) -> pd.DataFrame:
     ratio.loc[valid_mcap] = (delta.loc[valid_mcap] / mcap.loc[valid_mcap]).clip(0.0, 1.0)
     d["sec_13f_value_delta_to_mcap"] = ratio
     ratio_score = (ratio / 0.01).clip(0.0, 1.0)
-    form4_support = (0.80 * form4 + 0.20 * net_buy - 0.05 * sale_risk).fillna(0.0).clip(0.0, 1.0)
     d["sec_combined_evidence_score"] = (
-        0.40 * form4_support
+        0.45 * form4
         + 0.35 * inst
         + 0.10 * ratio_score
-        + 0.05 * breadth
         + 0.10 * (0.5 * confidence + 0.5 * inst_conf)
-    ).fillna(0.0).clip(0.0, 1.0)
-    d["sec_support_boost_score"] = (
-        0.35 * form4_support
-        + 0.30 * inst
-        + 0.15 * ratio_score
-        + 0.10 * breadth
-        + 0.10 * (0.5 * confidence + 0.5 * inst_conf)
-        - 0.04 * stale
     ).fillna(0.0).clip(0.0, 1.0)
     return d
 
@@ -285,17 +265,6 @@ def add_leader_onset_sec_v2(frame: pd.DataFrame) -> pd.DataFrame:
         + 0.12 * industry
         + 0.08 * rs
         + 0.05 * entry
-    ).fillna(0.0).clip(0.0, 1.0)
-    support = numeric(d, "sec_support_boost_score", 0.0).clip(0.0, 1.0)
-    d["leader_onset_sec_v4_support_score"] = (
-        0.38 * future
-        + 0.20 * market
-        + 0.12 * support
-        + 0.07 * combined
-        + 0.05 * institutional
-        + 0.08 * industry
-        + 0.07 * rs
-        + 0.03 * entry
     ).fillna(0.0).clip(0.0, 1.0)
     return d
 
@@ -409,11 +378,11 @@ def render_report(summary: dict[str, Any], enriched: pd.DataFrame) -> str:
         "",
         "## Top SEC Evidence Rows",
         "",
-        "| date | ticker | form4 evidence | 13F evidence | support | leader_onset_sec_v4 |",
+        "| date | ticker | form4 evidence | 13F evidence | combined | leader_onset_sec_v3 |",
         "| --- | --- | ---: | ---: | ---: | ---: |",
     ]
     if not enriched.empty:
-        top = enriched.sort_values(["sec_support_boost_score", "leader_onset_sec_v4_support_score"], ascending=False).head(20)
+        top = enriched.sort_values(["sec_combined_evidence_score", "leader_onset_sec_v3_score"], ascending=False).head(20)
         for _, row in top.iterrows():
             lines.append(
                 "| {date} | {ticker} | {form4:.3f} | {inst:.3f} | {combined:.3f} | {leader:.3f} |".format(
@@ -423,8 +392,8 @@ def render_report(summary: dict[str, Any], enriched: pd.DataFrame) -> str:
                     ticker=row.get("ticker", ""),
                     form4=float(row.get("early_evidence_score", 0.0) or 0.0),
                     inst=float(row.get("institutional_evidence_score", 0.0) or 0.0),
-                    combined=float(row.get("sec_support_boost_score", 0.0) or 0.0),
-                    leader=float(row.get("leader_onset_sec_v4_support_score", 0.0) or 0.0),
+                    combined=float(row.get("sec_combined_evidence_score", 0.0) or 0.0),
+                    leader=float(row.get("leader_onset_sec_v3_score", 0.0) or 0.0),
                 )
             )
     return "\n".join(lines) + "\n"

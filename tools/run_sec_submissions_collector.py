@@ -30,23 +30,6 @@ DEFAULT_OUTPUT_DIR = "data_pit/sec"
 DEFAULT_RAW_DIR = "data_raw/sec"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
-SUBMISSIONS_FILE_URL = "https://data.sec.gov/submissions/{name}"
-
-FILINGS_INDEX_COLUMNS = [
-    "ticker",
-    "cik10",
-    "accession_number",
-    "form_type",
-    "filing_date",
-    "accepted_at",
-    "available_from",
-    "period_of_report",
-    "primary_document",
-    "filing_url",
-    "source",
-    "download_status",
-    "parse_status",
-]
 
 
 def cik10(value: Any) -> str:
@@ -93,33 +76,6 @@ def parse_sec_datetime(value: Any) -> pd.Timestamp:
     if "T" in text:
         return pd.to_datetime(text, errors="coerce", utc=True)
     return pd.to_datetime(text, errors="coerce", utc=True)
-
-
-def parse_date_bound(value: Any) -> pd.Timestamp:
-    if value is None or str(value).strip() == "":
-        return pd.NaT
-    return pd.to_datetime(value, errors="coerce", utc=True)
-
-
-def filing_date_in_range(value: Any, start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool:
-    dt = parse_date_bound(value)
-    if pd.isna(dt):
-        return True
-    if pd.notna(start_date) and dt < start_date:
-        return False
-    if pd.notna(end_date) and dt > end_date:
-        return False
-    return True
-
-
-def archive_file_overlaps(file_meta: dict[str, Any], start_date: pd.Timestamp, end_date: pd.Timestamp) -> bool:
-    filing_from = parse_date_bound(file_meta.get("filingFrom"))
-    filing_to = parse_date_bound(file_meta.get("filingTo"))
-    if pd.notna(start_date) and pd.notna(filing_to) and filing_to < start_date:
-        return False
-    if pd.notna(end_date) and pd.notna(filing_from) and filing_from > end_date:
-        return False
-    return True
 
 
 def available_from(value: Any, *, safety_delay_hours: float = 0.0) -> str:
@@ -227,18 +183,16 @@ def filing_archive_url(cik: str, accession: str, primary_document: str = "") -> 
     return f"{base}/{primary_document}" if primary_document else base
 
 
-def filings_from_recent_dict(
+def filings_from_submissions(
     ticker: str,
     cik: str,
-    recent: dict[str, list[Any]],
+    payload: dict[str, Any],
     *,
     forms: Iterable[str] | None = None,
     safety_delay_hours: float = 0.0,
-    source: str = "sec_submissions_recent",
-    start_date: pd.Timestamp = pd.NaT,
-    end_date: pd.Timestamp = pd.NaT,
 ) -> pd.DataFrame:
     wanted = {str(f).upper().strip() for f in forms or [] if str(f).strip()}
+    recent = (payload.get("filings") or {}).get("recent") or {}
     form_values = recent.get("form") or []
     rows: list[dict[str, Any]] = []
     norm_cik = cik10(cik)
@@ -251,8 +205,6 @@ def filings_from_recent_dict(
         accepted = _recent_value(recent, "acceptanceDateTime", idx)
         filing_date = _recent_value(recent, "filingDate", idx)
         period = _recent_value(recent, "reportDate", idx)
-        if not accession or not filing_date_in_range(filing_date, start_date, end_date):
-            continue
         rows.append(
             {
                 "ticker": str(ticker).upper().strip(),
@@ -265,60 +217,12 @@ def filings_from_recent_dict(
                 "period_of_report": str(period or ""),
                 "primary_document": primary_doc,
                 "filing_url": filing_archive_url(norm_cik, accession, primary_doc),
-                "source": source,
+                "source": "sec_submissions_recent",
                 "download_status": "indexed",
                 "parse_status": "pending",
             }
         )
     return pd.DataFrame(rows)
-
-
-def filings_from_submissions(
-    ticker: str,
-    cik: str,
-    payload: dict[str, Any],
-    *,
-    forms: Iterable[str] | None = None,
-    safety_delay_hours: float = 0.0,
-    source: str = "sec_submissions_recent",
-    start_date: pd.Timestamp = pd.NaT,
-    end_date: pd.Timestamp = pd.NaT,
-) -> pd.DataFrame:
-    recent = (payload.get("filings") or {}).get("recent") or {}
-    return filings_from_recent_dict(
-        ticker,
-        cik,
-        recent,
-        forms=forms,
-        safety_delay_hours=safety_delay_hours,
-        source=source,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-
-def fetch_submissions_archive(
-    name: str,
-    raw_dir: Path,
-    *,
-    user_agent: str | None = None,
-    refresh: bool = False,
-    sleep_s: float = 0.12,
-) -> dict[str, Any]:
-    text = str(name or "").strip()
-    if not text:
-        return {}
-    out_dir = raw_dir / "submissions"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    cache = out_dir / text
-    if refresh or not cache.exists():
-        payload = sec_get_json(SUBMISSIONS_FILE_URL.format(name=text), user_agent=user_agent, sleep_s=sleep_s)
-        cache.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        return payload
-    try:
-        return json.loads(cache.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
 def collect_filings_index(
@@ -332,12 +236,6 @@ def collect_filings_index(
     sleep_s: float = 0.12,
     safety_delay_hours: float = 0.0,
     max_tickers: int = 0,
-    max_filings_per_ticker: int = 0,
-    start_date: pd.Timestamp = pd.NaT,
-    end_date: pd.Timestamp = pd.NaT,
-    include_archive_files: bool = False,
-    shard_index: int = 0,
-    shard_count: int = 1,
 ) -> pd.DataFrame:
     ticker_map = load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh)
     if tickers:
@@ -351,108 +249,59 @@ def collect_filings_index(
         ticker_map = ticker_map[ticker_map["cik10"].ne("")].drop_duplicates(["ticker", "cik10"], keep="last")
     if max_tickers and max_tickers > 0:
         ticker_map = ticker_map.head(int(max_tickers)).copy()
-    has_direct_ciks = cik_rows is not None and not cik_rows.empty
-    if shard_count and int(shard_count) > 1 and not has_direct_ciks:
-        count = max(1, int(shard_count))
-        index = max(0, int(shard_index)) % count
-        ticker_map = ticker_map.reset_index(drop=True)
-        ticker_map = ticker_map[ticker_map.index % count == index].copy()
 
     frames: list[pd.DataFrame] = []
     for _, row in ticker_map.iterrows():
-        try:
-            payload = fetch_submissions(
-                str(row["cik10"]),
-                raw_dir,
-                user_agent=user_agent,
-                refresh=refresh,
-                sleep_s=sleep_s,
-            )
-        except Exception:
-            continue
+        payload = fetch_submissions(
+            str(row["cik10"]),
+            raw_dir,
+            user_agent=user_agent,
+            refresh=refresh,
+            sleep_s=sleep_s,
+        )
         frame = filings_from_submissions(
             str(row["ticker"]),
             str(row["cik10"]),
             payload,
             forms=forms,
             safety_delay_hours=safety_delay_hours,
-            start_date=start_date,
-            end_date=end_date,
         )
-        ticker_frames = [frame] if not frame.empty else []
-        if include_archive_files:
-            for file_meta in (payload.get("filings") or {}).get("files", []) or []:
-                name = str(file_meta.get("name") or "").strip()
-                if not name or not archive_file_overlaps(file_meta, start_date, end_date):
-                    continue
-                try:
-                    archive_payload = fetch_submissions_archive(
-                        name,
-                        raw_dir,
-                        user_agent=user_agent,
-                        refresh=refresh,
-                        sleep_s=sleep_s,
-                    )
-                except Exception:
-                    continue
-                archive_recent = (archive_payload.get("filings") or {}).get("recent", archive_payload)
-                archive_frame = filings_from_recent_dict(
-                    str(row["ticker"]),
-                    str(row["cik10"]),
-                    archive_recent,
-                    forms=forms,
-                    safety_delay_hours=safety_delay_hours,
-                    source=f"sec_submissions_file:{name}",
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-                if not archive_frame.empty:
-                    ticker_frames.append(archive_frame)
-        if ticker_frames:
-            frame = pd.concat(ticker_frames, ignore_index=True, sort=False)
-            if max_filings_per_ticker and int(max_filings_per_ticker) > 0:
-                frame = (
-                    frame.sort_values(["filing_date", "accepted_at"], ascending=False)
-                    .head(int(max_filings_per_ticker))
-                    .copy()
-                )
         if not frame.empty:
             frames.append(frame)
     if not frames:
-        return pd.DataFrame(columns=FILINGS_INDEX_COLUMNS)
+        return pd.DataFrame(
+            columns=[
+                "ticker",
+                "cik10",
+                "accession_number",
+                "form_type",
+                "filing_date",
+                "accepted_at",
+                "available_from",
+                "period_of_report",
+                "primary_document",
+                "filing_url",
+                "source",
+                "download_status",
+                "parse_status",
+            ]
+        )
     out = pd.concat(frames, ignore_index=True)
     out["cik10"] = out["cik10"].map(cik10)
     out = out.sort_values(["ticker", "accepted_at", "accession_number"]).drop_duplicates(
-        ["cik10", "accession_number", "form_type"], keep="last"
+        ["ticker", "accession_number"], keep="last"
     )
-    for col in FILINGS_INDEX_COLUMNS:
-        if col not in out.columns:
-            out[col] = ""
-    return out[FILINGS_INDEX_COLUMNS].copy()
+    return out
 
 
-def write_outputs(frame: pd.DataFrame, output_dir: Path, *, append_existing: bool = False) -> dict[str, str]:
+def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = output_dir / "sec_filings_index.parquet"
     csv_path = output_dir / "sec_filings_index.csv"
-    existing_rows = 0
-    if append_existing and parquet_path.exists():
-        existing = pd.read_parquet(parquet_path)
-        existing_rows = int(len(existing))
-        if not existing.empty:
-            for col in FILINGS_INDEX_COLUMNS:
-                if col not in existing.columns:
-                    existing[col] = ""
-            existing["cik10"] = existing["cik10"].map(cik10)
-            frame = pd.concat([existing[FILINGS_INDEX_COLUMNS], frame], ignore_index=True, sort=False)
-            frame = frame.drop_duplicates(["cik10", "accession_number", "form_type"], keep="last")
-    if not frame.empty:
-        frame = frame.sort_values(["ticker", "filing_date", "accession_number"], ascending=[True, False, False])
     frame.to_parquet(parquet_path, index=False)
     frame.to_csv(csv_path, index=False)
     summary = {
         "row_count": int(len(frame)),
-        "existing_row_count_before_merge": existing_rows,
         "ticker_count": int(frame["ticker"].nunique()) if "ticker" in frame else 0,
         "form_counts": frame["form_type"].value_counts().to_dict() if "form_type" in frame else {},
         "parquet": str(parquet_path),
@@ -475,19 +324,11 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-tickers", type=int, default=0)
-    parser.add_argument("--max-filings-per-ticker", type=int, default=0)
     parser.add_argument("--safety-delay-hours", type=float, default=0.0)
-    parser.add_argument("--start-date", default="", help="Inclusive filingDate lower bound, e.g. 2018-05-19.")
-    parser.add_argument("--end-date", default="", help="Inclusive filingDate upper bound.")
-    parser.add_argument("--include-archive-files", action="store_true", help="Fetch older SEC submissions file shards under filings.files.")
-    parser.add_argument("--append-existing", action="store_true", help="Merge new rows into an existing sec_filings_index instead of replacing it.")
-    parser.add_argument("--all-sec-tickers", action="store_true", help="Ignore --universe-file and collect all SEC company_tickers entries.")
-    parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard index for large Form 4 backfills.")
-    parser.add_argument("--shard-count", type=int, default=1, help="Total shard count for large Form 4 backfills.")
     args = parser.parse_args()
 
     forms = [x.strip().upper() for x in args.forms.split(",") if x.strip()]
-    tickers = [] if args.all_sec_tickers else tickers_from_inputs(args.tickers, args.universe_file)
+    tickers = tickers_from_inputs(args.tickers, args.universe_file)
     cik_rows = cik_rows_from_inputs(args.ciks)
     frame = collect_filings_index(
         tickers=tickers,
@@ -499,29 +340,9 @@ def main() -> int:
         sleep_s=float(args.sleep),
         safety_delay_hours=float(args.safety_delay_hours),
         max_tickers=int(args.max_tickers),
-        max_filings_per_ticker=int(args.max_filings_per_ticker),
-        start_date=parse_date_bound(args.start_date),
-        end_date=parse_date_bound(args.end_date),
-        include_archive_files=bool(args.include_archive_files),
-        shard_index=int(args.shard_index),
-        shard_count=int(args.shard_count),
     )
-    paths = write_outputs(frame, repo_path(args.output_dir), append_existing=bool(args.append_existing))
-    print(
-        json.dumps(
-            {
-                "status": "ok",
-                "rows": int(len(frame)),
-                "all_sec_tickers": bool(args.all_sec_tickers),
-                "shard_index": int(args.shard_index),
-                "shard_count": int(args.shard_count),
-                "include_archive_files": bool(args.include_archive_files),
-                **paths,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
+    paths = write_outputs(frame, repo_path(args.output_dir))
+    print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))
     return 0
 
 

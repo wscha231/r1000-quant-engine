@@ -56,20 +56,6 @@ FORM4_COLUMNS = [
     "filing_url",
 ]
 
-FORM4_BOOL_COLUMNS = [
-    "is_director",
-    "is_officer",
-    "is_ten_percent_owner",
-    "is_derivative",
-]
-
-FORM4_FLOAT_COLUMNS = [
-    "transaction_shares",
-    "transaction_price",
-    "transaction_value",
-    "shares_owned_after",
-]
-
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
@@ -116,39 +102,6 @@ def as_float(value: Any) -> float | None:
 
 def as_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
-
-
-def normalize_form4_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    """Stabilize Form 4 output dtypes before parquet export.
-
-    SEC backfills include occasional parse-error rows where fields are empty
-    placeholders. Without explicit dtypes, pyarrow can infer mixed object
-    columns and fail while converting boolean fields.
-    """
-    out = frame.copy()
-    for col in FORM4_COLUMNS:
-        if col not in out.columns:
-            if col in FORM4_FLOAT_COLUMNS:
-                out[col] = 0.0
-            elif col in FORM4_BOOL_COLUMNS:
-                out[col] = False
-            else:
-                out[col] = ""
-
-    for col in FORM4_BOOL_COLUMNS:
-        out[col] = out[col].map(as_bool).fillna(False).astype(bool)
-
-    for col in FORM4_FLOAT_COLUMNS:
-        out[col] = pd.to_numeric(out[col], errors="coerce").astype(float)
-
-    for col in FORM4_COLUMNS:
-        if col in FORM4_BOOL_COLUMNS or col in FORM4_FLOAT_COLUMNS:
-            continue
-        out[col] = out[col].fillna("").astype(str)
-
-    out["issuer_cik10"] = out["issuer_cik10"].map(cik10)
-    out["reporting_owner_cik"] = out["reporting_owner_cik"].map(cik10)
-    return out[FORM4_COLUMNS].copy()
 
 
 def parse_owner(root: ET.Element) -> dict[str, Any]:
@@ -340,12 +293,17 @@ def parse_form4_index(
                     "ownership_nature": str(exc)[:240],
                 }
             )
-    return normalize_form4_frame(pd.DataFrame(rows))
+    out = pd.DataFrame(rows)
+    for col in FORM4_COLUMNS:
+        if col not in out.columns:
+            out[col] = "" if col not in {"transaction_shares", "transaction_price", "transaction_value", "shares_owned_after"} else 0.0
+    out["issuer_cik10"] = out["issuer_cik10"].map(cik10)
+    out["reporting_owner_cik"] = out["reporting_owner_cik"].map(cik10)
+    return out[FORM4_COLUMNS].copy()
 
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    frame = normalize_form4_frame(frame)
     parquet_path = output_dir / "form4_transactions.parquet"
     csv_path = output_dir / "form4_transactions.csv"
     frame.to_parquet(parquet_path, index=False)

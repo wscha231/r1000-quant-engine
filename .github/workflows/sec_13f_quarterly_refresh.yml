@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       manager_ciks:
-        description: 'Optional extra comma-separated manager CIKs or label:CIK pairs'
+        description: 'Comma-separated manager CIKs or label:CIK pairs'
         type: string
-        default: ''
+        default: 'BRK:0001067983'
       max_filings:
         description: 'Max indexed 13F filings to parse in this shard'
         type: string
@@ -24,7 +24,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: sec-13f-${{ github.ref }}
+  group: sec-evidence-data-lake-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -117,29 +117,19 @@ jobs:
           for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              if ! timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
-                echo "[gdrive] warning: restore for $d timed out or failed; continuing with GitHub cache/local files"
-              fi
+              rclone copy "$BASE$d" "$d/"
             fi
           done
 
       - name: Collect and score 13F
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
-          EXTRA_MANAGER_CIKS: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || '' }}
+          MANAGER_CIKS: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || 'BRK:0001067983' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '200' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals data_pit/sec data_raw/sec
-          python tools/build_sec_13f_manager_universe.py \
-            --input research/sec_13f_manager_universe_20260519/managers.csv \
-            --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
-            --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
-            --extra "$EXTRA_MANAGER_CIKS" \
-            --max-managers 50 \
-            2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_universe.log
-          MANAGER_CIKS="$(cat outputs/sec_institutional_signals/manager_ciks.txt)"
           python tools/run_sec_submissions_collector.py \
             --ciks "$MANAGER_CIKS" \
             --universe-file ./.missing_universe.csv \
@@ -161,8 +151,6 @@ jobs:
           python tools/run_sec_institutional_signals.py \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --output-dir outputs/sec_institutional_signals \
-            --company-tickers-json data_raw/sec/company_tickers.json \
-            --candidate-map cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv \
             --lookback-days 210 \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_signals.log
 
@@ -176,7 +164,6 @@ jobs:
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json
             outputs/sec_institutional_signals/
-            outputs/full_rebuild_logs/sec_13f_manager_universe.log
             outputs/full_rebuild_logs/sec_13f_*.log
           retention-days: 30
 
