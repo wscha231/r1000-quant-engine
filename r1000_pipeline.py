@@ -85,6 +85,7 @@ from r1000_config import (
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
     SHORT_RS_TRAP_COLUMNS,
+    SEC_EVIDENCE_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
@@ -285,6 +286,8 @@ from r1000_features import (
     # Short-RS trap (2026-05-13): split short/long RS + chase-extension penalty
     compute_rs_short_long_scores,
     compute_short_extension_risk_penalty,
+    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    load_sec_evidence_overlay,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
     compute_cycle_recovery_score,
@@ -1080,6 +1083,29 @@ def add_total_score_columns(
         lower=0.0, upper=1.0
     )
     d["score"] = d["score"] * (1.0 - short_ext_w * short_ext_penalty).fillna(1.0)
+
+    # SEC evidence overlay (2026-05-20): LATEST-ONLY bonus from 13F + Form 4.
+    # Both signals are populated only for the latest scoring rows; historical
+    # walk-forward rows have zero-filled columns (no leakage). Weights default
+    # to 0.30 / 0.20 — flip lower or higher via cfg.w_sec_institutional_evidence
+    # / cfg.w_sec_insider_evidence after first cron run validates the data.
+    w_inst = float(getattr(cfg, "w_sec_institutional_evidence", 0.0))
+    w_insider = float(getattr(cfg, "w_sec_insider_evidence", 0.0))
+    inst_score = numeric_series_or_default(d, "institutional_evidence_score", 0.0)
+    inst_conf = numeric_series_or_default(d, "institutional_evidence_confidence_score", 0.0)
+    insider_score = numeric_series_or_default(d, "early_evidence_score", 0.0)
+    insider_conf = numeric_series_or_default(d, "evidence_confidence_score", 0.0)
+    d["score_sec_institutional_overlay"] = (
+        w_inst * inst_score * inst_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["score_sec_insider_overlay"] = (
+        w_insider * insider_score * insider_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["score"] = (
+        d["score"]
+        + d["score_sec_institutional_overlay"]
+        + d["score_sec_insider_overlay"]
+    )
     return d
 
 
@@ -8213,6 +8239,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + SHORT_RS_TRAP_COLUMNS
+            + SEC_EVIDENCE_COLUMNS
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
@@ -12151,6 +12178,24 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             }
         _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
         latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
+        # SEC evidence overlay merge (2026-05-20) — LATEST-only enrichment from
+        # 13F (sec_13f_quarterly_refresh.yml) + Form 4 (sec_form4_daily_refresh
+        # .yml). When the artifacts are absent the merge is a no-op and all
+        # downstream score components zero-fill cleanly.
+        try:
+            sec_overlay = load_sec_evidence_overlay(base_dir=paths.get("out", paths.get("base")))
+            if not sec_overlay.empty and "ticker" in sec_overlay.columns:
+                overlay_cols = [c for c in sec_overlay.columns if c != "ticker"]
+                drop_existing = [c for c in overlay_cols if c in latest_df.columns]
+                if drop_existing:
+                    latest_df = latest_df.drop(columns=drop_existing)
+                latest_df = latest_df.merge(sec_overlay, on="ticker", how="left")
+                log(
+                    f"[sec-evidence] overlay applied: {len(sec_overlay)} rows, "
+                    f"{len(overlay_cols)} columns merged into latest_df."
+                )
+        except Exception as _sec_exc:
+            log(f"[sec-evidence] overlay skipped: {_sec_exc}")
         latest_df = add_total_score_columns(
             latest_df,
             cfg,

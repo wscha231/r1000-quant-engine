@@ -2820,6 +2820,106 @@ def test_short_rs_trap_weight_cfg_fields() -> None:
         )
 
 
+@_test("regression.sec_evidence_columns_wired")
+def test_sec_evidence_columns_wired() -> None:
+    """SEC_EVIDENCE_COLUMNS must include both 13F + Form 4 columns and be
+    spliced into build_feature_store keep_cols.
+
+    Without this wiring, sec_13f_quarterly_refresh.yml + sec_form4_daily_refresh
+    .yml workflows produce signals that never reach feature_store_latest, so the
+    score overlay would be permanently zero even when the cron runs successfully.
+    """
+    src = _combined_src()
+    assert "SEC_EVIDENCE_COLUMNS" in src, "SEC_EVIDENCE_COLUMNS constant not found"
+    m = re.search(r"SEC_EVIDENCE_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    assert m, "SEC_EVIDENCE_COLUMNS list literal not found"
+    body = m.group(1)
+    # Spot-check both 13F + Form 4 signal columns are present
+    for required in [
+        "sec_13f_smart_money_score",
+        "institutional_evidence_score",
+        "sec_form4_cluster_buy_score",
+        "early_evidence_score",
+    ]:
+        assert f'"{required}"' in body, (
+            f"SEC_EVIDENCE_COLUMNS missing {required} — overlay incomplete"
+        )
+    # Must be wired into build_feature_store
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else src
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SEC_EVIDENCE_COLUMNS" in fs_m.group(0), (
+        "SEC_EVIDENCE_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.sec_evidence_score_overlay_wired")
+def test_sec_evidence_score_overlay_wired() -> None:
+    """add_total_score_columns must include the SEC institutional + insider
+    overlays (score_sec_institutional_overlay + score_sec_insider_overlay).
+
+    Without this, the 13F manager-tracking + Form 4 insider-buying signals
+    are computed by the SEC pipelines but never affect the final `score`
+    column written to scored_latest.csv.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_total_score_columns\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_total_score_columns not found"
+    body = m.group(0)
+    assert "score_sec_institutional_overlay" in body, (
+        "score_sec_institutional_overlay not added in add_total_score_columns"
+    )
+    assert "score_sec_insider_overlay" in body, (
+        "score_sec_insider_overlay not added in add_total_score_columns"
+    )
+    assert "w_sec_institutional_evidence" in body, (
+        "w_sec_institutional_evidence cfg field not read in add_total_score_columns"
+    )
+
+
+@_test("structural.sec_evidence_weight_cfg_fields")
+def test_sec_evidence_weight_cfg_fields() -> None:
+    """2 new EngineConfig fields must exist: w_sec_institutional_evidence,
+    w_sec_insider_evidence. Both default to 0.30 / 0.20 respectively.
+    """
+    src = _combined_src()
+    for field in [
+        "w_sec_institutional_evidence",
+        "w_sec_insider_evidence",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+@_test("regression.sec_13f_manager_universe_csv_present")
+def test_sec_13f_manager_universe_csv_present() -> None:
+    """managers.csv must exist + contain at least 30 managers + verified
+    Whale Rock / Atreides (user-requested high-conviction picks).
+    """
+    import csv
+
+    repo_root = Path(__file__).resolve().parent.parent
+    csv_path = repo_root / "research" / "sec_13f_manager_universe_20260519" / "managers.csv"
+    assert csv_path.exists(), f"managers.csv missing at {csv_path}"
+    with csv_path.open() as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) >= 30, f"managers.csv has only {len(rows)} entries; expected >= 30"
+    labels = {r["label"].upper() for r in rows}
+    for expected in ["WHALEROCK", "ATREIDES", "SITUATIONAL", "DUQUESNE"]:
+        assert expected in labels, (
+            f"managers.csv missing required entry: {expected}"
+        )
+
+
 # ======================================================================
 # main
 # ======================================================================

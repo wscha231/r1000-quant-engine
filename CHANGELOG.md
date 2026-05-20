@@ -51,6 +51,75 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-20
+
+### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
+
+- scope:
+  - Cherry-pick the SEC EDGAR Form 4 + 13F stack from `codex/sec-evidence-support-audit` (4 codex branches collapsed into one source-only import) on top of the short-RS-trap baseline (`claude/short-rs-intc-etf-overlay`). Adds a LATEST-ONLY score overlay that surfaces (a) 13F manager-tracked institutional buying/selling (`sec_13f_*` columns) and (b) Form 4 insider open-market buying (`sec_form4_*` columns) as bonus score components. Backfill via existing codex workflows: `sec_13f_quarterly_refresh.yml` (Feb/May/Aug/Nov 1-20 cron) for 13F + `sec_form4_daily_refresh.yml` (daily cron) for Form 4 + `sec_13f_manager_reselection.yml` (semiannual) for top-fund universe re-ranking.
+  - Extends the codex curated manager universe from 22 ->35 entries by appending 13 user-requested funds drawn from hedgefollow.com 3-year performance ranking (Whale Rock +198%, Atreides +174%, Horizon Kinetics +128%, D1 Capital +92%, Fisher +93%, Elliott +86%, etc.). Unverified-CIK entries flagged `active=false` so the refresh tool can confirm or correct CIKs before activation.
+  - Final score composition stack (post-merge):
+    `score_core` += rs_short_long_separation (Phase X1) + sec_evidence_overlay (Phase X2)
+    `score` *= (1 - w * short_extension_risk_penalty)
+    `score` += score_sec_institutional_overlay + score_sec_insider_overlay
+- files:
+  - **SEC source from codex/sec-evidence-support-audit** (cherry-picked, source-only — cloud_results explicitly excluded to keep repo size sane):
+    - `tools/build_sec_13f_manager_universe.py` (175 LoC) — curated manager CSV ->`manager_ciks.txt` for SEC collectors.
+    - `tools/run_sec_submissions_collector.py` (529 LoC) — SEC EDGAR `submissions/CIK*.json` index fetcher.
+    - `tools/run_sec_13f_parser.py` (450 LoC) — informationTable.xml parser, holdings.parquet writer.
+    - `tools/run_sec_13f_manager_reselection.py` (314 LoC) — semiannual manager re-ranking.
+    - `tools/run_sec_institutional_signals.py` (369 LoC) — 13F ticker-level signal builder (sec_13f_smart_money_score etc).
+    - `tools/run_sec_ownership_signals.py` (244 LoC) — Form 4 ticker-level signal builder (sec_form4_*).
+    - `tools/run_sec_form4_parser.py` (393 LoC) — Form 4 doc XML parser, shard writer.
+    - `tools/run_sec_form4_merge_shards.py` (206 LoC) — Form 4 daily shard consolidator.
+    - `tools/run_sec_enriched_candidate_replay.py` (478 LoC) — candidate replay enrichment.
+    - `tools/run_sec_evidence_learning_pipeline.py` (641 LoC) — repo-learned manager_alpha pipeline.
+    - `tools/run_sec_evidence_signal_audit.py` (602 LoC) — signal audit reporter.
+    - `tools/run_alpha_selector_broker_grid.py` + `tools/run_selection_quality_report.py` — transitive deps of evidence pipeline.
+    - `.github/workflows/sec_13f_quarterly_refresh.yml` — Q+45-day cron + manual_dispatch.
+    - `.github/workflows/sec_13f_manager_reselection.yml` — semiannual cron.
+    - `.github/workflows/sec_form4_daily_refresh.yml` — daily cron.
+    - `.github/workflows/sec_evidence_learning_manual.yml` — manual learning trigger.
+    - `tests/sec_13f_*_smoke.py` * 3 + `tests/sec_form4_*_smoke.py` * 2 — codex smoke tests (5/5 pass on cherry-pick).
+    - `research/sec_13f_manager_universe_20260519/managers.csv` — curated 22 ->35 managers.
+    - `research/sec_13f_form4_evidence_score_20260518/report.md` + `research/sec_evidence_support_overlay_20260519/report.md` — codex design docs.
+  - **Local wire (this commit)**:
+    - `r1000_features.py` -> add `load_sec_evidence_overlay(base_dir)` loader (reads `outputs/sec_institutional_signals/signals_latest.{parquet,csv}` + `outputs/sec_ownership_signals/signals_latest.{parquet,csv}`; merges on `ticker`; returns empty frame when artifacts absent so the overlay is dormant until first cron run).
+    - `r1000_config.py` -> add `SEC_EVIDENCE_COLUMNS` constant (26 columns: 14 from 13F + 12 from Form 4). Add 2 EngineConfig fields: `w_sec_institutional_evidence = 0.30`, `w_sec_insider_evidence = 0.20`. Bump `ENGINE_REUSE_VERSION` to '2026-05-20-sec-evidence-overlay-merge' to force FS rebuild on next FULL run.
+    - `r1000_pipeline.py` -> import `SEC_EVIDENCE_COLUMNS` + `load_sec_evidence_overlay`. Splice `SEC_EVIDENCE_COLUMNS` into build_feature_store keep_cols (1 site, NOT into hard_sanitize because the LATEST-only sparse columns shouldn't be cross-sectionally normalized). Call `load_sec_evidence_overlay` before `add_total_score_columns` in the Phase 5b latest scoring block; merge by `ticker`. Add `score_sec_institutional_overlay = w_inst * institutional_evidence_score * confidence` + `score_sec_insider_overlay = w_insider * early_evidence_score * confidence` in `add_total_score_columns`; both added to final `score`.
+    - `research/sec_13f_manager_universe_20260519/managers.csv` -> append 13 hedgefollow funds: WHALEROCK, RATAN, ATREIDES, HORIZONKINETICS, HIMALAYA, D1CAPITAL, FISHER, ELLIOTT, ALTIMETER, BAKERBROS, GOTHAM, FAIRFAX, DALAL. Unverified CIK rows flagged `active=false` for refresh-tool re-verification.
+    - `tests/smoke_test.py` -> 4 new regression tests (97/97 total pass): `sec_evidence_columns_wired`, `sec_evidence_score_overlay_wired`, `sec_evidence_weight_cfg_fields`, `sec_13f_manager_universe_csv_present`.
+- symbols_added:
+  - `r1000_features.load_sec_evidence_overlay(base_dir=None) -> pd.DataFrame` -> reads two latest SEC signal files + merges on ticker; returns empty frame when artifacts absent.
+  - `r1000_config.SEC_EVIDENCE_COLUMNS: list[str]` -> 26 SEC overlay column names.
+  - 12 cherry-picked SEC tools, 5 smoke tests, 4 workflows (already documented in `files` above).
+- symbols_changed:
+  - `r1000_pipeline.add_total_score_columns(d, cfg, ...)` -> after multiplicative short_extension penalty, additively applies `score_sec_institutional_overlay + score_sec_insider_overlay` to `score`. New columns: `score_sec_institutional_overlay`, `score_sec_insider_overlay`.
+  - `r1000_pipeline.build_feature_store(cfg)` -> adds `SEC_EVIDENCE_COLUMNS` (26 cols) to keep_cols whitelist.
+  - `r1000_pipeline` Phase 5b latest scoring path -> merges `load_sec_evidence_overlay(...)` output into `latest_df` before calling `add_total_score_columns`, guarded by try/except so absent SEC artifacts don't break the run.
+  - `r1000_config.ENGINE_REUSE_VERSION` -> "2026-05-13-short-rs-trap-intc-bypass" became "2026-05-20-sec-evidence-overlay-merge". Triggers FS rebuild on next FULL run.
+- config_fields_added:
+  - `w_sec_institutional_evidence: float = 0.30` -> weight multiplier on `institutional_evidence_score * institutional_evidence_confidence_score`. Default 0.30 is conservative; first cron run should validate scale before raising.
+  - `w_sec_insider_evidence: float = 0.20` -> weight multiplier on `early_evidence_score * evidence_confidence_score` (Form 4 insider buy signal). Default 0.20 < institutional weight because Form 4 has higher noise (single-insider buys can be small or non-meaningful).
+- breaking_changes:
+  - none runtime. Both new score overlays are zero-filled when SEC artifacts don't exist (first commit; no cron has produced outputs yet). ENGINE_REUSE_VERSION bump triggers a one-time FS rebuild on next FULL run.
+- outputs:
+  - `outputs/sec_institutional_signals/signals_latest.{parquet,csv}` -> 13F ticker-level signals (after first quarterly cron run). 14 columns including `sec_13f_smart_money_score`, `institutional_evidence_score`, `institutional_evidence_confidence_score`.
+  - `outputs/sec_ownership_signals/signals_latest.{parquet,csv}` -> Form 4 ticker-level signals (after first daily cron run). 12 columns including `sec_form4_cluster_buy_score`, `sec_form4_net_buy_score`, `early_evidence_score`, `evidence_confidence_score`.
+  - `scored_latest.csv` gains 28 new columns: 26 SEC overlay columns + `score_sec_institutional_overlay` + `score_sec_insider_overlay`.
+- validation:
+  - `py -3 tests/smoke_test.py` -> 97/97 passed in 1.8s (93 prior + 4 new: SEC_EVIDENCE_COLUMNS wiring, score overlay wiring, weight cfg field presence, managers.csv >=30 entries with WHALEROCK/ATREIDES).
+  - All 5 codex SEC smoke tests pass standalone: sec_13f_manager_universe_smoke, sec_13f_manager_reselection_smoke, sec_13f_parser_smoke, sec_form4_parser_smoke, sec_form4_merge_shards_smoke.
+- risks_or_notes:
+  - **Unverified CIKs**: 4 entries in managers.csv (RATAN, HORIZONKINETICS, HIMALAYA, ALTIMETER, DALAL) are flagged `active=false` + `verified_cik=false`. ALTIMETER + HIMALAYA share CIK 0001709323 placeholder (suspicious); DALAL shares CIK with DUQUESNE (0001536411 — definitely wrong). `run_sec_submissions_collector.py` will fail SEC fetch for these and log the bad CIK; manual review needed before activation. Activation path: confirm CIK via SEC EDGAR full-text search ->update managers.csv ->flip `active=true,verified_cik=true`.
+  - **LATEST-only overlay risk**: Backtest historical months see zero-filled SEC columns. If we later move this to historical training (via 8-year 13F backfill that codex's data lake bootstrap supports), the ML model could learn a strong forward-looking pattern that's not realistic for production. Mitigation: keep `LATEST_ONLY` discipline; explicit comment in `add_total_score_columns` documents the design.
+  - **First cron run latency**: 13F Q1 2026 filings due May 15, so the first `sec_13f_quarterly_refresh.yml` cron should fire May 16-20 with partial coverage, May-Aug for full coverage. Until then, `score_sec_institutional_overlay` will be zero everywhere. Use manual_dispatch to trigger immediately.
+  - **Form 4 daily volume**: ~500-2000 Form 4 filings/day across the manager universe. The codex `run_sec_form4_parser.py` shards by date; `run_sec_form4_merge_shards.py` consolidates. Cron must rotate daily to avoid >100MB single file growth.
+  - **Crowding signal**: If 15+ managers all hold the same stock (e.g. NVDA across all growth hedges), `sec_13f_crowding_score` should mitigate — this column already exists in the pipeline. Verify after first cron run that crowding penalty offsets consensus buy score appropriately.
+  - **Repo-self-learned manager_alpha is not yet active**: The `run_sec_evidence_learning_pipeline.py` (641 LoC) implements the learning step but isn't wired into a cron. It needs the FULL_REBUILD-style cron after Q1 cron lands data. Defer until validated FS schema is stable.
+  - **No cloud rebuild yet**: this commit code-level only. A FULL_REBUILD via `.github/workflows/full_rebuild_manual.yml` is required to materialize FS schema change + verify scored_latest.csv contains the 28 new columns. Verdict gate unchanged: dCAGR >= +0.5pp AND dSharpe >= -0.05 AND dMaxDD >= -3pp AND early_scout >= 4. Bootstrap CI bounds must include the no-SEC baseline within 95% to confirm new signal is additive not destructive.
+  - **etf-overlay path still pending**: thematic_etf_universe.yaml + tools/refresh_etf_top_holdings.py + monthly cron from prior plan still not implemented — defer to followup. SEC-13F gives partial overlap for thematic exposure (Atreides covers AI hardware, ARK covers innovation themes) but doesn't substitute for quantum/eVTOL small-cap universe expansion.
+
 ## 2026-05-14
 
 ### 08:30 KST - short-rs-trap-plus-strategic-turnaround-bypass

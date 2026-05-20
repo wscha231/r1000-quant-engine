@@ -215,6 +215,45 @@ SHORT_RS_TRAP_COLUMNS = [
     "short_extension_risk_penalty",
 ]
 
+# SEC evidence overlay (2026-05-20) — surface 13F manager-tracked institutional
+# evidence + Form 4 insider buying as a LATEST-ONLY overlay. Backfill via
+# .github/workflows/sec_13f_quarterly_refresh.yml (Feb/May/Aug/Nov 1-20) +
+# sec_form4_daily_refresh.yml (daily). Outputs land in
+# outputs/sec_institutional_signals/ + outputs/sec_ownership_signals/.
+# Engine reads them via compute_sec_evidence_overlay (r1000_features.py) and
+# adds bonus score in r1000_pipeline.add_total_score_columns gated by
+# w_sec_institutional_evidence + w_sec_insider_evidence.
+SEC_EVIDENCE_COLUMNS = [
+    # 13F institutional signal (sec_13f_quarterly_refresh.yml output)
+    "sec_13f_manager_count",
+    "sec_13f_buying_manager_count",
+    "sec_13f_selling_manager_count",
+    "sec_13f_new_position_manager_count",
+    "sec_13f_consensus_buy_score",
+    "sec_13f_conviction_score",
+    "sec_13f_accumulation_score",
+    "sec_13f_new_position_score",
+    "sec_13f_breadth_score",
+    "sec_13f_crowding_score",
+    "sec_13f_stale_penalty",
+    "sec_13f_smart_money_score",
+    "institutional_evidence_score",
+    "institutional_evidence_confidence_score",
+    # Form 4 insider signal (sec_form4_daily_refresh.yml output)
+    "insider_buy_count",
+    "ten_percent_owner_buy_count",
+    "ceo_cfo_buy_count",
+    "sec_form4_open_market_buy_score",
+    "sec_form4_cluster_buy_score",
+    "sec_form4_ceo_cfo_buy_score",
+    "sec_form4_ten_percent_owner_buy_score",
+    "sec_form4_net_buy_score",
+    "sec_form4_sale_pressure_score",
+    "sec_form4_sale_risk_score",
+    "early_evidence_score",
+    "evidence_confidence_score",
+]
+
 # Phase 15-A (2026-04-28) cycle-leader rescue + earnings-revision catalyst.
 # Two new ML features that target the gap exposed by the SHIPPED Phase 14
 # scored_latest.csv: SNDK rank 37/595 score 3.69 was completely unassigned
@@ -1559,7 +1598,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-13-short-rs-trap-intc-bypass"
+ENGINE_REUSE_VERSION = "2026-05-20-sec-evidence-overlay-merge"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -2052,6 +2091,17 @@ class EngineConfig:
     # Structural growth (theme_horizon=structural_growth + multi-year mom)
     # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
     w_short_extension_penalty: float = 0.20
+
+    # SEC evidence overlay weights (2026-05-20). LATEST-ONLY bonus, never
+    # added to walk-forward training (target leakage). w_sec_institutional
+    # multiplies the consolidated 13F institutional_evidence_score (range
+    # roughly [-1, +1] via codex/sec-evidence-support-audit). w_sec_insider
+    # multiplies the Form 4 early_evidence_score similarly. Both default to
+    # 0.0 so the overlay is dormant until the first sec_13f_quarterly_refresh
+    # + sec_form4_daily_refresh runs land artifacts under outputs/sec_*. Bump
+    # weights to 0.30/0.20 after first cron produces validated outputs.
+    w_sec_institutional_evidence: float = 0.30
+    w_sec_insider_evidence: float = 0.20
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08

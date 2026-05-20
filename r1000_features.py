@@ -2073,6 +2073,8 @@ __all__ = [
     "compute_rs_short_long_scores",
     "compute_short_extension_risk_penalty",
     "SHORT_RS_TRAP_COLUMNS",
+    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    "load_sec_evidence_overlay",
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
     "compute_cycle_recovery_score",
     "compute_eps_revision_score",
@@ -4944,6 +4946,59 @@ SHORT_RS_TRAP_COLUMNS = [
     "rs_short_breakdown_penalty",
     "short_extension_risk_penalty",
 ]
+
+
+def load_sec_evidence_overlay(
+    base_dir: "Path | None" = None,
+) -> pd.DataFrame:
+    """Load the latest SEC 13F + Form 4 evidence signals for the latest scoring.
+
+    Reads two CSV/parquet files produced by the SEC pipelines:
+      outputs/sec_institutional_signals/signals_latest.{parquet,csv}
+        — 13F manager tracking (sec_13f_quarterly_refresh.yml cron)
+      outputs/sec_ownership_signals/signals_latest.{parquet,csv}
+        — Form 4 insider trading (sec_form4_daily_refresh.yml cron)
+
+    Returns a DataFrame keyed by `ticker` with the 26 SEC_EVIDENCE_COLUMNS.
+    Missing files → empty frame (engine zero-fills downstream). This makes
+    the overlay strictly LATEST-ONLY: backtest months have no evidence;
+    walk-forward training never sees these columns (avoids target leakage).
+    """
+    base = Path(base_dir) if base_dir is not None else Path("outputs")
+    candidates = {
+        "institutional": [
+            base / "sec_institutional_signals" / "signals_latest.parquet",
+            base / "sec_institutional_signals" / "signals_latest.csv",
+        ],
+        "ownership": [
+            base / "sec_ownership_signals" / "signals_latest.parquet",
+            base / "sec_ownership_signals" / "signals_latest.csv",
+        ],
+    }
+    frames: list[pd.DataFrame] = []
+    for category, paths in candidates.items():
+        for p in paths:
+            if p.exists():
+                try:
+                    df = (
+                        pd.read_parquet(p)
+                        if p.suffix == ".parquet"
+                        else pd.read_csv(p, low_memory=False)
+                    )
+                    if "ticker" in df.columns and not df.empty:
+                        frames.append(df)
+                except Exception:
+                    pass
+                break
+    if not frames:
+        return pd.DataFrame(columns=["ticker"])
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="ticker", how="outer", suffixes=("", "_dup"))
+        dup_cols = [c for c in merged.columns if c.endswith("_dup")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+    return merged
 
 
 def compute_rs_short_long_scores(df: pd.DataFrame) -> pd.DataFrame:
