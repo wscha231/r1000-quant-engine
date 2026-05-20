@@ -277,6 +277,10 @@ EVIDENCE_FUSION_COLUMNS = [
     "market_confirmation_score",
     "sector_theme_leadership_score",
     "macro_regime_fit_score",
+    "smart_money_shadow_score",
+    "smart_money_evidence_source_count",
+    "smart_money_convergence_bonus",
+    "smart_money_risk_penalty",
     "evidence_fusion_score",
 ]
 

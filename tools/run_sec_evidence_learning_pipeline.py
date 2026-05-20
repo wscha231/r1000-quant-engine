@@ -38,6 +38,7 @@ from tools.run_selection_quality_report import run as run_selection_quality  # n
 DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
 DEFAULT_FORM4 = "data_pit/sec/form4_transactions.parquet"
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
+DEFAULT_ETF_HOLDINGS = "data_pit/etf_holdings/etf_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/sec_evidence_learning"
 
 BASELINES = {
@@ -51,6 +52,9 @@ COMPONENT_COLUMNS = {
     "form4": "early_evidence_score",
     "institutional": "institutional_evidence_score",
     "combined_sec": "sec_combined_evidence_score",
+    "etf": "etf_holdings_score",
+    "smart_money": "smart_money_shadow_score",
+    "fusion": "evidence_fusion_score",
     "rs": "rs_acceleration_score",
     "industry": "industry_group_strength_score",
     "entry": "entry_quality_score",
@@ -112,6 +116,19 @@ WEIGHT_PRESETS: dict[str, dict[str, float]] = {
         "entry": 0.04,
         "crowding_penalty": 0.10,
         "stale_penalty": 0.06,
+    },
+    "smart_money_fusion": {
+        "future": 0.24,
+        "market": 0.18,
+        "smart_money": 0.18,
+        "fusion": 0.14,
+        "institutional": 0.08,
+        "form4": 0.05,
+        "etf": 0.05,
+        "rs": 0.05,
+        "industry": 0.03,
+        "crowding_penalty": 0.10,
+        "stale_penalty": 0.05,
     },
 }
 
@@ -333,6 +350,8 @@ def render_report(summary: dict[str, Any]) -> str:
         f"- enriched rows: {summary.get('enriched_rows', 0)}",
         f"- rows with Form 4 evidence: {summary.get('rows_with_form4_evidence', 0)}",
         f"- rows with 13F evidence: {summary.get('rows_with_13f_evidence', 0)}",
+        f"- rows with ETF evidence: {summary.get('rows_with_etf_evidence', 0)}",
+        f"- rows with smart-money evidence: {summary.get('rows_with_smart_money_evidence', 0)}",
         f"- best learned preset: `{learning.get('best_preset', '')}`",
         "",
         "## Promotion",
@@ -365,14 +384,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     candidate_path = repo_path(args.candidate_book)
     form4_path = repo_path(args.form4)
     holdings_13f_path = repo_path(args.institutional_13f)
+    etf_holdings_path = repo_path(args.etf_holdings)
     candidates = read_table(candidate_path)
     form4 = read_table(form4_path)
     holdings_13f = read_table(holdings_13f_path)
+    etf_holdings = read_table(etf_holdings_path)
 
     enriched = enrich_candidate_book(
         candidates,
         form4,
         holdings_13f,
+        etf_holdings,
         lookback_days=int(args.form4_lookback_days),
         institutional_lookback_days=int(args.institutional_lookback_days),
     )
@@ -397,16 +419,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_book": str(candidate_path),
         "form4_transactions": str(form4_path),
         "institutional_13f_holdings": str(holdings_13f_path),
+        "etf_holdings": str(etf_holdings_path),
         "enriched_candidate_book": str(enriched_csv),
         "candidate_rows": int(len(candidates)),
         "form4_rows": int(len(form4)),
         "institutional_13f_rows": int(len(holdings_13f)),
+        "etf_holding_rows": int(len(etf_holdings)),
         "enriched_rows": int(len(enriched)),
         "rows_with_form4_evidence": int((pd.to_numeric(enriched.get("evidence_confidence_score", 0.0), errors="coerce").fillna(0.0) > 0).sum())
         if not enriched.empty
         else 0,
         "rows_with_13f_evidence": int(
             (pd.to_numeric(enriched.get("institutional_evidence_confidence_score", 0.0), errors="coerce").fillna(0.0) > 0).sum()
+        )
+        if not enriched.empty
+        else 0,
+        "rows_with_etf_evidence": int((pd.to_numeric(enriched.get("etf_evidence_confidence", 0.0), errors="coerce").fillna(0.0) > 0).sum())
+        if not enriched.empty
+        else 0,
+        "rows_with_smart_money_evidence": int(
+            (pd.to_numeric(enriched.get("smart_money_shadow_score", 0.0), errors="coerce").fillna(0.0) > 0).sum()
         )
         if not enriched.empty
         else 0,
@@ -425,6 +457,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-book", default=DEFAULT_CANDIDATE_BOOK)
     parser.add_argument("--form4", default=DEFAULT_FORM4)
     parser.add_argument("--institutional-13f", default=DEFAULT_13F)
+    parser.add_argument("--etf-holdings", default=DEFAULT_ETF_HOLDINGS)
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--form4-lookback-days", type=int, default=90)
@@ -436,7 +469,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="sec_evidence_shadow,leader_onset_shadow")
+    parser.add_argument("--styles", default="sec_evidence_shadow,leader_onset_shadow,smart_money_shadow")
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.25,0.33,0.50")
     parser.add_argument("--max-variants", type=int, default=18)

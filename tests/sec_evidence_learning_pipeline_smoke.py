@@ -122,22 +122,41 @@ def thirteen_f_rows() -> list[dict[str, object]]:
     ]
 
 
+def etf_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "etf_ticker": "AIQ",
+            "etf_label": "AI ETF",
+            "theme": "ai_infra",
+            "holding_ticker": "AAPL",
+            "holding_name": "Apple Inc.",
+            "holding_weight": 0.08,
+            "source": "fixture",
+            "as_of_date": "2026-05-13T00:00:00+00:00",
+            "available_from": "2026-05-13T00:00:00+00:00",
+        }
+    ]
+
+
 def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         candidate = root / "candidate.csv"
         form4 = root / "form4.parquet"
         holdings_13f = root / "13f.parquet"
+        etf_holdings = root / "etf.parquet"
         out = root / "learning"
         pd.DataFrame(candidate_rows()).to_csv(candidate, index=False)
         pd.DataFrame(form4_rows()).to_parquet(form4, index=False)
         pd.DataFrame(thirteen_f_rows()).to_parquet(holdings_13f, index=False)
+        pd.DataFrame(etf_rows()).to_parquet(etf_holdings, index=False)
 
         payload = run(
             argparse.Namespace(
                 candidate_book=str(candidate),
                 form4=str(form4),
                 institutional_13f=str(holdings_13f),
+                etf_holdings=str(etf_holdings),
                 price_cache=str(root / "cache_prices"),
                 output_dir=str(out),
                 form4_lookback_days=90,
@@ -165,9 +184,12 @@ def test_sec_evidence_learning_pipeline_outputs_research_artifacts() -> None:
         assert payload["enriched_rows"] == 90
         assert payload["rows_with_form4_evidence"] > 0
         assert payload["rows_with_13f_evidence"] > 0
+        assert payload["rows_with_etf_evidence"] > 0
+        assert payload["rows_with_smart_money_evidence"] > 0
         assert payload["score_learning"]["status"] == "completed"
         enriched = pd.read_csv(out / "candidate_replay_book_sec_enriched.csv")
         assert "leader_onset_sec_v3_score" in enriched.columns
+        assert "smart_money_shadow_score" in enriched.columns
         assert "score_total" in enriched.columns
         assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["promotion_allowed"] is False
         assert (out / "score_weight_grid.csv").exists()
