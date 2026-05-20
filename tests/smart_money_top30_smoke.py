@@ -175,9 +175,16 @@ def test_smart_money_cli_writes_research_only_outputs() -> None:
         assert (out / "report.md").exists()
 
 
+def test_smart_money_workflow_braces_gdrive_base() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
+    assert "$BASEoutputs" not in workflow
+    assert "${BASE}outputs/smart_money/" in workflow
+
+
 def main() -> int:
     test_smart_money_convergence_ranks_first()
     test_smart_money_cli_writes_research_only_outputs()
+    test_smart_money_workflow_braces_gdrive_base()
     print("smart_money_top30_smoke: PASS")
     return 0
 

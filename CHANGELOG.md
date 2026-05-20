@@ -248,6 +248,29 @@ All entries must be written in English. Entries must be predictable and machine-
   - ETF weights are currently weak when the upstream provider returns zero holding weights; consensus-count and theme evidence still work, but issuer CSV fallbacks should be improved before relying on ETF weight sums.
   - Full CAGR/MDD impact remains unproven until Tier 2 broker-ledger ablations run.
 
+### 13:30 KST - smart-money-gdrive-sync-fix
+
+- scope:
+  - Fix the Smart Money Top 30 workflow Google Drive sync path after the first master run generated and uploaded artifacts but failed during Drive sync due to an unbraced shell variable.
+- files:
+  - `.github/workflows/smart_money_top30_refresh.yml` ->uses `${BASE}outputs/smart_money/` so bash does not interpret `$BASEoutputs` as a separate unset variable.
+  - `tests/smart_money_top30_smoke.py` ->adds a static regression guard for the braced Drive destination.
+- symbols_added:
+  - `test_smart_money_workflow_braces_gdrive_base()` ->checks the workflow uses a braced Google Drive base path.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smart_money_top30_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+- risks_or_notes:
+  - First master run `26141259865` produced valid artifacts but did not sync to Google Drive because of the workflow path bug.
+
 ## 2026-05-14
 
 ## 2026-05-19
