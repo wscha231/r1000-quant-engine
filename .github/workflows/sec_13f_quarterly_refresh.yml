@@ -163,6 +163,26 @@ jobs:
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser.log
+          python tools/build_sec_13f_cusip_ticker_map.py \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --raw-dir data_raw/sec \
+            --manual-overrides research/sec_13f_cusip_map_overrides.csv \
+            --output data_pit/sec/cusip_ticker_map.parquet \
+            --csv-output data_pit/sec/cusip_ticker_map.csv \
+            --audit outputs/sec_institutional_signals/mapping_audit.json \
+            --unmapped outputs/sec_institutional_signals/unmapped_13f_holdings.csv \
+            --user-agent "$SEC_USER_AGENT" \
+            --refresh-company-tickers \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_cusip_map.log
+          python tools/run_sec_13f_parser.py \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --output-dir data_pit/sec \
+            --raw-dir data_raw/sec \
+            --cusip-map data_pit/sec/cusip_ticker_map.parquet \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --max-filings "$MAX_FILINGS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser_mapped.log
           python tools/run_sec_institutional_signals.py \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --output-dir outputs/sec_institutional_signals \
@@ -177,6 +197,7 @@ jobs:
           path: |
             data_pit/sec/sec_filings_index.*
             data_pit/sec/13f_latest/sec_filings_index.*
+            data_pit/sec/cusip_ticker_map.*
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json
             outputs/sec_institutional_signals/

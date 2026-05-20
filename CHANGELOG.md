@@ -168,6 +168,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - ETF holdings source quality depends on yfinance/issuer availability; missing ETF data remains neutral with lower confidence.
   - Full CAGR/MDD impact is still unproven until Tier 2 broker-ledger ablations run.
 
+### 11:57 KST - sec-13f-cusip-ticker-map
+
+- scope:
+  - Fix the 13F zero-signal blocker by adding a canonical CUSIP-to-ticker map builder and changing the quarterly 13F workflow to parse once, build a mapping audit, reparse with `--cusip-map`, and then score institutional evidence. This keeps 13F research-only while preventing healthy 13F holdings from collapsing to `signal_tickers=0`.
+- files:
+  - `tools/build_sec_13f_cusip_ticker_map.py` ->new mapping builder using manual overrides, SEC company tickers, and repo seed tables.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->runs 13F parser twice with a mapping build between passes and uploads `cusip_ticker_map` artifacts.
+  - `research/sec_13f_cusip_map_overrides.csv` ->manual seed map for common large-cap 13F CUSIPs.
+  - `tests/sec_13f_cusip_mapping_smoke.py` ->checks mapping output, unmapped audit, parser map loading, and downstream 13F signal creation.
+  - `tests/smoke_test.py` ->guards workflow CUSIP mapping wiring.
+  - `tools/run_pr_validation.py` ->adds the CUSIP mapping smoke to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `build_cusip_map(holdings, *, raw_dir, manual_overrides, seed_files, user_agent, refresh_company_tickers)` ->creates mapped CUSIP rows plus an unmapped audit table.
+  - `issuer_name_key(value)` ->normalizes 13F issuer names for conservative exact issuer-name matching.
+  - `load_manual_overrides(path)` ->loads reviewed CUSIP/ticker overrides.
+- symbols_changed:
+  - `sec_13f_quarterly_refresh.yml` ->adds mapping audit and mapped reparse before institutional signal scoring.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_cusip_mapping_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/cusip_ticker_map.parquet` ->canonical CUSIP-to-ticker map.
+  - `data_pit/sec/cusip_ticker_map.csv` ->CSV copy of the canonical map.
+  - `outputs/sec_institutional_signals/mapping_audit.json` ->mapping coverage and research-only guard metadata.
+  - `outputs/sec_institutional_signals/unmapped_13f_holdings.csv` ->CUSIPs that remain unmapped after all conservative sources.
+- validation:
+  - `py -3 tests\sec_13f_cusip_mapping_smoke.py` ->PASS.
+  - `py -3 tests\sec_candidate_enrichment_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 100/100.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 34/34.
+  - Local dry-run on SEC 13F run `26137019770` artifact ->mapped ticker count improved from 0 to 101 signals on 5,954 holdings.
+- risks_or_notes:
+  - Mapping is intentionally conservative: ambiguous issuer names stay unmapped rather than risking a wrong ticker.
+  - Full rebuild remains blocked until a fresh 13F refresh shows nonzero mapped tickers and healthy institutional signals.
+
 ## 2026-05-14
 
 ## 2026-05-19

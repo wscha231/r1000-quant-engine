@@ -2958,6 +2958,9 @@ def test_sec_13f_workflow_uses_manager_universe() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     wf = (repo_root / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
     assert "tools/build_sec_13f_manager_universe.py" in wf
+    assert "tools/build_sec_13f_cusip_ticker_map.py" in wf
+    assert "--cusip-map data_pit/sec/cusip_ticker_map.parquet" in wf
+    assert "outputs/sec_institutional_signals/mapping_audit.json" in wf
     assert "refusing to run BRK-only fallback" in wf
     assert "BRK:0001067983' }}" not in wf
 
