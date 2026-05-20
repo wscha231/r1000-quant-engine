@@ -11,7 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml, write_outputs  # noqa: E402
+from tools.run_sec_13f_parser import market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
 
@@ -133,6 +133,39 @@ def test_13f_write_outputs_normalizes_parse_error_dtypes() -> None:
         assert str(out["shares"].dtype).startswith("float")
         assert str(out["market_value_usd"].dtype).startswith("float")
         assert out["issuer_name"].astype(str).str.contains("PARSE_ERROR").any()
+
+
+def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
+    older = {
+        "ticker": "OLD",
+        "cik10": "0000000001",
+        "accession_number": "0000000001-20-000001",
+        "form_type": "13F-HR",
+        "filing_date": "2020-02-15",
+        "accepted_at": "2020-02-15T18:00:00+00:00",
+        "available_from": "2020-02-15T18:00:00+00:00",
+        "period_of_report": "2019-12-31",
+        "primary_document": "bad.xml",
+        "filing_url": "",
+    }
+    newer = {
+        **older,
+        "ticker": "NEW",
+        "cik10": "0000000002",
+        "accession_number": "0000000002-26-000001",
+        "filing_date": "2026-05-15",
+        "accepted_at": "2026-05-15T18:00:00+00:00",
+        "available_from": "2026-05-15T18:00:00+00:00",
+        "period_of_report": "2026-03-31",
+    }
+    frame = parse_13f_index(
+        pd.DataFrame([older, newer]),
+        raw_dir=Path("."),
+        max_filings=1,
+        sleep_s=0.0,
+    )
+    assert len(frame) == 1
+    assert frame.iloc[0]["manager_cik"] == "0000000002"
 
 
 if __name__ == "__main__":

@@ -175,6 +175,7 @@ All entries must be written in English. Entries must be predictable and machine-
 - files:
   - `tools/build_sec_13f_cusip_ticker_map.py` ->new mapping builder using manual overrides, SEC company tickers, and repo seed tables.
   - `tools/run_sec_13f_parser.py` ->normalizes numeric/string output dtypes before parquet export so parse-error rows cannot break 13F refreshes.
+  - `tools/run_sec_13f_parser.py` ->chooses newest accepted 13F filings before applying `--max-filings` so quarterly refreshes do not over-sample old filings from only a few managers.
   - `tools/run_sec_submissions_collector.py` ->continues collecting remaining managers when one reviewed manager CIK returns a SEC fetch error.
   - `.github/workflows/sec_13f_quarterly_refresh.yml` ->runs 13F parser twice with a mapping build between passes and uploads `cusip_ticker_map` artifacts.
   - `research/sec_13f_cusip_map_overrides.csv` ->manual seed map for common large-cap 13F CUSIPs.
@@ -189,6 +190,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - `load_manual_overrides(path)` ->loads reviewed CUSIP/ticker overrides.
 - symbols_changed:
   - `write_outputs()` in `tools/run_sec_13f_parser.py` ->coerces `shares`, `market_value_usd`, and voting authority columns to numeric before writing parquet.
+  - `parse_13f_index()` ->sorts eligible 13F filings by `accepted_at`/`filing_date` descending before max-file truncation.
   - `collect_filings_index()` ->records per-CIK `fetch_error` rows instead of failing the entire SEC refresh on one invalid manager.
   - `sec_13f_quarterly_refresh.yml` ->adds mapping audit and mapped reparse before institutional signal scoring.
   - `DEFAULT_TESTS` ->adds `tests/sec_13f_cusip_mapping_smoke.py`.
@@ -211,6 +213,7 @@ All entries must be written in English. Entries must be predictable and machine-
   - Mapping is intentionally conservative: ambiguous issuer names stay unmapped rather than risking a wrong ticker.
   - Invalid manager CIKs are no longer fatal, but they still appear as `fetch_error` rows and should be corrected in `managers.csv`.
   - Parse-error rows are retained for audit but now use stable parquet dtypes.
+  - Fresh run `26139649983` proved 13F signals are nonzero (`signal_tickers=2297`) but exposed low manager coverage under the old `max_filings` ordering.
   - Full rebuild remains blocked until a fresh 13F refresh shows nonzero mapped tickers and healthy institutional signals.
 
 ## 2026-05-14

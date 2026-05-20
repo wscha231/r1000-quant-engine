@@ -340,7 +340,14 @@ def parse_13f_index(
     d["form_type"] = d.get("form_type", "").astype(str).str.upper().str.strip()
     d = d[d["form_type"].isin(FORM_13F_TYPES)].copy()
     if max_filings and max_filings > 0:
+        d["_accepted_sort"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
+        d["_filing_sort"] = pd.to_datetime(d.get("filing_date"), errors="coerce", utc=True)
+        d = d.sort_values(
+            ["_accepted_sort", "_filing_sort", "cik10", "accession_number"],
+            ascending=[False, False, True, False],
+        )
         d = d.head(int(max_filings)).copy()
+        d = d.drop(columns=[c for c in ["_accepted_sort", "_filing_sort"] if c in d.columns])
 
     rows: list[dict[str, Any]] = []
     for _, item in d.iterrows():
