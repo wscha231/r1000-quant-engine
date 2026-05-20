@@ -76,6 +76,18 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "h6_dynamic_leader_score": 0.06,
         "industry_group_strength_score": 0.03,
     },
+    "future_winner_smart_money": {
+        "portfolio_future_winner_engine_score": 0.34,
+        "selection_market_confirmation_score": 0.16,
+        "rs_acceleration_score": 0.12,
+        "industry_group_strength_score": 0.10,
+        "portfolio_early_scout_engine_score": 0.08,
+        "smart_money_shadow_score": 0.07,
+        "sec_13f_score": 0.05,
+        "evidence_fusion_score": 0.04,
+        "sec_form4_score": 0.02,
+        "entry_quality_score": 0.02,
+    },
     "sec_evidence_shadow": {
         "evidence_fusion_score": 0.22,
         "leader_onset_sec_v3_score": 0.20,

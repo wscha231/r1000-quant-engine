@@ -357,6 +357,34 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This restores only price files for tickers present in the selected candidate replay book. If the source full-run artifact omits a ticker that a later selector would need, the selector will still correctly mark that ticker untradeable rather than fabricating prices.
 
+### 16:25 KST - future-winner-smart-money-confirmation
+
+- scope:
+  - Add a broker-grid selector style that keeps `portfolio_future_winner_engine_score` as the primary signal and uses Smart Money / 13F / Form 4 / ETF fusion as a confirmation layer rather than a primary selector. This responds to Tier 2 evidence learning where SEC-only and SmartMoney-heavy styles showed useful selection signal but poor broker-ledger drawdown.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `future_winner_smart_money` style with future-winner, market confirmation, RS, industry leadership, and small evidence weights.
+  - `tools/run_sec_evidence_learning_pipeline.py` ->includes the new style in default broker-grid ablations and raises default max variants to cover all four style families.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->runs `future_winner_smart_money` first in manual SEC evidence learning and raises default max variants from 27 to 36.
+  - `tools/run_agent_board.py` ->lists the new style in the main evidence-fusion workstream command.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the new style without allowing untradeable targets.
+  - `CHANGELOG.md` ->documents the selector change.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_winner_smart_money"]` ->confirmation-weighted selector style for Smart Money evidence fusion.
+- symbols_changed:
+  - `run_sec_evidence_learning_pipeline.parse_args()` ->default styles now include `future_winner_smart_money`; default max variants is 36.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/alpha_selector_broker_grid/*/future_winner_smart_money_*` ->research-only broker-ledger challenger outputs when SEC evidence learning is run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\sec_evidence_learning_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+- risks_or_notes:
+  - This does not promote SEC/SmartMoney evidence to production. It only adds a more conservative ablation path for broker-ledger validation.
+
 ## 2026-05-14
 
 ## 2026-05-19

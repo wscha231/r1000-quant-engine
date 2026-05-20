@@ -197,10 +197,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow",
+                styles="future_heavy,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=4,
+                max_variants=5,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -209,13 +209,17 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 4
+        assert len(summary) == 5
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
         assert "BBB" not in set(targets["ticker"])
         assert "LEAK" not in set(targets["ticker"])
         assert "MISS" not in set(targets["ticker"])
+        confirm_targets = pd.read_csv(next(out.glob("future_winner_smart_money_N1_cap*/target_book.csv")))
+        assert set(confirm_targets["ticker"]) == {"AAA"}
+        assert "smart_money_shadow_score" in confirm_targets.columns
+        assert "evidence_fusion_score" in confirm_targets.columns
         onset_targets = pd.read_csv(next(out.glob("leader_onset_shadow_N1_cap*/target_book.csv")))
         assert set(onset_targets["ticker"]) == {"AAA"}
         assert "leader_onset_score" in onset_targets.columns
