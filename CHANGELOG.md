@@ -120,6 +120,91 @@ All entries must be written in English. Entries must be predictable and machine-
   - **No cloud rebuild yet**: this commit code-level only. A FULL_REBUILD via `.github/workflows/full_rebuild_manual.yml` is required to materialize FS schema change + verify scored_latest.csv contains the 28 new columns. Verdict gate unchanged: dCAGR >= +0.5pp AND dSharpe >= -0.05 AND dMaxDD >= -3pp AND early_scout >= 4. Bootstrap CI bounds must include the no-SEC baseline within 95% to confirm new signal is additive not destructive.
   - **etf-overlay path still pending**: thematic_etf_universe.yaml + tools/refresh_etf_top_holdings.py + monthly cron from prior plan still not implemented — defer to followup. SEC-13F gives partial overlap for thematic exposure (Atreides covers AI hardware, ARK covers innovation themes) but doesn't substitute for quantum/eVTOL small-cap universe expansion.
 
+### 11:39 KST - evidence-fusion-sec-etf-consistency
+
+- scope:
+  - Convert SEC 13F/Form 4 and ETF holdings into a research-first evidence fusion layer. SEC and ETF signals now produce shadow columns for selection-quality, leader-drop, and broker-ledger challenger analysis; they do not affect live score unless `evidence_fusion_apply_to_live_score` is explicitly enabled after broker-ledger validation.
+  - Fix SEC data-lake consistency hazards: Form 4 daily refresh writes incremental shards before merging into canonical PIT files, 13F refresh builds manager CIKs from `managers.csv` instead of falling back to BRK-only, and full rebuild restore manifests include row/ticker/freshness stats for SEC and ETF data.
+- files:
+  - `r1000_features.py` ->adds canonical-aware SEC overlay loading and dynamic ETF holdings overlay loading.
+  - `r1000_pipeline.py` ->adds shadow evidence fusion score columns and merges ETF holdings overlay into latest scoring.
+  - `tools/run_etf_holdings_refresh.py` ->new monthly ETF holdings PIT refresh and signal builder.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->auto-builds manager CIK list from reviewed manager universe when no explicit input is supplied.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->writes daily Form 4 results to `data_pit/sec/shards/daily_latest` and merges instead of overwriting canonical PIT files.
+  - `.github/workflows/etf_holdings_monthly_refresh.yml` ->new monthly ETF holdings refresh and Drive sync workflow.
+  - `.github/workflows/full_rebuild_manual.yml` ->restores ETF holdings data and records SEC/ETF restore stats.
+  - `tests/sec_overlay_consistency_smoke.py` ->verifies tiny Form 4 latest outputs rebuild from canonical transactions.
+  - `tests/etf_holdings_overlay_smoke.py` ->verifies ETF holdings fixture creates shadow signals and loader output.
+- symbols_added:
+  - `load_etf_holdings_overlay(base_dir=None)` ->loads dynamic ETF holdings evidence for latest scoring.
+  - `load_sec_evidence_overlay(base_dir=None, min_form4_signal_tickers=300, min_13f_signal_tickers=100)` ->canonical-aware SEC overlay loader with health output.
+  - `run_etf_holdings_refresh.run(args)` ->builds ETF holdings PIT files and latest ETF evidence signals.
+- symbols_changed:
+  - `r1000_pipeline.add_total_score_columns()` ->computes `evidence_fusion_score` and related shadow components, gated from live score by default.
+  - `run_sec_form4_merge_shards.build_signals()` ->uses latest `available_from` plus rolling window when building current Form 4 signals.
+  - `run_alpha_selector_broker_grid.STYLE_WEIGHTS` ->updates `sec_evidence_shadow` to include evidence fusion and ETF holdings factors.
+  - `run_selection_quality_report.FACTOR_COLUMNS` ->adds ETF and evidence fusion factors.
+- config_fields_added:
+  - `w_etf_holdings_evidence: float = 0.20` ->shadow ETF overlay weight.
+  - `w_evidence_fusion_score: float = 1.00` ->live-score multiplier used only when evidence fusion is explicitly enabled.
+  - `evidence_fusion_apply_to_live_score: bool = False` ->prevents SEC/ETF evidence from changing live score before broker-ledger validation.
+  - `sec_evidence_min_form4_signal_tickers: int = 300` ->minimum healthy Form 4 latest ticker count before canonical rebuild.
+  - `sec_evidence_min_13f_signal_tickers: int = 100` ->minimum healthy 13F latest ticker count before canonical rebuild.
+  - `sec_evidence_max_stale_days: int = 240` ->reserved freshness policy field for SEC overlay health checks.
+- breaking_changes:
+  - SEC evidence no longer changes live `score` by default. Enable `evidence_fusion_apply_to_live_score` only after broker-ledger validation.
+- outputs:
+  - `outputs/full_rebuild_logs/sec_evidence_overlay_health.json` ->records SEC overlay source choice and canonical rebuild warnings.
+  - `data_pit/etf_holdings/etf_holdings.parquet` ->PIT ETF holdings lake.
+  - `outputs/etf_thematic_signals/etf_latest.csv` ->latest ETF holdings evidence by ticker.
+  - `outputs/etf_thematic_signals/report.md` ->ETF holdings signal summary.
+- validation:
+  - `py -3 tests\sec_overlay_consistency_smoke.py` ->PASS.
+  - `py -3 tests\etf_holdings_overlay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 100/100.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33.
+- risks_or_notes:
+  - ETF holdings source quality depends on yfinance/issuer availability; missing ETF data remains neutral with lower confidence.
+  - Full CAGR/MDD impact is still unproven until Tier 2 broker-ledger ablations run.
+
+### 11:57 KST - sec-13f-cusip-ticker-map
+
+- scope:
+  - Fix the 13F zero-signal blocker by adding a canonical CUSIP-to-ticker map builder and changing the quarterly 13F workflow to parse once, build a mapping audit, reparse with `--cusip-map`, and then score institutional evidence. This keeps 13F research-only while preventing healthy 13F holdings from collapsing to `signal_tickers=0`.
+- files:
+  - `tools/build_sec_13f_cusip_ticker_map.py` ->new mapping builder using manual overrides, SEC company tickers, and repo seed tables.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->runs 13F parser twice with a mapping build between passes and uploads `cusip_ticker_map` artifacts.
+  - `research/sec_13f_cusip_map_overrides.csv` ->manual seed map for common large-cap 13F CUSIPs.
+  - `tests/sec_13f_cusip_mapping_smoke.py` ->checks mapping output, unmapped audit, parser map loading, and downstream 13F signal creation.
+  - `tests/smoke_test.py` ->guards workflow CUSIP mapping wiring.
+  - `tools/run_pr_validation.py` ->adds the CUSIP mapping smoke to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `build_cusip_map(holdings, *, raw_dir, manual_overrides, seed_files, user_agent, refresh_company_tickers)` ->creates mapped CUSIP rows plus an unmapped audit table.
+  - `issuer_name_key(value)` ->normalizes 13F issuer names for conservative exact issuer-name matching.
+  - `load_manual_overrides(path)` ->loads reviewed CUSIP/ticker overrides.
+- symbols_changed:
+  - `sec_13f_quarterly_refresh.yml` ->adds mapping audit and mapped reparse before institutional signal scoring.
+  - `DEFAULT_TESTS` ->adds `tests/sec_13f_cusip_mapping_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/cusip_ticker_map.parquet` ->canonical CUSIP-to-ticker map.
+  - `data_pit/sec/cusip_ticker_map.csv` ->CSV copy of the canonical map.
+  - `outputs/sec_institutional_signals/mapping_audit.json` ->mapping coverage and research-only guard metadata.
+  - `outputs/sec_institutional_signals/unmapped_13f_holdings.csv` ->CUSIPs that remain unmapped after all conservative sources.
+- validation:
+  - `py -3 tests\sec_13f_cusip_mapping_smoke.py` ->PASS.
+  - `py -3 tests\sec_candidate_enrichment_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 100/100.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 34/34.
+  - Local dry-run on SEC 13F run `26137019770` artifact ->mapped ticker count improved from 0 to 101 signals on 5,954 holdings.
+- risks_or_notes:
+  - Mapping is intentionally conservative: ambiguous issuer names stay unmapped rather than risking a wrong ticker.
+  - Full rebuild remains blocked until a fresh 13F refresh shows nonzero mapped tickers and healthy institutional signals.
+
 ## 2026-05-14
 
 ## 2026-05-19

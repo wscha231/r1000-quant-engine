@@ -100,7 +100,17 @@ def prepare_candidate_book(frame: pd.DataFrame) -> pd.DataFrame:
 def issuer_name_key(value: Any) -> str:
     text = re.sub(r"[^A-Z0-9 ]+", " ", str(value or "").upper().replace("&", " AND "))
     aliases = {
+        "AIRLS": "AIRLINES",
+        "AMER": "AMERICA",
+        "BK": "BANK",
+        "CENTY": "CENTURY",
         "FINL": "FINANCIAL",
+        "INDS": "INDUSTRIES",
+        "INTL": "INTERNATIONAL",
+        "MACHS": "MACHINES",
+        "MTRS": "MOTORS",
+        "PETE": "PETROLEUM",
+        "SVCS": "SERVICES",
         "TECH": "TECHNOLOGY",
         "COMMUNICATIONS": "COMMUNICATION",
     }
@@ -125,6 +135,11 @@ def issuer_name_key(value: Any) -> str:
         "NEW",
         "ORD",
         "SHS",
+        "AND",
+        "DEL",
+        "DELAWARE",
+        "N",
+        "OF",
     }
     tokens = [aliases.get(tok, tok) for tok in text.split() if tok and tok not in stop]
     return " ".join(tokens)

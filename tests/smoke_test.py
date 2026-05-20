@@ -2863,8 +2863,8 @@ def test_sec_evidence_score_overlay_wired() -> None:
     overlays (score_sec_institutional_overlay + score_sec_insider_overlay).
 
     Without this, the 13F manager-tracking + Form 4 insider-buying signals
-    are computed by the SEC pipelines but never affect the final `score`
-    column written to scored_latest.csv.
+    are computed by the SEC pipelines but never reach shadow evidence fusion
+    diagnostics.
     """
     pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
     m = re.search(
@@ -2882,6 +2882,12 @@ def test_sec_evidence_score_overlay_wired() -> None:
     )
     assert "w_sec_institutional_evidence" in body, (
         "w_sec_institutional_evidence cfg field not read in add_total_score_columns"
+    )
+    assert "evidence_fusion_score" in body, (
+        "evidence_fusion_score not computed in add_total_score_columns"
+    )
+    assert "evidence_fusion_apply_to_live_score" in body, (
+        "SEC/ETF evidence must be live-score gated by evidence_fusion_apply_to_live_score"
     )
 
 
@@ -2906,6 +2912,7 @@ def test_sec_evidence_loader_matches_workflow_outputs() -> None:
         "13f_latest.csv",
         "form4_latest.parquet",
         "form4_latest.csv",
+        "form4_transactions.parquet",
     ]:
         assert required in body, f"SEC overlay loader missing workflow output {required}"
 
@@ -2935,7 +2942,7 @@ def test_sec_13f_manager_universe_csv_present() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     csv_path = repo_root / "research" / "sec_13f_manager_universe_20260519" / "managers.csv"
     assert csv_path.exists(), f"managers.csv missing at {csv_path}"
-    with csv_path.open() as f:
+    with csv_path.open(encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) >= 30, f"managers.csv has only {len(rows)} entries; expected >= 30"
     labels = {r["label"].upper() for r in rows}
@@ -2943,6 +2950,36 @@ def test_sec_13f_manager_universe_csv_present() -> None:
         assert expected in labels, (
             f"managers.csv missing required entry: {expected}"
         )
+
+
+@_test("regression.sec_13f_workflow_uses_manager_universe")
+def test_sec_13f_workflow_uses_manager_universe() -> None:
+    """13F refresh must not silently fall back to a BRK-only manager list."""
+    repo_root = Path(__file__).resolve().parent.parent
+    wf = (repo_root / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    assert "tools/build_sec_13f_manager_universe.py" in wf
+    assert "tools/build_sec_13f_cusip_ticker_map.py" in wf
+    assert "--cusip-map data_pit/sec/cusip_ticker_map.parquet" in wf
+    assert "outputs/sec_institutional_signals/mapping_audit.json" in wf
+    assert "refusing to run BRK-only fallback" in wf
+    assert "BRK:0001067983' }}" not in wf
+
+
+@_test("regression.etf_holdings_overlay_wired")
+def test_etf_holdings_overlay_wired() -> None:
+    """Dynamic ETF holdings must have a PIT data lake, loader, and workflow."""
+    src = _combined_src()
+    for required in [
+        "ETF_HOLDINGS_EVIDENCE_COLUMNS",
+        "EVIDENCE_FUSION_COLUMNS",
+        "etf_holdings_score",
+        "evidence_fusion_score",
+    ]:
+        assert required in src, f"ETF/evidence fusion wiring missing {required}"
+    repo_root = Path(__file__).resolve().parent.parent
+    assert (repo_root / "tools" / "run_etf_holdings_refresh.py").exists()
+    assert (repo_root / ".github" / "workflows" / "etf_holdings_monthly_refresh.yml").exists()
+    assert (repo_root / "research" / "etf_holdings_universe_20260520" / "thematic_etfs.yaml").exists()
 
 
 # ======================================================================

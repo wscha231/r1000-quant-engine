@@ -130,7 +130,9 @@ def build_signals(tx: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
         parts = [part.assign(as_of_date=dt) for part, dt in zip(parts, dates) if not part.empty]
         if parts:
             return pd.concat(parts, ignore_index=True, sort=False)
-    return build_form4_signal(tx, lookback_days=args.window_days)
+    available = pd.to_datetime(tx.get("available_from"), errors="coerce", utc=True) if not tx.empty else pd.Series(dtype="datetime64[ns, UTC]")
+    as_of = available.max().isoformat() if available.notna().any() else None
+    return build_form4_signal(tx, as_of=as_of, lookback_days=args.window_days)
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:

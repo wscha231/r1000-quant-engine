@@ -1,0 +1,58 @@
+schema_version: etf-holdings-universe-v1
+research_only: true
+production_activation_allowed: false
+refresh_cadence: monthly
+notes: >
+  Dynamic ETF holdings are shadow evidence only. Holdings timestamps must be
+  treated as available_from dates; do not use them before the issuer file or
+  fetch date was available.
+
+etfs:
+  - ticker: SMH
+    label: VanEck Semiconductor ETF
+    theme: semiconductors
+  - ticker: SOXX
+    label: iShares Semiconductor ETF
+    theme: semiconductors
+  - ticker: SOXQ
+    label: Invesco PHLX Semiconductor ETF
+    theme: semiconductors
+  - ticker: CHAT
+    label: Roundhill Generative AI and Technology ETF
+    theme: ai_infrastructure
+  - ticker: BOTZ
+    label: Global X Robotics and Artificial Intelligence ETF
+    theme: robotics_ai
+  - ticker: ROBO
+    label: ROBO Global Robotics and Automation ETF
+    theme: robotics_ai
+  - ticker: ARKQ
+    label: ARK Autonomous Technology and Robotics ETF
+    theme: robotics_ai
+  - ticker: ARKK
+    label: ARK Innovation ETF
+    theme: disruptive_innovation
+  - ticker: ITA
+    label: iShares U.S. Aerospace and Defense ETF
+    theme: defense
+  - ticker: XAR
+    label: SPDR S&P Aerospace and Defense ETF
+    theme: defense
+  - ticker: URA
+    label: Global X Uranium ETF
+    theme: nuclear_uranium
+  - ticker: NLR
+    label: VanEck Uranium and Nuclear ETF
+    theme: nuclear_uranium
+  - ticker: PAVE
+    label: Global X U.S. Infrastructure Development ETF
+    theme: power_infrastructure
+  - ticker: GRID
+    label: First Trust NASDAQ Clean Edge Smart Grid ETF
+    theme: power_infrastructure
+  - ticker: UFO
+    label: Procure Space ETF
+    theme: space
+  - ticker: XBI
+    label: SPDR S&P Biotech ETF
+    theme: biotech

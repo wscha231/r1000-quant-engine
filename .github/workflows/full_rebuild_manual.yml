@@ -186,7 +186,7 @@ jobs:
           GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
         run: |
           set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals data_pit/sec
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings
           MANIFEST="outputs/full_rebuild_logs/sec_evidence_restore_manifest.json"
           python - <<'PY' > "$MANIFEST"
           import json
@@ -244,13 +244,35 @@ jobs:
           restore_dir outputs/sec_institutional_signals
           restore_dir outputs/sec_ownership_signals
           restore_dir data_pit/sec
+          restore_dir outputs/etf_thematic_signals
+          restore_dir data_pit/etf_holdings
 
           python - <<PY > "$MANIFEST"
           import json
           from pathlib import Path
+          import pandas as pd
           restored = [x for x in """$RESTORED""".splitlines() if x]
           missing = [x for x in """$MISSING""".splitlines() if x]
           errors = [x for x in """$ERRORS""".splitlines() if x]
+          def table_stats(path, ticker_col="ticker", date_col="latest_available_from"):
+              p = Path(path)
+              out = {"exists": p.exists(), "rows": 0, "ticker_count": 0, "latest_available_from": ""}
+              if not p.exists():
+                  return out
+              try:
+                  if p.suffix == ".parquet":
+                      df = pd.read_parquet(p)
+                  else:
+                      df = pd.read_csv(p, low_memory=False)
+                  out["rows"] = int(len(df))
+                  if ticker_col in df.columns:
+                      out["ticker_count"] = int(df[ticker_col].astype(str).str.upper().str.strip().replace("", pd.NA).nunique(dropna=True))
+                  if date_col in df.columns:
+                      dt = pd.to_datetime(df[date_col], errors="coerce", utc=True)
+                      out["latest_available_from"] = dt.max().isoformat() if dt.notna().any() else ""
+              except Exception as exc:
+                  out["error"] = str(exc)
+              return out
           checks = {
               "institutional_13f_latest": Path("outputs/sec_institutional_signals/13f_latest.csv").exists() or Path("outputs/sec_institutional_signals/13f_latest.parquet").exists(),
               "institutional_signals_latest": Path("outputs/sec_institutional_signals/signals_latest.csv").exists() or Path("outputs/sec_institutional_signals/signals_latest.parquet").exists(),
@@ -258,6 +280,17 @@ jobs:
               "ownership_signals_latest": Path("outputs/sec_ownership_signals/signals_latest.csv").exists() or Path("outputs/sec_ownership_signals/signals_latest.parquet").exists(),
               "data_pit_sec_ownership_signals": Path("data_pit/sec/sec_ownership_signals.parquet").exists(),
               "data_pit_13f_holdings": Path("data_pit/sec/institutional_13f_holdings.parquet").exists(),
+              "etf_thematic_latest": Path("outputs/etf_thematic_signals/etf_latest.csv").exists() or Path("outputs/etf_thematic_signals/etf_latest.parquet").exists(),
+              "data_pit_etf_holdings": Path("data_pit/etf_holdings/etf_holdings.parquet").exists(),
+          }
+          stats = {
+              "form4_latest_csv": table_stats("outputs/sec_ownership_signals/form4_latest.csv"),
+              "form4_canonical_signals": table_stats("data_pit/sec/sec_ownership_signals.parquet"),
+              "form4_transactions": table_stats("data_pit/sec/form4_transactions.parquet", ticker_col="issuer_ticker", date_col="available_from"),
+              "institutional_latest_csv": table_stats("outputs/sec_institutional_signals/13f_latest.csv"),
+              "institutional_holdings": table_stats("data_pit/sec/institutional_13f_holdings.parquet", ticker_col="ticker_mapped", date_col="available_from"),
+              "etf_latest_csv": table_stats("outputs/etf_thematic_signals/etf_latest.csv"),
+              "etf_holdings": table_stats("data_pit/etf_holdings/etf_holdings.parquet", ticker_col="holding_ticker", date_col="available_from"),
           }
           print(json.dumps({
               "gdrive_ready": True,
@@ -265,6 +298,7 @@ jobs:
               "missing": missing,
               "errors": errors,
               "checks": checks,
+              "stats": stats,
           }, indent=2, sort_keys=True))
           PY
           cat "$MANIFEST"
