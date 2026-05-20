@@ -134,24 +134,24 @@ jobs:
             --tickers "$TICKERS" \
             --universe-file ./.missing_universe.csv \
             --forms '4,4/A' \
-            --output-dir data_pit/sec \
+            --output-dir data_pit/sec/shards/daily_latest \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --safety-delay-hours "$SAFETY_DELAY_HOURS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
           python tools/run_sec_form4_parser.py \
-            --filings-index data_pit/sec/sec_filings_index.parquet \
-            --output-dir data_pit/sec \
+            --filings-index data_pit/sec/shards/daily_latest/sec_filings_index.parquet \
+            --output-dir data_pit/sec/shards/daily_latest \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
-          python tools/run_sec_ownership_signals.py \
-            --form4 data_pit/sec/form4_transactions.parquet \
+          python tools/run_sec_form4_merge_shards.py \
+            --pit-root data_pit/sec \
             --output-dir outputs/sec_ownership_signals \
-            --lookback-days 90 \
+            --window-days 90 \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_signals.log
 
       - name: Upload SEC Form 4 artifact

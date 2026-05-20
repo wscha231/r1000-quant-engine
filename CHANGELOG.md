@@ -120,6 +120,54 @@ All entries must be written in English. Entries must be predictable and machine-
   - **No cloud rebuild yet**: this commit code-level only. A FULL_REBUILD via `.github/workflows/full_rebuild_manual.yml` is required to materialize FS schema change + verify scored_latest.csv contains the 28 new columns. Verdict gate unchanged: dCAGR >= +0.5pp AND dSharpe >= -0.05 AND dMaxDD >= -3pp AND early_scout >= 4. Bootstrap CI bounds must include the no-SEC baseline within 95% to confirm new signal is additive not destructive.
   - **etf-overlay path still pending**: thematic_etf_universe.yaml + tools/refresh_etf_top_holdings.py + monthly cron from prior plan still not implemented — defer to followup. SEC-13F gives partial overlap for thematic exposure (Atreides covers AI hardware, ARK covers innovation themes) but doesn't substitute for quantum/eVTOL small-cap universe expansion.
 
+### 11:39 KST - evidence-fusion-sec-etf-consistency
+
+- scope:
+  - Convert SEC 13F/Form 4 and ETF holdings into a research-first evidence fusion layer. SEC and ETF signals now produce shadow columns for selection-quality, leader-drop, and broker-ledger challenger analysis; they do not affect live score unless `evidence_fusion_apply_to_live_score` is explicitly enabled after broker-ledger validation.
+  - Fix SEC data-lake consistency hazards: Form 4 daily refresh writes incremental shards before merging into canonical PIT files, 13F refresh builds manager CIKs from `managers.csv` instead of falling back to BRK-only, and full rebuild restore manifests include row/ticker/freshness stats for SEC and ETF data.
+- files:
+  - `r1000_features.py` ->adds canonical-aware SEC overlay loading and dynamic ETF holdings overlay loading.
+  - `r1000_pipeline.py` ->adds shadow evidence fusion score columns and merges ETF holdings overlay into latest scoring.
+  - `tools/run_etf_holdings_refresh.py` ->new monthly ETF holdings PIT refresh and signal builder.
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->auto-builds manager CIK list from reviewed manager universe when no explicit input is supplied.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->writes daily Form 4 results to `data_pit/sec/shards/daily_latest` and merges instead of overwriting canonical PIT files.
+  - `.github/workflows/etf_holdings_monthly_refresh.yml` ->new monthly ETF holdings refresh and Drive sync workflow.
+  - `.github/workflows/full_rebuild_manual.yml` ->restores ETF holdings data and records SEC/ETF restore stats.
+  - `tests/sec_overlay_consistency_smoke.py` ->verifies tiny Form 4 latest outputs rebuild from canonical transactions.
+  - `tests/etf_holdings_overlay_smoke.py` ->verifies ETF holdings fixture creates shadow signals and loader output.
+- symbols_added:
+  - `load_etf_holdings_overlay(base_dir=None)` ->loads dynamic ETF holdings evidence for latest scoring.
+  - `load_sec_evidence_overlay(base_dir=None, min_form4_signal_tickers=300, min_13f_signal_tickers=100)` ->canonical-aware SEC overlay loader with health output.
+  - `run_etf_holdings_refresh.run(args)` ->builds ETF holdings PIT files and latest ETF evidence signals.
+- symbols_changed:
+  - `r1000_pipeline.add_total_score_columns()` ->computes `evidence_fusion_score` and related shadow components, gated from live score by default.
+  - `run_sec_form4_merge_shards.build_signals()` ->uses latest `available_from` plus rolling window when building current Form 4 signals.
+  - `run_alpha_selector_broker_grid.STYLE_WEIGHTS` ->updates `sec_evidence_shadow` to include evidence fusion and ETF holdings factors.
+  - `run_selection_quality_report.FACTOR_COLUMNS` ->adds ETF and evidence fusion factors.
+- config_fields_added:
+  - `w_etf_holdings_evidence: float = 0.20` ->shadow ETF overlay weight.
+  - `w_evidence_fusion_score: float = 1.00` ->live-score multiplier used only when evidence fusion is explicitly enabled.
+  - `evidence_fusion_apply_to_live_score: bool = False` ->prevents SEC/ETF evidence from changing live score before broker-ledger validation.
+  - `sec_evidence_min_form4_signal_tickers: int = 300` ->minimum healthy Form 4 latest ticker count before canonical rebuild.
+  - `sec_evidence_min_13f_signal_tickers: int = 100` ->minimum healthy 13F latest ticker count before canonical rebuild.
+  - `sec_evidence_max_stale_days: int = 240` ->reserved freshness policy field for SEC overlay health checks.
+- breaking_changes:
+  - SEC evidence no longer changes live `score` by default. Enable `evidence_fusion_apply_to_live_score` only after broker-ledger validation.
+- outputs:
+  - `outputs/full_rebuild_logs/sec_evidence_overlay_health.json` ->records SEC overlay source choice and canonical rebuild warnings.
+  - `data_pit/etf_holdings/etf_holdings.parquet` ->PIT ETF holdings lake.
+  - `outputs/etf_thematic_signals/etf_latest.csv` ->latest ETF holdings evidence by ticker.
+  - `outputs/etf_thematic_signals/report.md` ->ETF holdings signal summary.
+- validation:
+  - `py -3 tests\sec_overlay_consistency_smoke.py` ->PASS.
+  - `py -3 tests\etf_holdings_overlay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 100/100.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 33/33.
+- risks_or_notes:
+  - ETF holdings source quality depends on yfinance/issuer availability; missing ETF data remains neutral with lower confidence.
+  - Full CAGR/MDD impact is still unproven until Tier 2 broker-ledger ablations run.
+
 ## 2026-05-14
 
 ## 2026-05-19

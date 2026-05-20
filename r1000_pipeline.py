@@ -86,6 +86,8 @@ from r1000_config import (
     PHASE14_HYBRID_ALPHA_COLUMNS,
     SHORT_RS_TRAP_COLUMNS,
     SEC_EVIDENCE_COLUMNS,
+    ETF_HOLDINGS_EVIDENCE_COLUMNS,
+    EVIDENCE_FUSION_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
@@ -286,8 +288,9 @@ from r1000_features import (
     # Short-RS trap (2026-05-13): split short/long RS + chase-extension penalty
     compute_rs_short_long_scores,
     compute_short_extension_risk_penalty,
-    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    # Evidence overlay loaders (2026-05-20): SEC 13F/Form 4 + ETF holdings
     load_sec_evidence_overlay,
+    load_etf_holdings_overlay,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
     compute_cycle_recovery_score,
@@ -1091,6 +1094,7 @@ def add_total_score_columns(
     # / cfg.w_sec_insider_evidence after first cron run validates the data.
     w_inst = float(getattr(cfg, "w_sec_institutional_evidence", 0.0))
     w_insider = float(getattr(cfg, "w_sec_insider_evidence", 0.0))
+    w_etf = float(getattr(cfg, "w_etf_holdings_evidence", 0.0))
     inst_score = numeric_series_or_default(d, "institutional_evidence_score", 0.0)
     inst_conf = numeric_series_or_default(d, "institutional_evidence_confidence_score", 0.0)
     insider_score = numeric_series_or_default(d, "early_evidence_score", 0.0)
@@ -1101,11 +1105,38 @@ def add_total_score_columns(
     d["score_sec_insider_overlay"] = (
         w_insider * insider_score * insider_conf.clip(lower=0.0, upper=1.0)
     ).fillna(0.0)
-    d["score"] = (
-        d["score"]
-        + d["score_sec_institutional_overlay"]
-        + d["score_sec_insider_overlay"]
-    )
+    etf_score = numeric_series_or_default(d, "etf_holdings_score", 0.0)
+    etf_conf = numeric_series_or_default(d, "etf_evidence_confidence", 0.0)
+    d["score_etf_holdings_overlay"] = (
+        w_etf * etf_score * etf_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["sec_form4_score"] = (insider_score * insider_conf.clip(lower=0.0, upper=1.0)).fillna(0.0)
+    d["sec_13f_score"] = (inst_score * inst_conf.clip(lower=0.0, upper=1.0)).fillna(0.0)
+    d["etf_holdings_score_shadow"] = (etf_score * etf_conf.clip(lower=0.0, upper=1.0)).fillna(0.0)
+    d["market_confirmation_score"] = (
+        0.45 * numeric_series_or_default(d, "rs_short_score", 0.0).clip(lower=-1.0, upper=1.0)
+        + 0.25 * numeric_series_or_default(d, "rs_long_score", 0.0).clip(lower=-1.0, upper=1.0)
+        + 0.20 * numeric_series_or_default(d, "entry_quality_score", 0.0).clip(lower=0.0, upper=1.0)
+        + 0.10 * numeric_series_or_default(d, "h6_dynamic_leader_score", 0.0).clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["sector_theme_leadership_score"] = (
+        0.50 * numeric_series_or_default(d, "theme_phase_score", 0.0).clip(lower=0.0, upper=1.0)
+        + 0.30 * numeric_series_or_default(d, "industry_rotation_signal", 0.0).clip(lower=-1.0, upper=1.0)
+        + 0.20 * numeric_series_or_default(d, "sub_industry_rs_score", 0.0).clip(lower=-1.0, upper=1.0)
+    ).fillna(0.0)
+    d["macro_regime_fit_score"] = (
+        numeric_series_or_default(d, "market_regime_score", 0.0).clip(lower=-1.0, upper=1.0)
+    ).fillna(0.0)
+    d["evidence_fusion_score"] = (
+        0.22 * d["sec_form4_score"]
+        + 0.22 * d["sec_13f_score"]
+        + 0.18 * d["etf_holdings_score_shadow"]
+        + 0.20 * d["market_confirmation_score"]
+        + 0.13 * d["sector_theme_leadership_score"]
+        + 0.05 * d["macro_regime_fit_score"]
+    ).fillna(0.0)
+    if bool(getattr(cfg, "evidence_fusion_apply_to_live_score", False)):
+        d["score"] = d["score"] + float(getattr(cfg, "w_evidence_fusion_score", 1.0)) * d["evidence_fusion_score"]
     return d
 
 
@@ -8240,6 +8271,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE14_HYBRID_ALPHA_COLUMNS
             + SHORT_RS_TRAP_COLUMNS
             + SEC_EVIDENCE_COLUMNS
+            + ETF_HOLDINGS_EVIDENCE_COLUMNS
+            + EVIDENCE_FUSION_COLUMNS
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
@@ -12183,7 +12216,11 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         # .yml). When the artifacts are absent the merge is a no-op and all
         # downstream score components zero-fill cleanly.
         try:
-            sec_overlay = load_sec_evidence_overlay(base_dir=paths.get("out", paths.get("base")))
+            sec_overlay = load_sec_evidence_overlay(
+                base_dir=paths.get("out", paths.get("base")),
+                min_form4_signal_tickers=int(getattr(cfg, "sec_evidence_min_form4_signal_tickers", 300)),
+                min_13f_signal_tickers=int(getattr(cfg, "sec_evidence_min_13f_signal_tickers", 100)),
+            )
             if not sec_overlay.empty and "ticker" in sec_overlay.columns:
                 overlay_cols = [c for c in sec_overlay.columns if c != "ticker"]
                 drop_existing = [c for c in overlay_cols if c in latest_df.columns]
@@ -12196,6 +12233,20 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
                 )
         except Exception as _sec_exc:
             log(f"[sec-evidence] overlay skipped: {_sec_exc}")
+        try:
+            etf_overlay = load_etf_holdings_overlay(base_dir=paths.get("out", paths.get("base")))
+            if not etf_overlay.empty and "ticker" in etf_overlay.columns:
+                overlay_cols = [c for c in etf_overlay.columns if c != "ticker"]
+                drop_existing = [c for c in overlay_cols if c in latest_df.columns]
+                if drop_existing:
+                    latest_df = latest_df.drop(columns=drop_existing)
+                latest_df = latest_df.merge(etf_overlay, on="ticker", how="left")
+                log(
+                    f"[etf-evidence] overlay applied: {len(etf_overlay)} rows, "
+                    f"{len(overlay_cols)} columns merged into latest_df."
+                )
+        except Exception as _etf_exc:
+            log(f"[etf-evidence] overlay skipped: {_etf_exc}")
         latest_df = add_total_score_columns(
             latest_df,
             cfg,

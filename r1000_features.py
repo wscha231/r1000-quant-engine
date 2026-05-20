@@ -84,6 +84,8 @@ from r1000_config import (
     YF_INDUSTRY_TO_GICS_GROUP,
     YF_QUARTERLY_COL_MAP,
     PHASE21_STYLE_REGIME_COLUMNS,
+    SEC_EVIDENCE_COLUMNS,
+    ETF_HOLDINGS_EVIDENCE_COLUMNS,
 )
 
 
@@ -2073,8 +2075,9 @@ __all__ = [
     "compute_rs_short_long_scores",
     "compute_short_extension_risk_penalty",
     "SHORT_RS_TRAP_COLUMNS",
-    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    # Evidence overlay loaders (2026-05-20): 13F/Form 4 + ETF holdings shadow evidence
     "load_sec_evidence_overlay",
+    "load_etf_holdings_overlay",
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
     "compute_cycle_recovery_score",
     "compute_eps_revision_score",
@@ -4948,7 +4951,7 @@ SHORT_RS_TRAP_COLUMNS = [
 ]
 
 
-def load_sec_evidence_overlay(
+def _load_sec_evidence_overlay_legacy(
     base_dir: "Path | None" = None,
 ) -> pd.DataFrame:
     """Load the latest SEC 13F + Form 4 evidence signals for the latest scoring.
@@ -5003,6 +5006,196 @@ def load_sec_evidence_overlay(
         if dup_cols:
             merged = merged.drop(columns=dup_cols)
     return merged
+
+
+def _evidence_roots(base_dir: "Path | None") -> tuple[Path, Path]:
+    base = Path(base_dir) if base_dir is not None else Path("outputs")
+    if base.name == "outputs":
+        return base, base.parent
+    output_base = base / "outputs"
+    return (output_base if output_base.exists() else base), base
+
+
+def _read_overlay_table(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        if path.suffix.lower() == ".parquet":
+            return pd.read_parquet(path)
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _normalize_overlay_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "ticker" not in frame.columns:
+        return pd.DataFrame(columns=["ticker"])
+    d = frame.copy()
+    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    d = d[d["ticker"].ne("")].copy()
+    if "as_of_date" in d.columns:
+        as_of = pd.to_datetime(d["as_of_date"], errors="coerce", utc=True)
+        if as_of.notna().any():
+            d = d[as_of.eq(as_of.max())].copy()
+    if "latest_available_from" in d.columns:
+        latest = pd.to_datetime(d["latest_available_from"], errors="coerce", utc=True)
+        d = d.assign(_latest_sort=latest).sort_values(["ticker", "_latest_sort"])
+        d = d.drop_duplicates("ticker", keep="last").drop(columns=["_latest_sort"])
+    else:
+        d = d.drop_duplicates("ticker", keep="last")
+    return d.reset_index(drop=True)
+
+
+def _overlay_ticker_count(frame: pd.DataFrame) -> int:
+    if frame.empty or "ticker" not in frame.columns:
+        return 0
+    return int(frame["ticker"].astype(str).str.upper().str.strip().replace("", pd.NA).nunique(dropna=True))
+
+
+def _write_sec_overlay_health(output_base: Path, payload: dict[str, Any]) -> None:
+    try:
+        out = output_base / "full_rebuild_logs" / "sec_evidence_overlay_health.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _build_form4_latest_from_transactions(path: Path) -> pd.DataFrame:
+    tx = _read_overlay_table(path)
+    if tx.empty:
+        return pd.DataFrame(columns=["ticker"])
+    try:
+        from tools.run_sec_ownership_signals import build_form4_signal  # type: ignore
+
+        available = pd.to_datetime(tx.get("available_from"), errors="coerce", utc=True)
+        as_of = available.max().isoformat() if available.notna().any() else None
+        return _normalize_overlay_frame(build_form4_signal(tx, as_of=as_of, lookback_days=90))
+    except Exception:
+        return pd.DataFrame(columns=["ticker"])
+
+
+def _build_13f_latest_from_holdings(path: Path) -> pd.DataFrame:
+    holdings = _read_overlay_table(path)
+    if holdings.empty:
+        return pd.DataFrame(columns=["ticker"])
+    try:
+        from tools.run_sec_institutional_signals import build_13f_signal  # type: ignore
+
+        available = pd.to_datetime(holdings.get("available_from"), errors="coerce", utc=True)
+        as_of = available.max().isoformat() if available.notna().any() else None
+        return _normalize_overlay_frame(build_13f_signal(holdings, as_of=as_of, lookback_days=210))
+    except Exception:
+        return pd.DataFrame(columns=["ticker"])
+
+
+def load_sec_evidence_overlay(
+    base_dir: "Path | None" = None,
+    *,
+    min_form4_signal_tickers: int = 300,
+    min_13f_signal_tickers: int = 100,
+) -> pd.DataFrame:
+    """Load SEC 13F + Form 4 evidence signals for latest scoring.
+
+    Healthy workflow latest files are preferred. If restored latest files are
+    tiny while canonical PIT data exists, rebuild the current Form 4/13F signal
+    from canonical files and write a health artifact.
+    """
+    output_base, repo_base = _evidence_roots(base_dir)
+    pit_base = repo_base / "data_pit" / "sec"
+    candidates = {
+        "institutional": [
+            output_base / "sec_institutional_signals" / "signals_latest.parquet",
+            output_base / "sec_institutional_signals" / "signals_latest.csv",
+            output_base / "sec_institutional_signals" / "13f_latest.parquet",
+            output_base / "sec_institutional_signals" / "13f_latest.csv",
+        ],
+        "ownership": [
+            output_base / "sec_ownership_signals" / "signals_latest.parquet",
+            output_base / "sec_ownership_signals" / "signals_latest.csv",
+            output_base / "sec_ownership_signals" / "form4_latest.parquet",
+            output_base / "sec_ownership_signals" / "form4_latest.csv",
+        ],
+    }
+    canonical = {
+        "institutional": pit_base / "institutional_13f_holdings.parquet",
+        "ownership": pit_base / "form4_transactions.parquet",
+    }
+    frames: list[pd.DataFrame] = []
+    health: dict[str, Any] = {"categories": {}, "warnings": []}
+    for category, paths in candidates.items():
+        frame = pd.DataFrame(columns=["ticker"])
+        selected_path = ""
+        for p in paths:
+            raw = _read_overlay_table(p)
+            if not raw.empty:
+                frame = _normalize_overlay_frame(raw)
+                selected_path = str(p)
+                break
+        ticker_count = _overlay_ticker_count(frame)
+        min_tickers = min_13f_signal_tickers if category == "institutional" else min_form4_signal_tickers
+        rebuilt = False
+        if ticker_count < min_tickers and canonical[category].exists():
+            rebuilt_frame = (
+                _build_13f_latest_from_holdings(canonical[category])
+                if category == "institutional"
+                else _build_form4_latest_from_transactions(canonical[category])
+            )
+            rebuilt_count = _overlay_ticker_count(rebuilt_frame)
+            if rebuilt_count > ticker_count:
+                health["warnings"].append(
+                    f"{category} latest too small ({ticker_count}); rebuilt {rebuilt_count} tickers from canonical PIT"
+                )
+                frame = rebuilt_frame
+                ticker_count = rebuilt_count
+                selected_path = str(canonical[category])
+                rebuilt = True
+        health["categories"][category] = {
+            "selected_path": selected_path,
+            "rows": int(len(frame)),
+            "ticker_count": int(ticker_count),
+            "rebuilt_from_canonical": bool(rebuilt),
+        }
+        if not frame.empty:
+            frames.append(frame)
+    health["overlay_rows"] = int(sum(len(f) for f in frames))
+    _write_sec_overlay_health(output_base, health)
+    if not frames:
+        return pd.DataFrame(columns=["ticker", *SEC_EVIDENCE_COLUMNS])
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="ticker", how="outer", suffixes=("", "_dup"))
+        dup_cols = [c for c in merged.columns if c.endswith("_dup")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+    for col in SEC_EVIDENCE_COLUMNS:
+        if col not in merged.columns:
+            merged[col] = 0.0
+    return merged[["ticker", *[c for c in SEC_EVIDENCE_COLUMNS if c in merged.columns]]]
+
+
+def load_etf_holdings_overlay(base_dir: "Path | None" = None) -> pd.DataFrame:
+    """Load dynamic ETF holdings evidence, if the monthly refresh produced it."""
+    output_base, repo_base = _evidence_roots(base_dir)
+    candidates = [
+        output_base / "etf_thematic_signals" / "signals_latest.parquet",
+        output_base / "etf_thematic_signals" / "signals_latest.csv",
+        output_base / "etf_thematic_signals" / "etf_latest.parquet",
+        output_base / "etf_thematic_signals" / "etf_latest.csv",
+        repo_base / "data_pit" / "etf_holdings" / "etf_thematic_signals.parquet",
+    ]
+    frame = pd.DataFrame(columns=["ticker"])
+    for path in candidates:
+        raw = _read_overlay_table(path)
+        if not raw.empty:
+            frame = _normalize_overlay_frame(raw)
+            break
+    if frame.empty:
+        return pd.DataFrame(columns=["ticker", *ETF_HOLDINGS_EVIDENCE_COLUMNS])
+    for col in ETF_HOLDINGS_EVIDENCE_COLUMNS:
+        if col not in frame.columns:
+            frame[col] = 0.0
+    return frame[["ticker", *[c for c in ETF_HOLDINGS_EVIDENCE_COLUMNS if c in frame.columns]]]
 
 
 def compute_rs_short_long_scores(df: pd.DataFrame) -> pd.DataFrame:

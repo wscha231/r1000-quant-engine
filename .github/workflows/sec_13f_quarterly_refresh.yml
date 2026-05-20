@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       manager_ciks:
-        description: 'Comma-separated manager CIKs or label:CIK pairs'
+        description: 'Comma-separated manager CIKs or label:CIK pairs. Empty = build from managers.csv.'
         type: string
-        default: 'BRK:0001067983'
+        default: ''
       max_filings:
         description: 'Max indexed 13F filings to parse in this shard'
         type: string
@@ -124,24 +124,39 @@ jobs:
       - name: Collect and score 13F
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
-          MANAGER_CIKS: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || 'BRK:0001067983' }}
+          MANAGER_CIKS_INPUT: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || '' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '200' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals data_pit/sec data_raw/sec
+          if [ -z "${MANAGER_CIKS_INPUT:-}" ]; then
+            python tools/build_sec_13f_manager_universe.py \
+              --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
+              --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
+              --max-managers 50 \
+              2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_universe.log
+            MANAGER_CIKS="$(cat outputs/sec_institutional_signals/manager_ciks.txt)"
+          else
+            MANAGER_CIKS="$MANAGER_CIKS_INPUT"
+            printf '%s' "$MANAGER_CIKS" > outputs/sec_institutional_signals/manager_ciks.txt
+          fi
+          if [ -z "${MANAGER_CIKS:-}" ]; then
+            echo "[sec-13f] manager CIK list is empty; refusing to run BRK-only fallback"
+            exit 2
+          fi
           python tools/run_sec_submissions_collector.py \
             --ciks "$MANAGER_CIKS" \
             --universe-file ./.missing_universe.csv \
             --forms '13F-HR,13F-HR/A' \
-            --output-dir data_pit/sec \
+            --output-dir data_pit/sec/13f_latest \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --safety-delay-hours "$SAFETY_DELAY_HOURS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_submissions.log
           python tools/run_sec_13f_parser.py \
-            --filings-index data_pit/sec/sec_filings_index.parquet \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --output-dir data_pit/sec \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
@@ -161,6 +176,7 @@ jobs:
           name: sec-13f-quarterly-${{ github.run_id }}
           path: |
             data_pit/sec/sec_filings_index.*
+            data_pit/sec/13f_latest/sec_filings_index.*
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json
             outputs/sec_institutional_signals/

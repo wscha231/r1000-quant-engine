@@ -254,6 +254,32 @@ SEC_EVIDENCE_COLUMNS = [
     "evidence_confidence_score",
 ]
 
+# ETF holdings evidence overlay (2026-05-20): dynamic ETF look-through holdings
+# built by tools/run_etf_holdings_refresh.py. This is distinct from the older
+# theme leadership tape, which used curated look-through seeds and ETF
+# price/volume attention only.
+ETF_HOLDINGS_EVIDENCE_COLUMNS = [
+    "etf_consensus_count",
+    "etf_weight_sum",
+    "etf_recent_add_score",
+    "etf_theme_leadership_score",
+    "etf_crowding_score",
+    "etf_holdings_score",
+    "etf_evidence_confidence",
+]
+
+# Shadow evidence fusion columns. These are persisted for selection-quality,
+# leader-drop, and broker-ledger challenger analysis, not direct promotion.
+EVIDENCE_FUSION_COLUMNS = [
+    "sec_form4_score",
+    "sec_13f_score",
+    "etf_holdings_score_shadow",
+    "market_confirmation_score",
+    "sector_theme_leadership_score",
+    "macro_regime_fit_score",
+    "evidence_fusion_score",
+]
+
 # Phase 15-A (2026-04-28) cycle-leader rescue + earnings-revision catalyst.
 # Two new ML features that target the gap exposed by the SHIPPED Phase 14
 # scored_latest.csv: SNDK rank 37/595 score 3.69 was completely unassigned
@@ -2092,16 +2118,18 @@ class EngineConfig:
     # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
     w_short_extension_penalty: float = 0.20
 
-    # SEC evidence overlay weights (2026-05-20). LATEST-ONLY bonus, never
-    # added to walk-forward training (target leakage). w_sec_institutional
-    # multiplies the consolidated 13F institutional_evidence_score (range
-    # roughly [-1, +1] via codex/sec-evidence-support-audit). w_sec_insider
-    # multiplies the Form 4 early_evidence_score similarly. Both default to
-    # 0.0 so the overlay is dormant until the first sec_13f_quarterly_refresh
-    # + sec_form4_daily_refresh runs land artifacts under outputs/sec_*. Bump
-    # weights to 0.30/0.20 after first cron produces validated outputs.
+    # SEC/ETF evidence overlay weights (2026-05-20). These compute shadow
+    # components by default. They are added to live score only when
+    # evidence_fusion_apply_to_live_score is enabled after broker-ledger
+    # validation. Missing evidence is neutral, not a quality penalty.
     w_sec_institutional_evidence: float = 0.30
     w_sec_insider_evidence: float = 0.20
+    w_etf_holdings_evidence: float = 0.20
+    w_evidence_fusion_score: float = 1.00
+    evidence_fusion_apply_to_live_score: bool = False
+    sec_evidence_min_form4_signal_tickers: int = 300
+    sec_evidence_min_13f_signal_tickers: int = 100
+    sec_evidence_max_stale_days: int = 240
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
