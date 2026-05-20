@@ -124,5 +124,5 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           if [ -d outputs/smart_money ]; then
-            rclone copy outputs/smart_money "$BASEoutputs/smart_money/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+            rclone copy outputs/smart_money "${BASE}outputs/smart_money/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           fi
