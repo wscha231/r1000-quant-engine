@@ -2885,6 +2885,31 @@ def test_sec_evidence_score_overlay_wired() -> None:
     )
 
 
+@_test("regression.sec_evidence_loader_matches_workflow_outputs")
+def test_sec_evidence_loader_matches_workflow_outputs() -> None:
+    """The loader must read the actual filenames emitted by SEC workflows.
+
+    The 13F/Form 4 refresh jobs currently emit ``13f_latest`` and
+    ``form4_latest`` files. If the full rebuild only looks for a generic
+    ``signals_latest`` name, SEC overlay scores silently zero-fill.
+    """
+    features_src = _features_src() if "_features_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def load_sec_evidence_overlay\b.*?(?=^def |\Z)",
+        features_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "load_sec_evidence_overlay not found"
+    body = m.group(0)
+    for required in [
+        "13f_latest.parquet",
+        "13f_latest.csv",
+        "form4_latest.parquet",
+        "form4_latest.csv",
+    ]:
+        assert required in body, f"SEC overlay loader missing workflow output {required}"
+
+
 @_test("structural.sec_evidence_weight_cfg_fields")
 def test_sec_evidence_weight_cfg_fields() -> None:
     """2 new EngineConfig fields must exist: w_sec_institutional_evidence,

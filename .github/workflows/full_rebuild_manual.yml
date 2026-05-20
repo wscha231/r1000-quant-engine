@@ -178,6 +178,97 @@ jobs:
               print("[finnhub] WARN fallback parquet missing; Phase 15-D fallback will degrade")
           PY
 
+      - name: Restore SEC evidence overlays from Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals data_pit/sec
+          MANIFEST="outputs/full_rebuild_logs/sec_evidence_restore_manifest.json"
+          python - <<'PY' > "$MANIFEST"
+          import json
+          print(json.dumps({"gdrive_ready": False, "restored": [], "missing": [], "errors": []}, indent=2))
+          PY
+
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[sec-restore] no Google Drive auth configured; SEC overlay will use local/cache files only"
+            exit 0
+          fi
+
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+
+          RESTORED=""
+          MISSING=""
+          ERRORS=""
+          restore_dir() {
+            local d="$1"
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              if timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+                RESTORED="${RESTORED}${d}"$'\n'
+              else
+                ERRORS="${ERRORS}${d}"$'\n'
+                echo "[sec-restore] warning: restore for $d failed or timed out"
+              fi
+            else
+              MISSING="${MISSING}${d}"$'\n'
+              echo "[sec-restore] no Drive path for $d"
+            fi
+          }
+
+          restore_dir outputs/sec_institutional_signals
+          restore_dir outputs/sec_ownership_signals
+          restore_dir data_pit/sec
+
+          python - <<PY > "$MANIFEST"
+          import json
+          from pathlib import Path
+          restored = [x for x in """$RESTORED""".splitlines() if x]
+          missing = [x for x in """$MISSING""".splitlines() if x]
+          errors = [x for x in """$ERRORS""".splitlines() if x]
+          checks = {
+              "institutional_13f_latest": Path("outputs/sec_institutional_signals/13f_latest.csv").exists() or Path("outputs/sec_institutional_signals/13f_latest.parquet").exists(),
+              "institutional_signals_latest": Path("outputs/sec_institutional_signals/signals_latest.csv").exists() or Path("outputs/sec_institutional_signals/signals_latest.parquet").exists(),
+              "ownership_form4_latest": Path("outputs/sec_ownership_signals/form4_latest.csv").exists() or Path("outputs/sec_ownership_signals/form4_latest.parquet").exists(),
+              "ownership_signals_latest": Path("outputs/sec_ownership_signals/signals_latest.csv").exists() or Path("outputs/sec_ownership_signals/signals_latest.parquet").exists(),
+              "data_pit_sec_ownership_signals": Path("data_pit/sec/sec_ownership_signals.parquet").exists(),
+              "data_pit_13f_holdings": Path("data_pit/sec/institutional_13f_holdings.parquet").exists(),
+          }
+          print(json.dumps({
+              "gdrive_ready": True,
+              "restored": restored,
+              "missing": missing,
+              "errors": errors,
+              "checks": checks,
+          }, indent=2, sort_keys=True))
+          PY
+          cat "$MANIFEST"
+
       - name: Run FULL rebuild
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
