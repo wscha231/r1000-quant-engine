@@ -89,6 +89,17 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "entry_quality_score": 0.02,
         "industry_group_strength_score": 0.01,
     },
+    "smart_money_shadow": {
+        "smart_money_shadow_score": 0.30,
+        "evidence_fusion_score": 0.22,
+        "portfolio_future_winner_engine_score": 0.16,
+        "selection_market_confirmation_score": 0.12,
+        "leader_onset_sec_v3_score": 0.08,
+        "sec_combined_evidence_score": 0.04,
+        "etf_holdings_score": 0.03,
+        "rs_acceleration_score": 0.03,
+        "entry_quality_score": 0.02,
+    },
 }
 RISK_COLUMNS = ("portfolio_risk_entry_block_score", "portfolio_stale_mega_leader_score")
 
@@ -346,6 +357,10 @@ def build_target_book(
                     "early_evidence_score": safe_float(row.get("early_evidence_score")),
                     "institutional_evidence_score": safe_float(row.get("institutional_evidence_score")),
                     "sec_combined_evidence_score": safe_float(row.get("sec_combined_evidence_score")),
+                    "etf_holdings_score": safe_float(row.get("etf_holdings_score")),
+                    "smart_money_shadow_score": safe_float(row.get("smart_money_shadow_score")),
+                    "smart_money_evidence_source_count": safe_float(row.get("smart_money_evidence_source_count")),
+                    "evidence_fusion_score": safe_float(row.get("evidence_fusion_score")),
                     "sec_13f_manager_count": safe_float(row.get("sec_13f_manager_count")),
                     "sec_13f_buying_manager_count": safe_float(row.get("sec_13f_buying_manager_count")),
                     "sec_13f_value_delta_to_mcap": safe_float(row.get("sec_13f_value_delta_to_mcap")),

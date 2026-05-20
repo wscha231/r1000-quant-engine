@@ -22,7 +22,7 @@ on:
       max_variants:
         description: 'Max broker-grid variants per portfolio'
         type: string
-        default: '18'
+        default: '27'
 
 permissions:
   contents: read
@@ -70,6 +70,7 @@ jobs:
           path: |
             data_raw/sec
             data_pit/sec
+            data_pit/etf_holdings
             cache_prices
           key: sec-evidence-learning-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
@@ -121,7 +122,7 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in data_raw/sec data_pit/sec cache_prices; do
+          for d in data_raw/sec data_pit/sec data_pit/etf_holdings cache_prices; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
               rclone copy "$BASE$d" "$d/"
@@ -160,7 +161,7 @@ jobs:
         env:
           RUN_BROKER_GRID: ${{ github.event.inputs.run_broker_grid || 'false' }}
           COST_BPS: ${{ github.event.inputs.cost_bps || '25' }}
-          MAX_VARIANTS: ${{ github.event.inputs.max_variants || '18' }}
+          MAX_VARIANTS: ${{ github.event.inputs.max_variants || '27' }}
         run: |
           set -euo pipefail
           EXTRA=""
@@ -171,11 +172,12 @@ jobs:
             --candidate-book "$LATEST_RUN/reports/candidate_replay_book.csv" \
             --form4 data_pit/sec/form4_transactions.parquet \
             --institutional-13f data_pit/sec/institutional_13f_holdings.parquet \
+            --etf-holdings data_pit/etf_holdings/etf_holdings.parquet \
             --price-cache cache_prices \
             --output-dir outputs/sec_evidence_learning \
             --cost-bps "$COST_BPS" \
             --max-variants "$MAX_VARIANTS" \
-            --styles sec_evidence_shadow,leader_onset_shadow \
+            --styles sec_evidence_shadow,leader_onset_shadow,smart_money_shadow \
             --target-ns 3,5,7 \
             --single-name-caps 0.25,0.33,0.50 \
             $EXTRA \

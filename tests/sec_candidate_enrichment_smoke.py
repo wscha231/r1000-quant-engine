@@ -131,22 +131,52 @@ def _thirteen_f_rows() -> list[dict[str, object]]:
     ]
 
 
+def _etf_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "etf_ticker": "AIQ",
+            "etf_label": "AI ETF",
+            "theme": "ai_infra",
+            "holding_ticker": "AAPL",
+            "holding_name": "Apple Inc.",
+            "holding_weight": 0.08,
+            "source": "fixture",
+            "as_of_date": "2026-05-13T00:00:00+00:00",
+            "available_from": "2026-05-13T00:00:00+00:00",
+        },
+        {
+            "etf_ticker": "SEMI",
+            "etf_label": "Semi ETF",
+            "theme": "semis",
+            "holding_ticker": "AAPL",
+            "holding_name": "Apple Inc.",
+            "holding_weight": 0.05,
+            "source": "fixture",
+            "as_of_date": "2026-05-13T00:00:00+00:00",
+            "available_from": "2026-05-13T00:00:00+00:00",
+        },
+    ]
+
+
 def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         candidate = root / "candidate_replay_book.csv"
         form4 = root / "form4_transactions.parquet"
         holdings_13f = root / "institutional_13f_holdings.parquet"
+        etf_holdings = root / "etf_holdings.parquet"
         out = root / "sec_enriched"
         pd.DataFrame(_candidate_rows()).to_csv(candidate, index=False)
         pd.DataFrame(_form4_rows()).to_parquet(form4, index=False)
         pd.DataFrame(_thirteen_f_rows()).to_parquet(holdings_13f, index=False)
+        pd.DataFrame(_etf_rows()).to_parquet(etf_holdings, index=False)
 
         payload = run(
             argparse.Namespace(
                 candidate_book=str(candidate),
                 form4=str(form4),
                 institutional_13f=str(holdings_13f),
+                etf_holdings=str(etf_holdings),
                 output_dir=str(out),
                 lookback_days=90,
                 institutional_lookback_days=210,
@@ -158,6 +188,8 @@ def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
         assert payload["score_total_changed"] is False
         assert payload["rows_with_sec_evidence"] == 2
         assert payload["rows_with_13f_evidence"] == 3
+        assert payload["rows_with_etf_evidence"] == 2
+        assert payload["rows_with_smart_money_evidence"] == 3
         enriched = pd.read_csv(out / "candidate_replay_book_sec_enriched.csv")
         aapl_before = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-12")].iloc[0]
         aapl_after = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-13")].iloc[0]
@@ -168,9 +200,14 @@ def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
         assert float(aapl_after["evidence_confidence_score"]) > 0.0
         assert float(aapl_after["institutional_evidence_score"]) > 0.0
         assert float(aapl_after_13f["institutional_evidence_score"]) > 0.0
+        assert float(aapl_after_13f["etf_holdings_score"]) > 0.0
+        assert float(aapl_after_13f["smart_money_shadow_score"]) > 0.0
+        assert float(aapl_after_13f["evidence_fusion_score"]) > 0.0
+        assert float(aapl_after_13f["smart_money_evidence_source_count"]) >= 2.0
         assert float(aapl_after_13f["sec_13f_value_delta_usd"]) != float(aapl_after["sec_13f_value_delta_usd"])
         assert float(aapl_after_13f["sec_combined_evidence_score"]) >= float(aapl_after["early_evidence_score"]) * 0.45
         assert "leader_onset_sec_v3_score" in enriched.columns
+        assert "smart_money_shadow_score" in enriched.columns
         assert float(msft_after["early_evidence_score"]) == 0.0
         assert list(enriched["score_total"]) == [1.23, 2.34, 1.23, 2.34, 1.23, 2.34]
         assert "leader_onset_sec_v2_score" in enriched.columns

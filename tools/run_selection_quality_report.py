@@ -27,6 +27,8 @@ FACTOR_COLUMNS = [
     "leader_onset_sec_v2_score",
     "leader_onset_sec_v3_score",
     "evidence_fusion_score",
+    "smart_money_shadow_score",
+    "smart_money_evidence_source_count",
     "sec_form4_score",
     "sec_13f_score",
     "etf_holdings_score_shadow",

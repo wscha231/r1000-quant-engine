@@ -271,6 +271,48 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - First master run `26141259865` produced valid artifacts but did not sync to Google Drive because of the workflow path bug.
 
+### 14:42 KST - evidence-fusion-broker-ablation
+
+- scope:
+  - Extend the research-only evidence learning path so Smart Money evidence is computed point-in-time from Form 4, 13F, and ETF holdings snapshots before broker-ledger challenger tests. This connects the HedgeFollow-style report to candidate replay ablations without using the latest Top 30 file as historical input.
+- files:
+  - `tools/run_sec_enriched_candidate_replay.py` ->adds PIT ETF holdings enrichment, Smart Money shadow scoring, evidence fusion scoring, and idempotent refresh-column cleanup for already-enriched inputs.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds the `smart_money_shadow` selector style and carries Smart Money/fusion columns into target books.
+  - `tools/run_sec_evidence_learning_pipeline.py` ->passes ETF holdings into enrichment and adds Smart Money/fusion to the research-only weight grid.
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->restores `data_pit/etf_holdings`, passes `--etf-holdings`, includes `smart_money_shadow`, and raises default max variants to cover all styles.
+  - `tools/run_selection_quality_report.py` ->adds Smart Money shadow factors to selection-quality diagnostics.
+  - `r1000_config.py` ->registers Smart Money shadow columns as evidence-fusion columns.
+  - `tools/run_agent_board.py` ->includes `smart_money_shadow` in the planned main evidence challenger command.
+  - `tests/sec_candidate_enrichment_smoke.py` ->covers PIT ETF merge and Smart Money shadow scoring.
+  - `tests/sec_evidence_learning_pipeline_smoke.py` ->covers ETF-aware learning summary fields.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the new `smart_money_shadow` broker-grid style.
+- symbols_added:
+  - `_etf_available_series(frame)` ->normalizes ETF snapshot availability timestamps.
+  - `_etf_snapshot_asof(holdings, dt)` ->selects current and previous ETF snapshots available by a candidate date.
+  - `build_etf_features_by_date(etf_holdings, dates)` ->builds PIT ETF ticker signals per candidate rebalance date.
+  - `add_smart_money_shadow_scores(frame)` ->computes PIT Smart Money components, convergence bonus, risk penalty, and `evidence_fusion_score`.
+- symbols_changed:
+  - `enrich_candidate_book()` ->accepts ETF holdings and produces Form4/13F/ETF Smart Money shadow features without changing `score_total`.
+  - `summary_payload()` ->reports ETF and Smart Money evidence coverage.
+  - `run()` in `tools/run_sec_enriched_candidate_replay.py` ->adds `--etf-holdings`.
+  - `run()` in `tools/run_sec_evidence_learning_pipeline.py` ->passes ETF holdings through to candidate enrichment.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_evidence_learning/candidate_replay_book_sec_enriched.csv` ->now includes PIT ETF, Smart Money shadow, and evidence fusion columns.
+  - `outputs/sec_evidence_learning/alpha_selector_broker_grid/*/smart_money_shadow_*` ->research-only broker-ledger challenger outputs.
+- validation:
+  - `py -3 tests\sec_candidate_enrichment_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\sec_evidence_learning_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+- risks_or_notes:
+  - Smart Money latest reports remain current-only; historical broker tests use PIT Form4/13F/ETF snapshots to avoid leakage.
+  - Local full artifact enrichment against 530k 13F rows exceeded the interactive timeout; GitHub evidence-learning workflow remains the intended Tier 2 validation path.
+  - The prior SEC-only broker grid from run `26141692403` reached 22.00% CAGR but -35.74% MaxDD, so no promotion is allowed until the new Smart Money style proves better in broker-ledger metrics.
+
 ## 2026-05-14
 
 ## 2026-05-19

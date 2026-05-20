@@ -500,7 +500,7 @@ def build_task_queue(board: dict[str, Any]) -> list[dict[str, Any]]:
                 next_command=(
                     "python tools/run_alpha_selector_broker_grid.py --candidate-book "
                     "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv "
-                    "--portfolio-kind main --styles sec_evidence_shadow,leader_onset_shadow --target-ns 12,15,18"
+                    "--portfolio-kind main --styles sec_evidence_shadow,leader_onset_shadow,smart_money_shadow --target-ns 12,15,18"
                 ),
                 success_criteria=[
                     "Official broker-ledger CAGR exceeds 21.84%.",
