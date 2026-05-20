@@ -63,6 +63,14 @@ FORM13F_COLUMNS = [
     "filing_url",
 ]
 
+FORM13F_NUMERIC_COLUMNS = {
+    "shares",
+    "market_value_usd",
+    "voting_authority_sole",
+    "voting_authority_shared",
+    "voting_authority_none",
+}
+
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
@@ -371,6 +379,15 @@ def parse_13f_index(
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    frame = frame.copy()
+    for col in FORM13F_COLUMNS:
+        if col not in frame.columns:
+            frame[col] = 0.0 if col in FORM13F_NUMERIC_COLUMNS else ""
+    for col in FORM13F_NUMERIC_COLUMNS:
+        frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+    for col in [c for c in FORM13F_COLUMNS if c not in FORM13F_NUMERIC_COLUMNS]:
+        frame[col] = frame[col].fillna("").astype(str)
+    frame = frame[FORM13F_COLUMNS].copy()
     parquet_path = output_dir / "institutional_13f_holdings.parquet"
     csv_path = output_dir / "institutional_13f_holdings.csv"
     frame.to_parquet(parquet_path, index=False)

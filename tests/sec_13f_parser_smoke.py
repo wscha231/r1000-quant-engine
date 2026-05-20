@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -10,7 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml  # noqa: E402
+from tools.run_sec_13f_parser import market_value_usd, parse_13f_xml, write_outputs  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
 
@@ -114,7 +115,28 @@ def test_13f_signal_is_pit_and_scores_accumulation() -> None:
     assert "score_total" not in after.columns
 
 
+def test_13f_write_outputs_normalizes_parse_error_dtypes() -> None:
+    rows = _holding_rows()
+    rows.append(
+        {
+            **{key: "" for key in rows[0].keys()},
+            "manager_cik": "0000000003",
+            "manager_name": "Bad Filing",
+            "shares": "",
+            "market_value_usd": "",
+            "issuer_name": "PARSE_ERROR: bad fixture",
+        }
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = write_outputs(pd.DataFrame(rows), Path(tmp))
+        out = pd.read_parquet(paths["parquet"])
+        assert str(out["shares"].dtype).startswith("float")
+        assert str(out["market_value_usd"].dtype).startswith("float")
+        assert out["issuer_name"].astype(str).str.contains("PARSE_ERROR").any()
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
+    test_13f_write_outputs_normalizes_parse_error_dtypes()
     print("sec_13f_parser_smoke: PASS")
