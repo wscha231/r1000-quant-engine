@@ -168,6 +168,76 @@ jobs:
           fi
           echo "LATEST_RUN=$LATEST_RUN" >> "$GITHUB_ENV"
 
+      - name: Restore targeted price cache from Google Drive
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          mkdir -p cache_prices outputs/full_rebuild_logs
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          import pandas as pd
+
+          latest_run = Path(os.environ["LATEST_RUN"])
+          candidate_book = latest_run / "reports" / "candidate_replay_book.csv"
+          summary_path = Path("outputs/full_rebuild_logs/sec_learning_price_cache_restore.json")
+          manifest_path = Path("outputs/full_rebuild_logs/sec_learning_price_cache_files.txt")
+          frame = pd.read_csv(candidate_book, usecols=["ticker"])
+          tickers = sorted({
+              str(t).strip().upper()
+              for t in frame["ticker"].dropna()
+              if str(t).strip()
+          })
+          files = [hashlib.sha1(t.encode("utf-8")).hexdigest()[:16] + ".parquet" for t in tickers]
+          manifest_path.write_text("\n".join(files) + ("\n" if files else ""), encoding="utf-8")
+          summary_path.write_text(json.dumps({
+              "candidate_book": str(candidate_book),
+              "candidate_rows": int(len(frame)),
+              "unique_tickers": int(len(tickers)),
+              "requested_price_cache_files": int(len(files)),
+              "restored_price_cache_files": 0,
+              "research_only": True,
+              "production_activation_allowed": False,
+          }, indent=2), encoding="utf-8")
+          print(f"[price-cache] requested {len(files)} price cache files for {len(tickers)} tickers")
+          PY
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            echo "[price-cache] gdrive not configured; relying on actions/cache only"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          if ! rclone lsf "${BASE}cache_prices" >/dev/null 2>&1; then
+            echo "[price-cache] no Drive cache_prices source; relying on actions/cache only"
+            exit 0
+          fi
+          if ! timeout 10m rclone copy "${BASE}cache_prices" cache_prices/ \
+            --files-from outputs/full_rebuild_logs/sec_learning_price_cache_files.txt \
+            --transfers 8 --checkers 16 --stats 30s --stats-one-line; then
+            echo "[price-cache] warning: targeted Drive restore timed out or failed; continuing with restored subset"
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary_path = Path("outputs/full_rebuild_logs/sec_learning_price_cache_restore.json")
+          payload = json.loads(summary_path.read_text(encoding="utf-8"))
+          manifest = Path("outputs/full_rebuild_logs/sec_learning_price_cache_files.txt").read_text(encoding="utf-8").splitlines()
+          restored = sum(1 for name in manifest if (Path("cache_prices") / name).exists())
+          payload["restored_price_cache_files"] = int(restored)
+          payload["missing_price_cache_files"] = int(max(0, len(manifest) - restored))
+          summary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+          print(f"[price-cache] restored {restored}/{len(manifest)} requested files")
+          PY
+
       - name: Run SEC evidence learning
         env:
           RUN_BROKER_GRID: ${{ github.event.inputs.run_broker_grid || 'false' }}
@@ -202,6 +272,7 @@ jobs:
           path: |
             outputs/sec_evidence_learning/
             outputs/full_rebuild_logs/sec_evidence_learning.log
+            outputs/full_rebuild_logs/sec_learning_price_cache_*
           retention-days: 30
 
       - name: Sync SEC evidence learning to Google Drive

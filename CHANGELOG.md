@@ -334,6 +334,29 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Broker-grid price availability still depends on the GitHub `actions/cache` price cache restore. If that cache misses, the run will fail safely or produce unfilled targets instead of hanging in Drive restore.
 
+### 15:39 KST - sec-learning-targeted-price-cache-restore
+
+- scope:
+  - Add a targeted Google Drive price-cache restore to SEC evidence learning so Smart Money / SEC / ETF broker-grid ablations can evaluate target books without copying the entire `cache_prices` tree. The workflow now derives the exact price-cache parquet filenames from `reports/candidate_replay_book.csv`, restores only those files from Drive when available, and records restore counts as an audit artifact.
+- files:
+  - `.github/workflows/sec_evidence_learning_manual.yml` ->adds a candidate-ticker keyed `cache_prices` restore step before `tools/run_sec_evidence_learning_pipeline.py` and uploads the generated restore manifest/summary.
+  - `CHANGELOG.md` ->documents the workflow hardening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/full_rebuild_logs/sec_learning_price_cache_files.txt` ->requested price-cache filenames derived from candidate replay tickers.
+  - `outputs/full_rebuild_logs/sec_learning_price_cache_restore.json` ->candidate row count, unique ticker count, requested file count, restored file count, and missing file count.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+- risks_or_notes:
+  - This restores only price files for tickers present in the selected candidate replay book. If the source full-run artifact omits a ticker that a later selector would need, the selector will still correctly mark that ticker untradeable rather than fabricating prices.
+
 ## 2026-05-14
 
 ## 2026-05-19
