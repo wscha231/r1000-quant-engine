@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Money + ETF Multi-Sector Integration Plan</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+         background: #0d1117; color: #c9d1d9; max-width: 1200px; margin: 0 auto; padding: 24px;
+         line-height: 1.6; }
+  h1 { color: #58a6ff; border-bottom: 2px solid #30363d; padding-bottom: 12px; font-size: 28px; }
+  h2 { color: #79c0ff; margin-top: 32px; border-bottom: 1px solid #30363d; padding-bottom: 8px; }
+  h3 { color: #a5d6ff; margin-top: 24px; }
+  h4 { color: #d2a8ff; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; background: #161b22; }
+  th, td { padding: 8px 12px; border: 1px solid #30363d; text-align: left; font-size: 14px; }
+  th { background: #21262d; color: #58a6ff; font-weight: 600; }
+  tr:nth-child(even) td { background: #0d1117; }
+  tr:hover td { background: #1f2937; }
+  code { background: #21262d; padding: 2px 6px; border-radius: 4px; color: #d2a8ff; font-size: 13px; }
+  pre { background: #161b22; border: 1px solid #30363d; padding: 16px; border-radius: 6px; overflow-x: auto; }
+  pre code { background: none; padding: 0; color: #c9d1d9; }
+  .green { color: #3fb950; font-weight: 600; }
+  .red { color: #f85149; font-weight: 600; }
+  .yellow { color: #d29922; font-weight: 600; }
+  .blue { color: #58a6ff; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; margin-right: 4px; }
+  .badge-fixed { background: #1f6feb; color: #fff; }
+  .badge-dynamic { background: #8957e5; color: #fff; }
+  .badge-new { background: #238636; color: #fff; }
+  .badge-existing { background: #6e7681; color: #fff; }
+  .summary-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .target-banner { background: linear-gradient(135deg, #1f6feb, #8957e5); color: #fff; padding: 20px; border-radius: 8px; text-align: center; margin: 16px 0; }
+  ul { margin-left: 0; padding-left: 24px; }
+  .phase { background: #161b22; border-left: 4px solid #58a6ff; padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .phase-c1 { border-left-color: #d29922; }
+  .phase-c2 { border-left-color: #3fb950; }
+  .phase-c3 { border-left-color: #58a6ff; }
+  .phase-c4 { border-left-color: #d2a8ff; }
+  .phase-c5 { border-left-color: #f85149; }
+  .phase-c6 { border-left-color: #79c0ff; }
+  .phase-c7 { border-left-color: #a5d6ff; }
+  .formula { background: #1c2128; padding: 16px; border-radius: 6px; border: 1px solid #30363d; font-family: monospace; white-space: pre; overflow-x: auto; }
+  .toc { background: #161b22; border: 1px solid #30363d; padding: 16px; border-radius: 6px; margin: 16px 0; }
+  .toc a { color: #58a6ff; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>🎯 Smart Money + ETF Multi-Sector Integration Plan</h1>
+<p><strong>작성일:</strong> 2026-05-20 | <strong>대상:</strong> R1000 Quant Engine | <strong>목표:</strong> CAGR 32%+ / Sharpe 1.85+</p>
+
+<div class="target-banner">
+  <strong>현재 baseline</strong>: CAGR 29.19% / Sharpe 1.7249 / MaxDD -17.46% / 95% CI [17.4%, 46.6%]<br>
+  <strong>목표</strong>: CAGR 32%+ / Sharpe 1.85+ / MaxDD ≤ -18% / CI lower bound ≥ +0.5pp vs baseline
+</div>
+
+<div class="toc">
+  <h3 style="margin-top:0">목차</h3>
+  <ul>
+    <li><a href="#c1">C.1 — 2축 섹터 프레임워크</a></li>
+    <li><a href="#c2">C.2 — Tiered Score Formula</a></li>
+    <li><a href="#c3">C.3 — Fixed vs Dynamic 결정 매트릭스</a></li>
+    <li><a href="#c4">C.4 — Regime-Conditional 가중치 곱셈</a></li>
+    <li><a href="#c5">C.5 — 7단계 구현 Phase</a></li>
+    <li><a href="#c6">C.6 — 업데이트 주기 Matrix</a></li>
+    <li><a href="#c7">C.7 — A/B 검증 매트릭스</a></li>
+    <li><a href="#c8">C.8 — 수정 파일 목록</a></li>
+    <li><a href="#c9">C.9 — Risk + Mitigation</a></li>
+    <li><a href="#c10">C.10 — 실행 순서</a></li>
+    <li><a href="#c13">C.13 — hedgefollow 대비 차별점</a></li>
+  </ul>
+</div>
+
+<h2 id="c1">C.1 — 2축 섹터 프레임워크</h2>
+
+<div class="summary-card">
+  <h3>축 1: 시그널 섹터 (data source categories)</h3>
+  <ol>
+    <li>SEC 13F (institutional flow) — 14 columns</li>
+    <li>SEC Form 4 (insider flow) — 12 columns</li>
+    <li>ETF leadership (thematic momentum) — 17 ETFs daily</li>
+    <li class="green">NEW: Smart money convergence (institutional ∧ insider)</li>
+    <li class="green">NEW: Industry smart money flow (13F+Form4 aggregated by industry)</li>
+    <li>Fundamental (existing 10-Q based)</li>
+    <li>Technical (existing RS/MA/momentum)</li>
+    <li>Regime (existing macro state)</li>
+  </ol>
+</div>
+
+<div class="summary-card">
+  <h3>축 2: 산업 섹터 (sector exposure)</h3>
+  <ul>
+    <li>11 standard sectors: XLK / XLF / XLE / XLV / XLI / XLP / XLY / XLB / XLU / XLRE / XLC</li>
+    <li>8 curated thematic: AI / quantum / eVTOL / space / SMR / cybersec / biotech / battery</li>
+    <li class="green">Dynamic-discovered (top 30 ETFs by 6mo RS, monthly refresh)</li>
+    <li>Existing: <code>industry_group_strength_score</code>, <code>rs_industry_*</code>, <code>industry_within_leader_rank</code></li>
+  </ul>
+</div>
+
+<h2 id="c2">C.2 — Tiered Score Formula</h2>
+
+<div class="formula">score_final = (
+    # Tier 1: BASE — existing 14 components + satellite
+    score_core_v1                                  <span class="badge badge-fixed">FIXED</span>
+    + score_satellite                              <span class="badge badge-fixed">FIXED</span>
+
+    # Tier 2: NEW — multiplicative regime adjustment
+    * regime_multiplier[regime_state]              <span class="badge badge-dynamic">DYNAMIC lookup</span>
+
+    # Tier 3: EXISTING — short extension penalty
+    * (1 - w_short_extension_penalty * short_ext)  <span class="badge badge-fixed">FIXED 0.20</span>
+
+    # Tier 4: SEC overlays (PR #16, LATEST-only)
+    + w_sec_institutional_dynamic * inst * conf    <span class="badge badge-dynamic">DYNAMIC</span>
+    + w_sec_insider_dynamic * insider * conf       <span class="badge badge-dynamic">DYNAMIC</span>
+
+    # Tier 5: NEW — Smart Money Convergence bonus
+    + w_smart_money_convergence * convergence      <span class="badge badge-dynamic">DYNAMIC</span> <span class="badge badge-new">NEW</span>
+
+    # Tier 6: NEW — ETF leadership overlay
+    + w_etf_sector_leadership * etf_sector_score   <span class="badge badge-dynamic">DYNAMIC</span> <span class="badge badge-new">NEW</span>
+    + w_etf_thematic_alignment * theme_score       <span class="badge badge-dynamic">DYNAMIC</span> <span class="badge badge-new">NEW</span>
+
+    # Tier 7: NEW — Industry smart money tilt
+    + w_industry_smart_money_tilt * industry_flow  <span class="badge badge-dynamic">DYNAMIC</span> <span class="badge badge-new">NEW</span>
+)</div>
+
+<h3>Dynamic weight 계산 공식</h3>
+<div class="formula">def calc_dynamic_weight(base, ic_observed, regime, obs_count, max_cap):
+    ic_target = 0.020   # statistical significance threshold
+    ic_mult = clip(ic_observed / ic_target, 0.0, 1.5)
+    regime_mult = REGIME_WEIGHT_MULTIPLIERS[regime][signal_name]
+    conf_factor = sqrt(obs_count / 1000)   # 1000+ obs → 1.0, 100 obs → 0.32
+    return clip(base * ic_mult * regime_mult * conf_factor, 0.0, max_cap)</div>
+
+<h2 id="c3">C.3 — Fixed vs Dynamic 결정 매트릭스</h2>
+
+<table>
+  <thead>
+    <tr><th>Tier</th><th>Component</th><th>Type</th><th>업데이트 주기</th><th>Source</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>score_core 14 components</td><td><span class="badge badge-fixed">FIXED</span></td><td>3개월 (model retrain)</td><td>walk-forward ML</td></tr>
+    <tr><td>1</td><td>score_satellite</td><td><span class="badge badge-fixed">FIXED</span></td><td>Manual A/B</td><td>review-based</td></tr>
+    <tr><td>2</td><td>regime_multiplier (5×7 table)</td><td><span class="badge badge-dynamic">DYNAMIC lookup</span></td><td>분기</td><td>regime-conditional IC</td></tr>
+    <tr><td>3</td><td>short_extension_penalty</td><td><span class="badge badge-fixed">FIXED (0.20)</span></td><td>Manual</td><td>A/B verdict</td></tr>
+    <tr><td>4</td><td>w_sec_institutional</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>분기</td><td>sec_evidence_learning</td></tr>
+    <tr><td>4</td><td>w_sec_insider</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>분기</td><td>sec_evidence_learning</td></tr>
+    <tr><td>5</td><td>w_smart_money_convergence</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>분기</td><td>NEW learn fn</td></tr>
+    <tr><td>6</td><td>w_etf_sector_leadership</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>월</td><td>ETF leadership IC</td></tr>
+    <tr><td>6</td><td>w_etf_thematic_alignment</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>월</td><td>Theme IC</td></tr>
+    <tr><td>7</td><td>w_industry_smart_money_tilt</td><td><span class="badge badge-dynamic">DYNAMIC</span></td><td>분기</td><td>Industry flow IC</td></tr>
+  </tbody>
+</table>
+
+<h2 id="c4">C.4 — Regime-Conditional 가중치 곱셈</h2>
+
+<table>
+  <thead>
+    <tr><th>Regime</th><th>SEC 13F</th><th>SEC Form4</th><th>ETF</th><th>Convergence</th><th>Industry Tilt</th><th>핵심 이유</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="red">deep_bear</td><td>0.5</td><td>1.2</td><td>0.3</td><td>0.6</td><td>0.4</td><td>기관 panic-sell ↓, 인사이더 저점매수 ↑</td></tr>
+    <tr><td class="red">bear</td><td>0.7</td><td>1.0</td><td>0.5</td><td>0.8</td><td>0.6</td><td>기관 시그널 노이즈 ↑</td></tr>
+    <tr><td class="yellow">neutral</td><td>1.0</td><td>1.0</td><td>1.0</td><td>1.0</td><td>1.0</td><td>baseline</td></tr>
+    <tr><td class="green">bull</td><td>1.2</td><td>0.9</td><td>1.2</td><td>1.2</td><td>1.1</td><td>기관 crowding = momentum alpha</td></tr>
+    <tr><td class="green">strong_bull</td><td>1.0</td><td>0.7</td><td>1.3</td><td>1.3</td><td>1.2</td><td>ETF rotation 가장 강한 시그널</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Calibration</strong>: 분기 1회 <code>tools/run_regime_multiplier_calibrate.py</code> 실행. 각 cell ±0.1 조정 (18mo rolling regime-conditional IC 기반).</p>
+
+<h2 id="c5">C.5 — 7단계 구현 Phase</h2>
+
+<div class="phase phase-c1">
+  <h3>Phase C1 — Data Foundation (1주, BLOCKING)</h3>
+  <p><strong>수동 트리거 필요 (GitHub UI)</strong>:</p>
+  <ol>
+    <li><code>sec_13f_quarterly_refresh.yml</code> → <code>outputs/sec_institutional_signals/signals_latest.parquet</code></li>
+    <li><code>sec_form4_daily_refresh.yml</code> → <code>outputs/sec_ownership_signals/signals_latest.parquet</code></li>
+    <li>두 워크플로 완료 후: <code>sec_evidence_learning_manual.yml</code> →
+      <code>outputs/sec_evidence_learning/best_score_weights.json</code></li>
+  </ol>
+  <p><strong>검증</strong>: institutional + insider IC ≥ 0.02 OR plan revision needed</p>
+</div>
+
+<div class="phase phase-c2">
+  <h3>Phase C2 — Convergence + Industry Mapping (3일)</h3>
+  <p><strong>NEW 파일</strong>:</p>
+  <ul>
+    <li><code>tools/run_smart_money_convergence.py</code> — convergence_score 컬럼 (institutional > 0.6 AND insider > 0.6 within 30d)</li>
+    <li><code>tools/run_industry_smart_money_flow.py</code> — 산업별 13F+Form4 집계</li>
+  </ul>
+  <p><strong>수정</strong>:</p>
+  <ul>
+    <li><code>r1000_pipeline.py:add_total_score_columns</code> lines 1098-1107 — Tier 5, 7 추가</li>
+    <li><code>r1000_config.py</code> — <code>w_smart_money_convergence: 0.10</code>, <code>w_industry_smart_money_tilt: 0.08</code></li>
+  </ul>
+</div>
+
+<div class="phase phase-c3">
+  <h3>Phase C3 — ETF Universe 3-Layer 확장 (2일)</h3>
+  <table>
+    <thead><tr><th>Layer</th><th>내용</th><th>예시</th></tr></thead>
+    <tbody>
+      <tr><td>1 (기존)</td><td>17개 sector + theme ETFs</td><td>XLK, XLF, ARKK 등</td></tr>
+      <tr><td>2 (curated)</td><td>8개 신규 thematic ETFs</td><td>QTUM, BUG, BOTZ, CRPT, UFO, NLR, LIT, ARKG</td></tr>
+      <tr><td>3 (dynamic)</td><td>월간 RS 상위 30개 자동 발굴</td><td>AUM ≥ $100M, leverage=1.0, 6mo RS > median</td></tr>
+    </tbody>
+  </table>
+  <p><strong>NEW</strong>: <code>tools/refresh_etf_top_holdings.py</code>, <code>thematic_etf_universe.yaml</code></p>
+</div>
+
+<div class="phase phase-c4">
+  <h3>Phase C4 — Regime Multiplier Calibration (2일)</h3>
+  <p>NEW: <code>tools/run_regime_multiplier_calibrate.py</code></p>
+  <ol>
+    <li>지난 18mo feature_store 로드</li>
+    <li>(regime_state, signal) pair별 IC + decile spread 계산</li>
+    <li><code>new_mult = current_mult * clip(observed_ic / 0.02, 0.7, 1.3)</code></li>
+    <li>출력: <code>research/regime_weight_multipliers_YYYY-Q.yaml</code></li>
+    <li>multiplier shift > 0.1 시 PR 자동 생성</li>
+  </ol>
+</div>
+
+<div class="phase phase-c5">
+  <h3>Phase C5 — Full Auto Weight Promotion (3일, 가장 위험)</h3>
+  <p>NEW: <code>tools/run_weight_auto_promote.py</code></p>
+  <ol>
+    <li>읽기: <code>best_score_weights.json</code></li>
+    <li>검증: <code>tools/auto_policy_challenger.py</code> 하드 게이트 (broker_accounting, cost_sensitivity, feature_gate)</li>
+    <li>생성: r1000_config.py 가중치 필드만 diff</li>
+    <li>자동 PR: <code>claude/auto-weight-promote-YYYY-MM-DD</code></li>
+    <li>CI (validate + portfolio_guard) 실행</li>
+    <li class="green">자동 머지 조건 (AND): CI green AND 하드 게이트 통과 AND 분기당 ±30% 이하 AND skip-flag 없음</li>
+    <li class="red">실패 시: needs-review 라벨로 PR open</li>
+  </ol>
+  <p><strong>안전장치</strong>:</p>
+  <ul>
+    <li>롤백 트리거: 다음 달 verdict.log dCAGR < -1pp → 자동 revert + 30일 lock</li>
+    <li>수동 override: 커밋 메시지에 <code>[skip-auto-promote]</code> → 30일 차단</li>
+    <li>분기당 가중치 최대 ±30% 변경 제한</li>
+  </ul>
+</div>
+
+<div class="phase phase-c6">
+  <h3>Phase C6 — Top30 Standalone Product (2일, 병렬)</h3>
+  <p>NEW: <code>tools/run_smart_money_top30.py</code> → <code>outputs/smart_money/top30_latest.csv</code></p>
+  <p><strong>Schema</strong>: ticker, company, industry, gics_sector, composite_smart_money_score (0-100), institutional_evidence_score, breadth_rank, conviction_rank, manager_count, insider_evidence_score, cluster_buy_flag, ceo_cfo_buy_flag, insider_buy_dollars, etf_leadership_overlay, leading_etfs_list, convergence_flag, explanation_text</p>
+  <p><strong>NL 설명 예시</strong>: "AMZN: 12 top hedge funds added position (breadth #3), CEO bought $5M Form 4, leading 3 thematic ETFs. Smart money convergence: YES (45d)"</p>
+  <p>스케줄: 일별 09:00 KST. Telegram bot으로 신규 진입 top 5 push.</p>
+</div>
+
+<div class="phase phase-c7">
+  <h3>Phase C7 — Auto-Improvement (After-Service) Infrastructure (3일)</h3>
+  <table>
+    <thead><tr><th>구성</th><th>트리거</th><th>액션</th></tr></thead>
+    <tbody>
+      <tr><td>C7.1 Auto-retire 나쁜 시그널</td><td>분기 IC < 0.005 × 2분기 연속</td><td>auto-PR로 w = 0</td></tr>
+      <tr><td>C7.2 Auto-promote 좋은 시그널</td><td>분기 IC > 0.025 × 2분기 + broker_ledger replay 통과</td><td>auto-PR로 w = max_cap</td></tr>
+      <tr><td>C7.3 Auto-add 신규 매니저</td><td>3y backtest alpha > 1.5× 평균 AND CIK verified</td><td>managers.csv auto-append (6mo 검증 대기)</td></tr>
+      <tr><td>C7.4 Anomaly alerts (Telegram)</td><td>cash > 25% × 2회, risk_exits > 50/mo, CAGR drift > 5pp</td><td>일별 daily digest</td></tr>
+      <tr><td>C7.5 Auto-baseline rotation</td><td>SHIP verdict 통과</td><td>draft PR (human approval)</td></tr>
+      <tr><td>C7.6 Regime drift detection</td><td>rolling 12mo CAGR vs 8y > 5pp drift</td><td>강제 walk-forward retrain trigger</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2 id="c6">C.6 — 업데이트 주기 Matrix (최종)</h2>
+
+<table>
+  <thead><tr><th>Component</th><th>주기</th><th>Type</th><th>Workflow</th></tr></thead>
+  <tbody>
+    <tr><td>Form 4 data</td><td>일별 08:20 KST</td><td>scheduled</td><td><code>sec_form4_daily_refresh.yml</code></td></tr>
+    <tr><td>ETF leadership snapshot</td><td>일별</td><td>scheduled</td><td><code>after_close_daily.yml</code></td></tr>
+    <tr><td>Smart Money Top30 CSV</td><td>일별 09:00 KST</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>smart_money_top30_daily.yml</code></td></tr>
+    <tr><td>Anomaly monitor</td><td>일별</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>anomaly_monitor.yml</code></td></tr>
+    <tr><td>ETF universe dynamic discovery</td><td>월별</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>etf_universe_refresh.yml</code></td></tr>
+    <tr><td>ETF IC weight learn</td><td>월별</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>etf_weight_learn.yml</code></td></tr>
+    <tr><td>13F data</td><td>분기 (Feb/May/Aug/Nov 1-20)</td><td>scheduled</td><td><code>sec_13f_quarterly_refresh.yml</code></td></tr>
+    <tr><td>SEC IC weight learning</td><td>분기 (post-13F)</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>auto_weight_learn.yml</code></td></tr>
+    <tr><td>Auto weight promotion PR</td><td>분기</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>auto_weight_promote.yml</code></td></tr>
+    <tr><td>Regime multiplier 재보정</td><td>분기</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>regime_multiplier_calibrate.yml</code></td></tr>
+    <tr><td>Industry flow IC learn</td><td>분기</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>industry_flow_learn.yml</code></td></tr>
+    <tr><td>Manager reselection</td><td>반기 (Jun 5, Dec 5)</td><td>scheduled</td><td><code>sec_13f_manager_reselection.yml</code></td></tr>
+    <tr><td>Auto-retire/promote signals</td><td>분기</td><td>scheduled</td><td><span class="badge badge-new">NEW</span> <code>signal_lifecycle.yml</code></td></tr>
+    <tr><td>Walk-forward ML retrain</td><td>3개월 (per-window)</td><td>per-fold</td><td>r1000_pipeline.py 기존</td></tr>
+    <tr><td>FULL_REBUILD</td><td>on-demand</td><td>manual</td><td><code>full_rebuild_manual.yml</code></td></tr>
+    <tr><td>Baseline rotation</td><td>SHIP 후</td><td>semi-auto</td><td><span class="badge badge-new">NEW</span> <code>auto_baseline_proposal.yml</code></td></tr>
+  </tbody>
+</table>
+
+<h2 id="c7">C.7 — A/B 검증 매트릭스 (Phase Δ)</h2>
+
+<table>
+  <thead><tr><th>Run</th><th>SEC</th><th>ETF</th><th>Convergence</th><th>Regime Mult</th><th>Industry Tilt</th><th>예상 CAGR</th></tr></thead>
+  <tbody>
+    <tr><td>A (baseline)</td><td>OFF</td><td>OFF</td><td>OFF</td><td>OFF</td><td>OFF</td><td>29.19% (현재)</td></tr>
+    <tr><td>B (SEC only)</td><td class="green">learned</td><td>OFF</td><td>OFF</td><td>OFF</td><td>OFF</td><td>~30-31%</td></tr>
+    <tr><td>C (ETF only)</td><td>OFF</td><td class="green">learned</td><td>OFF</td><td>OFF</td><td>OFF</td><td>~30%</td></tr>
+    <tr><td>D (convergence only)</td><td>OFF</td><td>OFF</td><td class="green">ON</td><td>OFF</td><td>OFF</td><td>~29.5%</td></tr>
+    <tr><td>E (additive 전부)</td><td class="green">learned</td><td class="green">learned</td><td class="green">ON</td><td>OFF</td><td class="green">learned</td><td>~31-32%</td></tr>
+    <tr style="background:#1f6feb20"><td><strong>F (E + regime mult)</strong></td><td class="green">learned</td><td class="green">learned</td><td class="green">ON</td><td class="green"><strong>ON</strong></td><td class="green">learned</td><td><strong>목표 32%+</strong></td></tr>
+  </tbody>
+</table>
+
+<p><strong>SHIP gate (F vs A)</strong>:</p>
+<ul>
+  <li>dCAGR ≥ +1.5pp</li>
+  <li>dSharpe ≥ -0.05</li>
+  <li>dMaxDD ≥ -3pp</li>
+  <li>early_scout count ≥ 4</li>
+  <li>Bootstrap CI lower bound ≥ +0.5pp dCAGR</li>
+</ul>
+
+<h2 id="c8">C.8 — 수정 파일 목록</h2>
+
+<table>
+  <thead><tr><th>File</th><th>Change Type</th><th>LoC</th></tr></thead>
+  <tbody>
+    <tr><td><code>r1000_config.py</code></td><td>가중치 6개 + regime_multiplier dict 추가</td><td>+60</td></tr>
+    <tr><td><code>r1000_pipeline.py:add_total_score_columns</code></td><td>Tier 2,5,6,7 적용</td><td>+80</td></tr>
+    <tr><td><code>r1000_features.py:load_sec_evidence_overlay</code></td><td>ETF + convergence 컬럼 로드 확장</td><td>+40</td></tr>
+    <tr><td><code>r1000_signals.py</code></td><td>NEW <code>compute_industry_smart_money_tilt()</code></td><td>+60</td></tr>
+    <tr><td><code>tools/run_smart_money_convergence.py</code></td><td><span class="badge badge-new">NEW</span> Phase C2</td><td>~200</td></tr>
+    <tr><td><code>tools/run_industry_smart_money_flow.py</code></td><td><span class="badge badge-new">NEW</span> Phase C2</td><td>~180</td></tr>
+    <tr><td><code>tools/run_smart_money_top30.py</code></td><td><span class="badge badge-new">NEW</span> Phase C6</td><td>~250</td></tr>
+    <tr><td><code>tools/refresh_etf_top_holdings.py</code></td><td><span class="badge badge-new">NEW</span> Phase C3</td><td>~220</td></tr>
+    <tr><td><code>tools/run_regime_multiplier_calibrate.py</code></td><td><span class="badge badge-new">NEW</span> Phase C4</td><td>~150</td></tr>
+    <tr><td><code>tools/run_weight_auto_promote.py</code></td><td><span class="badge badge-new">NEW</span> Phase C5</td><td>~300</td></tr>
+    <tr><td><code>tools/run_anomaly_monitor.py</code></td><td><span class="badge badge-new">NEW</span> Phase C7</td><td>~180</td></tr>
+    <tr><td>7개 GitHub workflow YAML 파일</td><td><span class="badge badge-new">NEW</span> 자동화</td><td>~410</td></tr>
+    <tr><td><code>thematic_etf_universe.yaml</code></td><td><span class="badge badge-new">NEW</span> 25 ETFs</td><td>~50</td></tr>
+    <tr><td><code>research/auto_signal_status.yaml</code></td><td><span class="badge badge-new">NEW</span> tracker</td><td>~30</td></tr>
+    <tr><td><code>tests/smoke_test.py</code></td><td>12-15개 신규 테스트</td><td>+200</td></tr>
+  </tbody>
+</table>
+
+<p><strong>합계</strong>: ~2,300 LoC NEW (11 tools + 7 workflows + 2 configs + tests) + ~240 LoC 수정</p>
+
+<h2 id="c9">C.9 — Risk + Mitigation</h2>
+
+<table>
+  <thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Full Auto promotion 오버피팅</td><td class="red">🔴 HIGH</td><td>auto_policy_challenger 하드 게이트 + 분기당 ±30% 제한 + dCAGR < -1pp 시 자동 revert</td></tr>
+    <tr><td>Q1 13F 데이터 sparse (May 15 마감 직후)</td><td class="yellow">🟡 MED</td><td>Q1 coverage < 60% 시 Q4 2025 fallback</td></tr>
+    <tr><td>ETF dynamic discovery noise</td><td class="yellow">🟡 MED</td><td>AUM ≥ $100M, 6mo history, leverage/inverse 제외</td></tr>
+    <tr><td>Convergence 희소 (커버리지 부족)</td><td class="green">🟢 LOW</td><td>월 30개 미만 시 Tier 5 가중치 반감</td></tr>
+    <tr><td>Regime multiplier 오버피팅</td><td class="yellow">🟡 MED</td><td>18mo rolling 재보정, 단일 분기 X</td></tr>
+    <tr><td>Industry tilt 과도 집중</td><td class="yellow">🟡 MED</td><td>단일 산업 < 30% 하드캡</td></tr>
+    <tr><td>Auto-PR spam</td><td class="green">🟢 LOW</td><td>분기 변경 1개 PR 묶음, 가중치당 변동 5% 미만이면 skip</td></tr>
+    <tr><td>Top30 follower behavior (시장 추종 위험)</td><td class="yellow">🟡 MED</td><td>standalone 상품과 메인 포트폴리오 분리 (자동매매 X)</td></tr>
+    <tr><td>Telegram alert fatigue</td><td class="green">🟢 LOW</td><td>일별 digest, per-event X; 동일 alert 중복 suppression</td></tr>
+  </tbody>
+</table>
+
+<h2 id="c10">C.10 — 실행 순서 + 총 공수</h2>
+
+<div class="formula">Week 1: Phase C1 (data foundation) — BLOCKING
+        ├─ Manual: trigger sec_13f_quarterly_refresh + sec_form4_daily_refresh
+        └─ Wait for first IC measurement (5-7일)
+
+Week 2: Phase C2 (convergence + industry) [3d] + Phase C3 (ETF 확장) [2d]
+        └─ Parallel: Phase C6 (Top30 standalone) [2d]
+
+Week 3: Phase C4 (regime multipliers) [2d] + Phase C7 (after-service) [3d]
+        └─ Anomaly monitor + auto-retire/promote infra
+
+Week 4: Phase C5 (Full Auto promotion) [3d] + 통합 테스트
+        └─ 가장 위험 — extensive dry-run 필요
+
+Week 5: A/B cloud rebuild matrix (Phase Δ)
+        ├─ 6 runs: A/B/C/D/E/F
+        ├─ Compare to current 29.19% baseline
+        └─ Baseline rotation if F passes SHIP gate</div>
+
+<p><strong>총 16-18일 dev + ~5일 cloud rebuild 측정</strong></p>
+
+<h3>가장 leverage 높은 첫 액션</h3>
+<div class="summary-card">
+  <p><strong>Phase C1 manual trigger</strong> — GitHub UI에서 즉시:</p>
+  <ol>
+    <li><code>sec_13f_quarterly_refresh.yml</code> (master)</li>
+    <li><code>sec_form4_daily_refresh.yml</code> (master)</li>
+  </ol>
+  <p>이 아티팩트 없이는 C2-C7 모두 이론에 불과. cron으로 자동 실행되지만 (다음: 8월 1-20일), 지금 트리거하면 방금 마감된 Q1 2026 13F 즉시 캡처 가능.</p>
+</div>
+
+<h2 id="c13">C.13 — hedgefollow.com 대비 차별점</h2>
+
+<table>
+  <thead><tr><th>기능</th><th>hedgefollow (유료)</th><th>우리 시스템 (Plan C 후)</th></tr></thead>
+  <tbody>
+    <tr><td>13F 매니저 추적</td><td>✅</td><td>✅ (34 verified)</td></tr>
+    <tr><td>Form 4 인사이더 매수</td><td>✅</td><td>✅</td></tr>
+    <tr><td>AI 랭킹 설명</td><td>✅ (유료)</td><td>✅ templated NL</td></tr>
+    <tr><td>펀더멘털 통합 (10-Q)</td><td class="red">❌</td><td class="green">✅ 8년 SEC EDGAR</td></tr>
+    <tr><td>기술적 신호 (RS/MA/모멘텀)</td><td class="red">❌</td><td class="green">✅</td></tr>
+    <tr><td>매크로 레짐 게이트</td><td class="red">❌</td><td class="green">✅ 5단계 분류기</td></tr>
+    <tr><td>자동 리스크 관리 (DD 브레이커)</td><td class="red">❌</td><td class="green">✅</td></tr>
+    <tr><td>ETF leadership 3-layer</td><td class="red">❌</td><td class="green">✅ (17+8+30 dynamic)</td></tr>
+    <tr><td>Industry smart money tilt</td><td class="red">❌</td><td class="green">✅ (C2)</td></tr>
+    <tr><td>Convergence detection</td><td>🟡 partial</td><td class="green">✅ (C2)</td></tr>
+    <tr><td>8년 walk-forward 검증</td><td class="red">❌</td><td class="green">✅</td></tr>
+    <tr><td>IC-learned dynamic 가중치</td><td class="red">❌</td><td class="green">✅ (C5 full auto)</td></tr>
+    <tr><td>Auto-improvement loop</td><td class="red">❌</td><td class="green">✅ (C7)</td></tr>
+    <tr><td>Anomaly + drift alerts</td><td class="red">❌</td><td class="green">✅ Telegram (C7)</td></tr>
+  </tbody>
+</table>
+
+<div class="target-banner">
+  <strong>결론</strong>: Plan C 실행 후 우리 시스템은 구조적으로 우월합니다. 같은 13F+Form4 입력이지만 10× 더 많은 컨텍스트 레이어 + 자동 학습 루프 + 프로덕션급 리스크 관리.
+</div>
+
+</body>
+</html>
