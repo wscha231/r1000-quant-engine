@@ -4969,10 +4969,14 @@ def load_sec_evidence_overlay(
         "institutional": [
             base / "sec_institutional_signals" / "signals_latest.parquet",
             base / "sec_institutional_signals" / "signals_latest.csv",
+            base / "sec_institutional_signals" / "13f_latest.parquet",
+            base / "sec_institutional_signals" / "13f_latest.csv",
         ],
         "ownership": [
             base / "sec_ownership_signals" / "signals_latest.parquet",
             base / "sec_ownership_signals" / "signals_latest.csv",
+            base / "sec_ownership_signals" / "form4_latest.parquet",
+            base / "sec_ownership_signals" / "form4_latest.csv",
         ],
     }
     frames: list[pd.DataFrame] = []
