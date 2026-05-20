@@ -216,6 +216,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - Fresh run `26139649983` proved 13F signals are nonzero (`signal_tickers=2297`) but exposed low manager coverage under the old `max_filings` ordering.
   - Full rebuild remains blocked until a fresh 13F refresh shows nonzero mapped tickers and healthy institutional signals.
 
+### 13:21 KST - smart-money-top30-research-report
+
+- scope:
+  - Add a HedgeFollow-style standalone Smart Money Top 30 report that combines research-only SEC 13F institutional signals, Form 4 insider buying signals, and thematic ETF holdings signals without changing production scoring. The report is intended as a review surface and a candidate source for later broker-ledger challenger ablations.
+- files:
+  - `tools/run_smart_money_top30.py` ->new standalone ranking tool that reads `outputs/sec_institutional_signals/13f_latest.csv`, `outputs/sec_ownership_signals/form4_latest.csv`, and `outputs/etf_thematic_signals/signals_latest.csv`.
+  - `.github/workflows/smart_money_top30_refresh.yml` ->new daily/manual workflow that restores evidence outputs from Google Drive, builds the Smart Money report, uploads artifacts, and syncs `outputs/smart_money` back to Drive.
+  - `tests/smart_money_top30_smoke.py` ->new smoke coverage for convergence ranking and research-only output metadata.
+  - `tools/run_pr_validation.py` ->adds the Smart Money smoke test to Tier-0/Tier-1 validation.
+- symbols_added:
+  - `build_smart_money_rank(institutional, form4, etf, *, institutional_weight, insider_weight, etf_weight)` ->combines 13F, Form 4, and ETF evidence into a ranked research-only DataFrame.
+  - `render_report(summary, top)` ->writes the markdown Top 30 report table.
+  - `read_table(path)` ->loads CSV or parquet evidence inputs.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->adds `tests/smart_money_top30_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/smart_money/top30_latest.csv` ->latest Top-N smart-money ranking.
+  - `outputs/smart_money/smart_money_ranked.csv` ->full ranked universe from available evidence.
+  - `outputs/smart_money/smart_money_summary.json` ->research-only guard metadata and source row counts.
+  - `outputs/smart_money/report.md` ->human-readable report.
+- validation:
+  - `py -3 tests\smart_money_top30_smoke.py` ->PASS.
+  - Local dry-run on runs `26140153256`, `26140811543`, and `26140811557` ->ranked 3,064 tickers from 3,318 13F rows, 914 Form 4 rows, and 114 ETF rows.
+- risks_or_notes:
+  - This is not a production promotion path; `research_only=true`, `production_activation_allowed=false`, and `score_total_changed=false`.
+  - ETF weights are currently weak when the upstream provider returns zero holding weights; consensus-count and theme evidence still work, but issuer CSV fallbacks should be improved before relying on ETF weight sums.
+  - Full CAGR/MDD impact remains unproven until Tier 2 broker-ledger ablations run.
+
 ## 2026-05-14
 
 ## 2026-05-19
