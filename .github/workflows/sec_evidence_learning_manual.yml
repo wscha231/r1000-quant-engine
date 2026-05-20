@@ -22,7 +22,7 @@ on:
       max_variants:
         description: 'Max broker-grid variants per portfolio'
         type: string
-        default: '27'
+        default: '36'
 
 permissions:
   contents: read
@@ -258,7 +258,7 @@ jobs:
             --output-dir outputs/sec_evidence_learning \
             --cost-bps "$COST_BPS" \
             --max-variants "$MAX_VARIANTS" \
-            --styles sec_evidence_shadow,leader_onset_shadow,smart_money_shadow \
+            --styles future_winner_smart_money,sec_evidence_shadow,leader_onset_shadow,smart_money_shadow \
             --target-ns 3,5,7 \
             --single-name-caps 0.25,0.33,0.50 \
             $EXTRA \

@@ -469,10 +469,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="sec_evidence_shadow,leader_onset_shadow,smart_money_shadow")
+    parser.add_argument(
+        "--styles",
+        default="future_winner_smart_money,sec_evidence_shadow,leader_onset_shadow,smart_money_shadow",
+    )
     parser.add_argument("--target-ns", default="3,5,7")
     parser.add_argument("--single-name-caps", default="0.25,0.33,0.50")
-    parser.add_argument("--max-variants", type=int, default=18)
+    parser.add_argument("--max-variants", type=int, default=36)
     parser.add_argument("--min-market-cap-usd", type=float, default=1_000_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=20_000_000.0)
     parser.add_argument("--min-price", type=float, default=5.0)
