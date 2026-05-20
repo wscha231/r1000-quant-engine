@@ -184,6 +184,9 @@ def load_auto_learning_evidence(
     legacy_concentrated_metrics = read_json(run_path / "concentrated_backtest_metrics.json")
     broker_main_metrics = read_json(run_path / "broker_replay" / "main" / "metrics.json")
     broker_concentrated_metrics = read_json(run_path / "broker_replay" / "concentrated" / "metrics.json")
+    weekly_leader_summary = read_json(run_path / "weekly_leader_snapshots" / "summary.json")
+    weekly_leader_main_metrics = read_json(run_path / "weekly_leader_broker_replay" / "main" / "metrics.json")
+    weekly_leader_concentrated_metrics = read_json(run_path / "weekly_leader_broker_replay" / "concentrated" / "metrics.json")
     main_metrics = {**legacy_main_metrics, **broker_main_metrics} if broker_main_metrics else legacy_main_metrics
     concentrated_metrics = (
         {**legacy_concentrated_metrics, **broker_concentrated_metrics}
@@ -213,6 +216,9 @@ def load_auto_learning_evidence(
             "feature_gate_candidate": str(feature_gate_path),
             "main_metrics": str(run_path / "broker_replay" / "main" / "metrics.json" if broker_main_metrics else run_path / "backtest_metrics.json"),
             "concentrated_metrics": str(run_path / "broker_replay" / "concentrated" / "metrics.json" if broker_concentrated_metrics else run_path / "concentrated_backtest_metrics.json"),
+            "weekly_leader_summary": str(run_path / "weekly_leader_snapshots" / "summary.json"),
+            "weekly_leader_main_metrics": str(run_path / "weekly_leader_broker_replay" / "main" / "metrics.json"),
+            "weekly_leader_concentrated_metrics": str(run_path / "weekly_leader_broker_replay" / "concentrated" / "metrics.json"),
             "main_v2_audit": str(root_path / "outputs" / "main_v2" / "main_v2_audit_latest.json"),
             "concentrated_policy_audit": str(root_path / "outputs" / "concentrated_policy" / "policy_audit_latest.json"),
             "alpha_sprint_latest": str(root_path / "outputs" / "alpha_sprint" / "alpha_sprint_latest.json"),
@@ -232,5 +238,15 @@ def load_auto_learning_evidence(
             "candidate_count": (alpha_sprint_latest.get("audit") or {}).get("candidate_count", 0),
             "active": (alpha_sprint_latest.get("audit") or {}).get("active", False),
             "capacity": (alpha_sprint_latest.get("audit") or {}).get("capacity", 0.0),
+        },
+        "weekly_leader_entry": {
+            "available": bool(weekly_leader_summary),
+            "status": weekly_leader_summary.get("status"),
+            "data_mode": weekly_leader_summary.get("data_mode"),
+            "snapshot_summary": weekly_leader_summary.get("snapshot_summary", {}),
+            "main": weekly_leader_main_metrics,
+            "concentrated": weekly_leader_concentrated_metrics,
+            "main_cagr_delta_vs_broker": safe_float(weekly_leader_main_metrics.get("cagr")) - safe_float(broker_main_metrics.get("cagr")) if weekly_leader_main_metrics and broker_main_metrics else 0.0,
+            "concentrated_cagr_delta_vs_broker": safe_float(weekly_leader_concentrated_metrics.get("cagr")) - safe_float(broker_concentrated_metrics.get("cagr")) if weekly_leader_concentrated_metrics and broker_concentrated_metrics else 0.0,
         },
     }

@@ -64,8 +64,14 @@ SYNC_FILES = [
 
 SYNC_DIRS = [
     "reports",
+    "target_snapshots",
+    "data_readiness",
     "trade_journal",
     "broker_replay",
+    "event_target_books",
+    "event_broker_replay",
+    "weekly_leader_snapshots",
+    "weekly_leader_broker_replay",
     "broker_trade_journal",
     "account_ledger_preview",
     "account_evaluation",

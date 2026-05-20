@@ -238,7 +238,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "# Account Evaluation",
         "",
         "Official performance evidence uses broker-ledger replay with next-close fills, integer shares, cash, and transaction costs.",
-        "Legacy weight-level backtest metrics are retained only as research comparison fields.",
+        "Legacy weight-level backtest metrics are retained only as research comparison fields and cannot produce a production SHIP verdict.",
         "",
         "## Official Targets",
         "",

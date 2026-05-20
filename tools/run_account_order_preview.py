@@ -323,6 +323,98 @@ def build_orders(
     return out
 
 
+def build_projected_positions_after_orders(
+    *,
+    current: pd.DataFrame,
+    orders: pd.DataFrame,
+    starting_cash: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Project account weights after applying the preview orders.
+
+    This is not a fill ledger and does not mutate the historical replay. It is
+    a user-facing bridge that answers: if the ready preview orders were filled
+    at their reference prices, what would the account roughly look like?
+    """
+    lots: dict[str, dict[str, float]] = {}
+    if not current.empty:
+        for row in current.to_dict("records"):
+            ticker = normalize_ticker(row.get("ticker"))
+            if not ticker or ticker in CASH_TICKERS:
+                continue
+            price = safe_float(row.get("price"), np.nan)
+            if not np.isfinite(price) or price <= 0:
+                continue
+            lots[ticker] = {
+                "shares": safe_float(row.get("shares"), 0.0),
+                "price": price,
+            }
+    projected_cash = float(starting_cash)
+    if not orders.empty:
+        for row in orders.to_dict("records"):
+            status = str(row.get("status") or "")
+            qty = safe_float(row.get("quantity"), 0.0)
+            if qty <= 0 or status.startswith("blocked"):
+                continue
+            ticker = normalize_ticker(row.get("ticker"))
+            if not ticker or ticker in CASH_TICKERS:
+                continue
+            price = safe_float(row.get("reference_price"), np.nan)
+            if not np.isfinite(price) or price <= 0:
+                continue
+            lot = lots.setdefault(ticker, {"shares": 0.0, "price": price})
+            lot["price"] = price
+            side = str(row.get("side") or "").upper()
+            if side == "BUY":
+                lot["shares"] = safe_float(lot.get("shares"), 0.0) + qty
+            elif side == "SELL":
+                lot["shares"] = max(0.0, safe_float(lot.get("shares"), 0.0) - qty)
+            projected_cash += safe_float(row.get("cash_impact_usd"), 0.0)
+
+    rows: list[dict[str, Any]] = []
+    stock_value = 0.0
+    for ticker, lot in sorted(lots.items()):
+        shares = safe_float(lot.get("shares"), 0.0)
+        if shares <= 1e-12:
+            continue
+        price = safe_float(lot.get("price"), np.nan)
+        market_value = shares * price
+        stock_value += market_value
+        rows.append(
+            {
+                "row_type": "equity",
+                "ticker": ticker,
+                "projected_shares": shares,
+                "reference_price": price,
+                "projected_market_value_usd": market_value,
+            }
+        )
+    projected_equity = stock_value + projected_cash
+    if projected_equity > 0:
+        for row in rows:
+            row["projected_weight"] = safe_float(row.get("projected_market_value_usd"), 0.0) / projected_equity
+        rows.append(
+            {
+                "row_type": "cash",
+                "ticker": "CASH",
+                "projected_shares": 0.0,
+                "reference_price": 1.0,
+                "projected_market_value_usd": projected_cash,
+                "projected_weight": projected_cash / projected_equity,
+            }
+        )
+    frame = pd.DataFrame(rows)
+    if not frame.empty:
+        frame = frame.sort_values(["row_type", "projected_weight"], ascending=[False, False]).reset_index(drop=True)
+    metrics = {
+        "projected_equity_usd": float(projected_equity),
+        "projected_cash_usd": float(projected_cash),
+        "projected_cash_weight": float(projected_cash / projected_equity) if projected_equity > 0 else np.nan,
+        "projected_stock_value_usd": float(stock_value),
+        "projected_position_count": int(sum(1 for row in rows if row.get("row_type") == "equity")),
+    }
+    return frame, metrics
+
+
 def attach_client_order_ids(orders: pd.DataFrame, *, portfolio_kind: str, as_of_date: pd.Timestamp) -> pd.DataFrame:
     """Attach deterministic idempotency keys to preview orders."""
     if orders.empty:
@@ -367,6 +459,8 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- As-of date: `{payload.get('as_of_date')}`",
         f"- Equity: ${safe_float(payload.get('equity_usd')):,.2f}",
         f"- Cash: ${safe_float(payload.get('cash_usd')):,.2f} ({safe_float(payload.get('cash_weight')):.2%})",
+        f"- Target cash weight: {safe_float(payload.get('target_cash_weight')):.2%}",
+        f"- Projected cash after preview orders: ${safe_float(payload.get('projected_cash_usd')):,.2f} ({safe_float(payload.get('projected_cash_weight')):.2%})",
         f"- Orders: {int(safe_float(payload.get('order_count')))}",
         f"- Buys: ${safe_float(payload.get('buy_gross_usd')):,.2f}",
         f"- Sells: ${safe_float(payload.get('sell_gross_usd')):,.2f}",
@@ -422,6 +516,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     current.to_csv(output_dir / "positions_current.csv", index=False)
     target.to_csv(output_dir / "target_weights.csv", index=False)
     orders.to_csv(output_dir / "orders_preview.csv", index=False)
+    projected, projected_metrics = build_projected_positions_after_orders(
+        current=current,
+        orders=orders,
+        starting_cash=cash,
+    )
+    projected.to_csv(output_dir / "projected_positions_after_orders.csv", index=False)
     manifest_payload = {
         "schema_version": "account-ledger-preview-order-batch-v1",
         "portfolio_kind": args.portfolio_kind,
@@ -440,6 +540,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     buy_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("BUY"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     sell_gross = float(orders.loc[orders.get("side", pd.Series(dtype=str)).eq("SELL"), "gross_value_usd"].sum()) if not orders.empty else 0.0
     fees = float(pd.to_numeric(orders.get("estimated_fee_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not orders.empty else 0.0
+    target_stock_weight = float(pd.to_numeric(target.get("target_weight", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not target.empty else 0.0
+    target_cash_weight = max(0.0, 1.0 - target_stock_weight)
+    if abs(target_cash_weight) < 1e-9:
+        target_cash_weight = 0.0
     payload = {
         "status": "completed",
         "schema_version": "account-ledger-preview-v1",
@@ -455,6 +559,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "equity_usd": float(equity),
         "cash_usd": float(cash),
         "cash_weight": float(cash / equity) if equity > 0 else np.nan,
+        "target_cash_weight": float(target_cash_weight),
+        **projected_metrics,
         "position_count": int(len(current)),
         "target_count": int(len(target[target["ticker"].astype(str).str.upper() != "CASH"])) if not target.empty else 0,
         "order_count": int(len(orders)),

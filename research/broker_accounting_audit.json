@@ -1,0 +1,34 @@
+{
+  "schema_version": "broker-accounting-audit-v1",
+  "as_of_utc": "2026-05-12T07:13:00Z",
+  "purpose": "Single source of truth for broker-ledger replay accounting known biases. tools/auto_policy_challenger.py reads this file and refuses to mark a policy production-ready while critical bias flags are still false. Update one flag per bug fix; do not flip a flag without landing a regression test that demonstrates the fix.",
+  "hard_gates": {
+    "delisted_cost_basis_fallback_eliminated": {
+      "value": false,
+      "evidence_path": "tools/run_broker_ledger_replay.py:313-315",
+      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_delisted_position_currently_marks_at_cost_basis",
+      "rationale": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD."
+    },
+    "survivorship_coverage_audited": {
+      "value": false,
+      "evidence_path": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "smoke_test": null,
+      "rationale": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD."
+    }
+  },
+  "soft_gates": {
+    "multi_day_fill_date_stamping_corrected": {
+      "value": false,
+      "evidence_path": "tools/run_broker_ledger_replay.py:552-611",
+      "smoke_test": "tests/broker_ledger_correctness_smoke.py::test_multi_day_fill_uses_min_fill_date_for_stamp",
+      "rationale": "When per-ticker fill dates span multiple days, every trade is stamped with min(fill_dt_by_ticker.values()) instead of each ticker's actual_dt. Cash is debited earlier than the trade could have happened in reality. Minor for liquid R1000 universe but should be corrected."
+    },
+    "sharpe_uses_excess_return": {
+      "value": false,
+      "evidence_path": "tools/run_broker_ledger_replay.py:394",
+      "smoke_test": null,
+      "rationale": "Sharpe is computed with risk_free=0. Over 2019-2026 the average T-bill yield is ~2-3%, so reported Sharpe is overstated by ~0.20-0.30. Sharpe-based gates inherit this bias until risk-free series is subtracted."
+    }
+  },
+  "promotion_policy": "While any hard gate is false, auto_policy_challenger.py emits a hard failure for that bias and refuses to approve production promotion of broker-ledger-derived policies. Soft gates emit warnings but do not block. Sidecars and counterfactual reviews remain useful at the proposal-only level."
+}

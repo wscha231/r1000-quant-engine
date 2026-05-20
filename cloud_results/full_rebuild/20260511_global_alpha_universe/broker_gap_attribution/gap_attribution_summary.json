@@ -1,0 +1,79 @@
+{
+  "concentrated": {
+    "broker_ledger": {
+      "avg_cash_weight": 0.000438173991728232,
+      "broker_cagr": 0.31306004125285103,
+      "broker_max_dd_daily": -0.3923096979843662,
+      "broker_max_dd_month_end": -0.29420772028965736,
+      "broker_sharpe": 1.0506311027845716,
+      "end_date": "2026-05-08",
+      "gross_traded_on_starting_capital": 258.1905210688496,
+      "gross_traded_usd": 25819052.106884956,
+      "metric_mode": "broker_ledger_next_close",
+      "start_date": "2019-05-01",
+      "status": "completed",
+      "total_fees_usd": 64547.630267212386,
+      "trade_count": 401
+    },
+    "cagr_gap_pp": 21.3118,
+    "daily_vs_month_end_dd_gap_pp": 9.8102,
+    "diagnosis": [
+      "high monthly target turnover creates execution cost and churn drag",
+      "monthly/proxy drawdown understates intramonth account drawdown",
+      "fees are material under realistic turnover"
+    ],
+    "portfolio": "concentrated",
+    "target_forward": {
+      "avg_name_jaccard": 0.28170731707317076,
+      "avg_names": 3.0,
+      "avg_target_turnover": 0.6341494596311978,
+      "avg_target_weight_sum": 1.0,
+      "legacy_implied_cagr": 0.5261777517870396,
+      "legacy_implied_max_dd": -0.1420326177125414,
+      "metric_mode": "monthly_weighted_forward_return_diagnostic",
+      "status": "completed",
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
+      "uses_forward_returns": true
+    }
+  },
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "main": {
+    "broker_ledger": {
+      "avg_cash_weight": 0.053161870119544145,
+      "broker_cagr": 0.21091695275130307,
+      "broker_max_dd_daily": -0.31687963309928746,
+      "broker_max_dd_month_end": -0.28028653003269277,
+      "broker_sharpe": 1.0028760256935103,
+      "end_date": "2026-05-08",
+      "gross_traded_on_starting_capital": 158.02174002266406,
+      "gross_traded_usd": 15802174.002266407,
+      "metric_mode": "broker_ledger_next_close",
+      "start_date": "2019-05-01",
+      "status": "completed",
+      "total_fees_usd": 39505.43500566602,
+      "trade_count": 2636
+    },
+    "cagr_gap_pp": 13.3691,
+    "daily_vs_month_end_dd_gap_pp": 3.6593,
+    "diagnosis": [
+      "high monthly target turnover creates execution cost and churn drag",
+      "monthly/proxy drawdown understates intramonth account drawdown",
+      "cash/rounding/unfilled exposure drag is material",
+      "fees are material under realistic turnover"
+    ],
+    "portfolio": "main",
+    "target_forward": {
+      "avg_name_jaccard": 0.44662769941426944,
+      "avg_names": 23.91566265060241,
+      "avg_target_turnover": 0.5320873489687201,
+      "avg_target_weight_sum": 0.999999999999999,
+      "legacy_implied_cagr": 0.34460783957077834,
+      "legacy_implied_max_dd": -0.13328782842210984,
+      "metric_mode": "monthly_weighted_forward_return_diagnostic",
+      "status": "completed",
+      "target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
+      "uses_forward_returns": true
+    }
+  },
+  "metric_mode": "broker_gap_attribution"
+}

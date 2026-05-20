@@ -463,6 +463,21 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with no-trade bands, staged entries, minimum holding, and winner trim deferral.",
     )
+    main += candidate_from_json_metric_validity(
+        latest_run / "broker_crisis_reentry_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_crisis_reentry_fast_reentry",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger conversion of the crisis cash ladder / bargain re-entry target book.",
+    )
+    main += candidate_from_json(
+        latest_run / "weekly_leader_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_weekly_leader_entry_broker_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only account-ledger replay of weekly new-leader entries from monthly PIT candidates plus daily price leadership signals.",
+    )
     concentrated += candidate_from_json(
         latest_run / "concentrated_policy_replay" / "metrics.json",
         portfolio="concentrated",
@@ -507,6 +522,14 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_execution_policy_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger replay with concentrated no-trade bands, staged entries, minimum holding, and winner trim deferral.",
+    )
+    concentrated += candidate_from_json(
+        latest_run / "weekly_leader_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_weekly_leader_entry_broker_replay",
+        source_label="sidecar",
+        valid_for_production=False,
+        notes="Research-only account-ledger replay of concentrated weekly new-leader entries from monthly PIT candidates plus daily price leadership signals.",
     )
     concentrated += candidate_from_json(
         latest_run / "monster_lifecycle_replay" / "metrics.json",

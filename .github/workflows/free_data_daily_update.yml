@@ -143,6 +143,11 @@ jobs:
               rclone copy "$BASE$d" "$d/"
             fi
           done
+          mkdir -p data_raw/free/sec
+          if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive] restoring existing root companyfacts.zip -> data_raw/free/sec/companyfacts.zip"
+            rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+          fi
 
       - name: Run free data daily validation
         if: steps.market.outputs.ready == 'yes'
@@ -164,6 +169,7 @@ jobs:
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/main_monthly_weights.csv" --price-cache cache_prices --portfolio-kind main --output-dir outputs/free_data_proxy_backtest/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_main.log || true
           python tools/run_broker_ledger_replay.py --target-book "$LATEST/reports/concentrated_strategy_holdings.csv" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/free_data_proxy_backtest/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/free_data_daily_proxy_concentrated.log || true
           python tools/run_free_data_engine_validation.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
+          python tools/check_10y_backtest_readiness.py --latest-run "$LATEST" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
 
       - name: Upload daily validation artifact
         if: always()
@@ -175,7 +181,9 @@ jobs:
             outputs/free_data_lake_bootstrap/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
+            outputs/ten_year_backtest_readiness/
             outputs/full_rebuild_logs/free_data_*.log
+            outputs/full_rebuild_logs/ten_year_backtest_readiness.log
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
           retention-days: 90
@@ -203,3 +211,4 @@ jobs:
           done
           rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
+          rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"

@@ -84,6 +84,8 @@ from r1000_config import (
     PHASE9_C3_TURNAROUND_COLUMNS,
     PHASE11_MULTIBAGGER_COLUMNS,
     PHASE14_HYBRID_ALPHA_COLUMNS,
+    SHORT_RS_TRAP_COLUMNS,
+    SEC_EVIDENCE_COLUMNS,
     PHASE15_ALPHA_COLUMNS,
     PHASE17_EXPLOSION_COLUMNS,
     PHASE17_REGIME_STATE_COLUMNS,
@@ -281,6 +283,11 @@ from r1000_features import (
     compute_h6_dynamic_leader_score,
     compute_stage2_overext_penalty,
     compute_theme_phase_features,
+    # Short-RS trap (2026-05-13): split short/long RS + chase-extension penalty
+    compute_rs_short_long_scores,
+    compute_short_extension_risk_penalty,
+    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    load_sec_evidence_overlay,
     compute_explosion_likelihood_score,
     compute_regime_state_classifier,
     compute_cycle_recovery_score,
@@ -719,16 +726,59 @@ def add_core_fundamental_minimum_flags(df: pd.DataFrame, cfg: EngineConfig) -> p
     d["early_scout_confirmation_score"] = early_confirmation
     d["adr_global_alpha_confirmation_score"] = adr_confirmation
     d["adr_global_alpha_fallback_pass"] = adr_fallback_pass
+
+    # Strategic turnaround bypass (2026-05-13): allow large-cap turnaround
+    # candidates (INTC, IBM, etc) that fail CORE_FUNDAMENTAL_MINIMUM (because
+    # net_income is negative or unstable) BUT show evidence of profitability
+    # recovery via ni_loss_narrowing_4q / any_profitability_turn_positive_4q.
+    # Gated to strategic_curated overlay tickers only — never opens the entire
+    # universe to negative-NI names.
+    universe_source = d.get("universe_source", pd.Series("", index=d.index)).astype(str)
+    strategic_curated = universe_source.str.contains(
+        "strategic_global_hardware", case=False, na=False, regex=False
+    )
+    ni_loss_narrowing = pd.to_numeric(
+        d.get("ni_loss_narrowing_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    any_profit_turn = pd.to_numeric(
+        d.get("any_profitability_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    profit_turn_4q = pd.to_numeric(
+        d.get("profit_turn_positive_4q", pd.Series(0.0, index=d.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    mktcap_live = pd.to_numeric(
+        d.get("market_cap_live", d.get("mktcap", pd.Series(0.0, index=d.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    # Megacap floor: only $10B+ qualifies for the bypass (filters out
+    # speculative biotech/penny-stock turnaround stories).
+    megacap_floor = mktcap_live >= 10e9
+    turnaround_evidence = (
+        (ni_loss_narrowing > 0.5)
+        | (any_profit_turn > 0.5)
+        | (profit_turn_4q > 0.5)
+    )
+    strategic_turnaround_pass = (
+        strategic_curated & megacap_floor & turnaround_evidence
+    )
+
     d["sector_adjusted_fundamental_pass"] = sector_adjusted_pass
     d["partial_scout_fundamental_pass"] = partial_scout_pass
-    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass
-    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass
+    d["strategic_turnaround_fundamental_pass"] = strategic_turnaround_pass
+    d["future_winner_fundamental_pass"] = full_pass | sector_adjusted_pass | future_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
+    d["early_scout_fundamental_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | early_relaxed_pass | adr_fallback_pass | strategic_turnaround_pass
     d["fundamental_lane_label"] = "insufficient"
     d.loc[adr_fallback_pass, "fundamental_lane_label"] = "adr_global_alpha_fallback"
     d.loc[partial_scout_pass, "fundamental_lane_label"] = "partial_scout"
     d.loc[sector_adjusted_pass, "fundamental_lane_label"] = "sector_adjusted"
+    d.loc[strategic_turnaround_pass, "fundamental_lane_label"] = "strategic_turnaround"
     d.loc[full_pass, "fundamental_lane_label"] = "full_ttm"
-    d["core_fundamental_minimum_pass"] = full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass
+    d["core_fundamental_minimum_pass"] = (
+        full_pass | sector_adjusted_pass | partial_scout_pass | adr_fallback_pass | strategic_turnaround_pass
+    )
     return d
 
 
@@ -989,6 +1039,19 @@ def add_total_score_columns(
     )
     d["score_market_fallback_confirmation"] = market_fallback_confirmation
     d["score_fundamental_confidence"] = score_fundamental_confidence
+
+    # Short-RS separation component (2026-05-13): reward positive short-term RS,
+    # penalize negative. Acts independently of long-RS to give 1m/3m weakness
+    # explicit weight rather than averaging it out with 6m/12m signals.
+    rs_short_w = float(getattr(cfg, "w_rs_short_score", 0.35))
+    rs_short_breakdown_w = float(getattr(cfg, "w_rs_short_breakdown_penalty", 0.55))
+    rs_short = numeric_series_or_default(d, "rs_short_score", 0.0)
+    rs_short_breakdown = numeric_series_or_default(d, "rs_short_breakdown_penalty", 0.0)
+    d["score_rs_short_long_separation"] = (
+        rs_short_w * rs_short
+        - rs_short_breakdown_w * rs_short_breakdown
+    ).fillna(0.0)
+
     d["score_core"] = (
         d["score_model_core"]
         + d["score_quality_core"]
@@ -1002,6 +1065,7 @@ def add_total_score_columns(
         + d["score_strategy_blueprint"]
         + d["score_multidimensional_confirmation"]
         + d["score_fundamental_reliability_adjustment"]
+        + d["score_rs_short_long_separation"]
         - d["score_missing_fundamental_penalty"]
     )
     d["score_satellite"] = d["score_flow_satellite"]
@@ -1010,6 +1074,38 @@ def add_total_score_columns(
     d["score_model"] = d["score_core"]
     d["score_live_overlay"] = d["score_forward_revision_satellite"]
     d["score"] = d["score_core"] + (d["score_satellite"] if include_satellite else 0.0)
+
+    # Short-extension multiplicative penalty (2026-05-13): apply AFTER score is
+    # summed so a single-month parabolic move docks the entire score by up to
+    # 20% (when not exempted by structural-growth confirmation).
+    short_ext_w = float(getattr(cfg, "w_short_extension_penalty", 0.20))
+    short_ext_penalty = numeric_series_or_default(d, "short_extension_risk_penalty", 0.0).clip(
+        lower=0.0, upper=1.0
+    )
+    d["score"] = d["score"] * (1.0 - short_ext_w * short_ext_penalty).fillna(1.0)
+
+    # SEC evidence overlay (2026-05-20): LATEST-ONLY bonus from 13F + Form 4.
+    # Both signals are populated only for the latest scoring rows; historical
+    # walk-forward rows have zero-filled columns (no leakage). Weights default
+    # to 0.30 / 0.20 — flip lower or higher via cfg.w_sec_institutional_evidence
+    # / cfg.w_sec_insider_evidence after first cron run validates the data.
+    w_inst = float(getattr(cfg, "w_sec_institutional_evidence", 0.0))
+    w_insider = float(getattr(cfg, "w_sec_insider_evidence", 0.0))
+    inst_score = numeric_series_or_default(d, "institutional_evidence_score", 0.0)
+    inst_conf = numeric_series_or_default(d, "institutional_evidence_confidence_score", 0.0)
+    insider_score = numeric_series_or_default(d, "early_evidence_score", 0.0)
+    insider_conf = numeric_series_or_default(d, "evidence_confidence_score", 0.0)
+    d["score_sec_institutional_overlay"] = (
+        w_inst * inst_score * inst_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["score_sec_insider_overlay"] = (
+        w_insider * insider_score * insider_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["score"] = (
+        d["score"]
+        + d["score_sec_institutional_overlay"]
+        + d["score_sec_insider_overlay"]
+    )
     return d
 
 
@@ -8001,6 +8097,20 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         for _p14_col in PHASE14_HYBRID_ALPHA_COLUMNS:
             universe[_p14_col] = 0.0
 
+    # Short-RS trap (2026-05-13): split short/long RS components + short-horizon
+    # chase-extension penalty (PLTR/IONQ style protection). Runs after Phase 14
+    # so theme_horizon_primary is populated for the structural-growth exemption.
+    if phase_is_enabled("short_rs_trap", default=True):
+        universe = compute_rs_short_long_scores(universe)
+        universe = compute_short_extension_risk_penalty(universe)
+    else:
+        log(
+            "[short_rs_trap] disabled via env PHASE_SHORT_RS_TRAP_ENABLED=0 "
+            "- zero-filling short-RS trap columns."
+        )
+        for _srs_col in SHORT_RS_TRAP_COLUMNS:
+            universe[_srs_col] = 0.0
+
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst.
     # Runs AFTER Phase 14 because cycle_recovery uses any_profit_sign_flip_pos
     # (Phase 9 C3 flag) and mom_24m / mom_3m / mom_6m (already in universe).
@@ -8128,12 +8238,14 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + PHASE9_C3_TURNAROUND_COLUMNS
             + PHASE11_MULTIBAGGER_COLUMNS
             + PHASE14_HYBRID_ALPHA_COLUMNS
+            + SHORT_RS_TRAP_COLUMNS
+            + SEC_EVIDENCE_COLUMNS
             + PHASE15_ALPHA_COLUMNS
             + PHASE17_EXPLOSION_COLUMNS
             + PHASE17_REGIME_STATE_COLUMNS
             + PHASE20_THEME_POLICY_COLUMNS
             + PHASE21_STYLE_REGIME_COLUMNS
-            + ["applied_gates_count", "pattern_blocked"]
+            + ["applied_gates_count", "pattern_blocked", "strategic_turnaround_fundamental_pass"]
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
@@ -8164,6 +8276,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
         + PHASE9_C3_TURNAROUND_COLUMNS
         + PHASE11_MULTIBAGGER_COLUMNS
         + PHASE14_HYBRID_ALPHA_COLUMNS
+        + SHORT_RS_TRAP_COLUMNS
         + PHASE15_ALPHA_COLUMNS
         + PHASE17_EXPLOSION_COLUMNS
         + [
@@ -8626,6 +8739,7 @@ _ACTIONABLE_LEAKAGE_EXACT_COLUMNS = {
     "risk_adjusted_forward_return",
     "future_return",
     "forward_return",
+    "forward_return_coverage_score",
 }
 
 
@@ -11781,6 +11895,28 @@ def backtest_portfolio(
         metrics["benchmark_ending_capital_usd"] = np.nan
     metrics["ending_capital_usd"] = float(ret_df["equity_value_usd"].iloc[-1])
 
+    # Phase X0 S3-1 (2026-05-12): bootstrap CI on backtest metrics.
+    # Wires r1000_bootstrap_ci.compute_bootstrap_ci_from_returns() so the
+    # single-path CAGR/Sharpe/MaxDD numbers gain explicit 95% confidence
+    # intervals. Block-bootstrap (3mo blocks) on monthly net_return +
+    # bench_return preserves autocorrelation. Non-fatal: if module missing or
+    # too few months, metrics["bootstrap_ci"] = {bootstrap_skipped: True}.
+    try:
+        from r1000_bootstrap_ci import compute_bootstrap_ci_from_returns
+        bench_for_ci = ret_df["bench_return"] if "bench_return" in ret_df.columns else None
+        metrics["bootstrap_ci"] = compute_bootstrap_ci_from_returns(
+            ret_df["net_return"].to_numpy(),
+            bench_rets=(bench_for_ci.to_numpy() if bench_for_ci is not None else None),
+            n_bootstrap=2000,
+            block_size=3,
+            seed=42,
+        )
+    except Exception as _bootstrap_exc:
+        metrics["bootstrap_ci"] = {
+            "bootstrap_skipped": True,
+            "reason": f"exception: {type(_bootstrap_exc).__name__}: {_bootstrap_exc}",
+        }
+
     holdings_df = pd.DataFrame(holdings_rows)
     if not holdings_df.empty:
         stock_names = holdings_df[
@@ -12042,6 +12178,24 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             }
         _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
         latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
+        # SEC evidence overlay merge (2026-05-20) — LATEST-only enrichment from
+        # 13F (sec_13f_quarterly_refresh.yml) + Form 4 (sec_form4_daily_refresh
+        # .yml). When the artifacts are absent the merge is a no-op and all
+        # downstream score components zero-fill cleanly.
+        try:
+            sec_overlay = load_sec_evidence_overlay(base_dir=paths.get("out", paths.get("base")))
+            if not sec_overlay.empty and "ticker" in sec_overlay.columns:
+                overlay_cols = [c for c in sec_overlay.columns if c != "ticker"]
+                drop_existing = [c for c in overlay_cols if c in latest_df.columns]
+                if drop_existing:
+                    latest_df = latest_df.drop(columns=drop_existing)
+                latest_df = latest_df.merge(sec_overlay, on="ticker", how="left")
+                log(
+                    f"[sec-evidence] overlay applied: {len(sec_overlay)} rows, "
+                    f"{len(overlay_cols)} columns merged into latest_df."
+                )
+        except Exception as _sec_exc:
+            log(f"[sec-evidence] overlay skipped: {_sec_exc}")
         latest_df = add_total_score_columns(
             latest_df,
             cfg,
@@ -12381,7 +12535,11 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.02,
             early_scout_sleeve_max_weight=0.18,
             early_scout_growth_floor_weight=0.10,
-            early_scout_growth_floor_min_signal=0.34,
+            # Phase X0 S2-1 (2026-05-12): defensive policy growth_floor 0.34 -> 0.25
+            # so even when this defensive policy is chosen the early_scout floor
+            # can still fire, breaking the "defensive wins -> no early_scout"
+            # circular pattern that produced early_scout=3 PARTIAL verdicts.
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.60,
             future_winner_entry_weight_cap=0.07,
             future_winner_drift_weight_cap=0.12,
@@ -12393,7 +12551,12 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.25,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.07,
-            cash_target_mild_risk_cap=0.18,
+            # Phase X0 S2-5 (2026-05-12): defensive cash_target_mild_risk_cap
+            # 0.18 -> 0.10. The 18% was the primary contributor to the observed
+            # 28% cash. 10% retains drawdown protection but allows more capital
+            # to work in non-crisis periods (user critique #9: "8년간 평균 cash
+            # 18%는 명백한 실패").
+            cash_target_mild_risk_cap=0.10,
             min_dynamic_port_names=18,
         ),
         candidate(
@@ -12470,7 +12633,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.06,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.18,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.55,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.28,
@@ -12494,7 +12657,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.04,
             early_scout_sleeve_max_weight=0.42,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.14,
             future_winner_drift_weight_cap=0.28,
@@ -12518,7 +12681,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.08,
             early_scout_sleeve_max_weight=0.48,
             early_scout_growth_floor_weight=0.22,
-            early_scout_growth_floor_min_signal=0.30,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.48,
             future_winner_entry_weight_cap=0.15,
             future_winner_drift_weight_cap=0.30,
@@ -12542,7 +12705,7 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             early_scout_sleeve_min_weight=0.05,
             early_scout_sleeve_max_weight=0.55,
             early_scout_growth_floor_weight=0.20,
-            early_scout_growth_floor_min_signal=0.32,
+            early_scout_growth_floor_min_signal=0.25,
             early_scout_growth_floor_max_risk=0.45,
             future_winner_entry_weight_cap=0.16,
             future_winner_drift_weight_cap=0.32,
@@ -12598,7 +12761,8 @@ def generate_sleeve_cap_policy_candidates(cfg: dict | EngineConfig) -> list[dict
             stock_weight_max_high_conviction=0.40,
             cash_target_growth_cap=0.03,
             cash_target_balanced_cap=0.06,
-            cash_target_mild_risk_cap=0.16,
+            # Phase X0 S2-5: 0.16 -> 0.08
+            cash_target_mild_risk_cap=0.08,
             min_dynamic_port_names=12,
         ),
         candidate(
@@ -14695,9 +14859,17 @@ def build_latest_concentrated_holdings(
         "target_cagr": float(getattr(cfg_obj, "concentrated_target_cagr", 0.40)),
         "target_max_dd": float(getattr(cfg_obj, "concentrated_target_max_dd", -0.22)),
         "target_pass": bool(goal_pass),
-        "production_valid": bool(metrics_valid and len(selected) >= min_names),
+        "legacy_metric_mode": "weight_level_research_deprecated",
+        "official_metric_required": "broker_ledger_next_close",
+        "production_valid": False,
+        "production_valid_reason": (
+            "deprecated_weight_level_monthly_metric; official production evidence must come from "
+            "broker_replay/concentrated/metrics.json or account_evaluation/official_metrics.json"
+        ),
         "operating_notes": [
-            "Run a full rebalance monthly.",
+            "Research-only monthly comparison. Do not use these metrics as a production SHIP gate.",
+            "Official performance must be judged by broker-ledger replay with next-close fills, integer shares, cash, and costs.",
+            "Run a full rebalance monthly only if the broker-ledger/account evaluation also passes.",
             f"Run monitoring checks every {int(getattr(cfg_obj, 'concentrated_monitoring_review_days', 7))} days.",
             "Use concentrated holdings as a separate sleeve from the main portfolio.",
             "Allow immediate review if exit risk spikes or breakout support fails.",

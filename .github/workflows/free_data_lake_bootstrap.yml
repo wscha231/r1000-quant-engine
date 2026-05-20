@@ -136,6 +136,11 @@ jobs:
           restore_dir data_pit/free data_pit/free
           restore_dir manifests/free_data manifests/free_data
           restore_dir cache_prices cache_prices
+          mkdir -p data_raw/free/sec
+          if [ ! -s data_raw/free/sec/companyfacts.zip ] && rclone lsf "$BASE" --files-only 2>/dev/null | grep -qx 'companyfacts.zip'; then
+            echo "[gdrive] restoring existing root companyfacts.zip -> data_raw/free/sec/companyfacts.zip"
+            rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+          fi
 
       - name: Bootstrap free data lake
         env:
@@ -173,6 +178,12 @@ jobs:
           set -euo pipefail
           python tools/run_free_data_engine_validation.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/free_data_engine_validation.log
 
+      - name: Audit 10-year backtest readiness
+        if: always()
+        run: |
+          set -euo pipefail
+          python tools/check_10y_backtest_readiness.py --latest-run "${{ inputs.latest_run }}" 2>&1 | tee outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+
       - name: Upload bootstrap artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -183,8 +194,10 @@ jobs:
             outputs/free_data_lake_bootstrap/
             outputs/free_data_proxy_backtest/
             outputs/free_data_engine_validation/
+            outputs/ten_year_backtest_readiness/
             outputs/full_rebuild_logs/free_data_proxy_replay_*.log
             outputs/full_rebuild_logs/free_data_engine_validation.log
+            outputs/full_rebuild_logs/ten_year_backtest_readiness.log
             data_pit/free/coverage_audit.json
             manifests/free_data/latest_manifest.json
             data_raw/free/prices/replay_price_cache_manifest.json
@@ -225,3 +238,4 @@ jobs:
           sync_dir outputs/free_data_lake_bootstrap research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_lake_bootstrap
           sync_dir outputs/free_data_proxy_backtest research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest
           sync_dir outputs/free_data_engine_validation research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation
+          sync_dir outputs/ten_year_backtest_readiness research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness

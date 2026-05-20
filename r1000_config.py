@@ -200,6 +200,60 @@ PHASE14_HYBRID_ALPHA_COLUMNS = [
     "theme_phase_multiplier_max",           # themes.yaml phase classifier (max across themes)
 ]
 
+# Short-RS trap (2026-05-13) — split short (1m+3m) from long (6m+12m) RS so
+# PLTR-style single-month breakdown gets explicit penalty rather than being
+# averaged out across periods. short_extension_risk_penalty fires on parabolic
+# single-month moves not backed by structural-growth + multi-year momentum.
+# Defined in r1000_features.py compute_rs_short_long_scores +
+# compute_short_extension_risk_penalty. Constant mirrored here so all
+# PHASE*_COLUMNS-style splices reach r1000_pipeline.build_feature_store
+# keep_cols + hard_sanitize via the canonical import.
+SHORT_RS_TRAP_COLUMNS = [
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+]
+
+# SEC evidence overlay (2026-05-20) — surface 13F manager-tracked institutional
+# evidence + Form 4 insider buying as a LATEST-ONLY overlay. Backfill via
+# .github/workflows/sec_13f_quarterly_refresh.yml (Feb/May/Aug/Nov 1-20) +
+# sec_form4_daily_refresh.yml (daily). Outputs land in
+# outputs/sec_institutional_signals/ + outputs/sec_ownership_signals/.
+# Engine reads them via compute_sec_evidence_overlay (r1000_features.py) and
+# adds bonus score in r1000_pipeline.add_total_score_columns gated by
+# w_sec_institutional_evidence + w_sec_insider_evidence.
+SEC_EVIDENCE_COLUMNS = [
+    # 13F institutional signal (sec_13f_quarterly_refresh.yml output)
+    "sec_13f_manager_count",
+    "sec_13f_buying_manager_count",
+    "sec_13f_selling_manager_count",
+    "sec_13f_new_position_manager_count",
+    "sec_13f_consensus_buy_score",
+    "sec_13f_conviction_score",
+    "sec_13f_accumulation_score",
+    "sec_13f_new_position_score",
+    "sec_13f_breadth_score",
+    "sec_13f_crowding_score",
+    "sec_13f_stale_penalty",
+    "sec_13f_smart_money_score",
+    "institutional_evidence_score",
+    "institutional_evidence_confidence_score",
+    # Form 4 insider signal (sec_form4_daily_refresh.yml output)
+    "insider_buy_count",
+    "ten_percent_owner_buy_count",
+    "ceo_cfo_buy_count",
+    "sec_form4_open_market_buy_score",
+    "sec_form4_cluster_buy_score",
+    "sec_form4_ceo_cfo_buy_score",
+    "sec_form4_ten_percent_owner_buy_score",
+    "sec_form4_net_buy_score",
+    "sec_form4_sale_pressure_score",
+    "sec_form4_sale_risk_score",
+    "early_evidence_score",
+    "evidence_confidence_score",
+]
+
 # Phase 15-A (2026-04-28) cycle-leader rescue + earnings-revision catalyst.
 # Two new ML features that target the gap exposed by the SHIPPED Phase 14
 # scored_latest.csv: SNDK rank 37/595 score 3.69 was completely unassigned
@@ -760,7 +814,16 @@ DEFAULT_FEATURES = [
     "val_residual_ep",
     "val_residual_sp",
     "val_residual_fcfy",
-] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + PHASE15_ALPHA_COLUMNS
+] + MACRO_REGIME_COLUMNS + MACRO_INTERACTION_COLUMNS + DYNAMIC_LEADER_COLUMNS + MARKET_ADAPTATION_COLUMNS + BENCHMARK_RELATIVE_COLUMNS + REGIME_ROTATION_COLUMNS + LIVE_EVENT_ALERT_COLUMNS + PHASE14_HYBRID_ALPHA_COLUMNS + [
+    # Short-RS trap features (2026-05-13): split short/long RS + chase-extension
+    # penalty. Added to DEFAULT_FEATURES so walk-forward ML learns regression
+    # weights; the engine also applies a direct hand-coded score component
+    # (w_rs_short_score / w_rs_short_breakdown_penalty) for explicit weighting.
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+] + PHASE15_ALPHA_COLUMNS
 
 PILLAR_SCORE_COLUMNS = [
     "institutional_flow_actual_score",
@@ -1535,7 +1598,7 @@ YF_INDUSTRY_TO_GICS_GROUP: list[tuple[str, tuple[str, ...]]] = [
 # is the fund/ETF exclusion tuple; CASH_PROXY_TICKER is the synthetic
 # ticker used by the cash sleeve in backtest_portfolio.
 
-ENGINE_REUSE_VERSION = "2026-05-07-style-regime-router"
+ENGINE_REUSE_VERSION = "2026-05-20-sec-evidence-overlay-merge"
 
 TICKER_RE = re.compile(r"^[A-Z0-9]{1,6}([.-][A-Z0-9]{1,4})?$")
 EXCLUDE_NAME = ("ETF", "ETN", "TRUST", "FUND", "INDEX", "NOTES", "NOTE")
@@ -1673,7 +1736,12 @@ class EngineConfig:
     early_scout_sleeve_min_weight: float = 0.04
     early_scout_sleeve_max_weight: float = 0.36
     early_scout_growth_floor_weight: float = 0.18
-    early_scout_growth_floor_min_signal: float = 0.34
+    # Phase X0 S2-1 (2026-05-12): lowered 0.34 -> 0.25. The 0.34 threshold caused
+    # defensive_drawdown_control to win the policy auto-selector almost every
+    # month, producing core actual 62% (vs target 40%), early_scout=3 PARTIAL
+    # verdict, and 18-28% cash. Lowering to 0.25 lets the early_scout floor fire
+    # in more months, breaking the defensive-policy lock. Plan: phase X0 SMOKING GUN.
+    early_scout_growth_floor_min_signal: float = 0.25
     early_scout_growth_floor_max_risk: float = 0.60
     early_scout_candidate_floor_min_share: float = 0.01
     future_winner_entry_weight_cap: float = 0.12
@@ -2011,6 +2079,29 @@ class EngineConfig:
     w_event_reaction: float = 0.10
     w_institutional_flow: float = 0.10
     w_insider_flow: float = 0.08
+    # Short-RS trap weights (2026-05-13): separate short (1m+3m) from long
+    # (6m+12m) RS so PLTR-style short-term breakdown drives score down even
+    # when long-RS is still positive. w_rs_short_breakdown_penalty is
+    # asymmetric (heavier than reward) — punish weakness more than reward
+    # short-term strength to avoid chasing pumps.
+    w_rs_short_score: float = 0.35
+    w_rs_short_breakdown_penalty: float = 0.55
+    # short_extension_risk_penalty is multiplicative (applied as
+    # score *= (1 - w * penalty)). 0.20 = max -20% score on parabolic moves.
+    # Structural growth (theme_horizon=structural_growth + multi-year mom)
+    # is exempted to protect IONQ/quantum/eVTOL multi-year trends.
+    w_short_extension_penalty: float = 0.20
+
+    # SEC evidence overlay weights (2026-05-20). LATEST-ONLY bonus, never
+    # added to walk-forward training (target leakage). w_sec_institutional
+    # multiplies the consolidated 13F institutional_evidence_score (range
+    # roughly [-1, +1] via codex/sec-evidence-support-audit). w_sec_insider
+    # multiplies the Form 4 early_evidence_score similarly. Both default to
+    # 0.0 so the overlay is dormant until the first sec_13f_quarterly_refresh
+    # + sec_form4_daily_refresh runs land artifacts under outputs/sec_*. Bump
+    # weights to 0.30/0.20 after first cron produces validated outputs.
+    w_sec_institutional_evidence: float = 0.30
+    w_sec_insider_evidence: float = 0.20
     w_actual_results: float = 0.18
     w_garp: float = 0.14
     w_multidimensional_confirmation: float = 0.08
@@ -2248,16 +2339,21 @@ class EngineConfig:
     # cfg flag the active path reverts to the legacy single-threshold
     # breaker so prior runs remain reproducible.
     drawdown_breaker_multilevel_enabled: bool = True
-    drawdown_breaker_level_1_threshold: float = 0.08    # -8% peak-to-running DD
+    # Phase X0 S2-2 (2026-05-12): raised thresholds [0.08, 0.15, 0.25] -> [0.12,
+    # 0.20, 0.35] and recovery_buffer 0.03 -> 0.05. Level 1 firing at 8% DD was
+    # too aggressive — normal pullbacks (e.g. -8% bear market dip) lock 15% cash
+    # for weeks. Raised to 12% so level 1 only fires on genuine drawdowns, not
+    # noise. Estimated impact: -5 to -10pp avg cash drag eliminated.
+    drawdown_breaker_level_1_threshold: float = 0.12    # was 0.08 — too sensitive
     drawdown_breaker_level_1_cash_floor: float = 0.15
     drawdown_breaker_level_1_scale: float = 0.90
-    drawdown_breaker_level_2_threshold: float = 0.15    # -15%
+    drawdown_breaker_level_2_threshold: float = 0.20    # was 0.15
     drawdown_breaker_level_2_cash_floor: float = 0.35
     drawdown_breaker_level_2_scale: float = 0.70
-    drawdown_breaker_level_3_threshold: float = 0.25    # -25%
+    drawdown_breaker_level_3_threshold: float = 0.35    # was 0.25
     drawdown_breaker_level_3_cash_floor: float = 0.60
     drawdown_breaker_level_3_scale: float = 0.40
-    drawdown_breaker_recovery_buffer: float = 0.03      # require equity to overshoot trigger by 3% before stepping down
+    drawdown_breaker_recovery_buffer: float = 0.05      # was 0.03 — looser recovery
     # ---------------
     # Phase 6b: VIX level hard guard (PHASE_ROADMAP §2.6 + PROPOSAL §3)
     # ---------------

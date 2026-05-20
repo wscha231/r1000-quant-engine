@@ -1,0 +1,10 @@
+{
+  "error_count": 0,
+  "generated_at_utc": "2026-05-11T12:02:36.415789+00:00",
+  "issues": [],
+  "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
+  "schema_version": "live-trading-safety-v1",
+  "status": "pass",
+  "strict": false,
+  "warning_count": 0
+}

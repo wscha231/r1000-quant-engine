@@ -26,6 +26,8 @@ Status: implemented as the first executable path.
   - `outputs/free_data_lake_bootstrap/summary.json`
   - `outputs/free_data_engine_validation/summary.json`
   - `outputs/free_data_engine_validation/report.md`
+  - `outputs/ten_year_backtest_readiness/summary.json`
+  - `outputs/ten_year_backtest_readiness/report.md`
 
 Default mode is conservative. It does not download the 1GB+ SEC archive and it
 dry-runs price collection until Drive auth and restore are confirmed.
@@ -127,9 +129,15 @@ The first rules to improve should match the user's operating intent:
    - `max_price_tickers=80`
 4. If the first price run is stable, rerun with:
    - `max_price_tickers=0`
-5. After price coverage is adequate, enable:
+5. After price coverage is adequate, check:
+   - `outputs/ten_year_backtest_readiness/summary.json`
+   - `status=proxy_10y_price_ready` means the price/cache layer is ready but
+     target books and broker replay still need a 10-year rebuild.
+   - `status=official_10y_ready` is required before using the result as
+     official production evidence.
+6. After price coverage is adequate, enable:
    - `sec_companyfacts=true`
-6. Then add the PIT normalizer and daily-decision replay against
+7. Then add the PIT normalizer and daily-decision replay against
    `data_pit/free/`.
 
 For continuous updates, `.github/workflows/free_data_daily_update.yml` runs
@@ -141,6 +149,8 @@ and writes the engine validation report.
 
 - Data manifest exists on Drive and in workflow artifacts.
 - Coverage audit explicitly reports PIT/proxy status.
+- 10-year readiness explicitly separates price/cache readiness from official
+  broker-ledger readiness.
 - Broker replay can produce daily equity from free-restored data.
 - Current portfolio snapshot remains as-of the latest available close.
 - Learning sidecars consume replay evidence and produce gated candidates.

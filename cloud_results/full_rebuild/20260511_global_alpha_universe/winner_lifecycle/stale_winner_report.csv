@@ -1,0 +1,2 @@
+ticker,name,sector,weight,score,stale_winner_score,mom_3m,mom_6m,mom_12m,rs_benchmark_3m,rs_benchmark_6m,relative_strength_composite,portfolio_sleeve_label,diagnosis,policy_probe,production_activation_allowed
+NXPI,NXP Semiconductors,Semiconductors,0.06751407713864982,4.0150626085175265,0.101271,0.3207902696282803,0.41419368517320976,0.60736677820282,0.25347783364022436,0.32552177741176935,0.47746341832400185,future_winner,high_weight_low_relative_strength,trim_or_replace_replay,False

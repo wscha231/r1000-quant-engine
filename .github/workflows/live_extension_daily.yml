@@ -1,0 +1,174 @@
+name: Live Extension Daily
+
+# Forward-walk from the backtest anchor to today using daily prices only.
+# Bridges the gap caused by walk-forward forward-return constraint
+# (backtest anchor stops ~6mo before today due to r_1m/3m/6m needs).
+#
+# Outputs (committed to cloud_results/live_extension/):
+#   - daily_equity_curve.csv  per-day equity, cash, n_active
+#   - current_holdings.csv     ticker, anchor_w, drift_w, peak, current, status
+#   - stops_triggered.csv      tickers stopped out since anchor
+#   - action_suggestions.csv   fresh entry candidates from scored_latest
+#   - summary.json             headline numbers + anchor/today
+#
+# Telegram digest posts the summary block.
+
+on:
+  workflow_dispatch:
+    inputs:
+      latest_run:
+        description: 'backtest artifact source path'
+        type: string
+        default: cloud_results/full_rebuild/latest_global_alpha_universe
+      hard_stop:
+        description: 'per-position hard stop (e.g. -0.08)'
+        type: string
+        default: '-0.08'
+      trailing_stop:
+        description: 'per-position trailing stop from peak (e.g. -0.15)'
+        type: string
+        default: '-0.15'
+      top_signals:
+        description: 'max fresh entry candidates to surface'
+        type: string
+        default: '10'
+  schedule:
+    # 23:00 UTC = 18:00 ET (~30min after US close, after after_close_daily).
+    # In Korea this is 08:00 KST next day.
+    - cron: '0 23 * * 1-5'
+
+permissions:
+  contents: write
+
+jobs:
+  live_extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance
+
+      - name: Locate latest backtest artifacts
+        id: locate
+        run: |
+          LATEST="${{ inputs.latest_run }}"
+          if [ -z "$LATEST" ]; then
+            LATEST="cloud_results/full_rebuild/latest_global_alpha_universe"
+          fi
+          if [ ! -f "$LATEST/portfolio_latest.csv" ]; then
+            echo "[locate] no portfolio_latest.csv at $LATEST"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "[locate] portfolio: $LATEST/portfolio_latest.csv"
+          echo "[locate] scored:    $LATEST/scored_latest.csv"
+          echo "portfolio=$LATEST/portfolio_latest.csv" >> "$GITHUB_OUTPUT"
+          echo "scored=$LATEST/scored_latest.csv" >> "$GITHUB_OUTPUT"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run live extension
+        if: steps.locate.outputs.found == 'true'
+        env:
+          HARD_STOP: ${{ inputs.hard_stop }}
+          TRAILING_STOP: ${{ inputs.trailing_stop }}
+          TOP_SIGNALS: ${{ inputs.top_signals }}
+        run: |
+          mkdir -p outputs/live_extension
+          # Read anchor equity from backtest_metrics.json if present, else default
+          START_CAP=100000
+          METRICS="${{ steps.locate.outputs.portfolio }}"
+          METRICS_FILE="$(dirname "$METRICS")/backtest_metrics.json"
+          if [ -f "$METRICS_FILE" ]; then
+            START_CAP=$(python -c "import json; m=json.load(open('$METRICS_FILE')); print(m.get('ending_capital_usd', 100000))")
+          fi
+          echo "[live-ext] anchor equity USD: $START_CAP"
+
+          python tools/r1000_live_extension.py \
+            --portfolio "${{ steps.locate.outputs.portfolio }}" \
+            --scored "${{ steps.locate.outputs.scored }}" \
+            --start-cap "$START_CAP" \
+            --hard-stop "${HARD_STOP:--0.08}" \
+            --trailing-stop "${TRAILING_STOP:--0.15}" \
+            --top-new-signals "${TOP_SIGNALS:-10}"
+
+      - name: Stage to cloud_results
+        if: steps.locate.outputs.found == 'true'
+        run: |
+          mkdir -p cloud_results/live_extension
+          cp -v outputs/live_extension/* cloud_results/live_extension/ 2>/dev/null || true
+
+      - name: Telegram digest
+        if: steps.locate.outputs.found == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request, pathlib
+          tok = os.getenv("TELEGRAM_BOT_TOKEN"); chat = os.getenv("TELEGRAM_CHAT_ID")
+          if not (tok and chat):
+              print("no telegram creds; skipping")
+              raise SystemExit(0)
+          p = pathlib.Path("outputs/live_extension/summary.json")
+          if not p.exists():
+              print("no summary.json; skipping telegram")
+              raise SystemExit(0)
+          d = json.loads(p.read_text())
+          ret = d.get("return_since_anchor", 0.0) or 0.0
+          eq_now = d.get("equity_now_usd", 0.0) or 0.0
+          eq_anchor = d.get("equity_anchor_usd", 0.0) or 0.0
+          n_stops = d.get("n_stops_triggered", 0)
+          n_sig = d.get("n_new_signals", 0)
+          msg = (
+              f"[live-ext {d.get('today')}]\n"
+              f"anchor: {d.get('anchor_date')} ({d.get('days_elapsed')}d ago)\n"
+              f"equity: ${eq_now:,.0f}  ({ret:+.2%} vs anchor ${eq_anchor:,.0f})\n"
+              f"positions: {d.get('n_anchor_positions')}\n"
+              f"stops triggered: {n_stops}  (hard {d.get('stop_hard_pct')}, trail {d.get('stop_trailing_pct')})\n"
+              f"fresh entry candidates: {n_sig}"
+          )
+          url = f"https://api.telegram.org/bot{tok}/sendMessage"
+          data = urllib.parse.urlencode({"chat_id": chat, "text": msg}).encode()
+          try:
+              urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15).read()
+          except Exception as e:
+              print(f"telegram failed: {e}")
+          PY
+
+      - name: Upload artifact
+        if: always() && steps.locate.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-extension-${{ github.run_id }}
+          path: outputs/live_extension/
+          retention-days: 90
+
+      - name: Commit cloud snapshot
+        if: steps.locate.outputs.found == 'true'
+        run: |
+          git config user.name  "github-actions-bot"
+          git config user.email "actions@github.com"
+          git add cloud_results/live_extension/ 2>/dev/null || true
+          git diff --cached --quiet || \
+            git commit -m "chore(bot): live extension $(date +%Y-%m-%d) [skip ci]"
+          for i in 1 2 3 4; do
+            if git push; then
+              break
+            fi
+            sleep $((2 ** i))
+          done

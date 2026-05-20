@@ -62,6 +62,122 @@ def block_bootstrap_resample(
     return np.concatenate(out)[:n]
 
 
+# Phase X0 S3-1 (2026-05-12): callable API so backtest_portfolio can request
+# bootstrap CI directly on its monthly returns. The legacy CLI main() still
+# works against concentrated_strategy_monthly.csv; this function is for in-
+# process wiring (no CSV round-trip).
+def compute_bootstrap_ci_from_returns(
+    rets,
+    bench_rets=None,
+    n_bootstrap: int = 2000,
+    block_size: int = 3,
+    seed: int = 42,
+    level: float = 0.95,
+) -> dict:
+    """Run block-bootstrap CI on a 1-D array of monthly net returns.
+
+    Parameters
+    ----------
+    rets : array-like
+        Monthly strategy returns (gross of bench).
+    bench_rets : array-like or None
+        Monthly benchmark returns. If provided, also returns excess_cagr CI.
+    n_bootstrap : int
+        Number of bootstrap resamples (default 2000; main CLI uses 10000).
+    block_size : int
+        Block size in months for autocorr-preserving block bootstrap.
+    seed : int
+        RNG seed for reproducibility.
+    level : float
+        Confidence level (default 0.95 = 95% CI).
+
+    Returns
+    -------
+    dict with keys cagr_point, cagr_ci_lower, cagr_ci_upper, sharpe_*,
+    max_dd_*, excess_*, p_cagr_gt_*, n_months, n_bootstrap.
+    Returns minimal dict if rets is empty / too short / NaN.
+    """
+    try:
+        rets_arr = np.asarray(rets, dtype=float)
+        rets_arr = rets_arr[np.isfinite(rets_arr)]
+    except Exception:
+        return {"bootstrap_skipped": True, "reason": "invalid input"}
+    if len(rets_arr) < 24:
+        return {
+            "bootstrap_skipped": True,
+            "reason": f"too few months ({len(rets_arr)} < 24)",
+            "n_months": int(len(rets_arr)),
+        }
+    rng = np.random.default_rng(seed)
+    orig_cagr = cagr_from_returns(rets_arr)
+    orig_sharpe = sharpe_from_returns(rets_arr)
+    orig_mdd = max_dd_from_returns(rets_arr)
+
+    has_bench = False
+    bench_arr = None
+    if bench_rets is not None:
+        try:
+            bench_arr = np.asarray(bench_rets, dtype=float)
+            mask = np.isfinite(bench_arr)
+            if mask.sum() >= 24 and len(bench_arr) == len(np.asarray(rets, dtype=float)):
+                has_bench = True
+                bench_arr = np.where(np.isfinite(bench_arr), bench_arr, 0.0)
+        except Exception:
+            has_bench = False
+
+    boot_cagr = np.empty(n_bootstrap)
+    boot_sharpe = np.empty(n_bootstrap)
+    boot_mdd = np.empty(n_bootstrap)
+    boot_excess = np.empty(n_bootstrap) if has_bench else None
+    idx_arr = np.arange(len(rets_arr))
+    for i in range(n_bootstrap):
+        resampled_idx = block_bootstrap_resample(idx_arr, block_size, rng)
+        r_b = rets_arr[resampled_idx]
+        boot_cagr[i] = cagr_from_returns(r_b)
+        boot_sharpe[i] = sharpe_from_returns(r_b)
+        boot_mdd[i] = max_dd_from_returns(r_b)
+        if has_bench:
+            b_b = bench_arr[resampled_idx]
+            boot_excess[i] = cagr_from_returns(r_b) - cagr_from_returns(b_b)
+
+    alpha = (1.0 - level) / 2.0
+    def _ci(arr):
+        return float(np.nanpercentile(arr, alpha * 100)), float(np.nanpercentile(arr, (1 - alpha) * 100))
+
+    cagr_lo, cagr_hi = _ci(boot_cagr)
+    sharpe_lo, sharpe_hi = _ci(boot_sharpe)
+    mdd_lo, mdd_hi = _ci(boot_mdd)
+
+    out: dict = {
+        "bootstrap_skipped": False,
+        "n_months": int(len(rets_arr)),
+        "n_bootstrap": int(n_bootstrap),
+        "block_size_mo": int(block_size),
+        "ci_level": float(level),
+        "cagr_point": float(orig_cagr) if np.isfinite(orig_cagr) else None,
+        "cagr_ci_lower": cagr_lo,
+        "cagr_ci_upper": cagr_hi,
+        "sharpe_point": float(orig_sharpe),
+        "sharpe_ci_lower": sharpe_lo,
+        "sharpe_ci_upper": sharpe_hi,
+        "max_dd_point": float(orig_mdd),
+        "max_dd_ci_lower": mdd_lo,  # most negative bound
+        "max_dd_ci_upper": mdd_hi,
+        "p_cagr_gt_15pct": float((boot_cagr > 0.15).mean()),
+        "p_cagr_gt_20pct": float((boot_cagr > 0.20).mean()),
+        "p_cagr_gt_25pct": float((boot_cagr > 0.25).mean()),
+    }
+    if has_bench and boot_excess is not None:
+        excess_lo, excess_hi = _ci(boot_excess)
+        out.update({
+            "excess_cagr_point": float(cagr_from_returns(rets_arr) - cagr_from_returns(bench_arr)),
+            "excess_cagr_ci_lower": excess_lo,
+            "excess_cagr_ci_upper": excess_hi,
+            "p_excess_gt_0": float((boot_excess > 0).mean()),
+        })
+    return out
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument(

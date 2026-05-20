@@ -116,6 +116,8 @@ def target_cash_for_month(
     drawdown_before: float,
     drawdown_after: float,
 ) -> tuple[float, str]:
+    # `drawdown_after` is retained for diagnostics/output compatibility only.
+    # Target cash decisions must not use information from later in the month.
     state = str(state or "green").lower()
     floor = policy_floor(state, policy)
     if state in {"red", "crisis"}:
@@ -127,7 +129,7 @@ def target_cash_for_month(
         release = safe_float(policy.get("reentry_release_step"), 0.20)
         target = max(floor, prev_target_cash - release)
         return target, "bargain_reentry_step"
-    if prev_target_cash > floor and drawdown_before > -0.05 and drawdown_after > -0.05:
+    if prev_target_cash > floor and drawdown_before > -0.05:
         release = safe_float(policy.get("reentry_release_step"), 0.20)
         return max(floor, prev_target_cash - release), "green_redeploy_step"
     return floor, "normal_low_cash"

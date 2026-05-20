@@ -2069,6 +2069,12 @@ __all__ = [
     "compute_stage2_overext_penalty",
     "compute_theme_phase_features",
     "PHASE14_HYBRID_ALPHA_COLUMNS",
+    # Short-RS trap fixes (2026-05-13): split short/long RS + chase-extension penalty
+    "compute_rs_short_long_scores",
+    "compute_short_extension_risk_penalty",
+    "SHORT_RS_TRAP_COLUMNS",
+    # SEC evidence overlay loader (2026-05-20): 13F + Form 4 LATEST-only bonus
+    "load_sec_evidence_overlay",
     # Phase 15-A (2026-04-28): cycle-leader rescue + EPS revision catalyst
     "compute_cycle_recovery_score",
     "compute_eps_revision_score",
@@ -4928,6 +4934,120 @@ PHASE14_HYBRID_ALPHA_COLUMNS = [
 ]
 
 
+# Short-term RS separation + chase-extension penalty (2026-05-13).
+# rs_short_score / rs_long_score split the prior single rs_acceleration_score
+# into independent components so short-term breakdown (PLTR-style: 1m/3m RS
+# negative while 6m/12m still positive) gets explicit weight rather than
+# averaging out. short_extension_risk_penalty fires on overextended single-month
+# moves that lack structural-growth confirmation (theme_horizon + multi-year mom).
+SHORT_RS_TRAP_COLUMNS = [
+    "rs_short_score",
+    "rs_long_score",
+    "rs_short_breakdown_penalty",
+    "short_extension_risk_penalty",
+]
+
+
+def load_sec_evidence_overlay(
+    base_dir: "Path | None" = None,
+) -> pd.DataFrame:
+    """Load the latest SEC 13F + Form 4 evidence signals for the latest scoring.
+
+    Reads two CSV/parquet files produced by the SEC pipelines:
+      outputs/sec_institutional_signals/signals_latest.{parquet,csv}
+        — 13F manager tracking (sec_13f_quarterly_refresh.yml cron)
+      outputs/sec_ownership_signals/signals_latest.{parquet,csv}
+        — Form 4 insider trading (sec_form4_daily_refresh.yml cron)
+
+    Returns a DataFrame keyed by `ticker` with the 26 SEC_EVIDENCE_COLUMNS.
+    Missing files → empty frame (engine zero-fills downstream). This makes
+    the overlay strictly LATEST-ONLY: backtest months have no evidence;
+    walk-forward training never sees these columns (avoids target leakage).
+    """
+    base = Path(base_dir) if base_dir is not None else Path("outputs")
+    candidates = {
+        "institutional": [
+            base / "sec_institutional_signals" / "signals_latest.parquet",
+            base / "sec_institutional_signals" / "signals_latest.csv",
+        ],
+        "ownership": [
+            base / "sec_ownership_signals" / "signals_latest.parquet",
+            base / "sec_ownership_signals" / "signals_latest.csv",
+        ],
+    }
+    frames: list[pd.DataFrame] = []
+    for category, paths in candidates.items():
+        for p in paths:
+            if p.exists():
+                try:
+                    df = (
+                        pd.read_parquet(p)
+                        if p.suffix == ".parquet"
+                        else pd.read_csv(p, low_memory=False)
+                    )
+                    if "ticker" in df.columns and not df.empty:
+                        frames.append(df)
+                except Exception:
+                    pass
+                break
+    if not frames:
+        return pd.DataFrame(columns=["ticker"])
+    merged = frames[0]
+    for frame in frames[1:]:
+        merged = merged.merge(frame, on="ticker", how="outer", suffixes=("", "_dup"))
+        dup_cols = [c for c in merged.columns if c.endswith("_dup")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+    return merged
+
+
+def compute_rs_short_long_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Split RS into short (1m + 3m) and long (6m + 12m) components.
+
+    Why: PLTR shows rs_industry_6m=-0.27 and rs_industry_3m=-0.14 but the prior
+    single rs_acceleration_score (3m_z - 12m_z) compressed both into -0.07 — too
+    weak to drive the total score down. Splitting them lets the final composite
+    apply distinct weights, and a `rs_short_breakdown_penalty` fires when BOTH
+    short-side components are negative (clean short-term weakness signal).
+
+    Columns added:
+      rs_short_score              = z(mean of rs_industry_1m, rs_industry_3m,
+                                       rs_industry_group_1m, rs_industry_group_3m,
+                                       rs_benchmark_1m, rs_benchmark_3m)
+      rs_long_score               = z(mean of rs_industry_6m, rs_industry_12m,
+                                       rs_industry_group_6m, rs_industry_group_12m,
+                                       rs_benchmark_6m, rs_benchmark_12m)
+      rs_short_breakdown_penalty  = clip(-min(rs_short_score, 0), 0, 1)
+                                    fires only when short_score < 0 (1m/3m weak)
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["rs_short_score"] = pd.Series(dtype=float)
+        d["rs_long_score"] = pd.Series(dtype=float)
+        d["rs_short_breakdown_penalty"] = pd.Series(dtype=float)
+        return d
+    short_cols = [
+        "rs_industry_1m", "rs_industry_3m",
+        "rs_industry_group_1m", "rs_industry_group_3m",
+        "rs_benchmark_1m", "rs_benchmark_3m",
+    ]
+    long_cols = [
+        "rs_industry_6m", "rs_industry_12m",
+        "rs_industry_group_6m", "rs_industry_group_12m",
+        "rs_benchmark_6m", "rs_benchmark_12m",
+    ]
+    short_components = [cross_sectional_robust_z(d, c) for c in short_cols]
+    long_components = [cross_sectional_robust_z(d, c) for c in long_cols]
+    short_mean = pd.concat(short_components, axis=1).mean(axis=1)
+    long_mean = pd.concat(long_components, axis=1).mean(axis=1)
+    d["rs_short_score"] = short_mean.clip(lower=-3.0, upper=3.0).fillna(0.0)
+    d["rs_long_score"] = long_mean.clip(lower=-3.0, upper=3.0).fillna(0.0)
+    d["rs_short_breakdown_penalty"] = (
+        (-d["rs_short_score"]).clip(lower=0.0, upper=1.5) / 1.5
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
 def compute_rs_acceleration_score(df: pd.DataFrame) -> pd.DataFrame:
     """T4 RS Acceleration — recent (3m) RS minus longer (12m) RS.
 
@@ -5040,6 +5160,63 @@ def compute_stage2_overext_penalty(df: pd.DataFrame) -> pd.DataFrame:
     # Conservative: penalty fires only when ALL three primary gates active
     d["stage2_overext_penalty"] = (
         near_52w_part * rsi_part * weak_fund
+    ).clip(lower=0.0, upper=1.0).fillna(0.0)
+    return d
+
+
+def compute_short_extension_risk_penalty(df: pd.DataFrame) -> pd.DataFrame:
+    """Short-horizon overextension penalty with structural-growth exemption.
+
+    Companion to stage2_overext_penalty (52w-high / RSI / weak_fund). That gate
+    catches the classic chase-the-top pattern but misses single-month parabolic
+    moves on names that lack 52w-high or RSI extremes (e.g. small-cap thematic
+    pumps). This gate fires on excess short-term distance from MA20 when not
+    backed by structural-growth confirmation.
+
+    Fires on ANY of:
+      mom_1m > 0.20                   # > +20% in one month
+      bb_pb > 0.95                    # near top of Bollinger band
+      price/MA20 ratio > 1.20         # > 20% above 20-day MA
+
+    Exempt (multiplied by 0.0) when ALL of:
+      theme_horizon_primary == 'structural_growth'
+      mom_24m > 0 OR mom_36m > 0      # multi-year structural uptrend
+      industry_group_strength_score > 0
+
+    Returns continuous penalty [0.0, 1.0]. Apply as multiplicative
+    (final_score *= (1 - 0.20 * penalty)) so 1.0 = -20% score.
+    """
+    d = df.copy() if df is not None else pd.DataFrame()
+    if d.empty:
+        d["short_extension_risk_penalty"] = pd.Series(dtype=float)
+        return d
+    mom_1m = numeric_series_or_default(d, "mom_1m", 0.0)
+    bb_pb = numeric_series_or_default(d, "bb_pb", 0.5)
+    # price/MA20 ratio: dist_ma200 doesn't help here; use direct ma20 distance.
+    # price_above_ma20 is binary; we need the actual ratio. Derive from
+    # available columns: 1 + (mom_1m * 0.5) as a proxy if exact ratio missing.
+    ma20_ratio = numeric_series_or_default(d, "price_to_ma20_ratio", np.nan)
+    ma20_ratio_proxy = (1.0 + mom_1m * 0.5)
+    ma20_ratio = ma20_ratio.fillna(ma20_ratio_proxy)
+
+    mom_part = ((mom_1m - 0.20) / 0.20).clip(lower=0.0, upper=1.0)            # 1.0 at mom_1m >= 40%
+    bb_part = ((bb_pb - 0.95) / 0.05).clip(lower=0.0, upper=1.0)              # 1.0 at bb_pb >= 1.0
+    ma20_part = ((ma20_ratio - 1.20) / 0.10).clip(lower=0.0, upper=1.0)       # 1.0 at price/MA20 >= 1.30
+
+    raw_penalty = pd.concat([mom_part, bb_part, ma20_part], axis=1).max(axis=1)
+
+    theme_horizon = d.get("theme_horizon_primary", pd.Series("", index=d.index)).astype(str)
+    mom_24m = numeric_series_or_default(d, "mom_24m", 0.0)
+    mom_36m = numeric_series_or_default(d, "mom_36m", 0.0)
+    group_strength = numeric_series_or_default(d, "industry_group_strength_score", 0.0)
+
+    structural_exempt = (
+        (theme_horizon == "structural_growth")
+        & ((mom_24m > 0.0) | (mom_36m > 0.0))
+        & (group_strength > 0.0)
+    )
+    d["short_extension_risk_penalty"] = (
+        raw_penalty.where(~structural_exempt, 0.0)
     ).clip(lower=0.0, upper=1.0).fillna(0.0)
     return d
 

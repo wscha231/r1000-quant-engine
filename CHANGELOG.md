@@ -51,6 +51,77 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-20
+
+### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
+
+- scope:
+  - Cherry-pick the SEC EDGAR Form 4 + 13F stack from `codex/sec-evidence-support-audit` (4 codex branches collapsed into one source-only import) on top of the short-RS-trap baseline (`claude/short-rs-intc-etf-overlay`). Adds a LATEST-ONLY score overlay that surfaces (a) 13F manager-tracked institutional buying/selling (`sec_13f_*` columns) and (b) Form 4 insider open-market buying (`sec_form4_*` columns) as bonus score components. Backfill via existing codex workflows: `sec_13f_quarterly_refresh.yml` (Feb/May/Aug/Nov 1-20 cron) for 13F + `sec_form4_daily_refresh.yml` (daily cron) for Form 4 + `sec_13f_manager_reselection.yml` (semiannual) for top-fund universe re-ranking.
+  - Extends the codex curated manager universe from 22 ->35 entries by appending 13 user-requested funds drawn from hedgefollow.com 3-year performance ranking (Whale Rock +198%, Atreides +174%, Horizon Kinetics +128%, D1 Capital +92%, Fisher +93%, Elliott +86%, etc.). Unverified-CIK entries flagged `active=false` so the refresh tool can confirm or correct CIKs before activation.
+  - Final score composition stack (post-merge):
+    `score_core` += rs_short_long_separation (Phase X1) + sec_evidence_overlay (Phase X2)
+    `score` *= (1 - w * short_extension_risk_penalty)
+    `score` += score_sec_institutional_overlay + score_sec_insider_overlay
+- files:
+  - **SEC source from codex/sec-evidence-support-audit** (cherry-picked, source-only — cloud_results explicitly excluded to keep repo size sane):
+    - `tools/build_sec_13f_manager_universe.py` (175 LoC) — curated manager CSV ->`manager_ciks.txt` for SEC collectors.
+    - `tools/run_sec_submissions_collector.py` (529 LoC) — SEC EDGAR `submissions/CIK*.json` index fetcher.
+    - `tools/run_sec_13f_parser.py` (450 LoC) — informationTable.xml parser, holdings.parquet writer.
+    - `tools/run_sec_13f_manager_reselection.py` (314 LoC) — semiannual manager re-ranking.
+    - `tools/run_sec_institutional_signals.py` (369 LoC) — 13F ticker-level signal builder (sec_13f_smart_money_score etc).
+    - `tools/run_sec_ownership_signals.py` (244 LoC) — Form 4 ticker-level signal builder (sec_form4_*).
+    - `tools/run_sec_form4_parser.py` (393 LoC) — Form 4 doc XML parser, shard writer.
+    - `tools/run_sec_form4_merge_shards.py` (206 LoC) — Form 4 daily shard consolidator.
+    - `tools/run_sec_enriched_candidate_replay.py` (478 LoC) — candidate replay enrichment.
+    - `tools/run_sec_evidence_learning_pipeline.py` (641 LoC) — repo-learned manager_alpha pipeline.
+    - `tools/run_sec_evidence_signal_audit.py` (602 LoC) — signal audit reporter.
+    - `tools/run_alpha_selector_broker_grid.py` + `tools/run_selection_quality_report.py` — transitive deps of evidence pipeline.
+    - `.github/workflows/sec_13f_quarterly_refresh.yml` — Q+45-day cron + manual_dispatch.
+    - `.github/workflows/sec_13f_manager_reselection.yml` — semiannual cron.
+    - `.github/workflows/sec_form4_daily_refresh.yml` — daily cron.
+    - `.github/workflows/sec_evidence_learning_manual.yml` — manual learning trigger.
+    - `tests/sec_13f_*_smoke.py` * 3 + `tests/sec_form4_*_smoke.py` * 2 — codex smoke tests (5/5 pass on cherry-pick).
+    - `research/sec_13f_manager_universe_20260519/managers.csv` — curated 22 ->35 managers.
+    - `research/sec_13f_form4_evidence_score_20260518/report.md` + `research/sec_evidence_support_overlay_20260519/report.md` — codex design docs.
+  - **Local wire (this commit)**:
+    - `r1000_features.py` -> add `load_sec_evidence_overlay(base_dir)` loader (reads `outputs/sec_institutional_signals/signals_latest.{parquet,csv}` + `outputs/sec_ownership_signals/signals_latest.{parquet,csv}`; merges on `ticker`; returns empty frame when artifacts absent so the overlay is dormant until first cron run).
+    - `r1000_config.py` -> add `SEC_EVIDENCE_COLUMNS` constant (26 columns: 14 from 13F + 12 from Form 4). Add 2 EngineConfig fields: `w_sec_institutional_evidence = 0.30`, `w_sec_insider_evidence = 0.20`. Bump `ENGINE_REUSE_VERSION` to '2026-05-20-sec-evidence-overlay-merge' to force FS rebuild on next FULL run.
+    - `r1000_pipeline.py` -> import `SEC_EVIDENCE_COLUMNS` + `load_sec_evidence_overlay`. Splice `SEC_EVIDENCE_COLUMNS` into build_feature_store keep_cols (1 site, NOT into hard_sanitize because the LATEST-only sparse columns shouldn't be cross-sectionally normalized). Call `load_sec_evidence_overlay` before `add_total_score_columns` in the Phase 5b latest scoring block; merge by `ticker`. Add `score_sec_institutional_overlay = w_inst * institutional_evidence_score * confidence` + `score_sec_insider_overlay = w_insider * early_evidence_score * confidence` in `add_total_score_columns`; both added to final `score`.
+    - `research/sec_13f_manager_universe_20260519/managers.csv` -> append 13 hedgefollow funds: WHALEROCK, RATAN, ATREIDES, HORIZONKINETICS, HIMALAYA, D1CAPITAL, FISHER, ELLIOTT, ALTIMETER, BAKERBROS, GOTHAM, FAIRFAX, DALAL. Unverified CIK rows flagged `active=false` for refresh-tool re-verification.
+    - `tests/smoke_test.py` -> 4 new regression tests (97/97 total pass): `sec_evidence_columns_wired`, `sec_evidence_score_overlay_wired`, `sec_evidence_weight_cfg_fields`, `sec_13f_manager_universe_csv_present`.
+- symbols_added:
+  - `r1000_features.load_sec_evidence_overlay(base_dir=None) -> pd.DataFrame` -> reads two latest SEC signal files + merges on ticker; returns empty frame when artifacts absent.
+  - `r1000_config.SEC_EVIDENCE_COLUMNS: list[str]` -> 26 SEC overlay column names.
+  - 12 cherry-picked SEC tools, 5 smoke tests, 4 workflows (already documented in `files` above).
+- symbols_changed:
+  - `r1000_pipeline.add_total_score_columns(d, cfg, ...)` -> after multiplicative short_extension penalty, additively applies `score_sec_institutional_overlay + score_sec_insider_overlay` to `score`. New columns: `score_sec_institutional_overlay`, `score_sec_insider_overlay`.
+  - `r1000_pipeline.build_feature_store(cfg)` -> adds `SEC_EVIDENCE_COLUMNS` (26 cols) to keep_cols whitelist.
+  - `r1000_pipeline` Phase 5b latest scoring path -> merges `load_sec_evidence_overlay(...)` output into `latest_df` before calling `add_total_score_columns`, guarded by try/except so absent SEC artifacts don't break the run.
+  - `r1000_config.ENGINE_REUSE_VERSION` -> "2026-05-13-short-rs-trap-intc-bypass" became "2026-05-20-sec-evidence-overlay-merge". Triggers FS rebuild on next FULL run.
+- config_fields_added:
+  - `w_sec_institutional_evidence: float = 0.30` -> weight multiplier on `institutional_evidence_score * institutional_evidence_confidence_score`. Default 0.30 is conservative; first cron run should validate scale before raising.
+  - `w_sec_insider_evidence: float = 0.20` -> weight multiplier on `early_evidence_score * evidence_confidence_score` (Form 4 insider buy signal). Default 0.20 < institutional weight because Form 4 has higher noise (single-insider buys can be small or non-meaningful).
+- breaking_changes:
+  - none runtime. Both new score overlays are zero-filled when SEC artifacts don't exist (first commit; no cron has produced outputs yet). ENGINE_REUSE_VERSION bump triggers a one-time FS rebuild on next FULL run.
+- outputs:
+  - `outputs/sec_institutional_signals/signals_latest.{parquet,csv}` -> 13F ticker-level signals (after first quarterly cron run). 14 columns including `sec_13f_smart_money_score`, `institutional_evidence_score`, `institutional_evidence_confidence_score`.
+  - `outputs/sec_ownership_signals/signals_latest.{parquet,csv}` -> Form 4 ticker-level signals (after first daily cron run). 12 columns including `sec_form4_cluster_buy_score`, `sec_form4_net_buy_score`, `early_evidence_score`, `evidence_confidence_score`.
+  - `scored_latest.csv` gains 28 new columns: 26 SEC overlay columns + `score_sec_institutional_overlay` + `score_sec_insider_overlay`.
+- validation:
+  - `py -3 tests/smoke_test.py` -> 97/97 passed in 1.8s (93 prior + 4 new: SEC_EVIDENCE_COLUMNS wiring, score overlay wiring, weight cfg field presence, managers.csv >=30 entries with WHALEROCK/ATREIDES).
+  - All 5 codex SEC smoke tests pass standalone: sec_13f_manager_universe_smoke, sec_13f_manager_reselection_smoke, sec_13f_parser_smoke, sec_form4_parser_smoke, sec_form4_merge_shards_smoke.
+- risks_or_notes:
+  - **Unverified CIKs**: 4 entries in managers.csv (RATAN, HORIZONKINETICS, HIMALAYA, ALTIMETER, DALAL) are flagged `active=false` + `verified_cik=false`. ALTIMETER + HIMALAYA share CIK 0001709323 placeholder (suspicious); DALAL shares CIK with DUQUESNE (0001536411 — definitely wrong). `run_sec_submissions_collector.py` will fail SEC fetch for these and log the bad CIK; manual review needed before activation. Activation path: confirm CIK via SEC EDGAR full-text search ->update managers.csv ->flip `active=true,verified_cik=true`.
+  - **LATEST-only overlay risk**: Backtest historical months see zero-filled SEC columns. If we later move this to historical training (via 8-year 13F backfill that codex's data lake bootstrap supports), the ML model could learn a strong forward-looking pattern that's not realistic for production. Mitigation: keep `LATEST_ONLY` discipline; explicit comment in `add_total_score_columns` documents the design.
+  - **First cron run latency**: 13F Q1 2026 filings due May 15, so the first `sec_13f_quarterly_refresh.yml` cron should fire May 16-20 with partial coverage, May-Aug for full coverage. Until then, `score_sec_institutional_overlay` will be zero everywhere. Use manual_dispatch to trigger immediately.
+  - **Form 4 daily volume**: ~500-2000 Form 4 filings/day across the manager universe. The codex `run_sec_form4_parser.py` shards by date; `run_sec_form4_merge_shards.py` consolidates. Cron must rotate daily to avoid >100MB single file growth.
+  - **Crowding signal**: If 15+ managers all hold the same stock (e.g. NVDA across all growth hedges), `sec_13f_crowding_score` should mitigate — this column already exists in the pipeline. Verify after first cron run that crowding penalty offsets consensus buy score appropriately.
+  - **Repo-self-learned manager_alpha is not yet active**: The `run_sec_evidence_learning_pipeline.py` (641 LoC) implements the learning step but isn't wired into a cron. It needs the FULL_REBUILD-style cron after Q1 cron lands data. Defer until validated FS schema is stable.
+  - **No cloud rebuild yet**: this commit code-level only. A FULL_REBUILD via `.github/workflows/full_rebuild_manual.yml` is required to materialize FS schema change + verify scored_latest.csv contains the 28 new columns. Verdict gate unchanged: dCAGR >= +0.5pp AND dSharpe >= -0.05 AND dMaxDD >= -3pp AND early_scout >= 4. Bootstrap CI bounds must include the no-SEC baseline within 95% to confirm new signal is additive not destructive.
+  - **etf-overlay path still pending**: thematic_etf_universe.yaml + tools/refresh_etf_top_holdings.py + monthly cron from prior plan still not implemented — defer to followup. SEC-13F gives partial overlap for thematic exposure (Atreides covers AI hardware, ARK covers innovation themes) but doesn't substitute for quantum/eVTOL small-cap universe expansion.
+
+## 2026-05-14
+
 ## 2026-05-19
 
 ### 00:08 KST - sec-evidence-learning-automation
@@ -3132,6 +3203,257 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-11
 
+### 23:33 KST - operating-current-portfolio-alignment
+
+- scope:
+  - Align broker replay and reporting around the current simulated operating portfolio instead of mixing current holdings with latest target recommendations.
+- files:
+  - `tools/run_broker_ledger_replay.py` ->will resolve concentrated replay filters from the champion comparison artifact instead of a stale hard-coded N=3 filter.
+  - `tools/run_broker_position_risk_replay.py` ->will pass the same concentrated champion filter into position-risk replay normalization.
+  - `tools/run_broker_execution_policy_replay.py` ->will pass the same concentrated champion filter into execution-policy replay normalization.
+  - `tools/run_operating_snapshot.py` ->will export current-only operating holdings and separate target-delta review artifacts.
+  - `tools/run_portfolio_system_guard.py` ->will flag stale target-book coverage, replay/target filter mismatches, missing current snapshots, and excessive operating position counts.
+  - `.github/workflows/full_rebuild_manual.yml` ->will run and publish the portfolio system guard during full rebuilds.
+  - `tests/broker_ledger_replay_smoke.py` ->will cover concentrated champion filter resolution.
+  - `tests/operating_snapshot_smoke.py` ->will cover current-only operating holdings exports.
+  - `tests/portfolio_system_guard_smoke.py` ->will cover stale target-book and current snapshot guard checks.
+  - `tests/workflow_artifact_smoke.py` ->will cover full rebuild guard wiring.
+  - `CHANGELOG.md` ->records the operating current portfolio alignment work.
+- symbols_added:
+  - `run_broker_ledger_replay.filter_value(value)` ->normalizes filter values so numeric CSV fields compare consistently across `4`, `4.0`, and string forms.
+  - `run_broker_ledger_replay.comparison_path_for_target_book(target_book)` ->finds the sibling concentrated comparison artifact for a target book.
+  - `run_broker_ledger_replay.resolve_concentrated_champion_filters(target_book, raw_targets, portfolio_kind, explicit_filters)` ->selects concentrated broker replay filters from the champion comparison artifact, falling back to the legacy static filter only when needed.
+  - `run_operating_snapshot.select_existing_columns(frame, columns)` ->builds stable CSV exports even when optional fields are absent.
+  - `run_operating_snapshot.write_current_operating_exports(frame, output_dir)` ->writes current-only holdings and separate target-delta review files.
+  - `run_portfolio_system_guard.read_csv_rows(path)` ->loads CSV artifacts for lightweight guard checks.
+  - `run_portfolio_system_guard.parse_date(value)` ->normalizes ISO-like dates for freshness comparisons.
+  - `run_portfolio_system_guard.csv_date_summary(path, date_col)` ->summarizes target-book date coverage.
+  - `run_portfolio_system_guard.csv_row_count(path)` ->counts artifact rows for position-count checks.
+  - `run_portfolio_system_guard.filter_value(value)` ->normalizes champion filter fields for guard comparisons.
+  - `run_portfolio_system_guard.operating_alignment_checks(inputs, latest_run)` ->flags stale target books, missing current-only holdings, excessive main position count, and concentrated filter mismatches.
+- symbols_changed:
+  - `run_broker_ledger_replay.filter_concentrated_champion(frame, portfolio_kind, champion_filters)` ->accepts dynamic champion filters instead of always using the stale N=3 concentrated filter.
+  - `run_broker_ledger_replay.normalize_targets(frame, portfolio_kind, champion_filters)` ->passes dynamic concentrated filters into target normalization.
+  - `run_broker_ledger_replay.replay(...)` ->records target-book filter metadata and exposes explicit concentrated filter CLI overrides.
+  - `run_broker_execution_policy_replay.replay(...)` ->uses the same concentrated champion filter resolution as broker-ledger replay.
+  - `run_broker_position_risk_replay.replay(...)` ->uses the same concentrated champion filter resolution as broker-ledger replay.
+  - `run_operating_snapshot.write_current_portfolio_snapshot(...)` ->updates the schema to v2 and publishes the current-only holdings view as the primary user view.
+  - `run_operating_snapshot.render_current_snapshot_report(payload)` ->documents the current-only holdings file and separates target deltas from current holdings.
+  - `run_portfolio_system_guard.error_checks(inputs, latest_run, require_latest_artifacts)` ->includes operating alignment checks in the guard result.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/operating_snapshot/current_operating_holdings_latest.csv` ->current-only broker-ledger holdings marked to the latest available close.
+  - `outputs/operating_snapshot/current_operating_holdings_main_latest.csv` ->main current-only holdings.
+  - `outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv` ->concentrated current-only holdings.
+  - `outputs/operating_snapshot/proposed_target_deltas_latest.csv` ->separate target/review deltas so recommendations are not presented as current holdings.
+  - `outputs/portfolio_system_guard/target_gap.json` ->expanded guard summary including freshness and semantics checks.
+- validation:
+  - `python tests\broker_ledger_replay_smoke.py` ->passed.
+  - `python tests\operating_snapshot_smoke.py` ->passed.
+  - `python tests\portfolio_system_guard_smoke.py` ->passed.
+  - `python tests\workflow_artifact_smoke.py` ->passed.
+  - `python -m py_compile tools\run_broker_ledger_replay.py tools\run_broker_execution_policy_replay.py tools\run_broker_position_risk_replay.py tools\run_operating_snapshot.py tools\run_portfolio_system_guard.py` ->passed.
+  - `python tools\run_broker_ledger_replay.py --target-book cloud_results\full_rebuild\latest_global_alpha_universe\reports\concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir %TEMP%\r1000_conc_replay_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7` ->passed; selected champion filter N=4/score_power and produced CAGR 31.47%, Sharpe 1.104, MaxDD -37.79%.
+  - `python tools\run_operating_snapshot.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_operating_snapshot_check` ->passed; wrote current-only holdings and proposed target delta files.
+  - `python tools\run_portfolio_system_guard.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir %TEMP%\r1000_portfolio_guard_check` ->passed; guard correctly warned that target books stop at 2026-02-27 while broker replay marks through 2026-05-08.
+  - `python tools\run_broker_ledger_replay.py --target-book cloud_results\full_rebuild\latest_global_alpha_universe\main_v2_backtest\monthly_holdings.csv --price-cache cache_prices --portfolio-kind main --output-dir %TEMP%\r1000_main_v2_broker_check --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7` ->passed; result was not promoted because CAGR 16.50% and MaxDD -35.68% were worse than official main.
+- risks_or_notes:
+  - Full rebuild remains intentionally deferred; targeted validation passed, but target-book generation still needs a separate fix before another expensive run should be launched.
+  - Target-book generation still stops at 2026-02-27 in the latest artifact; this patch exposes and guards that issue but does not fabricate missing March/April/May historical decisions.
+  - ON/MU/WDC/SNDK remains a latest recommendation/rotation target, not a historically held 2026-03-02 broker-ledger position, until the target-book generation path is extended and replayed.
+
+### 13:10 KST - ten-year-readiness-audit
+
+- scope:
+  - Add an explicit 10-year backtest readiness audit so agents can distinguish proxy price-cache readiness from official broker-ledger readiness before launching expensive full rebuilds.
+- files:
+  - `tools/check_10y_backtest_readiness.py` ->audits free-data coverage, price cache manifest range, target-book date ranges, broker-ledger replay ranges, SEC companyfacts availability, PIT/proxy labels, blockers, and next actions.
+  - `.github/workflows/free_data_lake_bootstrap.yml` ->restores root `companyfacts.zip` into `data_raw/free/sec/companyfacts.zip` when available, runs the 10-year readiness audit, uploads it, and syncs it to Drive.
+  - `.github/workflows/free_data_daily_update.yml` ->runs the same readiness audit after the recurring free-data proxy replay and syncs the report to Drive.
+  - `.gitignore` ->keeps generated 10-year readiness reports out of source control.
+  - `tests/ten_year_backtest_readiness_smoke.py` ->covers proxy-price-ready versus official-10-year-ready cases.
+  - `tests/workflow_artifact_smoke.py` ->checks workflow wiring for 10-year readiness artifacts and root companyfacts restore.
+  - `docs/FREE_BACKTEST_LEARNING_PLAN.md` ->documents the readiness states and execution sequence.
+  - `CHANGELOG.md` ->records the 10-year readiness audit.
+- symbols_added:
+  - `check_10y_backtest_readiness.repo_path(path_like)` ->resolves repo-relative paths.
+  - `check_10y_backtest_readiness.read_json(path, default)` ->loads optional JSON inputs safely.
+  - `check_10y_backtest_readiness.write_json(path, payload)` ->writes deterministic JSON outputs.
+  - `check_10y_backtest_readiness.parse_date(value)` ->normalizes ISO-like date values.
+  - `check_10y_backtest_readiness.safe_float(value)` ->normalizes finite numeric metrics.
+  - `check_10y_backtest_readiness.count_price_files(path)` ->counts local price parquet files.
+  - `check_10y_backtest_readiness.csv_date_range(path, columns)` ->summarizes target-book date coverage.
+  - `check_10y_backtest_readiness.metric_summary(path)` ->summarizes broker-ledger replay metrics.
+  - `check_10y_backtest_readiness.years_ready(start, end, min_years)` ->checks date-range sufficiency.
+  - `check_10y_backtest_readiness.build_payload(args)` ->builds the readiness decision payload.
+  - `check_10y_backtest_readiness.next_actions(status, blockers, warnings)` ->maps readiness state to next actions.
+  - `check_10y_backtest_readiness.render_report(payload)` ->renders the Markdown readiness report.
+  - `check_10y_backtest_readiness.run(args)` ->writes readiness JSON and Markdown outputs.
+  - `check_10y_backtest_readiness.parse_args()` ->parses CLI arguments.
+  - `check_10y_backtest_readiness.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()` ->requires 10-year readiness workflow artifacts and root companyfacts restore.
+  - `test_free_data_daily_workflow_updates_metrics_after_close()` ->requires recurring 10-year readiness output.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ten_year_backtest_readiness/summary.json` ->machine-readable 10-year readiness state, blockers, warnings, price coverage, target-book range, and broker replay range.
+  - `outputs/ten_year_backtest_readiness/report.md` ->human-readable readiness report.
+- validation:
+  - `py -3 -m py_compile tools\check_10y_backtest_readiness.py` ->passed.
+  - `py -3 tests\ten_year_backtest_readiness_smoke.py` ->passed.
+  - `py -3 tests\free_data_lake_bootstrap_smoke.py` ->passed.
+  - `py -3 tests\free_data_engine_validation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml']]; print('yaml ok')"` ->passed.
+  - `py -3 tools\check_10y_backtest_readiness.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe` ->passed with `status=proxy_10y_price_ready`, because price cache coverage starts at 2016-01-01 but target books and broker replay still start in 2019.
+- risks_or_notes:
+  - `proxy_10y_price_ready` is not official 10-year performance evidence. It means the price/cache layer can support a 10-year rebuild.
+  - Official 10-year readiness remains blocked until target books and broker-ledger replay cover the full window, SEC companyfacts is restored under `data_raw/free/sec`, and PIT/proxy labels are resolved or explicitly accepted.
+
+### 17:20 KST - full-rebuild-ten-year-readiness-export
+
+- scope:
+  - Wire the 10-year backtest readiness audit into the expensive full rebuild workflow so every full rebuild artifact, Google Drive export, and mobile bundle reports whether broker-ledger evidence is official 10-year ready.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs `tools/check_10y_backtest_readiness.py` after dataset coverage diagnostics and exports `outputs/ten_year_backtest_readiness/` through artifacts, Drive sync, and mobile bundles.
+  - `tests/workflow_artifact_smoke.py` ->requires full rebuild workflow wiring for the 10-year readiness sidecar and log file.
+  - `CHANGELOG.md` ->records the workflow export fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/ten_year_backtest_readiness/` in full rebuild artifacts.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the 10-year readiness checker and log export in full rebuild.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/ten_year_backtest_readiness/summary.json` ->now expected from full rebuild runs, not only free-data bootstrap and daily update runs.
+  - `outputs/ten_year_backtest_readiness/report.md` ->now expected from full rebuild runs, not only free-data bootstrap and daily update runs.
+  - `outputs/full_rebuild_logs/ten_year_backtest_readiness.log` ->captures the audit execution log.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.github/workflows/full_rebuild_manual.yml').read_text(encoding='utf-8')); print('yaml ok')"` ->passed.
+  - `py -3 tools\check_10y_backtest_readiness.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir H:\codex\_tmp\r1000_latest_10y_readiness` ->passed with `status=proxy_10y_price_ready`.
+- risks_or_notes:
+  - Run 25649941612 succeeded before this workflow export fix, so its artifact lacks `outputs/ten_year_backtest_readiness/`; the same latest result audited locally still reports `proxy_10y_price_ready`.
+  - Latest full rebuild target books and broker-ledger replay cover 2017-06-01 to 2026-05-08, about 8.93 years, so official 10-year performance evidence is still not ready.
+
+### 17:36 KST - broker-ledger-official-metric-gate
+
+- scope:
+  - Demote monthly/weight-level SHIP verdicts to research-only and make broker-ledger account replay the only official performance gate for production promotion.
+- files:
+  - `r1000_pipeline.py` ->marks concentrated monthly weight-level metrics as deprecated research context and forces `production_valid=false` until broker-ledger evidence passes.
+  - `tools/auto_verdict_summary.py` ->rewrites the Telegram/verdict summary to read `account_evaluation/official_metrics.json` first and refuse baseline rotation from legacy metrics.
+  - `tools/run_account_evaluation.py` ->states explicitly that legacy weight-level metrics cannot produce a production SHIP verdict.
+  - `tools/run_cash_policy_attribution.py` ->uses `regime_by_month.cash_weight_start` as target-book cash, tracks period-end cash separately, and avoids false cash-export mismatch flags.
+  - `tests/auto_verdict_summary_smoke.py` ->covers the case where legacy metrics look great but broker-ledger official metrics fail.
+  - `tests/cash_policy_attribution_smoke.py` ->covers start-cash versus period-end-cash separation.
+  - `CHANGELOG.md` ->records the official metric gate patch.
+- symbols_added:
+  - `auto_verdict_summary.fnum(value, default)` ->normalizes optional numeric values for summary rendering.
+  - `auto_verdict_summary.pct(value)` ->formats decimal performance metrics as percentages.
+  - `auto_verdict_summary.fmt_money(value)` ->formats account equity in USD.
+  - `auto_verdict_summary.official_rows(official)` ->normalizes official broker-ledger portfolio metrics.
+  - `auto_verdict_summary.legacy_metric(metrics, *names)` ->reads legacy metric aliases for research-only display.
+  - `auto_verdict_summary.render_portfolio_snapshot(lines, portfolio)` ->adds latest target snapshot context without changing verdict logic.
+  - `test_auto_verdict_summary_ignores_legacy_ship_as_official()` ->verifies official broker-ledger failure cannot be overridden by strong legacy metrics.
+- symbols_changed:
+  - `build_latest_concentrated_holdings()` ->sets `legacy_metric_mode=weight_level_research_deprecated`, requires broker-ledger official metrics, and prevents monthly concentrated metrics from being production-valid.
+  - `auto_verdict_summary.main()` ->renders broker-ledger official metrics first, reports `NO PRODUCTION SHIP` on official failure, and removes `CURRENT_BASELINE` rotation advice from legacy verdicts.
+  - `run_account_evaluation.render_report()` ->documents that legacy metrics are comparison-only.
+  - `run_cash_policy_attribution._rows_by_month()` ->uses `cash_weight_start` for target-book cash and records `period_end_cash_weight` separately.
+  - `run_cash_policy_attribution._summary()` ->adds `avg_period_end_cash_weight` and keeps mismatch checks tied to starting target cash.
+  - `run_cash_policy_attribution._render_report()` ->prints period-end cash separately from target-book reported cash.
+  - `cash_policy_attribution_smoke.main()` ->asserts no false mismatch when period-end cash differs from starting cash.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Legacy monthly/weight-level metrics can no longer produce a production SHIP verdict or baseline rotation recommendation.
+- outputs:
+  - `outputs/account_evaluation/official_metrics.json` ->now treated as the official production performance source for summaries.
+  - `outputs/cash_policy/cash_drag_summary.json` ->now separates `avg_reported_cash_weight` from `avg_period_end_cash_weight`.
+  - `outputs/cash_policy/cash_drag_report.md` ->now labels period-end cash as a separate diagnostic.
+- validation:
+  - `py -3 tests\auto_verdict_summary_smoke.py` ->passed.
+  - `py -3 tests\cash_policy_attribution_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+  - `py -3 tools\run_cash_policy_attribution.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir H:\codex\_tmp\r1000_cash_policy_recheck` ->passed with `avg_reported_cash_weight=3.65%` and `months_cash_export_mismatch_gt_2pct=0`.
+  - `py -3 tools\auto_verdict_summary.py --base cloud_results\full_rebuild\latest_global_alpha_universe` ->passed and reported official broker-ledger `NO PRODUCTION SHIP`.
+- risks_or_notes:
+  - The latest research-only monthly result remains useful for idea ranking, but it is no longer official performance evidence.
+  - Latest official broker-ledger metrics remain below the production targets: main CAGR 18.39% / MaxDD -33.75%, concentrated CAGR 27.07% / MaxDD -39.18%.
+  - The next performance work should improve broker-ledger fills, turnover, stale-leader exits, staged monster sizing, and crisis cash ladders instead of optimizing the deprecated monthly metric.
+
+### 17:45 KST - broker-crisis-reentry-challenger
+
+- scope:
+  - Convert the crisis cash ladder / bargain re-entry research proxy into a broker-ledger challenger and remove future-month drawdown use from macro/cash policy decisions.
+- files:
+  - `tools/run_macro_policy_engine.py` ->uses only pre-month drawdown for risk-state decisions while keeping later drawdown only for diagnostics.
+  - `tools/run_crisis_reentry_replay.py` ->prevents green re-entry decisions from using `drawdown_after_month`.
+  - `tools/run_broker_crisis_reentry_replay.py` ->adds a broker-ledger conversion runner for crisis-reentry policy target books.
+  - `tools/run_portfolio_goal_search.py` ->adds the broker crisis-reentry challenger to main production-compatible candidate ranking.
+  - `.github/workflows/full_rebuild_manual.yml` ->runs, uploads, bundles, and syncs `outputs/broker_crisis_reentry_replay/`.
+  - `tests/broker_crisis_reentry_replay_smoke.py` ->covers next-close broker-ledger conversion of a crisis-reentry target book.
+  - `tests/crisis_reentry_policy_smoke.py` ->verifies future-month drawdown does not block re-entry.
+  - `tests/macro_policy_engine_smoke.py` ->verifies future drawdown alone does not force red/crisis macro risk.
+  - `tests/workflow_artifact_smoke.py` ->requires full rebuild workflow wiring for the new broker crisis-reentry sidecar.
+  - `CHANGELOG.md` ->records the broker-compatible challenger patch.
+- symbols_added:
+  - `run_broker_crisis_reentry_replay.repo_path(path_like)` ->resolves repo-relative paths.
+  - `run_broker_crisis_reentry_replay.safe_float(value, default)` ->normalizes optional numeric values.
+  - `run_broker_crisis_reentry_replay.write_json(path, payload)` ->writes deterministic JSON outputs.
+  - `run_broker_crisis_reentry_replay.render_report(metrics)` ->renders a Markdown broker challenger report.
+  - `run_broker_crisis_reentry_replay.build_target_book(latest_run, output_dir, policy_id)` ->filters crisis-reentry holdings into a broker target book.
+  - `run_broker_crisis_reentry_replay.run(...)` ->runs the filtered target book through broker-ledger next-close replay.
+  - `run_broker_crisis_reentry_replay.parse_args()` ->parses CLI arguments.
+  - `run_broker_crisis_reentry_replay.main()` ->CLI entrypoint.
+- symbols_changed:
+  - `run_macro_policy_engine._long_trend_damage_score()` ->does not use `drawdown_after_month` for decision scoring.
+  - `run_macro_policy_engine._cash_raise_confirmation_count()` ->does not count later-month drawdown as a cash-raise confirmation.
+  - `run_macro_policy_engine._risk_state()` ->does not use future drawdown to escalate to crisis/red or block recovery.
+  - `run_crisis_reentry_replay.target_cash_for_month()` ->keeps `drawdown_after_month` diagnostic-only and uses observable pre-month drawdown for re-entry.
+  - `run_portfolio_goal_search.collect_candidates()` ->includes `broker_crisis_reentry_replay/main/metrics.json`.
+  - `test_workflow_keeps_monthly_books()` ->requires `outputs/broker_crisis_reentry_replay/`.
+  - `test_workflow_runs_latest_diagnostics_sidecars()` ->requires the new runner and log output.
+  - `macro_policy_engine_smoke.main()` ->asserts future drawdown alone does not make a balanced month red/crisis.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_crisis_reentry_replay/main/target_book.csv` ->crisis-reentry policy target book filtered to one policy.
+  - `outputs/broker_crisis_reentry_replay/main/metrics.json` ->broker-ledger next-close account replay of the filtered crisis-reentry policy.
+  - `outputs/broker_crisis_reentry_replay/main/equity_curve.csv` ->daily account equity for the challenger.
+  - `outputs/broker_crisis_reentry_replay/main/trades.csv` ->integer-share next-close fills for the challenger.
+  - `outputs/full_rebuild_logs/broker_crisis_reentry_replay.log` ->full rebuild execution log for the challenger.
+- validation:
+  - `py -3 tests\broker_crisis_reentry_replay_smoke.py` ->passed.
+  - `py -3 tests\crisis_reentry_policy_smoke.py` ->passed.
+  - `py -3 tests\macro_policy_engine_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\broker_execution_policy_replay_smoke.py` ->passed.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->passed.
+  - `py -3 tests\broker_ledger_replay_smoke.py` ->passed.
+  - `py -3 tests\account_evaluation_smoke.py` ->passed.
+- risks_or_notes:
+  - This is still a challenger, not an automatic production policy.
+  - Full rebuild is required to learn whether broker-ledger crisis re-entry improves CAGR/MaxDD after next-close fills and costs.
+  - Macro diagnostics may still use later-month drawdown to flag late risk detection, but portfolio decisions no longer use it.
+
 ### 05:29 KST - free-data-bootstrap-workflow
 
 - scope:
@@ -4260,6 +4582,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - This still does not place broker orders. It creates the controls needed before a broker adapter can be safely enabled.
   - Without a broker snapshot, risk controls emit a warning because real account/open-order reconciliation is skipped. With `--strict-live`, broker snapshot absence is a blocking error.
   - Partial-fill handling is still a reconciliation template, not a broker adapter. The next live step is to import real broker fills into this template and reconcile post-trade account state.
+
+### 10:13 KST - actionable-forward-coverage-guard
+
+- scope:
+  - Treat forward-return coverage diagnostics as non-actionable and strip/block them from orderable portfolio exports.
+- files:
+  - `r1000_pipeline.py` ->adds `forward_return_coverage_score` to actionable export leakage stripping.
+  - `tools/run_live_trading_safety_audit.py` ->blocks `forward_return_coverage_score` if it appears in orderable target CSVs.
+  - `tests/live_trading_safety_audit_smoke.py` ->covers stripping and blocking of the forward-return coverage diagnostic column.
+  - `CHANGELOG.md` ->records the actionable forward coverage guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `drop_actionable_leakage_columns(df)` ->now removes `forward_return_coverage_score` from orderable exports.
+  - `run_live_trading_safety_audit.run(args)` ->now reports target leakage if `forward_return_coverage_score` reaches orderable CSV inputs.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\live_trading_safety_audit_smoke.py` ->passed.
+  - `py -3 tests\live_trading_risk_controls_smoke.py` ->passed.
+  - `py -3 tests\workflow_artifact_smoke.py` ->passed.
+  - `py -3 tests\smoke_test.py` ->passed, 89/89.
+  - `py -3 tests\audit_features.py --no-runtime` ->passed.
+- risks_or_notes:
+  - The column was not part of `DEFAULT_FEATURES`, but it is derived from future-label availability and should never be visible in actionable order files.
+  - This is an export/audit hardening fix, not a strategy tuning change.
 
 ## 2026-05-08
 

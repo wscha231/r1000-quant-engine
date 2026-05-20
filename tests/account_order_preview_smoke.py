@@ -82,7 +82,13 @@ def test_order_preview_builds_sell_first_orders() -> None:
         assert "idempotency_key" in orders.columns
         assert orders["client_order_id"].is_unique
         assert (out / "positions_current.csv").exists()
+        assert (out / "projected_positions_after_orders.csv").exists()
         assert (out / "preview_metrics.json").exists()
+        assert "projected_cash_weight" in payload
+        assert "target_cash_weight" in payload
+        projected = pd.read_csv(out / "projected_positions_after_orders.csv")
+        assert "projected_weight" in projected.columns
+        assert "CASH" in set(projected["ticker"])
         manifest = json.loads((out / "order_batch_manifest.json").read_text(encoding="utf-8"))
         assert manifest["order_count"] == len(orders)
         assert manifest["order_batch_id"] == payload["order_batch_id"]

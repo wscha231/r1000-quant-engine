@@ -1551,6 +1551,7 @@ def test_workflow_topology_consolidated() -> None:
         "unified_monthly.yml",
         "layer4_monthly_swap.yml",
         "gdrive_smoke_test.yml",
+        "pr_validation.yml",
     }
     missing = sorted(name for name in expected if not (wf_dir / name).exists())
     assert not missing, f"missing consolidated workflows: {missing}"
@@ -2704,6 +2705,219 @@ def test_production_exact_banned_full_coverage() -> None:
         f"defensive gap from audit 6c0a496 still open. "
         f"Forward returns 12m/24m/36m would silently pass leakage check."
     )
+
+
+@_test("regression.short_rs_trap_columns_wired")
+def test_short_rs_trap_columns_wired() -> None:
+    """SHORT_RS_TRAP_COLUMNS must be exported + spliced into build_feature_store.
+
+    Adds protection for the 2026-05-13 PLTR/IONQ-class fix: short-term RS
+    breakdown + chase-extension penalty. The 4 columns must all reach the
+    feature_store_latest.parquet keep_cols + hard_sanitize whitelist, AND
+    the constant must be exported from r1000_features.py.
+    """
+    features_src = _features_src() if "_features_src" in globals() else _combined_src()
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    combined = _combined_src()
+
+    expected = [
+        "rs_short_score",
+        "rs_long_score",
+        "rs_short_breakdown_penalty",
+        "short_extension_risk_penalty",
+    ]
+
+    # Constant must exist
+    assert "SHORT_RS_TRAP_COLUMNS" in combined, (
+        "SHORT_RS_TRAP_COLUMNS constant not found in r1000_features.py"
+    )
+    # All 4 columns must be in the constant list
+    m = re.search(r"SHORT_RS_TRAP_COLUMNS\s*=\s*\[(.*?)\]", combined, re.DOTALL)
+    assert m, "SHORT_RS_TRAP_COLUMNS list literal not found"
+    body = m.group(1)
+    missing = [c for c in expected if f'"{c}"' not in body]
+    assert not missing, (
+        f"SHORT_RS_TRAP_COLUMNS missing expected names: {missing}"
+    )
+    # Must be wired into build_feature_store
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SHORT_RS_TRAP_COLUMNS" in fs_m.group(0), (
+        "SHORT_RS_TRAP_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.short_rs_trap_compute_fns_invoked")
+def test_short_rs_trap_compute_fns_invoked() -> None:
+    """compute_rs_short_long_scores + compute_short_extension_risk_penalty
+    must be invoked in build_feature_store body.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "build_feature_store not found"
+    body = m.group(0)
+    assert "compute_rs_short_long_scores" in body, (
+        "compute_rs_short_long_scores() not invoked in build_feature_store"
+    )
+    assert "compute_short_extension_risk_penalty" in body, (
+        "compute_short_extension_risk_penalty() not invoked in build_feature_store"
+    )
+
+
+@_test("regression.strategic_turnaround_pass_wired")
+def test_strategic_turnaround_pass_wired() -> None:
+    """add_core_fundamental_minimum_flags must include strategic_turnaround_pass
+    as a 5th lane in core_fundamental_minimum_pass.
+
+    Without this, INTC-class megacap turnaround candidates (negative NI but
+    profitability_turn_positive / ni_loss_narrowing trending up) get cut at
+    the gate and never reach scoring.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_core_fundamental_minimum_flags\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_core_fundamental_minimum_flags not found"
+    body = m.group(0)
+    assert "strategic_turnaround_pass" in body, (
+        "strategic_turnaround_pass not defined in add_core_fundamental_minimum_flags"
+    )
+    # Must be unioned into the final core_fundamental_minimum_pass
+    final_line_m = re.search(
+        r'd\["core_fundamental_minimum_pass"\]\s*=\s*\(?\s*([^)\n]+)',
+        body,
+    )
+    assert final_line_m, "core_fundamental_minimum_pass assignment not found"
+    assert "strategic_turnaround_pass" in final_line_m.group(1), (
+        "core_fundamental_minimum_pass does not union strategic_turnaround_pass — "
+        "INTC-class turnaround bypass disabled"
+    )
+
+
+@_test("structural.short_rs_trap_weight_cfg_fields")
+def test_short_rs_trap_weight_cfg_fields() -> None:
+    """3 new EngineConfig fields must exist: w_rs_short_score,
+    w_rs_short_breakdown_penalty, w_short_extension_penalty.
+    """
+    src = _combined_src()
+    for field in [
+        "w_rs_short_score",
+        "w_rs_short_breakdown_penalty",
+        "w_short_extension_penalty",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+@_test("regression.sec_evidence_columns_wired")
+def test_sec_evidence_columns_wired() -> None:
+    """SEC_EVIDENCE_COLUMNS must include both 13F + Form 4 columns and be
+    spliced into build_feature_store keep_cols.
+
+    Without this wiring, sec_13f_quarterly_refresh.yml + sec_form4_daily_refresh
+    .yml workflows produce signals that never reach feature_store_latest, so the
+    score overlay would be permanently zero even when the cron runs successfully.
+    """
+    src = _combined_src()
+    assert "SEC_EVIDENCE_COLUMNS" in src, "SEC_EVIDENCE_COLUMNS constant not found"
+    m = re.search(r"SEC_EVIDENCE_COLUMNS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+    assert m, "SEC_EVIDENCE_COLUMNS list literal not found"
+    body = m.group(1)
+    # Spot-check both 13F + Form 4 signal columns are present
+    for required in [
+        "sec_13f_smart_money_score",
+        "institutional_evidence_score",
+        "sec_form4_cluster_buy_score",
+        "early_evidence_score",
+    ]:
+        assert f'"{required}"' in body, (
+            f"SEC_EVIDENCE_COLUMNS missing {required} — overlay incomplete"
+        )
+    # Must be wired into build_feature_store
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else src
+    fs_m = re.search(
+        r"^def build_feature_store\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fs_m, "build_feature_store not found"
+    assert "SEC_EVIDENCE_COLUMNS" in fs_m.group(0), (
+        "SEC_EVIDENCE_COLUMNS not referenced inside build_feature_store keep_cols"
+    )
+
+
+@_test("regression.sec_evidence_score_overlay_wired")
+def test_sec_evidence_score_overlay_wired() -> None:
+    """add_total_score_columns must include the SEC institutional + insider
+    overlays (score_sec_institutional_overlay + score_sec_insider_overlay).
+
+    Without this, the 13F manager-tracking + Form 4 insider-buying signals
+    are computed by the SEC pipelines but never affect the final `score`
+    column written to scored_latest.csv.
+    """
+    pipeline_src = _pipeline_src() if "_pipeline_src" in globals() else _combined_src()
+    m = re.search(
+        r"^def add_total_score_columns\b.*?(?=^def |\Z)",
+        pipeline_src,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert m, "add_total_score_columns not found"
+    body = m.group(0)
+    assert "score_sec_institutional_overlay" in body, (
+        "score_sec_institutional_overlay not added in add_total_score_columns"
+    )
+    assert "score_sec_insider_overlay" in body, (
+        "score_sec_insider_overlay not added in add_total_score_columns"
+    )
+    assert "w_sec_institutional_evidence" in body, (
+        "w_sec_institutional_evidence cfg field not read in add_total_score_columns"
+    )
+
+
+@_test("structural.sec_evidence_weight_cfg_fields")
+def test_sec_evidence_weight_cfg_fields() -> None:
+    """2 new EngineConfig fields must exist: w_sec_institutional_evidence,
+    w_sec_insider_evidence. Both default to 0.30 / 0.20 respectively.
+    """
+    src = _combined_src()
+    for field in [
+        "w_sec_institutional_evidence",
+        "w_sec_insider_evidence",
+    ]:
+        assert re.search(rf"\b{field}\s*:\s*float\s*=", src), (
+            f"EngineConfig field {field} not declared with float default"
+        )
+
+
+@_test("regression.sec_13f_manager_universe_csv_present")
+def test_sec_13f_manager_universe_csv_present() -> None:
+    """managers.csv must exist + contain at least 30 managers + verified
+    Whale Rock / Atreides (user-requested high-conviction picks).
+    """
+    import csv
+
+    repo_root = Path(__file__).resolve().parent.parent
+    csv_path = repo_root / "research" / "sec_13f_manager_universe_20260519" / "managers.csv"
+    assert csv_path.exists(), f"managers.csv missing at {csv_path}"
+    with csv_path.open() as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) >= 30, f"managers.csv has only {len(rows)} entries; expected >= 30"
+    labels = {r["label"].upper() for r in rows}
+    for expected in ["WHALEROCK", "ATREIDES", "SITUATIONAL", "DUQUESNE"]:
+        assert expected in labels, (
+            f"managers.csv missing required entry: {expected}"
+        )
 
 
 # ======================================================================

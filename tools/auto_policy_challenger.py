@@ -28,6 +28,11 @@ DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUT_DIR = "outputs/auto_learning/challenger"
 DEFAULT_E1_METRICS = "outputs/experiments/E1_auto_feature_gates_on/metrics.json"
 DEFAULT_E5_METRICS = "outputs/experiments/E5_orchestrator_balanced/metrics.json"
+DEFAULT_WEEKLY_LEADER_MAIN_METRICS = "outputs/weekly_leader_broker_replay/main/metrics.json"
+DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS = "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
+DEFAULT_BROKER_ACCOUNTING_AUDIT = "research/broker_accounting_audit.json"
+DEFAULT_COST_SENSITIVITY_MAIN = "outputs/cost_sensitivity/main/summary.json"
+DEFAULT_COST_SENSITIVITY_CONCENTRATED = "outputs/cost_sensitivity/concentrated/summary.json"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -112,6 +117,122 @@ def candidate_thresholds(policy: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def load_broker_accounting_audit(path: Path) -> dict[str, Any]:
+    """Load the broker-ledger known-bias audit artifact.
+
+    Returns the parsed audit dict, or an empty-but-valid skeleton if the
+    file is missing so the challenger emits explicit "missing audit"
+    failures rather than crashing.
+    """
+    if not path.exists():
+        return {
+            "hard_gates": {
+                "delisted_cost_basis_fallback_eliminated": {"value": False, "rationale": "audit file missing"},
+                "survivorship_coverage_audited": {"value": False, "rationale": "audit file missing"},
+            },
+            "soft_gates": {
+                "multi_day_fill_date_stamping_corrected": {"value": False, "rationale": "audit file missing"},
+                "sharpe_uses_excess_return": {"value": False, "rationale": "audit file missing"},
+            },
+            "audit_present": False,
+        }
+    raw = read_json(path)
+    raw["audit_present"] = True
+    return raw
+
+
+def _broker_accounting_rows(audit: dict[str, Any], audit_path: str) -> list[dict[str, Any]]:
+    """Emit gate rows for each broker-ledger known-bias flag.
+
+    Hard gates correspond to biases that meaningfully distort CAGR/MaxDD
+    (delisted cost-basis fallback and survivorship coverage). Soft gates
+    capture smaller biases (multi-day fill date stamping, Sharpe risk-free
+    rate). The audit JSON is the single source of truth; do not duplicate
+    the flag names in code without updating that artifact.
+    """
+    rows: list[dict[str, Any]] = []
+    hard = audit.get("hard_gates") or {}
+    soft = audit.get("soft_gates") or {}
+    rows.append(gate_row(
+        "broker_accounting",
+        "audit_artifact_present",
+        bool(audit.get("audit_present")),
+        "hard",
+        observed=audit.get("audit_present", False),
+        threshold=True,
+        reason="research/broker_accounting_audit.json must exist so the challenger can read known-bias flags.",
+        evidence=audit_path,
+    ))
+    for name, payload in hard.items():
+        rows.append(gate_row(
+            "broker_accounting",
+            name,
+            bool((payload or {}).get("value")) is True,
+            "hard",
+            observed=(payload or {}).get("value"),
+            threshold=True,
+            reason=(payload or {}).get("rationale") or "Bias must be eliminated before production promotion.",
+            evidence=(payload or {}).get("evidence_path") or audit_path,
+        ))
+    for name, payload in soft.items():
+        rows.append(gate_row(
+            "broker_accounting",
+            name,
+            bool((payload or {}).get("value")) is True,
+            "soft",
+            observed=(payload or {}).get("value"),
+            threshold=True,
+            reason=(payload or {}).get("rationale") or "Bias should be corrected; warning only until then.",
+            evidence=(payload or {}).get("evidence_path") or audit_path,
+        ))
+    return rows
+
+
+def _cost_sensitivity_gate_row(
+    *,
+    main_summary: dict[str, Any],
+    concentrated_summary: dict[str, Any],
+    expected_cost_levels: list[float | int],
+) -> dict[str, Any]:
+    """Emit the cost-sensitivity hard gate row.
+
+    Passes when both main and concentrated sidecar summaries are present,
+    declare schema ``cost-sensitivity-sidecar-v1``, and each contains at
+    least one completed level per required ``cost_bps`` step. Otherwise
+    hard-fails with the observed coverage and the missing levels surfaced
+    in ``observed``.
+    """
+    cost_summaries = {"main": main_summary or {}, "concentrated": concentrated_summary or {}}
+    observed: dict[str, Any] = {}
+    expected_count = len(expected_cost_levels)
+    all_present = True
+    for portfolio_kind, summary in cost_summaries.items():
+        levels = summary.get("levels") or []
+        completed = [safe_float(lv.get("cost_bps")) for lv in levels if lv.get("status") == "completed"]
+        schema = summary.get("schema_version")
+        observed[portfolio_kind] = {
+            "schema_version": schema,
+            "completed_levels": completed,
+            "breakeven_cost_bps": summary.get("breakeven_cost_bps"),
+        }
+        if schema != "cost-sensitivity-sidecar-v1" or len(completed) < expected_count:
+            all_present = False
+    return gate_row(
+        "cost",
+        "cost_sensitivity_backtested",
+        bool(all_present),
+        "hard",
+        observed=observed,
+        threshold={
+            "cost_bps_levels_required": expected_cost_levels,
+            "main_summary_path": DEFAULT_COST_SENSITIVITY_MAIN,
+            "concentrated_summary_path": DEFAULT_COST_SENSITIVITY_CONCENTRATED,
+        },
+        reason="Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
+        evidence=f"{DEFAULT_COST_SENSITIVITY_MAIN},{DEFAULT_COST_SENSITIVITY_CONCENTRATED}",
+    )
+
+
 def evaluate_challenger(
     policy: dict[str, Any],
     baseline: dict[str, Any],
@@ -120,10 +241,19 @@ def evaluate_challenger(
     main_v2_audit: dict[str, Any],
     concentrated_policy: dict[str, Any],
     alpha_sprint_metrics: dict[str, Any],
+    weekly_leader_main_metrics: dict[str, Any],
+    weekly_leader_concentrated_metrics: dict[str, Any],
+    broker_accounting_audit: dict[str, Any] | None = None,
+    broker_accounting_audit_path: str = DEFAULT_BROKER_ACCOUNTING_AUDIT,
+    cost_sensitivity_main: dict[str, Any] | None = None,
+    cost_sensitivity_concentrated: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validation = validate_policy(policy)
     thresholds = candidate_thresholds(policy)
     rows: list[dict[str, Any]] = []
+
+    audit = broker_accounting_audit if broker_accounting_audit is not None else {"audit_present": False, "hard_gates": {}, "soft_gates": {}}
+    rows.extend(_broker_accounting_rows(audit, broker_accounting_audit_path))
 
     rows.append(gate_row(
         "schema",
@@ -285,15 +415,31 @@ def evaluate_challenger(
     ))
 
     alpha_status = alpha_sprint_metrics.get("status")
+    weekly_leader_available = bool(weekly_leader_main_metrics.get("status") == "completed" or weekly_leader_concentrated_metrics.get("status") == "completed")
     rows.append(gate_row(
         "alpha_sprint",
         "alpha_sprint_historical_backtest_exists",
-        alpha_status not in {"not_backtested_missing_historical_scored_snapshot", None, ""},
+        alpha_status not in {"not_backtested_missing_historical_scored_snapshot", None, ""} or weekly_leader_available,
         "hard",
-        observed=alpha_status,
-        threshold="weekly/historical alpha sprint backtest",
-        reason="Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist.",
-        evidence="outputs/alpha_sprint/backtest_metrics.json",
+        observed={"alpha_sprint_status": alpha_status, "weekly_leader_available": weekly_leader_available},
+        threshold="weekly/historical alpha sprint or weekly leader-entry broker replay",
+        reason="Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist; weekly leader entry broker replay can now serve as the first counterfactual bridge.",
+        evidence=f"{DEFAULT_WEEKLY_LEADER_MAIN_METRICS},{DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS}",
+    ))
+    rows.append(gate_row(
+        "weekly_leader_entry",
+        "weekly_leader_broker_replay_available",
+        weekly_leader_available,
+        "soft",
+        observed={
+            "main_status": weekly_leader_main_metrics.get("status"),
+            "main_cagr": weekly_leader_main_metrics.get("cagr"),
+            "concentrated_status": weekly_leader_concentrated_metrics.get("status"),
+            "concentrated_cagr": weekly_leader_concentrated_metrics.get("cagr"),
+        },
+        threshold="completed account-like replay",
+        reason="New-leader entry ideas should be judged by broker-ledger metrics, not latest snapshot recommendations.",
+        evidence=f"{DEFAULT_WEEKLY_LEADER_MAIN_METRICS},{DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS}",
     ))
 
     rows.append(gate_row(
@@ -305,14 +451,10 @@ def evaluate_challenger(
         threshold="2020/2022/momentum/rate/vix stress windows",
         reason="Policy challenger needs monthly equity and allocation series before stress gates can pass.",
     ))
-    rows.append(gate_row(
-        "cost",
-        "cost_sensitivity_backtested",
-        False,
-        "hard",
-        observed="not_available",
-        threshold=thresholds.get("cost_sensitivity_bps", [25, 50, 75]),
-        reason="Cost sensitivity has not been run for the full candidate policy.",
+    rows.append(_cost_sensitivity_gate_row(
+        main_summary=cost_sensitivity_main or {},
+        concentrated_summary=cost_sensitivity_concentrated or {},
+        expected_cost_levels=thresholds.get("cost_sensitivity_bps") or [25, 50, 75],
     ))
     rows.append(gate_row(
         "stability",
@@ -346,15 +488,20 @@ def evaluate_challenger(
             "main_v2_audit": "outputs/main_v2/main_v2_audit_latest.json",
             "concentrated_policy_audit": "outputs/concentrated_policy/policy_audit_latest.json",
             "alpha_sprint_metrics": "outputs/alpha_sprint/backtest_metrics.json",
+            "weekly_leader_main_metrics": DEFAULT_WEEKLY_LEADER_MAIN_METRICS,
+            "weekly_leader_concentrated_metrics": DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS,
         },
         "next_required_backtests": [
+            "broker_accounting_audit_flips_hard_gates_to_true",
             "main_v2_83_month_backtest",
             "orchestrator_83_month_backtest",
+            "weekly_leader_entry_cost_and_stress_replay",
             "alpha_sprint_weekly_historical_backtest",
             "stress_window_equity_curve_test",
             "cost_sensitivity_25_50_75_bps",
             "rolling_3y_5y_stability",
         ],
+        "broker_accounting_audit_path": broker_accounting_audit_path,
     }
 
 
@@ -407,10 +554,16 @@ def main() -> int:
     parser.add_argument("--out-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--e1-metrics", default=DEFAULT_E1_METRICS)
     parser.add_argument("--e5-metrics", default=DEFAULT_E5_METRICS)
+    parser.add_argument("--weekly-leader-main-metrics", default=DEFAULT_WEEKLY_LEADER_MAIN_METRICS)
+    parser.add_argument("--weekly-leader-concentrated-metrics", default=DEFAULT_WEEKLY_LEADER_CONCENTRATED_METRICS)
+    parser.add_argument("--broker-accounting-audit", default=DEFAULT_BROKER_ACCOUNTING_AUDIT)
+    parser.add_argument("--cost-sensitivity-main", default=DEFAULT_COST_SENSITIVITY_MAIN)
+    parser.add_argument("--cost-sensitivity-concentrated", default=DEFAULT_COST_SENSITIVITY_CONCENTRATED)
     args = parser.parse_args()
 
     policy = load_policy(repo_path(args.policy))
     baseline = load_baseline(repo_path(args.latest_run))
+    audit_path = repo_path(args.broker_accounting_audit)
     decision = evaluate_challenger(
         policy=policy,
         baseline=baseline,
@@ -419,6 +572,12 @@ def main() -> int:
         main_v2_audit=read_json(repo_path("outputs/main_v2/main_v2_audit_latest.json")),
         concentrated_policy=read_json(repo_path("outputs/concentrated_policy/policy_audit_latest.json")),
         alpha_sprint_metrics=read_json(repo_path("outputs/alpha_sprint/backtest_metrics.json")),
+        weekly_leader_main_metrics=read_json(repo_path(args.weekly_leader_main_metrics)),
+        weekly_leader_concentrated_metrics=read_json(repo_path(args.weekly_leader_concentrated_metrics)),
+        broker_accounting_audit=load_broker_accounting_audit(audit_path),
+        broker_accounting_audit_path=str(args.broker_accounting_audit),
+        cost_sensitivity_main=read_json(repo_path(args.cost_sensitivity_main)),
+        cost_sensitivity_concentrated=read_json(repo_path(args.cost_sensitivity_concentrated)),
     )
 
     out_dir = repo_path(args.out_dir)
