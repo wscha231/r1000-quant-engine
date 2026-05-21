@@ -116,6 +116,39 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is still research-only; it is intended to test whether top-fund first-buy, Form 4 P-code, and ETF inclusion evidence works better as a tie-breaker than as the primary selector.
 
+### 21:26 KST - post-disclosure-13f-first-buy-surprise
+
+- scope:
+  - Narrow the 13F evidence path after broker-grid artifacts showed broad `new/add` events saturating too many candidates and weakening CAGR/MDD.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `pda_13f_first_buy_surprise_score` and count, using only non-boundary 13F `new` events weighted by manager conviction, position weight, and issuer impact.
+  - `tools/run_alpha_selector_broker_grid.py` ->uses first-buy surprise instead of broad `new/add` in discovery and micro tie-breaker styles.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers first-buy surprise aggregation and target-book output.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers first-buy surprise carry-through in alpha-selector target books.
+- symbols_added:
+  - `pda_13f_first_buy_surprise_score` ->narrow score for high-conviction non-boundary 13F first-buy events.
+  - `pda_13f_first_buy_surprise_count` ->count of qualifying 13F first-buy events in the lookback window.
+- symbols_changed:
+  - `normalize_events()` ->preserves `history_boundary` and computes per-event `first_buy_surprise_score` for 13F rows.
+  - `event_features_by_date()` ->emits first-buy surprise aggregate score and count.
+  - `add_post_disclosure_overlay()` ->weights discovery score toward first-buy surprise instead of broad new/add saturation.
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_micro"]` ->uses first-buy surprise as the 13F micro tie-breaker component.
+  - `STYLE_WEIGHTS["post_disclosure_discovery"]` ->uses first-buy surprise as the main 13F discovery component.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->will include first-buy surprise columns after the next run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. This is a narrower follow-up to run `26222333129`, where standalone and micro post-disclosure overlays did not beat the future-heavy baseline.
+
 ### 16:24 KST - post-disclosure-discovery-buckets
 
 - scope:

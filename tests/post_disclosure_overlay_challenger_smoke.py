@@ -92,6 +92,10 @@ def event_rows(score_col: str, score: float, source_type: str, event_type: str =
                 "ticker": "AAA",
                 "available_from": "2026-01-01T20:00:00Z",
                 "event_type": event_type,
+                "history_boundary": False,
+                "manager_conviction_rank": 1.0,
+                "position_weight": 0.05,
+                "value_delta_to_mcap": 0.01,
                 score_col: score,
             }
         ]
@@ -112,6 +116,7 @@ def test_post_disclosure_overlay_joins_events_by_available_from() -> None:
     assert float(aaa["post_disclosure_discovery_score"]) > 0.40
     assert float(aaa["post_disclosure_mega_confirmation_score"]) > 0.40
     assert float(aaa["pda_13f_new_or_add_score"]) > 0.0
+    assert float(aaa["pda_13f_first_buy_surprise_score"]) > 0.0
     assert float(aaa["pda_form4_open_market_buy_score"]) > 0.0
     assert float(aaa["pda_etf_new_or_increase_score"]) > 0.0
     assert int(aaa["post_disclosure_evidence_source_count"]) == 3
@@ -169,6 +174,7 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         assert set(targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in targets.columns
         assert "pda_13f_new_or_add_score" in targets.columns
+        assert "pda_13f_first_buy_surprise_score" in targets.columns
         mega_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_mega_confirmation_N1_cap*/target_book.csv")))
         assert set(mega_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_mega_confirmation_score" in mega_targets.columns

@@ -74,6 +74,8 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "pda_size_discovery_score": 0.85,
                         "pda_13f_new_or_add_score": 0.90,
                         "pda_13f_new_or_add_count": 2,
+                        "pda_13f_first_buy_surprise_score": 0.85,
+                        "pda_13f_first_buy_surprise_count": 1,
                         "pda_form4_open_market_buy_score": 0.80,
                         "pda_form4_open_market_buy_count": 1,
                         "pda_etf_new_or_increase_score": 0.70,
@@ -118,6 +120,8 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "pda_size_discovery_score": 0.85,
                         "pda_13f_new_or_add_score": 0.0,
                         "pda_13f_new_or_add_count": 0,
+                        "pda_13f_first_buy_surprise_score": 0.0,
+                        "pda_13f_first_buy_surprise_count": 0,
                         "pda_form4_open_market_buy_score": 0.0,
                         "pda_form4_open_market_buy_count": 0,
                         "pda_etf_new_or_increase_score": 0.0,
@@ -162,6 +166,8 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "pda_size_discovery_score": 0.0,
                         "pda_13f_new_or_add_score": 0.0,
                         "pda_13f_new_or_add_count": 0,
+                        "pda_13f_first_buy_surprise_score": 0.0,
+                        "pda_13f_first_buy_surprise_count": 0,
                         "pda_form4_open_market_buy_score": 0.0,
                         "pda_form4_open_market_buy_count": 0,
                         "pda_etf_new_or_increase_score": 0.0,
@@ -206,6 +212,8 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "pda_size_discovery_score": 0.0,
                         "pda_13f_new_or_add_score": 1.0,
                         "pda_13f_new_or_add_count": 3,
+                        "pda_13f_first_buy_surprise_score": 1.0,
+                        "pda_13f_first_buy_surprise_count": 2,
                         "pda_form4_open_market_buy_score": 1.0,
                         "pda_form4_open_market_buy_count": 2,
                         "pda_etf_new_or_increase_score": 1.0,
@@ -270,6 +278,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         micro_targets = pd.read_csv(next(out.glob("future_heavy_post_disclosure_micro_N1_cap*/target_book.csv")))
         assert set(micro_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in micro_targets.columns
+        assert "pda_13f_first_buy_surprise_score" in micro_targets.columns
         assert "pda_form4_open_market_buy_score" in micro_targets.columns
         discovery_targets = pd.read_csv(next(out.glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
         assert set(discovery_targets["ticker"]) == {"AAA"}

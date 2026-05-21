@@ -35,6 +35,8 @@ PDA_COLUMNS = [
     "pda_13f_event_count",
     "pda_13f_new_or_add_score",
     "pda_13f_new_or_add_count",
+    "pda_13f_first_buy_surprise_score",
+    "pda_13f_first_buy_surprise_count",
     "pda_form4_event_score",
     "pda_form4_event_count",
     "pda_form4_open_market_buy_score",
@@ -138,7 +140,8 @@ def normalize_events(events: pd.DataFrame, *, source: str, score_col: str) -> pd
     d["source"] = source
     d["event_type"] = d.get("event_type", d.get("form4_event_type", "")).fillna("").astype(str).str.lower().str.strip()
     d = d[d["ticker"].ne("") & d["available_from_ts"].notna()].copy()
-    keep = ["ticker", "available_from_ts", "event_score", "source", "event_type"]
+    d["history_boundary"] = d.get("history_boundary", False).fillna(False).astype(bool)
+    keep = ["ticker", "available_from_ts", "event_score", "source", "event_type", "history_boundary"]
     for optional in [
         "position_weight",
         "position_rank",
@@ -150,11 +153,28 @@ def normalize_events(events: pd.DataFrame, *, source: str, score_col: str) -> pd
         "etf_consensus_count",
         "transaction_value_to_mcap",
         "transaction_shares_to_float",
-        "cluster_buy_score",
-    ]:
+            "cluster_buy_score",
+        ]:
         if optional in d.columns:
             d[optional] = pd.to_numeric(d[optional], errors="coerce").fillna(0.0)
             keep.append(optional)
+    if source == "13f":
+        conviction = numeric(d, "manager_conviction_rank", 0.0).clip(0.0, 1.0)
+        position_weight = numeric(d, "position_weight", 0.0).clip(lower=0.0)
+        value_delta_to_mcap = numeric(d, "value_delta_to_mcap", 0.0).clip(lower=0.0)
+        manager_stake_to_float = numeric(d, "manager_stake_to_float", 0.0).clip(lower=0.0)
+        position_weight_score = (position_weight / 0.05).clip(0.0, 1.0)
+        issuer_impact_score = pd.concat(
+            [(value_delta_to_mcap / 0.01).clip(0.0, 1.0), (manager_stake_to_float / 0.02).clip(0.0, 1.0)],
+            axis=1,
+        ).max(axis=1)
+        d["first_buy_surprise_score"] = (
+            0.35 * d["event_score"].clip(lower=0.0)
+            + 0.25 * conviction
+            + 0.20 * position_weight_score
+            + 0.20 * issuer_impact_score
+        ).fillna(0.0).clip(0.0, 1.0)
+        keep.append("first_buy_surprise_score")
     return d[keep]
 
 
@@ -174,8 +194,14 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
             negative = float(abs(score[score < 0].sum()))
             event_type = group.get("event_type", pd.Series("", index=group.index)).astype(str).str.lower()
             new_add_mask = event_type.isin(["new", "add"])
+            history_boundary = group.get("history_boundary", pd.Series(False, index=group.index)).astype(bool)
+            first_buy_mask = event_type.eq("new") & (~history_boundary)
             form4_buy_mask = event_type.isin(["open_market_purchase", "p"])
             etf_new_mask = event_type.isin(["inclusion", "weight_increase"])
+            if "first_buy_surprise_score" in group.columns:
+                first_buy_surprise = pd.to_numeric(group["first_buy_surprise_score"], errors="coerce").fillna(0.0)
+            else:
+                first_buy_surprise = score.clip(lower=0.0)
             rows.append(
                 {
                     "rebalance_date": dt,
@@ -185,6 +211,8 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
                     f"{prefix}_negative_event_score": safe_pct(negative),
                     f"{prefix}_new_or_add_score": safe_pct(float(score[new_add_mask].clip(lower=0.0).sum())),
                     f"{prefix}_new_or_add_count": int(new_add_mask.sum()),
+                    f"{prefix}_first_buy_surprise_score": safe_pct(float(first_buy_surprise[first_buy_mask].sum())),
+                    f"{prefix}_first_buy_surprise_count": int(first_buy_mask.sum()),
                     f"{prefix}_open_market_buy_score": safe_pct(float(score[form4_buy_mask].clip(lower=0.0).sum())),
                     f"{prefix}_open_market_buy_count": int(form4_buy_mask.sum()),
                     f"{prefix}_new_or_increase_score": safe_pct(float(score[etf_new_mask].clip(lower=0.0).sum())),
@@ -231,6 +259,8 @@ def add_post_disclosure_overlay(
         for suffix in [
             "new_or_add_score",
             "new_or_add_count",
+            "first_buy_surprise_score",
+            "first_buy_surprise_count",
             "open_market_buy_score",
             "open_market_buy_count",
             "new_or_increase_score",
@@ -266,7 +296,8 @@ def add_post_disclosure_overlay(
     d["pda_size_discovery_score"] = [size_discovery_score(value) for value in mcap]
     d["pda_mega_confirmation_size_score"] = [mega_confirmation_size_score(value) for value in mcap]
     d["post_disclosure_discovery_score"] = (
-        0.30 * d["pda_13f_new_or_add_score"]
+        0.22 * d["pda_13f_first_buy_surprise_score"]
+        + 0.08 * d["pda_13f_new_or_add_score"]
         + 0.22 * d["pda_form4_open_market_buy_score"]
         + 0.18 * d["pda_etf_new_or_increase_score"]
         + 0.14 * d["pda_event_convergence_score"]
