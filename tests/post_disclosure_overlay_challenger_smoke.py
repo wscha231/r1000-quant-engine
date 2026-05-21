@@ -83,7 +83,7 @@ def candidate_rows() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def event_rows(score_col: str, score: float, source_type: str) -> pd.DataFrame:
+def event_rows(score_col: str, score: float, source_type: str, event_type: str = "new") -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
@@ -91,7 +91,7 @@ def event_rows(score_col: str, score: float, source_type: str) -> pd.DataFrame:
                 "source_type": source_type,
                 "ticker": "AAA",
                 "available_from": "2026-01-01T20:00:00Z",
-                "event_type": "new",
+                "event_type": event_type,
                 score_col: score,
             }
         ]
@@ -101,14 +101,19 @@ def event_rows(score_col: str, score: float, source_type: str) -> pd.DataFrame:
 def test_post_disclosure_overlay_joins_events_by_available_from() -> None:
     enriched = add_post_disclosure_overlay(
         candidate_rows(),
-        event_rows("post_disclosure_event_seed_score", 0.8, "13f"),
-        event_rows("post_disclosure_event_seed_score", 0.7, "form4"),
-        event_rows("etf_event_seed_score", 0.6, "etf_holding"),
+        event_rows("post_disclosure_event_seed_score", 0.8, "13f", "new"),
+        event_rows("post_disclosure_event_seed_score", 0.7, "form4", "open_market_purchase"),
+        event_rows("etf_event_seed_score", 0.6, "etf_holding", "inclusion"),
         lookback_days=120,
     )
     aaa = enriched[enriched["ticker"].eq("AAA")].iloc[0]
     bbb = enriched[enriched["ticker"].eq("BBB")].iloc[0]
     assert float(aaa["post_disclosure_alpha_score"]) > 0.50
+    assert float(aaa["post_disclosure_discovery_score"]) > 0.40
+    assert float(aaa["post_disclosure_mega_confirmation_score"]) > 0.40
+    assert float(aaa["pda_13f_new_or_add_score"]) > 0.0
+    assert float(aaa["pda_form4_open_market_buy_score"]) > 0.0
+    assert float(aaa["pda_etf_new_or_increase_score"]) > 0.0
     assert int(aaa["post_disclosure_evidence_source_count"]) == 3
     assert float(bbb["post_disclosure_alpha_score"]) == 0.0
     assert "period_forward_return" in enriched.columns
@@ -124,9 +129,9 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         cache = root / "cache_prices"
         out = root / "outputs"
         candidate_rows().to_csv(candidate, index=False)
-        event_rows("post_disclosure_event_seed_score", 0.9, "13f").to_parquet(events_13f, index=False)
-        event_rows("post_disclosure_event_seed_score", 0.8, "form4").to_parquet(events_form4, index=False)
-        event_rows("etf_event_seed_score", 0.7, "etf_holding").to_parquet(events_etf, index=False)
+        event_rows("post_disclosure_event_seed_score", 0.9, "13f", "new").to_parquet(events_13f, index=False)
+        event_rows("post_disclosure_event_seed_score", 0.8, "form4", "open_market_purchase").to_parquet(events_form4, index=False)
+        event_rows("etf_event_seed_score", 0.7, "etf_holding", "inclusion").to_parquet(events_etf, index=False)
         write_price_cache(cache, "AAA", [100, 101, 102, 103, 104, 105, 106])
         write_price_cache(cache, "BBB", [50, 50, 50, 50, 50, 50, 50])
         payload = run(
@@ -144,10 +149,10 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
                 fill_mode="next_close",
                 cost_bps=0.0,
                 max_fill_lag_days=7,
-                styles="post_disclosure_balanced",
+                styles="post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_balanced",
                 target_ns="1",
                 single_name_caps="1.0",
-                max_variants=1,
+                max_variants=3,
                 min_market_cap_usd=300_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=2.0,
@@ -157,9 +162,13 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         assert payload["status"] == "completed", payload
         assert payload["rows_with_post_disclosure_score"] >= 2
         assert payload["broker_grid"]["portfolios"]["main"]["status"] == "completed"
-        targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_balanced_N1_cap*/target_book.csv")))
+        targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
-        assert "post_disclosure_alpha_score" in targets.columns
+        assert "post_disclosure_discovery_score" in targets.columns
+        assert "pda_13f_new_or_add_score" in targets.columns
+        mega_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_mega_confirmation_N1_cap*/target_book.csv")))
+        assert set(mega_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_mega_confirmation_score" in mega_targets.columns
 
 
 def test_post_disclosure_portfolio_specific_grid_defaults() -> None:

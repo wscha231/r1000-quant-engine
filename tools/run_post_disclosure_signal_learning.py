@@ -86,6 +86,21 @@ def safe_hit(series: pd.Series) -> float:
     return float((values > 0.0).mean()) if len(values) else math.nan
 
 
+def safe_spearman_ic(left: pd.Series, right: pd.Series) -> float:
+    frame = pd.DataFrame(
+        {
+            "left": pd.to_numeric(left, errors="coerce"),
+            "right": pd.to_numeric(right, errors="coerce"),
+        }
+    ).replace([np.inf, -np.inf], np.nan).dropna()
+    if len(frame) < 3 or frame["left"].nunique() <= 1 or frame["right"].nunique() <= 1:
+        return math.nan
+    left_rank = frame["left"].rank(method="average")
+    right_rank = frame["right"].rank(method="average")
+    value = left_rank.corr(right_rank, method="pearson")
+    return float(value) if pd.notna(value) else math.nan
+
+
 def prepare_labels(labels: pd.DataFrame) -> pd.DataFrame:
     if labels.empty or "ticker" not in labels.columns:
         return pd.DataFrame()
@@ -150,7 +165,7 @@ def signal_ic(frame: pd.DataFrame, horizons: list[int]) -> pd.DataFrame:
             valid = group[["event_seed_score", ret_col]].replace([np.inf, -np.inf], np.nan).dropna()
             ic = math.nan
             if len(valid) >= 3 and valid["event_seed_score"].nunique() > 1:
-                ic = float(valid["event_seed_score"].corr(valid[ret_col], method="spearman"))
+                ic = safe_spearman_ic(valid["event_seed_score"], valid[ret_col])
             rows.append({"horizon": int(horizon), "scope": scope, "rows": int(len(valid)), "spearman_ic": ic})
     return pd.DataFrame(rows)
 

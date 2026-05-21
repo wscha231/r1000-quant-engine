@@ -53,6 +53,49 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 18:33 KST - post-disclosure-discovery-broker-styles
+
+- scope:
+  - Wire top-fund first-buy, insider open-market-buy, and ETF new-inclusion evidence into research-only broker-ledger styles so the fused evidence system can produce separated CAGR/MaxDD ablations.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->aggregates 13F new/add events, Form 4 open-market purchase events, ETF inclusion/weight-increase events, size discovery score, discovery score, and mega-confirmation score by rebalance date.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `post_disclosure_discovery` and `post_disclosure_mega_confirmation` selector styles and carries their component scores into target-book outputs.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->includes the new discovery and mega-confirmation styles in the default post-disclosure style grid.
+  - `tools/run_post_disclosure_signal_learning.py` ->uses rank-based Pearson correlation for Spearman IC to avoid scipy/pandas hangs on tiny label samples.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the new broker-grid styles and target-book columns.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers event-type-specific aggregation and broker-grid handoff for discovery/confirmation styles.
+  - `CHANGELOG.md` ->records the discovery broker-style wiring.
+- symbols_added:
+  - `size_discovery_score(value)` ->scores small/mid discovery suitability in the overlay challenger.
+  - `mega_confirmation_size_score(value)` ->scores large/mega confirmation suitability in the overlay challenger.
+  - `STYLE_WEIGHTS["post_disclosure_discovery"]` ->selector style for top-fund new/add, Form 4 P-code, and ETF new/increase discovery.
+  - `STYLE_WEIGHTS["post_disclosure_mega_confirmation"]` ->selector style for large-cap evidence confirmation.
+  - `safe_spearman_ic(left, right)` ->manual rank-correlation helper for post-disclosure signal learning.
+- symbols_changed:
+  - `normalize_events()` ->preserves event type and optional event-strength fields for event-specific aggregation.
+  - `event_features_by_date()` ->emits `new_or_add`, `open_market_buy`, and `new_or_increase` aggregate columns.
+  - `add_post_disclosure_overlay()` ->emits `post_disclosure_discovery_score`, `post_disclosure_mega_confirmation_score`, and component scores.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->includes discovery/confirmation component scores in research target books.
+  - `signal_ic()` ->uses `safe_spearman_ic()` instead of pandas `method="spearman"`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/summary.csv` ->now includes discovery and mega-confirmation style rows when defaults are used.
+  - `outputs/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->now includes discovery/confirmation component columns.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Local broker replay cannot produce CAGR/MaxDD without restored `cache_prices`; run the GitHub post-disclosure workflow after merge/push to get official sidecar metrics.
+  - Local full smoke was blocked by a Windows/Python 3.14 third-party import path (`catboost`/`sklearn` -> `platform` WMI lookup), not by the post-disclosure code path; CI/Linux validation should be used for the full gate.
+
 ### 16:24 KST - post-disclosure-discovery-buckets
 
 - scope:

@@ -69,6 +69,15 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "smart_money_shadow_score": 0.85,
                         "smart_money_evidence_source_count": 3,
                         "evidence_fusion_score": 0.82,
+                        "post_disclosure_discovery_score": 0.88,
+                        "post_disclosure_mega_confirmation_score": 0.74,
+                        "pda_size_discovery_score": 0.85,
+                        "pda_13f_new_or_add_score": 0.90,
+                        "pda_13f_new_or_add_count": 2,
+                        "pda_form4_open_market_buy_score": 0.80,
+                        "pda_form4_open_market_buy_count": 1,
+                        "pda_etf_new_or_increase_score": 0.70,
+                        "pda_etf_new_or_increase_count": 1,
                         "leader_onset_sec_v2_score": 0.95,
                         "leader_onset_sec_v3_score": 0.95,
                         "portfolio_risk_entry_block_score": 0.0,
@@ -104,6 +113,15 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "smart_money_shadow_score": 0.00,
                         "smart_money_evidence_source_count": 0,
                         "evidence_fusion_score": 0.00,
+                        "post_disclosure_discovery_score": 0.0,
+                        "post_disclosure_mega_confirmation_score": 0.0,
+                        "pda_size_discovery_score": 0.85,
+                        "pda_13f_new_or_add_score": 0.0,
+                        "pda_13f_new_or_add_count": 0,
+                        "pda_form4_open_market_buy_score": 0.0,
+                        "pda_form4_open_market_buy_count": 0,
+                        "pda_etf_new_or_increase_score": 0.0,
+                        "pda_etf_new_or_increase_count": 0,
                         "leader_onset_sec_v2_score": 0.10,
                         "leader_onset_sec_v3_score": 0.10,
                         "portfolio_risk_entry_block_score": 0.0,
@@ -139,6 +157,15 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "smart_money_shadow_score": 0.0,
                         "smart_money_evidence_source_count": 0,
                         "evidence_fusion_score": 0.0,
+                        "post_disclosure_discovery_score": 0.0,
+                        "post_disclosure_mega_confirmation_score": 0.0,
+                        "pda_size_discovery_score": 0.0,
+                        "pda_13f_new_or_add_score": 0.0,
+                        "pda_13f_new_or_add_count": 0,
+                        "pda_form4_open_market_buy_score": 0.0,
+                        "pda_form4_open_market_buy_count": 0,
+                        "pda_etf_new_or_increase_score": 0.0,
+                        "pda_etf_new_or_increase_count": 0,
                         "leader_onset_sec_v2_score": 0.0,
                         "leader_onset_sec_v3_score": 0.0,
                         "portfolio_risk_entry_block_score": 0.0,
@@ -174,6 +201,15 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                         "smart_money_shadow_score": 1.0,
                         "smart_money_evidence_source_count": 3,
                         "evidence_fusion_score": 1.0,
+                        "post_disclosure_discovery_score": 1.0,
+                        "post_disclosure_mega_confirmation_score": 1.0,
+                        "pda_size_discovery_score": 0.0,
+                        "pda_13f_new_or_add_score": 1.0,
+                        "pda_13f_new_or_add_count": 3,
+                        "pda_form4_open_market_buy_score": 1.0,
+                        "pda_form4_open_market_buy_count": 2,
+                        "pda_etf_new_or_increase_score": 1.0,
+                        "pda_etf_new_or_increase_count": 2,
                         "leader_onset_sec_v2_score": 1.0,
                         "leader_onset_sec_v3_score": 1.0,
                         "portfolio_risk_entry_block_score": 0.0,
@@ -197,10 +233,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow",
+                styles="future_heavy,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow,post_disclosure_discovery,post_disclosure_mega_confirmation",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=5,
+                max_variants=7,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -209,7 +245,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 5
+        assert len(summary) == 7
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -231,6 +267,14 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert set(smart_targets["ticker"]) == {"AAA"}
         assert "smart_money_shadow_score" in smart_targets.columns
         assert "evidence_fusion_score" in smart_targets.columns
+        discovery_targets = pd.read_csv(next(out.glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
+        assert set(discovery_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_discovery_score" in discovery_targets.columns
+        assert "pda_13f_new_or_add_score" in discovery_targets.columns
+        assert "pda_etf_new_or_increase_score" in discovery_targets.columns
+        mega_targets = pd.read_csv(next(out.glob("post_disclosure_mega_confirmation_N1_cap*/target_book.csv")))
+        assert set(mega_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_mega_confirmation_score" in mega_targets.columns
         assert payload.get("require_price_cache") is True
 
 

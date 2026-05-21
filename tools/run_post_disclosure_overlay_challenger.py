@@ -33,13 +33,22 @@ DEFAULT_OUTPUT_DIR = "outputs/post_disclosure_overlay_challenger"
 PDA_COLUMNS = [
     "pda_13f_event_score",
     "pda_13f_event_count",
+    "pda_13f_new_or_add_score",
+    "pda_13f_new_or_add_count",
     "pda_form4_event_score",
     "pda_form4_event_count",
+    "pda_form4_open_market_buy_score",
+    "pda_form4_open_market_buy_count",
     "pda_etf_event_score",
     "pda_etf_event_count",
+    "pda_etf_new_or_increase_score",
+    "pda_etf_new_or_increase_count",
     "pda_event_convergence_score",
     "pda_negative_event_score",
     "post_disclosure_alpha_score",
+    "post_disclosure_discovery_score",
+    "post_disclosure_mega_confirmation_score",
+    "pda_size_discovery_score",
 ]
 
 
@@ -73,6 +82,42 @@ def safe_pct(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
 
+def size_discovery_score(value: float) -> float:
+    try:
+        mcap = float(value)
+    except Exception:
+        return 0.0
+    if not math.isfinite(mcap) or mcap < 300_000_000:
+        return 0.0
+    if mcap < 2_000_000_000:
+        return 1.0
+    if mcap < 10_000_000_000:
+        return 0.85
+    if mcap < 50_000_000_000:
+        return 0.55
+    if mcap < 200_000_000_000:
+        return 0.25
+    return 0.10
+
+
+def mega_confirmation_size_score(value: float) -> float:
+    try:
+        mcap = float(value)
+    except Exception:
+        return 0.0
+    if not math.isfinite(mcap) or mcap <= 0:
+        return 0.0
+    if mcap >= 200_000_000_000:
+        return 1.0
+    if mcap >= 50_000_000_000:
+        return 0.70
+    if mcap >= 10_000_000_000:
+        return 0.45
+    if mcap >= 2_000_000_000:
+        return 0.20
+    return 0.05
+
+
 def prepare_candidate_book(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty or "ticker" not in frame.columns or "rebalance_date" not in frame.columns:
         return pd.DataFrame()
@@ -85,14 +130,32 @@ def prepare_candidate_book(frame: pd.DataFrame) -> pd.DataFrame:
 
 def normalize_events(events: pd.DataFrame, *, source: str, score_col: str) -> pd.DataFrame:
     if events.empty:
-        return pd.DataFrame(columns=["ticker", "available_from_ts", "event_score", "source"])
+        return pd.DataFrame(columns=["ticker", "available_from_ts", "event_score", "source", "event_type"])
     d = events.copy()
     d["ticker"] = d.get("ticker", d.get("holding_ticker", "")).fillna("").astype(str).str.upper().str.strip()
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True).dt.tz_convert(None)
     d["event_score"] = numeric(d, score_col, 0.0).clip(-1.0, 1.0)
     d["source"] = source
+    d["event_type"] = d.get("event_type", d.get("form4_event_type", "")).fillna("").astype(str).str.lower().str.strip()
     d = d[d["ticker"].ne("") & d["available_from_ts"].notna()].copy()
-    return d[["ticker", "available_from_ts", "event_score", "source"]]
+    keep = ["ticker", "available_from_ts", "event_score", "source", "event_type"]
+    for optional in [
+        "position_weight",
+        "position_rank",
+        "manager_conviction_rank",
+        "value_delta_to_mcap",
+        "manager_stake_to_float",
+        "holding_weight",
+        "holding_weight_delta",
+        "etf_consensus_count",
+        "transaction_value_to_mcap",
+        "transaction_shares_to_float",
+        "cluster_buy_score",
+    ]:
+        if optional in d.columns:
+            d[optional] = pd.to_numeric(d[optional], errors="coerce").fillna(0.0)
+            keep.append(optional)
+    return d[keep]
 
 
 def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timestamp], *, prefix: str, lookback_days: int) -> pd.DataFrame:
@@ -109,6 +172,10 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
             score = numeric(group, "event_score", 0.0)
             positive = float(score[score > 0].sum())
             negative = float(abs(score[score < 0].sum()))
+            event_type = group.get("event_type", pd.Series("", index=group.index)).astype(str).str.lower()
+            new_add_mask = event_type.isin(["new", "add"])
+            form4_buy_mask = event_type.isin(["open_market_purchase", "p"])
+            etf_new_mask = event_type.isin(["inclusion", "weight_increase"])
             rows.append(
                 {
                     "rebalance_date": dt,
@@ -116,6 +183,12 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
                     f"{prefix}_event_score": safe_pct(positive),
                     f"{prefix}_event_count": int(len(group)),
                     f"{prefix}_negative_event_score": safe_pct(negative),
+                    f"{prefix}_new_or_add_score": safe_pct(float(score[new_add_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_new_or_add_count": int(new_add_mask.sum()),
+                    f"{prefix}_open_market_buy_score": safe_pct(float(score[form4_buy_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_open_market_buy_count": int(form4_buy_mask.sum()),
+                    f"{prefix}_new_or_increase_score": safe_pct(float(score[etf_new_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_new_or_increase_count": int(etf_new_mask.sum()),
                     f"{prefix}_latest_available_from": group["available_from_ts"].max().isoformat(),
                 }
             )
@@ -155,6 +228,18 @@ def add_post_disclosure_overlay(
             d[neg_col] = 0.0
         d[f"{source}_event_score"] = numeric(d, f"{source}_event_score", 0.0).clip(0.0, 1.0)
         d[f"{source}_event_count"] = numeric(d, f"{source}_event_count", 0.0).clip(lower=0.0)
+        for suffix in [
+            "new_or_add_score",
+            "new_or_add_count",
+            "open_market_buy_score",
+            "open_market_buy_count",
+            "new_or_increase_score",
+            "new_or_increase_count",
+        ]:
+            col = f"{source}_{suffix}"
+            if col not in d.columns:
+                d[col] = 0.0
+            d[col] = numeric(d, col, 0.0).clip(lower=0.0)
         d[neg_col] = numeric(d, neg_col, 0.0).clip(0.0, 1.0)
     source_count = (
         (d["pda_13f_event_score"] > 0.05).astype(int)
@@ -173,6 +258,30 @@ def add_post_disclosure_overlay(
         + 0.20 * d["pda_etf_event_score"]
         + 0.12 * d["pda_event_convergence_score"]
         - 0.15 * d["pda_negative_event_score"]
+    ).fillna(0.0).clip(0.0, 1.0)
+    mcap = pd.concat(
+        [numeric(d, "market_cap_live", float("nan")), numeric(d, "mktcap", float("nan"))],
+        axis=1,
+    ).max(axis=1).fillna(0.0)
+    d["pda_size_discovery_score"] = [size_discovery_score(value) for value in mcap]
+    d["pda_mega_confirmation_size_score"] = [mega_confirmation_size_score(value) for value in mcap]
+    d["post_disclosure_discovery_score"] = (
+        0.30 * d["pda_13f_new_or_add_score"]
+        + 0.22 * d["pda_form4_open_market_buy_score"]
+        + 0.18 * d["pda_etf_new_or_increase_score"]
+        + 0.14 * d["pda_event_convergence_score"]
+        + 0.12 * d["pda_size_discovery_score"]
+        + 0.04 * d["post_disclosure_alpha_score"]
+        - 0.15 * d["pda_negative_event_score"]
+    ).fillna(0.0).clip(0.0, 1.0)
+    d["post_disclosure_mega_confirmation_score"] = (
+        0.30 * d["post_disclosure_alpha_score"]
+        + 0.20 * d["pda_13f_event_score"]
+        + 0.18 * d["pda_form4_event_score"]
+        + 0.14 * d["pda_etf_event_score"]
+        + 0.10 * d["pda_event_convergence_score"]
+        + 0.08 * d["pda_mega_confirmation_size_score"]
+        - 0.10 * d["pda_negative_event_score"]
     ).fillna(0.0).clip(0.0, 1.0)
     d["post_disclosure_evidence_source_count"] = source_count
     return d
@@ -304,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="future_heavy,monster_heavy,post_disclosure_tiebreaker,post_disclosure_light,post_disclosure_balanced")
+    parser.add_argument("--styles", default="future_heavy,monster_heavy,post_disclosure_tiebreaker,post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_light,post_disclosure_balanced")
     parser.add_argument("--target-ns", default="")
     parser.add_argument("--single-name-caps", default="")
     parser.add_argument("--main-target-ns", default="12,15,18")
