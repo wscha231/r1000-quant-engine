@@ -115,6 +115,7 @@ def test_post_disclosure_overlay_joins_events_by_available_from() -> None:
     assert float(aaa["post_disclosure_alpha_score"]) > 0.50
     assert float(aaa["post_disclosure_discovery_score"]) > 0.40
     assert float(aaa["post_disclosure_mega_confirmation_score"]) > 0.40
+    assert float(aaa["post_disclosure_price_confirmed_score"]) > 0.30
     assert float(aaa["pda_13f_new_or_add_score"]) > 0.0
     assert float(aaa["pda_13f_first_buy_surprise_score"]) > 0.0
     assert float(aaa["pda_form4_open_market_buy_score"]) > 0.0
@@ -168,10 +169,10 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
                 fill_mode="next_close",
                 cost_bps=0.0,
                 max_fill_lag_days=7,
-                styles="future_heavy_post_disclosure_micro,post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_balanced",
+                styles="future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_balanced",
                 target_ns="1",
                 single_name_caps="1.0",
-                max_variants=4,
+                max_variants=6,
                 min_market_cap_usd=300_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=2.0,
@@ -189,6 +190,9 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         assert "post_disclosure_discovery_score" in targets.columns
         assert "pda_13f_new_or_add_score" in targets.columns
         assert "pda_13f_first_buy_surprise_score" in targets.columns
+        confirmed_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_price_confirmed_N1_cap*/target_book.csv")))
+        assert set(confirmed_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_price_confirmed_score" in confirmed_targets.columns
         mega_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_mega_confirmation_N1_cap*/target_book.csv")))
         assert set(mega_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_mega_confirmation_score" in mega_targets.columns

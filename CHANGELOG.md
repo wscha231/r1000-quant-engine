@@ -149,6 +149,39 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Research-only. This is a narrower follow-up to run `26222333129`, where standalone and micro post-disclosure overlays did not beat the future-heavy baseline.
 
+### 22:49 KST - post-disclosure-price-confirmed-style
+
+- scope:
+  - Add a stricter price-confirmed post-disclosure research style after run `26227123993` showed first-buy surprise and broad discovery evidence still trailing the future-heavy broker-ledger baseline.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `post_disclosure_price_confirmation_score` and `post_disclosure_price_confirmed_score`, and includes price-confirmed styles in the default overlay challenger grid.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `future_heavy_post_disclosure_confirmed` and `post_disclosure_price_confirmed` selector styles and carries price-confirmed scores into target-book outputs.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers price-confirmed score creation and broker-grid handoff.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers price-confirmed selector styles and target-book columns.
+- symbols_added:
+  - `post_disclosure_price_confirmation_score` ->same-date market confirmation blend used to gate post-disclosure evidence.
+  - `post_disclosure_price_confirmed_score` ->post-disclosure discovery score multiplied by price and RS confirmation.
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_confirmed"]` ->future-heavy micro style with a price-confirmed post-disclosure overlay.
+  - `STYLE_WEIGHTS["post_disclosure_price_confirmed"]` ->research selector style for evidence candidates with strong same-date price confirmation.
+- symbols_changed:
+  - `add_post_disclosure_overlay()` ->emits price-confirmation and price-confirmed post-disclosure scores.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->includes price-confirmed score columns in research target books.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds price-confirmed styles to the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/summary.csv` ->will include price-confirmed style rows after the next GitHub run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no default production target book is changed.
+  - This tests whether 13F/Form 4/ETF evidence is useful only when confirmed by contemporaneous RS, market confirmation, and entry quality.
+
 ### 16:24 KST - post-disclosure-discovery-buckets
 
 - scope:

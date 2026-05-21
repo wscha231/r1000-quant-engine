@@ -317,6 +317,17 @@ def add_post_disclosure_overlay(
         + 0.08 * d["pda_mega_confirmation_size_score"]
         - 0.10 * d["pda_negative_event_score"]
     ).fillna(0.0).clip(0.0, 1.0)
+    market_confirmation = (
+        0.40 * numeric(d, "selection_market_confirmation_score", 0.0).clip(0.0, 1.0)
+        + 0.25 * numeric(d, "rs_acceleration_score", 0.0).clip(0.0, 1.0)
+        + 0.20 * numeric(d, "entry_quality_score", 0.0).clip(0.0, 1.0)
+        + 0.15 * numeric(d, "industry_group_strength_score", 0.0).clip(0.0, 1.0)
+    ).fillna(0.0).clip(0.0, 1.0)
+    d["post_disclosure_price_confirmation_score"] = market_confirmation
+    d["post_disclosure_price_confirmed_score"] = (
+        d["post_disclosure_discovery_score"] * (0.25 + 0.75 * market_confirmation)
+        - 0.10 * d["pda_negative_event_score"]
+    ).fillna(0.0).clip(0.0, 1.0)
     d["post_disclosure_evidence_source_count"] = source_count
     return d
 
@@ -447,7 +458,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="future_heavy,future_heavy_post_disclosure_micro,monster_heavy,post_disclosure_tiebreaker,post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_light,post_disclosure_balanced")
+    parser.add_argument("--styles", default="future_heavy,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,monster_heavy,post_disclosure_tiebreaker,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_light,post_disclosure_balanced")
     parser.add_argument("--target-ns", default="")
     parser.add_argument("--single-name-caps", default="")
     parser.add_argument("--main-target-ns", default="12,15,18")
