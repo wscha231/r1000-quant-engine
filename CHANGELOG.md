@@ -51,6 +51,41 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-22
+
+### 00:49 KST - post-disclosure-satellite-style
+
+- scope:
+  - Add a research-only satellite selector after price-confirmed post-disclosure styles still failed to beat the future-heavy broker-ledger baseline in run `26233803713`.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds a future-heavy core plus one capped post-disclosure satellite slot, preserving the core selector instead of reordering the full book.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->prioritizes the satellite style in the end-to-end research grid.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->prioritizes the satellite style in the overlay challenger grid.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the satellite selector style and target-book output column.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the satellite style.
+  - `CHANGELOG.md` ->records the satellite-style experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_satellite"]` ->research selector preserving future-heavy core while allowing a capped post-disclosure satellite candidate.
+  - `select_satellite_targets(group, target_n, single_name_cap)` ->builds a future-heavy core plus one price-confirmed evidence satellite using same-date features only.
+- symbols_changed:
+  - `run_alpha_selector_broker_grid.build_target_book()` ->uses the satellite selector path for `future_heavy_post_disclosure_satellite`.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the satellite style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the satellite style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_satellite_*/target_book.csv` ->will include the `post_disclosure_satellite_slot` marker after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no default production target book is changed.
+  - Satellite weights can leave cash when the requested target count and single-name cap cannot sum to full exposure; this is intentional account-ledger behavior and should be inspected in broker-grid output.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

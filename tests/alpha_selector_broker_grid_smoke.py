@@ -249,10 +249,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation",
+                styles="future_heavy,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_satellite,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=10,
+                max_variants=11,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -261,7 +261,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 10
+        assert len(summary) == 11
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -291,6 +291,9 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         confirmed_micro_targets = pd.read_csv(next(out.glob("future_heavy_post_disclosure_confirmed_N1_cap*/target_book.csv")))
         assert set(confirmed_micro_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_price_confirmed_score" in confirmed_micro_targets.columns
+        satellite_targets = pd.read_csv(next(out.glob("future_heavy_post_disclosure_satellite_N1_cap*/target_book.csv")))
+        assert set(satellite_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_satellite_slot" in satellite_targets.columns
         discovery_targets = pd.read_csv(next(out.glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
         assert set(discovery_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in discovery_targets.columns

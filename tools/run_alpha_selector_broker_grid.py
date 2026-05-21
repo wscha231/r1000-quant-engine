@@ -77,6 +77,21 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "pda_form4_open_market_buy_score": 0.01,
         "pda_etf_new_or_increase_score": 0.01,
     },
+    "future_heavy_post_disclosure_satellite": {
+        "portfolio_future_winner_engine_score": 0.30,
+        "portfolio_early_scout_engine_score": 0.17,
+        "portfolio_monster_early_score": 0.17,
+        "h6_dynamic_leader_score": 0.08,
+        "selection_market_confirmation_score": 0.07,
+        "rs_acceleration_score": 0.06,
+        "industry_group_strength_score": 0.04,
+        "entry_quality_score": 0.03,
+        "post_disclosure_price_confirmed_score": 0.03,
+        "post_disclosure_discovery_score": 0.02,
+        "pda_13f_first_buy_surprise_score": 0.01,
+        "pda_form4_open_market_buy_score": 0.01,
+        "pda_etf_new_or_increase_score": 0.01,
+    },
     "monster_heavy": {
         "portfolio_monster_early_score": 0.30,
         "portfolio_future_winner_engine_score": 0.25,
@@ -430,6 +445,44 @@ def capped_score_weights(scores: pd.Series, cap: float) -> np.ndarray:
     return weights
 
 
+def select_satellite_targets(group: pd.DataFrame, target_n: int, single_name_cap: float) -> tuple[pd.DataFrame, np.ndarray]:
+    """Select a mostly future-heavy book with one capped post-disclosure satellite.
+
+    Prior broker-grid runs showed post-disclosure evidence degrades results
+    when it reorders the whole book. This selector keeps the future-heavy core
+    intact and gives only one slot to a price-confirmed evidence candidate.
+    """
+    g = group.copy()
+    g["core_score"] = score_candidates(g, "future_heavy")
+    g["evidence_score"] = score_candidates(g, "post_disclosure_price_confirmed")
+    evidence_signal = (
+        (numeric(g, "post_disclosure_price_confirmed_score", 0.0) > 0.05)
+        | (numeric(g, "pda_13f_first_buy_surprise_score", 0.0) > 0.05)
+        | (numeric(g, "pda_form4_open_market_buy_score", 0.0) > 0.05)
+        | (numeric(g, "pda_etf_new_or_increase_score", 0.0) > 0.05)
+    )
+    core_n = max(1, int(target_n) - 1)
+    core = g.sort_values("core_score", ascending=False).head(core_n).copy()
+    satellite_pool = g[~g["ticker"].isin(set(core["ticker"])) & evidence_signal].copy()
+    satellite = satellite_pool.sort_values("evidence_score", ascending=False).head(1).copy()
+    if satellite.empty:
+        selected = g.sort_values("core_score", ascending=False).head(int(target_n)).copy()
+        selected["alpha_selector_score"] = selected["core_score"]
+        selected["post_disclosure_satellite_slot"] = False
+        return selected, capped_score_weights(selected["alpha_selector_score"], single_name_cap)
+
+    core["alpha_selector_score"] = core["core_score"]
+    core["post_disclosure_satellite_slot"] = False
+    satellite["alpha_selector_score"] = satellite["evidence_score"]
+    satellite["post_disclosure_satellite_slot"] = True
+    selected = pd.concat([core, satellite], ignore_index=True)
+    satellite_budget = min(0.10, max(0.01, float(single_name_cap)))
+    core_budget = max(0.0, 1.0 - satellite_budget)
+    core_weights = capped_score_weights(core["alpha_selector_score"], single_name_cap) * core_budget
+    weights = np.concatenate([core_weights, np.array([satellite_budget], dtype=float)])
+    return selected, weights
+
+
 def build_target_book(
     candidates: pd.DataFrame,
     *,
@@ -448,10 +501,13 @@ def build_target_book(
         mask = mask & d.get("price_cache_tradeable", pd.Series(False, index=d.index)).astype(bool)
     rows: list[dict[str, Any]] = []
     for dt, group in d[mask].groupby("rebalance_date", sort=True):
-        selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
+        if style == "future_heavy_post_disclosure_satellite":
+            selected, weights = select_satellite_targets(group, int(target_n), float(single_name_cap))
+        else:
+            selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
+            weights = capped_score_weights(selected["alpha_selector_score"], single_name_cap) if not selected.empty else np.array([], dtype=float)
         if selected.empty:
             continue
-        weights = capped_score_weights(selected["alpha_selector_score"], single_name_cap)
         for (_, row), weight in zip(selected.iterrows(), weights):
             rows.append(
                 {
@@ -477,6 +533,7 @@ def build_target_book(
                     "post_disclosure_mega_confirmation_score": safe_float(row.get("post_disclosure_mega_confirmation_score")),
                     "post_disclosure_price_confirmation_score": safe_float(row.get("post_disclosure_price_confirmation_score")),
                     "post_disclosure_price_confirmed_score": safe_float(row.get("post_disclosure_price_confirmed_score")),
+                    "post_disclosure_satellite_slot": bool(row.get("post_disclosure_satellite_slot", False)),
                     "pda_size_discovery_score": safe_float(row.get("pda_size_discovery_score")),
                     "pda_13f_event_score": safe_float(row.get("pda_13f_event_score")),
                     "pda_13f_new_or_add_score": safe_float(row.get("pda_13f_new_or_add_score")),
