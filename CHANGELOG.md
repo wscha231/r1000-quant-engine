@@ -53,6 +53,42 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 16:24 KST - post-disclosure-discovery-buckets
+
+- scope:
+  - Split post-disclosure evidence candidates into small/mid discovery and mega-cap confirmation views so raw 13F/Form 4/ETF consensus does not rank only large-cap consensus names.
+- files:
+  - `tools/run_post_disclosure_alpha_candidates.py` ->adds market-cap buckets, discovery and mega-cap confirmation scores, bucket flags, and separate discovery/confirmation/convergence output files.
+  - `tests/post_disclosure_alpha_candidates_smoke.py` ->adds regression coverage proving a tradable small/mid event candidate surfaces in discovery output while a mega-cap peer remains in confirmation output.
+  - `CHANGELOG.md` ->records the post-disclosure discovery bucket split.
+- symbols_added:
+  - `market_cap_bucket(value)` ->classifies candidates as micro, small, mid, large, mega, or unknown.
+  - `size_discovery_score(value, min_market_cap_usd)` ->normalizes market cap for small/mid discovery ranking without rewarding untradable microcaps.
+  - `mega_cap_size_score(value)` ->normalizes market cap for large/mega confirmation ranking.
+  - `rank_view(candidates, columns, top_n)` ->writes alternate ranked candidate views from the full research-only candidate table.
+- symbols_changed:
+  - `attach_candidate_metadata()` ->adds `discovery_candidate_score`, `mega_cap_confirmation_score`, `candidate_bucket`, and bucket flags after tradability metadata is attached.
+  - `build_candidates()` ->returns full ranked candidate rows and reports discovery/confirmation counts while keeping latest output top-N semantics in `run()`.
+  - `render_report()` ->shows discovery score, mega-confirmation score, and bucket labels.
+  - `run()` ->writes `latest_discovery.csv`, `latest_mega_cap_confirmation.csv`, and `latest_convergence.csv` alongside `latest.csv`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_candidates/latest_discovery.csv` ->small/mid discovery candidates ranked by discovery-specific score.
+  - `outputs/post_disclosure_alpha_candidates/latest_mega_cap_confirmation.csv` ->large/mega candidates ranked as confirmation signals rather than discovery ideas.
+  - `outputs/post_disclosure_alpha_candidates/latest_convergence.csv` ->candidates ranked by multi-source evidence convergence.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 20/20.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+  - local artifact replay on run `26207558262` with `--tradable-only` ->PASS, 218 tradable candidates, 116 discovery rows, 94 mega-confirmation rows.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Discovery candidates still require broker-ledger ablation before any portfolio use.
+
 ### 14:29 KST - post-disclosure-tiebreaker-ablation
 
 - scope:

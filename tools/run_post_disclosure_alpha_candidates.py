@@ -35,6 +35,9 @@ OUTPUT_COLUMNS = [
     "event_strength_score",
     "manager_alpha_component",
     "source_convergence_score",
+    "size_discovery_score",
+    "discovery_candidate_score",
+    "mega_cap_confirmation_score",
     "recency_score",
     "event_count_score",
     "negative_event_penalty",
@@ -52,10 +55,14 @@ OUTPUT_COLUMNS = [
     "tradability_score",
     "engine_confirmation_score",
     "market_cap_usd",
+    "market_cap_bucket",
     "dollar_volume_20d",
     "price",
     "universe_source",
     "ranking_eligible",
+    "candidate_bucket",
+    "small_mid_discovery_flag",
+    "mega_cap_confirmation_flag",
     "candidate_explanation",
     "research_only",
     "production_activation_allowed",
@@ -148,6 +155,61 @@ def log_gate_score(value: float, floor: float, *, span: float = 2.0) -> float:
     if value_f <= 0:
         return 0.0
     return safe_pct(math.log10(max(value_f / floor_f, 1e-9)) / max(float(span), 1e-9))
+
+
+def market_cap_bucket(value: float) -> str:
+    try:
+        mcap = float(value)
+    except Exception:
+        return "unknown"
+    if not math.isfinite(mcap) or mcap <= 0:
+        return "unknown"
+    if mcap < 300_000_000:
+        return "micro"
+    if mcap < 2_000_000_000:
+        return "small"
+    if mcap < 10_000_000_000:
+        return "mid"
+    if mcap < 200_000_000_000:
+        return "large"
+    return "mega"
+
+
+def size_discovery_score(value: float, *, min_market_cap_usd: float) -> float:
+    """Prefer tradable small/mid discovery names over mega-cap consensus names."""
+    try:
+        mcap = float(value)
+    except Exception:
+        return 0.0
+    if not math.isfinite(mcap) or mcap < float(min_market_cap_usd):
+        return 0.0
+    if mcap < 2_000_000_000:
+        return 1.0
+    if mcap < 10_000_000_000:
+        return 0.85
+    if mcap < 50_000_000_000:
+        return 0.55
+    if mcap < 200_000_000_000:
+        return 0.25
+    return 0.10
+
+
+def mega_cap_size_score(value: float) -> float:
+    try:
+        mcap = float(value)
+    except Exception:
+        return 0.0
+    if not math.isfinite(mcap) or mcap <= 0:
+        return 0.0
+    if mcap >= 200_000_000_000:
+        return 1.0
+    if mcap >= 50_000_000_000:
+        return 0.70
+    if mcap >= 10_000_000_000:
+        return 0.45
+    if mcap >= 2_000_000_000:
+        return 0.20
+    return 0.05
 
 
 def normalize_events(frame: pd.DataFrame, *, source_type: str, ticker_cols: list[str], score_cols: list[str]) -> pd.DataFrame:
@@ -319,11 +381,65 @@ def attach_candidate_metadata(
         & (d["dollar_volume_20d"] >= float(min_dollar_volume_usd))
         & (d["price"] >= float(min_price))
     )
+    d["market_cap_bucket"] = [
+        market_cap_bucket(value) for value in d["market_cap_usd"]
+    ]
+    d["size_discovery_score"] = [
+        size_discovery_score(value, min_market_cap_usd=float(min_market_cap_usd))
+        for value in d["market_cap_usd"]
+    ]
+    mega_size = pd.Series(
+        [mega_cap_size_score(value) for value in d["market_cap_usd"]],
+        index=d.index,
+        dtype=float,
+    )
     d["post_disclosure_candidate_score"] = (
         0.85 * pd.to_numeric(d["post_disclosure_candidate_score"], errors="coerce").fillna(0.0)
         + 0.10 * d["engine_confirmation_score"]
         + 0.05 * pd.to_numeric(d["tradability_score"], errors="coerce").fillna(0.0)
     ).clip(0.0, 1.0)
+    event_strength = pd.to_numeric(d["event_strength_score"], errors="coerce").fillna(0.0)
+    manager_alpha = pd.to_numeric(d["manager_alpha_component"], errors="coerce").fillna(0.0)
+    convergence = pd.to_numeric(d["source_convergence_score"], errors="coerce").fillna(0.0)
+    recency = pd.to_numeric(d["recency_score"], errors="coerce").fillna(0.0)
+    negative = pd.to_numeric(d["negative_event_penalty"], errors="coerce").fillna(0.0)
+    tradability = pd.to_numeric(d["tradability_score"], errors="coerce").fillna(0.0)
+    size_score = pd.to_numeric(d["size_discovery_score"], errors="coerce").fillna(0.0)
+    engine = pd.to_numeric(d["engine_confirmation_score"], errors="coerce").fillna(0.0)
+    d["discovery_candidate_score"] = (
+        0.30 * event_strength
+        + 0.20 * manager_alpha
+        + 0.15 * convergence
+        + 0.15 * size_score
+        + 0.10 * recency
+        + 0.05 * engine
+        + 0.05 * tradability
+        - 0.25 * negative
+    ).clip(0.0, 1.0)
+    d["mega_cap_confirmation_score"] = (
+        0.30 * engine
+        + 0.25 * event_strength
+        + 0.15 * manager_alpha
+        + 0.10 * convergence
+        + 0.10 * recency
+        + 0.05 * tradability
+        + 0.05 * mega_size
+        - 0.15 * negative
+    ).clip(0.0, 1.0)
+    d["small_mid_discovery_flag"] = (
+        d["tradable_candidate"].astype(bool)
+        & d["market_cap_bucket"].isin(["small", "mid", "large"])
+        & (d["size_discovery_score"] >= 0.35)
+        & (d["discovery_candidate_score"] >= 0.35)
+    )
+    d["mega_cap_confirmation_flag"] = (
+        d["tradable_candidate"].astype(bool)
+        & d["market_cap_bucket"].isin(["large", "mega"])
+        & (d["mega_cap_confirmation_score"] >= 0.35)
+    )
+    d["candidate_bucket"] = "balanced_evidence"
+    d.loc[d["mega_cap_confirmation_flag"], "candidate_bucket"] = "mega_cap_confirmation"
+    d.loc[d["small_mid_discovery_flag"], "candidate_bucket"] = "small_mid_discovery"
     return d
 
 
@@ -513,19 +629,21 @@ def build_candidates(
     out["rank"] = range(1, len(out) + 1)
     out["candidate_explanation"] = out.apply(explanation, axis=1)
     out = out[[col for col in OUTPUT_COLUMNS if col in out.columns]]
-    if top_n > 0:
-        out = out.head(int(top_n)).copy()
     summary = {
         "status": "completed",
         "schema_version": "post-disclosure-alpha-candidates-v1",
         "as_of_date": as_of_ts.isoformat(),
         "lookback_days": int(lookback_days),
         "event_rows": int(len(scoped)),
-        "candidate_rows": int(len(out)),
+        "candidate_rows": int(min(max(int(top_n), 0), len(out))) if int(top_n) > 0 else int(len(out)),
+        "ranked_candidate_rows": int(len(out)),
         "raw_candidate_rows": raw_candidate_rows,
         "tradable_candidate_rows": tradable_candidate_rows,
+        "small_mid_discovery_rows": int(out.get("small_mid_discovery_flag", pd.Series(False, index=out.index)).fillna(False).astype(bool).sum()),
+        "mega_cap_confirmation_rows": int(out.get("candidate_bucket", pd.Series("", index=out.index)).astype(str).eq("mega_cap_confirmation").sum()),
         "metadata_ticker_count": int(len(metadata)) if metadata is not None else 0,
         "tradable_only": bool(tradable_only),
+        "top_n": int(top_n),
         "min_market_cap_usd": float(min_market_cap_usd),
         "min_dollar_volume_usd": float(min_dollar_volume_usd),
         "min_price": float(min_price),
@@ -548,18 +666,24 @@ def render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str:
         f"- event rows: {summary.get('event_rows', 0)}",
         f"- raw candidate rows: {summary.get('raw_candidate_rows', summary.get('candidate_rows', 0))}",
         f"- tradable candidate rows: {summary.get('tradable_candidate_rows', 0)}",
+        f"- ranked candidate rows: {summary.get('ranked_candidate_rows', summary.get('candidate_rows', 0))}",
         f"- candidate rows: {summary.get('candidate_rows', 0)}",
+        f"- small/mid discovery rows: {summary.get('small_mid_discovery_rows', 0)}",
+        f"- mega-cap confirmation rows: {summary.get('mega_cap_confirmation_rows', 0)}",
         "",
-        "| rank | ticker | score | tradable | market cap | dollar volume | sources | events | explanation |",
-        "| ---: | --- | ---: | --- | ---: | ---: | --- | --- | --- |",
+        "| rank | ticker | score | discovery | mega confirm | bucket | tradable | market cap | dollar volume | sources | events | explanation |",
+        "| ---: | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |",
     ]
     if not candidates.empty:
         for _, row in candidates.head(20).iterrows():
             lines.append(
-                "| {rank} | {ticker} | {score:.3f} | {tradable} | {mcap:.0f} | {dvol:.0f} | {sources} | {events} | {explain} |".format(
+                "| {rank} | {ticker} | {score:.3f} | {discovery:.3f} | {mega:.3f} | {bucket} | {tradable} | {mcap:.0f} | {dvol:.0f} | {sources} | {events} | {explain} |".format(
                     rank=int(row.get("rank", 0)),
                     ticker=row.get("ticker", ""),
                     score=float(row.get("post_disclosure_candidate_score", 0.0) or 0.0),
+                    discovery=float(row.get("discovery_candidate_score", 0.0) or 0.0),
+                    mega=float(row.get("mega_cap_confirmation_score", 0.0) or 0.0),
+                    bucket=str(row.get("candidate_bucket", "")).replace("|", "/"),
                     tradable=bool(row.get("tradable_candidate", False)),
                     mcap=float(row.get("market_cap_usd", 0.0) or 0.0),
                     dvol=float(row.get("dollar_volume_20d", 0.0) or 0.0),
@@ -570,6 +694,20 @@ def render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str:
             )
     lines.extend(["", "No production activation is allowed from this report alone.", ""])
     return "\n".join(lines)
+
+
+def rank_view(candidates: pd.DataFrame, columns: list[str], *, top_n: int) -> pd.DataFrame:
+    if candidates.empty:
+        return candidates.copy()
+    sort_cols = [c for c in columns if c in candidates.columns]
+    d = candidates.copy()
+    if sort_cols:
+        d = d.sort_values(sort_cols, ascending=[False] * len(sort_cols))
+    d = d.reset_index(drop=True)
+    d["rank"] = range(1, len(d) + 1)
+    if int(top_n) > 0:
+        d = d.head(int(top_n)).copy()
+    return d
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -594,10 +732,64 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         min_dollar_volume_usd=float(getattr(args, "min_dollar_volume_usd", 5_000_000.0)),
         min_price=float(getattr(args, "min_price", 2.0)),
     )
+    top_n = int(args.top_n)
     ranked_path = output_dir / "ranked_candidates.csv"
     latest_path = output_dir / "latest.csv"
+    discovery_path = output_dir / "latest_discovery.csv"
+    mega_path = output_dir / "latest_mega_cap_confirmation.csv"
+    convergence_path = output_dir / "latest_convergence.csv"
+    latest_candidates = rank_view(
+        candidates,
+        [
+            "post_disclosure_candidate_score",
+            "engine_confirmation_score",
+            "tradability_score",
+            "evidence_confidence",
+            "source_count",
+            "event_count",
+        ],
+        top_n=top_n,
+    )
+    discovery_candidates = rank_view(
+        candidates[candidates.get("small_mid_discovery_flag", pd.Series(False, index=candidates.index)).fillna(False).astype(bool)].copy()
+        if not candidates.empty
+        else candidates.copy(),
+        [
+            "discovery_candidate_score",
+            "source_convergence_score",
+            "manager_alpha_component",
+            "recency_score",
+            "tradability_score",
+        ],
+        top_n=top_n,
+    )
+    mega_candidates = rank_view(
+        candidates[candidates.get("candidate_bucket", pd.Series("", index=candidates.index)).astype(str).eq("mega_cap_confirmation")].copy()
+        if not candidates.empty
+        else candidates.copy(),
+        [
+            "mega_cap_confirmation_score",
+            "engine_confirmation_score",
+            "event_strength_score",
+            "manager_alpha_component",
+        ],
+        top_n=top_n,
+    )
+    convergence_candidates = rank_view(
+        candidates,
+        [
+            "source_convergence_score",
+            "discovery_candidate_score",
+            "post_disclosure_candidate_score",
+            "event_count",
+        ],
+        top_n=top_n,
+    )
     candidates.to_csv(ranked_path, index=False)
-    candidates.to_csv(latest_path, index=False)
+    latest_candidates.to_csv(latest_path, index=False)
+    discovery_candidates.to_csv(discovery_path, index=False)
+    mega_candidates.to_csv(mega_path, index=False)
+    convergence_candidates.to_csv(convergence_path, index=False)
     summary.update(
         {
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -609,14 +801,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "outputs": {
                 "ranked_candidates": str(ranked_path),
                 "latest": str(latest_path),
+                "latest_discovery": str(discovery_path),
+                "latest_mega_cap_confirmation": str(mega_path),
+                "latest_convergence": str(convergence_path),
                 "summary": str(output_dir / "summary.json"),
                 "report": str(output_dir / "report.md"),
             },
         }
     )
     write_json(output_dir / "summary.json", summary)
-    (output_dir / "report.md").write_text(render_report(summary, candidates), encoding="utf-8")
-    print(json.dumps({"status": summary.get("status"), "candidate_rows": int(len(candidates))}, sort_keys=True))
+    (output_dir / "report.md").write_text(render_report(summary, latest_candidates), encoding="utf-8")
+    print(json.dumps({"status": summary.get("status"), "candidate_rows": int(len(latest_candidates))}, sort_keys=True))
     return summary
 
 
