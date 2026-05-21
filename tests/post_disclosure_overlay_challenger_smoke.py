@@ -234,10 +234,10 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
                 fill_mode="next_close",
                 cost_bps=0.0,
                 max_fill_lag_days=7,
-                styles="future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_optional_satellite,future_heavy_post_disclosure_satellite,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_balanced",
+                styles="future_heavy_post_disclosure_tiny_tiebreaker,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_optional_satellite,future_heavy_post_disclosure_satellite,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_balanced",
                 target_ns="1",
                 single_name_caps="1.0",
-                max_variants=7,
+                max_variants=8,
                 min_market_cap_usd=300_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=2.0,
@@ -250,6 +250,9 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         micro_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("future_heavy_post_disclosure_micro_N1_cap*/target_book.csv")))
         assert set(micro_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in micro_targets.columns
+        tiny_targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("future_heavy_post_disclosure_tiny_tiebreaker_N1_cap*/target_book.csv")))
+        assert set(tiny_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_price_confirmed_score" in tiny_targets.columns
         targets = pd.read_csv(next((out / "alpha_selector_broker_grid" / "main").glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in targets.columns

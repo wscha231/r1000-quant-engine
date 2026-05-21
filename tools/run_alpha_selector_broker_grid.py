@@ -63,6 +63,18 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "pda_form4_open_market_buy_score": 0.01,
         "pda_etf_new_or_increase_score": 0.01,
     },
+    "future_heavy_post_disclosure_tiny_tiebreaker": {
+        "portfolio_future_winner_engine_score": 0.345,
+        "portfolio_early_scout_engine_score": 0.198,
+        "portfolio_monster_early_score": 0.198,
+        "h6_dynamic_leader_score": 0.10,
+        "rs_acceleration_score": 0.08,
+        "industry_group_strength_score": 0.05,
+        "score": 0.019,
+        "post_disclosure_price_confirmed_score": 0.004,
+        "pda_13f_first_buy_surprise_score": 0.003,
+        "pda_form4_open_market_buy_score": 0.003,
+    },
     "future_heavy_post_disclosure_confirmed": {
         "portfolio_future_winner_engine_score": 0.30,
         "portfolio_early_scout_engine_score": 0.17,

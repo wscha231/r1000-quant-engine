@@ -175,6 +175,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - Research-only. Production score switches remain off and no production default target book is changed.
   - The default half-life is 63 calendar days to align with observed post-disclosure signal-learning behavior; this should be treated as a research hypothesis until broker-ledger sidecar results improve.
 
+### 04:52 KST - tiny-post-disclosure-tiebreaker-style
+
+- scope:
+  - Add a very small post-disclosure tiebreaker style after recency decay brought the main micro overlay close to the future-heavy baseline without improving CAGR.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds a tiny post-disclosure tiebreaker style that keeps future-heavy weights nearly intact and adds only a 1% total disclosure nudge.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds the tiny tiebreaker style to the end-to-end research grid defaults.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds the tiny tiebreaker style to the overlay challenger defaults.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the tiny tiebreaker style and target-book output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the tiny tiebreaker style.
+  - `CHANGELOG.md` ->records the tiny tiebreaker experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_tiny_tiebreaker"]` ->research selector variant for near-baseline future-heavy ranking with a minimal post-disclosure nudge.
+- symbols_changed:
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the tiny tiebreaker style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the tiny tiebreaker style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_tiny_tiebreaker_*/target_book.csv` ->will include tiny tiebreaker target books after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - This is intentionally conservative; if it only reproduces the future-heavy baseline, the next priority should move from scoring tweaks to data coverage fixes such as ETF PIT history or price-cache restore coverage.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles
