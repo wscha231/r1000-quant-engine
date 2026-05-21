@@ -118,8 +118,10 @@ jobs:
           fi
           for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals; do
             mkdir -p "$d"
-            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+            if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
               timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            else
+              echo "[gdrive] $d unavailable or listing timed out; continuing"
             fi
           done
 
@@ -183,10 +185,12 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          if rclone lsf "${BASE}cache_prices" >/dev/null 2>&1; then
-            timeout 12m rclone copy "${BASE}cache_prices" cache_prices/ \
+          if timeout 45s rclone lsf "${BASE}cache_prices" >/dev/null 2>&1; then
+            timeout 8m rclone copy "${BASE}cache_prices" cache_prices/ \
               --files-from outputs/full_rebuild_logs/post_disclosure_price_cache_files.txt \
               --transfers 8 --checkers 16 --stats 30s --stats-one-line || true
+          else
+            echo "[price-cache] remote cache_prices unavailable or listing timed out; continuing without restored prices"
           fi
           python - <<'PY'
           import json
