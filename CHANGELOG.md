@@ -86,6 +86,33 @@ All entries must be written in English. Entries must be predictable and machine-
   - Research-only. Production score switches remain off and no default production target book is changed.
   - Satellite weights can leave cash when the requested target count and single-name cap cannot sum to full exposure; this is intentional account-ledger behavior and should be inspected in broker-grid output.
 
+### 01:49 KST - post-disclosure-satellite-cash-drag-fix
+
+- scope:
+  - Fix mechanical cash drag in the satellite selector after run `26237194667` showed the `N3 cap0.33` concentrated satellite book left excessive cash because the satellite slot was hard-capped at 10%.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->sets satellite budget to the remaining core exposure up to the single-name cap and scales core weights only when the core would exceed the remaining budget.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->adds a tight-cap regression test proving the satellite selector can preserve near-full exposure with `target_n=3` and `single_name_cap=0.33`.
+  - `CHANGELOG.md` ->records the satellite cash-drag fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `select_satellite_targets(group, target_n, single_name_cap)` ->allocates satellite budget from remaining core capacity instead of using a fixed 10% sleeve.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_satellite_*/target_book.csv` ->satellite variants should show lower mechanical cash drag after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. This addresses target-book construction, not production scoring.
+  - Full exposure is still limited by single-name caps, available candidates, integer shares, and price-cache fillability.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

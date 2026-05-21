@@ -12,7 +12,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_alpha_selector_broker_grid import run  # noqa: E402
+from tools.run_alpha_selector_broker_grid import run, select_satellite_targets  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -308,8 +308,69 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload.get("require_price_cache") is True
 
 
+def test_satellite_selector_preserves_exposure_under_tight_cap() -> None:
+    group = pd.DataFrame(
+        [
+            {
+                "ticker": "CORE1",
+                "portfolio_future_winner_engine_score_rank": 1.00,
+                "portfolio_early_scout_engine_score_rank": 1.00,
+                "portfolio_monster_early_score_rank": 1.00,
+                "h6_dynamic_leader_score_rank": 1.00,
+                "selection_market_confirmation_score_rank": 0.90,
+                "rs_acceleration_score_rank": 0.90,
+                "industry_group_strength_score_rank": 0.90,
+                "entry_quality_score_rank": 0.90,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+            {
+                "ticker": "CORE2",
+                "portfolio_future_winner_engine_score_rank": 0.95,
+                "portfolio_early_scout_engine_score_rank": 0.95,
+                "portfolio_monster_early_score_rank": 0.95,
+                "h6_dynamic_leader_score_rank": 0.95,
+                "selection_market_confirmation_score_rank": 0.85,
+                "rs_acceleration_score_rank": 0.85,
+                "industry_group_strength_score_rank": 0.85,
+                "entry_quality_score_rank": 0.85,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+            {
+                "ticker": "SAT",
+                "portfolio_future_winner_engine_score_rank": 0.10,
+                "portfolio_early_scout_engine_score_rank": 0.10,
+                "portfolio_monster_early_score_rank": 0.10,
+                "h6_dynamic_leader_score_rank": 0.10,
+                "selection_market_confirmation_score_rank": 1.00,
+                "rs_acceleration_score_rank": 1.00,
+                "industry_group_strength_score_rank": 1.00,
+                "entry_quality_score_rank": 1.00,
+                "post_disclosure_price_confirmed_score_rank": 1.00,
+                "post_disclosure_discovery_score_rank": 1.00,
+                "pda_13f_first_buy_surprise_score_rank": 1.00,
+                "pda_form4_open_market_buy_score_rank": 1.00,
+                "pda_etf_new_or_increase_score_rank": 1.00,
+                "post_disclosure_price_confirmed_score": 1.00,
+                "pda_13f_first_buy_surprise_score": 1.00,
+                "pda_form4_open_market_buy_score": 0.00,
+                "pda_etf_new_or_increase_score": 0.00,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+        ]
+    ).fillna(0.5)
+    selected, weights = select_satellite_targets(group, target_n=3, single_name_cap=0.33)
+    assert set(selected["ticker"]) == {"CORE1", "CORE2", "SAT"}
+    assert weights.sum() > 0.98
+    satellite_weight = float(weights[selected["ticker"].tolist().index("SAT")])
+    assert 0.32 <= satellite_weight <= 0.33
+
+
 def main() -> int:
     test_alpha_selector_grid_runs_broker_replay_without_forward_selection()
+    test_satellite_selector_preserves_exposure_under_tight_cap()
     print("alpha_selector_broker_grid_smoke: PASS")
     return 0
 

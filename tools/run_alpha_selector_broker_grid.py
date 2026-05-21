@@ -476,9 +476,14 @@ def select_satellite_targets(group: pd.DataFrame, target_n: int, single_name_cap
     satellite["alpha_selector_score"] = satellite["evidence_score"]
     satellite["post_disclosure_satellite_slot"] = True
     selected = pd.concat([core, satellite], ignore_index=True)
-    satellite_budget = min(0.10, max(0.01, float(single_name_cap)))
+    cap = max(0.01, min(1.0, float(single_name_cap)))
+    target_satellite_budget = max(0.10, 1.0 - (len(core) * cap))
+    satellite_budget = min(cap, max(0.01, target_satellite_budget))
     core_budget = max(0.0, 1.0 - satellite_budget)
-    core_weights = capped_score_weights(core["alpha_selector_score"], single_name_cap) * core_budget
+    core_weights = capped_score_weights(core["alpha_selector_score"], cap)
+    core_sum = float(core_weights.sum())
+    if core_sum > core_budget > 0:
+        core_weights = core_weights * (core_budget / core_sum)
     weights = np.concatenate([core_weights, np.array([satellite_budget], dtype=float)])
     return selected, weights
 
