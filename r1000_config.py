@@ -2123,14 +2123,22 @@ class EngineConfig:
     w_short_extension_penalty: float = 0.20
 
     # SEC/ETF evidence overlay weights (2026-05-20). These compute shadow
-    # components by default. They are added to live score only when
-    # evidence_fusion_apply_to_live_score is enabled after broker-ledger
-    # validation. Missing evidence is neutral, not a quality penalty.
+    # components by default. Plan C0.1 keeps the existing master switch:
+    # live-score addition is allowed only when evidence_fusion_apply_to_live_score
+    # is enabled after broker-ledger validation. Missing evidence is neutral,
+    # not a quality penalty.
     w_sec_institutional_evidence: float = 0.30
     w_sec_insider_evidence: float = 0.20
     w_etf_holdings_evidence: float = 0.20
     w_evidence_fusion_score: float = 1.00
     evidence_fusion_apply_to_live_score: bool = False
+    evidence_fusion_bonus_cap: float = 0.20
+    pda_apply_to_live_score: bool = False
+    pda_bonus_cap: float = 0.15
+    w_pda_13f: float = 0.0
+    w_pda_form4: float = 0.0
+    w_pda_13d: float = 0.0
+    w_pda_etf: float = 0.0
     sec_evidence_min_form4_signal_tickers: int = 300
     sec_evidence_min_13f_signal_tickers: int = 100
     sec_evidence_max_stale_days: int = 240

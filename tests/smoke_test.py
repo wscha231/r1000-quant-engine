@@ -2982,6 +2982,60 @@ def test_etf_holdings_overlay_wired() -> None:
     assert (repo_root / "research" / "etf_holdings_universe_20260520" / "thematic_etfs.yaml").exists()
 
 
+@_test("regression.plan_c_v35_kill_switch_defaults")
+def test_plan_c_v35_kill_switch_defaults() -> None:
+    """CHANGELOG 2026-05-21: SEC/ETF/PDA live-score gates default OFF."""
+    from r1000_config import EngineConfig
+
+    cfg = EngineConfig()
+    assert cfg.evidence_fusion_apply_to_live_score is False
+    assert cfg.pda_apply_to_live_score is False
+    assert cfg.evidence_fusion_bonus_cap == 0.20
+    assert cfg.pda_bonus_cap == 0.15
+    assert cfg.w_pda_13f == cfg.w_pda_form4 == cfg.w_pda_13d == cfg.w_pda_etf == 0.0
+
+
+@_test("regression.plan_c_v35_evidence_switch_off_blocks_score")
+def test_plan_c_v35_evidence_switch_off_blocks_score() -> None:
+    """CHANGELOG 2026-05-21: switch OFF keeps score unchanged but shadows live."""
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import add_total_score_columns
+
+    df = pd.DataFrame({"ticker": ["BASE"], "institutional_evidence_score": [0.0]})
+    rich = pd.DataFrame({"ticker": ["BASE"], "institutional_evidence_score": [1.0],
+                         "institutional_evidence_confidence_score": [1.0],
+                         "early_evidence_score": [1.0], "evidence_confidence_score": [1.0],
+                         "etf_holdings_score": [1.0], "etf_evidence_confidence": [1.0]})
+    cfg = EngineConfig(evidence_fusion_apply_to_live_score=False)
+    base_out = add_total_score_columns(df, cfg)
+    rich_out = add_total_score_columns(rich, cfg)
+    assert float(rich_out["evidence_fusion_score"].iloc[0]) > float(base_out["evidence_fusion_score"].iloc[0])
+    assert float(rich_out["score_evidence_fusion_overlay"].iloc[0]) == 0.0
+    assert abs(float(rich_out["score"].iloc[0]) - float(base_out["score"].iloc[0])) < 1e-12
+
+
+@_test("regression.plan_c_v35_evidence_switch_on_cap")
+def test_plan_c_v35_evidence_switch_on_cap() -> None:
+    """CHANGELOG 2026-05-21: switch ON applies only capped evidence bonus."""
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import add_total_score_columns
+
+    df = pd.DataFrame({"ticker": ["X"], "institutional_evidence_score": [1.0],
+                       "institutional_evidence_confidence_score": [1.0],
+                       "early_evidence_score": [1.0], "evidence_confidence_score": [1.0],
+                       "etf_holdings_score": [1.0], "etf_evidence_confidence": [1.0]})
+    off = add_total_score_columns(df, EngineConfig(evidence_fusion_apply_to_live_score=False))
+    on = add_total_score_columns(df, EngineConfig(evidence_fusion_apply_to_live_score=True,
+                                                  evidence_fusion_bonus_cap=0.20,
+                                                  w_evidence_fusion_score=10.0))
+    delta = float(on["score"].iloc[0] - off["score"].iloc[0])
+    cap = 0.20 * abs(float(off["score"].iloc[0]))
+    assert abs(delta - float(on["score_evidence_fusion_overlay"].iloc[0])) < 1e-12
+    assert 0.0 <= delta <= cap + 1e-12
+
+
 # ======================================================================
 # main
 # ======================================================================

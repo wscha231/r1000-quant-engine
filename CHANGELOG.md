@@ -51,6 +51,409 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-21
+
+### 10:20 KST - plan-c-foundation-kill-switch-standardization
+
+- scope:
+  - Standardize the Plan C0.1 foundation kill switch without adding a duplicate SEC switch. The existing `evidence_fusion_apply_to_live_score` remains the SEC/ETF evidence master switch and defaults OFF. PDA live-score fields are added as default-OFF placeholders for later D-phase work. Evidence fusion shadow columns still compute, but live score changes require an explicit switch and are capped.
+- files:
+  - `r1000_config.py` ->adds PDA default-OFF fields and an `evidence_fusion_bonus_cap` while keeping the existing SEC/ETF master switch name.
+  - `r1000_pipeline.py` ->adds `score_evidence_fusion_overlay` and caps the live-score evidence bonus when `evidence_fusion_apply_to_live_score` is explicitly enabled.
+  - `tests/smoke_test.py` ->adds Plan C v3.5 regression tests for default-OFF switches, shadow-only evidence behavior, and capped live-score activation.
+  - `CHANGELOG.md` ->records the foundation kill-switch standardization.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `add_total_score_columns(df, cfg, include_satellite, include_latest_only_satellite)` ->keeps evidence fusion shadow scoring always available but gates and caps any live-score bonus.
+- config_fields_added:
+  - `evidence_fusion_bonus_cap: float = 0.20` ->caps explicit SEC/ETF evidence live-score bonus as a fraction of absolute base score.
+  - `pda_apply_to_live_score: bool = False` ->future PDA live-score master switch, default OFF.
+  - `pda_bonus_cap: float = 0.15` ->future PDA live-score cap, default inactive.
+  - `w_pda_13f: float = 0.0` ->future PDA 13F weight, default zero.
+  - `w_pda_form4: float = 0.0` ->future PDA Form 4 weight, default zero.
+  - `w_pda_13d: float = 0.0` ->future PDA 13D weight, default zero.
+  - `w_pda_etf: float = 0.0` ->future PDA ETF weight, default zero.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+  - `py -3 run_local.py --verdict-only` ->PASS, SHIP verdict from existing outputs with default evidence/PDA live-score switches OFF.
+- risks_or_notes:
+  - Default production score behavior remains unchanged because all SEC/ETF/PDA live-score gates default OFF.
+  - The handoff document's unconditional-overlay assumption is now explicitly handled by preserving the existing master switch and adding a cap for any future explicit activation.
+  - Verdict-only reported `companyfacts.zip` as 37.9 days old; refresh remains a separate data maintenance task and was not changed in this PR.
+
+### 10:48 KST - evidence-readiness-c02-preflight
+
+- scope:
+  - Add the C0.2 evidence readiness preflight before D1/D5/C5/C4 work. The tool audits SEC Form 4, SEC 13F, ETF holdings, restore manifest provenance, PIT timestamp sanity, ticker coverage, and default-OFF evidence/PDA kill switches. It emits research-only readiness gates for 13F events, Form 4 event study, ETF PIT, and broker-ledger challenger work.
+- files:
+  - `tools/audit_evidence_readiness.py` ->adds the read-only evidence readiness audit and report writer.
+  - `tests/evidence_readiness_smoke.py` ->adds fixture-based checks for ready evidence data, PIT blockers, and 13F mapping blockers.
+  - `tools/run_pr_validation.py` ->adds the evidence readiness smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C0.2 preflight.
+- symbols_added:
+  - `build_payload(args)` ->builds evidence readiness gates and source health payload.
+  - `render_report(payload)` ->renders the evidence readiness Markdown report.
+  - `write_outputs(payload, output_dir)` ->writes `evidence_health.json`, `summary.json`, and `report.md`.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/evidence_readiness/evidence_health.json` ->machine-readable evidence readiness payload.
+  - `outputs/evidence_readiness/summary.json` ->alias for downstream workflow compatibility.
+  - `outputs/evidence_readiness/report.md` ->human-readable readiness report.
+- validation:
+  - `py -3 tests\evidence_readiness_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 36/36.
+  - `py -3 tools\audit_evidence_readiness.py --output-dir outputs\evidence_readiness_c02_check` ->PASS, status blocked because local SEC/Form4/13F/ETF data lakes are not restored in the checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - The audit is read-only and research-only; it does not change production scoring, workflows, or evidence data.
+  - ETF readiness is reported separately and is not required for D1/D5 unless the caller passes `--require-etf`.
+
+### 11:01 KST - d1-13f-position-event-builder
+
+- scope:
+  - Add the D1 13F position event builder that converts quarterly 13F holdings snapshots into PIT manager/ticker filing events. The table distinguishes `initial`, `new`, `add`, `trim`, `exit`, and `hold` rows so later post-disclosure alpha labels do not treat first-observed backfill rows as false new positions.
+- files:
+  - `tools/run_13f_position_event_builder.py` ->adds research-only 13F position event construction, metadata enrichment, event seed scoring, and report outputs.
+  - `tests/sec_13f_position_event_builder_smoke.py` ->adds fixture checks for add/new/exit detection, first-period boundary handling, PIT timestamp sanity, and CLI outputs.
+  - `tools/run_pr_validation.py` ->adds the D1 13F event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D1 event builder.
+- symbols_added:
+  - `build_position_events(holdings, metadata)` ->creates manager/ticker/report-period event rows from PIT 13F holdings.
+  - `normalize_holdings(frame)` ->normalizes manager CIK, ticker, report period, timestamps, position weights, and conviction rank.
+  - `metadata_by_ticker(metadata)` ->maps optional ticker metadata for market cap, float, liquidity, sector, and industry enrichment.
+  - `seed_score(event)` ->creates a research-only starter event score for later post-disclosure studies.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/13f_position_events.parquet` ->PIT 13F position event table for post-disclosure alpha labels.
+  - `outputs/13f_position_events/13f_position_events.csv` ->CSV copy of all event rows.
+  - `outputs/13f_position_events/latest.csv` ->events from the latest available filing timestamp.
+  - `outputs/13f_position_events/summary.json` ->event counts, PIT sanity, and output manifest.
+  - `outputs/13f_position_events/report.md` ->human-readable event report.
+- validation:
+  - `py -3 tests\sec_13f_position_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 37/37.
+  - `py -3 tools\run_13f_position_event_builder.py --output-dir outputs\13f_position_events_check --pit-output outputs\13f_position_events_check\13f_position_events.parquet` ->blocked because local 13F data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
+
+### 11:05 KST - d1-post-disclosure-alpha-labeler
+
+- scope:
+  - Add the D1 post-disclosure alpha labeler that measures next-close forward returns after SEC event availability. The tool turns 13F position events into research-only return labels for later manager/event alpha learning without changing live scores.
+- files:
+  - `tools/run_post_disclosure_alpha_labeler.py` ->adds research-only post-disclosure return labeling from PIT events and daily price cache.
+  - `tests/post_disclosure_alpha_labeler_smoke.py` ->adds fixture checks for conservative next-close entry, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha labeler smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D1 labeler.
+- symbols_added:
+  - `label_events(events, price_cache, benchmark_ticker, horizons)` ->creates event-level forward return labels after `available_from`.
+  - `first_close_after_available(px, available_from)` ->selects the first close after the event availability date.
+  - `forward_return(px, entry_date, entry_price, horizon)` ->computes trading-day forward returns from the entry close.
+  - `benchmark_return(benchmark_px, entry_date, target_date)` ->computes benchmark returns for excess-return labels.
+  - `max_drawdown_after_entry(px, entry_date, entry_price, horizon)` ->computes event-window max drawdown.
+  - `run(args)` ->writes PIT labels, CSV labels, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/post_disclosure_alpha_labels.parquet` ->PIT post-disclosure alpha label table.
+  - `outputs/post_disclosure_alpha/post_disclosure_alpha_labels.csv` ->CSV copy of label rows.
+  - `outputs/post_disclosure_alpha/summary.json` ->label counts, horizons, and output manifest.
+  - `outputs/post_disclosure_alpha/report.md` ->human-readable horizon summary.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_labeler_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 38/38.
+  - `py -3 tools\run_post_disclosure_alpha_labeler.py --output-dir outputs\post_disclosure_alpha_check --pit-output outputs\post_disclosure_alpha_check\post_disclosure_alpha_labels.parquet` ->blocked because local 13F event and price data lakes are not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - Entry uses the first close after the event availability date, not same-day close, to avoid after-close filing leakage.
+  - `report_period` is not used as an availability date.
+
+### 11:13 KST - d5-form4-transaction-events
+
+- scope:
+  - Add the D5 Form 4 transaction event builder that converts normalized Form 4 PIT rows into post-disclosure event rows. The table preserves P-code open-market buys, S-code sales, and non-signal codes separately so later labels can test which insider transaction patterns were followed by alpha.
+- files:
+  - `tools/run_form4_transaction_event_builder.py` ->adds research-only Form 4 transaction event construction, P/S/M/A/F/G code classification, role weighting, cluster scoring, metadata enrichment, and report outputs.
+  - `tests/form4_transaction_event_builder_smoke.py` ->adds fixture checks for P-code buys, S-code sale risk, A-code non-signal handling, output summary, and PIT sanity.
+  - `tools/run_pr_validation.py` ->adds the Form 4 transaction event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D5 event builder.
+- symbols_added:
+  - `build_form4_events(form4, metadata)` ->creates transaction-level Form 4 event rows keyed by ticker, owner, code, accession, and availability.
+  - `normalize_transactions(form4)` ->normalizes ticker, CIKs, timestamps, transaction value, booleans, and cluster counts.
+  - `form4_event_type(code)` ->maps SEC transaction codes into research event buckets.
+  - `event_seed_score(row)` ->creates a research-only starter score for P-code buy and S-code sale events.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/form4_transaction_events.parquet` ->PIT Form 4 transaction event table for post-disclosure alpha labels.
+  - `outputs/form4_transaction_events/form4_transaction_events.csv` ->CSV copy of all Form 4 event rows.
+  - `outputs/form4_transaction_events/latest.csv` ->events from the latest available filing timestamp.
+  - `outputs/form4_transaction_events/summary.json` ->code counts, PIT sanity, and output manifest.
+  - `outputs/form4_transaction_events/report.md` ->human-readable Form 4 event report.
+- validation:
+  - `py -3 tests\form4_transaction_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 39/39.
+  - `py -3 tools\run_form4_transaction_event_builder.py --output-dir outputs\form4_transaction_events_check --pit-output outputs\form4_transaction_events_check\form4_transaction_events.parquet` ->blocked because local Form 4 data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - P-code open-market purchases are positive candidate events; S-code sales are negative/risk events; awards, option exercises, gifts, and tax-withholding rows are kept for audit but are not signal candidates.
+  - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
+
+### 11:18 KST - c5-etf-holding-events
+
+- scope:
+  - Add the C5 ETF holding event builder that converts PIT ETF holdings snapshots into inclusion, removal, weight-increase, and weight-decrease events. These events can be labeled by the post-disclosure alpha labeler without changing ETF refresh, live scores, or target books.
+- files:
+  - `tools/run_etf_holding_event_builder.py` ->adds research-only ETF holding event construction from PIT snapshot history.
+  - `tests/etf_holding_event_builder_smoke.py` ->adds fixture checks for initial snapshots, later inclusions, weight increases, removals, consensus counts, and output summary.
+  - `tools/run_pr_validation.py` ->adds the ETF holding event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C5 ETF event builder.
+- symbols_added:
+  - `build_etf_holding_events(holdings, change_threshold)` ->creates ETF/holding/snapshot event rows from PIT ETF holdings history.
+  - `normalize_holdings(holdings)` ->normalizes ETF tickers, holding tickers, weights, themes, ranks, and availability timestamps.
+  - `event_type_for(current_weight, previous_weight, initial_snapshot, change_threshold)` ->classifies initial, inclusion, removal, weight increase, weight decrease, and unchanged events.
+  - `seed_score(event_type, weight, delta, consensus)` ->creates a research-only starter score for ETF holding events.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/etf_holdings/etf_holding_events.parquet` ->PIT ETF holding event table for post-disclosure alpha labels.
+  - `outputs/etf_holding_events/etf_holding_events.csv` ->CSV copy of all ETF holding event rows.
+  - `outputs/etf_holding_events/latest.csv` ->events from the latest available ETF snapshot timestamp.
+  - `outputs/etf_holding_events/summary.json` ->event counts, ticker counts, and output manifest.
+  - `outputs/etf_holding_events/report.md` ->human-readable ETF holding event report.
+- validation:
+  - `py -3 tests\etf_holding_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 40/40.
+  - `py -3 tools\run_etf_holding_event_builder.py --output-dir outputs\etf_holding_events_check --pit-output outputs\etf_holding_events_check\etf_holding_events.parquet` ->blocked because local ETF holdings data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - First observed ETF snapshots are classified as `initial`, not false `inclusion` events.
+  - Missing ETF holding snapshots remain neutral and produce a blocked status rather than fabricated evidence.
+
+### 11:22 KST - c4-post-disclosure-overlay-challenger
+
+- scope:
+  - Add the C4 post-disclosure overlay challenger that joins 13F, Form 4, and ETF holding event rows to the historical candidate replay book by `available_from <= rebalance_date`, emits shadow PDA scores, and can run the existing broker-ledger alpha-selector grid with post-disclosure styles.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds research-only candidate enrichment and optional broker-ledger challenger orchestration for post-disclosure evidence.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `post_disclosure_light` and `post_disclosure_balanced` selector styles and carries PDA score columns into target books.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->adds fixture checks for as-of event joins, PDA score generation, and broker-grid target selection.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure overlay challenger smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C4 challenger harness.
+- symbols_added:
+  - `add_post_disclosure_overlay(candidates, events_13f, events_form4, events_etf, lookback_days)` ->joins event-derived PDA scores to same-date candidate rows.
+  - `event_features_by_date(events, candidate_dates, prefix, lookback_days)` ->builds ticker/date PDA score features from event availability windows.
+  - `normalize_events(events, source, score_col)` ->normalizes 13F, Form 4, and ETF event rows into common ticker/availability/score form.
+  - `run_broker_grid(args, enriched_csv, out_dir)` ->runs alpha-selector broker grid for selected portfolios and PDA styles.
+  - `run(args)` ->writes enriched candidate book, summary, report, and optional broker-grid outputs.
+- symbols_changed:
+  - `STYLE_WEIGHTS` ->adds post-disclosure selector styles for broker-ledger challenger tests.
+  - `build_target_book(candidates, style, target_n, single_name_cap, min_mcap, min_dollar_vol, min_price, require_price_cache)` ->carries PDA shadow columns into generated target books.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->candidate replay book with PDA shadow scores.
+  - `outputs/post_disclosure_overlay_challenger/summary.json` ->enrichment counts, inputs, and broker-grid status.
+  - `outputs/post_disclosure_overlay_challenger/report.md` ->human-readable challenger report.
+  - `outputs/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*` ->optional broker-ledger challenger outputs.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 41/41.
+  - `py -3 tools\run_post_disclosure_overlay_challenger.py --output-dir outputs\post_disclosure_overlay_challenger_check --no-run-broker-grid` ->blocked because local candidate/event data lakes are not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - PDA event scores are same-date/as-of features for challenger selection; forward return labels are not used for target selection.
+  - Promotion remains blocked until broker-ledger CAGR/MDD improves, PIT/leakage audits pass, and human approval is granted.
+
+### 11:29 KST - d2-d3-post-disclosure-signal-learning
+
+- scope:
+  - Add the D2/D3 post-disclosure signal learning sidecar. It summarizes labeled 13F/Form 4/ETF disclosure events by source, event type, follow/fade action, and horizon, then builds PIT-style manager disclosure alpha scores using only labels whose target dates are complete before each `as_of_date`.
+- files:
+  - `tools/run_post_disclosure_signal_learning.py` ->adds research-only signal learning, manager alpha scoring, IC proxies, follow/fade summaries, and reports.
+  - `tools/run_post_disclosure_alpha_labeler.py` ->passes event seed scores into label rows for downstream signal learning.
+  - `tests/post_disclosure_signal_learning_smoke.py` ->adds fixture checks for source/event outputs, manager PIT guard, blocked empty-data behavior, and research-only outputs.
+  - `tests/post_disclosure_alpha_labeler_smoke.py` ->updates labeler fixture coverage for event seed passthrough.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure signal learning smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D2/D3 signal learning sidecar.
+- symbols_added:
+  - `prepare_labels(labels)` ->normalizes post-disclosure label rows for signal learning.
+  - `bucket_stats(frame, group_cols, horizons)` ->summarizes source and event buckets across horizons.
+  - `signal_ic(frame, horizons)` ->computes Spearman IC proxies between event seed scores and post-disclosure returns.
+  - `follow_vs_fade(frame, horizons)` ->compares follow, fade-or-avoid, and neutral event buckets.
+  - `manager_alpha_scores(frame, horizon)` ->builds PIT-style manager disclosure alpha rows using only completed target-date labels.
+  - `feature_importance(frame, horizons)` ->writes lightweight feature importance proxies for event score, source, and event type.
+  - `run(args)` ->writes signal learning outputs, manager score PIT table, summary, and report.
+- symbols_changed:
+  - `event_seed_score(event)` ->is now written into post-disclosure label rows for downstream learning.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_signal_learning/signal_ic_by_horizon.csv` ->event seed IC proxies by horizon and source scope.
+  - `outputs/post_disclosure_signal_learning/source_alpha.csv` ->source-level post-disclosure alpha summary.
+  - `outputs/post_disclosure_signal_learning/event_type_alpha.csv` ->source/event-type post-disclosure alpha summary.
+  - `outputs/post_disclosure_signal_learning/manager_alpha_ranking.csv` ->latest manager disclosure alpha ranking.
+  - `outputs/post_disclosure_signal_learning/event_feature_importance.csv` ->lightweight feature importance proxies.
+  - `outputs/post_disclosure_signal_learning/follow_vs_fade_report.csv` ->follow/fade/neutral event outcome summary.
+  - `data_pit/sec/manager_disclosure_alpha_scores.parquet` ->PIT-style manager disclosure alpha score table.
+  - `outputs/post_disclosure_signal_learning/summary.json` ->status, input row counts, and output manifest.
+  - `outputs/post_disclosure_signal_learning/report.md` ->human-readable research-only signal learning report.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_labeler_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_post_disclosure_signal_learning.py --output-dir outputs\post_disclosure_signal_learning_check --manager-output outputs\post_disclosure_signal_learning_check\manager_disclosure_alpha_scores.parquet` ->blocked because local post-disclosure label data lake is not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 42/42.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Manager alpha scores use only rows with target dates before the score `as_of_date`; incomplete future labels are excluded.
+  - Follow/fade summaries are diagnostic outputs; they are not auto-promoted into live scoring.
+
+### 11:35 KST - c6-post-disclosure-alpha-candidates
+
+- scope:
+  - Add the C6 post-disclosure alpha candidate watchlist. It combines current PIT 13F, Form 4, and ETF holding events with PIT manager disclosure-alpha scores to rank current evidence candidates for review, Smart Money Top 30 analysis, and later broker-ledger challenger design.
+- files:
+  - `tools/run_post_disclosure_alpha_candidates.py` ->adds research-only current candidate generation from 13F/Form 4/ETF events and manager alpha scores.
+  - `tests/post_disclosure_alpha_candidates_smoke.py` ->adds fixture checks for converged evidence ranking, manager as-of guard behavior, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha candidates smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C6 candidate watchlist sidecar.
+- symbols_added:
+  - `event_universe(events_13f, events_form4, events_etf)` ->normalizes 13F, Form 4, and ETF event rows into one candidate event table.
+  - `attach_manager_alpha(events, manager_scores)` ->joins latest manager disclosure-alpha scores available before each event.
+  - `build_candidates(events, manager_scores, as_of_date, lookback_days, top_n)` ->ranks current disclosure candidates without changing production state.
+  - `render_report(summary, candidates)` ->renders the current candidate watchlist report.
+  - `run(args)` ->writes ranked candidates, latest CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_candidates/ranked_candidates.csv` ->ranked current disclosure candidates.
+  - `outputs/post_disclosure_alpha_candidates/latest.csv` ->latest candidate watchlist copy.
+  - `outputs/post_disclosure_alpha_candidates/summary.json` ->status, input manifest, and output manifest.
+  - `outputs/post_disclosure_alpha_candidates/report.md` ->human-readable current candidate watchlist report.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tools\run_post_disclosure_alpha_candidates.py --output-dir outputs\post_disclosure_alpha_candidates_check` ->blocked because local event/manager data lakes are not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 43/43.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Manager alpha scores are joined only when their `as_of_date` is not later than the event `available_from`.
+  - Candidate ranks are a watchlist input; promotion still requires broker-ledger challenger improvement, PIT/leakage audits, and human approval.
+
+### 11:40 KST - c7-post-disclosure-alpha-pipeline
+
+- scope:
+  - Add the C7 end-to-end post-disclosure alpha pipeline. The sidecar can build disclosure events, combine 13F/Form 4/ETF event rows, label forward returns, learn signal and manager alpha summaries, and emit current candidates in one research-only run.
+- files:
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds end-to-end research-only orchestration for event building, event combination, labeling, learning, candidate generation, and optional overlay challenger execution.
+  - `tests/post_disclosure_alpha_pipeline_smoke.py` ->adds fixture checks for prebuilt event pipeline completion, labels, candidates, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha pipeline smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C7 pipeline sidecar.
+- symbols_added:
+  - `call_step(name, fn, namespace)` ->runs a pipeline step and captures status payloads.
+  - `combine_events(events_13f, events_form4, events_etf, combined_events)` ->normalizes and writes combined 13F/Form 4/ETF event rows for labeling.
+  - `render_report(summary)` ->renders the end-to-end pipeline report.
+  - `run(args)` ->orchestrates event builders, combined labels, signal learning, candidates, and optional overlay challenger outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/post_disclosure_events_all.parquet` ->combined PIT disclosure event rows for labeling.
+  - `outputs/post_disclosure_alpha_pipeline/summary.json` ->pipeline status, step statuses, and output manifest.
+  - `outputs/post_disclosure_alpha_pipeline/report.md` ->human-readable pipeline report.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_alpha/*` ->labeling sidecar outputs.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_signal_learning/*` ->signal learning outputs.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_alpha_candidates/*` ->current candidate watchlist outputs.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_post_disclosure_alpha_pipeline.py --output-dir outputs\post_disclosure_alpha_pipeline_check` ->blocked because local SEC/Form 4/ETF/price data lakes are not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Broker-grid overlay execution is opt-in; default pipeline runs stop at labels, learning, and candidate watchlist outputs.
+  - Full completion requires restored event and price data lakes; empty local checkouts report blocked instead of fabricating evidence.
+
+### 11:43 KST - c7-post-disclosure-alpha-workflow
+
+- scope:
+  - Add the GitHub Actions workflow for scheduled and manual post-disclosure alpha pipeline runs. The workflow restores SEC/ETF evidence data from Google Drive, builds event tables, restores targeted price cache files for event tickers, runs the research-only pipeline, uploads artifacts, and syncs outputs back to Google Drive.
+- files:
+  - `.github/workflows/post_disclosure_alpha_pipeline.yml` ->adds workflow dispatch and Tue-Sat scheduled automation for the post-disclosure alpha pipeline.
+  - `CHANGELOG.md` ->records the workflow automation.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `post-disclosure-alpha-<run_id>` ->GitHub artifact containing event tables, labels, manager scores, pipeline outputs, and logs.
+  - `outputs/post_disclosure_alpha_pipeline/` ->Google Drive synced pipeline output directory when Drive auth is configured.
+  - `data_pit/sec/` ->Google Drive synced post-disclosure event, label, and manager-score PIT tables.
+  - `data_pit/etf_holdings/` ->Google Drive synced ETF event PIT table.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - The workflow is research-only; it does not trigger full rebuilds or production promotion.
+  - Pipeline execution is allowed to finish with blocked status when required evidence or price data lakes are absent, preserving artifacts for diagnosis.
+  - Broker-ledger grid execution remains opt-in via workflow input and defaults OFF.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
