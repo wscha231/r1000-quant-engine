@@ -17,6 +17,7 @@ from tools.run_post_disclosure_overlay_challenger import (  # noqa: E402
     portfolio_single_name_caps,
     portfolio_target_ns,
     run,
+    run_trade_path_audit,
 )
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -270,6 +271,74 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         assert "post_disclosure_mega_confirmation_score" in mega_targets.columns
 
 
+def test_post_disclosure_trade_path_audit_writes_pair_outputs() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        grid = root / "alpha_selector_broker_grid" / "concentrated"
+        base = grid / "future_heavy_N3_cap0.5"
+        candidate = grid / "future_heavy_post_disclosure_tiny_tiebreaker_N3_cap0.5"
+        for path, cagr, max_dd, sharpe, equity, ticker in [
+            (base, 0.10, -0.20, 0.50, [10000, 11000, 9000, 10500], "AAA"),
+            (candidate, 0.12, -0.25, 0.55, [10000, 11200, 8500, 10800], "BBB"),
+        ]:
+            path.mkdir(parents=True)
+            (path / "metrics.json").write_text(
+                '{"status":"completed","cagr":%s,"max_dd":%s,"sharpe":%s,"trade_count":2,"avg_cash_weight":0.0}'
+                % (cagr, max_dd, sharpe),
+                encoding="utf-8",
+            )
+            pd.DataFrame(
+                {
+                    "date": pd.bdate_range("2026-01-02", periods=len(equity)).date.astype(str),
+                    "equity_usd": equity,
+                    "cash_weight": [0.0] * len(equity),
+                    "position_count": [3] * len(equity),
+                }
+            ).to_csv(path / "equity_curve.csv", index=False)
+            pd.DataFrame(
+                {
+                    "rebalance_date": ["2026-01-02"],
+                    "ticker": [ticker],
+                    "Name": [ticker],
+                    "weight": [0.5],
+                    "post_disclosure_alpha_score": [0.7 if ticker == "BBB" else 0.0],
+                    "post_disclosure_price_confirmed_score": [0.6 if ticker == "BBB" else 0.0],
+                    "pda_13f_first_buy_surprise_score": [0.5 if ticker == "BBB" else 0.0],
+                    "pda_form4_open_market_buy_score": [0.0],
+                }
+            ).to_csv(path / "target_book.csv", index=False)
+            pd.DataFrame(
+                {
+                    "ticker": [ticker],
+                    "side": ["BUY"],
+                    "gross_value": [5000.0],
+                    "fee_usd": [5.0],
+                }
+            ).to_csv(path / "trades.csv", index=False)
+
+        payload = run_trade_path_audit(
+            {
+                "status": "completed",
+                "portfolios": {
+                    "concentrated": {
+                        "status": "completed",
+                        "alpha_selector_variant": "future_heavy_post_disclosure_tiny_tiebreaker_N3_cap0.5",
+                        "alpha_selector_style": "future_heavy_post_disclosure_tiny_tiebreaker",
+                        "target_stock_names": 3,
+                        "single_name_cap": 0.5,
+                    }
+                },
+            },
+            root,
+        )
+        assert payload["status"] == "completed"
+        pair = payload["pairs"]["concentrated"]
+        assert pair["status"] == "completed"
+        assert pair["deltas"]["cagr_pp"] > 0
+        assert (root / "trade_path_audit" / "summary.json").exists()
+        assert Path(pair["outputs"]["worst_drawdown_delta_days"]).exists()
+
+
 def test_post_disclosure_portfolio_specific_grid_defaults() -> None:
     args = Namespace(
         target_ns="",
@@ -301,5 +370,6 @@ if __name__ == "__main__":
     test_post_disclosure_overlay_tolerates_missing_history_boundary()
     test_post_disclosure_overlay_recency_decays_stale_events()
     test_post_disclosure_overlay_runs_broker_grid_challenger()
+    test_post_disclosure_trade_path_audit_writes_pair_outputs()
     test_post_disclosure_portfolio_specific_grid_defaults()
     print("post_disclosure_overlay_challenger_smoke: PASS")
