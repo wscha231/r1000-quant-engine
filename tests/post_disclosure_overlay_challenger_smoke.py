@@ -139,6 +139,71 @@ def test_post_disclosure_overlay_tolerates_missing_history_boundary() -> None:
     assert int(aaa["pda_13f_first_buy_surprise_count"]) > 0
 
 
+def test_post_disclosure_overlay_recency_decays_stale_events() -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-03-31",
+                "ticker": "AAA",
+                "portfolio_future_winner_engine_score": 0.6,
+                "selection_market_confirmation_score": 0.7,
+                "rs_acceleration_score": 0.6,
+                "industry_group_strength_score": 0.6,
+                "entry_quality_score": 0.6,
+                "px": 25.0,
+                "dollar_vol_20d": 50_000_000.0,
+                "mktcap": 2_000_000_000.0,
+            }
+        ]
+    )
+    events = pd.DataFrame(
+        [
+            {
+                "event_id": "13f:AAA:old",
+                "source_type": "13f",
+                "ticker": "AAA",
+                "available_from": "2026-01-01T20:00:00Z",
+                "event_type": "new",
+                "history_boundary": False,
+                "manager_conviction_rank": 1.0,
+                "position_weight": 0.05,
+                "value_delta_to_mcap": 0.01,
+                "post_disclosure_event_seed_score": 0.8,
+            },
+            {
+                "event_id": "13f:AAA:fresh",
+                "source_type": "13f",
+                "ticker": "AAA",
+                "available_from": "2026-03-30T20:00:00Z",
+                "event_type": "new",
+                "history_boundary": False,
+                "manager_conviction_rank": 1.0,
+                "position_weight": 0.05,
+                "value_delta_to_mcap": 0.01,
+                "post_disclosure_event_seed_score": 0.8,
+            },
+        ]
+    )
+    no_decay = add_post_disclosure_overlay(
+        candidates,
+        events,
+        pd.DataFrame(),
+        pd.DataFrame(),
+        lookback_days=120,
+        event_half_life_days=0,
+    )
+    decayed = add_post_disclosure_overlay(
+        candidates,
+        events,
+        pd.DataFrame(),
+        pd.DataFrame(),
+        lookback_days=120,
+        event_half_life_days=10,
+    )
+    assert float(decayed["pda_13f_event_score"].iloc[0]) < float(no_decay["pda_13f_event_score"].iloc[0])
+    assert float(decayed["pda_13f_event_recency_weight_avg"].iloc[0]) < 1.0
+
+
 def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -231,6 +296,7 @@ def test_post_disclosure_portfolio_specific_grid_defaults() -> None:
 if __name__ == "__main__":
     test_post_disclosure_overlay_joins_events_by_available_from()
     test_post_disclosure_overlay_tolerates_missing_history_boundary()
+    test_post_disclosure_overlay_recency_decays_stale_events()
     test_post_disclosure_overlay_runs_broker_grid_challenger()
     test_post_disclosure_portfolio_specific_grid_defaults()
     print("post_disclosure_overlay_challenger_smoke: PASS")

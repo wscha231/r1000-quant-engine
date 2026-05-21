@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -181,7 +182,14 @@ def normalize_events(events: pd.DataFrame, *, source: str, score_col: str) -> pd
     return d[keep]
 
 
-def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timestamp], *, prefix: str, lookback_days: int) -> pd.DataFrame:
+def event_features_by_date(
+    events: pd.DataFrame,
+    candidate_dates: list[pd.Timestamp],
+    *,
+    prefix: str,
+    lookback_days: int,
+    event_half_life_days: float = 63.0,
+) -> pd.DataFrame:
     if events.empty:
         return pd.DataFrame(columns=["rebalance_date", "ticker", f"{prefix}_event_score", f"{prefix}_event_count", f"{prefix}_negative_event_score"])
     rows: list[dict[str, Any]] = []
@@ -191,10 +199,18 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
         window = events[(events["available_from_ts"] <= end) & (events["available_from_ts"] >= start)].copy()
         if window.empty:
             continue
+        age_days = (end - window["available_from_ts"]).dt.total_seconds().clip(lower=0.0) / 86400.0
+        half_life = float(event_half_life_days or 0.0)
+        if half_life > 0:
+            window["event_recency_weight"] = np.power(0.5, age_days / half_life).clip(0.0, 1.0)
+        else:
+            window["event_recency_weight"] = 1.0
         for ticker, group in window.groupby("ticker"):
             score = numeric(group, "event_score", 0.0)
-            positive = float(score[score > 0].sum())
-            negative = float(abs(score[score < 0].sum()))
+            recency_weight = numeric(group, "event_recency_weight", 1.0).clip(0.0, 1.0)
+            weighted_score = score * recency_weight
+            positive = float(weighted_score[weighted_score > 0].sum())
+            negative = float(abs(weighted_score[weighted_score < 0].sum()))
             event_type = group.get("event_type", pd.Series("", index=group.index)).astype(str).str.lower()
             new_add_mask = event_type.isin(["new", "add"])
             history_boundary = group.get("history_boundary", pd.Series(False, index=group.index)).astype(bool)
@@ -205,6 +221,7 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
                 first_buy_surprise = pd.to_numeric(group["first_buy_surprise_score"], errors="coerce").fillna(0.0)
             else:
                 first_buy_surprise = score.clip(lower=0.0)
+            first_buy_surprise = first_buy_surprise * recency_weight
             rows.append(
                 {
                     "rebalance_date": dt,
@@ -212,15 +229,16 @@ def event_features_by_date(events: pd.DataFrame, candidate_dates: list[pd.Timest
                     f"{prefix}_event_score": safe_pct(positive),
                     f"{prefix}_event_count": int(len(group)),
                     f"{prefix}_negative_event_score": safe_pct(negative),
-                    f"{prefix}_new_or_add_score": safe_pct(float(score[new_add_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_new_or_add_score": safe_pct(float(weighted_score[new_add_mask].clip(lower=0.0).sum())),
                     f"{prefix}_new_or_add_count": int(new_add_mask.sum()),
                     f"{prefix}_first_buy_surprise_score": safe_pct(float(first_buy_surprise[first_buy_mask].sum())),
                     f"{prefix}_first_buy_surprise_count": int(first_buy_mask.sum()),
-                    f"{prefix}_open_market_buy_score": safe_pct(float(score[form4_buy_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_open_market_buy_score": safe_pct(float(weighted_score[form4_buy_mask].clip(lower=0.0).sum())),
                     f"{prefix}_open_market_buy_count": int(form4_buy_mask.sum()),
-                    f"{prefix}_new_or_increase_score": safe_pct(float(score[etf_new_mask].clip(lower=0.0).sum())),
+                    f"{prefix}_new_or_increase_score": safe_pct(float(weighted_score[etf_new_mask].clip(lower=0.0).sum())),
                     f"{prefix}_new_or_increase_count": int(etf_new_mask.sum()),
                     f"{prefix}_latest_available_from": group["available_from_ts"].max().isoformat(),
+                    f"{prefix}_event_recency_weight_avg": float(recency_weight.mean()),
                 }
             )
     return pd.DataFrame(rows)
@@ -239,6 +257,7 @@ def add_post_disclosure_overlay(
     events_etf: pd.DataFrame,
     *,
     lookback_days: int,
+    event_half_life_days: float = 63.0,
 ) -> pd.DataFrame:
     d = prepare_candidate_book(candidates)
     if d.empty:
@@ -247,9 +266,9 @@ def add_post_disclosure_overlay(
     f13 = normalize_events(events_13f, source="13f", score_col="post_disclosure_event_seed_score")
     f4 = normalize_events(events_form4, source="form4", score_col="post_disclosure_event_seed_score")
     etf = normalize_events(events_etf, source="etf", score_col="etf_event_seed_score")
-    d = merge_features(d, event_features_by_date(f13, dates, prefix="pda_13f", lookback_days=lookback_days))
-    d = merge_features(d, event_features_by_date(f4, dates, prefix="pda_form4", lookback_days=lookback_days))
-    d = merge_features(d, event_features_by_date(etf, dates, prefix="pda_etf", lookback_days=lookback_days))
+    d = merge_features(d, event_features_by_date(f13, dates, prefix="pda_13f", lookback_days=lookback_days, event_half_life_days=event_half_life_days))
+    d = merge_features(d, event_features_by_date(f4, dates, prefix="pda_form4", lookback_days=lookback_days, event_half_life_days=event_half_life_days))
+    d = merge_features(d, event_features_by_date(etf, dates, prefix="pda_etf", lookback_days=lookback_days, event_half_life_days=event_half_life_days))
     for col in PDA_COLUMNS:
         if col not in d.columns:
             d[col] = 0.0
@@ -410,6 +429,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         read_table(repo_path(args.events_form4)),
         read_table(repo_path(args.events_etf)),
         lookback_days=int(args.lookback_days),
+        event_half_life_days=float(getattr(args, "event_half_life_days", 63.0)),
     )
     enriched_csv = output_dir / "candidate_replay_book_post_disclosure_enriched.csv"
     enriched.to_csv(enriched_csv, index=False)
@@ -427,6 +447,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "events_form4": str(repo_path(args.events_form4)),
         "events_etf": str(repo_path(args.events_etf)),
         "lookback_days": int(args.lookback_days),
+        "event_half_life_days": float(getattr(args, "event_half_life_days", 63.0)),
         "enriched_csv": str(enriched_csv),
         "enriched_rows": int(len(enriched)),
         "rows_with_post_disclosure_score": int((numeric(enriched, "post_disclosure_alpha_score", 0.0) > 0.0).sum()) if not enriched.empty else 0,
@@ -451,6 +472,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--events-etf", default=DEFAULT_ETF_EVENTS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--lookback-days", type=int, default=120)
+    parser.add_argument("--event-half-life-days", type=float, default=63.0)
     parser.add_argument("--run-broker-grid", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--portfolio-kinds", default="main,concentrated")

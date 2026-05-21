@@ -145,6 +145,36 @@ All entries must be written in English. Entries must be predictable and machine-
   - Research-only. Production score switches remain off and no production default target book is changed.
   - The optional style may often collapse back to the future-heavy baseline when disclosure evidence is not strong enough; that is intentional to avoid forced replacement drag.
 
+### 03:55 KST - post-disclosure-event-recency-decay
+
+- scope:
+  - Add event recency decay after run `26243611843` showed optional satellite styles safely collapsed to the future-heavy baseline while signal-learning indicated disclosure edge is short-lived around the 63-day horizon.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->applies half-life recency weighting to 13F/Form4/ETF post-disclosure event scores before monthly candidate aggregation.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes the event half-life setting through the end-to-end post-disclosure pipeline.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers that stale disclosure events receive less weight than fresh events.
+  - `CHANGELOG.md` ->records the recency-decay experiment.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `event_features_by_date(events, candidate_dates, prefix, lookback_days, event_half_life_days=63.0)` ->weights event scores by age before aggregation.
+  - `add_post_disclosure_overlay(candidates, events_13f, events_form4, events_etf, lookback_days, event_half_life_days=63.0)` ->passes the half-life into event aggregation.
+  - `run_post_disclosure_overlay_challenger.run()` ->records and applies `event_half_life_days`.
+  - `run_post_disclosure_alpha_pipeline.run()` ->passes `event_half_life_days` into the overlay challenger step.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->will include recency-weighted post-disclosure scores after the next GitHub run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - The default half-life is 63 calendar days to align with observed post-disclosure signal-learning behavior; this should be treated as a research hypothesis until broker-ledger sidecar results improve.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

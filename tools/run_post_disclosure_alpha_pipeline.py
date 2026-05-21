@@ -207,6 +207,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 events_etf=args.events_etf,
                 output_dir=str(output_dir / "post_disclosure_overlay_challenger"),
                 lookback_days=int(args.lookback_days),
+                event_half_life_days=float(args.event_half_life_days),
                 run_broker_grid=bool(args.run_broker_grid),
                 price_cache=args.price_cache,
                 portfolio_kinds=args.portfolio_kinds,
@@ -278,6 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-horizons", default="21,63,126")
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--lookback-days", type=int, default=180)
+    parser.add_argument("--event-half-life-days", type=float, default=63.0)
     parser.add_argument("--top-n", type=int, default=30)
     parser.add_argument("--tradable-only", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--etf-change-threshold", type=float, default=0.0025)
