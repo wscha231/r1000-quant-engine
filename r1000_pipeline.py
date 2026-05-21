@@ -1135,8 +1135,20 @@ def add_total_score_columns(
         + 0.13 * d["sector_theme_leadership_score"]
         + 0.05 * d["macro_regime_fit_score"]
     ).fillna(0.0)
+    d["score_evidence_fusion_overlay"] = 0.0
     if bool(getattr(cfg, "evidence_fusion_apply_to_live_score", False)):
-        d["score"] = d["score"] + float(getattr(cfg, "w_evidence_fusion_score", 1.0)) * d["evidence_fusion_score"]
+        raw_bonus = (
+            float(getattr(cfg, "w_evidence_fusion_score", 1.0))
+            * d["evidence_fusion_score"]
+        ).fillna(0.0)
+        bonus_cap = max(0.0, float(getattr(cfg, "evidence_fusion_bonus_cap", 0.20)))
+        bonus_limit = (pd.to_numeric(d["score"], errors="coerce").fillna(0.0).abs() * bonus_cap)
+        d["score_evidence_fusion_overlay"] = (
+            raw_bonus.mask(raw_bonus > bonus_limit, bonus_limit)
+            .mask(raw_bonus < -bonus_limit, -bonus_limit)
+            .fillna(0.0)
+        )
+        d["score"] = d["score"] + d["score_evidence_fusion_overlay"]
     return d
 
 

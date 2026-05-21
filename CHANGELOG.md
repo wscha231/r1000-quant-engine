@@ -51,6 +51,42 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-21
+
+### 10:20 KST - plan-c-foundation-kill-switch-standardization
+
+- scope:
+  - Standardize the Plan C0.1 foundation kill switch without adding a duplicate SEC switch. The existing `evidence_fusion_apply_to_live_score` remains the SEC/ETF evidence master switch and defaults OFF. PDA live-score fields are added as default-OFF placeholders for later D-phase work. Evidence fusion shadow columns still compute, but live score changes require an explicit switch and are capped.
+- files:
+  - `r1000_config.py` ->adds PDA default-OFF fields and an `evidence_fusion_bonus_cap` while keeping the existing SEC/ETF master switch name.
+  - `r1000_pipeline.py` ->adds `score_evidence_fusion_overlay` and caps the live-score evidence bonus when `evidence_fusion_apply_to_live_score` is explicitly enabled.
+  - `tests/smoke_test.py` ->adds Plan C v3.5 regression tests for default-OFF switches, shadow-only evidence behavior, and capped live-score activation.
+  - `CHANGELOG.md` ->records the foundation kill-switch standardization.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `add_total_score_columns(df, cfg, include_satellite, include_latest_only_satellite)` ->keeps evidence fusion shadow scoring always available but gates and caps any live-score bonus.
+- config_fields_added:
+  - `evidence_fusion_bonus_cap: float = 0.20` ->caps explicit SEC/ETF evidence live-score bonus as a fraction of absolute base score.
+  - `pda_apply_to_live_score: bool = False` ->future PDA live-score master switch, default OFF.
+  - `pda_bonus_cap: float = 0.15` ->future PDA live-score cap, default inactive.
+  - `w_pda_13f: float = 0.0` ->future PDA 13F weight, default zero.
+  - `w_pda_form4: float = 0.0` ->future PDA Form 4 weight, default zero.
+  - `w_pda_13d: float = 0.0` ->future PDA 13D weight, default zero.
+  - `w_pda_etf: float = 0.0` ->future PDA ETF weight, default zero.
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 35/35.
+  - `py -3 run_local.py --verdict-only` ->PASS, SHIP verdict from existing outputs with default evidence/PDA live-score switches OFF.
+- risks_or_notes:
+  - Default production score behavior remains unchanged because all SEC/ETF/PDA live-score gates default OFF.
+  - The handoff document's unconditional-overlay assumption is now explicitly handled by preserving the existing master switch and adding a cap for any future explicit activation.
+  - Verdict-only reported `companyfacts.zip` as 37.9 days old; refresh remains a separate data maintenance task and was not changed in this PR.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
