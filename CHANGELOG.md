@@ -53,6 +53,35 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 14:01 KST - post-disclosure-portfolio-specific-grid
+
+- scope:
+  - Split post-disclosure broker-grid defaults by portfolio so main uses diversified target counts and lower single-name caps while concentrated keeps tighter N and higher caps.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds portfolio-specific target-count and cap helpers and defaults main to N 12/15/18 with 8/12/18% caps, concentrated to N 3/5 with 33/50% caps.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes portfolio-specific grid settings through to the overlay challenger and raises default max variants for the expanded grid.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->adds regression coverage for portfolio-specific defaults and legacy override behavior.
+  - `CHANGELOG.md` ->records the portfolio-specific post-disclosure grid.
+- symbols_added:
+  - `portfolio_target_ns(args, portfolio)` ->resolves portfolio-specific target-count grids with legacy override support.
+  - `portfolio_single_name_caps(args, portfolio)` ->resolves portfolio-specific single-name cap grids with legacy override support.
+- symbols_changed:
+  - `run_broker_grid()` ->passes portfolio-specific N/cap grids into the alpha selector broker grid.
+  - `parse_args()` ->adds main/concentrated target-count and cap options and raises default max variants to 24.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/` ->now evaluates portfolio-appropriate grids by default.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring or target books.
+  - `--target-ns` and `--single-name-caps` remain supported as explicit legacy overrides for both portfolios.
+
 ### 13:33 KST - post-disclosure-default-artifact-paths
 
 - scope:

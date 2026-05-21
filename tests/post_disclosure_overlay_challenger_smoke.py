@@ -12,7 +12,12 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_post_disclosure_overlay_challenger import add_post_disclosure_overlay, run  # noqa: E402
+from tools.run_post_disclosure_overlay_challenger import (  # noqa: E402
+    add_post_disclosure_overlay,
+    portfolio_single_name_caps,
+    portfolio_target_ns,
+    run,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -157,7 +162,34 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
         assert "post_disclosure_alpha_score" in targets.columns
 
 
+def test_post_disclosure_portfolio_specific_grid_defaults() -> None:
+    args = Namespace(
+        target_ns="",
+        single_name_caps="",
+        main_target_ns="12,15,18",
+        concentrated_target_ns="3,5",
+        main_single_name_caps="0.08,0.12,0.18",
+        concentrated_single_name_caps="0.33,0.50",
+    )
+    assert portfolio_target_ns(args, "main") == "12,15,18"
+    assert portfolio_target_ns(args, "concentrated") == "3,5"
+    assert portfolio_single_name_caps(args, "main") == "0.08,0.12,0.18"
+    assert portfolio_single_name_caps(args, "concentrated") == "0.33,0.50"
+
+    legacy = Namespace(
+        target_ns="3",
+        single_name_caps="0.50",
+        main_target_ns="12,15,18",
+        concentrated_target_ns="3,5",
+        main_single_name_caps="0.08,0.12,0.18",
+        concentrated_single_name_caps="0.33,0.50",
+    )
+    assert portfolio_target_ns(legacy, "main") == "3"
+    assert portfolio_single_name_caps(legacy, "main") == "0.50"
+
+
 if __name__ == "__main__":
     test_post_disclosure_overlay_joins_events_by_available_from()
     test_post_disclosure_overlay_runs_broker_grid_challenger()
+    test_post_disclosure_portfolio_specific_grid_defaults()
     print("post_disclosure_overlay_challenger_smoke: PASS")
