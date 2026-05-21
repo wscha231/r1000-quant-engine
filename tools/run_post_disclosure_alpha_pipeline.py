@@ -33,6 +33,8 @@ DEFAULT_OUTPUT_DIR = "outputs/post_disclosure_alpha_pipeline"
 DEFAULT_COMBINED_EVENTS = "data_pit/sec/post_disclosure_events_all.parquet"
 DEFAULT_LABELS = "data_pit/sec/post_disclosure_alpha_labels.parquet"
 DEFAULT_MANAGER_SCORES = "data_pit/sec/manager_disclosure_alpha_scores.parquet"
+DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
+DEFAULT_CANDIDATE_BOOK = "cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -259,7 +261,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--holdings-13f", default="data_pit/sec/institutional_13f_holdings.parquet")
     parser.add_argument("--form4-transactions", default="data_pit/sec/form4_transactions.parquet")
     parser.add_argument("--etf-holdings", default="data_pit/etf_holdings/etf_holdings.parquet")
-    parser.add_argument("--metadata", default="scored_latest.csv")
+    parser.add_argument("--metadata", default=DEFAULT_METADATA)
     parser.add_argument("--events-13f", default="data_pit/sec/13f_position_events.parquet")
     parser.add_argument("--events-form4", default="data_pit/sec/form4_transaction_events.parquet")
     parser.add_argument("--events-etf", default="data_pit/etf_holdings/etf_holding_events.parquet")
@@ -277,7 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--etf-change-threshold", type=float, default=0.0025)
     parser.add_argument("--run-overlay-challenger", action="store_true")
     parser.add_argument("--run-broker-grid", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--candidate-book", default="outputs/reports/candidate_replay_book.csv")
+    parser.add_argument("--candidate-book", default=DEFAULT_CANDIDATE_BOOK)
     parser.add_argument("--portfolio-kinds", default="main,concentrated")
     parser.add_argument("--starting-capital", type=float, default=100000.0)
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")

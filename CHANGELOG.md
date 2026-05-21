@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 13:33 KST - post-disclosure-default-artifact-paths
+
+- scope:
+  - Point post-disclosure pipeline defaults at the checked-in latest full-rebuild scored metadata and candidate replay book so GitHub workflow runs can build tradable candidates and overlay challengers without root-level generated files.
+- files:
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds default latest full-rebuild metadata and candidate-book paths, replacing missing root-level defaults.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->uses the latest full-rebuild candidate replay book as the standalone default.
+  - `CHANGELOG.md` ->records the default artifact path fix.
+- symbols_added:
+  - `DEFAULT_METADATA` ->latest full-rebuild scored metadata path for candidate tradability gates.
+  - `DEFAULT_CANDIDATE_BOOK` ->latest full-rebuild candidate replay book path for overlay challenger runs.
+- symbols_changed:
+  - `parse_args()` ->uses checked-in latest full-rebuild artifacts as workflow-safe defaults.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - This is research-only plumbing and does not change production scoring or target books.
+  - Full-rebuild artifact freshness remains visible through candidate and overlay summaries.
+
 ### 13:12 KST - post-disclosure-tradable-candidate-gate
 
 - scope:

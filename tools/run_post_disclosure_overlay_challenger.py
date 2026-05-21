@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_alpha_selector_broker_grid import run as run_alpha_selector_grid  # noqa: E402
 
-DEFAULT_CANDIDATE_BOOK = "outputs/reports/candidate_replay_book.csv"
+DEFAULT_CANDIDATE_BOOK = "cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv"
 DEFAULT_13F_EVENTS = "data_pit/sec/13f_position_events.parquet"
 DEFAULT_FORM4_EVENTS = "data_pit/sec/form4_transaction_events.parquet"
 DEFAULT_ETF_EVENTS = "data_pit/etf_holdings/etf_holding_events.parquet"
