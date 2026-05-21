@@ -304,6 +304,52 @@ All entries must be written in English. Entries must be predictable and machine-
   - PDA event scores are same-date/as-of features for challenger selection; forward return labels are not used for target selection.
   - Promotion remains blocked until broker-ledger CAGR/MDD improves, PIT/leakage audits pass, and human approval is granted.
 
+### 11:29 KST - d2-d3-post-disclosure-signal-learning
+
+- scope:
+  - Add the D2/D3 post-disclosure signal learning sidecar. It summarizes labeled 13F/Form 4/ETF disclosure events by source, event type, follow/fade action, and horizon, then builds PIT-style manager disclosure alpha scores using only labels whose target dates are complete before each `as_of_date`.
+- files:
+  - `tools/run_post_disclosure_signal_learning.py` ->adds research-only signal learning, manager alpha scoring, IC proxies, follow/fade summaries, and reports.
+  - `tools/run_post_disclosure_alpha_labeler.py` ->passes event seed scores into label rows for downstream signal learning.
+  - `tests/post_disclosure_signal_learning_smoke.py` ->adds fixture checks for source/event outputs, manager PIT guard, blocked empty-data behavior, and research-only outputs.
+  - `tests/post_disclosure_alpha_labeler_smoke.py` ->updates labeler fixture coverage for event seed passthrough.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure signal learning smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D2/D3 signal learning sidecar.
+- symbols_added:
+  - `prepare_labels(labels)` ->normalizes post-disclosure label rows for signal learning.
+  - `bucket_stats(frame, group_cols, horizons)` ->summarizes source and event buckets across horizons.
+  - `signal_ic(frame, horizons)` ->computes Spearman IC proxies between event seed scores and post-disclosure returns.
+  - `follow_vs_fade(frame, horizons)` ->compares follow, fade-or-avoid, and neutral event buckets.
+  - `manager_alpha_scores(frame, horizon)` ->builds PIT-style manager disclosure alpha rows using only completed target-date labels.
+  - `feature_importance(frame, horizons)` ->writes lightweight feature importance proxies for event score, source, and event type.
+  - `run(args)` ->writes signal learning outputs, manager score PIT table, summary, and report.
+- symbols_changed:
+  - `event_seed_score(event)` ->is now written into post-disclosure label rows for downstream learning.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_signal_learning/signal_ic_by_horizon.csv` ->event seed IC proxies by horizon and source scope.
+  - `outputs/post_disclosure_signal_learning/source_alpha.csv` ->source-level post-disclosure alpha summary.
+  - `outputs/post_disclosure_signal_learning/event_type_alpha.csv` ->source/event-type post-disclosure alpha summary.
+  - `outputs/post_disclosure_signal_learning/manager_alpha_ranking.csv` ->latest manager disclosure alpha ranking.
+  - `outputs/post_disclosure_signal_learning/event_feature_importance.csv` ->lightweight feature importance proxies.
+  - `outputs/post_disclosure_signal_learning/follow_vs_fade_report.csv` ->follow/fade/neutral event outcome summary.
+  - `data_pit/sec/manager_disclosure_alpha_scores.parquet` ->PIT-style manager disclosure alpha score table.
+  - `outputs/post_disclosure_signal_learning/summary.json` ->status, input row counts, and output manifest.
+  - `outputs/post_disclosure_signal_learning/report.md` ->human-readable research-only signal learning report.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_labeler_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_post_disclosure_signal_learning.py --output-dir outputs\post_disclosure_signal_learning_check --manager-output outputs\post_disclosure_signal_learning_check\manager_disclosure_alpha_scores.parquet` ->blocked because local post-disclosure label data lake is not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 42/42.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Manager alpha scores use only rows with target dates before the score `as_of_date`; incomplete future labels are excluded.
+  - Follow/fade summaries are diagnostic outputs; they are not auto-promoted into live scoring.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4

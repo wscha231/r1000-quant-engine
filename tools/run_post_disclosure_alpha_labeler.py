@@ -39,6 +39,7 @@ BASE_COLUMNS = [
     "manager_name",
     "ticker",
     "event_type",
+    "event_seed_score",
     "available_from",
     "entry_date",
     "entry_price",
@@ -54,6 +55,7 @@ BASE_COLUMNS = [
     "research_only",
     "production_activation_allowed",
 ]
+EVENT_SCORE_COLUMNS = ("event_seed_score", "post_disclosure_event_seed_score", "etf_event_seed_score")
 
 
 def repo_path(value: str | Path) -> Path:
@@ -181,6 +183,15 @@ def max_drawdown_after_entry(px: pd.DataFrame, entry_date: pd.Timestamp, entry_p
     return float((window / entry_price - 1.0).min())
 
 
+def event_seed_score(event: pd.Series) -> float:
+    for col in EVENT_SCORE_COLUMNS:
+        if col in event.index:
+            value = pd.to_numeric(pd.Series([event.get(col)]), errors="coerce").fillna(np.nan).iloc[0]
+            if np.isfinite(value):
+                return float(max(-1.0, min(1.0, value)))
+    return 0.0
+
+
 def label_events(events: pd.DataFrame, price_cache: Path, benchmark_ticker: str, horizons: list[int]) -> pd.DataFrame:
     d = normalize_events(events)
     if d.empty:
@@ -203,6 +214,7 @@ def label_events(events: pd.DataFrame, price_cache: Path, benchmark_ticker: str,
             "manager_name": str(event.get("manager_name", "")),
             "ticker": ticker,
             "event_type": str(event.get("event_type", "")),
+            "event_seed_score": event_seed_score(event),
             "available_from": str(event.get("available_from", "")),
             "entry_date": entry_date.date().isoformat() if entry_date is not None else "",
             "entry_price": float(entry_price) if entry_price is not None else np.nan,

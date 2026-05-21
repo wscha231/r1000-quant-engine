@@ -51,6 +51,7 @@ def test_labeler_uses_next_close_after_available_from() -> None:
                     "manager_name": "Test Manager",
                     "ticker": "AAA",
                     "event_type": "new",
+                    "post_disclosure_event_seed_score": 0.75,
                     "available_from": "2024-01-02T20:00:00Z",
                 }
             ]
@@ -74,6 +75,7 @@ def test_labeler_uses_next_close_after_available_from() -> None:
         assert row["entry_date"] == "2024-01-03"
         assert abs(float(row["entry_price"]) - 101.0) < 1e-9
         assert abs(float(row["ret_1d"]) - ((102.0 / 101.0) - 1.0)) < 1e-9
+        assert abs(float(row["event_seed_score"]) - 0.75) < 1e-9
         assert "2024-01-02" not in str(row["entry_date"])
         assert bool(row["research_only"]) is True
         assert bool(row["production_activation_allowed"]) is False
