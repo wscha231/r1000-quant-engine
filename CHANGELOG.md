@@ -119,6 +119,42 @@ All entries must be written in English. Entries must be predictable and machine-
   - The audit is read-only and research-only; it does not change production scoring, workflows, or evidence data.
   - ETF readiness is reported separately and is not required for D1/D5 unless the caller passes `--require-etf`.
 
+### 11:01 KST - d1-13f-position-event-builder
+
+- scope:
+  - Add the D1 13F position event builder that converts quarterly 13F holdings snapshots into PIT manager/ticker filing events. The table distinguishes `initial`, `new`, `add`, `trim`, `exit`, and `hold` rows so later post-disclosure alpha labels do not treat first-observed backfill rows as false new positions.
+- files:
+  - `tools/run_13f_position_event_builder.py` ->adds research-only 13F position event construction, metadata enrichment, event seed scoring, and report outputs.
+  - `tests/sec_13f_position_event_builder_smoke.py` ->adds fixture checks for add/new/exit detection, first-period boundary handling, PIT timestamp sanity, and CLI outputs.
+  - `tools/run_pr_validation.py` ->adds the D1 13F event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D1 event builder.
+- symbols_added:
+  - `build_position_events(holdings, metadata)` ->creates manager/ticker/report-period event rows from PIT 13F holdings.
+  - `normalize_holdings(frame)` ->normalizes manager CIK, ticker, report period, timestamps, position weights, and conviction rank.
+  - `metadata_by_ticker(metadata)` ->maps optional ticker metadata for market cap, float, liquidity, sector, and industry enrichment.
+  - `seed_score(event)` ->creates a research-only starter event score for later post-disclosure studies.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/13f_position_events.parquet` ->PIT 13F position event table for post-disclosure alpha labels.
+  - `outputs/13f_position_events/13f_position_events.csv` ->CSV copy of all event rows.
+  - `outputs/13f_position_events/latest.csv` ->events from the latest available filing timestamp.
+  - `outputs/13f_position_events/summary.json` ->event counts, PIT sanity, and output manifest.
+  - `outputs/13f_position_events/report.md` ->human-readable event report.
+- validation:
+  - `py -3 tests\sec_13f_position_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 37/37.
+  - `py -3 tools\run_13f_position_event_builder.py --output-dir outputs\13f_position_events_check --pit-output outputs\13f_position_events_check\13f_position_events.parquet` ->blocked because local 13F data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
