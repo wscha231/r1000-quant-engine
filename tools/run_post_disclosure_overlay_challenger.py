@@ -178,6 +178,24 @@ def add_post_disclosure_overlay(
     return d
 
 
+def portfolio_target_ns(args: argparse.Namespace, portfolio: str) -> str:
+    legacy = str(getattr(args, "target_ns", "") or "").strip()
+    if legacy:
+        return legacy
+    if portfolio == "main":
+        return str(getattr(args, "main_target_ns", "12,15,18") or "12,15,18")
+    return str(getattr(args, "concentrated_target_ns", "3,5") or "3,5")
+
+
+def portfolio_single_name_caps(args: argparse.Namespace, portfolio: str) -> str:
+    legacy = str(getattr(args, "single_name_caps", "") or "").strip()
+    if legacy:
+        return legacy
+    if portfolio == "main":
+        return str(getattr(args, "main_single_name_caps", "0.08,0.12,0.18") or "0.08,0.12,0.18")
+    return str(getattr(args, "concentrated_single_name_caps", "0.33,0.50") or "0.33,0.50")
+
+
 def run_broker_grid(args: argparse.Namespace, enriched_csv: Path, out_dir: Path) -> dict[str, Any]:
     if not bool(args.run_broker_grid):
         return {"status": "skipped", "reason": "run_broker_grid is false"}
@@ -197,8 +215,8 @@ def run_broker_grid(args: argparse.Namespace, enriched_csv: Path, out_dir: Path)
                 no_integer_shares=False,
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 styles=args.styles,
-                target_ns=args.target_ns,
-                single_name_caps=args.single_name_caps,
+                target_ns=portfolio_target_ns(args, portfolio),
+                single_name_caps=portfolio_single_name_caps(args, portfolio),
                 max_variants=int(args.max_variants),
                 min_market_cap_usd=float(args.min_market_cap_usd),
                 min_dollar_volume_usd=float(args.min_dollar_volume_usd),
@@ -287,9 +305,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--styles", default="post_disclosure_light,post_disclosure_balanced")
-    parser.add_argument("--target-ns", default="3,5")
-    parser.add_argument("--single-name-caps", default="0.33,0.50")
-    parser.add_argument("--max-variants", type=int, default=8)
+    parser.add_argument("--target-ns", default="")
+    parser.add_argument("--single-name-caps", default="")
+    parser.add_argument("--main-target-ns", default="12,15,18")
+    parser.add_argument("--concentrated-target-ns", default="3,5")
+    parser.add_argument("--main-single-name-caps", default="0.08,0.12,0.18")
+    parser.add_argument("--concentrated-single-name-caps", default="0.33,0.50")
+    parser.add_argument("--max-variants", type=int, default=24)
     parser.add_argument("--min-market-cap-usd", type=float, default=300_000_000.0)
     parser.add_argument("--min-dollar-volume-usd", type=float, default=5_000_000.0)
     parser.add_argument("--min-price", type=float, default=2.0)
