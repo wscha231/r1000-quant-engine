@@ -229,6 +229,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - P-code open-market purchases are positive candidate events; S-code sales are negative/risk events; awards, option exercises, gifts, and tax-withholding rows are kept for audit but are not signal candidates.
   - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
 
+### 11:18 KST - c5-etf-holding-events
+
+- scope:
+  - Add the C5 ETF holding event builder that converts PIT ETF holdings snapshots into inclusion, removal, weight-increase, and weight-decrease events. These events can be labeled by the post-disclosure alpha labeler without changing ETF refresh, live scores, or target books.
+- files:
+  - `tools/run_etf_holding_event_builder.py` ->adds research-only ETF holding event construction from PIT snapshot history.
+  - `tests/etf_holding_event_builder_smoke.py` ->adds fixture checks for initial snapshots, later inclusions, weight increases, removals, consensus counts, and output summary.
+  - `tools/run_pr_validation.py` ->adds the ETF holding event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C5 ETF event builder.
+- symbols_added:
+  - `build_etf_holding_events(holdings, change_threshold)` ->creates ETF/holding/snapshot event rows from PIT ETF holdings history.
+  - `normalize_holdings(holdings)` ->normalizes ETF tickers, holding tickers, weights, themes, ranks, and availability timestamps.
+  - `event_type_for(current_weight, previous_weight, initial_snapshot, change_threshold)` ->classifies initial, inclusion, removal, weight increase, weight decrease, and unchanged events.
+  - `seed_score(event_type, weight, delta, consensus)` ->creates a research-only starter score for ETF holding events.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/etf_holdings/etf_holding_events.parquet` ->PIT ETF holding event table for post-disclosure alpha labels.
+  - `outputs/etf_holding_events/etf_holding_events.csv` ->CSV copy of all ETF holding event rows.
+  - `outputs/etf_holding_events/latest.csv` ->events from the latest available ETF snapshot timestamp.
+  - `outputs/etf_holding_events/summary.json` ->event counts, ticker counts, and output manifest.
+  - `outputs/etf_holding_events/report.md` ->human-readable ETF holding event report.
+- validation:
+  - `py -3 tests\etf_holding_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 40/40.
+  - `py -3 tools\run_etf_holding_event_builder.py --output-dir outputs\etf_holding_events_check --pit-output outputs\etf_holding_events_check\etf_holding_events.parquet` ->blocked because local ETF holdings data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - First observed ETF snapshots are classified as `initial`, not false `inclusion` events.
+  - Missing ETF holding snapshots remain neutral and produce a blocked status rather than fabricated evidence.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
