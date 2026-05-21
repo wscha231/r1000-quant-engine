@@ -249,10 +249,10 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
                 cost_bps=0.0,
                 no_integer_shares=False,
                 max_fill_lag_days=7,
-                styles="future_heavy,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_satellite,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation",
+                styles="future_heavy,future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_optional_satellite,future_heavy_post_disclosure_satellite,future_winner_smart_money,leader_onset_shadow,sec_evidence_shadow,smart_money_shadow,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation",
                 target_ns="1",
                 single_name_caps="1.00",
-                max_variants=11,
+                max_variants=12,
                 min_market_cap_usd=1_000_000_000.0,
                 min_dollar_volume_usd=1_000_000.0,
                 min_price=5.0,
@@ -261,7 +261,7 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload["status"] == "completed"
         assert payload["valid_for_production"] is True
         summary = pd.read_csv(out / "summary.csv")
-        assert len(summary) == 11
+        assert len(summary) == 12
         targets = pd.read_csv(next(out.glob("future_heavy_N1_cap*/target_book.csv")))
         assert set(targets["ticker"]) == {"AAA"}
         assert float(targets["weight"].max()) > 0.99
@@ -294,6 +294,9 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         satellite_targets = pd.read_csv(next(out.glob("future_heavy_post_disclosure_satellite_N1_cap*/target_book.csv")))
         assert set(satellite_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_satellite_slot" in satellite_targets.columns
+        optional_satellite_targets = pd.read_csv(next(out.glob("future_heavy_post_disclosure_optional_satellite_N1_cap*/target_book.csv")))
+        assert set(optional_satellite_targets["ticker"]) == {"AAA"}
+        assert "post_disclosure_satellite_slot" in optional_satellite_targets.columns
         discovery_targets = pd.read_csv(next(out.glob("post_disclosure_discovery_N1_cap*/target_book.csv")))
         assert set(discovery_targets["ticker"]) == {"AAA"}
         assert "post_disclosure_discovery_score" in discovery_targets.columns
@@ -368,9 +371,88 @@ def test_satellite_selector_preserves_exposure_under_tight_cap() -> None:
     assert 0.32 <= satellite_weight <= 0.33
 
 
+def test_optional_satellite_requires_strong_supported_signal() -> None:
+    group = pd.DataFrame(
+        [
+            {
+                "ticker": "CORE1",
+                "portfolio_future_winner_engine_score_rank": 1.00,
+                "portfolio_early_scout_engine_score_rank": 1.00,
+                "portfolio_monster_early_score_rank": 1.00,
+                "h6_dynamic_leader_score_rank": 1.00,
+                "selection_market_confirmation_score_rank": 0.90,
+                "rs_acceleration_score_rank": 0.90,
+                "industry_group_strength_score_rank": 0.90,
+                "entry_quality_score_rank": 0.90,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+            {
+                "ticker": "CORE2",
+                "portfolio_future_winner_engine_score_rank": 0.95,
+                "portfolio_early_scout_engine_score_rank": 0.95,
+                "portfolio_monster_early_score_rank": 0.95,
+                "h6_dynamic_leader_score_rank": 0.95,
+                "selection_market_confirmation_score_rank": 0.85,
+                "rs_acceleration_score_rank": 0.85,
+                "industry_group_strength_score_rank": 0.85,
+                "entry_quality_score_rank": 0.85,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+            {
+                "ticker": "WEAK",
+                "portfolio_future_winner_engine_score_rank": 0.70,
+                "portfolio_early_scout_engine_score_rank": 0.70,
+                "portfolio_monster_early_score_rank": 0.70,
+                "h6_dynamic_leader_score_rank": 0.70,
+                "selection_market_confirmation_score_rank": 0.55,
+                "rs_acceleration_score_rank": 0.55,
+                "industry_group_strength_score_rank": 0.55,
+                "entry_quality_score_rank": 0.55,
+                "post_disclosure_price_confirmed_score_rank": 1.00,
+                "post_disclosure_discovery_score_rank": 1.00,
+                "pda_13f_first_buy_surprise_score_rank": 1.00,
+                "post_disclosure_price_confirmed_score": 0.25,
+                "post_disclosure_price_confirmation_score": 0.20,
+                "pda_13f_first_buy_surprise_score": 0.80,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+            {
+                "ticker": "STRONG",
+                "portfolio_future_winner_engine_score_rank": 0.80,
+                "portfolio_early_scout_engine_score_rank": 0.80,
+                "portfolio_monster_early_score_rank": 0.80,
+                "h6_dynamic_leader_score_rank": 0.80,
+                "selection_market_confirmation_score_rank": 0.80,
+                "rs_acceleration_score_rank": 0.80,
+                "industry_group_strength_score_rank": 0.80,
+                "entry_quality_score_rank": 0.80,
+                "post_disclosure_price_confirmed_score_rank": 1.00,
+                "post_disclosure_discovery_score_rank": 1.00,
+                "pda_13f_first_buy_surprise_score_rank": 1.00,
+                "post_disclosure_price_confirmed_score": 0.70,
+                "post_disclosure_price_confirmation_score": 0.65,
+                "pda_13f_first_buy_surprise_score": 0.80,
+                "portfolio_risk_entry_block_score_safe_rank": 1.00,
+                "portfolio_stale_mega_leader_score_safe_rank": 1.00,
+            },
+        ]
+    ).fillna(0.5)
+
+    selected, weights = select_satellite_targets(group, target_n=3, single_name_cap=0.33, optional=True)
+    assert set(selected["ticker"]) == {"CORE1", "CORE2", "STRONG"}
+    assert "WEAK" not in set(selected["ticker"])
+    assert weights.sum() > 0.98
+    satellite_weight = float(weights[selected["ticker"].tolist().index("STRONG")])
+    assert 0.32 <= satellite_weight <= 0.33
+
+
 def main() -> int:
     test_alpha_selector_grid_runs_broker_replay_without_forward_selection()
     test_satellite_selector_preserves_exposure_under_tight_cap()
+    test_optional_satellite_requires_strong_supported_signal()
     print("alpha_selector_broker_grid_smoke: PASS")
     return 0
 

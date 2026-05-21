@@ -113,6 +113,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - Research-only. This addresses target-book construction, not production scoring.
   - Full exposure is still limited by single-name caps, available candidates, integer shares, and price-cache fillability.
 
+### 02:54 KST - optional-post-disclosure-satellite-style
+
+- scope:
+  - Add a stricter optional satellite research style after run `26240355322` showed the forced satellite selector still failed to beat the future-heavy broker-ledger baseline.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds an optional post-disclosure satellite style that keeps the future-heavy book when no strong, price-confirmed disclosure candidate passes the support gates.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds the optional satellite style to the end-to-end research grid defaults.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds the optional satellite style to the overlay challenger defaults.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers optional satellite gating and style output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the optional satellite style.
+  - `CHANGELOG.md` ->records the optional satellite experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_optional_satellite"]` ->research selector variant that only grants the satellite slot to strong supported disclosure candidates.
+- symbols_changed:
+  - `select_satellite_targets(group, target_n, single_name_cap, optional=False)` ->accepts optional gating for price-confirmed, strongly supported disclosure candidates with minimum core compatibility.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->routes `future_heavy_post_disclosure_optional_satellite` through the optional satellite selector path.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the optional satellite style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the optional satellite style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_optional_satellite_*/target_book.csv` ->will include optional satellite target books after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - The optional style may often collapse back to the future-heavy baseline when disclosure evidence is not strong enough; that is intentional to avoid forced replacement drag.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

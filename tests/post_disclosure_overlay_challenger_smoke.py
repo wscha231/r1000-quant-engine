@@ -169,7 +169,7 @@ def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
                 fill_mode="next_close",
                 cost_bps=0.0,
                 max_fill_lag_days=7,
-                styles="future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_satellite,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_balanced",
+                styles="future_heavy_post_disclosure_micro,future_heavy_post_disclosure_confirmed,future_heavy_post_disclosure_optional_satellite,future_heavy_post_disclosure_satellite,post_disclosure_discovery,post_disclosure_price_confirmed,post_disclosure_mega_confirmation,post_disclosure_balanced",
                 target_ns="1",
                 single_name_caps="1.0",
                 max_variants=7,
