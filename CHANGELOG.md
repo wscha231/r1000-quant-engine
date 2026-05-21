@@ -387,6 +387,44 @@ All entries must be written in English. Entries must be predictable and machine-
   - Manager alpha scores are joined only when their `as_of_date` is not later than the event `available_from`.
   - Candidate ranks are a watchlist input; promotion still requires broker-ledger challenger improvement, PIT/leakage audits, and human approval.
 
+### 11:40 KST - c7-post-disclosure-alpha-pipeline
+
+- scope:
+  - Add the C7 end-to-end post-disclosure alpha pipeline. The sidecar can build disclosure events, combine 13F/Form 4/ETF event rows, label forward returns, learn signal and manager alpha summaries, and emit current candidates in one research-only run.
+- files:
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds end-to-end research-only orchestration for event building, event combination, labeling, learning, candidate generation, and optional overlay challenger execution.
+  - `tests/post_disclosure_alpha_pipeline_smoke.py` ->adds fixture checks for prebuilt event pipeline completion, labels, candidates, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha pipeline smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C7 pipeline sidecar.
+- symbols_added:
+  - `call_step(name, fn, namespace)` ->runs a pipeline step and captures status payloads.
+  - `combine_events(events_13f, events_form4, events_etf, combined_events)` ->normalizes and writes combined 13F/Form 4/ETF event rows for labeling.
+  - `render_report(summary)` ->renders the end-to-end pipeline report.
+  - `run(args)` ->orchestrates event builders, combined labels, signal learning, candidates, and optional overlay challenger outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/post_disclosure_events_all.parquet` ->combined PIT disclosure event rows for labeling.
+  - `outputs/post_disclosure_alpha_pipeline/summary.json` ->pipeline status, step statuses, and output manifest.
+  - `outputs/post_disclosure_alpha_pipeline/report.md` ->human-readable pipeline report.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_alpha/*` ->labeling sidecar outputs.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_signal_learning/*` ->signal learning outputs.
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_alpha_candidates/*` ->current candidate watchlist outputs.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_post_disclosure_alpha_pipeline.py --output-dir outputs\post_disclosure_alpha_pipeline_check` ->blocked because local SEC/Form 4/ETF/price data lakes are not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Broker-grid overlay execution is opt-in; default pipeline runs stop at labels, learning, and candidate watchlist outputs.
+  - Full completion requires restored event and price data lakes; empty local checkouts report blocked instead of fabricating evidence.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
