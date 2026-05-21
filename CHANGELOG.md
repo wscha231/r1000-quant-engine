@@ -53,6 +53,41 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 13:12 KST - post-disclosure-tradable-candidate-gate
+
+- scope:
+  - Add scored-latest metadata and liquidity gates to post-disclosure alpha candidates so the default pipeline ranks tradable engine candidates instead of raw microcap disclosure hits.
+- files:
+  - `tools/run_post_disclosure_alpha_candidates.py` ->adds metadata enrichment, tradability columns, market-cap/dollar-volume/price gates, and optional tradable-only filtering.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes metadata and tradability thresholds into the candidate sidecar; pipeline default is tradable-only.
+  - `tools/run_13f_position_event_builder.py` ->uses the latest global full-rebuild scored metadata path by default.
+  - `tools/run_form4_transaction_event_builder.py` ->uses the latest global full-rebuild scored metadata path by default.
+  - `tests/post_disclosure_alpha_candidates_smoke.py` ->adds a regression test proving higher-scoring untradable microcaps are filtered when tradable-only is enabled.
+  - `tests/post_disclosure_alpha_pipeline_smoke.py` ->adds scored metadata to the end-to-end smoke path.
+  - `CHANGELOG.md` ->records the candidate tradability gate.
+- symbols_added:
+  - `first_boolish(frame, columns, default)` ->parses bool-like metadata columns without pandas downcast warnings.
+  - `log_gate_score(value, floor, span)` ->normalizes market-cap and liquidity gate strength.
+  - `normalize_candidate_metadata(frame)` ->builds ticker-level tradability and engine-confirmation metadata.
+  - `attach_candidate_metadata(candidates, metadata, min_market_cap_usd, min_dollar_volume_usd, min_price)` ->joins metadata, computes gates, and applies bounded confirmation components.
+- symbols_changed:
+  - `build_candidates()` ->accepts metadata and tradability thresholds, emits raw/tradable candidate counts, and can filter to tradable candidates.
+  - `run()` ->loads metadata and passes tradability options into candidate construction.
+  - `parse_args()` ->adds metadata and tradability CLI options for candidate generation and pipeline orchestration.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_candidates/latest.csv` ->now includes metadata availability, tradable flag, market cap, dollar volume, price, universe source, and engine confirmation columns.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - local artifact replay on run `26204143561` with `--tradable-only` ->PASS, 30 candidates generated after filtering 3,722 raw tickers to 218 tradable candidates.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - The tradable filter depends on the latest scored metadata path; stale metadata will be visible through metadata ticker counts and candidate summaries.
+
 ### 12:09 KST - sec-refresh-gdrive-restore-timeouts
 
 - scope:

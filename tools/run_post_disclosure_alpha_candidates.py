@@ -25,6 +25,7 @@ DEFAULT_13F_EVENTS = "data_pit/sec/13f_position_events.parquet"
 DEFAULT_FORM4_EVENTS = "data_pit/sec/form4_transaction_events.parquet"
 DEFAULT_ETF_EVENTS = "data_pit/etf_holdings/etf_holding_events.parquet"
 DEFAULT_MANAGER_SCORES = "data_pit/sec/manager_disclosure_alpha_scores.parquet"
+DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
 DEFAULT_OUTPUT_DIR = "outputs/post_disclosure_alpha_candidates"
 
 OUTPUT_COLUMNS = [
@@ -46,6 +47,15 @@ OUTPUT_COLUMNS = [
     "manager_names",
     "manager_ciks",
     "top_event_ids",
+    "metadata_available",
+    "tradable_candidate",
+    "tradability_score",
+    "engine_confirmation_score",
+    "market_cap_usd",
+    "dollar_volume_20d",
+    "price",
+    "universe_source",
+    "ranking_eligible",
     "candidate_explanation",
     "research_only",
     "production_activation_allowed",
@@ -108,6 +118,36 @@ def first_numeric(frame: pd.DataFrame, columns: list[str], default: float = 0.0)
             out.loc[mask] = values.loc[mask].astype(float)
             used.loc[mask] = True
     return out.fillna(default)
+
+
+def first_boolish(frame: pd.DataFrame, columns: list[str], default: bool = True) -> pd.Series:
+    out = pd.Series(default, index=frame.index, dtype=bool)
+    used = pd.Series(False, index=frame.index)
+    for col in columns:
+        if col not in frame.columns:
+            continue
+        values = frame[col]
+        parsed = values.map(
+            lambda value: str(value).strip().lower()
+            not in {"", "0", "0.0", "false", "nan", "none", "no"}
+        )
+        mask = ~used & values.notna()
+        out.loc[mask] = parsed.loc[mask].astype(bool)
+        used.loc[mask] = True
+    return out.fillna(default).astype(bool)
+
+
+def log_gate_score(value: float, floor: float, *, span: float = 2.0) -> float:
+    try:
+        value_f = float(value)
+        floor_f = float(floor)
+    except Exception:
+        return 0.0
+    if not math.isfinite(value_f) or not math.isfinite(floor_f) or floor_f <= 0:
+        return 0.0
+    if value_f <= 0:
+        return 0.0
+    return safe_pct(math.log10(max(value_f / floor_f, 1e-9)) / max(float(span), 1e-9))
 
 
 def normalize_events(frame: pd.DataFrame, *, source_type: str, ticker_cols: list[str], score_cols: list[str]) -> pd.DataFrame:
@@ -185,6 +225,108 @@ def attach_manager_alpha(events: pd.DataFrame, manager_scores: pd.DataFrame) -> 
     return d
 
 
+def normalize_candidate_metadata(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "ticker" not in frame.columns:
+        return pd.DataFrame()
+    d = frame.copy()
+    d["ticker"] = text_column(d, "ticker").str.upper().str.strip()
+    d = d[d["ticker"].ne("") & d["ticker"].ne("NAN")].copy()
+    if d.empty:
+        return pd.DataFrame()
+    d["market_cap_usd"] = first_numeric(d, ["market_cap_live", "mktcap", "mktcap_proxy"], 0.0)
+    d["dollar_volume_20d"] = first_numeric(
+        d,
+        ["dollar_vol_20d", "dollar_volume_20d", "avg_dollar_vol_20d", "avg_dollar_volume_20d"],
+        0.0,
+    )
+    d["price"] = first_numeric(d, ["current_price_live", "px", "close", "price"], 0.0)
+    d["universe_source"] = first_existing(d, ["universe_source"], "")
+    d["ranking_eligible"] = first_boolish(d, ["ranking_eligible"], True)
+    d["future_winner_engine_score"] = first_numeric(d, ["portfolio_future_winner_engine_score"], 0.0).clip(0.0, 1.0)
+    d["market_confirmation_score"] = first_numeric(
+        d,
+        ["selection_market_confirmation_score", "relative_strength_composite", "rs_market_composite"],
+        0.0,
+    ).clip(0.0, 1.0)
+    d["engine_confirmation_score"] = (
+        0.45 * d["future_winner_engine_score"]
+        + 0.35 * d["market_confirmation_score"]
+        + 0.20 * d["ranking_eligible"].astype(float)
+    ).clip(0.0, 1.0)
+    sort_cols = [c for c in ["score_total", "score", "market_cap_usd"] if c in d.columns]
+    if sort_cols:
+        for col in sort_cols:
+            d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
+        d = d.sort_values(sort_cols, ascending=False)
+    keep = [
+        "ticker",
+        "market_cap_usd",
+        "dollar_volume_20d",
+        "price",
+        "universe_source",
+        "ranking_eligible",
+        "future_winner_engine_score",
+        "market_confirmation_score",
+        "engine_confirmation_score",
+    ]
+    return d[keep].drop_duplicates("ticker", keep="first")
+
+
+def attach_candidate_metadata(
+    candidates: pd.DataFrame,
+    metadata: pd.DataFrame,
+    *,
+    min_market_cap_usd: float,
+    min_dollar_volume_usd: float,
+    min_price: float,
+) -> pd.DataFrame:
+    d = candidates.copy()
+    if metadata.empty:
+        d["metadata_available"] = False
+        d["market_cap_usd"] = 0.0
+        d["dollar_volume_20d"] = 0.0
+        d["price"] = 0.0
+        d["universe_source"] = ""
+        d["ranking_eligible"] = True
+        d["engine_confirmation_score"] = 0.0
+    else:
+        d = d.merge(metadata, on="ticker", how="left")
+        d["metadata_available"] = d["market_cap_usd"].notna()
+        d["market_cap_usd"] = pd.to_numeric(d["market_cap_usd"], errors="coerce").fillna(0.0)
+        d["dollar_volume_20d"] = pd.to_numeric(d["dollar_volume_20d"], errors="coerce").fillna(0.0)
+        d["price"] = pd.to_numeric(d["price"], errors="coerce").fillna(0.0)
+        d["universe_source"] = d["universe_source"].fillna("").astype(str)
+        d["ranking_eligible"] = d["ranking_eligible"].map(
+            lambda value: True
+            if pd.isna(value)
+            else str(value).strip().lower() not in {"", "0", "0.0", "false", "nan", "none", "no"}
+        ).astype(bool)
+        d["engine_confirmation_score"] = pd.to_numeric(
+            d["engine_confirmation_score"], errors="coerce"
+        ).fillna(0.0).clip(0.0, 1.0)
+    d["tradability_score"] = [
+        safe_pct(
+            0.40 * log_gate_score(mcap, min_market_cap_usd, span=2.0)
+            + 0.40 * log_gate_score(dvol, min_dollar_volume_usd, span=1.5)
+            + 0.20 * safe_pct(price / max(float(min_price), 1e-9))
+        )
+        for mcap, dvol, price in zip(d["market_cap_usd"], d["dollar_volume_20d"], d["price"])
+    ]
+    d["tradable_candidate"] = (
+        d["metadata_available"].astype(bool)
+        & d["ranking_eligible"].astype(bool)
+        & (d["market_cap_usd"] >= float(min_market_cap_usd))
+        & (d["dollar_volume_20d"] >= float(min_dollar_volume_usd))
+        & (d["price"] >= float(min_price))
+    )
+    d["post_disclosure_candidate_score"] = (
+        0.85 * pd.to_numeric(d["post_disclosure_candidate_score"], errors="coerce").fillna(0.0)
+        + 0.10 * d["engine_confirmation_score"]
+        + 0.05 * pd.to_numeric(d["tradability_score"], errors="coerce").fillna(0.0)
+    ).clip(0.0, 1.0)
+    return d
+
+
 def event_universe(events_13f: pd.DataFrame, events_form4: pd.DataFrame, events_etf: pd.DataFrame) -> pd.DataFrame:
     parts = [
         normalize_events(
@@ -259,9 +401,14 @@ def build_candidates(
     events: pd.DataFrame,
     manager_scores: pd.DataFrame,
     *,
+    metadata: pd.DataFrame | None = None,
     as_of_date: str = "",
     lookback_days: int = 180,
     top_n: int = 30,
+    tradable_only: bool = False,
+    min_market_cap_usd: float = 300_000_000.0,
+    min_dollar_volume_usd: float = 5_000_000.0,
+    min_price: float = 2.0,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     scoped, as_of_ts = filter_asof(events, as_of_date=as_of_date, lookback_days=lookback_days)
     if scoped.empty or as_of_ts is None:
@@ -324,8 +471,43 @@ def build_candidates(
     out = pd.DataFrame(rows)
     if out.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS), {"status": "blocked", "reason": "no scored candidates"}
+    out = attach_candidate_metadata(
+        out,
+        metadata if metadata is not None else pd.DataFrame(),
+        min_market_cap_usd=float(min_market_cap_usd),
+        min_dollar_volume_usd=float(min_dollar_volume_usd),
+        min_price=float(min_price),
+    )
+    raw_candidate_rows = int(len(out))
+    tradable_candidate_rows = int(out["tradable_candidate"].sum()) if "tradable_candidate" in out.columns else 0
+    if bool(tradable_only):
+        out = out[out["tradable_candidate"].astype(bool)].copy()
+    if out.empty:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS), {
+            "status": "blocked",
+            "reason": "no tradable candidates after metadata/liquidity filter" if bool(tradable_only) else "no scored candidates",
+            "as_of_date": as_of_ts.isoformat(),
+            "lookback_days": int(lookback_days),
+            "raw_candidate_rows": raw_candidate_rows,
+            "tradable_candidate_rows": tradable_candidate_rows,
+            "metadata_ticker_count": int(len(metadata)) if metadata is not None else 0,
+            "tradable_only": bool(tradable_only),
+            "min_market_cap_usd": float(min_market_cap_usd),
+            "min_dollar_volume_usd": float(min_dollar_volume_usd),
+            "min_price": float(min_price),
+            "research_only": True,
+            "production_activation_allowed": False,
+            "score_total_changed": False,
+        }
     out = out.sort_values(
-        ["post_disclosure_candidate_score", "evidence_confidence", "source_count", "event_count"],
+        [
+            "post_disclosure_candidate_score",
+            "engine_confirmation_score",
+            "tradability_score",
+            "evidence_confidence",
+            "source_count",
+            "event_count",
+        ],
         ascending=False,
     ).reset_index(drop=True)
     out["rank"] = range(1, len(out) + 1)
@@ -340,6 +522,13 @@ def build_candidates(
         "lookback_days": int(lookback_days),
         "event_rows": int(len(scoped)),
         "candidate_rows": int(len(out)),
+        "raw_candidate_rows": raw_candidate_rows,
+        "tradable_candidate_rows": tradable_candidate_rows,
+        "metadata_ticker_count": int(len(metadata)) if metadata is not None else 0,
+        "tradable_only": bool(tradable_only),
+        "min_market_cap_usd": float(min_market_cap_usd),
+        "min_dollar_volume_usd": float(min_dollar_volume_usd),
+        "min_price": float(min_price),
         "unique_tickers": int(scoped["ticker"].nunique()),
         "research_only": True,
         "production_activation_allowed": False,
@@ -357,18 +546,23 @@ def render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str:
         f"- status: `{summary.get('status')}`",
         f"- as of: `{summary.get('as_of_date', '')}`",
         f"- event rows: {summary.get('event_rows', 0)}",
+        f"- raw candidate rows: {summary.get('raw_candidate_rows', summary.get('candidate_rows', 0))}",
+        f"- tradable candidate rows: {summary.get('tradable_candidate_rows', 0)}",
         f"- candidate rows: {summary.get('candidate_rows', 0)}",
         "",
-        "| rank | ticker | score | sources | events | explanation |",
-        "| ---: | --- | ---: | --- | --- | --- |",
+        "| rank | ticker | score | tradable | market cap | dollar volume | sources | events | explanation |",
+        "| ---: | --- | ---: | --- | ---: | ---: | --- | --- | --- |",
     ]
     if not candidates.empty:
         for _, row in candidates.head(20).iterrows():
             lines.append(
-                "| {rank} | {ticker} | {score:.3f} | {sources} | {events} | {explain} |".format(
+                "| {rank} | {ticker} | {score:.3f} | {tradable} | {mcap:.0f} | {dvol:.0f} | {sources} | {events} | {explain} |".format(
                     rank=int(row.get("rank", 0)),
                     ticker=row.get("ticker", ""),
                     score=float(row.get("post_disclosure_candidate_score", 0.0) or 0.0),
+                    tradable=bool(row.get("tradable_candidate", False)),
+                    mcap=float(row.get("market_cap_usd", 0.0) or 0.0),
+                    dvol=float(row.get("dollar_volume_20d", 0.0) or 0.0),
                     sources=str(row.get("source_types", "")).replace("|", "/"),
                     events=str(row.get("event_types", "")).replace("|", "/"),
                     explain=str(row.get("candidate_explanation", "")).replace("|", "/"),
@@ -387,12 +581,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         read_table(args.events_etf),
     )
     manager_scores = normalize_manager_scores(read_table(args.manager_scores))
+    metadata = normalize_candidate_metadata(read_table(getattr(args, "metadata", DEFAULT_METADATA)))
     candidates, summary = build_candidates(
         events,
         manager_scores,
+        metadata=metadata,
         as_of_date=args.as_of_date,
         lookback_days=int(args.lookback_days),
         top_n=int(args.top_n),
+        tradable_only=bool(getattr(args, "tradable_only", False)),
+        min_market_cap_usd=float(getattr(args, "min_market_cap_usd", 300_000_000.0)),
+        min_dollar_volume_usd=float(getattr(args, "min_dollar_volume_usd", 5_000_000.0)),
+        min_price=float(getattr(args, "min_price", 2.0)),
     )
     ranked_path = output_dir / "ranked_candidates.csv"
     latest_path = output_dir / "latest.csv"
@@ -405,6 +605,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "events_form4": str(repo_path(args.events_form4)),
             "events_etf": str(repo_path(args.events_etf)),
             "manager_scores": str(repo_path(args.manager_scores)),
+            "metadata": str(repo_path(getattr(args, "metadata", DEFAULT_METADATA))),
             "outputs": {
                 "ranked_candidates": str(ranked_path),
                 "latest": str(latest_path),
@@ -425,10 +626,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--events-form4", default=DEFAULT_FORM4_EVENTS)
     parser.add_argument("--events-etf", default=DEFAULT_ETF_EVENTS)
     parser.add_argument("--manager-scores", default=DEFAULT_MANAGER_SCORES)
+    parser.add_argument("--metadata", default=DEFAULT_METADATA)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--lookback-days", type=int, default=180)
     parser.add_argument("--top-n", type=int, default=30)
+    parser.add_argument("--tradable-only", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--min-market-cap-usd", type=float, default=300_000_000.0)
+    parser.add_argument("--min-dollar-volume-usd", type=float, default=5_000_000.0)
+    parser.add_argument("--min-price", type=float, default=2.0)
     return parser.parse_args()
 
 

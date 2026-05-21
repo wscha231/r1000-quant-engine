@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.run_sec_submissions_collector import cik10  # noqa: E402
 
 DEFAULT_FORM4 = "data_pit/sec/form4_transactions.parquet"
-DEFAULT_METADATA = "scored_latest.csv"
+DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
 DEFAULT_OUTPUT_DIR = "outputs/form4_transaction_events"
 DEFAULT_PIT_OUTPUT = "data_pit/sec/form4_transaction_events.parquet"
 
