@@ -68,6 +68,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/evidence_readiness_smoke.py", []),
     ("tests/post_disclosure_overlay_challenger_smoke.py", []),
     ("tests/post_disclosure_signal_learning_smoke.py", []),
+    ("tests/post_disclosure_alpha_candidates_smoke.py", []),
     ("tests/sec_candidate_enrichment_smoke.py", []),
     ("tests/sec_evidence_learning_pipeline_smoke.py", []),
     ("tests/etf_holdings_overlay_smoke.py", []),

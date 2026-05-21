@@ -350,6 +350,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - Manager alpha scores use only rows with target dates before the score `as_of_date`; incomplete future labels are excluded.
   - Follow/fade summaries are diagnostic outputs; they are not auto-promoted into live scoring.
 
+### 11:35 KST - c6-post-disclosure-alpha-candidates
+
+- scope:
+  - Add the C6 post-disclosure alpha candidate watchlist. It combines current PIT 13F, Form 4, and ETF holding events with PIT manager disclosure-alpha scores to rank current evidence candidates for review, Smart Money Top 30 analysis, and later broker-ledger challenger design.
+- files:
+  - `tools/run_post_disclosure_alpha_candidates.py` ->adds research-only current candidate generation from 13F/Form 4/ETF events and manager alpha scores.
+  - `tests/post_disclosure_alpha_candidates_smoke.py` ->adds fixture checks for converged evidence ranking, manager as-of guard behavior, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha candidates smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C6 candidate watchlist sidecar.
+- symbols_added:
+  - `event_universe(events_13f, events_form4, events_etf)` ->normalizes 13F, Form 4, and ETF event rows into one candidate event table.
+  - `attach_manager_alpha(events, manager_scores)` ->joins latest manager disclosure-alpha scores available before each event.
+  - `build_candidates(events, manager_scores, as_of_date, lookback_days, top_n)` ->ranks current disclosure candidates without changing production state.
+  - `render_report(summary, candidates)` ->renders the current candidate watchlist report.
+  - `run(args)` ->writes ranked candidates, latest CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_candidates/ranked_candidates.csv` ->ranked current disclosure candidates.
+  - `outputs/post_disclosure_alpha_candidates/latest.csv` ->latest candidate watchlist copy.
+  - `outputs/post_disclosure_alpha_candidates/summary.json` ->status, input manifest, and output manifest.
+  - `outputs/post_disclosure_alpha_candidates/report.md` ->human-readable current candidate watchlist report.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tools\run_post_disclosure_alpha_candidates.py --output-dir outputs\post_disclosure_alpha_candidates_check` ->blocked because local event/manager data lakes are not restored in this checkout; generated check output removed after inspection.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 43/43.
+- risks_or_notes:
+  - This is research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Manager alpha scores are joined only when their `as_of_date` is not later than the event `available_from`.
+  - Candidate ranks are a watchlist input; promotion still requires broker-ledger challenger improvement, PIT/leakage audits, and human approval.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
