@@ -87,6 +87,38 @@ All entries must be written in English. Entries must be predictable and machine-
   - The handoff document's unconditional-overlay assumption is now explicitly handled by preserving the existing master switch and adding a cap for any future explicit activation.
   - Verdict-only reported `companyfacts.zip` as 37.9 days old; refresh remains a separate data maintenance task and was not changed in this PR.
 
+### 10:48 KST - evidence-readiness-c02-preflight
+
+- scope:
+  - Add the C0.2 evidence readiness preflight before D1/D5/C5/C4 work. The tool audits SEC Form 4, SEC 13F, ETF holdings, restore manifest provenance, PIT timestamp sanity, ticker coverage, and default-OFF evidence/PDA kill switches. It emits research-only readiness gates for 13F events, Form 4 event study, ETF PIT, and broker-ledger challenger work.
+- files:
+  - `tools/audit_evidence_readiness.py` ->adds the read-only evidence readiness audit and report writer.
+  - `tests/evidence_readiness_smoke.py` ->adds fixture-based checks for ready evidence data, PIT blockers, and 13F mapping blockers.
+  - `tools/run_pr_validation.py` ->adds the evidence readiness smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C0.2 preflight.
+- symbols_added:
+  - `build_payload(args)` ->builds evidence readiness gates and source health payload.
+  - `render_report(payload)` ->renders the evidence readiness Markdown report.
+  - `write_outputs(payload, output_dir)` ->writes `evidence_health.json`, `summary.json`, and `report.md`.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/evidence_readiness/evidence_health.json` ->machine-readable evidence readiness payload.
+  - `outputs/evidence_readiness/summary.json` ->alias for downstream workflow compatibility.
+  - `outputs/evidence_readiness/report.md` ->human-readable readiness report.
+- validation:
+  - `py -3 tests\evidence_readiness_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 36/36.
+  - `py -3 tools\audit_evidence_readiness.py --output-dir outputs\evidence_readiness_c02_check` ->PASS, status blocked because local SEC/Form4/13F/ETF data lakes are not restored in the checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - The audit is read-only and research-only; it does not change production scoring, workflows, or evidence data.
+  - ETF readiness is reported separately and is not required for D1/D5 unless the caller passes `--require-etf`.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
