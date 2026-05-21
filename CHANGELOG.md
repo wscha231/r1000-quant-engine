@@ -154,7 +154,8 @@ All entries must be written in English. Entries must be predictable and machine-
 - scope:
   - Add a stricter price-confirmed post-disclosure research style after run `26227123993` showed first-buy surprise and broad discovery evidence still trailing the future-heavy broker-ledger baseline.
 - files:
-  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `post_disclosure_price_confirmation_score` and `post_disclosure_price_confirmed_score`, and includes price-confirmed styles in the default overlay challenger grid.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `post_disclosure_price_confirmation_score` and `post_disclosure_price_confirmed_score`, and prioritizes price-confirmed styles in the default overlay challenger grid.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes the price-confirmed styles through the end-to-end pipeline default style list.
   - `tools/run_alpha_selector_broker_grid.py` ->adds `future_heavy_post_disclosure_confirmed` and `post_disclosure_price_confirmed` selector styles and carries price-confirmed scores into target-book outputs.
   - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers price-confirmed score creation and broker-grid handoff.
   - `tests/alpha_selector_broker_grid_smoke.py` ->covers price-confirmed selector styles and target-book columns.
@@ -166,7 +167,8 @@ All entries must be written in English. Entries must be predictable and machine-
 - symbols_changed:
   - `add_post_disclosure_overlay()` ->emits price-confirmation and price-confirmed post-disclosure scores.
   - `run_alpha_selector_broker_grid.build_target_book()` ->includes price-confirmed score columns in research target books.
-  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds price-confirmed styles to the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->prioritizes price-confirmed styles in the default research-only grid.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds price-confirmed styles to the default research-only end-to-end pipeline.
 - config_fields_added:
   - none
 - breaking_changes:
