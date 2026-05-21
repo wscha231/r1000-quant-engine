@@ -266,6 +266,44 @@ All entries must be written in English. Entries must be predictable and machine-
   - First observed ETF snapshots are classified as `initial`, not false `inclusion` events.
   - Missing ETF holding snapshots remain neutral and produce a blocked status rather than fabricated evidence.
 
+### 11:22 KST - c4-post-disclosure-overlay-challenger
+
+- scope:
+  - Add the C4 post-disclosure overlay challenger that joins 13F, Form 4, and ETF holding event rows to the historical candidate replay book by `available_from <= rebalance_date`, emits shadow PDA scores, and can run the existing broker-ledger alpha-selector grid with post-disclosure styles.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds research-only candidate enrichment and optional broker-ledger challenger orchestration for post-disclosure evidence.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `post_disclosure_light` and `post_disclosure_balanced` selector styles and carries PDA score columns into target books.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->adds fixture checks for as-of event joins, PDA score generation, and broker-grid target selection.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure overlay challenger smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the C4 challenger harness.
+- symbols_added:
+  - `add_post_disclosure_overlay(candidates, events_13f, events_form4, events_etf, lookback_days)` ->joins event-derived PDA scores to same-date candidate rows.
+  - `event_features_by_date(events, candidate_dates, prefix, lookback_days)` ->builds ticker/date PDA score features from event availability windows.
+  - `normalize_events(events, source, score_col)` ->normalizes 13F, Form 4, and ETF event rows into common ticker/availability/score form.
+  - `run_broker_grid(args, enriched_csv, out_dir)` ->runs alpha-selector broker grid for selected portfolios and PDA styles.
+  - `run(args)` ->writes enriched candidate book, summary, report, and optional broker-grid outputs.
+- symbols_changed:
+  - `STYLE_WEIGHTS` ->adds post-disclosure selector styles for broker-ledger challenger tests.
+  - `build_target_book(candidates, style, target_n, single_name_cap, min_mcap, min_dollar_vol, min_price, require_price_cache)` ->carries PDA shadow columns into generated target books.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->candidate replay book with PDA shadow scores.
+  - `outputs/post_disclosure_overlay_challenger/summary.json` ->enrichment counts, inputs, and broker-grid status.
+  - `outputs/post_disclosure_overlay_challenger/report.md` ->human-readable challenger report.
+  - `outputs/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*` ->optional broker-ledger challenger outputs.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 41/41.
+  - `py -3 tools\run_post_disclosure_overlay_challenger.py --output-dir outputs\post_disclosure_overlay_challenger_check --no-run-broker-grid` ->blocked because local candidate/event data lakes are not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - PDA event scores are same-date/as-of features for challenger selection; forward return labels are not used for target selection.
+  - Promotion remains blocked until broker-ledger CAGR/MDD improves, PIT/leakage audits pass, and human approval is granted.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
