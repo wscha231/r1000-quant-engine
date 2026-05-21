@@ -192,6 +192,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - Entry uses the first close after the event availability date, not same-day close, to avoid after-close filing leakage.
   - `report_period` is not used as an availability date.
 
+### 11:13 KST - d5-form4-transaction-events
+
+- scope:
+  - Add the D5 Form 4 transaction event builder that converts normalized Form 4 PIT rows into post-disclosure event rows. The table preserves P-code open-market buys, S-code sales, and non-signal codes separately so later labels can test which insider transaction patterns were followed by alpha.
+- files:
+  - `tools/run_form4_transaction_event_builder.py` ->adds research-only Form 4 transaction event construction, P/S/M/A/F/G code classification, role weighting, cluster scoring, metadata enrichment, and report outputs.
+  - `tests/form4_transaction_event_builder_smoke.py` ->adds fixture checks for P-code buys, S-code sale risk, A-code non-signal handling, output summary, and PIT sanity.
+  - `tools/run_pr_validation.py` ->adds the Form 4 transaction event builder smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D5 event builder.
+- symbols_added:
+  - `build_form4_events(form4, metadata)` ->creates transaction-level Form 4 event rows keyed by ticker, owner, code, accession, and availability.
+  - `normalize_transactions(form4)` ->normalizes ticker, CIKs, timestamps, transaction value, booleans, and cluster counts.
+  - `form4_event_type(code)` ->maps SEC transaction codes into research event buckets.
+  - `event_seed_score(row)` ->creates a research-only starter score for P-code buy and S-code sale events.
+  - `run(args)` ->writes PIT event table, latest event CSV, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/form4_transaction_events.parquet` ->PIT Form 4 transaction event table for post-disclosure alpha labels.
+  - `outputs/form4_transaction_events/form4_transaction_events.csv` ->CSV copy of all Form 4 event rows.
+  - `outputs/form4_transaction_events/latest.csv` ->events from the latest available filing timestamp.
+  - `outputs/form4_transaction_events/summary.json` ->code counts, PIT sanity, and output manifest.
+  - `outputs/form4_transaction_events/report.md` ->human-readable Form 4 event report.
+- validation:
+  - `py -3 tests\form4_transaction_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 39/39.
+  - `py -3 tools\run_form4_transaction_event_builder.py --output-dir outputs\form4_transaction_events_check --pit-output outputs\form4_transaction_events_check\form4_transaction_events.parquet` ->blocked because local Form 4 data lake is not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - P-code open-market purchases are positive candidate events; S-code sales are negative/risk events; awards, option exercises, gifts, and tax-withholding rows are kept for audit but are not signal candidates.
+  - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
