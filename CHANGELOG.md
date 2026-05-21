@@ -425,6 +425,35 @@ All entries must be written in English. Entries must be predictable and machine-
   - Broker-grid overlay execution is opt-in; default pipeline runs stop at labels, learning, and candidate watchlist outputs.
   - Full completion requires restored event and price data lakes; empty local checkouts report blocked instead of fabricating evidence.
 
+### 11:43 KST - c7-post-disclosure-alpha-workflow
+
+- scope:
+  - Add the GitHub Actions workflow for scheduled and manual post-disclosure alpha pipeline runs. The workflow restores SEC/ETF evidence data from Google Drive, builds event tables, restores targeted price cache files for event tickers, runs the research-only pipeline, uploads artifacts, and syncs outputs back to Google Drive.
+- files:
+  - `.github/workflows/post_disclosure_alpha_pipeline.yml` ->adds workflow dispatch and Tue-Sat scheduled automation for the post-disclosure alpha pipeline.
+  - `CHANGELOG.md` ->records the workflow automation.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `post-disclosure-alpha-<run_id>` ->GitHub artifact containing event tables, labels, manager scores, pipeline outputs, and logs.
+  - `outputs/post_disclosure_alpha_pipeline/` ->Google Drive synced pipeline output directory when Drive auth is configured.
+  - `data_pit/sec/` ->Google Drive synced post-disclosure event, label, and manager-score PIT tables.
+  - `data_pit/etf_holdings/` ->Google Drive synced ETF event PIT table.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - The workflow is research-only; it does not trigger full rebuilds or production promotion.
+  - Pipeline execution is allowed to finish with blocked status when required evidence or price data lakes are absent, preserving artifacts for diagnosis.
+  - Broker-ledger grid execution remains opt-in via workflow input and defaults OFF.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
