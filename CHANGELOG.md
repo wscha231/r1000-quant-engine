@@ -96,6 +96,26 @@ All entries must be written in English. Entries must be predictable and machine-
   - Local broker replay cannot produce CAGR/MaxDD without restored `cache_prices`; run the GitHub post-disclosure workflow after merge/push to get official sidecar metrics.
   - Local full smoke was blocked by a Windows/Python 3.14 third-party import path (`catboost`/`sklearn` -> `platform` WMI lookup), not by the post-disclosure code path; CI/Linux validation should be used for the full gate.
 
+### 20:21 KST - post-disclosure-micro-tiebreaker-style
+
+- scope:
+  - Add a small capped post-disclosure tie-breaker style after the first broker-grid run showed standalone post-disclosure styles underperforming `future_heavy`.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `future_heavy_post_disclosure_micro`, preserving the `future_heavy` core while adding only 10% total PDA/discovery/mega evidence weight.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->includes the micro style in the default post-disclosure grid.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->includes the micro style in the default overlay challenger grid.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the micro style target-book output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers the micro style broker-grid handoff.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_micro"]`
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+- risks_or_notes:
+  - This is still research-only; it is intended to test whether top-fund first-buy, Form 4 P-code, and ETF inclusion evidence works better as a tie-breaker than as the primary selector.
+
 ### 16:24 KST - post-disclosure-discovery-buckets
 
 - scope:

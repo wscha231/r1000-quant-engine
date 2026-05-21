@@ -289,7 +289,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fill-mode", choices=["next_close", "next_open", "same_close"], default="next_close")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
-    parser.add_argument("--styles", default="future_heavy,monster_heavy,post_disclosure_tiebreaker,post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_light,post_disclosure_balanced")
+    parser.add_argument("--styles", default="future_heavy,future_heavy_post_disclosure_micro,monster_heavy,post_disclosure_tiebreaker,post_disclosure_discovery,post_disclosure_mega_confirmation,post_disclosure_light,post_disclosure_balanced")
     parser.add_argument("--target-ns", default="")
     parser.add_argument("--single-name-caps", default="")
     parser.add_argument("--main-target-ns", default="12,15,18")
