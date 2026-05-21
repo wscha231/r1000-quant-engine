@@ -53,6 +53,34 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 14:29 KST - post-disclosure-tiebreaker-ablation
+
+- scope:
+  - Add a light post-disclosure tie-breaker selector and include baseline selector styles in the post-disclosure broker grid so evidence contribution can be compared against future/monster leader baselines.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `post_disclosure_tiebreaker`, a future-winner/market-confirmation style with a small capped PDA component.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->defaults the research grid to future-heavy, monster-heavy, post-disclosure tie-breaker, light, and balanced styles.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes the expanded style grid through the end-to-end pipeline and raises default max variants.
+  - `CHANGELOG.md` ->records the post-disclosure tie-breaker ablation.
+- symbols_added:
+  - `STYLE_WEIGHTS["post_disclosure_tiebreaker"]` ->small post-disclosure overlay style for ablation against existing leader selectors.
+- symbols_changed:
+  - `parse_args()` ->expands default post-disclosure style grid and max variants for research-only ablation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/summary.csv` ->now includes baseline and PDA tie-breaker style rows by default.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring or target books.
+  - Wider grids take longer but are necessary to avoid judging PDA evidence only as a standalone selector.
+
 ### 14:01 KST - post-disclosure-portfolio-specific-grid
 
 - scope:
