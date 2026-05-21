@@ -140,7 +140,10 @@ def normalize_events(events: pd.DataFrame, *, source: str, score_col: str) -> pd
     d["source"] = source
     d["event_type"] = d.get("event_type", d.get("form4_event_type", "")).fillna("").astype(str).str.lower().str.strip()
     d = d[d["ticker"].ne("") & d["available_from_ts"].notna()].copy()
-    d["history_boundary"] = d.get("history_boundary", False).fillna(False).astype(bool)
+    if "history_boundary" in d.columns:
+        d["history_boundary"] = d["history_boundary"].fillna(False).astype(bool)
+    else:
+        d["history_boundary"] = False
     keep = ["ticker", "available_from_ts", "event_score", "source", "event_type", "history_boundary"]
     for optional in [
         "position_weight",

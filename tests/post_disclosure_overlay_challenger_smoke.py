@@ -124,6 +124,20 @@ def test_post_disclosure_overlay_joins_events_by_available_from() -> None:
     assert "period_forward_return" in enriched.columns
 
 
+def test_post_disclosure_overlay_tolerates_missing_history_boundary() -> None:
+    events_13f = event_rows("post_disclosure_event_seed_score", 0.8, "13f", "new").drop(columns=["history_boundary"])
+    enriched = add_post_disclosure_overlay(
+        candidate_rows(),
+        events_13f,
+        pd.DataFrame(),
+        pd.DataFrame(),
+        lookback_days=120,
+    )
+    aaa = enriched[enriched["ticker"].eq("AAA")].iloc[0]
+    assert float(aaa["pda_13f_first_buy_surprise_score"]) > 0.0
+    assert int(aaa["pda_13f_first_buy_surprise_count"]) > 0
+
+
 def test_post_disclosure_overlay_runs_broker_grid_challenger() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -208,6 +222,7 @@ def test_post_disclosure_portfolio_specific_grid_defaults() -> None:
 
 if __name__ == "__main__":
     test_post_disclosure_overlay_joins_events_by_available_from()
+    test_post_disclosure_overlay_tolerates_missing_history_boundary()
     test_post_disclosure_overlay_runs_broker_grid_challenger()
     test_post_disclosure_portfolio_specific_grid_defaults()
     print("post_disclosure_overlay_challenger_smoke: PASS")
