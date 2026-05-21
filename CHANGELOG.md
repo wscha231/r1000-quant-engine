@@ -78,6 +78,30 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is workflow-only and does not change production scoring or data schemas.
   - If Drive restore times out, workflows continue with GitHub cache/artifacts and still upload diagnostic artifacts.
 
+### 12:41 KST - post-disclosure-price-restore-timeouts
+
+- scope:
+  - Bound Google Drive directory listing and targeted price-cache restore in the post-disclosure alpha workflow so research pipelines cannot hang before candidate generation.
+- files:
+  - `.github/workflows/post_disclosure_alpha_pipeline.yml` ->adds timeout-guarded `rclone lsf` checks for evidence restore and price-cache restore, and keeps missing Drive paths as warning-only fallbacks.
+  - `CHANGELOG.md` ->records the post-disclosure alpha workflow timeout guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+- risks_or_notes:
+  - This is workflow-only and does not change production scoring or data schemas.
+  - If targeted price cache restore times out, the pipeline continues and reports restored versus missing cache files in the existing restore summary.
+
 ### 10:20 KST - plan-c-foundation-kill-switch-standardization
 
 - scope:
