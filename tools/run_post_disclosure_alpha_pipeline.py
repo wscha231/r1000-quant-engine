@@ -183,10 +183,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             events_form4=args.events_form4,
             events_etf=args.events_etf,
             manager_scores=args.manager_scores,
+            metadata=args.metadata,
             output_dir=str(output_dir / "post_disclosure_alpha_candidates"),
             as_of_date=args.as_of_date,
             lookback_days=int(args.lookback_days),
             top_n=int(args.top_n),
+            tradable_only=bool(args.tradable_only),
+            min_market_cap_usd=float(args.min_market_cap_usd),
+            min_dollar_volume_usd=float(args.min_dollar_volume_usd),
+            min_price=float(args.min_price),
         ),
     )
     if bool(args.run_overlay_challenger):
@@ -268,6 +273,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--as-of-date", default="")
     parser.add_argument("--lookback-days", type=int, default=180)
     parser.add_argument("--top-n", type=int, default=30)
+    parser.add_argument("--tradable-only", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--etf-change-threshold", type=float, default=0.0025)
     parser.add_argument("--run-overlay-challenger", action="store_true")
     parser.add_argument("--run-broker-grid", action=argparse.BooleanOptionalAction, default=False)

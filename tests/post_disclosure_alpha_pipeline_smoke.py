@@ -48,6 +48,7 @@ def full_namespace(root: Path, *, skip_event_builders: bool = True) -> Namespace
         as_of_date="2024-05-10",
         lookback_days=90,
         top_n=10,
+        tradable_only=True,
         etf_change_threshold=0.0025,
         run_overlay_challenger=False,
         run_broker_grid=False,
@@ -124,6 +125,20 @@ def test_post_disclosure_pipeline_runs_from_prebuilt_events() -> None:
                 }
             ]
         ).to_parquet(args.manager_scores, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "AAA",
+                    "market_cap_live": 1_000_000_000.0,
+                    "dollar_vol_20d": 25_000_000.0,
+                    "current_price_live": 25.0,
+                    "universe_source": "smoke",
+                    "ranking_eligible": True,
+                    "portfolio_future_winner_engine_score": 0.75,
+                    "selection_market_confirmation_score": 0.65,
+                }
+            ]
+        ).to_csv(args.metadata, index=False)
         write_price_cache(Path(args.price_cache), "AAA", base=100.0)
         write_price_cache(Path(args.price_cache), "SPY", base=200.0)
 

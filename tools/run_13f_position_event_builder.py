@@ -26,7 +26,7 @@ from tools.run_sec_submissions_collector import cik10  # noqa: E402
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/13f_position_events"
 DEFAULT_PIT_OUTPUT = "data_pit/sec/13f_position_events.parquet"
-DEFAULT_METADATA = "scored_latest.csv"
+DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
 
 EVENT_COLUMNS = [
     "event_id",
