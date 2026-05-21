@@ -155,6 +155,43 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is research-only and does not change production scoring or target books.
   - Missing issuer float or market-cap metadata stays neutral; it lowers downstream confidence rather than blocking event creation.
 
+### 11:05 KST - d1-post-disclosure-alpha-labeler
+
+- scope:
+  - Add the D1 post-disclosure alpha labeler that measures next-close forward returns after SEC event availability. The tool turns 13F position events into research-only return labels for later manager/event alpha learning without changing live scores.
+- files:
+  - `tools/run_post_disclosure_alpha_labeler.py` ->adds research-only post-disclosure return labeling from PIT events and daily price cache.
+  - `tests/post_disclosure_alpha_labeler_smoke.py` ->adds fixture checks for conservative next-close entry, blocked empty-data behavior, and research-only outputs.
+  - `tools/run_pr_validation.py` ->adds the post-disclosure alpha labeler smoke to Tier 0/1 validation.
+  - `CHANGELOG.md` ->records the D1 labeler.
+- symbols_added:
+  - `label_events(events, price_cache, benchmark_ticker, horizons)` ->creates event-level forward return labels after `available_from`.
+  - `first_close_after_available(px, available_from)` ->selects the first close after the event availability date.
+  - `forward_return(px, entry_date, entry_price, horizon)` ->computes trading-day forward returns from the entry close.
+  - `benchmark_return(benchmark_px, entry_date, target_date)` ->computes benchmark returns for excess-return labels.
+  - `max_drawdown_after_entry(px, entry_date, entry_price, horizon)` ->computes event-window max drawdown.
+  - `run(args)` ->writes PIT labels, CSV labels, summary, and report outputs.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/post_disclosure_alpha_labels.parquet` ->PIT post-disclosure alpha label table.
+  - `outputs/post_disclosure_alpha/post_disclosure_alpha_labels.csv` ->CSV copy of label rows.
+  - `outputs/post_disclosure_alpha/summary.json` ->label counts, horizons, and output manifest.
+  - `outputs/post_disclosure_alpha/report.md` ->human-readable horizon summary.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_labeler_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 38/38.
+  - `py -3 tools\run_post_disclosure_alpha_labeler.py --output-dir outputs\post_disclosure_alpha_check --pit-output outputs\post_disclosure_alpha_check\post_disclosure_alpha_labels.parquet` ->blocked because local 13F event and price data lakes are not restored in this checkout; generated check output removed after inspection.
+- risks_or_notes:
+  - This is research-only and does not change production scoring or target books.
+  - Entry uses the first close after the event availability date, not same-day close, to avoid after-close filing leakage.
+  - `report_period` is not used as an availability date.
+
 ## 2026-05-20
 
 ### 00:30 KST - sec-evidence-overlay-merge-13f-and-form4
