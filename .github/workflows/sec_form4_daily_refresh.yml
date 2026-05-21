@@ -114,12 +114,22 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in data_raw/sec data_pit/sec outputs/sec_ownership_signals; do
+          restore_dir() {
+            local d="$1"
+            local limit="${2:-6m}"
             mkdir -p "$d"
-            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
+            if ! rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              echo "[gdrive] no restore source for $d"
+              return 0
             fi
-          done
+            echo "[gdrive] restore $d with timeout $limit"
+            if ! timeout "$limit" rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+              echo "[gdrive] warning: restore for $d timed out or failed; continuing with GitHub cache/artifacts"
+            fi
+          }
+          restore_dir data_raw/sec 6m
+          restore_dir data_pit/sec 6m
+          restore_dir outputs/sec_ownership_signals 3m
 
       - name: Collect and score Form 4
         env:

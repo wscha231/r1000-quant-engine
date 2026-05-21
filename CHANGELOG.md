@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-21
 
+### 12:09 KST - sec-refresh-gdrive-restore-timeouts
+
+- scope:
+  - Add timeout-guarded Google Drive restore steps to SEC 13F and SEC Form 4 refresh workflows. This prevents large Drive restores from blocking queued SEC refresh jobs indefinitely before evidence collection starts.
+- files:
+  - `.github/workflows/sec_13f_quarterly_refresh.yml` ->wraps Drive restore copies for `data_raw/sec`, `data_pit/sec`, and `outputs/sec_institutional_signals` in bounded timeout calls with warning-only fallback.
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->wraps Drive restore copies for `data_raw/sec`, `data_pit/sec`, and `outputs/sec_ownership_signals` in bounded timeout calls with warning-only fallback.
+  - `CHANGELOG.md` ->records the SEC refresh restore timeout guard.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+- risks_or_notes:
+  - This is workflow-only and does not change production scoring or data schemas.
+  - If Drive restore times out, workflows continue with GitHub cache/artifacts and still upload diagnostic artifacts.
+
 ### 10:20 KST - plan-c-foundation-kill-switch-standardization
 
 - scope:
