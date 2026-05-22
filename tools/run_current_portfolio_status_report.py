@@ -47,6 +47,9 @@ class PortfolioExtension:
     carried_forward_tickers: list[str]
     equity_curve: pd.DataFrame
     holdings_latest: pd.DataFrame
+    target_latest: pd.DataFrame
+    projected_latest: pd.DataFrame
+    transition_latest: pd.DataFrame
     scorecard: pd.DataFrame
 
 
@@ -322,6 +325,236 @@ def build_price_panel(
     return panel.sort_index(), sorted(missing), sorted(carried)
 
 
+def latest_price_from_history(
+    ticker: str,
+    price_history: dict[str, pd.Series],
+    requested_as_of: pd.Timestamp,
+    fallback: float = np.nan,
+) -> tuple[float, str]:
+    ticker = clean_ticker(ticker)
+    series = price_history.get(ticker, pd.Series(dtype=float)).copy()
+    if series.empty:
+        return clean_float(fallback, np.nan), ""
+    series.index = pd.to_datetime(series.index).tz_localize(None).normalize()
+    series = series[series.index <= requested_as_of]
+    series = pd.to_numeric(series, errors="coerce").dropna()
+    if series.empty:
+        return clean_float(fallback, np.nan), ""
+    return clean_float(series.iloc[-1], np.nan), pd.Timestamp(series.index[-1]).date().isoformat()
+
+
+def target_file_for_portfolio(portfolio: str) -> str:
+    return "concentrated_portfolio_latest.csv" if portfolio == "concentrated" else "portfolio_latest.csv"
+
+
+def build_target_latest(
+    latest_run: Path,
+    portfolio: str,
+    evaluated_as_of: str,
+    equity_usd: float,
+    price_history: dict[str, pd.Series],
+) -> pd.DataFrame:
+    target = read_csv(latest_run / target_file_for_portfolio(portfolio))
+    if target.empty or "ticker" not in target.columns:
+        return pd.DataFrame()
+    requested_as_of = pd.Timestamp(evaluated_as_of)
+    rows: list[dict[str, Any]] = []
+    for raw in target.to_dict("records"):
+        ticker = clean_ticker(raw.get("ticker"))
+        if not ticker:
+            continue
+        target_weight = clean_float(raw.get("weight"), 0.0)
+        fallback_price = clean_float(
+            raw.get("reference_price", raw.get("current_price_live", raw.get("price", np.nan))),
+            np.nan,
+        )
+        price, price_date = latest_price_from_history(ticker, price_history, requested_as_of, fallback_price)
+        target_value = equity_usd * target_weight
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "date": evaluated_as_of,
+                "ticker": ticker,
+                "target_weight": target_weight,
+                "target_market_value_usd": target_value,
+                "estimated_target_shares": target_value / price if math.isfinite(price) and price > 0 else np.nan,
+                "latest_price": price,
+                "latest_price_date": price_date,
+                "rank": raw.get("rank", ""),
+                "name": raw.get("Name", raw.get("name", "")),
+                "sector": raw.get("sector", ""),
+                "score_total": clean_float(raw.get("score_total"), np.nan),
+                "score": clean_float(raw.get("score"), np.nan),
+                "selection_source": raw.get("concentrated_selection_source", raw.get("portfolio_sleeve_label", "")),
+            }
+        )
+    total_weight = sum(clean_float(row["target_weight"]) for row in rows)
+    cash_weight = max(0.0, 1.0 - total_weight)
+    if cash_weight > 1e-9:
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "date": evaluated_as_of,
+                "ticker": "CASH",
+                "target_weight": cash_weight,
+                "target_market_value_usd": equity_usd * cash_weight,
+                "estimated_target_shares": 0.0,
+                "latest_price": 1.0,
+                "latest_price_date": evaluated_as_of,
+                "rank": "",
+                "name": "Cash",
+                "sector": "Cash",
+                "score_total": np.nan,
+                "score": np.nan,
+                "selection_source": "cash",
+            }
+        )
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values("target_weight", ascending=False).reset_index(drop=True)
+    return out
+
+
+def build_projected_latest(
+    latest_run: Path,
+    portfolio: str,
+    evaluated_as_of: str,
+    price_history: dict[str, pd.Series],
+) -> pd.DataFrame:
+    projected = read_csv(latest_run / "account_ledger_preview" / portfolio / "projected_positions_after_orders.csv")
+    metrics = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
+    if projected.empty or "ticker" not in projected.columns:
+        return pd.DataFrame()
+    requested_as_of = pd.Timestamp(evaluated_as_of)
+    rows: list[dict[str, Any]] = []
+    for raw in projected.to_dict("records"):
+        ticker = clean_ticker(raw.get("ticker"))
+        if not ticker:
+            continue
+        row_type = str(raw.get("row_type") or "").lower()
+        shares = clean_float(raw.get("projected_shares"), 0.0)
+        fallback_price = clean_float(raw.get("reference_price"), 1.0 if ticker == "CASH" else np.nan)
+        price, price_date = latest_price_from_history(ticker, price_history, requested_as_of, fallback_price)
+        if ticker == "CASH" or row_type == "cash":
+            market_value = clean_float(raw.get("projected_market_value_usd"), 0.0)
+            price = 1.0
+            price_date = evaluated_as_of
+        else:
+            market_value = shares * price if math.isfinite(price) else clean_float(raw.get("projected_market_value_usd"), 0.0)
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "date": evaluated_as_of,
+                "row_type": "cash" if ticker == "CASH" or row_type == "cash" else "equity",
+                "ticker": ticker,
+                "projected_shares": shares,
+                "latest_price": price,
+                "latest_price_date": price_date,
+                "projected_market_value_usd": market_value,
+                "source_projected_weight": clean_float(raw.get("projected_weight"), 0.0),
+            }
+        )
+    total_equity = sum(clean_float(row["projected_market_value_usd"]) for row in rows)
+    if not any(row["ticker"] == "CASH" for row in rows):
+        cash = clean_float(metrics.get("projected_cash_usd"), 0.0)
+        if cash > 1e-9:
+            rows.append(
+                {
+                    "portfolio": portfolio,
+                    "date": evaluated_as_of,
+                    "row_type": "cash",
+                    "ticker": "CASH",
+                    "projected_shares": 0.0,
+                    "latest_price": 1.0,
+                    "latest_price_date": evaluated_as_of,
+                    "projected_market_value_usd": cash,
+                    "source_projected_weight": clean_float(metrics.get("projected_cash_weight"), 0.0),
+                }
+            )
+            total_equity += cash
+    for row in rows:
+        row["projected_weight_mark_to_market"] = clean_float(row["projected_market_value_usd"]) / max(total_equity, 1e-12)
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values("projected_weight_mark_to_market", ascending=False).reset_index(drop=True)
+    return out
+
+
+def build_transition_latest(
+    portfolio: str,
+    evaluated_as_of: str,
+    current: pd.DataFrame,
+    target: pd.DataFrame,
+    projected: pd.DataFrame,
+    latest_run: Path,
+) -> pd.DataFrame:
+    current_map = {
+        clean_ticker(row.get("ticker")): row
+        for row in current.to_dict("records")
+        if clean_ticker(row.get("ticker"))
+    }
+    target_map = {
+        clean_ticker(row.get("ticker")): row
+        for row in target.to_dict("records")
+        if clean_ticker(row.get("ticker"))
+    }
+    projected_map = {
+        clean_ticker(row.get("ticker")): row
+        for row in projected.to_dict("records")
+        if clean_ticker(row.get("ticker"))
+    }
+    orders = read_csv(latest_run / "account_ledger_preview" / portfolio / "orders_preview.csv")
+    order_map = {
+        clean_ticker(row.get("ticker")): row
+        for row in orders.to_dict("records")
+        if clean_ticker(row.get("ticker"))
+    } if not orders.empty else {}
+    rows: list[dict[str, Any]] = []
+    for ticker in sorted(set(current_map) | set(target_map) | set(projected_map) | set(order_map)):
+        cur = current_map.get(ticker, {})
+        tgt = target_map.get(ticker, {})
+        proj = projected_map.get(ticker, {})
+        order = order_map.get(ticker, {})
+        current_weight = clean_float(cur.get("weight"), 0.0)
+        target_weight = clean_float(tgt.get("target_weight"), clean_float(order.get("target_weight"), 0.0))
+        projected_weight = clean_float(proj.get("projected_weight_mark_to_market"), 0.0)
+        if ticker == "CASH" and not order:
+            side = "HOLD_CASH"
+        elif order:
+            side = str(order.get("side") or "HOLD")
+        elif target_weight > current_weight + 1e-6:
+            side = "BUY"
+        elif current_weight > target_weight + 1e-6:
+            side = "SELL"
+        else:
+            side = "HOLD"
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "date": evaluated_as_of,
+                "ticker": ticker,
+                "current_weight": current_weight,
+                "target_weight": target_weight,
+                "projected_weight_mark_to_market": projected_weight,
+                "current_market_value_usd": clean_float(cur.get("market_value_usd"), 0.0),
+                "target_market_value_usd": clean_float(tgt.get("target_market_value_usd"), 0.0),
+                "projected_market_value_usd": clean_float(proj.get("projected_market_value_usd"), 0.0),
+                "current_shares": clean_float(cur.get("shares"), 0.0),
+                "projected_shares": clean_float(proj.get("projected_shares"), 0.0),
+                "order_side": side,
+                "order_quantity": clean_float(order.get("quantity"), 0.0),
+                "trade_value_delta_usd": clean_float(order.get("trade_value_delta_usd"), 0.0),
+                "order_status": str(order.get("status") or ""),
+                "transition_delta_weight": target_weight - current_weight,
+            }
+        )
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out["_sort_abs_delta"] = out["transition_delta_weight"].abs()
+        out = out.sort_values(["_sort_abs_delta", "target_weight", "current_weight"], ascending=False).drop(columns=["_sort_abs_delta"]).reset_index(drop=True)
+    return out
+
+
 def extend_portfolio(
     latest_run: Path,
     portfolio: str,
@@ -430,6 +663,23 @@ def extend_portfolio(
     holdings_latest["portfolio"] = portfolio
     holdings_latest = holdings_latest.sort_values("weight", ascending=False).reset_index(drop=True)
 
+    target_latest = build_target_latest(
+        latest_run,
+        portfolio,
+        evaluated_as_of,
+        latest_equity,
+        price_history,
+    )
+    projected_latest = build_projected_latest(latest_run, portfolio, evaluated_as_of, price_history)
+    transition_latest = build_transition_latest(
+        portfolio,
+        evaluated_as_of,
+        holdings_latest,
+        target_latest,
+        projected_latest,
+        latest_run,
+    )
+
     scorecard = build_scorecard(extended_curve, trades)
     return PortfolioExtension(
         portfolio=portfolio,
@@ -441,6 +691,9 @@ def extend_portfolio(
         carried_forward_tickers=carried,
         equity_curve=extended_curve,
         holdings_latest=holdings_latest,
+        target_latest=target_latest,
+        projected_latest=projected_latest,
+        transition_latest=transition_latest,
         scorecard=scorecard,
     )
 
@@ -466,14 +719,21 @@ def render_report(summary: dict[str, Any], extensions: dict[str, PortfolioExtens
         "",
         "## Portfolio Summary",
         "",
-        "| Portfolio | Evaluated Date | Equity | Cash Weight | Positions | Source Last Date | Added Trading Days | Missing Prices |",
-        "| --- | --- | ---: | ---: | ---: | --- | ---: | --- |",
+        "| Portfolio | Evaluated Date | Equity | Current Cash | Target Cash | Projected Cash | Positions | Source Last Date | Added Trading Days | Missing Prices |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |",
     ]
     for portfolio, ext in extensions.items():
         last = ext.equity_curve.iloc[-1]
         equity_rows = ext.holdings_latest[~ext.holdings_latest["ticker"].eq("CASH")]
+        target_cash = 1.0 - clean_float(ext.target_latest.get("target_weight", pd.Series(dtype=float)).sum(), 0.0)
+        projected_cash = clean_float(
+            ext.projected_latest.loc[ext.projected_latest["ticker"].eq("CASH"), "projected_weight_mark_to_market"].sum()
+            if not ext.projected_latest.empty and "ticker" in ext.projected_latest.columns
+            else np.nan,
+            np.nan,
+        )
         lines.append(
-            f"| {portfolio} | {ext.evaluated_as_of_date} | ${money(last.get('equity_usd'))} | {pct(last.get('cash_weight'))} | {len(equity_rows)} | {ext.source_last_date} | {ext.extension_rows} | {', '.join(ext.missing_tickers) or '-'} |"
+            f"| {portfolio} | {ext.evaluated_as_of_date} | ${money(last.get('equity_usd'))} | {pct(last.get('cash_weight'))} | {pct(max(0.0, target_cash))} | {pct(projected_cash)} | {len(equity_rows)} | {ext.source_last_date} | {ext.extension_rows} | {', '.join(ext.missing_tickers) or '-'} |"
         )
 
     lines += [
@@ -503,6 +763,63 @@ def render_report(summary: dict[str, Any], extensions: dict[str, PortfolioExtens
                     trades=int(clean_float(row.get("trade_count"))),
                     cash=pct(row.get("end_cash_weight")),
                 )
+            )
+
+    for portfolio, ext in extensions.items():
+        target_cash = 1.0 - clean_float(ext.target_latest.get("target_weight", pd.Series(dtype=float)).sum(), 0.0)
+        projected_cash = clean_float(
+            ext.projected_latest.loc[ext.projected_latest["ticker"].eq("CASH"), "projected_weight_mark_to_market"].sum()
+            if not ext.projected_latest.empty and "ticker" in ext.projected_latest.columns
+            else np.nan,
+            np.nan,
+        )
+        lines += [
+            "",
+            f"## {portfolio.title()} Transition Summary",
+            "",
+            f"- Current cash weight: `{pct(ext.equity_curve.iloc[-1].get('cash_weight'))}`",
+            f"- Target cash weight: `{pct(max(0.0, target_cash))}`",
+            f"- Projected-after-orders cash weight: `{pct(projected_cash)}`",
+            "",
+            "| Ticker | Current Wt | Target Wt | Projected Wt | Action | Trade Delta | Current Value | Projected Value |",
+            "| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |",
+        ]
+        for row in ext.transition_latest.head(30).to_dict("records"):
+            lines.append(
+                "| {ticker} | {cur} | {tgt} | {proj} | {side} | ${delta} | ${cur_val} | ${proj_val} |".format(
+                    ticker=row.get("ticker"),
+                    cur=pct(row.get("current_weight")),
+                    tgt=pct(row.get("target_weight")),
+                    proj=pct(row.get("projected_weight_mark_to_market")),
+                    side=row.get("order_side", ""),
+                    delta=money(row.get("trade_value_delta_usd")),
+                    cur_val=money(row.get("current_market_value_usd")),
+                    proj_val=money(row.get("projected_market_value_usd")),
+                )
+            )
+
+        lines += [
+            "",
+            f"## {portfolio.title()} Target Holdings",
+            "",
+            "| Ticker | Target Weight | Target Value | Latest Price | Source | Score |",
+            "| --- | ---: | ---: | ---: | --- | ---: |",
+        ]
+        for row in ext.target_latest.head(30).to_dict("records"):
+            lines.append(
+                f"| {row.get('ticker')} | {pct(row.get('target_weight'))} | ${money(row.get('target_market_value_usd'))} | {clean_float(row.get('latest_price')):,.2f} | {row.get('selection_source', '')} | {clean_float(row.get('score_total'), np.nan):.3f} |"
+            )
+
+        lines += [
+            "",
+            f"## {portfolio.title()} Projected After Orders",
+            "",
+            "| Ticker | Projected Weight | Projected Value | Projected Shares | Latest Price |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+        for row in ext.projected_latest.head(30).to_dict("records"):
+            lines.append(
+                f"| {row.get('ticker')} | {pct(row.get('projected_weight_mark_to_market'))} | ${money(row.get('projected_market_value_usd'))} | {clean_float(row.get('projected_shares')):,.2f} | {clean_float(row.get('latest_price')):,.2f} |"
             )
 
     for portfolio, ext in extensions.items():
@@ -541,11 +858,21 @@ def build_report(
         source_dt = latest_source_date(equity, positions)
         source_dates.append(source_dt.date().isoformat())
         all_tickers.extend(clean_ticker(t) for t in positions.get("ticker", pd.Series(dtype=str)).tolist())
+        target = read_csv(latest_run / target_file_for_portfolio(portfolio))
+        if not target.empty:
+            all_tickers.extend(clean_ticker(t) for t in target.get("ticker", pd.Series(dtype=str)).tolist())
+        projected = read_csv(latest_run / "account_ledger_preview" / portfolio / "projected_positions_after_orders.csv")
+        if not projected.empty:
+            all_tickers.extend(clean_ticker(t) for t in projected.get("ticker", pd.Series(dtype=str)).tolist())
 
     if not source_dates:
         raise ValueError("No broker replay positions/equity found")
     start_date = min(source_dates)
-    price_history = {} if args.no_yfinance else price_loader(sorted(set(t for t in all_tickers if t)), start_date, requested_as_of)
+    price_history = (
+        {}
+        if args.no_yfinance
+        else price_loader(sorted(set(t for t in all_tickers if t and t != "CASH")), start_date, requested_as_of)
+    )
 
     extensions: dict[str, PortfolioExtension] = {}
     for portfolio in PORTFOLIOS:
@@ -555,8 +882,14 @@ def build_report(
         pdir.mkdir(parents=True, exist_ok=True)
         ext.equity_curve.to_csv(pdir / "equity_curve_mark_to_market.csv", index=False)
         ext.holdings_latest.to_csv(pdir / "current_holdings_latest.csv", index=False)
+        ext.target_latest.to_csv(pdir / "target_holdings_latest.csv", index=False)
+        ext.projected_latest.to_csv(pdir / "projected_after_orders_latest.csv", index=False)
+        ext.transition_latest.to_csv(pdir / "current_target_projected_transition.csv", index=False)
         ext.scorecard.to_csv(pdir / "performance_scorecard.csv", index=False)
         ext.holdings_latest.to_csv(output_dir / f"{portfolio}_current_holdings_latest.csv", index=False)
+        ext.target_latest.to_csv(output_dir / f"{portfolio}_target_holdings_latest.csv", index=False)
+        ext.projected_latest.to_csv(output_dir / f"{portfolio}_projected_after_orders_latest.csv", index=False)
+        ext.transition_latest.to_csv(output_dir / f"{portfolio}_current_target_projected_transition.csv", index=False)
 
     combined_scorecard = pd.concat(
         [ext.scorecard.assign(portfolio=portfolio) for portfolio, ext in extensions.items()],
@@ -565,6 +898,12 @@ def build_report(
     combined_scorecard.to_csv(output_dir / "performance_windows.csv", index=False)
     combined_holdings = pd.concat([ext.holdings_latest for ext in extensions.values()], ignore_index=True)
     combined_holdings.to_csv(output_dir / "current_holdings_all.csv", index=False)
+    combined_targets = pd.concat([ext.target_latest for ext in extensions.values()], ignore_index=True)
+    combined_targets.to_csv(output_dir / "target_holdings_all.csv", index=False)
+    combined_projected = pd.concat([ext.projected_latest for ext in extensions.values()], ignore_index=True)
+    combined_projected.to_csv(output_dir / "projected_after_orders_all.csv", index=False)
+    combined_transition = pd.concat([ext.transition_latest for ext in extensions.values()], ignore_index=True)
+    combined_transition.to_csv(output_dir / "current_target_projected_transition_all.csv", index=False)
 
     summary = {
         "status": "completed",
@@ -584,6 +923,9 @@ def build_report(
                 "missing_tickers": ext.missing_tickers,
                 "carried_forward_tickers": ext.carried_forward_tickers,
                 "current_holdings_csv": str(output_dir / portfolio / "current_holdings_latest.csv"),
+                "target_holdings_csv": str(output_dir / portfolio / "target_holdings_latest.csv"),
+                "projected_after_orders_csv": str(output_dir / portfolio / "projected_after_orders_latest.csv"),
+                "transition_csv": str(output_dir / portfolio / "current_target_projected_transition.csv"),
                 "performance_scorecard_csv": str(output_dir / portfolio / "performance_scorecard.csv"),
                 "equity_curve_csv": str(output_dir / portfolio / "equity_curve_mark_to_market.csv"),
             }

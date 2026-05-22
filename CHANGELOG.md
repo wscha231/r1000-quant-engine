@@ -272,6 +272,41 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Reporting-only. This does not change performance math, targets, trades, or production scoring.
 
+### 10:45 KST - current-target-projected-status
+
+- scope:
+  - Split the current portfolio status report into current broker holdings, latest target holdings, and projected-after-orders holdings so stale account state is not confused with target selection.
+- files:
+  - `tools/run_current_portfolio_status_report.py` ->adds target, projected-after-orders, and transition comparison CSVs plus Markdown sections for each portfolio.
+  - `tests/current_portfolio_status_report_smoke.py` ->covers target, projected-after-orders, and transition outputs.
+  - `CHANGELOG.md` ->records the current/target/projected reporting split.
+- symbols_added:
+  - `latest_price_from_history(ticker, price_history, requested_as_of, fallback)` ->looks up the latest available fetched close for reporting tables.
+  - `target_file_for_portfolio(portfolio)` ->selects the correct main or concentrated target file.
+  - `build_target_latest(latest_run, portfolio, evaluated_as_of, equity_usd, price_history)` ->builds latest target holdings with current prices and target values.
+  - `build_projected_latest(latest_run, portfolio, evaluated_as_of, price_history)` ->marks account-order-preview projected shares to the evaluated close.
+  - `build_transition_latest(portfolio, evaluated_as_of, current, target, projected, latest_run)` ->compares current, target, projected weights and order deltas by ticker.
+- symbols_changed:
+  - `PortfolioExtension` ->carries `target_latest`, `projected_latest`, and `transition_latest`.
+  - `extend_portfolio(latest_run, portfolio, requested_as_of_date, price_history)` ->builds target/projected/transition outputs alongside current holdings.
+  - `render_report(summary, extensions)` ->renders transition summary, target holdings, and projected-after-orders sections.
+  - `build_report(args, price_loader=None)` ->writes per-portfolio and combined target/projected/transition CSV artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/{main,concentrated}/target_holdings_latest.csv` ->latest target weights and values.
+  - `outputs/current_portfolio_status/{main,concentrated}/projected_after_orders_latest.csv` ->order-preview projected holdings marked to evaluated close.
+  - `outputs/current_portfolio_status/{main,concentrated}/current_target_projected_transition.csv` ->current vs target vs projected comparison.
+  - `outputs/current_portfolio_status/current_target_projected_transition_all.csv` ->combined transition view.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. Projected-after-orders uses account-order-preview projected shares and marks them to the evaluated close; it is not a historical fill simulation.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

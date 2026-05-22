@@ -65,6 +65,45 @@ def _write_fixture(root: Path, portfolio: str, ticker: str, shares: float, price
         json.dumps({"as_of_date": "2026-05-10", "equity_usd": equity, "cash_usd": cash}),
         encoding="utf-8",
     )
+    preview = root / "account_ledger_preview" / portfolio
+    preview.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "row_type": "equity",
+                "ticker": ticker,
+                "projected_shares": shares + 1,
+                "reference_price": price,
+                "projected_market_value_usd": (shares + 1) * price,
+                "projected_weight": 0.90,
+            },
+            {
+                "row_type": "cash",
+                "ticker": "CASH",
+                "projected_shares": 0,
+                "reference_price": 1.0,
+                "projected_market_value_usd": cash,
+                "projected_weight": 0.10,
+            },
+        ]
+    ).to_csv(preview / "projected_positions_after_orders.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "ticker": ticker,
+                "side": "BUY",
+                "quantity": 1,
+                "current_weight": shares * price / equity,
+                "target_weight": 0.95,
+                "trade_value_delta_usd": price,
+                "status": "ready",
+            }
+        ]
+    ).to_csv(preview / "orders_preview.csv", index=False)
+    (preview / "preview_metrics.json").write_text(
+        json.dumps({"projected_cash_usd": cash, "projected_cash_weight": 0.10}),
+        encoding="utf-8",
+    )
 
 
 def test_current_portfolio_status_report_extends_to_requested_close() -> None:
@@ -72,6 +111,12 @@ def test_current_portfolio_status_report_extends_to_requested_close() -> None:
         root = Path(tmp)
         _write_fixture(root, "main", "AAA", 10.0, 100.0, 100.0)
         _write_fixture(root, "concentrated", "BBB", 20.0, 50.0, 0.0)
+        pd.DataFrame(
+            [{"rank": 1, "ticker": "AAA", "weight": 0.95, "score_total": 1.2, "portfolio_sleeve_label": "core"}]
+        ).to_csv(root / "portfolio_latest.csv", index=False)
+        pd.DataFrame(
+            [{"rank": 1, "ticker": "BBB", "weight": 1.00, "score_total": 2.2, "concentrated_selection_source": "leader"}]
+        ).to_csv(root / "concentrated_portfolio_latest.csv", index=False)
 
         def loader(tickers: list[str], start_date: str, end_date: str) -> dict[str, pd.Series]:
             assert set(tickers) == {"AAA", "BBB"}
@@ -95,6 +140,12 @@ def test_current_portfolio_status_report_extends_to_requested_close() -> None:
         assert round(float(aaa["price"]), 2) == 110.0
         assert round(float(aaa["market_value_usd"]), 2) == 1100.0
         assert round(float(cash["weight"]), 4) == round(100.0 / 1200.0, 4)
+        target = pd.read_csv(out / "main" / "target_holdings_latest.csv")
+        assert round(float(target[target["ticker"].eq("AAA")].iloc[0]["target_weight"]), 2) == 0.95
+        projected = pd.read_csv(out / "main" / "projected_after_orders_latest.csv")
+        assert "projected_weight_mark_to_market" in projected.columns
+        transition = pd.read_csv(out / "main" / "current_target_projected_transition.csv")
+        assert {"current_weight", "target_weight", "projected_weight_mark_to_market"} <= set(transition.columns)
 
         windows = pd.read_csv(out / "performance_windows.csv")
         assert {"main", "concentrated"} <= set(windows["portfolio"])
