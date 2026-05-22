@@ -109,9 +109,60 @@ def test_collect_filings_index_keeps_running_after_bad_manager_cik() -> None:
         submissions.fetch_submissions = original_fetch
 
 
+def test_collect_filings_index_supports_stable_issuer_shards() -> None:
+    original_load = submissions.load_company_tickers
+    original_fetch = submissions.fetch_submissions
+    try:
+        submissions.load_company_tickers = lambda *args, **kwargs: pd.DataFrame(
+            [
+                {"ticker": "DDD", "cik10": "0000000004", "name": "D"},
+                {"ticker": "AAA", "cik10": "0000000001", "name": "A"},
+                {"ticker": "CCC", "cik10": "0000000003", "name": "C"},
+                {"ticker": "BBB", "cik10": "0000000002", "name": "B"},
+            ]
+        )
+
+        def fake_fetch(cik: str, *args: object, **kwargs: object) -> dict[str, object]:
+            return {
+                "filings": {
+                    "recent": {
+                        "form": ["4"],
+                        "accessionNumber": [f"{cik}-26-000001"],
+                        "primaryDocument": ["form4.xml"],
+                        "acceptanceDateTime": ["2026-05-21T18:00:00.000Z"],
+                        "filingDate": ["2026-05-21"],
+                        "reportDate": ["2026-05-21"],
+                    }
+                }
+            }
+
+        submissions.fetch_submissions = fake_fetch
+        shard0 = submissions.collect_filings_index(
+            tickers=[],
+            raw_dir=ROOT,
+            forms=["4"],
+            shard_index=0,
+            shard_count=2,
+        )
+        shard1 = submissions.collect_filings_index(
+            tickers=[],
+            raw_dir=ROOT,
+            forms=["4"],
+            shard_index=1,
+            shard_count=2,
+        )
+        assert set(shard0["ticker"]) == {"AAA", "CCC"}
+        assert set(shard1["ticker"]) == {"BBB", "DDD"}
+        assert set(shard0["ticker"]).isdisjoint(set(shard1["ticker"]))
+    finally:
+        submissions.load_company_tickers = original_load
+        submissions.fetch_submissions = original_fetch
+
+
 if __name__ == "__main__":
     test_normalize_cik10_preserves_ten_digit_strings()
     test_normalize_cik_series_returns_object_ten_digit_strings()
     test_cik_rows_from_inputs_supports_13f_manager_ciks()
     test_collect_filings_index_keeps_running_after_bad_manager_cik()
+    test_collect_filings_index_supports_stable_issuer_shards()
     print("sec_cik_schema_smoke: PASS")

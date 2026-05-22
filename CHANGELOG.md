@@ -332,6 +332,34 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Research-only. This broadens data collection coverage and does not activate SEC evidence in production score.
 
+### 10:59 KST - form4-all-sec-daily-mode
+
+- scope:
+  - Convert daily Form 4 refresh from a small hard-coded watchlist into an explicit all-SEC issuer monitoring mode with stable optional sharding.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->defaults scheduled/manual runs to `all_sec_tickers=true`, `shard_count=1`, `max_tickers=0`, and `max_filings=2500`.
+  - `tools/run_sec_submissions_collector.py` ->adds `--all-sec-tickers`, `--shard-index`, and `--shard-count` for stable SEC company_tickers coverage.
+  - `tests/sec_cik_schema_smoke.py` ->covers deterministic all-issuer sharding behavior.
+  - `CHANGELOG.md` ->records the all-SEC daily Form 4 monitoring mode.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_filings_index(tickers, cik_rows, raw_dir, forms, user_agent=None, refresh=False, sleep_s=0.12, safety_delay_hours=0.0, max_tickers=0, shard_index=0, shard_count=1)` ->sorts issuer rows deterministically and applies optional stable sharding before collection.
+  - `run_sec_submissions_collector.main()` ->supports all-SEC monitoring and shard CLI flags.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/shards/daily_latest/sec_filings_index.*` ->will cover all SEC company_tickers issuers by default after the next daily Form 4 refresh.
+  - `data_pit/sec/form4_transactions.*` ->will merge new daily all-issuer Form 4 transactions into the canonical PIT lake after the next successful refresh.
+- validation:
+  - `py -3 tests\sec_cik_schema_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_cik_schema --only workflow_artifact --quiet` ->PASS, 2/2.
+- risks_or_notes:
+  - Research-only. This improves fairness of evidence coverage and does not activate Form 4 evidence in production score.
+  - Runtime and SEC request volume increase materially; use `shard_count` or `max_tickers` if GitHub runtime or SEC fair-access behavior becomes a blocker.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles
