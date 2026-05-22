@@ -1,0 +1,2 @@
+[auto-learning] BLOCKED: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/promotion_decision.json
+[auto-learning] reasons: candidate_exists, main_cagr_floor, main_sharpe_floor, concentrated_cagr_floor, trade_count_floor
