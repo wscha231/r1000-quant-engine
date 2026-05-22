@@ -245,6 +245,33 @@ All entries must be written in English. Entries must be predictable and machine-
   - Reporting-only. The sidecar holds existing shares constant after the source broker replay date and does not simulate new recommendations, new fills, or production score changes.
   - The local full rebuild source currently ends on 2026-05-12, so the 2026-05-21 result is a mark-to-market extension rather than a new full data/rebalance run.
 
+### 10:29 KST - current-portfolio-mdd-dates
+
+- scope:
+  - Make repeated trailing-window MaxDD values explainable by adding peak/trough dates and equity values to the current portfolio status report.
+- files:
+  - `tools/run_current_portfolio_status_report.py` ->adds drawdown details to performance windows and renders MDD peak/trough dates in the Markdown report.
+  - `tests/current_portfolio_status_report_smoke.py` ->asserts MDD peak/trough columns are present in the combined performance output.
+  - `CHANGELOG.md` ->records the current portfolio status report transparency improvement.
+- symbols_added:
+  - `drawdown_details(window)` ->returns MaxDD plus peak/trough dates and equity values for a performance window.
+- symbols_changed:
+  - `scorecard_for_horizon(equity_curve, trades, label, offset)` ->includes `max_dd_peak_date`, `max_dd_trough_date`, `max_dd_peak_equity_usd`, and `max_dd_trough_equity_usd`.
+  - `render_report(summary, extensions)` ->shows MDD peak and trough dates in the performance table.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/performance_windows.csv` ->now includes MDD peak/trough date and equity columns.
+  - `outputs/current_portfolio_status/report.md` ->now shows MDD peak/trough dates beside each MaxDD.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS, 1/1.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. This does not change performance math, targets, trades, or production scoring.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles

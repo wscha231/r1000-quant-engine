@@ -99,6 +99,7 @@ def test_current_portfolio_status_report_extends_to_requested_close() -> None:
         windows = pd.read_csv(out / "performance_windows.csv")
         assert {"main", "concentrated"} <= set(windows["portfolio"])
         assert "FULL" in set(windows["horizon"])
+        assert {"max_dd_peak_date", "max_dd_trough_date"} <= set(windows.columns)
         assert (out / "report.md").exists()
 
 

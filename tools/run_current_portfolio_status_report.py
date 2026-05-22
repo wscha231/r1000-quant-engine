@@ -142,6 +142,40 @@ def max_drawdown(equity: pd.Series) -> float:
     return float(dd.min())
 
 
+def drawdown_details(window: pd.DataFrame) -> dict[str, Any]:
+    if window.empty or "date" not in window.columns or "equity_usd" not in window.columns:
+        return {
+            "max_dd": 0.0,
+            "max_dd_peak_date": "",
+            "max_dd_trough_date": "",
+            "max_dd_peak_equity_usd": np.nan,
+            "max_dd_trough_equity_usd": np.nan,
+        }
+    d = window.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    d["equity_usd"] = pd.to_numeric(d["equity_usd"], errors="coerce")
+    d = d.dropna(subset=["date", "equity_usd"]).sort_values("date").reset_index(drop=True)
+    if d.empty:
+        return {
+            "max_dd": 0.0,
+            "max_dd_peak_date": "",
+            "max_dd_trough_date": "",
+            "max_dd_peak_equity_usd": np.nan,
+            "max_dd_trough_equity_usd": np.nan,
+        }
+    running_peak = d["equity_usd"].cummax()
+    drawdown = d["equity_usd"] / running_peak - 1.0
+    trough_pos = int(drawdown.idxmin())
+    peak_pos = int(d.loc[:trough_pos, "equity_usd"].idxmax())
+    return {
+        "max_dd": float(drawdown.iloc[trough_pos]),
+        "max_dd_peak_date": pd.Timestamp(d.loc[peak_pos, "date"]).date().isoformat(),
+        "max_dd_trough_date": pd.Timestamp(d.loc[trough_pos, "date"]).date().isoformat(),
+        "max_dd_peak_equity_usd": clean_float(d.loc[peak_pos, "equity_usd"], np.nan),
+        "max_dd_trough_equity_usd": clean_float(d.loc[trough_pos, "equity_usd"], np.nan),
+    }
+
+
 def scorecard_for_horizon(
     equity_curve: pd.DataFrame,
     trades: pd.DataFrame,
@@ -192,6 +226,7 @@ def scorecard_for_horizon(
         else 0.0
     )
     avg_equity = clean_float(window["equity_usd"].mean(), 0.0)
+    dd = drawdown_details(window)
     return {
         "horizon": label,
         "status": "completed",
@@ -200,7 +235,11 @@ def scorecard_for_horizon(
         "trading_days": int(len(window)),
         "period_return": float(period_return),
         "cagr": float(cagr),
-        "max_dd": max_drawdown(window["equity_usd"]),
+        "max_dd": dd["max_dd"],
+        "max_dd_peak_date": dd["max_dd_peak_date"],
+        "max_dd_trough_date": dd["max_dd_trough_date"],
+        "max_dd_peak_equity_usd": dd["max_dd_peak_equity_usd"],
+        "max_dd_trough_equity_usd": dd["max_dd_trough_equity_usd"],
         "sharpe": sharpe,
         "start_equity_usd": start_eq,
         "end_equity_usd": end_eq,
@@ -441,15 +480,15 @@ def render_report(summary: dict[str, Any], extensions: dict[str, PortfolioExtens
         "",
         "## Performance Windows",
         "",
-        "| Portfolio | Horizon | Start | End | Return | CAGR | MaxDD | Sharpe | Turnover | Trades | Cash End |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Portfolio | Horizon | Start | End | Return | CAGR | MaxDD | MDD Peak | MDD Trough | Sharpe | Turnover | Trades | Cash End |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: |",
     ]
     for portfolio, ext in extensions.items():
         for row in ext.scorecard.to_dict("records"):
             if row.get("status") != "completed":
                 continue
             lines.append(
-                "| {portfolio} | {horizon} | {start} | {end} | {ret} | {cagr} | {mdd} | {sharpe:.3f} | {turnover:.2f}x | {trades} | {cash} |".format(
+                "| {portfolio} | {horizon} | {start} | {end} | {ret} | {cagr} | {mdd} | {peak} | {trough} | {sharpe:.3f} | {turnover:.2f}x | {trades} | {cash} |".format(
                     portfolio=portfolio,
                     horizon=row.get("horizon"),
                     start=row.get("start_date", ""),
@@ -457,6 +496,8 @@ def render_report(summary: dict[str, Any], extensions: dict[str, PortfolioExtens
                     ret=pct(row.get("period_return")),
                     cagr=pct(row.get("cagr")),
                     mdd=pct(row.get("max_dd")),
+                    peak=row.get("max_dd_peak_date", ""),
+                    trough=row.get("max_dd_trough_date", ""),
                     sharpe=clean_float(row.get("sharpe")),
                     turnover=clean_float(row.get("turnover")),
                     trades=int(clean_float(row.get("trade_count"))),
