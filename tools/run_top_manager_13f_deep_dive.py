@@ -93,6 +93,7 @@ OUTPUT_COLUMNS = [
     "ai_infra_theme_flag",
     "source_expansion_reason",
 ]
+PERIOD_COLUMNS = [*OUTPUT_COLUMNS, "period_rank"]
 
 
 def repo_path(path: str | Path) -> Path:
@@ -236,6 +237,7 @@ def _score_event(event_type: str) -> float:
     return {
         "new_position": 0.34,
         "added_position": 0.26,
+        "initial_position": 0.02,
         "unchanged_position": 0.03,
         "trimmed_position": -0.12,
     }.get(str(event_type), 0.0)
@@ -265,6 +267,7 @@ def build_top_manager_deep_dive(
     managers: pd.DataFrame,
     *,
     top_manager_count: int = 10,
+    latest_only: bool = True,
 ) -> pd.DataFrame:
     selected = select_top_managers(managers, top_manager_count=top_manager_count)
     if holdings.empty or selected.empty:
@@ -289,41 +292,47 @@ def build_top_manager_deep_dive(
     manager_periods = (
         d.dropna(subset=["report_period_dt"])
         .groupby("manager_cik")["report_period_dt"]
-        .agg(lambda s: sorted(s.dropna().unique())[-2:])
+        .agg(lambda s: sorted(s.dropna().unique()))
         .to_dict()
     )
     frames: list[pd.DataFrame] = []
     for cik, periods in manager_periods.items():
         if not periods:
             continue
-        latest_period = periods[-1]
-        previous_period = periods[-2] if len(periods) >= 2 else pd.NaT
-        latest = d[(d["manager_cik"].eq(cik)) & (d["report_period_dt"].eq(latest_period))].copy()
-        prev = d[(d["manager_cik"].eq(cik)) & (d["report_period_dt"].eq(previous_period))].copy() if pd.notna(previous_period) else pd.DataFrame()
-        if latest.empty:
-            continue
-        latest_g = (
-            latest.groupby(["manager_cik", "ticker", "cusip", "issuer_name"], dropna=False)
-            .agg(
-                shares=("shares_num", "sum"),
-                market_value_usd=("value_num", "sum"),
-                report_period=("report_period", "max"),
-                accepted_at=("accepted_at", "max"),
-                available_from=("available_from", "max"),
-            )
-            .reset_index()
-        )
-        if prev.empty:
-            prev_g = pd.DataFrame(columns=["manager_cik", "ticker", "cusip", "previous_shares", "previous_market_value_usd"])
-        else:
-            prev_g = (
-                prev.groupby(["manager_cik", "ticker", "cusip"], dropna=False)
-                .agg(previous_shares=("shares_num", "sum"), previous_market_value_usd=("value_num", "sum"))
+        period_indices = [len(periods) - 1] if latest_only else list(range(len(periods)))
+        for period_idx in period_indices:
+            current_period = periods[period_idx]
+            previous_period = periods[period_idx - 1] if period_idx > 0 else pd.NaT
+            current = d[(d["manager_cik"].eq(cik)) & (d["report_period_dt"].eq(current_period))].copy()
+            prev = d[(d["manager_cik"].eq(cik)) & (d["report_period_dt"].eq(previous_period))].copy() if pd.notna(previous_period) else pd.DataFrame()
+            if current.empty:
+                continue
+            current_g = (
+                current.groupby(["manager_cik", "ticker", "cusip", "issuer_name"], dropna=False)
+                .agg(
+                    shares=("shares_num", "sum"),
+                    market_value_usd=("value_num", "sum"),
+                    report_period=("report_period", "max"),
+                    accepted_at=("accepted_at", "max"),
+                    available_from=("available_from", "max"),
+                )
                 .reset_index()
             )
-        merged = latest_g.merge(prev_g, on=["manager_cik", "ticker", "cusip"], how="left")
-        merged[["previous_shares", "previous_market_value_usd"]] = merged[["previous_shares", "previous_market_value_usd"]].fillna(0.0)
-        frames.append(merged)
+            if prev.empty:
+                prev_g = pd.DataFrame(columns=["manager_cik", "ticker", "cusip", "previous_shares", "previous_market_value_usd"])
+            else:
+                prev_g = (
+                    prev.groupby(["manager_cik", "ticker", "cusip"], dropna=False)
+                    .agg(previous_shares=("shares_num", "sum"), previous_market_value_usd=("value_num", "sum"))
+                    .reset_index()
+                )
+            merged = current_g.merge(prev_g, on=["manager_cik", "ticker", "cusip"], how="left")
+            merged["previous_shares"] = pd.to_numeric(merged.get("previous_shares", 0.0), errors="coerce").fillna(0.0)
+            merged["previous_market_value_usd"] = pd.to_numeric(
+                merged.get("previous_market_value_usd", 0.0), errors="coerce"
+            ).fillna(0.0)
+            merged["history_boundary"] = period_idx == 0
+            frames.append(merged)
     if not frames:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
@@ -333,18 +342,18 @@ def build_top_manager_deep_dive(
     out["event_type"] = [
         _event_type(delta, prev) for delta, prev in zip(out["shares_delta"].astype(float), out["previous_shares"].astype(float))
     ]
-    latest_totals = out.groupby("manager_cik")["market_value_usd"].transform("sum").replace(0.0, float("nan"))
+    out.loc[out.get("history_boundary", False).astype(bool) & out["event_type"].eq("new_position"), "event_type"] = "initial_position"
+    latest_totals = out.groupby(["manager_cik", "report_period"])["market_value_usd"].transform("sum").replace(0.0, float("nan"))
     out["position_weight"] = (out["market_value_usd"] / latest_totals).fillna(0.0)
-    out["position_rank"] = out.groupby("manager_cik")["market_value_usd"].rank(method="first", ascending=False).astype(int)
+    out["position_rank"] = out.groupby(["manager_cik", "report_period"])["market_value_usd"].rank(method="first", ascending=False).astype(int)
 
-    latest_all_period = d["report_period_dt"].max()
-    latest_all = d[d["report_period_dt"].eq(latest_all_period)].copy()
+    latest_all = d.copy()
     breadth = (
-        latest_all.groupby("ticker")
+        latest_all.groupby(["report_period", "ticker"])
         .agg(cross_manager_holder_count=("manager_cik", "nunique"), cross_manager_total_value_usd=("value_num", "sum"))
         .reset_index()
     )
-    out = out.merge(breadth, on="ticker", how="left")
+    out = out.merge(breadth, on=["report_period", "ticker"], how="left")
     out[["cross_manager_holder_count", "cross_manager_total_value_usd"]] = out[
         ["cross_manager_holder_count", "cross_manager_total_value_usd"]
     ].fillna(0.0)
@@ -383,20 +392,33 @@ def build_top_manager_deep_dive(
     delta_score = (out["value_delta_usd"].clip(lower=0.0).map(lambda x: math.log1p(float(x))) / math.log1p(500_000_000.0)).clip(0.0, 1.0) * 0.14
     underfollowed_bonus = out["underfollowed_top_manager_pick"].astype(float) * 0.14
     theme_bonus = out["ai_infra_theme_flag"].astype(float) * 0.12
+    history_boundary_penalty = out.get("history_boundary", pd.Series(False, index=out.index)).astype(bool).astype(float) * 0.18
     out["top_manager_focus_score"] = (
-        0.22 * manager_factor + event_score + position_score + delta_score + underfollowed_bonus + theme_bonus
+        0.22 * manager_factor + event_score + position_score + delta_score + underfollowed_bonus + theme_bonus - history_boundary_penalty
     ).clip(0.0, 1.0)
     out["source_expansion_reason"] = out.apply(_reason, axis=1)
-    out = out[out["event_type"].isin(["new_position", "added_position", "unchanged_position", "trimmed_position"])].copy()
+    out = out[out["event_type"].isin(["initial_position", "new_position", "added_position", "unchanged_position", "trimmed_position"])].copy()
     out = out.sort_values(
-        ["top_manager_focus_score", "ai_infra_theme_flag", "underfollowed_top_manager_pick", "value_delta_usd"],
-        ascending=[False, False, False, False],
+        ["top_manager_focus_score", "ai_infra_theme_flag", "underfollowed_top_manager_pick", "report_period", "value_delta_usd"],
+        ascending=[False, False, False, False, False],
     ).reset_index(drop=True)
     out["rank"] = range(1, len(out) + 1)
     for col in OUTPUT_COLUMNS:
         if col not in out.columns:
             out[col] = ""
     return out[OUTPUT_COLUMNS]
+
+
+def add_period_rank(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=PERIOD_COLUMNS)
+    out = frame.copy()
+    out = out.sort_values(["report_period", "top_manager_focus_score", "value_delta_usd"], ascending=[False, False, False]).copy()
+    out["period_rank"] = out.groupby("report_period").cumcount() + 1
+    for col in PERIOD_COLUMNS:
+        if col not in out.columns:
+            out[col] = ""
+    return out[PERIOD_COLUMNS]
 
 
 def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
@@ -429,6 +451,23 @@ def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
     return "\n".join(lines) + "\n"
 
 
+def period_coverage(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=["report_period", "manager_count", "row_count", "new_or_added_rows", "ai_theme_rows"])
+    d = frame.copy()
+    return (
+        d.groupby("report_period", dropna=False)
+        .agg(
+            manager_count=("manager_cik", "nunique"),
+            row_count=("ticker", "size"),
+            new_or_added_rows=("event_type", lambda s: int(s.isin(["new_position", "added_position"]).sum())),
+            ai_theme_rows=("ai_infra_theme_flag", lambda s: int(pd.Series(s).astype(bool).sum())),
+        )
+        .reset_index()
+        .sort_values("report_period")
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--holdings", default=DEFAULT_HOLDINGS)
@@ -440,12 +479,17 @@ def main() -> int:
 
     holdings = read_holdings(args.holdings)
     managers = read_table(args.managers)
-    ranked = build_top_manager_deep_dive(holdings, managers, top_manager_count=int(args.top_manager_count))
+    ranked = build_top_manager_deep_dive(holdings, managers, top_manager_count=int(args.top_manager_count), latest_only=True)
+    history = build_top_manager_deep_dive(holdings, managers, top_manager_count=int(args.top_manager_count), latest_only=False)
+    history_ranked = add_period_rank(history)
     selected = select_top_managers(managers, top_manager_count=int(args.top_manager_count))
 
     out_dir = repo_path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ranked.to_csv(out_dir / "top_manager_13f_deep_dive.csv", index=False)
+    history_ranked.to_csv(out_dir / "historical_events.csv", index=False)
+    coverage = period_coverage(history_ranked)
+    coverage.to_csv(out_dir / "historical_coverage.csv", index=False)
     latest = ranked.head(int(args.top_n)).copy()
     latest.to_csv(out_dir / "latest.csv", index=False)
     selected.to_csv(out_dir / "selected_managers.csv", index=False)
@@ -456,11 +500,17 @@ def main() -> int:
         "holdings_rows": int(len(holdings)),
         "selected_manager_count": int(len(selected)),
         "detailed_rows": int(len(ranked)),
+        "historical_event_rows": int(len(history_ranked)),
         "new_or_added_rows": int(ranked["event_type"].isin(["new_position", "added_position"]).sum()) if not ranked.empty else 0,
+        "historical_new_or_added_rows": int(history_ranked["event_type"].isin(["new_position", "added_position"]).sum()) if not history_ranked.empty else 0,
         "ai_theme_rows": int(ranked["ai_infra_theme_flag"].sum()) if "ai_infra_theme_flag" in ranked.columns else 0,
+        "historical_ai_theme_rows": int(history_ranked["ai_infra_theme_flag"].sum()) if "ai_infra_theme_flag" in history_ranked.columns else 0,
+        "historical_periods": int(history_ranked["report_period"].nunique()) if "report_period" in history_ranked.columns else 0,
         "top_n": int(args.top_n),
         "latest_csv": str(out_dir / "latest.csv"),
         "ranked_csv": str(out_dir / "top_manager_13f_deep_dive.csv"),
+        "historical_events_csv": str(out_dir / "historical_events.csv"),
+        "historical_coverage_csv": str(out_dir / "historical_coverage.csv"),
     }
     write_json(out_dir / "summary.json", summary)
     (out_dir / "report.md").write_text(render_report(summary, latest.head(30)), encoding="utf-8")

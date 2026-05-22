@@ -53,6 +53,35 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-22
 
+### 16:58 KST - top-manager-13f-history-events
+
+- scope:
+  - Extend the top-manager 13F deep dive from latest-only review to historical period-by-period event output for post-disclosure learning.
+- files:
+  - `tools/run_top_manager_13f_deep_dive.py` ->adds historical all-period event generation, period ranking, period coverage output, and history-boundary handling so first observed holdings are not treated as normal first buys.
+  - `tests/top_manager_13f_deep_dive_smoke.py` ->covers historical event output, initial-position tagging, and historical artifact creation.
+  - `CHANGELOG.md` ->records the historical top-manager 13F event artifact.
+- symbols_added:
+  - `add_period_rank(frame)` ->adds per-report-period ranks to historical top-manager event rows.
+  - `period_coverage(frame)` ->summarizes manager count, row count, new/add rows, and theme rows by report period.
+- symbols_changed:
+  - `build_top_manager_deep_dive(holdings, managers, top_manager_count=10, latest_only=True)` ->supports all-period historical event generation when `latest_only=False`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/top_manager_13f_deep_dive/historical_events.csv` ->all available top-manager period events for research labeling.
+  - `outputs/top_manager_13f_deep_dive/historical_coverage.csv` ->period-level coverage summary for historical data health.
+  - `outputs/top_manager_13f_deep_dive/summary.json` ->now includes historical event counts, historical new/add counts, historical AI/theme rows, and historical period count.
+- validation:
+  - `py -3 tests\top_manager_13f_deep_dive_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --include top_manager_13f_deep_dive_smoke --quiet` ->PASS, 47/47.
+  - `py -3 tools\run_top_manager_13f_deep_dive.py --holdings _run_26270366305_artifacts\sec-13f-quarterly-26270366305\data_pit\sec\institutional_13f_holdings.parquet --managers research\sec_13f_manager_universe_20260519\managers.csv --output-dir _local_top_manager_13f_history_check --top-manager-count 10 --top-n 50` ->PASS, produced 8,567 historical rows across 7 periods with 2,889 new/add rows and 463 AI/theme rows.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no target book is changed.
+  - Current canonical 13F artifact only covers 2023Q4-2026Q1 overall, and top-manager historical coverage is materially useful from 2024Q4 onward; an 8-year historical 13F backfill remains a separate data task.
+
 ### 15:34 KST - top-manager-13f-deep-dive
 
 - scope:

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_top_manager_13f_deep_dive import build_top_manager_deep_dive, select_top_managers  # noqa: E402
+from tools.run_top_manager_13f_deep_dive import add_period_rank, build_top_manager_deep_dive, select_top_managers  # noqa: E402
 
 
 def _managers() -> pd.DataFrame:
@@ -151,6 +151,19 @@ def test_deep_dive_surfaces_new_and_added_ai_infra() -> None:
     assert "crypto_compute" in clsk["theme_bucket"]
 
 
+def test_deep_dive_can_emit_historical_events() -> None:
+    history = build_top_manager_deep_dive(_holdings(), _managers(), top_manager_count=10, latest_only=False)
+    assert not history.empty
+    assert {"2025-12-31", "2026-03-31"}.issubset(set(history["report_period"]))
+    initial = history[(history["ticker"] == "CLSK") & (history["report_period"] == "2025-12-31")].iloc[0]
+    assert initial["event_type"] == "initial_position"
+    latest = history[(history["ticker"] == "CLSK") & (history["report_period"] == "2026-03-31")].iloc[0]
+    assert latest["event_type"] == "added_position"
+    ranked = add_period_rank(history)
+    assert "period_rank" in ranked.columns
+    assert ranked["period_rank"].min() == 1
+
+
 def test_top_manager_cli_and_workflow_outputs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -184,8 +197,12 @@ def test_top_manager_cli_and_workflow_outputs() -> None:
         assert summary["production_activation_allowed"] is False
         assert summary["score_total_changed"] is False
         assert summary["new_or_added_rows"] >= 3
+        assert summary["historical_event_rows"] >= summary["detailed_rows"]
+        assert summary["historical_periods"] >= 2
         assert (out / "latest.csv").exists()
         assert (out / "selected_managers.csv").exists()
+        assert (out / "historical_events.csv").exists()
+        assert (out / "historical_coverage.csv").exists()
 
     workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
     assert "tools/run_top_manager_13f_deep_dive.py" in workflow
@@ -196,6 +213,7 @@ def test_top_manager_cli_and_workflow_outputs() -> None:
 def main() -> int:
     test_select_top_managers_excludes_inactive()
     test_deep_dive_surfaces_new_and_added_ai_infra()
+    test_deep_dive_can_emit_historical_events()
     test_top_manager_cli_and_workflow_outputs()
     print("top_manager_13f_deep_dive_smoke: PASS")
     return 0
