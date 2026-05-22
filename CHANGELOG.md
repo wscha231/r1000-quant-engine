@@ -53,6 +53,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-22
 
+### 14:29 KST - situational-ai-infra-cusip-overrides
+
+- scope:
+  - Add manual 13F CUSIP ticker overrides for Situational Awareness AI infrastructure, data-center supply-chain, and crypto-power names that were missing from the smart-money discovery universe.
+- files:
+  - `research/sec_13f_cusip_map_overrides.csv` ->adds overrides for CLSK, CORZ, TE, BITF, HIVE, BW, PUMP, SEI, GLW, ASML, BTDR, WYFI, SHAZ, CIFR, LITE, MOD, STX, and KRC.
+  - `CHANGELOG.md` ->records the mapping-only evidence coverage fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/cusip_ticker_map.parquet` ->will include these mappings after the next SEC 13F refresh rebuilds the canonical map.
+  - `outputs/evidence_discovery_universe/*` ->can include these names after the 13F refresh and smart-money refresh rerun.
+- validation:
+  - `py -3 tests\sec_13f_cusip_mapping_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_13f_cusip_mapping --quiet` ->PASS, 1/1.
+  - `py -3 tools\build_sec_13f_cusip_ticker_map.py --holdings _local_situational_mapping_check\situational_holdings_subset.parquet --manual-overrides research\sec_13f_cusip_map_overrides.csv --output _local_situational_mapping_check\cusip_ticker_map.parquet --csv-output _local_situational_mapping_check\cusip_ticker_map.csv --audit _local_situational_mapping_check\mapping_audit.json --unmapped _local_situational_mapping_check\unmapped.csv` ->PASS for the Situational subset, mapping 47/51 unique CUSIPs.
+- risks_or_notes:
+  - Research-only coverage fix. Production score switches remain off.
+  - The full local 13F map rebuild hit a Python memory limit in this desktop session, so the end-to-end canonical map should be rebuilt in GitHub Actions.
+
 ### 00:49 KST - post-disclosure-satellite-style
 
 - scope:
