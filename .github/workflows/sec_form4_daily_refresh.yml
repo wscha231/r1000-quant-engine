@@ -6,7 +6,7 @@ on:
       tickers:
         description: 'Comma-separated issuer tickers. Keep bounded for SEC fair access.'
         type: string
-        default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
+        default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR,MP,CLSK'
       max_filings:
         description: 'Max indexed Form 4 filings to parse in this shard'
         type: string
@@ -134,7 +134,7 @@ jobs:
       - name: Collect and score Form 4
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
-          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
+          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR,MP,CLSK' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |

@@ -10,7 +10,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_xml, raw_form4_primary_document  # noqa: E402
+import tools.run_sec_form4_parser as form4_parser  # noqa: E402
+from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_index, parse_form4_xml, raw_form4_primary_document  # noqa: E402
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
 
 
@@ -107,8 +108,44 @@ def test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name() -> None:
     assert "/xslF345X06/" not in urls[0]
 
 
+def test_form4_parser_max_filings_prefers_latest_accepted_at() -> None:
+    index = pd.DataFrame(
+        [
+            {
+                "ticker": "ZZZ",
+                "cik10": "0000000001",
+                "accession_number": "old-accession",
+                "form_type": "4",
+                "filing_date": "2026-05-20",
+                "accepted_at": "2026-05-20T20:00:00+00:00",
+                "available_from": "2026-05-20T20:00:00+00:00",
+                "filing_url": "https://www.sec.gov/old.xml",
+            },
+            {
+                "ticker": "AAA",
+                "cik10": "0000000002",
+                "accession_number": "new-accession",
+                "form_type": "4",
+                "filing_date": "2026-05-21",
+                "accepted_at": "2026-05-21T20:00:00+00:00",
+                "available_from": "2026-05-21T20:00:00+00:00",
+                "filing_url": "https://www.sec.gov/new.xml",
+            },
+        ]
+    )
+    original = form4_parser.cache_form4_document
+    try:
+        form4_parser.cache_form4_document = lambda filing, raw_dir, **kwargs: (raw_dir / "mock.xml", SAMPLE_FORM4)  # type: ignore[assignment]
+        parsed = parse_form4_index(index, raw_dir=ROOT / ".tmp_form4_parser_smoke", max_filings=1)
+    finally:
+        form4_parser.cache_form4_document = original  # type: ignore[assignment]
+    assert len(parsed) == 1
+    assert parsed.iloc[0]["accession_number"] == "new-accession"
+
+
 if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
+    test_form4_parser_max_filings_prefers_latest_accepted_at()
     print("sec_form4_parser_smoke passed")

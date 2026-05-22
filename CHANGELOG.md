@@ -307,6 +307,31 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Reporting-only. Projected-after-orders uses account-order-preview projected shares and marks them to the evaluated close; it is not a historical fill simulation.
 
+### 10:53 KST - form4-daily-mp-watch
+
+- scope:
+  - Ensure fresh MP and CLSK Form 4 events are included in the bounded daily SEC Form 4 watch set and make parser filing caps prioritize newest accepted filings.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds `MP` and `CLSK` to the scheduled/manual default issuer ticker set.
+  - `tools/run_sec_form4_parser.py` ->sorts Form 4 index rows by newest `accepted_at` before applying `--max-filings`.
+  - `tests/sec_form4_parser_smoke.py` ->covers that capped parsing keeps the newest accepted filing instead of alphabetical ticker order.
+  - `CHANGELOG.md` ->records the daily Form 4 coverage fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `parse_form4_index(index, raw_dir, user_agent=None, refresh=False, sleep_s=0.12, max_filings=0)` ->sorts by newest `accepted_at` before truncating.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_ownership_signals/` ->will include MP/CLSK Form 4 signals after the next successful scheduled/manual daily refresh if SEC accepted filings exist.
+- validation:
+  - `py -3 tests\sec_form4_parser_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_form4_parser --only workflow_artifact --quiet` ->PASS, 2/2.
+- risks_or_notes:
+  - Research-only. This broadens data collection coverage and does not activate SEC evidence in production score.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles
