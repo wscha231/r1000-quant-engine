@@ -53,6 +53,42 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-22
 
+### 15:34 KST - top-manager-13f-deep-dive
+
+- scope:
+  - Add a research-only top-manager 13F detail report to surface high-performing managers' latest new/add positions, including underfollowed AI infrastructure and crypto-power candidates.
+- files:
+  - `tools/run_top_manager_13f_deep_dive.py` ->builds detailed per-manager 13F latest-vs-prior position events, top-manager focus scores, theme buckets, and underfollowed top-manager pick flags.
+  - `.github/workflows/smart_money_top30_refresh.yml` ->runs the top-manager deep dive after smart-money and evidence-discovery outputs, then uploads and syncs `outputs/top_manager_13f_deep_dive`.
+  - `tests/top_manager_13f_deep_dive_smoke.py` ->covers manager selection, new/add event detection, AI/theme tagging, CLI output, and workflow wiring.
+  - `CHANGELOG.md` ->records the research-only top-manager deep-dive artifact.
+- symbols_added:
+  - `select_top_managers(managers, top_manager_count=10)` ->selects active verified high-priority/performance managers with Situational Awareness anchored first.
+  - `theme_bucket(ticker, issuer_name)` ->tags AI compute, semiconductors, power infrastructure, and crypto-compute evidence candidates.
+  - `build_top_manager_deep_dive(holdings, managers, top_manager_count=10)` ->builds latest-vs-prior 13F event rows and top-manager focus scores.
+  - `render_report(summary, top)` ->writes a compact Markdown report for the top-manager deep dive.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/top_manager_13f_deep_dive/latest.csv` ->top ranked high-performing-manager new/add detail rows.
+  - `outputs/top_manager_13f_deep_dive/top_manager_13f_deep_dive.csv` ->full latest detail table for selected managers.
+  - `outputs/top_manager_13f_deep_dive/selected_managers.csv` ->selected top-manager control plane.
+  - `outputs/top_manager_13f_deep_dive/summary.json` ->research-only health summary.
+  - `outputs/top_manager_13f_deep_dive/report.md` ->human-readable top-30 report.
+- validation:
+  - `py -3 tests\top_manager_13f_deep_dive_smoke.py` ->PASS.
+  - `py -3 tests\smart_money_top30_smoke.py` ->PASS.
+  - `py -3 tests\evidence_discovery_universe_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --include top_manager_13f_deep_dive_smoke --include smart_money_top30_smoke --include evidence_discovery_universe_smoke --quiet` ->PASS, 49/49.
+  - `py -3 tools\run_top_manager_13f_deep_dive.py --holdings _verify_evidence_runs_26203207327_26203208369_26202905141\13f\sec-13f-quarterly-26203207327\data_pit\sec\institutional_13f_holdings.parquet --managers research\sec_13f_manager_universe_20260519\managers.csv --output-dir _local_top_manager_13f_deep_dive_check --top-manager-count 10 --top-n 50` ->PASS, selected 10 managers and produced 1,133 detail rows with 665 new/add rows.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no target book is changed.
+  - The selected manager list is a control-plane hypothesis using active/verified manager metadata and external performance notes; broker-ledger challenger validation is still required before any score promotion.
+
 ### 14:29 KST - situational-ai-infra-cusip-overrides
 
 - scope:
