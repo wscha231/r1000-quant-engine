@@ -205,6 +205,46 @@ All entries must be written in English. Entries must be predictable and machine-
   - Research-only. Production score switches remain off and no production default target book is changed.
   - This is intentionally conservative; if it only reproduces the future-heavy baseline, the next priority should move from scoring tweaks to data coverage fixes such as ETF PIT history or price-cache restore coverage.
 
+### 10:20 KST - current-portfolio-status-report
+
+- scope:
+  - Add a user-facing reporting sidecar that extends existing broker-ledger current holdings to a requested latest close without changing targets or production scoring.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the current portfolio status report after user portfolio reports, uploads it as a full-rebuild artifact, and syncs it to Google Drive.
+  - `tools/run_current_portfolio_status_report.py` ->fetches latest closes for current holdings, marks existing shares to market, extends equity curves, writes current holdings, performance windows, and a Markdown report.
+  - `tests/current_portfolio_status_report_smoke.py` ->covers synthetic mark-to-market extension, cash weight recalculation, and combined performance output.
+  - `tools/run_pr_validation.py` ->adds the current portfolio status smoke test to the default fast validation set.
+  - `CHANGELOG.md` ->records the current portfolio status sidecar.
+- symbols_added:
+  - `PortfolioExtension` ->typed payload for one portfolio's mark-to-market extension outputs.
+  - `default_requested_as_of()` ->chooses yesterday as the default requested close date.
+  - `fetch_yfinance_closes(tickers, start_date, end_date)` ->loads adjusted close history for current holdings.
+  - `scorecard_for_horizon(equity_curve, trades, label, offset)` ->computes return, CAGR, MaxDD, Sharpe, turnover, trades, fees, and cash by horizon.
+  - `build_scorecard(equity_curve, trades)` ->builds the standard 1M/3M/6M/1Y/2Y/FULL performance table.
+  - `build_price_panel(positions, price_history, source_date, requested_as_of)` ->aligns fetched prices to extension dates with stale-price carry-forward diagnostics.
+  - `extend_portfolio(latest_run, portfolio, requested_as_of_date, price_history)` ->extends one broker-ledger portfolio with no new trades.
+  - `render_report(summary, extensions)` ->renders the user-facing Markdown report.
+  - `build_report(args, price_loader=None)` ->runs the full reporting sidecar and writes CSV/JSON/Markdown artifacts.
+- symbols_changed:
+  - `run_pr_validation.DEFAULT_TESTS` ->includes `tests/current_portfolio_status_report_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/report.md` ->user-facing current portfolio report.
+  - `outputs/current_portfolio_status/performance_windows.csv` ->main/concentrated full and trailing horizon metrics.
+  - `outputs/current_portfolio_status/current_holdings_all.csv` ->main/concentrated current holdings plus cash.
+  - `outputs/current_portfolio_status/{main,concentrated}/equity_curve_mark_to_market.csv` ->broker-ledger equity curve extended by current-holdings mark-to-market.
+  - `gdrive:full_rebuild/current_portfolio_status/` ->will receive the same report on full-rebuild runs with Drive sync enabled.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS, 1/1.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. The sidecar holds existing shares constant after the source broker replay date and does not simulate new recommendations, new fills, or production score changes.
+  - The local full rebuild source currently ends on 2026-05-12, so the 2026-05-21 result is a mark-to-market extension rather than a new full data/rebalance run.
+
 ## 2026-05-21
 
 ### 18:33 KST - post-disclosure-discovery-broker-styles
