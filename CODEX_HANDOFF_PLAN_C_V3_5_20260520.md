@@ -1317,6 +1317,736 @@ Before Codex starts, please confirm:
 
 ---
 
+# Part II — Final Integrated Engine Addendum (v3.6, 2026-05-24)
+
+This addendum extends the v3.5 handoff after the user's 2026-05-23 directive to add
+**CAGR-Preserving Crisis Governor** + **Hold-vs-Replace Discipline** + **Integrated
+Challenger** on top of the existing PDA framework. The original v3.5 phases
+(C0.1/D1/D5/D7/D2/D3/D4/D6/C4/C5/C6/C7/C8/C9) remain valid; this section adds
+Phase E (Crisis Governor), Phase F (Hold-vs-Replace), Phase G (Integrated
+Challenger) and revises promotion targets to the **official broker-ledger
+baseline** rather than research backtest numbers.
+
+## 16. Final Integrated Engine Vision (Verified Baselines)
+
+### 16.1 Official broker-ledger baselines (use these for promotion, NOT research)
+
+| Portfolio | CAGR | MDD | Sharpe | Source |
+|---|---:|---:|---:|---|
+| main | **20.35%** | **-33.45%** | 0.991 | broker_ledger_next_close (master) |
+| concentrated | **36.41%** | **-38.45%** | 1.186 | broker_ledger_next_close (master) |
+
+Drawdown anatomy:
+- **main**: peak 2021-11-19 → trough 2022-10-14 (slow bear, rate-hike regime)
+- **concentrated**: peak 2020-02-19 → trough 2020-03-16 (shock crash, COVID)
+
+→ These two crisis archetypes drive Phase E design.
+
+### 16.2 Research backtest numbers are NOT promotion metrics
+
+Do NOT optimize against `outputs/backtest_metrics.json` CAGR 29.19% or
+`outputs/concentrated_backtest_metrics.json`. These are PROXY metrics with
+known survivorship + delisted_cost_basis_fallback gaps (A1/A2 audits failing).
+Use only `broker_ledger_next_close` output.
+
+### 16.3 7-Layer Combined Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Layer 1: Future Winner Core (existing, primary selector)            │
+│           portfolio_future_winner_engine_score                       │
+│                                                                       │
+│  Layer 2: Smart Money Confirmation (Phase D output, NOT primary)     │
+│           smart_money_confirmation_score (formula §17.2)             │
+│                                                                       │
+│  Layer 3: Post-Disclosure Alpha (Phase D2/D3 output)                 │
+│           post_disclosure_alpha_score                                │
+│                                                                       │
+│  Layer 4: ETF / Theme Confirmation (Phase C5 PIT holdings)           │
+│           etf_theme_confirmation_score                               │
+│                                                                       │
+│  Layer 5: Hold-vs-Replace Discipline (Phase F, NEW)                  │
+│           replacement_quality_score                                   │
+│                                                                       │
+│  Layer 6: Crisis Governor (Phase E, NEW)                             │
+│           crisis_score + exposure_ladder + reentry_score             │
+│                                                                       │
+│  Layer 7: Broker-Ledger Promotion Gate (existing)                    │
+│           broker_ledger_next_close + A1/A2 + stress window           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 16.4 Final Selection Score Formulas
+
+**Main** (CAGR 25%+ / MDD -25%- target):
+```python
+main_selection_score = (
+    0.42 * future_winner_score
+  + 0.20 * market_confirmation_score
+  + 0.12 * industry_theme_leadership_score
+  + 0.10 * quality_growth_score
+  + 0.08 * smart_money_confirmation_score
+  + 0.05 * post_disclosure_alpha_score
+  + 0.03 * entry_quality_score
+)
+```
+
+**Concentrated** (CAGR 40%+ / MDD -28%- target, N=2/3/5 only, **N7 forbidden**):
+```python
+concentrated_selection_score = (
+    0.32 * future_winner_score
+  + 0.22 * market_confirmation_score
+  + 0.15 * smart_money_confirmation_score
+  + 0.10 * post_disclosure_alpha_score
+  + 0.10 * industry_theme_leadership_score
+  + 0.06 * entry_quality_score
+  + 0.05 * quality_growth_score
+)
+```
+
+**Smart Money Confirmation** (consolidates 4-stream PDA into single confirmation):
+```python
+smart_money_confirmation_score = (
+    0.30 * form4_cluster_buy_score
+  + 0.25 * post_13f_alpha_score
+  + 0.15 * manager_quality_score
+  + 0.10 * multi_manager_convergence_score
+  + 0.10 * etf_theme_confirmation_score
+  + 0.10 * industry_smart_money_flow_score
+  - 0.15 * crowding_or_stale_penalty
+)
+```
+
+**Tenbagger Discovery** (watchlist + replacement pool ONLY, not production buys):
+```python
+tenbagger_discovery_score = (
+    0.25 * future_winner_score
+  + 0.20 * smallcap_high_growth_score
+  + 0.15 * post_disclosure_alpha_score
+  + 0.15 * theme_structural_growth_score
+  + 0.10 * insider_conviction_score
+  + 0.10 * volume_breakout_score
+  + 0.05 * low_float_supply_score
+)
+```
+
+Output: `outputs/tenbagger_watchlist/latest.csv` — daily refresh, manual-review only.
+
+---
+
+## 17. Phase E — CAGR-Preserving Crisis Governor (NEW)
+
+**Branch**: `codex/plan-c-e-crisis-governor` (base: master post foundation merge)
+**Effort**: 5-7 days
+**Dependency**: Phase C0.1 (kill switch). Can run in parallel with D-track.
+
+### 17.1 Core principle (memorize)
+
+| WRONG defense (CAGR-killer) | RIGHT defense (CAGR-preserving) |
+|---|---|
+| Permanent cash 15-25% | Cash 0-5% in normal markets |
+| Stop-loss everywhere | Trim only broken positions |
+| Slow rebalance to "let dust settle" | Replace broken with stronger leader |
+| Sell everything in panic | Exposure ladder + re-entry ladder |
+| Re-enter when "things look good" | Re-enter when reentry_score crosses thresholds |
+
+### 17.2 Phase E1 — Drawdown segment audit
+
+NEW: `tools/run_drawdown_segment_report.py`
+
+Outputs:
+- `outputs/drawdown_segments/main.csv`
+- `outputs/drawdown_segments/concentrated.csv`
+- `outputs/drawdown_segments/report.md`
+
+Columns:
+```
+peak_date, trough_date,
+first_below_10d, first_below_20d, first_below_30d,
+days_below_30pct, max_drawdown_pct,
+cash_weight_at_first_below_10, cash_weight_at_first_below_20,
+cash_weight_at_trough, cash_weight_at_recovery,
+position_count_at_peak, position_count_at_trough,
+top_3_holdings_at_peak, top_3_holdings_at_trough,
+held_winner_count, held_broken_count,
+new_buys_during_dd, sells_during_dd
+```
+
+Purpose: empirically diagnose how main 2021-11→2022-10 and concentrated
+2020-02→2020-03 went wrong. No optimization yet — just truth-finding.
+
+### 17.3 Phase E2 — Crisis signal builder
+
+NEW: `tools/run_crisis_signal_builder.py`
+
+Uses only data available at T close (no look-ahead):
+```python
+crisis_features = {
+    # Market trend
+    "spy_below_ma200": bool,
+    "qqq_below_ma200": bool,
+    "spy_5d_dd": float,
+    "spy_20d_dd": float,
+    "qqq_5d_dd": float,
+    "qqq_20d_dd": float,
+    # Volatility
+    "vix_level": float,
+    "vix_zscore_60d": float,
+    "vix_spike_3d": float,
+    # Credit
+    "hy_spread_bps": float,         # HY OAS
+    "ig_spread_bps": float,         # IG OAS
+    "hy_spread_zscore_60d": float,
+    # Rates
+    "ten_year_yield": float,
+    "ten_year_5d_change_bps": float,
+    "yield_curve_inversion": bool,  # 2s10s
+    # Breadth
+    "pct_stocks_above_ma200": float,
+    "pct_stocks_above_ma50": float,
+    "advdec_line_slope_20d": float,
+    # Liquidity
+    "spy_dollar_volume_zscore": float,
+    "qqq_dollar_volume_zscore": float,
+    # Portfolio
+    "current_drawdown_pct": float,
+    "weighted_holdings_drawdown": float,
+}
+```
+
+Output: `outputs/crisis_signals/daily_features.parquet` (one row per trading day)
+
+### 17.4 Phase E3 — Crisis type classifier
+
+NEW: `tools/run_crisis_type_classifier.py`
+
+Rule-based + optional ML refinement:
+
+| Crisis type | Detection rule |
+|---|---|
+| `shock_crash` | spy_5d_dd > 8% AND vix_zscore > 2.5 |
+| `slow_bear` | spy_below_ma200 AND qqq_below_ma200 AND days_below_ma200 > 30 AND 10y_yield rising |
+| `credit_crisis` | hy_spread_zscore > 2.0 AND ig_spread_zscore > 1.5 |
+| `normal_pullback` | spy_5d_dd in [3%, 8%] AND vix_zscore in [0.5, 2.0] |
+| `recovery` | vix_zscore < 0.5 AND spy_above_ma50 AND breadth_thrust |
+| `normal` | none of above |
+
+Output: daily classification → `outputs/crisis_signals/daily_classification.csv`
+
+### 17.5 Phase E4 — Composite crisis_score
+
+```python
+crisis_score = (
+    0.25 * market_trend_breakdown      # spy/qqq below MA200 + 20d_dd
+  + 0.20 * credit_stress_score         # HY/IG spread z-scores
+  + 0.15 * volatility_spike_score      # VIX level + z-score
+  + 0.15 * breadth_breakdown_score     # pct above MA200
+  + 0.10 * liquidity_drain_score       # dollar volume anomaly
+  + 0.10 * rate_shock_score            # 10y yield 5d change
+  + 0.05 * portfolio_damage_score      # current_dd + weighted_holdings_dd
+)  # all components clipped to [0, 1]
+```
+
+### 17.6 Phase E5 — Exposure ladder
+
+NEW config (`r1000_config.py`):
+```python
+# Plan C v3.6 Phase E — Crisis governor (default OFF until validated)
+crisis_governor_apply_to_live: bool = False
+crisis_score_thresholds: list[float] = [0.30, 0.50, 0.70]
+crisis_cash_ladder: dict = {
+    "normal":   (0.00, 0.05),    # crisis < 0.30
+    "caution":  (0.05, 0.10),    # 0.30-0.50
+    "defense":  (0.10, 0.25),    # 0.50-0.70
+    "crisis":   (0.25, 0.50),    # >= 0.70
+}
+crisis_new_buy_throttle_at: float = 0.30   # block new buys above this score
+crisis_concentrated_exposure_floor: float = 0.30  # min equity in crisis state
+```
+
+Behavior per zone:
+| Zone | Cash | New buys | Existing holdings | Trim policy |
+|---|---|---|---|---|
+| normal | 0-5% | normal | hold all | none |
+| caution | 5-10% | throttle 50% | hold winners | trim breaks if replacement avail |
+| defense | 10-25% | block | hold winners | trim broken high-beta, prefer replacement |
+| crisis | 25-50% | block | hold winners only | reduce concentrated to 30-50% exposure |
+
+### 17.7 Phase E6 — Re-entry ladder
+
+```python
+reentry_score = (
+    0.30 * vix_normalization           # vix_zscore < 0.5
+  + 0.25 * qqq_ma_reclaim              # QQQ > MA20 OR MA50 reclaim
+  + 0.20 * breadth_thrust              # advdec_line_slope_20d > 0.3
+  + 0.15 * credit_spread_stabilization # HY zscore < 0.8
+  + 0.10 * leadership_recovery         # top-5 holdings outperform SPY 10d
+)
+```
+
+Re-entry rule:
+| reentry_score | Action |
+|---|---|
+| < 0.40 | hold defense state |
+| 0.40 - 0.60 | add 25% risk (reduce cash by 25% of ladder) |
+| 0.60 - 0.75 | add 50-70% risk |
+| > 0.75 | full normal risk restore |
+
+Crisis-type-specific re-entry pacing:
+| Crisis type | Re-entry speed |
+|---|---|
+| shock_crash | fast (2020 COVID needed 4-week re-entry) |
+| slow_bear | gradual (2022 needed quarter-by-quarter confirmation) |
+| credit_crisis | wait for credit stabilization before any add |
+
+### 17.8 Phase E7 — Governor replay tool
+
+NEW: `tools/run_cagr_preserving_crisis_governor_replay.py`
+
+Replays main + concentrated portfolios with governor enabled across the full
+broker-ledger history. Outputs:
+- `outputs/crisis_governor_replay/main_with_governor.csv` (daily ledger)
+- `outputs/crisis_governor_replay/concentrated_with_governor.csv`
+- `outputs/crisis_governor_replay/stress_window_metrics.csv`
+- `outputs/crisis_governor_replay/false_alarm_log.csv`
+
+Stress windows (mandatory):
+- 2020-02-01 to 2020-05-31 (COVID shock)
+- 2021-11-01 to 2022-12-31 (rate-hike slow bear)
+- 2024-01-01 to 2024-12-31 (latest year, sanity)
+- 2025-01-01 to latest (most recent)
+
+For each window:
+- CAGR with vs without governor
+- MDD with vs without governor
+- Rebound capture (days to recover 80% of peak)
+- Re-entry lag (days between reentry_score > 0.40 and actual exposure increase)
+- Cash trap days (consecutive days at >25% cash when SPY was actually rising)
+- False alarm count (governor triggered defense state but no drawdown materialized)
+- Turnover + fees increase
+
+### 17.9 Phase E8 — Tests
+
+```python
+@_test
+def phase_e_crisis_governor_default_off():
+    """Phase E — governor must default OFF, production behavior unchanged."""
+    cfg = EngineConfig()
+    assert cfg.crisis_governor_apply_to_live is False
+
+@_test
+def phase_e_normal_zone_keeps_low_cash():
+    """Phase E — when crisis_score < 0.30, cash target stays 0-5%."""
+
+@_test
+def phase_e_crisis_zone_blocks_new_buys():
+    """Phase E — crisis state must block new_buy decisions."""
+
+@_test
+def phase_e_reentry_ladder_monotonic():
+    """Phase E — re-entry exposure adds never reverse without crisis score deterioration."""
+
+@_test
+def phase_e_no_future_data_in_signals():
+    """Phase E — crisis features at time T use only data available at T close."""
+```
+
+---
+
+## 18. Phase F — Hold-vs-Replace Discipline (NEW)
+
+**Branch**: `codex/plan-c-f-hold-vs-replace`
+**Effort**: 3-4 days
+**Dependency**: Phase D4 (live PDA scoring) for replacement candidate pool
+
+### 18.1 Decision matrix
+
+| Position state | Action |
+|---|---|
+| **Winner intact** (above entry, RS > 60, no break) | HOLD (do not sell only because of market volatility) |
+| **Weakening** (between -5% and -15%) | TRIM 25-50% only if replacement clearly better |
+| **Broken** (below -15% OR MA200 violation OR RS < 30) | Replace if candidate available, else cash (crisis) |
+| **Winner overextended** (above target gain or P/E spike) | Hold but no add — let it run |
+
+### 18.2 Replacement candidate thresholds
+
+```python
+# z-score relative to held position's selection_score
+NORMAL_REPLACEMENT_THRESHOLD = 0.75       # candidate must beat held by 0.75 sigma
+WEAKENING_REPLACEMENT_THRESHOLD = 0.35    # easier swap when held is weakening
+CRISIS_REPLACEMENT_RULE = "quality_defensive_only"  # only swap to leaders/defensive
+```
+
+### 18.3 NEW tool: `tools/run_hold_vs_replace_evaluator.py`
+
+Inputs:
+- Current portfolio (`portfolio_latest.csv`)
+- Tenbagger watchlist (`outputs/tenbagger_watchlist/latest.csv`)
+- Smart money top30 (`outputs/smart_money/top30_latest.csv`)
+- Crisis state (Phase E output)
+
+Output: `outputs/hold_vs_replace/decisions.csv`
+```
+ticker, current_state, recommendation,
+held_score, candidate_ticker, candidate_score, score_delta_sigma,
+replace_reason, risk_off_safety_check
+```
+
+### 18.4 Replacement safety guards
+
+- Never replace if candidate is in same broken sector AND same broken industry
+- Never reduce concentrated to below `crisis_concentrated_exposure_floor` (0.30)
+- Crisis-mode replacement must be from `quality_growth_score > 0.7` pool only
+- Replacement requires `available_from_ts` PIT discipline (no replacing on future signal)
+
+---
+
+## 19. Phase G — Integrated Alpha+Crisis Challenger (NEW)
+
+**Branch**: `codex/plan-c-g-integrated-challenger`
+**Effort**: 4-5 days
+**Dependency**: All Phase D + Phase E + Phase F merged + Phase C4 broker-ledger
+                infrastructure available
+
+### 19.1 NEW tool: `tools/run_integrated_alpha_crisis_challenger.py`
+
+Multi-dimensional grid search across:
+
+| Dimension | Values |
+|---|---|
+| main target_n | 12, 15, 18 |
+| concentrated target_n | 2, 3, 5 (NEVER 7) |
+| evidence weight (main) | 0.05, 0.08, 0.10 |
+| evidence weight (concentrated) | 0.10, 0.15, 0.20 |
+| crisis governor | OFF, ON-conservative, ON-aggressive |
+| hold-vs-replace | OFF, ON-normal, ON-strict |
+| smart_money_confirmation contribution | OFF, 0.05, 0.08 |
+| post_disclosure_alpha contribution | OFF, 0.03, 0.05 |
+
+Each combination → full broker-ledger replay with stress window metrics.
+
+### 19.2 Promotion gates (broker-ledger only)
+
+**Main**:
+- ΔCAGR ≥ -0.5pp (preferably positive)
+- ΔMDD ≥ +5pp (current -33.45% → -28% or better)
+- 2022 stress MDD improves materially (vs -33% benchmark)
+- turnover increase ≤ +20%
+- fees increase ≤ +20%
+- A1/A2 broker_accounting_audit both `passed=True`
+
+**Concentrated**:
+- ΔCAGR ≥ -3pp (preferably positive)
+- ΔMDD ≥ +10pp (current -38.45% → -28% or better)
+- 2020 stress MDD improves toward -25% to -28%
+- N=2/3/5 only (N=7 disqualified — N7 is diversified sleeve, not concentrated)
+- rebound capture within 2 weeks of reentry_score > 0.6
+- no permanent cash trap (>30% cash for >60 days during rising market)
+
+### 19.3 Output
+
+`outputs/integrated_challenger/grid_results.csv` — full matrix
+`outputs/integrated_challenger/verdict.json` — best combo + SHIP/PARTIAL/REJECT
+`outputs/integrated_challenger/stress_window_matrix.csv` — per-window per-combo
+
+---
+
+## 20. Revised Targets (FINAL)
+
+| Portfolio | Metric | Current (official) | Phase 1 target | Final target |
+|---|---|---:|---:|---:|
+| main | CAGR | 20.35% | ≥ 20% | 25-30% |
+| main | MDD | -33.45% | ≤ -25% | ≤ -15% |
+| main | normal cash | ~18% | ≤ 8% | ≤ 5% |
+| concentrated | CAGR | 36.41% | ≥ 33% | 40-50% |
+| concentrated | MDD | -38.45% | ≤ -28% | ≤ -18% |
+| concentrated | N | varies | 3 or 5 (N7 forbidden) | 3 or 5 |
+| concentrated | 2020 stress MDD | -38% | -25% to -28% | -20% |
+
+Phase 1 = after Phase E + F + G merged + 3mo SHIP verdicts.
+Final = after 6mo SHIP verdicts + A1/A2 passing + bootstrap CI lower bound.
+
+---
+
+## 21. Revised Timeline (v3.6)
+
+```
+Week 1: Foundation
+  Day 1:   C0.1 kill switch
+  Day 1-5: A1/A2 broker fix (parallel)
+  Day 2-3: D1/D5/D7 (parallel) + E1 drawdown segment audit
+  Day 3-5: E2 crisis signal builder (parallel)
+
+Week 2: Crisis + Labels
+  Day 6:   Merge D1+D5+D7
+  Day 7-8: D2 labeler
+  Day 8-10: E3 crisis classifier + E4 composite score (parallel)
+  Day 9-10: D3 multi-bucket scoring
+
+Week 3: Live Integration
+  Day 11-12: E5 exposure ladder + E6 reentry ladder
+  Day 13-14: F hold-vs-replace (parallel to D4 live scoring)
+  Day 13-14: D4 live PDA scoring
+  Day 15:    E7 governor replay tool
+
+Week 4: Integrated Challenger
+  Day 16-18: G integrated challenger grid
+  Day 19-20: Stress window validation (2020 + 2022 + 2024 + 2025)
+  Day 21:    First SHIP/PARTIAL/REJECT verdict
+
+Months 2-7: 6mo consecutive SHIP wait
+  Quarterly: D6 follow-vs-fade re-validation
+  Quarterly: Phase G grid re-search
+  Monthly:   Stress window metrics tracking
+
+Month 7+: Phase C8/C9 promotion unlock (A1/A2 + 6mo SHIP)
+```
+
+Total active dev: **~21 days** (3 weeks). SHIP wait: 6 months.
+
+---
+
+## 22. Updated Branch Topology (v3.6)
+
+```
+master
+ ├─ codex/plan-c-foundation (C0.1)             ← merge first
+ ├─ codex/plan-c-broker-a1-a2-fix              ← independent, day 1
+ │
+ ├─ codex/plan-c-d1-13f-events                 ← parallel
+ ├─ codex/plan-c-d5-form4-pcode                ← parallel
+ ├─ codex/plan-c-d7-13d-activist               ← parallel
+ ├─ codex/plan-c-e1-dd-segment-audit           ← parallel (E1, truth-finding)
+ ├─ codex/plan-c-e2-crisis-signals             ← parallel (E2)
+ │
+ ├─ codex/plan-c-d2-d3-labels-scores           ← after D1+D5+D7
+ ├─ codex/plan-c-e3-e4-crisis-classify         ← after E2
+ │
+ ├─ codex/plan-c-e5-e6-ladders                 ← after E3+E4
+ ├─ codex/plan-c-d4-live-scoring               ← after D3
+ ├─ codex/plan-c-d6-follow-fade                ← after D3, parallel D4
+ ├─ codex/plan-c-f-hold-vs-replace             ← after D4
+ │
+ ├─ codex/plan-c-e7-governor-replay            ← after E5+E6
+ │
+ ├─ codex/plan-c-c4-broker-challenger          ← after D4+D6
+ ├─ codex/plan-c-g-integrated-challenger       ← after E7+F+C4
+ │
+ ├─ codex/plan-c-c5-etf-pit                    ← independent
+ ├─ codex/plan-c-c6-top30-watchlist            ← after D4
+ ├─ codex/plan-c-c7-after-service              ← after D4
+ │
+ └─ codex/plan-c-c8-c9-promotion               ← BLOCKED until 6mo SHIP + A1/A2
+```
+
+---
+
+## 23. CODEX MASTER PROMPT (v3.6 Final)
+
+Copy-paste this entire block when launching Codex for the integrated engine work:
+
+```
+ROLE:
+You are the Final Integrated Portfolio Engine Agent for r1000-quant-engine.
+
+MISSION:
+Build the best combined system aligned with these goals:
+1. Improve official broker-ledger CAGR (main 20.35%, concentrated 36.41%).
+2. Reduce MDD without sacrificing CAGR (main -33.45% → -25%, concentrated -38.45% → -28%).
+3. Detect early future winners + tenbagger candidates via 13F/Form4/13D/ETF.
+4. Smart Money is a CONFIRMATION layer, NOT the primary selector.
+5. Defend 2020 shock crash and 2022 slow bear without permanent cash drag.
+6. Validate everything with broker-ledger next-close replay.
+
+VERIFIED OFFICIAL METRICS (use these, NOT research backtest):
+- main: CAGR 20.35%, MDD -33.45%, Sharpe 0.991, peak 2021-11-19, trough 2022-10-14
+- concentrated: CAGR 36.41%, MDD -38.45%, Sharpe 1.186, peak 2020-02-19, trough 2020-03-16
+
+DO NOT:
+- Optimize legacy/research metrics (e.g., 29.19% research CAGR).
+- Use Smart Money as the primary selector — only confirmation.
+- Use static ETF_LOOKTHROUGH as production PIT evidence.
+- Use future returns as live signals.
+- Raise permanent cash in normal markets (must stay 0-5%).
+- Allow N=7 as concentrated champion (only N=2/3/5).
+- Activate production defaults without human approval.
+
+BEST SYSTEM COMBINATION:
+1. Future Winner Core
+2. Smart Money Confirmation
+3. Post-Disclosure Alpha
+4. ETF / Theme Confirmation
+5. Hold-vs-Replace Discipline
+6. Historical Crisis Governor
+7. Broker-Ledger Promotion Gate
+
+MAIN SCORE:
+main_selection_score = (
+  0.42 * future_winner_score
++ 0.20 * market_confirmation_score
++ 0.12 * industry_theme_leadership_score
++ 0.10 * quality_growth_score
++ 0.08 * smart_money_confirmation_score
++ 0.05 * post_disclosure_alpha_score
++ 0.03 * entry_quality_score
+)
+
+CONCENTRATED SCORE:
+concentrated_selection_score = (
+  0.32 * future_winner_score
++ 0.22 * market_confirmation_score
++ 0.15 * smart_money_confirmation_score
++ 0.10 * post_disclosure_alpha_score
++ 0.10 * industry_theme_leadership_score
++ 0.06 * entry_quality_score
++ 0.05 * quality_growth_score
+)
+
+SMART MONEY CONFIRMATION SCORE:
+smart_money_confirmation_score = (
+  0.30 * form4_cluster_buy_score
++ 0.25 * post_13f_alpha_score
++ 0.15 * manager_quality_score
++ 0.10 * multi_manager_convergence_score
++ 0.10 * etf_theme_confirmation_score
++ 0.10 * industry_smart_money_flow_score
+- 0.15 * crowding_or_stale_penalty
+)
+
+TENBAGGER DISCOVERY (watchlist only, not production buys):
+tenbagger_discovery_score = (
+  0.25 * future_winner_score
++ 0.20 * smallcap_high_growth_score
++ 0.15 * post_disclosure_alpha_score
++ 0.15 * theme_structural_growth_score
++ 0.10 * insider_conviction_score
++ 0.10 * volume_breakout_score
++ 0.05 * low_float_supply_score
+)
+
+CRISIS SCORE:
+crisis_score = (
+  0.25 * market_trend_breakdown
++ 0.20 * credit_stress_score
++ 0.15 * volatility_spike_score
++ 0.15 * breadth_breakdown_score
++ 0.10 * liquidity_drain_score
++ 0.10 * rate_shock_score
++ 0.05 * portfolio_damage_score
+)
+
+EXPOSURE RULE:
+- crisis_score < 0.30:  cash 0-5%, normal risk
+- 0.30-0.50:            cash 5-10%, new-buy throttle, winner hold
+- 0.50-0.70:            cash 10-25%, trim broken high-beta, replacement before cash
+- >= 0.70:              cash 25-50%, concentrated 30-50%, re-entry ladder active
+
+RE-ENTRY:
+reentry_score = (
+  0.30 * vix_normalization
++ 0.25 * qqq_ma20_or_ma50_reclaim
++ 0.20 * breadth_thrust
++ 0.15 * credit_spread_stabilization
++ 0.10 * leadership_recovery
+)
+
+REENTRY RULES:
+- reentry_score > 0.40: add 25% risk
+- reentry_score > 0.60: add 50-70% risk
+- reentry_score > 0.75: normal risk
+
+CRISIS TYPE DIFFERENTIATION:
+- shock_crash (2020 archetype): fast defense + fast re-entry
+- slow_bear (2022 archetype): gradual defense + slow re-entry
+- credit_crisis: fast defense + wait for credit spread stabilization
+- recovery: normal mode + leadership confirmation
+
+PHASE 1 — Post-Disclosure Alpha Foundation:
+Create:
+- tools/run_13f_position_event_builder.py
+- tools/run_post_disclosure_alpha_labeler.py
+- tools/run_manager_disclosure_alpha_scoring.py
+- tools/run_post_disclosure_signal_learning.py
+- tools/run_post_disclosure_alpha_candidates.py
+
+Use accepted_at / available_from only.
+Entry = next close AFTER available_from.
+Compute 5d/21d/42d/63d/126d returns and excess returns.
+
+PHASE 2 — Integrated Score Columns (SHADOW):
+Add columns but do NOT add to production score:
+- smart_money_confirmation_score
+- tenbagger_discovery_score
+- post_disclosure_alpha_score
+- manager_quality_score
+- event_source_convergence_score
+
+PHASE 3 — Crisis Governor:
+Create:
+- tools/run_drawdown_segment_report.py
+- tools/run_crisis_signal_builder.py
+- tools/run_crisis_type_classifier.py
+- tools/run_cagr_preserving_crisis_governor_replay.py
+
+Train/test on historical crisis windows:
+- 2008, 2011, 2015/2016, 2018, 2020, 2022
+
+PHASE 4 — Integrated Challenger:
+Create:
+- tools/run_integrated_alpha_crisis_challenger.py
+
+Test grid:
+- main target_n: 12, 15, 18
+- concentrated target_n: 2, 3, 5 (NEVER 7)
+- evidence weights: main 0.05/0.08/0.10, concentrated 0.10/0.15/0.20
+- crisis governor on/off
+- replacement swap on/off
+
+PHASE 5 — Validation:
+Use broker-ledger next-close ONLY. Include:
+- integer shares
+- fees
+- cash ledger
+- daily MDD
+- cost sensitivity 25/50/75/100bps
+- stress window metrics (2020, 2022, 2024, 2025)
+- bootstrap CI
+- A1/A2 broker accounting gates passed
+
+PROMOTION GATE:
+Main:
+- CAGR improves OR decreases <= 0.5pp
+- MDD improves >= 5pp
+- 2022 stress MDD improves materially
+- turnover increase <= 20%, fees increase <= 20%
+
+Concentrated:
+- CAGR loss <= 3pp, preferably improves
+- MDD improves >= 10pp
+- 2020 shock MDD improves toward -25% to -28%
+- no permanent cash trap
+
+DELIVERABLES:
+First write:
+research/final_integrated_engine_20260524/research.md
+
+Then write:
+research/final_integrated_engine_20260524/plan.md
+
+Do NOT activate production defaults.
+Do NOT auto-promote.
+All work goes to feature branches per CODEX_HANDOFF §22 topology.
+```
+
+---
+
+**END OF v3.6 ADDENDUM**
+
+The original v3.5 spec above (§1-§15) remains the canonical implementation
+reference for the PDA framework. This addendum (§16-§23) extends it with the
+Crisis Governor + Hold-vs-Replace + Integrated Challenger layers per the
+2026-05-23 user directive.
+
 **END OF CODEX HANDOFF SPEC**
 
 이 문서는 Codex 에이전트가 Plan C v3.5를 구현하기 위한 단일 source of truth. 본 문서와 `/root/.claude/plans/elegant-sniffing-dragon.md` Part F 사이에 모순이 생기면 **Part F가 우선** (이 문서는 implementation guide).
