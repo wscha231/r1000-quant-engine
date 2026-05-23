@@ -2096,6 +2096,37 @@ class EngineConfig:
     vix_level_tier4_threshold: float = 45.0
     vix_level_tier4_cash_floor: float = 0.55
     # ---------------
+    # Plan C v3.5 / v3.6 (2026-05-24) — Master kill switches for SEC + PDA
+    # overlays. BOTH default OFF so this branch's behavior is unchanged when
+    # the SEC evidence overlay code lands. Flip to True only after:
+    #   (1) Phase C1 data lands,
+    #   (2) Phase C1.5 readiness audit passes (Form4 >= 300, 13F >= 100),
+    #   (3) Phase C4 broker-ledger challenger verifies SHIP gate.
+    # See CODEX_HANDOFF_PLAN_C_V3_5_20260520.md §5.1 + §16-§23.
+    sec_evidence_apply_to_live_score: bool = False
+    sec_evidence_bonus_cap: float = 0.20
+    sec_evidence_min_form4_signal_tickers: int = 300
+    sec_evidence_min_13f_signal_tickers: int = 100
+    sec_evidence_max_stale_days: int = 240
+    # PDA (Post-Disclosure Alpha) — Phase D wiring. Weights start at 0.0 and
+    # are learned via Phase D3 multi-bucket scoring before any non-zero
+    # production weight ships.
+    pda_apply_to_live_score: bool = False
+    pda_bonus_cap: float = 0.15
+    w_pda_13f: float = 0.0
+    w_pda_form4: float = 0.0
+    w_pda_13d: float = 0.0
+    w_pda_etf: float = 0.0
+    # Phase E (v3.6) — CAGR-preserving crisis governor. Default OFF until
+    # Phase E7 governor replay validates stress windows (2020 + 2022 + 2024
+    # + 2025).
+    crisis_governor_apply_to_live: bool = False
+    crisis_score_thresholds_low: float = 0.30
+    crisis_score_thresholds_mid: float = 0.50
+    crisis_score_thresholds_high: float = 0.70
+    crisis_new_buy_throttle_at: float = 0.30
+    crisis_concentrated_exposure_floor: float = 0.30
+    # ---------------
     # Phase 6c: volatility targeting (PHASE_ROADMAP §2.6 + PROPOSAL §7)
     # ---------------
     # Tracks realized portfolio volatility over a rolling window of

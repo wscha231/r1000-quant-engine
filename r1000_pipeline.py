@@ -962,7 +962,64 @@ def add_total_score_columns(
     d["score_model"] = d["score_core"]
     d["score_live_overlay"] = d["score_forward_revision_satellite"]
     d["score"] = d["score_core"] + (d["score_satellite"] if include_satellite else 0.0)
+    # Plan C v3.5 / v3.6 — SEC evidence + PDA overlays. Columns are computed
+    # for diagnostics regardless of kill switch state, but only added to live
+    # `score` when the master switch is explicitly flipped. When the SEC
+    # overlay code (institutional_evidence_score etc.) has not yet landed on
+    # this branch, numeric_series_or_default returns zeros and the entire
+    # block is a no-op. See CODEX_HANDOFF_PLAN_C_V3_5_20260520.md §5.1.
+    _apply_evidence_kill_switch(d, cfg)
     return d
+
+
+def _apply_evidence_kill_switch(d: pd.DataFrame, cfg: EngineConfig) -> None:
+    """Plan C v3.5 / v3.6 master kill switch for SEC + PDA overlays.
+
+    Always populates the *_overlay diagnostic columns. Only mutates `score`
+    when the corresponding master switch is True. Safe to call before the
+    SEC overlay code lands on this branch: missing inputs degrade to zeros.
+
+    See:
+      - r1000_config.sec_evidence_apply_to_live_score
+      - r1000_config.pda_apply_to_live_score
+      - CODEX_HANDOFF_PLAN_C_V3_5_20260520.md §5.1, §17 (Phase E hooks)
+    """
+    w_inst = float(getattr(cfg, "w_sec_institutional_evidence", 0.0))
+    w_insider = float(getattr(cfg, "w_sec_insider_evidence", 0.0))
+    inst_score = numeric_series_or_default(d, "institutional_evidence_score", 0.0)
+    inst_conf = numeric_series_or_default(d, "institutional_evidence_confidence_score", 0.0)
+    insider_score = numeric_series_or_default(d, "early_evidence_score", 0.0)
+    insider_conf = numeric_series_or_default(d, "evidence_confidence_score", 0.0)
+    d["score_sec_institutional_overlay"] = (
+        w_inst * inst_score * inst_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    d["score_sec_insider_overlay"] = (
+        w_insider * insider_score * insider_conf.clip(lower=0.0, upper=1.0)
+    ).fillna(0.0)
+    if bool(getattr(cfg, "sec_evidence_apply_to_live_score", False)):
+        cap = float(getattr(cfg, "sec_evidence_bonus_cap", 0.20))
+        sec_bonus = (
+            d["score_sec_institutional_overlay"]
+            + d["score_sec_insider_overlay"]
+        ).clip(upper=cap * d["score"].abs())
+        d["score"] = d["score"] + sec_bonus
+    # PDA overlay (Phase D4 — 4-stream post-disclosure alpha)
+    pda_13f = numeric_series_or_default(d, "post_13f_alpha_score", 0.0)
+    pda_form4 = numeric_series_or_default(d, "post_form4_alpha_score", 0.0)
+    pda_13d = numeric_series_or_default(d, "post_13d_alpha_score", 0.0)
+    pda_etf = numeric_series_or_default(d, "post_etf_alpha_score", 0.0)
+    pda_conv_bonus = numeric_series_or_default(d, "pda_convergence_bonus", 0.0)
+    d["pda_total_score"] = (
+        float(getattr(cfg, "w_pda_13f", 0.0)) * pda_13f
+        + float(getattr(cfg, "w_pda_form4", 0.0)) * pda_form4
+        + float(getattr(cfg, "w_pda_13d", 0.0)) * pda_13d
+        + float(getattr(cfg, "w_pda_etf", 0.0)) * pda_etf
+        + pda_conv_bonus
+    ).fillna(0.0)
+    if bool(getattr(cfg, "pda_apply_to_live_score", False)):
+        cap = float(getattr(cfg, "pda_bonus_cap", 0.15))
+        pda_bonus = d["pda_total_score"].clip(upper=cap * d["score"].abs())
+        d["score"] = d["score"] + pda_bonus
 
 
 def compute_total_score(df: pd.DataFrame, cfg: EngineConfig, include_flow: bool = False) -> pd.Series:

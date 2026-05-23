@@ -1654,6 +1654,121 @@ def test_production_exact_banned_full_coverage() -> None:
 
 
 # ======================================================================
+# Plan C v3.5 / v3.6 — Kill switch regression tests
+# CODEX_HANDOFF_PLAN_C_V3_5_20260520.md §5.1 + §17
+# ======================================================================
+
+
+@_test("regression.plan_c_kill_switch_config_fields_present")
+def test_plan_c_kill_switch_fields_in_config() -> None:
+    """Plan C v3.5 — master switches must exist as config fields."""
+    src = _config_src()
+    required_fields = [
+        "sec_evidence_apply_to_live_score: bool = False",
+        "pda_apply_to_live_score: bool = False",
+        "sec_evidence_bonus_cap: float = 0.20",
+        "pda_bonus_cap: float = 0.15",
+        "w_pda_13f: float = 0.0",
+        "w_pda_form4: float = 0.0",
+        "w_pda_13d: float = 0.0",
+        "w_pda_etf: float = 0.0",
+        "crisis_governor_apply_to_live: bool = False",
+    ]
+    missing = [f for f in required_fields if f not in src]
+    assert not missing, (
+        f"Plan C v3.5 kill switch fields missing from r1000_config.py: {missing}. "
+        f"See CODEX_HANDOFF §5.1 + §17. Production safety depends on these "
+        f"defaulting OFF."
+    )
+
+
+@_test("regression.plan_c_pipeline_overlay_gated")
+def test_plan_c_pipeline_evidence_gate_present() -> None:
+    """Plan C v3.5 — pipeline must gate SEC overlay with kill switch."""
+    global _PIPELINE_SRC
+    if _PIPELINE_SRC is None:
+        _PIPELINE_SRC = PIPELINE_PATH.read_text(encoding="utf-8")
+    src = _PIPELINE_SRC
+    # The helper must exist
+    assert "_apply_evidence_kill_switch" in src, (
+        "r1000_pipeline.py missing _apply_evidence_kill_switch helper. "
+        "Phase C0.1 kill switch not wired."
+    )
+    # The kill-switch guard pattern must be present
+    assert 'getattr(cfg, "sec_evidence_apply_to_live_score", False)' in src, (
+        "r1000_pipeline.py missing sec_evidence_apply_to_live_score guard. "
+        "SEC overlay would be added to score unconditionally."
+    )
+    assert 'getattr(cfg, "pda_apply_to_live_score", False)' in src, (
+        "r1000_pipeline.py missing pda_apply_to_live_score guard."
+    )
+
+
+@_test("logic.plan_c_kill_switch_off_keeps_score_unchanged")
+def test_plan_c_kill_switch_off_no_score_change() -> None:
+    """Plan C v3.5 — with switch OFF, synthetic SEC overlay input must NOT
+    modify final score. Overlay columns are still computed for diagnostics.
+    """
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import _apply_evidence_kill_switch
+
+    df = pd.DataFrame({
+        "score": [1.0, 1.0],
+        "institutional_evidence_score": [0.8, 0.0],
+        "institutional_evidence_confidence_score": [1.0, 0.0],
+        "early_evidence_score": [0.5, 0.0],
+        "evidence_confidence_score": [1.0, 0.0],
+        "post_13f_alpha_score": [0.7, 0.0],
+        "post_form4_alpha_score": [0.6, 0.0],
+    })
+    cfg = EngineConfig()  # all switches default OFF
+    score_before = df["score"].copy()
+    _apply_evidence_kill_switch(df, cfg)
+    # Score is unchanged
+    assert (df["score"] == score_before).all(), (
+        f"score mutated despite kill switch OFF: "
+        f"before={score_before.tolist()}, after={df['score'].tolist()}"
+    )
+    # Diagnostic columns still populated
+    assert "score_sec_institutional_overlay" in df.columns
+    assert "pda_total_score" in df.columns
+
+
+@_test("logic.plan_c_kill_switch_on_applies_capped_overlay")
+def test_plan_c_kill_switch_on_caps_bonus() -> None:
+    """Plan C v3.5 — when switch ON, SEC bonus is added but clipped at cap."""
+    import pandas as pd
+    from r1000_config import EngineConfig
+    from r1000_pipeline import _apply_evidence_kill_switch
+
+    df = pd.DataFrame({
+        "score": [1.0],
+        "institutional_evidence_score": [0.8],
+        "institutional_evidence_confidence_score": [1.0],
+        "early_evidence_score": [0.5],
+        "evidence_confidence_score": [1.0],
+    })
+    # Manually construct cfg with switch ON + nonzero SEC weights
+    cfg = EngineConfig(
+        sec_evidence_apply_to_live_score=True,
+        sec_evidence_bonus_cap=0.20,
+    )
+    # Inject weights via attribute (since this branch may not have the
+    # w_sec_* fields baked in yet, _apply_evidence_kill_switch reads via getattr)
+    object.__setattr__(cfg, "w_sec_institutional_evidence", 0.30)
+    object.__setattr__(cfg, "w_sec_insider_evidence", 0.20)
+    _apply_evidence_kill_switch(df, cfg)
+    # Raw bonus would be 0.30*0.8 + 0.20*0.5 = 0.34, capped at 0.20*|1.0| = 0.20
+    assert df["score"].iloc[0] <= 1.0 + 0.20 + 1e-6, (
+        f"score exceeded cap: {df['score'].iloc[0]} > 1.20"
+    )
+    assert df["score"].iloc[0] >= 1.0 + 1e-9, (
+        f"score did not increase despite switch ON: {df['score'].iloc[0]}"
+    )
+
+
+# ======================================================================
 # main
 # ======================================================================
 
