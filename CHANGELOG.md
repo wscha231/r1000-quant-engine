@@ -51,6 +51,52 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-25
+
+### 00:36 KST - cold-run-broad-base-recovery
+
+- scope:
+  - Fix failed full rebuild `26363832855` where GitHub cold runner lost live broad-universe sources and continued with an overlay-only global-alpha universe, causing walk-forward training to generate zero OOS rows.
+- files:
+  - `r1000_pipeline.py` ->adds broad-base universe recovery from previous candidate cache and committed latest scored artifacts before ADR/cycle/hardware overlays can proceed, normalizes `cik10` before parquet export, and fails early with a clear error if no broad-base recovery exists.
+  - `.github/workflows/full_rebuild_manual.yml` ->uses overwrite mode when unzipping rclone so repeated restore/sync installs cannot block on an interactive prompt.
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->uses overwrite mode when unzipping rclone for the same non-interactive workflow safety.
+  - `tests/candidate_universe_fallback_smoke.py` ->adds regression coverage for committed latest broad-base recovery and overlay-only first-run fail-fast behavior.
+  - `tools/run_pr_validation.py` ->adds the candidate-universe fallback smoke test to fast validation.
+  - `CHANGELOG.md` ->records the CI failure fix and validation.
+- symbols_added:
+  - `_source_series(df: pd.DataFrame) -> pd.Series` ->normalizes the candidate universe source column for source-token checks.
+  - `_broad_base_universe_mask(df: pd.DataFrame) -> pd.Series` ->identifies rows justified by historical/current broad-base universe sources.
+  - `_has_broad_base_universe(df: pd.DataFrame) -> bool` ->checks whether a candidate frame includes any broad-base rows.
+  - `_requires_broad_base_universe(universe_mode: str) -> bool` ->defines which universe modes must not run overlay-only.
+  - `_previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame` ->recovers broad-base rows from the prior candidate cache.
+  - `_committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame` ->recovers broad-base rows from committed latest scored artifacts on cold GitHub runners.
+  - `_ensure_broad_base_universe(frames: list[pd.DataFrame], *, prev: pd.DataFrame, cfg: EngineConfig, paths: dict[str, Path], universe_mode: str) -> list[pd.DataFrame]` ->injects recovered broad-base rows or fails early before walk-forward.
+  - `test_committed_latest_recovery_keeps_only_broad_base_rows() -> None` ->verifies committed recovery excludes ADR/cycle overlay-only rows.
+  - `test_overlay_only_global_alpha_recovers_before_walkforward() -> None` ->verifies global-alpha overlay-only frames recover broad-base rows before training.
+  - `test_overlay_only_first_run_fails_clearly_without_recovery() -> None` ->verifies no-recovery first runs fail before walk-forward.
+- symbols_changed:
+  - `build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame` ->calls broad-base recovery after live broad source attempts and before curated overlays, and writes `cik10` as normalized strings.
+  - `DEFAULT_TESTS` ->includes `tests/candidate_universe_fallback_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `python tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python -m py_compile r1000_pipeline.py tests\candidate_universe_fallback_smoke.py` ->passed.
+  - `python tests\phase_g_liquidity_workflow_smoke.py` ->passed.
+  - `python tests\long_crisis_liquidity_smoke.py` ->passed.
+  - `python tests\smoke_test.py` ->passed, 103/103.
+  - `python tools\run_pr_validation.py --only candidate_universe_fallback --quiet` ->passed, 1/1.
+  - `python tools\run_pr_validation.py --quiet` ->passed, 55/55.
+  - `git diff --check` ->passed with line-ending warnings only.
+- risks_or_notes:
+  - This fix only gets the full rebuild past cold-run overlay-only universe construction; official CAGR/MDD still require a new successful full rebuild and subsequent broker-ledger replay.
+  - If committed latest scored artifacts are removed from the repository and live broad sources fail, the pipeline now fails early by design rather than producing invalid overlay-only walk-forward training.
+
 ## 2026-05-24
 
 ### 22:02 KST - phase-g-crisis-hold-replace-clean-port
