@@ -1735,6 +1735,262 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_f_g0a_pit_filter")
+def test_plan_c_f_g0a_pit() -> None:
+    """G0-A: candidates with available_from_ts > as_of_date must be filtered,
+    and candidates with missing available_from_ts must be ineligible when
+    as_of_date is provided. The 2026-05-24 review flagged this as the most
+    critical gap for Phase G broker-ledger integration."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    from r1000_hold_vs_replace import select_replacement_candidate
+
+    as_of = _pd.Timestamp("2024-06-30")
+    cands = _pd.DataFrame({
+        "ticker": ["FUTURE", "PAST", "TODAY", "NO_TS"],
+        "score_z": [3.0, 2.0, 1.5, 2.5],
+        "sector": ["x"] * 4,
+        "available_from_ts": [
+            _pd.Timestamp("2024-12-31"),  # future -> blocked
+            _pd.Timestamp("2024-06-29"),  # past -> eligible
+            _pd.Timestamp("2024-06-30"),  # exactly as_of -> eligible
+            _pd.NaT,                       # missing -> blocked when as_of given
+        ],
+    })
+    best = select_replacement_candidate(
+        held_score_z=0.0, candidates=cands, as_of_date=as_of, sector_policy="allow",
+    )
+    assert best is not None
+    assert best["ticker"] != "FUTURE", "PIT filter let a future candidate through"
+    assert best["ticker"] != "NO_TS", "missing-ts candidate must be ineligible under PIT"
+    assert best["ticker"] == "PAST", f"expected PAST (highest eligible), got {best['ticker']}"
+    # No as_of_date -> all eligible, FUTURE wins on score
+    best_no = select_replacement_candidate(
+        held_score_z=0.0, candidates=cands, sector_policy="allow",
+    )
+    assert best_no["ticker"] == "FUTURE"
+
+
+@_test("logic.plan_c_f_g0b_global_priority")
+def test_plan_c_f_g0b_priority() -> None:
+    """G0-B: replacement cap goes to the highest-priority position (broken +
+    heavy weight), NOT the first one in iteration order. Without this fix,
+    a small weakening position at the top of the holdings list would burn the
+    cap that should go to a big broken position lower down."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    from r1000_hold_vs_replace import evaluate_portfolio_holds_vs_replaces
+
+    holdings = _pd.DataFrame({
+        "ticker":        ["WEAK_SMALL_FIRST", "BROKEN_BIG_LAST"],
+        "current_price": [92.0, 75.0],
+        "entry_price":   [100.0, 100.0],
+        "weight":        [0.05, 0.40],
+        "score_z":       [0.5, 0.5],
+        "sector":        ["tech", "energy"],
+        "rs_rank":       [55, 40],
+        "ma200":         [90.0, 85.0],
+    })
+    strong = _pd.DataFrame({
+        "ticker": ["GOOD"], "score_z": [3.0], "sector": ["finance"],
+        "quality_growth_score": [0.9],
+    })
+    decs = evaluate_portfolio_holds_vs_replaces(
+        holdings, strong, max_replacements=1, sector_policy="allow",
+    )
+    replaced = decs[decs["action"] == "replace"]
+    assert len(replaced) == 1, f"expected exactly 1 replacement, got {len(replaced)}"
+    assert replaced["ticker"].iloc[0] == "BROKEN_BIG_LAST", (
+        f"global priority should pick BROKEN_BIG_LAST despite being later in "
+        f"input; got {replaced['ticker'].iloc[0]}"
+    )
+
+
+@_test("logic.plan_c_f_g0c_trim_sizing")
+def test_plan_c_f_g0c_sizing() -> None:
+    """G0-C: every output row must have trim_pct + weight_delta +
+    target_weight_after + cash_delta filled (the broker-ledger needs a
+    complete order book, not just an action label)."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    from r1000_hold_vs_replace import evaluate_portfolio_holds_vs_replaces
+
+    holdings = _pd.DataFrame({
+        "ticker":        ["WK", "BK"],
+        "current_price": [92.0, 75.0],
+        "entry_price":   [100.0, 100.0],
+        "weight":        [0.20, 0.30],
+        "score_z":       [1.5, 1.5],  # too high for weak cands to beat
+        "sector":        ["x", "x"],
+        "rs_rank":       [55, 40],
+        "ma200":         [90.0, 85.0],
+    })
+    weak_cands = _pd.DataFrame({
+        "ticker": ["LOW"], "score_z": [0.0], "sector": ["y"],
+        "quality_growth_score": [0.5],
+    })
+    decs = evaluate_portfolio_holds_vs_replaces(
+        holdings, weak_cands, crisis_zone="normal", sector_policy="allow",
+    )
+    required = {"trim_pct", "weight_delta", "target_weight_after", "cash_delta"}
+    missing = required - set(decs.columns)
+    assert not missing, f"sizing columns missing: {missing}"
+    wk = decs[decs["ticker"] == "WK"].iloc[0]
+    bk = decs[decs["ticker"] == "BK"].iloc[0]
+    # weakening + normal -> 25% trim
+    assert wk["action"] == "trim"
+    assert abs(wk["trim_pct"] - 0.25) < 1e-9
+    assert abs(wk["weight_delta"] - (-0.05)) < 1e-9
+    assert abs(wk["target_weight_after"] - 0.15) < 1e-9
+    assert abs(wk["cash_delta"] - 0.05) < 1e-9
+    # broken + normal -> 50% trim
+    assert bk["action"] == "trim"
+    assert abs(bk["trim_pct"] - 0.50) < 1e-9
+    assert abs(bk["weight_delta"] - (-0.15)) < 1e-9
+    assert abs(bk["target_weight_after"] - 0.15) < 1e-9
+
+
+@_test("logic.plan_c_f_g0d_sector_policy")
+def test_plan_c_f_g0d_sector_policy() -> None:
+    """G0-D: same-sector candidates should be allowed in normal mode
+    (so we can rotate to a stronger leader in the same sector), penalized
+    in crisis mode (lose 0.5 sigma), or blocked entirely if explicitly set."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    from r1000_hold_vs_replace import select_replacement_candidate
+
+    cands = _pd.DataFrame({
+        "ticker": ["SAME_STRONG", "OTHER_WEAK"],
+        "score_z": [2.0, 1.0],
+        "sector": ["tech", "finance"],
+        "quality_growth_score": [0.9, 0.85],
+    })
+    # Normal mode (default policy=allow) -> SAME_STRONG wins
+    b_normal = select_replacement_candidate(
+        held_score_z=0.0, candidates=cands, held_sector="tech", crisis_zone="normal",
+    )
+    assert b_normal["ticker"] == "SAME_STRONG", (
+        f"normal mode must ALLOW same-sector; got {b_normal['ticker']}"
+    )
+    # Crisis mode (default policy=block) -> OTHER_WEAK wins
+    b_crisis = select_replacement_candidate(
+        held_score_z=0.0, candidates=cands, held_sector="tech", crisis_zone="crisis",
+    )
+    assert b_crisis is None or b_crisis["ticker"] != "SAME_STRONG", (
+        f"crisis mode must block same-sector; got "
+        f"{b_crisis['ticker'] if b_crisis is not None else None}"
+    )
+    # Penalize policy: close scores can flip
+    close = _pd.DataFrame({
+        "ticker": ["SAME", "OTHER"],
+        "score_z": [1.2, 1.0],
+        "sector": ["tech", "finance"],
+        "quality_growth_score": [0.9, 0.9],
+    })
+    b_pen = select_replacement_candidate(
+        held_score_z=0.0, candidates=close, held_sector="tech",
+        crisis_zone="normal", sector_policy="penalize",
+    )
+    # SAME (1.2 - 0.5 = 0.7) vs OTHER (1.0) -> OTHER wins
+    assert b_pen["ticker"] == "OTHER", f"penalize should flip ranking; got {b_pen['ticker']}"
+
+
+@_test("logic.plan_c_f_g0e_missing_entry_price")
+def test_plan_c_f_g0e_data_quality() -> None:
+    """G0-E: positions with missing entry_price MUST be classified as
+    review_required (not silently dropped into neutral). The 2026-05-24
+    review flagged this as a hidden risk for broker-ledger replays where
+    avg_cost is sometimes unavailable."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    import numpy as _np
+    from r1000_hold_vs_replace import (
+        classify_position_state, evaluate_portfolio_holds_vs_replaces,
+    )
+    # Direct classifier
+    p1 = classify_position_state("X", current_price=100.0, entry_price=_np.nan)
+    assert p1.state == "review_required"
+    assert p1.data_quality_flag == "missing_entry_price"
+    p2 = classify_position_state("Y", current_price=100.0, entry_price=0.0)
+    assert p2.state == "review_required"
+    # Through batch evaluator
+    holdings = _pd.DataFrame({
+        "ticker":        ["MISSING", "OK"],
+        "current_price": [100.0, 110.0],
+        "entry_price":   [_np.nan, 100.0],
+        "weight":        [0.5, 0.5],
+        "score_z":       [0.0, 0.0],
+        "sector":        ["x", "x"],
+        "rs_rank":       [50, 70],
+        "ma200":         [95, 95],
+    })
+    decs = evaluate_portfolio_holds_vs_replaces(holdings, _pd.DataFrame(), crisis_zone="normal")
+    miss = decs[decs["ticker"] == "MISSING"].iloc[0]
+    assert miss["state"] == "review_required"
+    assert miss["action"] == "hold"
+    assert miss["data_quality_flag"] == "missing_entry_price"
+    assert "data_quality" in (miss["blocked_by"] or "")
+
+
+@_test("logic.plan_c_f_g0f_unified_zscore")
+def test_plan_c_f_g0f_unified_z() -> None:
+    """G0-F: candidate z-scores must be unified across smart_money + tenbagger
+    sources. The old per-source z-score made them non-comparable, e.g. SM's
+    raw=90 would tie with TB's raw=100 (both being source-max)."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("r1000_hold_vs_replace", "r1000_crisis_governor",
+                "run_hold_vs_replace_evaluator"):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    import pandas as _pd
+    from run_hold_vs_replace_evaluator import normalize_candidates
+
+    sm = _pd.DataFrame({
+        "ticker": ["SM_A", "SM_B", "SM_C"],
+        "composite_smart_money_score": [60, 75, 90],
+        "sector": ["t", "t", "t"],
+    })
+    tb = _pd.DataFrame({
+        "ticker": ["TB_A", "TB_B", "TB_C"],
+        "tenbagger_discovery_score": [10, 55, 100],
+        "sector": ["x", "x", "x"],
+    })
+    out = normalize_candidates(sm, tb)
+    assert "candidate_source" in out.columns
+    # Raw 100 (TB_C) must outrank raw 90 (SM_C) under unified z-score
+    top = out.sort_values("score_z", ascending=False).iloc[0]
+    sm_c = out[out["ticker"] == "SM_C"].iloc[0]
+    assert top["ticker"] == "TB_C", (
+        f"unified z-score should make TB_C (raw 100) > SM_C (raw 90), got {top['ticker']}"
+    )
+    assert top["score_z"] > sm_c["score_z"], "TB_C should have higher z than SM_C"
+
+
 @_test("logic.plan_c_f_hold_vs_replace_classifier")
 def test_plan_c_f_position_classifier() -> None:
     """Plan C v3.6 Phase F1 -- position state classifier covers all paths."""

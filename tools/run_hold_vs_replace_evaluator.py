@@ -166,11 +166,19 @@ def normalize_holdings(
 def normalize_candidates(
     smart_money: Optional[pd.DataFrame], tenbagger: Optional[pd.DataFrame]
 ) -> pd.DataFrame:
-    """Merge candidate pools into the F contract:
-    ticker, score_z, sector, quality_growth_score, available_from_ts
+    """Merge candidate pools into the F contract.
+
+    G0-F (calibration): concat raw scores from both sources FIRST, then
+    compute a single unified z-score across the merged pool. The previous
+    implementation z-scored each source locally and then concatenated, so
+    smart_money's 1.5sigma was not comparable to tenbagger's 1.5sigma.
+
+    Output columns:
+      ticker, score_z, sector, industry, quality_growth_score,
+      available_from_ts, candidate_source
     """
     frames = []
-    for src in (smart_money, tenbagger):
+    for source_label, src in (("smart_money", smart_money), ("tenbagger", tenbagger)):
         if src is None or src.empty:
             continue
         df = src.copy()
@@ -188,21 +196,32 @@ def normalize_candidates(
         )
         if score_col is None:
             continue
-        df["score_z"] = _zscore(df[score_col])
+        # Keep RAW score for now -- z-score happens on the combined pool below.
+        df["score_raw"] = pd.to_numeric(df[score_col], errors="coerce")
+        df["candidate_source"] = source_label
         if "sector" not in df.columns:
             df["sector"] = "unknown"
+        if "industry" not in df.columns:
+            df["industry"] = "unknown"
         if "quality_growth_score" not in df.columns:
             df["quality_growth_score"] = 0.5  # neutral assumption
         if "available_from_ts" not in df.columns:
             df["available_from_ts"] = pd.NaT
-        frames.append(df[["ticker", "score_z", "sector", "quality_growth_score",
-                          "available_from_ts"]])
+        frames.append(df[["ticker", "score_raw", "sector", "industry",
+                          "quality_growth_score", "available_from_ts",
+                          "candidate_source"]])
     if not frames:
         return pd.DataFrame()
-    out = pd.concat(frames, ignore_index=True)
-    # Deduplicate: keep highest score_z per ticker
-    out = out.sort_values("score_z", ascending=False).drop_duplicates("ticker", keep="first")
-    return out.reset_index(drop=True)
+    pooled = pd.concat(frames, ignore_index=True)
+    # G0-F: dedupe BEFORE unified z-score so duplicates don't skew the mean/std.
+    pooled = pooled.sort_values("score_raw", ascending=False).drop_duplicates(
+        "ticker", keep="first"
+    )
+    # Unified z-score across the merged pool (calibration step).
+    pooled["score_z"] = _zscore(pooled["score_raw"])
+    return pooled[["ticker", "score_z", "sector", "industry",
+                   "quality_growth_score", "available_from_ts",
+                   "candidate_source"]].reset_index(drop=True)
 
 
 def infer_crisis_zone(features: Optional[pd.DataFrame], cli_override: Optional[str]) -> str:
