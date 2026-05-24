@@ -96,6 +96,7 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/weekly_evaluation/",
         "outputs/theme_leadership_tape/",
         "outputs/theme_concentration_challenger/",
+        "outputs/evidence_discovery_universe",
         "outputs/auto_learning_v2/",
         "outputs/winner_lifecycle/",
         "outputs/winner_onset_study/",

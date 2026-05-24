@@ -186,7 +186,7 @@ jobs:
           GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
         run: |
           set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals outputs/evidence_discovery_universe data_pit/sec data_pit/etf_holdings
           MANIFEST="outputs/full_rebuild_logs/sec_evidence_restore_manifest.json"
           python - <<'PY' > "$MANIFEST"
           import json
@@ -245,6 +245,7 @@ jobs:
           restore_dir outputs/sec_ownership_signals
           restore_dir data_pit/sec
           restore_dir outputs/etf_thematic_signals
+          restore_dir outputs/evidence_discovery_universe
           restore_dir data_pit/etf_holdings
 
           python - <<PY > "$MANIFEST"
@@ -520,6 +521,7 @@ jobs:
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+          python tools/run_current_portfolio_status_report.py --latest-run outputs --output-dir outputs/current_portfolio_status 2>&1 | tee outputs/full_rebuild_logs/current_portfolio_status.log || true
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 
       - name: Upload artifact (logs + scored CSVs)
@@ -594,6 +596,7 @@ jobs:
             outputs/monster_recommendations/
             outputs/operating_snapshot/
             outputs/user_portfolio_reports/
+            outputs/current_portfolio_status/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
             outputs/governance_catalyst/
@@ -811,7 +814,7 @@ jobs:
           else
             echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
           fi
-          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
+          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports current_portfolio_status portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             else
@@ -1063,6 +1066,7 @@ jobs:
           copy_dir_clean outputs/monster_recommendations "$DEST/monster_recommendations"
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
+          copy_dir_clean outputs/current_portfolio_status "$DEST/current_portfolio_status"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
@@ -1082,6 +1086,7 @@ jobs:
           copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
           copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"
+          copy_dir_clean outputs/evidence_discovery_universe "$DEST/evidence_discovery_universe"
           copy_dir_clean outputs/auto_learning_v2 "$DEST/auto_learning_v2"
           copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
           copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"

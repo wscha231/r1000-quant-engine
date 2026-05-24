@@ -261,6 +261,10 @@ def parse_form4_index(
     d = index.copy()
     d["form_type"] = d.get("form_type", "").astype(str).str.upper().str.strip()
     d = d[d["form_type"].isin({"4", "4/A"})].copy()
+    if "accepted_at" in d.columns:
+        d["_accepted_at_ts"] = pd.to_datetime(d["accepted_at"], errors="coerce", utc=True)
+        d = d.sort_values(["_accepted_at_ts", "filing_date", "accession_number"], ascending=[False, False, False])
+        d = d.drop(columns=["_accepted_at_ts"])
     if max_filings and max_filings > 0:
         d = d.head(int(max_filings)).copy()
 

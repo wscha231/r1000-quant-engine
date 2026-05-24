@@ -236,6 +236,8 @@ def collect_filings_index(
     sleep_s: float = 0.12,
     safety_delay_hours: float = 0.0,
     max_tickers: int = 0,
+    shard_index: int = 0,
+    shard_count: int = 1,
 ) -> pd.DataFrame:
     ticker_map = load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh)
     if tickers:
@@ -247,6 +249,11 @@ def collect_filings_index(
         ticker_map["ticker"] = ticker_map["ticker"].astype(str).str.upper().str.strip()
         ticker_map["cik10"] = ticker_map["cik10"].map(cik10)
         ticker_map = ticker_map[ticker_map["cik10"].ne("")].drop_duplicates(["ticker", "cik10"], keep="last")
+    ticker_map = ticker_map.sort_values(["ticker", "cik10"]).reset_index(drop=True)
+    if shard_count and shard_count > 1:
+        if shard_index < 0 or shard_index >= shard_count:
+            raise ValueError(f"shard_index must be in [0, {shard_count - 1}], got {shard_index}")
+        ticker_map = ticker_map[ticker_map.index % int(shard_count) == int(shard_index)].copy()
     if max_tickers and max_tickers > 0:
         ticker_map = ticker_map.head(int(max_tickers)).copy()
 
@@ -341,6 +348,7 @@ def main() -> int:
     parser.add_argument("--tickers", default="", help="Comma-separated ticker list. Empty uses --universe-file.")
     parser.add_argument("--ciks", default="", help="Comma-separated CIKs or label:CIK pairs for non-ticker filers such as 13F managers.")
     parser.add_argument("--universe-file", default="outputs/scored_latest.csv")
+    parser.add_argument("--all-sec-tickers", action=argparse.BooleanOptionalAction, default=False, help="Ignore ticker/universe inputs and collect all SEC company_tickers issuers.")
     parser.add_argument("--forms", default=DEFAULT_FORMS)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--raw-dir", default=DEFAULT_RAW_DIR)
@@ -348,11 +356,13 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-tickers", type=int, default=0)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--safety-delay-hours", type=float, default=0.0)
     args = parser.parse_args()
 
     forms = [x.strip().upper() for x in args.forms.split(",") if x.strip()]
-    tickers = tickers_from_inputs(args.tickers, args.universe_file)
+    tickers = [] if bool(args.all_sec_tickers) else tickers_from_inputs(args.tickers, args.universe_file)
     cik_rows = cik_rows_from_inputs(args.ciks)
     frame = collect_filings_index(
         tickers=tickers,
@@ -364,6 +374,8 @@ def main() -> int:
         sleep_s=float(args.sleep),
         safety_delay_hours=float(args.safety_delay_hours),
         max_tickers=int(args.max_tickers),
+        shard_index=int(args.shard_index),
+        shard_count=int(args.shard_count),
     )
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))

@@ -51,7 +51,574 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-22
+
+### 16:58 KST - top-manager-13f-history-events
+
+- scope:
+  - Extend the top-manager 13F deep dive from latest-only review to historical period-by-period event output for post-disclosure learning.
+- files:
+  - `tools/run_top_manager_13f_deep_dive.py` ->adds historical all-period event generation, period ranking, period coverage output, and history-boundary handling so first observed holdings are not treated as normal first buys.
+  - `tests/top_manager_13f_deep_dive_smoke.py` ->covers historical event output, initial-position tagging, and historical artifact creation.
+  - `CHANGELOG.md` ->records the historical top-manager 13F event artifact.
+- symbols_added:
+  - `add_period_rank(frame)` ->adds per-report-period ranks to historical top-manager event rows.
+  - `period_coverage(frame)` ->summarizes manager count, row count, new/add rows, and theme rows by report period.
+- symbols_changed:
+  - `build_top_manager_deep_dive(holdings, managers, top_manager_count=10, latest_only=True)` ->supports all-period historical event generation when `latest_only=False`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/top_manager_13f_deep_dive/historical_events.csv` ->all available top-manager period events for research labeling.
+  - `outputs/top_manager_13f_deep_dive/historical_coverage.csv` ->period-level coverage summary for historical data health.
+  - `outputs/top_manager_13f_deep_dive/summary.json` ->now includes historical event counts, historical new/add counts, historical AI/theme rows, and historical period count.
+- validation:
+  - `py -3 tests\top_manager_13f_deep_dive_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --include top_manager_13f_deep_dive_smoke --quiet` ->PASS, 47/47.
+  - `py -3 tools\run_top_manager_13f_deep_dive.py --holdings _run_26270366305_artifacts\sec-13f-quarterly-26270366305\data_pit\sec\institutional_13f_holdings.parquet --managers research\sec_13f_manager_universe_20260519\managers.csv --output-dir _local_top_manager_13f_history_check --top-manager-count 10 --top-n 50` ->PASS, produced 8,567 historical rows across 7 periods with 2,889 new/add rows and 463 AI/theme rows.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no target book is changed.
+  - Current canonical 13F artifact only covers 2023Q4-2026Q1 overall, and top-manager historical coverage is materially useful from 2024Q4 onward; an 8-year historical 13F backfill remains a separate data task.
+
+### 15:34 KST - top-manager-13f-deep-dive
+
+- scope:
+  - Add a research-only top-manager 13F detail report to surface high-performing managers' latest new/add positions, including underfollowed AI infrastructure and crypto-power candidates.
+- files:
+  - `tools/run_top_manager_13f_deep_dive.py` ->builds detailed per-manager 13F latest-vs-prior position events, top-manager focus scores, theme buckets, and underfollowed top-manager pick flags.
+  - `.github/workflows/smart_money_top30_refresh.yml` ->runs the top-manager deep dive after smart-money and evidence-discovery outputs, then uploads and syncs `outputs/top_manager_13f_deep_dive`.
+  - `tests/top_manager_13f_deep_dive_smoke.py` ->covers manager selection, new/add event detection, AI/theme tagging, CLI output, and workflow wiring.
+  - `CHANGELOG.md` ->records the research-only top-manager deep-dive artifact.
+- symbols_added:
+  - `select_top_managers(managers, top_manager_count=10)` ->selects active verified high-priority/performance managers with Situational Awareness anchored first.
+  - `theme_bucket(ticker, issuer_name)` ->tags AI compute, semiconductors, power infrastructure, and crypto-compute evidence candidates.
+  - `build_top_manager_deep_dive(holdings, managers, top_manager_count=10)` ->builds latest-vs-prior 13F event rows and top-manager focus scores.
+  - `render_report(summary, top)` ->writes a compact Markdown report for the top-manager deep dive.
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/top_manager_13f_deep_dive/latest.csv` ->top ranked high-performing-manager new/add detail rows.
+  - `outputs/top_manager_13f_deep_dive/top_manager_13f_deep_dive.csv` ->full latest detail table for selected managers.
+  - `outputs/top_manager_13f_deep_dive/selected_managers.csv` ->selected top-manager control plane.
+  - `outputs/top_manager_13f_deep_dive/summary.json` ->research-only health summary.
+  - `outputs/top_manager_13f_deep_dive/report.md` ->human-readable top-30 report.
+- validation:
+  - `py -3 tests\top_manager_13f_deep_dive_smoke.py` ->PASS.
+  - `py -3 tests\smart_money_top30_smoke.py` ->PASS.
+  - `py -3 tests\evidence_discovery_universe_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --include top_manager_13f_deep_dive_smoke --include smart_money_top30_smoke --include evidence_discovery_universe_smoke --quiet` ->PASS, 49/49.
+  - `py -3 tools\run_top_manager_13f_deep_dive.py --holdings _verify_evidence_runs_26203207327_26203208369_26202905141\13f\sec-13f-quarterly-26203207327\data_pit\sec\institutional_13f_holdings.parquet --managers research\sec_13f_manager_universe_20260519\managers.csv --output-dir _local_top_manager_13f_deep_dive_check --top-manager-count 10 --top-n 50` ->PASS, selected 10 managers and produced 1,133 detail rows with 665 new/add rows.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no target book is changed.
+  - The selected manager list is a control-plane hypothesis using active/verified manager metadata and external performance notes; broker-ledger challenger validation is still required before any score promotion.
+
+### 14:29 KST - situational-ai-infra-cusip-overrides
+
+- scope:
+  - Add manual 13F CUSIP ticker overrides for Situational Awareness AI infrastructure, data-center supply-chain, and crypto-power names that were missing from the smart-money discovery universe.
+- files:
+  - `research/sec_13f_cusip_map_overrides.csv` ->adds overrides for CLSK, CORZ, TE, BITF, HIVE, BW, PUMP, SEI, GLW, ASML, BTDR, WYFI, SHAZ, CIFR, LITE, MOD, STX, and KRC.
+  - `CHANGELOG.md` ->records the mapping-only evidence coverage fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/cusip_ticker_map.parquet` ->will include these mappings after the next SEC 13F refresh rebuilds the canonical map.
+  - `outputs/evidence_discovery_universe/*` ->can include these names after the 13F refresh and smart-money refresh rerun.
+- validation:
+  - `py -3 tests\sec_13f_cusip_mapping_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_13f_cusip_mapping --quiet` ->PASS, 1/1.
+  - `py -3 tools\build_sec_13f_cusip_ticker_map.py --holdings _local_situational_mapping_check\situational_holdings_subset.parquet --manual-overrides research\sec_13f_cusip_map_overrides.csv --output _local_situational_mapping_check\cusip_ticker_map.parquet --csv-output _local_situational_mapping_check\cusip_ticker_map.csv --audit _local_situational_mapping_check\mapping_audit.json --unmapped _local_situational_mapping_check\unmapped.csv` ->PASS for the Situational subset, mapping 47/51 unique CUSIPs.
+- risks_or_notes:
+  - Research-only coverage fix. Production score switches remain off.
+  - The full local 13F map rebuild hit a Python memory limit in this desktop session, so the end-to-end canonical map should be rebuilt in GitHub Actions.
+
+### 00:49 KST - post-disclosure-satellite-style
+
+- scope:
+  - Add a research-only satellite selector after price-confirmed post-disclosure styles still failed to beat the future-heavy broker-ledger baseline in run `26233803713`.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds a future-heavy core plus one capped post-disclosure satellite slot, preserving the core selector instead of reordering the full book.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->prioritizes the satellite style in the end-to-end research grid.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->prioritizes the satellite style in the overlay challenger grid.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the satellite selector style and target-book output column.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the satellite style.
+  - `CHANGELOG.md` ->records the satellite-style experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_satellite"]` ->research selector preserving future-heavy core while allowing a capped post-disclosure satellite candidate.
+  - `select_satellite_targets(group, target_n, single_name_cap)` ->builds a future-heavy core plus one price-confirmed evidence satellite using same-date features only.
+- symbols_changed:
+  - `run_alpha_selector_broker_grid.build_target_book()` ->uses the satellite selector path for `future_heavy_post_disclosure_satellite`.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the satellite style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the satellite style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_satellite_*/target_book.csv` ->will include the `post_disclosure_satellite_slot` marker after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no default production target book is changed.
+  - Satellite weights can leave cash when the requested target count and single-name cap cannot sum to full exposure; this is intentional account-ledger behavior and should be inspected in broker-grid output.
+
+### 01:49 KST - post-disclosure-satellite-cash-drag-fix
+
+- scope:
+  - Fix mechanical cash drag in the satellite selector after run `26237194667` showed the `N3 cap0.33` concentrated satellite book left excessive cash because the satellite slot was hard-capped at 10%.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->sets satellite budget to the remaining core exposure up to the single-name cap and scales core weights only when the core would exceed the remaining budget.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->adds a tight-cap regression test proving the satellite selector can preserve near-full exposure with `target_n=3` and `single_name_cap=0.33`.
+  - `CHANGELOG.md` ->records the satellite cash-drag fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `select_satellite_targets(group, target_n, single_name_cap)` ->allocates satellite budget from remaining core capacity instead of using a fixed 10% sleeve.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_satellite_*/target_book.csv` ->satellite variants should show lower mechanical cash drag after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. This addresses target-book construction, not production scoring.
+  - Full exposure is still limited by single-name caps, available candidates, integer shares, and price-cache fillability.
+
+### 02:54 KST - optional-post-disclosure-satellite-style
+
+- scope:
+  - Add a stricter optional satellite research style after run `26240355322` showed the forced satellite selector still failed to beat the future-heavy broker-ledger baseline.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds an optional post-disclosure satellite style that keeps the future-heavy book when no strong, price-confirmed disclosure candidate passes the support gates.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds the optional satellite style to the end-to-end research grid defaults.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds the optional satellite style to the overlay challenger defaults.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers optional satellite gating and style output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the optional satellite style.
+  - `CHANGELOG.md` ->records the optional satellite experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_optional_satellite"]` ->research selector variant that only grants the satellite slot to strong supported disclosure candidates.
+- symbols_changed:
+  - `select_satellite_targets(group, target_n, single_name_cap, optional=False)` ->accepts optional gating for price-confirmed, strongly supported disclosure candidates with minimum core compatibility.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->routes `future_heavy_post_disclosure_optional_satellite` through the optional satellite selector path.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the optional satellite style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the optional satellite style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_optional_satellite_*/target_book.csv` ->will include optional satellite target books after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - The optional style may often collapse back to the future-heavy baseline when disclosure evidence is not strong enough; that is intentional to avoid forced replacement drag.
+
+### 03:55 KST - post-disclosure-event-recency-decay
+
+- scope:
+  - Add event recency decay after run `26243611843` showed optional satellite styles safely collapsed to the future-heavy baseline while signal-learning indicated disclosure edge is short-lived around the 63-day horizon.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->applies half-life recency weighting to 13F/Form4/ETF post-disclosure event scores before monthly candidate aggregation.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes the event half-life setting through the end-to-end post-disclosure pipeline.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers that stale disclosure events receive less weight than fresh events.
+  - `CHANGELOG.md` ->records the recency-decay experiment.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `event_features_by_date(events, candidate_dates, prefix, lookback_days, event_half_life_days=63.0)` ->weights event scores by age before aggregation.
+  - `add_post_disclosure_overlay(candidates, events_13f, events_form4, events_etf, lookback_days, event_half_life_days=63.0)` ->passes the half-life into event aggregation.
+  - `run_post_disclosure_overlay_challenger.run()` ->records and applies `event_half_life_days`.
+  - `run_post_disclosure_alpha_pipeline.run()` ->passes `event_half_life_days` into the overlay challenger step.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->will include recency-weighted post-disclosure scores after the next GitHub run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - The default half-life is 63 calendar days to align with observed post-disclosure signal-learning behavior; this should be treated as a research hypothesis until broker-ledger sidecar results improve.
+
+### 04:52 KST - tiny-post-disclosure-tiebreaker-style
+
+- scope:
+  - Add a very small post-disclosure tiebreaker style after recency decay brought the main micro overlay close to the future-heavy baseline without improving CAGR.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds a tiny post-disclosure tiebreaker style that keeps future-heavy weights nearly intact and adds only a 1% total disclosure nudge.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->adds the tiny tiebreaker style to the end-to-end research grid defaults.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds the tiny tiebreaker style to the overlay challenger defaults.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the tiny tiebreaker style and target-book output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers overlay handoff for the tiny tiebreaker style.
+  - `CHANGELOG.md` ->records the tiny tiebreaker experiment.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_tiny_tiebreaker"]` ->research selector variant for near-baseline future-heavy ranking with a minimal post-disclosure nudge.
+- symbols_changed:
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds the tiny tiebreaker style near the front of the default research-only grid.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->adds the tiny tiebreaker style near the front of the default research-only grid.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/future_heavy_post_disclosure_tiny_tiebreaker_*/target_book.csv` ->will include tiny tiebreaker target books after the next GitHub run.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no production default target book is changed.
+  - This is intentionally conservative; if it only reproduces the future-heavy baseline, the next priority should move from scoring tweaks to data coverage fixes such as ETF PIT history or price-cache restore coverage.
+
+### 10:20 KST - current-portfolio-status-report
+
+- scope:
+  - Add a user-facing reporting sidecar that extends existing broker-ledger current holdings to a requested latest close without changing targets or production scoring.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->runs the current portfolio status report after user portfolio reports, uploads it as a full-rebuild artifact, and syncs it to Google Drive.
+  - `tools/run_current_portfolio_status_report.py` ->fetches latest closes for current holdings, marks existing shares to market, extends equity curves, writes current holdings, performance windows, and a Markdown report.
+  - `tests/current_portfolio_status_report_smoke.py` ->covers synthetic mark-to-market extension, cash weight recalculation, and combined performance output.
+  - `tools/run_pr_validation.py` ->adds the current portfolio status smoke test to the default fast validation set.
+  - `CHANGELOG.md` ->records the current portfolio status sidecar.
+- symbols_added:
+  - `PortfolioExtension` ->typed payload for one portfolio's mark-to-market extension outputs.
+  - `default_requested_as_of()` ->chooses yesterday as the default requested close date.
+  - `fetch_yfinance_closes(tickers, start_date, end_date)` ->loads adjusted close history for current holdings.
+  - `scorecard_for_horizon(equity_curve, trades, label, offset)` ->computes return, CAGR, MaxDD, Sharpe, turnover, trades, fees, and cash by horizon.
+  - `build_scorecard(equity_curve, trades)` ->builds the standard 1M/3M/6M/1Y/2Y/FULL performance table.
+  - `build_price_panel(positions, price_history, source_date, requested_as_of)` ->aligns fetched prices to extension dates with stale-price carry-forward diagnostics.
+  - `extend_portfolio(latest_run, portfolio, requested_as_of_date, price_history)` ->extends one broker-ledger portfolio with no new trades.
+  - `render_report(summary, extensions)` ->renders the user-facing Markdown report.
+  - `build_report(args, price_loader=None)` ->runs the full reporting sidecar and writes CSV/JSON/Markdown artifacts.
+- symbols_changed:
+  - `run_pr_validation.DEFAULT_TESTS` ->includes `tests/current_portfolio_status_report_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/report.md` ->user-facing current portfolio report.
+  - `outputs/current_portfolio_status/performance_windows.csv` ->main/concentrated full and trailing horizon metrics.
+  - `outputs/current_portfolio_status/current_holdings_all.csv` ->main/concentrated current holdings plus cash.
+  - `outputs/current_portfolio_status/{main,concentrated}/equity_curve_mark_to_market.csv` ->broker-ledger equity curve extended by current-holdings mark-to-market.
+  - `gdrive:full_rebuild/current_portfolio_status/` ->will receive the same report on full-rebuild runs with Drive sync enabled.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS, 1/1.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. The sidecar holds existing shares constant after the source broker replay date and does not simulate new recommendations, new fills, or production score changes.
+  - The local full rebuild source currently ends on 2026-05-12, so the 2026-05-21 result is a mark-to-market extension rather than a new full data/rebalance run.
+
+### 10:29 KST - current-portfolio-mdd-dates
+
+- scope:
+  - Make repeated trailing-window MaxDD values explainable by adding peak/trough dates and equity values to the current portfolio status report.
+- files:
+  - `tools/run_current_portfolio_status_report.py` ->adds drawdown details to performance windows and renders MDD peak/trough dates in the Markdown report.
+  - `tests/current_portfolio_status_report_smoke.py` ->asserts MDD peak/trough columns are present in the combined performance output.
+  - `CHANGELOG.md` ->records the current portfolio status report transparency improvement.
+- symbols_added:
+  - `drawdown_details(window)` ->returns MaxDD plus peak/trough dates and equity values for a performance window.
+- symbols_changed:
+  - `scorecard_for_horizon(equity_curve, trades, label, offset)` ->includes `max_dd_peak_date`, `max_dd_trough_date`, `max_dd_peak_equity_usd`, and `max_dd_trough_equity_usd`.
+  - `render_report(summary, extensions)` ->shows MDD peak and trough dates in the performance table.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/performance_windows.csv` ->now includes MDD peak/trough date and equity columns.
+  - `outputs/current_portfolio_status/report.md` ->now shows MDD peak/trough dates beside each MaxDD.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS, 1/1.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. This does not change performance math, targets, trades, or production scoring.
+
+### 10:45 KST - current-target-projected-status
+
+- scope:
+  - Split the current portfolio status report into current broker holdings, latest target holdings, and projected-after-orders holdings so stale account state is not confused with target selection.
+- files:
+  - `tools/run_current_portfolio_status_report.py` ->adds target, projected-after-orders, and transition comparison CSVs plus Markdown sections for each portfolio.
+  - `tests/current_portfolio_status_report_smoke.py` ->covers target, projected-after-orders, and transition outputs.
+  - `CHANGELOG.md` ->records the current/target/projected reporting split.
+- symbols_added:
+  - `latest_price_from_history(ticker, price_history, requested_as_of, fallback)` ->looks up the latest available fetched close for reporting tables.
+  - `target_file_for_portfolio(portfolio)` ->selects the correct main or concentrated target file.
+  - `build_target_latest(latest_run, portfolio, evaluated_as_of, equity_usd, price_history)` ->builds latest target holdings with current prices and target values.
+  - `build_projected_latest(latest_run, portfolio, evaluated_as_of, price_history)` ->marks account-order-preview projected shares to the evaluated close.
+  - `build_transition_latest(portfolio, evaluated_as_of, current, target, projected, latest_run)` ->compares current, target, projected weights and order deltas by ticker.
+- symbols_changed:
+  - `PortfolioExtension` ->carries `target_latest`, `projected_latest`, and `transition_latest`.
+  - `extend_portfolio(latest_run, portfolio, requested_as_of_date, price_history)` ->builds target/projected/transition outputs alongside current holdings.
+  - `render_report(summary, extensions)` ->renders transition summary, target holdings, and projected-after-orders sections.
+  - `build_report(args, price_loader=None)` ->writes per-portfolio and combined target/projected/transition CSV artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/current_portfolio_status/{main,concentrated}/target_holdings_latest.csv` ->latest target weights and values.
+  - `outputs/current_portfolio_status/{main,concentrated}/projected_after_orders_latest.csv` ->order-preview projected holdings marked to evaluated close.
+  - `outputs/current_portfolio_status/{main,concentrated}/current_target_projected_transition.csv` ->current vs target vs projected comparison.
+  - `outputs/current_portfolio_status/current_target_projected_transition_all.csv` ->combined transition view.
+- validation:
+  - `py -3 tests\current_portfolio_status_report_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only current_portfolio_status --quiet` ->PASS.
+  - `py -3 tools\run_current_portfolio_status_report.py --latest-run cloud_results\full_rebuild\latest_global_alpha_universe --output-dir outputs\current_portfolio_status --as-of-date 2026-05-21` ->PASS.
+- risks_or_notes:
+  - Reporting-only. Projected-after-orders uses account-order-preview projected shares and marks them to the evaluated close; it is not a historical fill simulation.
+
+### 10:53 KST - form4-daily-mp-watch
+
+- scope:
+  - Ensure fresh MP and CLSK Form 4 events are included in the bounded daily SEC Form 4 watch set and make parser filing caps prioritize newest accepted filings.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->adds `MP` and `CLSK` to the scheduled/manual default issuer ticker set.
+  - `tools/run_sec_form4_parser.py` ->sorts Form 4 index rows by newest `accepted_at` before applying `--max-filings`.
+  - `tests/sec_form4_parser_smoke.py` ->covers that capped parsing keeps the newest accepted filing instead of alphabetical ticker order.
+  - `CHANGELOG.md` ->records the daily Form 4 coverage fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `parse_form4_index(index, raw_dir, user_agent=None, refresh=False, sleep_s=0.12, max_filings=0)` ->sorts by newest `accepted_at` before truncating.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_ownership_signals/` ->will include MP/CLSK Form 4 signals after the next successful scheduled/manual daily refresh if SEC accepted filings exist.
+- validation:
+  - `py -3 tests\sec_form4_parser_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_form4_parser --only workflow_artifact --quiet` ->PASS, 2/2.
+- risks_or_notes:
+  - Research-only. This broadens data collection coverage and does not activate SEC evidence in production score.
+
+### 10:59 KST - form4-all-sec-daily-mode
+
+- scope:
+  - Convert daily Form 4 refresh from a small hard-coded watchlist into an explicit all-SEC issuer monitoring mode with stable optional sharding.
+- files:
+  - `.github/workflows/sec_form4_daily_refresh.yml` ->defaults scheduled/manual runs to `all_sec_tickers=true`, `shard_count=1`, `max_tickers=0`, and `max_filings=2500`.
+  - `tools/run_sec_submissions_collector.py` ->adds `--all-sec-tickers`, `--shard-index`, and `--shard-count` for stable SEC company_tickers coverage.
+  - `tests/sec_cik_schema_smoke.py` ->covers deterministic all-issuer sharding behavior.
+  - `CHANGELOG.md` ->records the all-SEC daily Form 4 monitoring mode.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_filings_index(tickers, cik_rows, raw_dir, forms, user_agent=None, refresh=False, sleep_s=0.12, safety_delay_hours=0.0, max_tickers=0, shard_index=0, shard_count=1)` ->sorts issuer rows deterministically and applies optional stable sharding before collection.
+  - `run_sec_submissions_collector.main()` ->supports all-SEC monitoring and shard CLI flags.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/shards/daily_latest/sec_filings_index.*` ->will cover all SEC company_tickers issuers by default after the next daily Form 4 refresh.
+  - `data_pit/sec/form4_transactions.*` ->will merge new daily all-issuer Form 4 transactions into the canonical PIT lake after the next successful refresh.
+- validation:
+  - `py -3 tests\sec_cik_schema_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only sec_cik_schema --only workflow_artifact --quiet` ->PASS, 2/2.
+- risks_or_notes:
+  - Research-only. This improves fairness of evidence coverage and does not activate Form 4 evidence in production score.
+  - Runtime and SEC request volume increase materially; use `shard_count` or `max_tickers` if GitHub runtime or SEC fair-access behavior becomes a blocker.
+
 ## 2026-05-21
+
+### 18:33 KST - post-disclosure-discovery-broker-styles
+
+- scope:
+  - Wire top-fund first-buy, insider open-market-buy, and ETF new-inclusion evidence into research-only broker-ledger styles so the fused evidence system can produce separated CAGR/MaxDD ablations.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->aggregates 13F new/add events, Form 4 open-market purchase events, ETF inclusion/weight-increase events, size discovery score, discovery score, and mega-confirmation score by rebalance date.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `post_disclosure_discovery` and `post_disclosure_mega_confirmation` selector styles and carries their component scores into target-book outputs.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->includes the new discovery and mega-confirmation styles in the default post-disclosure style grid.
+  - `tools/run_post_disclosure_signal_learning.py` ->uses rank-based Pearson correlation for Spearman IC to avoid scipy/pandas hangs on tiny label samples.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the new broker-grid styles and target-book columns.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers event-type-specific aggregation and broker-grid handoff for discovery/confirmation styles.
+  - `CHANGELOG.md` ->records the discovery broker-style wiring.
+- symbols_added:
+  - `size_discovery_score(value)` ->scores small/mid discovery suitability in the overlay challenger.
+  - `mega_confirmation_size_score(value)` ->scores large/mega confirmation suitability in the overlay challenger.
+  - `STYLE_WEIGHTS["post_disclosure_discovery"]` ->selector style for top-fund new/add, Form 4 P-code, and ETF new/increase discovery.
+  - `STYLE_WEIGHTS["post_disclosure_mega_confirmation"]` ->selector style for large-cap evidence confirmation.
+  - `safe_spearman_ic(left, right)` ->manual rank-correlation helper for post-disclosure signal learning.
+- symbols_changed:
+  - `normalize_events()` ->preserves event type and optional event-strength fields for event-specific aggregation.
+  - `event_features_by_date()` ->emits `new_or_add`, `open_market_buy`, and `new_or_increase` aggregate columns.
+  - `add_post_disclosure_overlay()` ->emits `post_disclosure_discovery_score`, `post_disclosure_mega_confirmation_score`, and component scores.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->includes discovery/confirmation component scores in research target books.
+  - `signal_ic()` ->uses `safe_spearman_ic()` instead of pandas `method="spearman"`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/summary.csv` ->now includes discovery and mega-confirmation style rows when defaults are used.
+  - `outputs/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->now includes discovery/confirmation component columns.
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_signal_learning_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Local broker replay cannot produce CAGR/MaxDD without restored `cache_prices`; run the GitHub post-disclosure workflow after merge/push to get official sidecar metrics.
+  - Local full smoke was blocked by a Windows/Python 3.14 third-party import path (`catboost`/`sklearn` -> `platform` WMI lookup), not by the post-disclosure code path; CI/Linux validation should be used for the full gate.
+
+### 20:21 KST - post-disclosure-micro-tiebreaker-style
+
+- scope:
+  - Add a small capped post-disclosure tie-breaker style after the first broker-grid run showed standalone post-disclosure styles underperforming `future_heavy`.
+- files:
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `future_heavy_post_disclosure_micro`, preserving the `future_heavy` core while adding only 10% total PDA/discovery/mega evidence weight.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->includes the micro style in the default post-disclosure grid.
+  - `tools/run_post_disclosure_overlay_challenger.py` ->includes the micro style in the default overlay challenger grid.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers the micro style target-book output.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers the micro style broker-grid handoff.
+- symbols_added:
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_micro"]`
+- validation:
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+- risks_or_notes:
+  - This is still research-only; it is intended to test whether top-fund first-buy, Form 4 P-code, and ETF inclusion evidence works better as a tie-breaker than as the primary selector.
+
+### 21:26 KST - post-disclosure-13f-first-buy-surprise
+
+- scope:
+  - Narrow the 13F evidence path after broker-grid artifacts showed broad `new/add` events saturating too many candidates and weakening CAGR/MDD.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `pda_13f_first_buy_surprise_score` and count, using only non-boundary 13F `new` events weighted by manager conviction, position weight, and issuer impact.
+  - `tools/run_alpha_selector_broker_grid.py` ->uses first-buy surprise instead of broad `new/add` in discovery and micro tie-breaker styles.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers first-buy surprise aggregation and target-book output.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers first-buy surprise carry-through in alpha-selector target books.
+- symbols_added:
+  - `pda_13f_first_buy_surprise_score` ->narrow score for high-conviction non-boundary 13F first-buy events.
+  - `pda_13f_first_buy_surprise_count` ->count of qualifying 13F first-buy events in the lookback window.
+- symbols_changed:
+  - `normalize_events()` ->preserves `history_boundary` and computes per-event `first_buy_surprise_score` for 13F rows.
+  - `event_features_by_date()` ->emits first-buy surprise aggregate score and count.
+  - `add_post_disclosure_overlay()` ->weights discovery score toward first-buy surprise instead of broad new/add saturation.
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_micro"]` ->uses first-buy surprise as the 13F micro tie-breaker component.
+  - `STYLE_WEIGHTS["post_disclosure_discovery"]` ->uses first-buy surprise as the main 13F discovery component.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/candidate_replay_book_post_disclosure_enriched.csv` ->will include first-buy surprise columns after the next run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. This is a narrower follow-up to run `26222333129`, where standalone and micro post-disclosure overlays did not beat the future-heavy baseline.
+
+### 22:49 KST - post-disclosure-price-confirmed-style
+
+- scope:
+  - Add a stricter price-confirmed post-disclosure research style after run `26227123993` showed first-buy surprise and broad discovery evidence still trailing the future-heavy broker-ledger baseline.
+- files:
+  - `tools/run_post_disclosure_overlay_challenger.py` ->adds `post_disclosure_price_confirmation_score` and `post_disclosure_price_confirmed_score`, and prioritizes price-confirmed styles in the default overlay challenger grid.
+  - `tools/run_post_disclosure_alpha_pipeline.py` ->passes the price-confirmed styles through the end-to-end pipeline default style list.
+  - `tools/run_alpha_selector_broker_grid.py` ->adds `future_heavy_post_disclosure_confirmed` and `post_disclosure_price_confirmed` selector styles and carries price-confirmed scores into target-book outputs.
+  - `tests/post_disclosure_overlay_challenger_smoke.py` ->covers price-confirmed score creation and broker-grid handoff.
+  - `tests/alpha_selector_broker_grid_smoke.py` ->covers price-confirmed selector styles and target-book columns.
+- symbols_added:
+  - `post_disclosure_price_confirmation_score` ->same-date market confirmation blend used to gate post-disclosure evidence.
+  - `post_disclosure_price_confirmed_score` ->post-disclosure discovery score multiplied by price and RS confirmation.
+  - `STYLE_WEIGHTS["future_heavy_post_disclosure_confirmed"]` ->future-heavy micro style with a price-confirmed post-disclosure overlay.
+  - `STYLE_WEIGHTS["post_disclosure_price_confirmed"]` ->research selector style for evidence candidates with strong same-date price confirmation.
+- symbols_changed:
+  - `add_post_disclosure_overlay()` ->emits price-confirmation and price-confirmed post-disclosure scores.
+  - `run_alpha_selector_broker_grid.build_target_book()` ->includes price-confirmed score columns in research target books.
+  - `run_post_disclosure_overlay_challenger.parse_args()` ->prioritizes price-confirmed styles in the default research-only grid.
+  - `run_post_disclosure_alpha_pipeline.parse_args()` ->adds price-confirmed styles to the default research-only end-to-end pipeline.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_pipeline/post_disclosure_overlay_challenger/alpha_selector_broker_grid/*/summary.csv` ->will include price-confirmed style rows after the next GitHub run.
+- validation:
+  - `py -3 tests\post_disclosure_overlay_challenger_smoke.py` ->PASS.
+  - `py -3 tests\alpha_selector_broker_grid_smoke.py` ->PASS.
+  - `py -3 tests\post_disclosure_alpha_pipeline_smoke.py` ->PASS.
+  - `py -3 tools\run_pr_validation.py --only post_disclosure --only alpha_selector --quiet` ->PASS, 6/6.
+- risks_or_notes:
+  - Research-only. Production score switches remain off and no default production target book is changed.
+  - This tests whether 13F/Form 4/ETF evidence is useful only when confirmed by contemporaneous RS, market confirmation, and entry quality.
+
+### 16:24 KST - post-disclosure-discovery-buckets
+
+- scope:
+  - Split post-disclosure evidence candidates into small/mid discovery and mega-cap confirmation views so raw 13F/Form 4/ETF consensus does not rank only large-cap consensus names.
+- files:
+  - `tools/run_post_disclosure_alpha_candidates.py` ->adds market-cap buckets, discovery and mega-cap confirmation scores, bucket flags, and separate discovery/confirmation/convergence output files.
+  - `tests/post_disclosure_alpha_candidates_smoke.py` ->adds regression coverage proving a tradable small/mid event candidate surfaces in discovery output while a mega-cap peer remains in confirmation output.
+  - `CHANGELOG.md` ->records the post-disclosure discovery bucket split.
+- symbols_added:
+  - `market_cap_bucket(value)` ->classifies candidates as micro, small, mid, large, mega, or unknown.
+  - `size_discovery_score(value, min_market_cap_usd)` ->normalizes market cap for small/mid discovery ranking without rewarding untradable microcaps.
+  - `mega_cap_size_score(value)` ->normalizes market cap for large/mega confirmation ranking.
+  - `rank_view(candidates, columns, top_n)` ->writes alternate ranked candidate views from the full research-only candidate table.
+- symbols_changed:
+  - `attach_candidate_metadata()` ->adds `discovery_candidate_score`, `mega_cap_confirmation_score`, `candidate_bucket`, and bucket flags after tradability metadata is attached.
+  - `build_candidates()` ->returns full ranked candidate rows and reports discovery/confirmation counts while keeping latest output top-N semantics in `run()`.
+  - `render_report()` ->shows discovery score, mega-confirmation score, and bucket labels.
+  - `run()` ->writes `latest_discovery.csv`, `latest_mega_cap_confirmation.csv`, and `latest_convergence.csv` alongside `latest.csv`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/post_disclosure_alpha_candidates/latest_discovery.csv` ->small/mid discovery candidates ranked by discovery-specific score.
+  - `outputs/post_disclosure_alpha_candidates/latest_mega_cap_confirmation.csv` ->large/mega candidates ranked as confirmation signals rather than discovery ideas.
+  - `outputs/post_disclosure_alpha_candidates/latest_convergence.csv` ->candidates ranked by multi-source evidence convergence.
+- validation:
+  - `py -3 tests\post_disclosure_alpha_candidates_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 20/20.
+  - `py -3 tests\smoke_test.py` ->PASS, 103/103.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+  - local artifact replay on run `26207558262` with `--tradable-only` ->PASS, 218 tradable candidates, 116 discovery rows, 94 mega-confirmation rows.
+- risks_or_notes:
+  - This remains research-only and does not change production scoring, target books, or broker-ledger defaults.
+  - Discovery candidates still require broker-ledger ablation before any portfolio use.
 
 ### 14:29 KST - post-disclosure-tiebreaker-ablation
 

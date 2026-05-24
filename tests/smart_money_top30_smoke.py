@@ -179,6 +179,8 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
     assert "$BASEoutputs" not in workflow
     assert "${BASE}outputs/smart_money/" in workflow
+    assert "tools/build_evidence_discovery_universe.py" in workflow
+    assert "${BASE}outputs/evidence_discovery_universe/" in workflow
 
 
 def main() -> int:

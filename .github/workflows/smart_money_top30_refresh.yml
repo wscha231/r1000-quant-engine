@@ -93,10 +93,17 @@ jobs:
       - name: Build Smart Money Top 30
         run: |
           set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs outputs/smart_money
+          mkdir -p outputs/full_rebuild_logs outputs/smart_money outputs/evidence_discovery_universe
           python tools/run_smart_money_top30.py \
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_top30.log
+          python tools/build_evidence_discovery_universe.py \
+            --top-n 500 \
+            2>&1 | tee outputs/full_rebuild_logs/evidence_discovery_universe.log
+          python tools/run_top_manager_13f_deep_dive.py \
+            --top-manager-count 10 \
+            --top-n 200 \
+            2>&1 | tee outputs/full_rebuild_logs/top_manager_13f_deep_dive.log
 
       - name: Upload Smart Money artifact
         if: always()
@@ -105,7 +112,11 @@ jobs:
           name: smart-money-top30-${{ github.run_id }}
           path: |
             outputs/smart_money/
+            outputs/evidence_discovery_universe/
+            outputs/top_manager_13f_deep_dive/
             outputs/full_rebuild_logs/smart_money_top30.log
+            outputs/full_rebuild_logs/evidence_discovery_universe.log
+            outputs/full_rebuild_logs/top_manager_13f_deep_dive.log
           retention-days: 30
 
       - name: Sync Smart Money outputs to Google Drive
@@ -125,4 +136,10 @@ jobs:
           fi
           if [ -d outputs/smart_money ]; then
             rclone copy outputs/smart_money "${BASE}outputs/smart_money/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          fi
+          if [ -d outputs/evidence_discovery_universe ]; then
+            rclone copy outputs/evidence_discovery_universe "${BASE}outputs/evidence_discovery_universe/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          fi
+          if [ -d outputs/top_manager_13f_deep_dive ]; then
+            rclone copy outputs/top_manager_13f_deep_dive "${BASE}outputs/top_manager_13f_deep_dive/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           fi

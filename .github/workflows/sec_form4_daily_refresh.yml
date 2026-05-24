@@ -4,13 +4,29 @@ on:
   workflow_dispatch:
     inputs:
       tickers:
-        description: 'Comma-separated issuer tickers. Keep bounded for SEC fair access.'
+        description: 'Comma-separated issuer tickers used only when all_sec_tickers=false.'
         type: string
-        default: 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR'
+        default: ''
+      all_sec_tickers:
+        description: 'Monitor all SEC company_tickers issuers for fair Form 4 coverage.'
+        type: boolean
+        default: true
+      shard_index:
+        description: 'Stable issuer shard index for bounded all-SEC runs.'
+        type: string
+        default: '0'
+      shard_count:
+        description: 'Stable issuer shard count. Use 1 for all issuers in one run.'
+        type: string
+        default: '1'
+      max_tickers:
+        description: 'Optional cap after sharding. 0 means no cap.'
+        type: string
+        default: '0'
       max_filings:
         description: 'Max indexed Form 4 filings to parse in this shard'
         type: string
-        default: '500'
+        default: '2500'
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -134,21 +150,35 @@ jobs:
       - name: Collect and score Form 4
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
-          TICKERS: ${{ github.event.inputs.tickers || 'AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR' }}
-          MAX_FILINGS: ${{ github.event.inputs.max_filings || '500' }}
+          TICKERS: ${{ github.event.inputs.tickers || '' }}
+          ALL_SEC_TICKERS: ${{ github.event.inputs.all_sec_tickers || 'true' }}
+          SHARD_INDEX: ${{ github.event.inputs.shard_index || '0' }}
+          SHARD_COUNT: ${{ github.event.inputs.shard_count || '1' }}
+          MAX_TICKERS: ${{ github.event.inputs.max_tickers || '0' }}
+          MAX_FILINGS: ${{ github.event.inputs.max_filings || '2500' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_ownership_signals data_pit/sec data_raw/sec
+          COLLECT_ARGS=(
+            --forms '4,4/A'
+            --output-dir data_pit/sec/shards/daily_latest
+            --raw-dir data_raw/sec
+            --user-agent "$SEC_USER_AGENT"
+            --sleep 0.12
+            --safety-delay-hours "$SAFETY_DELAY_HOURS"
+            --shard-index "$SHARD_INDEX"
+            --shard-count "$SHARD_COUNT"
+            --max-tickers "$MAX_TICKERS"
+          )
+          if [ "$ALL_SEC_TICKERS" = "true" ]; then
+            COLLECT_ARGS+=(--all-sec-tickers)
+          else
+            COLLECT_ARGS+=(--tickers "$TICKERS" --universe-file ./.missing_universe.csv)
+          fi
+          echo "[form4] all_sec_tickers=$ALL_SEC_TICKERS shard=${SHARD_INDEX}/${SHARD_COUNT} max_tickers=$MAX_TICKERS max_filings=$MAX_FILINGS"
           python tools/run_sec_submissions_collector.py \
-            --tickers "$TICKERS" \
-            --universe-file ./.missing_universe.csv \
-            --forms '4,4/A' \
-            --output-dir data_pit/sec/shards/daily_latest \
-            --raw-dir data_raw/sec \
-            --user-agent "$SEC_USER_AGENT" \
-            --sleep 0.12 \
-            --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            "${COLLECT_ARGS[@]}" \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_submissions.log
           python tools/run_sec_form4_parser.py \
             --filings-index data_pit/sec/shards/daily_latest/sec_filings_index.parquet \

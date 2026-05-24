@@ -238,8 +238,116 @@ def test_post_disclosure_candidates_filter_to_tradable_metadata() -> None:
         assert bool(latest.loc[0, "tradable_candidate"]) is True
 
 
+def test_post_disclosure_candidates_split_discovery_from_mega_confirmation() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        events_13f = root / "data_pit" / "sec" / "13f_position_events.parquet"
+        events_form4 = root / "data_pit" / "sec" / "form4_transaction_events.parquet"
+        events_etf = root / "data_pit" / "etf_holdings" / "etf_holding_events.parquet"
+        manager_scores = root / "data_pit" / "sec" / "manager_disclosure_alpha_scores.parquet"
+        metadata = root / "scored_latest.csv"
+        out_dir = root / "outputs" / "post_disclosure_alpha_candidates"
+        for path in [events_13f, events_form4, events_etf, manager_scores]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            [
+                {
+                    "event_id": "13f:small",
+                    "ticker": "SMID",
+                    "source_type": "13f",
+                    "manager_cik": "0000000001",
+                    "manager_name": "High Alpha Manager",
+                    "event_type": "new",
+                    "post_disclosure_event_seed_score": 0.75,
+                    "available_from": "2024-05-01T21:00:00Z",
+                },
+                {
+                    "event_id": "13f:mega",
+                    "ticker": "MEGA",
+                    "source_type": "13f",
+                    "manager_cik": "0000000001",
+                    "manager_name": "High Alpha Manager",
+                    "event_type": "new",
+                    "post_disclosure_event_seed_score": 0.75,
+                    "available_from": "2024-05-01T21:00:00Z",
+                },
+            ]
+        ).to_parquet(events_13f, index=False)
+        pd.DataFrame(columns=["ticker", "available_from"]).to_parquet(events_form4, index=False)
+        pd.DataFrame(columns=["ticker", "available_from"]).to_parquet(events_etf, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "manager_cik": "0000000001",
+                    "manager_name": "High Alpha Manager",
+                    "as_of_date": "2024-04-15",
+                    "manager_disclosure_alpha_score": 0.80,
+                    "manager_confidence": 0.80,
+                }
+            ]
+        ).to_parquet(manager_scores, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "SMID",
+                    "market_cap_live": 1_500_000_000.0,
+                    "dollar_vol_20d": 25_000_000.0,
+                    "current_price_live": 12.0,
+                    "universe_source": "smoke",
+                    "ranking_eligible": True,
+                    "portfolio_future_winner_engine_score": 0.45,
+                    "selection_market_confirmation_score": 0.45,
+                },
+                {
+                    "ticker": "MEGA",
+                    "market_cap_live": 900_000_000_000.0,
+                    "dollar_vol_20d": 1_000_000_000.0,
+                    "current_price_live": 300.0,
+                    "universe_source": "smoke",
+                    "ranking_eligible": True,
+                    "portfolio_future_winner_engine_score": 0.75,
+                    "selection_market_confirmation_score": 0.75,
+                },
+            ]
+        ).to_csv(metadata, index=False)
+
+        payload = run(
+            Namespace(
+                events_13f=str(events_13f),
+                events_form4=str(events_form4),
+                events_etf=str(events_etf),
+                manager_scores=str(manager_scores),
+                metadata=str(metadata),
+                output_dir=str(out_dir),
+                as_of_date="2024-05-10",
+                lookback_days=60,
+                top_n=10,
+                tradable_only=True,
+                min_market_cap_usd=300_000_000.0,
+                min_dollar_volume_usd=5_000_000.0,
+                min_price=2.0,
+            )
+        )
+
+        assert payload["status"] == "completed", payload
+        discovery = pd.read_csv(out_dir / "latest_discovery.csv")
+        mega = pd.read_csv(out_dir / "latest_mega_cap_confirmation.csv")
+        assert discovery.loc[0, "ticker"] == "SMID"
+        assert discovery.loc[0, "candidate_bucket"] == "small_mid_discovery"
+        assert float(discovery.loc[0, "size_discovery_score"]) > float(
+            mega.loc[0, "size_discovery_score"]
+        )
+        assert mega.loc[0, "ticker"] == "MEGA"
+        assert mega.loc[0, "candidate_bucket"] == "mega_cap_confirmation"
+        summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+        assert summary["small_mid_discovery_rows"] >= 1
+        assert summary["mega_cap_confirmation_rows"] >= 1
+
+
 if __name__ == "__main__":
     test_post_disclosure_candidates_rank_converged_ticker()
     test_post_disclosure_candidates_block_without_events()
     test_post_disclosure_candidates_filter_to_tradable_metadata()
+    test_post_disclosure_candidates_split_discovery_from_mega_confirmation()
     print("post_disclosure_alpha_candidates_smoke: PASS")

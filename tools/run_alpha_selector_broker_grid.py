@@ -49,6 +49,76 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "industry_group_strength_score": 0.05,
         "score": 0.02,
     },
+    "future_heavy_post_disclosure_micro": {
+        "portfolio_future_winner_engine_score": 0.32,
+        "portfolio_early_scout_engine_score": 0.18,
+        "portfolio_monster_early_score": 0.18,
+        "h6_dynamic_leader_score": 0.09,
+        "rs_acceleration_score": 0.07,
+        "industry_group_strength_score": 0.04,
+        "post_disclosure_discovery_score": 0.04,
+        "post_disclosure_mega_confirmation_score": 0.03,
+        "score": 0.02,
+        "pda_13f_first_buy_surprise_score": 0.01,
+        "pda_form4_open_market_buy_score": 0.01,
+        "pda_etf_new_or_increase_score": 0.01,
+    },
+    "future_heavy_post_disclosure_tiny_tiebreaker": {
+        "portfolio_future_winner_engine_score": 0.345,
+        "portfolio_early_scout_engine_score": 0.198,
+        "portfolio_monster_early_score": 0.198,
+        "h6_dynamic_leader_score": 0.10,
+        "rs_acceleration_score": 0.08,
+        "industry_group_strength_score": 0.05,
+        "score": 0.019,
+        "post_disclosure_price_confirmed_score": 0.004,
+        "pda_13f_first_buy_surprise_score": 0.003,
+        "pda_form4_open_market_buy_score": 0.003,
+    },
+    "future_heavy_post_disclosure_confirmed": {
+        "portfolio_future_winner_engine_score": 0.30,
+        "portfolio_early_scout_engine_score": 0.17,
+        "portfolio_monster_early_score": 0.17,
+        "selection_market_confirmation_score": 0.10,
+        "rs_acceleration_score": 0.08,
+        "industry_group_strength_score": 0.05,
+        "entry_quality_score": 0.04,
+        "post_disclosure_price_confirmed_score": 0.04,
+        "post_disclosure_discovery_score": 0.02,
+        "pda_13f_first_buy_surprise_score": 0.01,
+        "pda_form4_open_market_buy_score": 0.01,
+        "pda_etf_new_or_increase_score": 0.01,
+    },
+    "future_heavy_post_disclosure_satellite": {
+        "portfolio_future_winner_engine_score": 0.30,
+        "portfolio_early_scout_engine_score": 0.17,
+        "portfolio_monster_early_score": 0.17,
+        "h6_dynamic_leader_score": 0.08,
+        "selection_market_confirmation_score": 0.07,
+        "rs_acceleration_score": 0.06,
+        "industry_group_strength_score": 0.04,
+        "entry_quality_score": 0.03,
+        "post_disclosure_price_confirmed_score": 0.03,
+        "post_disclosure_discovery_score": 0.02,
+        "pda_13f_first_buy_surprise_score": 0.01,
+        "pda_form4_open_market_buy_score": 0.01,
+        "pda_etf_new_or_increase_score": 0.01,
+    },
+    "future_heavy_post_disclosure_optional_satellite": {
+        "portfolio_future_winner_engine_score": 0.30,
+        "portfolio_early_scout_engine_score": 0.17,
+        "portfolio_monster_early_score": 0.17,
+        "h6_dynamic_leader_score": 0.08,
+        "selection_market_confirmation_score": 0.07,
+        "rs_acceleration_score": 0.06,
+        "industry_group_strength_score": 0.04,
+        "entry_quality_score": 0.03,
+        "post_disclosure_price_confirmed_score": 0.03,
+        "post_disclosure_discovery_score": 0.02,
+        "pda_13f_first_buy_surprise_score": 0.01,
+        "pda_form4_open_market_buy_score": 0.01,
+        "pda_etf_new_or_increase_score": 0.01,
+    },
     "monster_heavy": {
         "portfolio_monster_early_score": 0.30,
         "portfolio_future_winner_engine_score": 0.25,
@@ -124,6 +194,42 @@ STYLE_WEIGHTS: dict[str, dict[str, float]] = {
         "pda_13f_event_score": 0.01,
         "pda_form4_event_score": 0.01,
         "pda_etf_event_score": 0.01,
+    },
+    "post_disclosure_discovery": {
+        "post_disclosure_discovery_score": 0.24,
+        "portfolio_future_winner_engine_score": 0.18,
+        "selection_market_confirmation_score": 0.14,
+        "pda_13f_first_buy_surprise_score": 0.10,
+        "pda_form4_open_market_buy_score": 0.10,
+        "pda_etf_new_or_increase_score": 0.08,
+        "pda_size_discovery_score": 0.06,
+        "rs_acceleration_score": 0.04,
+        "industry_group_strength_score": 0.03,
+        "entry_quality_score": 0.03,
+    },
+    "post_disclosure_price_confirmed": {
+        "post_disclosure_price_confirmed_score": 0.24,
+        "selection_market_confirmation_score": 0.20,
+        "portfolio_future_winner_engine_score": 0.18,
+        "rs_acceleration_score": 0.12,
+        "entry_quality_score": 0.08,
+        "pda_13f_first_buy_surprise_score": 0.06,
+        "pda_form4_open_market_buy_score": 0.05,
+        "pda_etf_new_or_increase_score": 0.03,
+        "industry_group_strength_score": 0.03,
+        "pda_negative_event_score": -0.01,
+    },
+    "post_disclosure_mega_confirmation": {
+        "portfolio_future_winner_engine_score": 0.28,
+        "selection_market_confirmation_score": 0.18,
+        "post_disclosure_mega_confirmation_score": 0.16,
+        "post_disclosure_alpha_score": 0.10,
+        "pda_13f_event_score": 0.07,
+        "pda_form4_event_score": 0.06,
+        "pda_etf_event_score": 0.05,
+        "rs_acceleration_score": 0.04,
+        "industry_group_strength_score": 0.04,
+        "entry_quality_score": 0.02,
     },
     "post_disclosure_light": {
         "portfolio_future_winner_engine_score": 0.30,
@@ -366,6 +472,65 @@ def capped_score_weights(scores: pd.Series, cap: float) -> np.ndarray:
     return weights
 
 
+def select_satellite_targets(
+    group: pd.DataFrame,
+    target_n: int,
+    single_name_cap: float,
+    *,
+    optional: bool = False,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """Select a mostly future-heavy book with one capped post-disclosure satellite.
+
+    Prior broker-grid runs showed post-disclosure evidence degrades results
+    when it reorders the whole book. This selector keeps the future-heavy core
+    intact and gives only one slot to a price-confirmed evidence candidate.
+    """
+    g = group.copy()
+    g["core_score"] = score_candidates(g, "future_heavy")
+    g["evidence_score"] = score_candidates(g, "post_disclosure_price_confirmed")
+    evidence_signal = (
+        (numeric(g, "post_disclosure_price_confirmed_score", 0.0) > 0.05)
+        | (numeric(g, "pda_13f_first_buy_surprise_score", 0.0) > 0.05)
+        | (numeric(g, "pda_form4_open_market_buy_score", 0.0) > 0.05)
+        | (numeric(g, "pda_etf_new_or_increase_score", 0.0) > 0.05)
+    )
+    if optional:
+        price_confirmed = numeric(g, "post_disclosure_price_confirmed_score", 0.0) >= 0.35
+        price_confirmation = numeric(g, "post_disclosure_price_confirmation_score", 0.0) >= 0.35
+        strong_disclosure = (
+            (numeric(g, "pda_13f_first_buy_surprise_score", 0.0) >= 0.45)
+            | (numeric(g, "pda_form4_open_market_buy_score", 0.0) >= 0.35)
+            | (numeric(g, "pda_etf_new_or_increase_score", 0.0) >= 0.35)
+        )
+        core_floor = g["core_score"] >= float(g["core_score"].quantile(0.50))
+        evidence_signal = evidence_signal & price_confirmed & price_confirmation & strong_disclosure & core_floor
+    core_n = max(1, int(target_n) - 1)
+    core = g.sort_values("core_score", ascending=False).head(core_n).copy()
+    satellite_pool = g[~g["ticker"].isin(set(core["ticker"])) & evidence_signal].copy()
+    satellite = satellite_pool.sort_values("evidence_score", ascending=False).head(1).copy()
+    if satellite.empty:
+        selected = g.sort_values("core_score", ascending=False).head(int(target_n)).copy()
+        selected["alpha_selector_score"] = selected["core_score"]
+        selected["post_disclosure_satellite_slot"] = False
+        return selected, capped_score_weights(selected["alpha_selector_score"], single_name_cap)
+
+    core["alpha_selector_score"] = core["core_score"]
+    core["post_disclosure_satellite_slot"] = False
+    satellite["alpha_selector_score"] = satellite["evidence_score"]
+    satellite["post_disclosure_satellite_slot"] = True
+    selected = pd.concat([core, satellite], ignore_index=True)
+    cap = max(0.01, min(1.0, float(single_name_cap)))
+    target_satellite_budget = max(0.10, 1.0 - (len(core) * cap))
+    satellite_budget = min(cap, max(0.01, target_satellite_budget))
+    core_budget = max(0.0, 1.0 - satellite_budget)
+    core_weights = capped_score_weights(core["alpha_selector_score"], cap)
+    core_sum = float(core_weights.sum())
+    if core_sum > core_budget > 0:
+        core_weights = core_weights * (core_budget / core_sum)
+    weights = np.concatenate([core_weights, np.array([satellite_budget], dtype=float)])
+    return selected, weights
+
+
 def build_target_book(
     candidates: pd.DataFrame,
     *,
@@ -384,10 +549,18 @@ def build_target_book(
         mask = mask & d.get("price_cache_tradeable", pd.Series(False, index=d.index)).astype(bool)
     rows: list[dict[str, Any]] = []
     for dt, group in d[mask].groupby("rebalance_date", sort=True):
-        selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
+        if style in {"future_heavy_post_disclosure_satellite", "future_heavy_post_disclosure_optional_satellite"}:
+            selected, weights = select_satellite_targets(
+                group,
+                int(target_n),
+                float(single_name_cap),
+                optional=style == "future_heavy_post_disclosure_optional_satellite",
+            )
+        else:
+            selected = group.sort_values("alpha_selector_score", ascending=False).head(int(target_n)).copy()
+            weights = capped_score_weights(selected["alpha_selector_score"], single_name_cap) if not selected.empty else np.array([], dtype=float)
         if selected.empty:
             continue
-        weights = capped_score_weights(selected["alpha_selector_score"], single_name_cap)
         for (_, row), weight in zip(selected.iterrows(), weights):
             rows.append(
                 {
@@ -409,9 +582,23 @@ def build_target_book(
                     "smart_money_evidence_source_count": safe_float(row.get("smart_money_evidence_source_count")),
                     "evidence_fusion_score": safe_float(row.get("evidence_fusion_score")),
                     "post_disclosure_alpha_score": safe_float(row.get("post_disclosure_alpha_score")),
+                    "post_disclosure_discovery_score": safe_float(row.get("post_disclosure_discovery_score")),
+                    "post_disclosure_mega_confirmation_score": safe_float(row.get("post_disclosure_mega_confirmation_score")),
+                    "post_disclosure_price_confirmation_score": safe_float(row.get("post_disclosure_price_confirmation_score")),
+                    "post_disclosure_price_confirmed_score": safe_float(row.get("post_disclosure_price_confirmed_score")),
+                    "post_disclosure_satellite_slot": bool(row.get("post_disclosure_satellite_slot", False)),
+                    "pda_size_discovery_score": safe_float(row.get("pda_size_discovery_score")),
                     "pda_13f_event_score": safe_float(row.get("pda_13f_event_score")),
+                    "pda_13f_new_or_add_score": safe_float(row.get("pda_13f_new_or_add_score")),
+                    "pda_13f_new_or_add_count": safe_float(row.get("pda_13f_new_or_add_count")),
+                    "pda_13f_first_buy_surprise_score": safe_float(row.get("pda_13f_first_buy_surprise_score")),
+                    "pda_13f_first_buy_surprise_count": safe_float(row.get("pda_13f_first_buy_surprise_count")),
                     "pda_form4_event_score": safe_float(row.get("pda_form4_event_score")),
+                    "pda_form4_open_market_buy_score": safe_float(row.get("pda_form4_open_market_buy_score")),
+                    "pda_form4_open_market_buy_count": safe_float(row.get("pda_form4_open_market_buy_count")),
                     "pda_etf_event_score": safe_float(row.get("pda_etf_event_score")),
+                    "pda_etf_new_or_increase_score": safe_float(row.get("pda_etf_new_or_increase_score")),
+                    "pda_etf_new_or_increase_count": safe_float(row.get("pda_etf_new_or_increase_count")),
                     "pda_event_convergence_score": safe_float(row.get("pda_event_convergence_score")),
                     "pda_negative_event_score": safe_float(row.get("pda_negative_event_score")),
                     "sec_13f_manager_count": safe_float(row.get("sec_13f_manager_count")),
