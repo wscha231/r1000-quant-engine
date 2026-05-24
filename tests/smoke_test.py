@@ -1735,6 +1735,86 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_e7_governor_replay_reduces_mdd")
+def test_plan_c_e7_governor_replay() -> None:
+    """Plan C v3.6 Phase E7 -- counterfactual replay reduces MDD without
+    sacrificing CAGR (CAGR-preserving target). Synthetic equity curve
+    with embedded 2020-style crisis."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("r1000_crisis_governor", "run_crisis_governor_replay"):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    from run_crisis_governor_replay import (
+        compute_governed_curve, stress_window_metrics, STRESS_WINDOWS,
+    )
+    import pandas as _pd
+    import numpy as _np
+
+    dates = _pd.date_range("2019-01-01", periods=72, freq="ME")
+    returns = _np.random.RandomState(42).normal(0.012, 0.04, len(dates))
+    returns[14] = -0.15  # 2020 crash months
+    returns[15] = -0.08
+    returns[16] = 0.10   # rebound
+    returns[17] = 0.08
+    eq_df = _pd.DataFrame({
+        "rebalance_date": dates,
+        "net_return": returns,
+        "cash_weight": _np.full(len(dates), 0.08),
+    })
+
+    feat_dates = _pd.date_range("2019-01-01", periods=2000, freq="D")
+    crisis_score = _np.zeros(len(feat_dates))
+    crisis_score[400:500] = 0.85
+    features = _pd.DataFrame({
+        "crisis_score": crisis_score,
+        "vix_zscore_60d": _np.where(crisis_score > 0.5, 3.0, 0.2),
+        "qqq_close": 100.0, "qqq_ma20": 95.0, "qqq_ma50": 98.0,
+        "spy_20d_dd": _np.where(crisis_score > 0.5, -0.25, 0.0),
+        "hy_oas_zscore_60d": _np.where(crisis_score > 0.5, 2.5, 0.0),
+        "spy_5d_dd": _np.where(crisis_score > 0.5, -0.10, 0.0),
+    }, index=feat_dates)
+
+    governed, summary = compute_governed_curve(
+        eq_df, features, "rebalance_date", "net_return", "cash_weight", "main"
+    )
+    # CAGR-preserving requirement: governor must NOT hurt CAGR
+    assert summary["governed_cagr"] >= summary["original_cagr"] - 0.005, (
+        f"governor sacrificed CAGR: orig={summary['original_cagr']:.4f} "
+        f"-> gov={summary['governed_cagr']:.4f}"
+    )
+    # MDD reduction requirement (more positive = less negative)
+    assert summary["governed_mdd"] > summary["original_mdd"] + 0.03, (
+        f"governor failed to reduce MDD by >=3pp: orig={summary['original_mdd']:.4f} "
+        f"-> gov={summary['governed_mdd']:.4f}"
+    )
+    # Normal-zone cash discipline: governed avg cash should NOT exceed original
+    # by more than a small margin (CAGR-preserving = no permanent drag)
+    assert summary["governed_avg_cash"] <= summary["original_avg_cash"] + 0.02, (
+        f"governor permanently raised cash: orig={summary['original_avg_cash']:.4f} "
+        f"-> gov={summary['governed_avg_cash']:.4f}"
+    )
+    # Crisis window: cash MUST rise above original during the crisis months
+    crisis_mask = (
+        (governed["rebalance_date"] >= "2020-02-01")
+        & (governed["rebalance_date"] <= "2020-04-30")
+    )
+    crisis_rows = governed.loc[crisis_mask]
+    assert (crisis_rows["governed_cash_weight"] > crisis_rows["original_cash_weight"]).all(), (
+        "governed cash never raised during 2020 crisis"
+    )
+    # Stress window per-event metric
+    sw = stress_window_metrics(governed, "rebalance_date", STRESS_WINDOWS)
+    covid_row = sw[sw["window"] == "covid_shock_2020"].iloc[0]
+    assert covid_row["delta_mdd_pp"] > 1.0, (
+        f"COVID stress window expected MDD improvement >=1pp, got {covid_row['delta_mdd_pp']:.2f}"
+    )
+
+
 @_test("logic.plan_c_e5_e6_governor_ladders")
 def test_plan_c_e5_e6_governor() -> None:
     """Plan C v3.6 Phase E5+E6 -- exposure + re-entry ladders behave correctly."""
