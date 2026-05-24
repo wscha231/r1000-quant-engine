@@ -1735,6 +1735,59 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_e2_crisis_signal_pit_safe")
+def test_plan_c_e2_crisis_signals_pit() -> None:
+    """Plan C v3.6 Phase E2 -- crisis_score is PIT-safe and rises during crisis."""
+    import sys as _sys
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("run_crisis_signal_builder",):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    from run_crisis_signal_builder import (
+        compute_market_trend_features,
+        compute_volatility_features,
+        compute_credit_features,
+        compute_composite_crisis_score,
+    )
+    import pandas as _pd
+    import numpy as _np
+
+    dates = _pd.date_range("2019-01-01", periods=400, freq="D")
+    spy = _np.linspace(280.0, 350.0, 400)
+    # Inject COVID-like crash days 200-230
+    for i in range(200, 230):
+        spy[i] = 350.0 * (1.0 - 0.30 * ((i - 200) / 30.0))
+    spy_s = _pd.Series(spy, index=dates)
+    qqq_s = _pd.Series(spy * 0.95, index=dates)
+
+    vix = _np.full(400, 18.0)
+    vix[200:230] = _np.linspace(20, 80, 30)
+    vix_s = _pd.Series(vix, index=dates)
+    hy = _np.full(400, 400.0)
+    hy[200:230] = _np.linspace(400, 1000, 30)
+    hy_s = _pd.Series(hy, index=dates)
+
+    trend = compute_market_trend_features(spy_s, qqq_s)
+    vol = compute_volatility_features(vix_s, trend.index)
+    credit = compute_credit_features(hy_s, trend.index)
+    features = _pd.concat([trend, vol, credit], axis=1)
+    features["crisis_score"] = compute_composite_crisis_score(features)
+
+    assert features.iloc[50]["crisis_score"] < 0.30, (
+        f"normal market crisis_score should be low: {features.iloc[50]['crisis_score']}"
+    )
+    assert features.iloc[225]["crisis_score"] > 0.45, (
+        f"crisis peak crisis_score should be elevated: {features.iloc[225]['crisis_score']}"
+    )
+    # PIT safety: truncated history gives identical score at past dates
+    truncated = features.iloc[:226]
+    trunc_score = compute_composite_crisis_score(truncated)
+    diff = abs(trunc_score.iloc[225] - features.iloc[225]["crisis_score"])
+    assert diff < 1e-9, f"PIT violation: score at T uses future data (diff={diff})"
+
+
 @_test("logic.plan_c_e1_drawdown_segment_classifier")
 def test_plan_c_e1_drawdown_classifier() -> None:
     """Plan C v3.6 Phase E1 — drawdown segment classifier distinguishes
