@@ -15,3 +15,6 @@ aggressive/cache/
 # ---- Runtime caches (regenerated, do not commit) ----
 outputs/regime_snapshot_cache.json
 outputs/live_extension/
+outputs/crisis_governor_replay/
+outputs/crisis_signals/
+outputs/drawdown_segments/
