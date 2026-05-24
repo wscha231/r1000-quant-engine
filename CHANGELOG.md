@@ -131,6 +131,65 @@ All entries must be written in English. Entries must be predictable and machine-
   - G2 creates replayable target books, but real promotion still requires full data artifacts, cost sensitivity, stress-window comparison, and human approval.
   - No production defaults or live score switches are changed.
 
+### 23:04 KST - long-crisis-liquidity-governor
+
+- scope:
+  - Add research-only 1990+ long crisis/liquidity learning, cash-drag hard gating, shakeout protection, and a GitHub Actions replay workflow that combines SEC evidence, long crisis learning, and Phase G broker-ledger replay.
+- files:
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->adds manual artifact-only automation for SEC evidence, long crisis/liquidity learning, crisis-governed target books, broker replay, cost sensitivity, overlap skip reporting, and Google Drive sync.
+  - `r1000_long_crisis_liquidity.py` ->adds pure helpers for long crisis feature construction, liquidity confirmation scoring, drawdown labels, cash hard-gate decisions, AUC ranking, and threshold evaluation.
+  - `r1000_hold_vs_replace.py` ->adds shakeout guard logic so evidence-backed leaders can be trimmed but not replaced or sold to cash when systemic confirmation is absent.
+  - `tools/build_crisis_governed_target_books.py` ->adds learned governor mode, optional threshold JSON loading, and cash hard-gate metadata to G2 target-book materialization.
+  - `tools/run_long_crisis_dataset_builder.py` ->adds the 1990+ research dataset builder for market, VIX, credit, rates, M2, Fed assets, reverse repo, TGA, DXY, and future drawdown labels.
+  - `tools/run_long_crisis_signal_learning.py` ->adds feature ranking against future drawdown labels.
+  - `tools/run_long_crisis_threshold_search.py` ->adds conservative threshold search with signal-rate and false-positive gates.
+  - `tools/run_long_crisis_validation_report.py` ->adds stress-window reporting for selected long crisis thresholds.
+  - `tools/run_pr_validation.py` ->adds the long crisis, shakeout/cash-gate, and workflow smoke tests to Tier-1 validation.
+  - `tests/long_crisis_liquidity_smoke.py` ->adds synthetic crisis/liquidity dataset, signal learning, threshold search, and validation coverage.
+  - `tests/shakeout_and_cash_gate_smoke.py` ->adds regression coverage for shakeout protection and the cash hard gate.
+  - `tests/phase_g_liquidity_workflow_smoke.py` ->adds static workflow coverage for overlap handling, long crisis learning, cash hard gate, broker replay, and Drive sync.
+  - `CHANGELOG.md` ->records the long crisis/liquidity governor implementation.
+- symbols_added:
+  - `CashGateDecision` ->captures cash hard-gate output and component scores.
+  - `monthly_release_lag(series, months)` ->applies conservative release lag to monthly macro data.
+  - `build_long_crisis_features(market_close, macro_series, qqq_close, start, end, m2_lag_months)` ->builds the research-only daily long crisis/liquidity feature panel and labels.
+  - `cash_raise_decision(feature_row, crisis_score, mid_threshold, liquidity_gate, trend_gate, credit_gate, shakeout_gate)` ->blocks cash raises without systemic liquidity/trend/credit confirmation.
+  - `rank_auc(score, label)` ->computes rank AUC without adding an sklearn dependency.
+  - `evaluate_thresholds(features, crisis_gate, liquidity_gate, trend_gate, split, drawdown_col)` ->scores one long crisis threshold candidate.
+  - `classify_shakeout_guard(row, position, crisis_zone)` ->detects probable leader shakeouts versus systemic crisis confirmation.
+  - `load_learned_thresholds(path, mode)` ->loads learned Phase G thresholds from long crisis search output.
+  - `run_long_crisis_dataset_builder.run(args)` ->writes long crisis features, liquidity regime table, summary, and report.
+  - `run_long_crisis_signal_learning.run(args)` ->writes feature signal rankings and report.
+  - `run_long_crisis_threshold_search.run(args)` ->writes threshold grid and best threshold JSON.
+  - `run_long_crisis_validation_report.run(args)` ->writes stress-window validation outputs.
+- symbols_changed:
+  - `build_governed_book()` ->accepts `cash_hard_gate` and `thresholds_json`, records raw versus effective crisis score, and writes gate metadata into target books and schedule audits.
+  - `evaluate_portfolio_holds_vs_replaces()` ->applies shakeout guard before replacement assignment and caps guarded trims at 25%.
+  - `ReplacementDecision` ->adds `shakeout_guard` metadata.
+  - `run_pr_validation.DEFAULT_TESTS` ->adds three long crisis/liquidity validation tests.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/macro/long_crisis_daily_features.parquet` ->research-only long crisis/liquidity features and future drawdown labels.
+  - `outputs/long_crisis_learning/threshold_grid.csv` ->threshold search candidates and split metrics.
+  - `outputs/long_crisis_learning/liquidity_regime_by_day.parquet` ->daily liquidity/crisis regime features.
+  - `outputs/long_crisis_learning/report.md` ->dataset summary report.
+  - `outputs/phase_g_crisis_evidence_liquidity/` ->GitHub Actions artifact directory for integrated Phase G replay outputs.
+- validation:
+  - `python -m py_compile r1000_long_crisis_liquidity.py r1000_hold_vs_replace.py tools\build_crisis_governed_target_books.py tools\run_long_crisis_dataset_builder.py tools\run_long_crisis_signal_learning.py tools\run_long_crisis_threshold_search.py tools\run_long_crisis_validation_report.py tests\long_crisis_liquidity_smoke.py tests\shakeout_and_cash_gate_smoke.py tests\phase_g_liquidity_workflow_smoke.py` ->PASS.
+  - `python tests\long_crisis_liquidity_smoke.py` ->PASS.
+  - `python tests\shakeout_and_cash_gate_smoke.py` ->PASS.
+  - `python tests\phase_g_liquidity_workflow_smoke.py` ->PASS.
+  - `python tests\crisis_governed_target_books_smoke.py` ->PASS.
+  - `python tests\hold_vs_replace_smoke.py` ->PASS.
+  - `python tools\run_pr_validation.py --quiet` ->PASS, 54/54.
+- risks_or_notes:
+  - Long crisis learning emits future drawdown labels for research only; live tools must not consume `future_*` columns.
+  - Cash hard gating is optional in the G2 builder and enabled by the new workflow, so existing Phase G behavior stays reproducible when liquidity columns are absent.
+  - Real promotion still requires GitHub Actions with restored Google Drive data/cache and official `broker_ledger_next_close` metrics.
+
 ## 2026-05-21
 
 ### 14:29 KST - post-disclosure-tiebreaker-ablation

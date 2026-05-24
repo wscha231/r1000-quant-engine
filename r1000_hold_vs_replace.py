@@ -80,6 +80,13 @@ SECTOR_POLICY_BY_ZONE: dict[str, str] = {
 }
 SECTOR_PENALTY_SIGMA = 0.50  # subtracted from candidate score_z when penalizing
 
+# Shakeout guard: protects evidence-backed leaders during single-name or
+# sector-level shakeouts when systemic liquidity/trend confirmation is absent.
+SHAKEOUT_RS_MIN = 60.0
+SHAKEOUT_LIQUIDITY_MAX = 0.50
+SHAKEOUT_NEGATIVE_EVIDENCE_MAX = 0.35
+SHAKEOUT_MAX_TRIM = 0.25
+
 
 # ---------------------------------------------------------------------------
 # F1 -- Position state classifier (G0-E hardened for missing entry_price)
@@ -198,6 +205,7 @@ class ReplacementDecision:
     # G0-G enriched audit fields
     candidate_source: Optional[str] = None
     data_quality_flag: str = "ok"
+    shakeout_guard: str = "none"
 
 
 def _apply_pit_filter(
@@ -349,6 +357,78 @@ def _sizing_for_hold() -> dict:
     return {"trim_pct": 0.0, "weight_delta": 0.0, "target_weight_after": 0.0, "cash_delta": 0.0}
 
 
+def _sizing_for_shakeout_trim(state: str, crisis_zone: str, weight: float) -> dict:
+    base = _sizing_for_trim(state, crisis_zone, weight)
+    pct = min(float(base["trim_pct"]), SHAKEOUT_MAX_TRIM)
+    weight_delta = -pct * float(weight)
+    return {
+        "trim_pct": pct,
+        "weight_delta": weight_delta,
+        "target_weight_after": float(weight) + weight_delta,
+        "cash_delta": -weight_delta,
+    }
+
+
+def _row_value(row, name: str, default=None):
+    try:
+        return getattr(row, name)
+    except AttributeError:
+        return default
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if np.isnan(f) or np.isinf(f):
+        return default
+    return f
+
+
+def classify_shakeout_guard(row, position: PositionState, crisis_zone: str) -> str:
+    """Return shakeout guard state for a holding row.
+
+    A probable shakeout is a weak/broken leader with strong sector/theme RS and
+    no systemic liquidity confirmation. In that case, the evaluator may trim
+    but must not fully sell to cash or replace the position.
+    """
+    if position.state not in {"weakening", "broken"}:
+        return "none"
+    liquidity = _safe_float(_row_value(row, "liquidity_confirmation_score", 0.0))
+    systemic = _safe_float(_row_value(row, "systemic_crisis_score", liquidity))
+    market_damage = _safe_float(_row_value(row, "market_trend_damage_score", 0.0))
+    if crisis_zone in {"defense", "crisis"} and (liquidity >= SHAKEOUT_LIQUIDITY_MAX or systemic >= SHAKEOUT_LIQUIDITY_MAX or market_damage >= 0.65):
+        return "systemic_crisis_confirmed"
+
+    sector_rs = _safe_float(_row_value(row, "sector_rs_rank", np.nan), np.nan)
+    theme_rs = _safe_float(_row_value(row, "theme_rs_rank", np.nan), np.nan)
+    own_rs = position.rs_rank if position.rs_rank is not None else _safe_float(_row_value(row, "rs_rank", np.nan), np.nan)
+    rs_alive = any(v >= SHAKEOUT_RS_MIN for v in (sector_rs, theme_rs, own_rs) if not np.isnan(v))
+
+    evidence = _safe_float(_row_value(row, "evidence_score", _row_value(row, "early_evidence_score", 0.0)))
+    negative_evidence = _safe_float(_row_value(row, "negative_evidence_score", 0.0))
+    ma200 = _safe_float(_row_value(row, "ma200", np.nan), np.nan)
+    current = _safe_float(_row_value(row, "current_price", np.nan), np.nan)
+    recovery_5d = _safe_float(_row_value(row, "recovery_5d", _row_value(row, "return_5d", 0.0)))
+    price_structure_ok = (
+        (not np.isnan(ma200) and not np.isnan(current) and current >= ma200)
+        or recovery_5d >= 0.03
+        or position.state == "weakening"
+    )
+
+    if (
+        liquidity < SHAKEOUT_LIQUIDITY_MAX
+        and systemic < SHAKEOUT_LIQUIDITY_MAX
+        and market_damage < 0.65
+        and rs_alive
+        and negative_evidence <= SHAKEOUT_NEGATIVE_EVIDENCE_MAX
+        and (evidence >= 0.45 or price_structure_ok)
+    ):
+        return "shakeout_probable"
+    return "none"
+
+
 # ---------------------------------------------------------------------------
 # decide_action (G0-A PIT, G0-D sector policy, G0-G fields)
 # ---------------------------------------------------------------------------
@@ -468,6 +548,7 @@ def _decision_to_dict(d: ReplacementDecision, position: PositionState) -> dict:
         "target_weight_after": d.target_weight_after,
         "cash_delta": d.cash_delta,
         "data_quality_flag": d.data_quality_flag,
+        "shakeout_guard": d.shakeout_guard,
         "reason": d.reason,
         "blocked_by": ",".join(d.blocked_by) if d.blocked_by else None,
     }
@@ -511,12 +592,14 @@ def evaluate_portfolio_holds_vs_replaces(
             pe_zscore=getattr(r, "pe_zscore", None),
         )
         states.append(pos)
+        shakeout_guard = classify_shakeout_guard(r, pos, crisis_zone)
         rows.append({
             "row": r,
             "weight": float(getattr(r, "weight", 0.0) or 0.0),
             "held_score_z": float(getattr(r, "score_z", 0.0) or 0.0),
             "sector": getattr(r, "sector", None),
             "industry": getattr(r, "industry", None),
+            "shakeout_guard": shakeout_guard,
         })
 
     # === Pass 2: globally rank potential replacements ===
@@ -529,6 +612,8 @@ def evaluate_portfolio_holds_vs_replaces(
         if pos.state not in ("broken", "weakening"):
             continue
         r = rows[i]
+        if r.get("shakeout_guard") == "shakeout_probable":
+            continue
         # Provisional candidate (best ignoring other holdings -- for priority ranking)
         threshold = (
             WEAKENING_REPLACEMENT_SIGMA
@@ -637,7 +722,18 @@ def evaluate_portfolio_holds_vs_replaces(
         else:
             # weakening / broken with no assigned replacement -> trim or cash
             blocked = ["no_candidate_after_priority"]
-            if pos.state == "broken" and crisis_zone in ("defense", "crisis"):
+            if r.get("shakeout_guard") == "shakeout_probable":
+                sz = _sizing_for_shakeout_trim(pos.state, crisis_zone, w)
+                d = ReplacementDecision(
+                    held_ticker=pos.ticker,
+                    action="trim" if sz["trim_pct"] > 0 else "hold",
+                    reason=f"{pos.state}, shakeout_guard active, trim capped at {int(sz['trim_pct']*100)}%",
+                    blocked_by=["shakeout_guard"],
+                    data_quality_flag=pos.data_quality_flag,
+                    shakeout_guard="shakeout_probable",
+                    **sz,
+                )
+            elif pos.state == "broken" and crisis_zone in ("defense", "crisis"):
                 sz = _sizing_for_cash(w)
                 d = ReplacementDecision(
                     held_ticker=pos.ticker,
@@ -645,6 +741,7 @@ def evaluate_portfolio_holds_vs_replaces(
                     reason=f"broken in {crisis_zone}, no replacement, route to cash",
                     blocked_by=blocked + [f"crisis_zone={crisis_zone}"],
                     data_quality_flag=pos.data_quality_flag,
+                    shakeout_guard=str(r.get("shakeout_guard") or "none"),
                     **sz,
                 )
             else:
@@ -655,6 +752,7 @@ def evaluate_portfolio_holds_vs_replaces(
                     reason=f"{pos.state}, no replacement, trim {int(sz['trim_pct']*100)}%",
                     blocked_by=blocked,
                     data_quality_flag=pos.data_quality_flag,
+                    shakeout_guard=str(r.get("shakeout_guard") or "none"),
                     **sz,
                 )
         row_dict = _decision_to_dict(d, pos)
