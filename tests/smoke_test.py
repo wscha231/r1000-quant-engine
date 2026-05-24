@@ -1735,6 +1735,61 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_a1_a2_broker_accounting_audit")
+def test_plan_c_a1_a2_broker_audit() -> None:
+    """Plan C v3.6 A1/A2 -- broker accounting audit correctly detects
+    coverage gaps and delisted-ticker missing exit prices."""
+    import sys as _sys
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    import pandas as _pd
+
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    if "run_broker_accounting_audit" in _sys.modules:
+        del _sys.modules["run_broker_accounting_audit"]
+    from run_broker_accounting_audit import (
+        load_membership, audit_a1, audit_a2, px_cache_name,
+    )
+
+    with _tempfile.TemporaryDirectory() as td:
+        base = _Path(td)
+        (base / "data_raw").mkdir()
+        (base / "cache_prices").mkdir()
+        paths = {
+            "base": base, "data_raw": base / "data_raw",
+            "cache_prices": base / "cache_prices", "research": base / "research",
+        }
+        dates = _pd.date_range("2024-01-01", periods=12, freq="ME")
+        rows = []
+        for d in dates:
+            rows.append({"ticker": "AAPL", "rebalance_date": d, "date_from": _pd.NaT, "date_to": _pd.NaT})
+            if d <= dates[5]:
+                rows.append({"ticker": "GOOG", "rebalance_date": d, "date_from": _pd.NaT, "date_to": _pd.NaT})
+        _pd.DataFrame(rows).to_csv(base / "data_raw" / "historical_universe_membership.csv", index=False)
+        full_dates = _pd.date_range("2024-01-01", periods=400, freq="D")
+        for t in ("AAPL", "GOOG"):
+            _pd.DataFrame({"Close": range(100, 100 + len(full_dates))}, index=full_dates).to_parquet(
+                base / "cache_prices" / px_cache_name(t)
+            )
+        mem = load_membership(paths)
+        assert len(mem) == 18, f"expected 18 membership rows, got {len(mem)}"
+        # GOOG is delisted (not in latest month)
+        a1_ok = audit_a1(paths, mem, exit_threshold=0.95)
+        assert a1_ok.delisted_candidates == 1, a1_ok
+        assert a1_ok.passed is True, f"A1 should pass when GOOG has exit price: {a1_ok}"
+        a2_ok = audit_a2(paths, mem, sample_per_year=200, coverage_min=0.95)
+        assert a2_ok.passed is True, f"A2 should pass at full coverage: {a2_ok}"
+        # Break A1 by removing GOOG price cache
+        (base / "cache_prices" / px_cache_name("GOOG")).unlink()
+        a1_bad = audit_a1(paths, mem, exit_threshold=0.95)
+        assert a1_bad.passed is False, "A1 must FAIL when delisted has no exit price"
+        # A2 also degrades (6 rows missing)
+        a2_bad = audit_a2(paths, mem, sample_per_year=200, coverage_min=0.95)
+        assert a2_bad.passed is False, "A2 must FAIL when coverage drops"
+
+
 @_test("logic.plan_c_e2_crisis_signal_pit_safe")
 def test_plan_c_e2_crisis_signals_pit() -> None:
     """Plan C v3.6 Phase E2 -- crisis_score is PIT-safe and rises during crisis."""

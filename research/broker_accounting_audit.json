@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "audited_at": "2026-05-24",
+  "base_dir": "/home/user/r1000-quant-engine",
+  "thresholds": {
+    "a1_min_exit_price_coverage": 0.95,
+    "a2_min_membership_coverage": 0.95,
+    "a2_sample_per_year": 200
+  },
+  "gates": {
+    "A1": {
+      "name": "delisted_cost_basis_fallback_eliminated",
+      "passed": null,
+      "status": "no_membership_data",
+      "delisted_candidates": 0,
+      "with_exit_price": 0,
+      "without_exit_price": 0,
+      "exit_price_coverage_pct": null,
+      "examples": []
+    },
+    "A2": {
+      "name": "survivorship_coverage_audited",
+      "passed": null,
+      "status": "no_membership_data",
+      "total_rows": 0,
+      "covered_rows": 0,
+      "coverage_pct": 0.0,
+      "per_year_coverage": {},
+      "missing_examples": []
+    }
+  }
+}
