@@ -1,0 +1,177 @@
+{
+  "active_policy": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/research/auto_learning_policy_active.yaml",
+  "candidate_policy": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/auto_learning_policy_candidate.yaml",
+  "challenger_decision": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/auto_learning/challenger/challenger_decision.json",
+  "challenger_status": "blocked",
+  "checks": {
+    "candidate_exists": true,
+    "challenger_approved": false,
+    "challenger_decision_exists": true,
+    "human_approval_flag": false,
+    "policy_schema_valid": true,
+    "production_activation_disabled": true,
+    "write_active_flag": false
+  },
+  "dry_run": true,
+  "generated_at_utc": "2026-05-24T14:51:13Z",
+  "hard_failures": [
+    {
+      "check": "delisted_cost_basis_fallback_eliminated",
+      "evidence": "tools/run_broker_ledger_replay.py:313-315",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "account_equity falls back to state.cost_basis when price_at_or_before returns None or <=0; positions that delist to zero are silently held at full purchase value, understating MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "survivorship_coverage_audited",
+      "evidence": "tools/audit_data_readiness.py (no delisted-coverage field present)",
+      "gate": "broker_accounting",
+      "observed": false,
+      "passed": false,
+      "reason": "The price cache must include historical R1000 constituents that have since been delisted or acquired. Without this audit, broker-ledger metrics over 7+ years can only see survivors, inflating CAGR and hiding MaxDD.",
+      "severity": "hard",
+      "threshold": true
+    },
+    {
+      "check": "feature_gate_candidate_backtest_executed",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": "candidate_only",
+      "passed": false,
+      "reason": "Feature-gate candidate currently has dry-run/proxy metrics only.",
+      "severity": "hard",
+      "threshold": "full candidate rebuild/backtest"
+    },
+    {
+      "check": "main_max_dd_floor",
+      "evidence": "outputs/experiments/E1_auto_feature_gates_on/metrics.json",
+      "gate": "main",
+      "observed": -0.27307967491398366,
+      "passed": false,
+      "reason": "Candidate main MaxDD must not worsen beyond the policy gate.",
+      "severity": "hard",
+      "threshold": -0.01
+    },
+    {
+      "check": "main_v2_historical_backtest_exists",
+      "evidence": "outputs/main_v2/main_v2_audit_latest.json",
+      "gate": "main_v2",
+      "observed": "latest_snapshot_only",
+      "passed": false,
+      "reason": "Main v2 currently has latest shadow output, not historical performance.",
+      "severity": "hard",
+      "threshold": "83-month main_v2 backtest"
+    },
+    {
+      "check": "concentrated_cagr_floor",
+      "evidence": "cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_backtest_metrics.json",
+      "gate": "concentrated",
+      "observed": 0.0,
+      "passed": false,
+      "reason": "Standalone concentrated historical CAGR must clear the policy floor.",
+      "severity": "hard",
+      "threshold": 0.3
+    },
+    {
+      "check": "single_name_and_sector_cap_audit",
+      "evidence": "outputs/concentrated_policy/policy_audit_latest.json",
+      "gate": "concentrated",
+      "observed": 2,
+      "passed": false,
+      "reason": "Latest concentrated policy audit found cap violations that must be resolved before more capital.",
+      "severity": "hard",
+      "threshold": 0
+    },
+    {
+      "check": "orchestrator_historical_backtest_exists",
+      "evidence": "outputs/experiments/E5_orchestrator_balanced/metrics.json",
+      "gate": "orchestrator",
+      "observed": "snapshot_report_only",
+      "passed": false,
+      "reason": "Orchestrator balanced currently reports latest snapshot only.",
+      "severity": "hard",
+      "threshold": "83-month orchestrator backtest"
+    },
+    {
+      "check": "alpha_sprint_historical_backtest_exists",
+      "evidence": "outputs/weekly_leader_broker_replay/main/metrics.json,outputs/weekly_leader_broker_replay/concentrated/metrics.json",
+      "gate": "alpha_sprint",
+      "observed": {
+        "alpha_sprint_status": "not_backtested_missing_historical_scored_snapshot",
+        "weekly_leader_available": false
+      },
+      "passed": false,
+      "reason": "Alpha Sprint can remain candidate-only until bull/strong-bull historical tests exist; weekly leader entry broker replay can now serve as the first counterfactual bridge.",
+      "severity": "hard",
+      "threshold": "weekly/historical alpha sprint or weekly leader-entry broker replay"
+    },
+    {
+      "check": "stress_windows_backtested",
+      "evidence": "",
+      "gate": "stress",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Policy challenger needs monthly equity and allocation series before stress gates can pass.",
+      "severity": "hard",
+      "threshold": "2020/2022/momentum/rate/vix stress windows"
+    },
+    {
+      "check": "cost_sensitivity_backtested",
+      "evidence": "outputs/cost_sensitivity/main/summary.json,outputs/cost_sensitivity/concentrated/summary.json",
+      "gate": "cost",
+      "observed": {
+        "concentrated": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        },
+        "main": {
+          "breakeven_cost_bps": null,
+          "completed_levels": [],
+          "schema_version": null
+        }
+      },
+      "passed": false,
+      "reason": "Cost sensitivity sidecar must run for both main and concentrated target books and emit one completed level per required cost_bps step.",
+      "severity": "hard",
+      "threshold": {
+        "concentrated_summary_path": "outputs/cost_sensitivity/concentrated/summary.json",
+        "cost_bps_levels_required": [
+          25,
+          50,
+          75
+        ],
+        "main_summary_path": "outputs/cost_sensitivity/main/summary.json"
+      }
+    },
+    {
+      "check": "rolling_3y_5y_backtested",
+      "evidence": "",
+      "gate": "stability",
+      "observed": "not_available",
+      "passed": false,
+      "reason": "Rolling stability cannot pass until full challenger return series exists.",
+      "severity": "hard",
+      "threshold": "rolling 3y and 5y pass"
+    }
+  ],
+  "policy_validation": {
+    "issues": [],
+    "missing": [],
+    "mode": "proposal_only",
+    "production_activation_allowed": false,
+    "valid": true
+  },
+  "production_activation_allowed": false,
+  "promoted": false,
+  "reasons": [
+    "challenger_approved",
+    "human_approval_flag",
+    "write_active_flag"
+  ],
+  "research_only": true,
+  "status": "blocked"
+}
