@@ -1735,6 +1735,85 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_e3_crisis_classifier_pit_safe")
+def test_plan_c_e3_crisis_classifier() -> None:
+    """Plan C v3.6 Phase E3 -- classifier distinguishes 2020 shock_crash
+    from 2022 slow_bear AND is PIT-safe."""
+    import sys as _sys
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("run_crisis_signal_builder", "run_crisis_type_classifier"):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    import pandas as _pd
+    import numpy as _np
+    from run_crisis_signal_builder import (
+        compute_market_trend_features, compute_volatility_features,
+        compute_credit_features, compute_rate_features,
+    )
+    from run_crisis_type_classifier import classify_rows, Thresholds, consecutive_streak
+
+    # streak helper
+    s = _pd.Series([0, 0, 1, 1, 1, 0, 1, 1])
+    assert consecutive_streak(s).tolist() == [0, 0, 1, 2, 3, 0, 1, 2]
+
+    dates = _pd.date_range("2019-01-01", periods=1100, freq="D")
+    spy = _np.full(1100, 300.0)
+    for i in range(0, 250):
+        spy[i] = 300.0 + 40.0 * (i / 250.0)
+    peak1 = spy[250]
+    for i in range(250, 268):  # 2020 shock: 18 days -34%
+        spy[i] = peak1 * (1.0 - 0.34 * ((i - 250) / 18.0))
+    trough1 = spy[267]
+    for i in range(268, 518):
+        spy[i] = trough1 + (360.0 - trough1) * ((i - 267) / 250.0)
+    peak2 = spy[517]
+    for i in range(518, 800):  # 2022 slow drift -25%
+        spy[i] = peak2 * (1.0 - 0.25 * ((i - 517) / 282.0))
+    for i in range(800, 950):
+        spy[i] = spy[799] * (0.98 + 0.02 * _np.sin((i - 800) / 30.0))
+    for i in range(950, 1100):
+        spy[i] = spy[949] + (peak2 - spy[949]) * ((i - 949) / 150.0)
+
+    spy_s = _pd.Series(spy, index=dates)
+    qqq_s = _pd.Series(spy * 0.95, index=dates)
+    vix = _np.full(1100, 16.0)
+    vix[250:268] = _np.linspace(20, 80, 18)
+    vix[268:310] = _np.linspace(80, 18, 42)
+    vix[518:950] = 28.0
+    vix_s = _pd.Series(vix, index=dates)
+    hy = _np.full(1100, 400.0)
+    hy[250:280] = _np.linspace(400, 1100, 30)
+    hy[280:330] = _np.linspace(1100, 400, 50)
+    hy_s = _pd.Series(hy, index=dates)
+    y10 = _np.full(1100, 2.0)
+    y10[518:680] = _np.linspace(2.0, 4.5, 162)  # aggressive 2022 ramp
+    y10[680:950] = 4.5
+    dgs10_s = _pd.Series(y10, index=dates)
+
+    trend = compute_market_trend_features(spy_s, qqq_s)
+    vol = compute_volatility_features(vix_s, trend.index)
+    credit = compute_credit_features(hy_s, trend.index)
+    rates = compute_rate_features(dgs10_s, trend.index)
+    features = _pd.concat([trend, vol, credit, rates], axis=1)
+    classification = classify_rows(features, Thresholds())
+
+    shock_count = (classification.iloc[252:280]["crisis_type"] == "shock_crash").sum()
+    assert shock_count >= 5, f"2020 shock_crash days: {shock_count}"
+    slow_count = (classification.iloc[600:680]["crisis_type"] == "slow_bear").sum()
+    assert slow_count >= 20, f"2022 slow_bear days: {slow_count}"
+
+    # PIT: classification at past T must not change when future trimmed
+    half = features.iloc[:600]
+    classification_half = classify_rows(half, Thresholds())
+    diff = (
+        classification_half["crisis_type"]
+        != classification.iloc[:600]["crisis_type"]
+    ).sum()
+    assert diff == 0, f"PIT violation: {diff} rows differ between full + truncated"
+
+
 @_test("logic.plan_c_a1_a2_broker_accounting_audit")
 def test_plan_c_a1_a2_broker_audit() -> None:
     """Plan C v3.6 A1/A2 -- broker accounting audit correctly detects
