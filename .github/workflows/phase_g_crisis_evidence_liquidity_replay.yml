@@ -1,0 +1,315 @@
+name: Phase G Crisis Evidence Liquidity Replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed full_rebuild_manual run id to replay from'
+        type: string
+        required: true
+      portfolio_kind:
+        description: 'Portfolio target books to govern'
+        type: choice
+        options: [both, main, concentrated]
+        default: both
+      governor_mode:
+        description: 'Crisis governor mode'
+        type: choice
+        options: [conservative, aggressive, learned]
+        default: learned
+      run_post_disclosure_overlay:
+        description: 'Build SEC/Form4/13F/ETF post-disclosure candidates first'
+        type: boolean
+        default: true
+      run_long_crisis_learning:
+        description: 'Build 1990+ long crisis/liquidity learning outputs'
+        type: boolean
+        default: true
+      run_cost_sensitivity:
+        description: 'Run cost sensitivity on crisis-governed target books'
+        type: boolean
+        default: true
+      cost_bps:
+        description: 'Broker replay per-side transaction cost'
+        type: string
+        default: '25'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase-g-crisis-evidence-liquidity-${{ github.ref }}-${{ inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Check overlapping research runs
+        id: overlap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p outputs/phase_g_crisis_evidence_liquidity outputs/full_rebuild_logs
+          python - <<'PY'
+          import json, os, subprocess
+          current = int(os.environ.get("GITHUB_RUN_ID", "0") or 0)
+          workflows = [
+              "full_rebuild_manual.yml",
+              "post_disclosure_alpha_pipeline.yml",
+              "alphaops_replay_sidecars_manual.yml",
+              "phase_g_crisis_evidence_liquidity_replay.yml",
+          ]
+          overlapping = []
+          for wf in workflows:
+              for status in ("queued", "in_progress"):
+                  cmd = [
+                      "gh", "run", "list",
+                      "--workflow", wf,
+                      "--status", status,
+                      "--limit", "20",
+                      "--json", "databaseId,displayTitle,status,workflowName,headBranch",
+                  ]
+                  try:
+                      rows = json.loads(subprocess.check_output(cmd, text=True))
+                  except Exception:
+                      rows = []
+                  for row in rows:
+                      if int(row.get("databaseId") or 0) != current:
+                          overlapping.append(row)
+          payload = {"status": "skipped_due_to_overlap" if overlapping else "ok", "overlapping": overlapping}
+          with open("outputs/phase_g_crisis_evidence_liquidity/overlap_summary.json", "w", encoding="utf-8") as f:
+              json.dump(payload, f, indent=2)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"skip={'true' if overlapping else 'false'}\n")
+          print(json.dumps(payload, indent=2))
+          PY
+
+      - name: Upload overlap skip artifact
+        if: steps.overlap.outputs.skip == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-g-crisis-evidence-liquidity-skipped-${{ github.run_id }}
+          path: outputs/phase_g_crisis_evidence_liquidity/overlap_summary.json
+
+      - name: Stop when overlapping workflows exist
+        if: steps.overlap.outputs.skip == 'true'
+        run: |
+          echo "Another heavy research workflow is already queued or running. Wrote skipped_due_to_overlap artifact."
+
+      - name: Restore price and macro cache
+        if: steps.overlap.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache_prices
+            cache_macro
+            aggressive/cache/bars
+          key: phase-g-liquidity-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            collector-cache--${{ runner.os }}-
+            collector-cache-${{ runner.os }}-
+            replay-price-cache-${{ runner.os }}-
+
+      - name: Download source full rebuild artifact
+        if: steps.overlap.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          mkdir -p source_artifacts outputs/full_rebuild_logs
+          gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
+          SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+          if [ -z "$SRC" ]; then
+            echo "[phase-g] ERROR: could not locate backtest_metrics.json in source artifacts"
+            find source_artifacts -maxdepth 3 -type f | head -100
+            exit 2
+          fi
+          cp -R "$SRC"/. outputs/
+          test -s outputs/reports/main_monthly_weights.csv
+          test -s outputs/reports/regime_by_month.csv
+
+      - name: Configure rclone
+        if: steps.overlap.outputs.skip != 'true'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -oq /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '[gdrive]\ntype = drive\nscope = drive\nservice_account_file = /tmp/sa.json\n'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+          echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
+
+      - name: Restore evidence and macro data lake from Google Drive
+        if: steps.overlap.outputs.skip != 'true'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          if [ "${GDRIVE_READY:-no}" != "yes" ]; then
+            echo "[gdrive] not configured; continuing with artifact/cache only"
+            exit 0
+          fi
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
+          fi
+          for d in data_pit/sec data_pit/etf_holdings data_pit/macro cache_macro cache_prices outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals outputs/post_disclosure_alpha_pipeline outputs/long_crisis_learning; do
+            mkdir -p "$d"
+            if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            fi
+          done
+
+      - name: Refresh replay price cache
+        if: steps.overlap.outputs.skip != 'true'
+        run: |
+          python tools/build_replay_price_cache.py \
+            --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
+            --scored outputs/scored_latest.csv \
+            --max-scored 250 \
+            --output-dir cache_prices \
+            --batch-size 40 \
+            --refresh-stale-days 2 \
+            2>&1 | tee outputs/full_rebuild_logs/phase_g_price_cache.log
+
+      - name: Build post-disclosure evidence candidates
+        if: steps.overlap.outputs.skip != 'true' && inputs.run_post_disclosure_overlay
+        run: |
+          python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books_before_post_disclosure.log || true
+          python tools/run_post_disclosure_alpha_pipeline.py \
+            --skip-event-builders \
+            --output-dir outputs/post_disclosure_alpha_pipeline \
+            --metadata outputs/scored_latest.csv \
+            --candidate-book outputs/reports/operating_main_target_book.csv \
+            --price-cache cache_prices \
+            --run-overlay-challenger \
+            --run-broker-grid \
+            --cost-bps "${{ inputs.cost_bps }}" \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_alpha_pipeline_phase_g.log || true
+
+      - name: Build long crisis/liquidity learning outputs
+        if: steps.overlap.outputs.skip != 'true' && inputs.run_long_crisis_learning
+        run: |
+          python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+          python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+          python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
+          python tools/run_long_crisis_validation_report.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_validation_report.log || true
+
+      - name: Build crisis-governed target books and broker replay
+        if: steps.overlap.outputs.skip != 'true'
+        run: |
+          MODE="${{ inputs.governor_mode }}"
+          THRESHOLDS=""
+          if [ -s outputs/long_crisis_learning/best_thresholds.json ]; then
+            THRESHOLDS="--thresholds-json outputs/long_crisis_learning/best_thresholds.json"
+          elif [ "$MODE" = "learned" ]; then
+            MODE="conservative"
+          fi
+          FEATURES="outputs/crisis_signals/daily_features.parquet"
+          if [ -s data_pit/macro/long_crisis_daily_features.parquet ]; then
+            FEATURES="data_pit/macro/long_crisis_daily_features.parquet"
+          else
+            python tools/run_crisis_signal_builder.py 2>&1 | tee outputs/full_rebuild_logs/crisis_signal_builder_phase_g.log || true
+          fi
+          python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books_phase_g.log
+          python tools/build_crisis_governed_target_books.py \
+            --latest-run outputs \
+            --portfolio-kind "${{ inputs.portfolio_kind }}" \
+            --mode "$MODE" \
+            --crisis-features "$FEATURES" \
+            --cash-hard-gate \
+            $THRESHOLDS \
+            --run-broker-replay \
+            --price-cache cache_prices \
+            --cost-bps "${{ inputs.cost_bps }}" \
+            --output-dir outputs/phase_g_crisis_evidence_liquidity \
+            --reports-dir outputs/reports \
+            2>&1 | tee outputs/full_rebuild_logs/crisis_governed_target_books_phase_g.log
+
+      - name: Run governed cost sensitivity
+        if: steps.overlap.outputs.skip != 'true' && inputs.run_cost_sensitivity
+        run: |
+          if [ -s outputs/reports/crisis_governed_main_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/crisis_governed_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/main --cost-bps-list 25 50 75 100 --baseline-cost-bps "${{ inputs.cost_bps }}" || true
+          fi
+          if [ -s outputs/reports/crisis_governed_concentrated_target_book.csv ]; then
+            python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/crisis_governed_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps "${{ inputs.cost_bps }}" || true
+          fi
+
+      - name: Upload phase G replay artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-g-crisis-evidence-liquidity-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            outputs/phase_g_crisis_evidence_liquidity/
+            outputs/long_crisis_learning/
+            data_pit/macro/long_crisis_daily_features.parquet
+            outputs/post_disclosure_alpha_pipeline/
+            outputs/reports/crisis_governed_*_target_book.csv
+            outputs/full_rebuild_logs/
+
+      - name: Sync phase G outputs to Google Drive
+        if: always()
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
+            echo "[gdrive] not configured; skip sync"
+            exit 0
+          fi
+          SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/:' '__')"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/phase_g_crisis_evidence_liquidity"
+          else
+            DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/phase_g_crisis_evidence_liquidity"
+          fi
+          for d in outputs/phase_g_crisis_evidence_liquidity outputs/long_crisis_learning outputs/post_disclosure_alpha_pipeline outputs/full_rebuild_logs; do
+            if [ -d "$d" ]; then
+              rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            fi
+          done
+          if [ -s data_pit/macro/long_crisis_daily_features.parquet ]; then
+            rclone copy data_pit/macro "$DEST/data_pit/macro/" --include "long_crisis_daily_features.parquet" || true
+          fi

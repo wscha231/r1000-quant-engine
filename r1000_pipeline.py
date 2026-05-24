@@ -3548,6 +3548,159 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+_BROAD_BASE_UNIVERSE_SOURCE_TOKENS = (
+    "historical_membership_file",
+    "current_constituents_proxy",
+    "sp500_proxy",
+    "nasdaq100_proxy",
+)
+
+
+def _source_series(df: pd.DataFrame) -> pd.Series:
+    return df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
+
+
+def _broad_base_universe_mask(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty:
+        return pd.Series(False, index=getattr(df, "index", pd.Index([])))
+    source = _source_series(df)
+    mask = pd.Series(False, index=df.index)
+    for token in _BROAD_BASE_UNIVERSE_SOURCE_TOKENS:
+        mask = mask | source.str.contains(token, regex=False)
+    return mask
+
+
+def _has_broad_base_universe(df: pd.DataFrame) -> bool:
+    return bool(_broad_base_universe_mask(df).sum()) if df is not None and not df.empty else False
+
+
+def _requires_broad_base_universe(universe_mode: str) -> bool:
+    return normalize_engine_universe_mode(universe_mode) in {
+        "historical_snapshot_preferred",
+        "current_constituents",
+        "r1000",
+        "r1000+adr",
+        "r1000+adr_phase14_off",
+        "r1000+cycle",
+        "global_alpha_universe",
+    }
+
+
+def _previous_broad_base_universe(prev: pd.DataFrame) -> pd.DataFrame:
+    if prev is None or prev.empty or "ticker" not in prev.columns:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d = prev.copy()
+    for col, default in (("Name", ""), ("sector", "Unknown"), ("cik10", np.nan), ("universe_source", "")):
+        if col not in d.columns:
+            d[col] = default
+    d = d[_broad_base_universe_mask(d)].copy()
+    if d.empty:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    d["universe_source"] = d["universe_source"].astype(str).map(
+        lambda x: x if "previous_candidate_cache_recovery" in x else f"{x}+previous_candidate_cache_recovery"
+    )
+    d["cik10"] = normalize_cik_series(d["cik10"], index=d.index)
+    return _combine_candidate_universe_sources(d[["ticker", "Name", "sector", "cik10", "universe_source"]])
+
+
+def _committed_latest_broad_base_universe(paths: dict[str, Path], universe_mode: str) -> pd.DataFrame:
+    """Recover broad base rows from committed latest artifacts on cold runners.
+
+    GitHub runners can lose live broad sources (IWB/Wikipedia 403/schema drift)
+    and still have non-empty ADR/cycle/hardware overlays. Without recovery, the
+    engine trains on an overlay-only global-alpha universe and later produces
+    zero OOS walk-forward rows. This helper uses only rows that were already
+    broad-base justified in the committed latest scored artifact.
+    """
+    if not _requires_broad_base_universe(universe_mode):
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    base = paths.get("base", Path("."))
+    candidates = [
+        base / "cloud_results" / "full_rebuild" / "latest_global_alpha_universe" / "scored_latest.csv",
+        base / "cloud_results" / "full_rebuild" / "latest_r1000" / "scored_latest.csv",
+        base / "outputs" / "scored_latest.csv",
+    ]
+    frames: list[pd.DataFrame] = []
+    for p in candidates:
+        if not p.exists() or not p.is_file():
+            continue
+        try:
+            header = pd.read_csv(p, nrows=0)
+            cols = set(header.columns)
+            if not {"ticker", "universe_source"}.issubset(cols):
+                continue
+            usecols = [
+                c
+                for c in ("ticker", "Name", "name", "sector", "Sector", "cik10", "cik", "cik_str", "universe_source")
+                if c in cols
+            ]
+            d = pd.read_csv(p, usecols=usecols)
+        except Exception:
+            continue
+        if d.empty:
+            continue
+        if "Name" not in d.columns:
+            d["Name"] = d["name"] if "name" in d.columns else ""
+        if "sector" not in d.columns:
+            d["sector"] = d["Sector"] if "Sector" in d.columns else "Unknown"
+        cik_col = next((c for c in ("cik10", "cik", "cik_str") if c in d.columns), None)
+        if cik_col is None:
+            d["cik10"] = pd.Series(np.nan, index=d.index, dtype=object)
+        elif cik_col != "cik10":
+            d["cik10"] = d[cik_col]
+        d = d[_broad_base_universe_mask(d)].copy()
+        if d.empty:
+            continue
+        d["universe_source"] = d["universe_source"].astype(str).map(
+            lambda x: x if "committed_latest_recovery" in x else f"{x}+committed_latest_recovery"
+        )
+        d["cik10"] = normalize_cik_series(d["cik10"], index=d.index)
+        frames.append(d[["ticker", "Name", "sector", "cik10", "universe_source"]])
+    if not frames:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+    out = _combine_candidate_universe_sources(pd.concat(frames, ignore_index=True))
+    out["cik10"] = normalize_cik_series(out["cik10"], index=out.index)
+    return out
+
+
+def _ensure_broad_base_universe(
+    frames: list[pd.DataFrame],
+    *,
+    prev: pd.DataFrame,
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    universe_mode: str,
+) -> list[pd.DataFrame]:
+    if not _requires_broad_base_universe(universe_mode):
+        return frames
+    combined = _combine_candidate_universe_sources(pd.concat(frames, ignore_index=True)) if frames else pd.DataFrame()
+    if _has_broad_base_universe(combined):
+        return frames
+
+    recovered: list[pd.DataFrame] = []
+    prev_base = _previous_broad_base_universe(prev)
+    if not prev_base.empty:
+        recovered.append(prev_base)
+    committed_base = _committed_latest_broad_base_universe(paths, universe_mode)
+    if not committed_base.empty:
+        recovered.append(committed_base)
+    if recovered:
+        recovery = _combine_candidate_universe_sources(pd.concat(recovered, ignore_index=True))
+        frames.append(recovery)
+        log(
+            "Broad-base universe recovery: "
+            f"mode={universe_mode}, recovered={len(recovery)}, "
+            f"sources={dict(_source_series(recovery).value_counts().head(8))}"
+        )
+        return frames
+
+    raise RuntimeError(
+        "Broad-base universe sources unavailable and no prior/committed broad-base recovery exists. "
+        f"universe_mode={universe_mode}; refusing overlay-only universe because walk-forward training "
+        "would not be valid. Check IWB/Wikipedia source fetches or restore cloud_results/latest scored artifacts."
+    )
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3657,6 +3810,14 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     f"sources={len(rescue_frames)}, candidates={len(rescue)}, added_pre_dedup={len(added)}"
                 )
 
+        frames = _ensure_broad_base_universe(
+            frames,
+            prev=prev,
+            cfg=cfg,
+            paths=paths,
+            universe_mode=universe_mode,
+        )
+
         if include_strategic_global_hardware:
             strategic_hw = load_strategic_global_hardware_universe_frame(cfg)
             if not strategic_hw.empty:
@@ -3739,6 +3900,7 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cik10_y = uni["cik10_y"] if "cik10_y" in uni.columns else pd.Series(np.nan, index=uni.index)
         uni["cik10"] = cik10_x.fillna(cik10_y)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
+    uni["cik10"] = normalize_cik_series(uni["cik10"], index=uni.index)
     if include_adr:
         log("Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.")
     else:

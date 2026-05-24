@@ -48,6 +48,7 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 # target books, and the leakage audit. Each is fast (< 30 s).
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/smoke_test.py", []),
+    ("tests/candidate_universe_fallback_smoke.py", []),
     ("tests/broker_ledger_replay_smoke.py", []),
     ("tests/broker_ledger_correctness_smoke.py", []),
     ("tests/broker_position_risk_replay_smoke.py", []),
@@ -62,6 +63,9 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/hold_vs_replace_smoke.py", []),
     ("tests/integrated_alpha_crisis_challenger_smoke.py", []),
     ("tests/crisis_governed_target_books_smoke.py", []),
+    ("tests/long_crisis_liquidity_smoke.py", []),
+    ("tests/shakeout_and_cash_gate_smoke.py", []),
+    ("tests/phase_g_liquidity_workflow_smoke.py", []),
     ("tests/weekly_leader_target_books_smoke.py", []),
     ("tests/sec_cik_schema_smoke.py", []),
     ("tests/sec_form4_parser_smoke.py", []),

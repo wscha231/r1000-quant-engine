@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_crisis_governor import apply_exposure_ladder, evaluate_exposure_target  # noqa: E402
+from r1000_long_crisis_liquidity import cash_raise_decision  # noqa: E402
 from tools.run_broker_ledger_replay import (  # noqa: E402
     CASH_TICKERS,
     filter_concentrated_champion,
@@ -43,6 +44,9 @@ GOVERNOR_MODES: dict[str, dict[str, Any]] = {
     "off": {"enabled": False, "low": 0.30, "mid": 0.50, "high": 0.70},
     "conservative": {"enabled": True, "low": 0.30, "mid": 0.50, "high": 0.70},
     "aggressive": {"enabled": True, "low": 0.20, "mid": 0.40, "high": 0.60},
+    # Defaults are intentionally conservative. When --thresholds-json is
+    # supplied, the learned governor thresholds override these values.
+    "learned": {"enabled": True, "low": 0.35, "mid": 0.55, "high": 0.75},
 }
 
 
@@ -115,6 +119,76 @@ def load_crisis_features(path: Path) -> pd.DataFrame:
         out["crisis_score"] = 0.0
     out["crisis_score"] = pd.to_numeric(out["crisis_score"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
     return out
+
+
+def load_learned_thresholds(path: Path | None, mode: str) -> dict[str, Any]:
+    """Resolve governor thresholds for mode, optionally from long-crisis search."""
+    thresholds = dict(GOVERNOR_MODES[mode])
+    if path is None or not path.exists():
+        return thresholds
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return thresholds
+    learned = payload.get("governor_thresholds") if isinstance(payload, dict) else None
+    if not isinstance(learned, dict):
+        learned = payload
+    for key in ("low", "mid", "high"):
+        if key in learned:
+            try:
+                thresholds[key] = float(learned[key])
+            except (TypeError, ValueError):
+                pass
+    thresholds["enabled"] = bool(thresholds.get("enabled", True))
+    return thresholds
+
+
+def _cash_gate_for_feature_row(
+    feature_row: pd.Series,
+    crisis_score: float,
+    thresholds: dict[str, Any],
+    enabled: bool,
+) -> dict[str, Any]:
+    if not enabled or feature_row.empty:
+        return {
+            "cash_hard_gate_enabled": bool(enabled),
+            "cash_hard_gate_allowed": True,
+            "cash_hard_gate_reason": "disabled_or_no_features",
+            "effective_crisis_score": float(crisis_score),
+            "liquidity_confirmation_score": float(feature_row.get("liquidity_confirmation_score", 0.0)) if not feature_row.empty else 0.0,
+            "market_trend_damage_score": float(feature_row.get("market_trend_damage_score", 0.0)) if not feature_row.empty else 0.0,
+            "credit_stress_score": float(feature_row.get("credit_stress_score", 0.0)) if not feature_row.empty else 0.0,
+            "shakeout_guard_score": float(feature_row.get("shakeout_guard_score", 0.0)) if not feature_row.empty else 0.0,
+        }
+    # Preserve the old Phase G behavior when the long-crisis liquidity columns
+    # are absent. This keeps PR #48 research outputs reproducible.
+    known_cols = {"liquidity_confirmation_score", "market_trend_damage_score", "credit_stress_score", "shakeout_guard_score"}
+    if not known_cols.intersection(set(feature_row.index.astype(str))):
+        return {
+            "cash_hard_gate_enabled": True,
+            "cash_hard_gate_allowed": True,
+            "cash_hard_gate_reason": "missing_liquidity_columns_allow_legacy_behavior",
+            "effective_crisis_score": float(crisis_score),
+            "liquidity_confirmation_score": 0.0,
+            "market_trend_damage_score": 0.0,
+            "credit_stress_score": 0.0,
+            "shakeout_guard_score": 0.0,
+        }
+    decision = cash_raise_decision(
+        feature_row,
+        crisis_score,
+        mid_threshold=float(thresholds.get("mid", 0.50)),
+    )
+    return {
+        "cash_hard_gate_enabled": True,
+        "cash_hard_gate_allowed": bool(decision.allowed),
+        "cash_hard_gate_reason": decision.reason,
+        "effective_crisis_score": float(decision.effective_crisis_score),
+        "liquidity_confirmation_score": float(decision.liquidity_confirmation_score),
+        "market_trend_damage_score": float(decision.market_trend_damage_score),
+        "credit_stress_score": float(decision.credit_stress_score),
+        "shakeout_guard_score": float(decision.shakeout_guard_score),
+    }
 
 
 def normalize_targets(target_book: Path, portfolio_kind: str) -> NormalizedTargets:
@@ -218,9 +292,11 @@ def _rows_for_snapshot(
     portfolio_kind: str,
     mode: str,
     crisis_score: float,
+    raw_crisis_score: float,
     zone: str,
     target_cash_floor: float,
     event_reason: str,
+    gate_meta: dict[str, Any],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for ticker, weight in adjusted_weights.sort_index().items():
@@ -236,9 +312,13 @@ def _rows_for_snapshot(
         base["research_only"] = True
         base["governor_mode"] = mode
         base["crisis_score"] = float(crisis_score)
+        base["raw_crisis_score"] = float(raw_crisis_score)
         base["crisis_zone"] = zone
         base["target_cash_floor"] = float(target_cash_floor)
         base["event_reason"] = event_reason
+        for key, value in gate_meta.items():
+            if key != "effective_crisis_score":
+                base[key] = value
         rows.append(base)
     return rows
 
@@ -250,6 +330,8 @@ def build_governed_book(
     portfolio_kind: str,
     mode: str = "conservative",
     allow_normal_cash_deploy: bool = False,
+    cash_hard_gate: bool = False,
+    thresholds_json: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Return governed target book, schedule audit, and summary metadata."""
     if mode not in GOVERNOR_MODES:
@@ -264,7 +346,7 @@ def build_governed_book(
             **normalized.filter_meta,
         }
     features = load_crisis_features(crisis_features)
-    thresholds = GOVERNOR_MODES[mode]
+    thresholds = load_learned_thresholds(thresholds_json, mode)
     dates = _schedule_dates(targets, features, thresholds, mode)
     rows: list[dict[str, Any]] = []
     audit: list[dict[str, Any]] = []
@@ -281,7 +363,9 @@ def build_governed_book(
         if weights.empty:
             continue
         feature_row = _feature_row_asof(features, dt)
-        crisis_score = float(feature_row.get("crisis_score", 0.0)) if not feature_row.empty else 0.0
+        raw_crisis_score = float(feature_row.get("crisis_score", 0.0)) if not feature_row.empty else 0.0
+        gate_meta = _cash_gate_for_feature_row(feature_row, raw_crisis_score, thresholds, cash_hard_gate)
+        crisis_score = float(gate_meta["effective_crisis_score"])
         target = evaluate_exposure_target(crisis_score, cfg_thresholds=thresholds)
         should_apply = mode != "off" and (target.zone != "normal" or allow_normal_cash_deploy)
         adjusted = (
@@ -309,9 +393,11 @@ def build_governed_book(
             portfolio_kind=portfolio_kind,
             mode=mode,
             crisis_score=crisis_score,
+            raw_crisis_score=raw_crisis_score,
             zone=target.zone,
             target_cash_floor=target.target_cash_floor,
             event_reason=event_reason,
+            gate_meta=gate_meta,
         )
         rows.extend(snapshot_rows)
         audit.append(
@@ -321,11 +407,13 @@ def build_governed_book(
                 "portfolio_kind": portfolio_kind,
                 "governor_mode": mode,
                 "crisis_score": crisis_score,
+                "raw_crisis_score": raw_crisis_score,
                 "crisis_zone": target.zone,
                 "event_reason": event_reason,
                 "stock_weight": float(adjusted[[idx for idx in adjusted.index if str(idx).upper() not in CASH_TICKERS]].sum()),
                 "cash_weight": float(adjusted[[idx for idx in adjusted.index if str(idx).upper() in CASH_TICKERS]].sum()),
                 "row_count": len(snapshot_rows),
+                **{k: v for k, v in gate_meta.items() if k != "effective_crisis_score"},
             }
         )
 
@@ -336,6 +424,9 @@ def build_governed_book(
         "reason": "" if not book.empty else "no governed rows generated",
         "portfolio_kind": portfolio_kind,
         "mode": mode,
+        "thresholds": thresholds,
+        "thresholds_json": str(thresholds_json) if thresholds_json else "",
+        "cash_hard_gate": bool(cash_hard_gate),
         "research_only": True,
         "valid_for_production": False,
         "official_metric_required": "broker_ledger_next_close",
@@ -416,6 +507,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "promotion_allowed_without_human_approval": False,
         "mode": args.mode,
         "crisis_features": str(crisis_features),
+        "cash_hard_gate": bool(args.cash_hard_gate),
+        "thresholds_json": str(repo_path(args.thresholds_json)) if args.thresholds_json else "",
         "portfolios": {},
     }
     for portfolio_kind in selected:
@@ -425,6 +518,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             portfolio_kind=portfolio_kind,
             mode=args.mode,
             allow_normal_cash_deploy=bool(args.allow_normal_cash_deploy),
+            cash_hard_gate=bool(args.cash_hard_gate),
+            thresholds_json=repo_path(args.thresholds_json) if args.thresholds_json else None,
         )
         book_path = reports_dir / f"crisis_governed_{portfolio_kind}_target_book.csv"
         audit_path = output_dir / f"{portfolio_kind}_schedule_audit.csv"
@@ -463,6 +558,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated", "both"], default="both")
     parser.add_argument("--mode", choices=sorted(GOVERNOR_MODES), default="conservative")
     parser.add_argument("--allow-normal-cash-deploy", action="store_true")
+    parser.add_argument("--cash-hard-gate", action="store_true", help="Require liquidity/trend/credit confirmation before defense/crisis cash raises")
+    parser.add_argument("--thresholds-json", default="", help="Optional best_thresholds.json from long crisis learning")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--reports-dir", default=DEFAULT_REPORTS_DIR)
     parser.add_argument("--run-broker-replay", action="store_true")
