@@ -1735,6 +1735,194 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_g_replay_cost_arithmetic")
+def test_plan_c_g_cost_arithmetic() -> None:
+    """Phase G replay_combo: cost is ANNUAL bps -> per-period drag = bps/12/1e4.
+    The 2026-05-24 review insisted cost units must be honest -- 50bps as
+    monthly drag (6%/yr) would unfairly fail every SHIP."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("r1000_crisis_governor", "run_crisis_governor_replay",
+                "run_integrated_alpha_crisis_challenger"):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    import pandas as _pd
+    import numpy as _np
+    from run_integrated_alpha_crisis_challenger import replay_combo
+
+    dates = _pd.date_range("2020-01-01", periods=60, freq="ME")
+    eq = _pd.DataFrame({
+        "rebalance_date": dates,
+        "net_return": _np.full(60, 0.01),
+        "cash_weight": _np.full(60, 0.05),
+    })
+    features = _pd.DataFrame()  # no governor input -> off
+    r0 = replay_combo(eq, features, "off", "off", 0.0, "rebalance_date", "net_return", "cash_weight")
+    r50 = replay_combo(eq, features, "off", "off", 50.0, "rebalance_date", "net_return", "cash_weight")
+    diff = r0["governed_return"].values - r50["governed_return"].values
+    expected = 50.0 / 12.0 / 1e4  # 0.000417
+    assert _np.allclose(diff, expected, atol=1e-7), (
+        f"cost drag mismatch: got {diff[0]:.6f}, expected {expected:.6f} per period"
+    )
+    # churn drag for hold_vs_replace=normal: +5bps/MONTH = 0.0005
+    r_off  = replay_combo(eq, features, "off", "off",    0.0, "rebalance_date", "net_return", "cash_weight")
+    r_nrm  = replay_combo(eq, features, "off", "normal", 0.0, "rebalance_date", "net_return", "cash_weight")
+    churn_diff = r_off["governed_return"].values - r_nrm["governed_return"].values
+    assert _np.allclose(churn_diff, 0.0005, atol=1e-7), (
+        f"normal churn drag mismatch: got {churn_diff[0]:.6f}, expected 0.0005"
+    )
+
+
+@_test("logic.plan_c_g_grid_size_and_status")
+def test_plan_c_g_grid() -> None:
+    """Phase G: 3 governors x 3 hold_vs_replace x 5 costs = 45 combos per
+    portfolio, every combo status='ok'."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("run_integrated_alpha_crisis_challenger",):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    import pandas as _pd
+    import numpy as _np
+    from run_integrated_alpha_crisis_challenger import (
+        run_grid, GOVERNOR_MODES, HOLD_VS_REPLACE_MODES, COST_BPS_GRID,
+    )
+
+    dates = _pd.date_range("2019-01-01", periods=48, freq="ME")
+    rng = _np.random.RandomState(7)
+    eq = _pd.DataFrame({
+        "rebalance_date": dates,
+        "net_return": rng.normal(0.01, 0.04, 48),
+        "cash_weight": _np.full(48, 0.05),
+    })
+    grid, replays = run_grid(eq, _pd.DataFrame(), "rebalance_date", "net_return", "cash_weight", "main")
+    expected_combos = len(GOVERNOR_MODES) * len(HOLD_VS_REPLACE_MODES) * len(COST_BPS_GRID)
+    assert len(grid) == expected_combos, f"expected {expected_combos} combos, got {len(grid)}"
+    assert (grid["status"] == "ok").sum() == expected_combos
+    # Off-governor + off-hr + 0bps must reproduce original CAGR exactly
+    baseline_row = grid[
+        (grid["governor"] == "off")
+        & (grid["hold_vs_replace"] == "off")
+        & (grid["cost_bps_annual"] == 0.0)
+    ].iloc[0]
+    assert abs(baseline_row["delta_cagr_pp"]) < 1e-9
+    assert abs(baseline_row["delta_mdd_pp"]) < 1e-9
+
+
+@_test("logic.plan_c_g_a1a2_audit_reader")
+def test_plan_c_g_a1a2_reader() -> None:
+    """Phase G read_a1_a2_audit: distinguishes both_passed / audit_failed /
+    audit_inconclusive / data_pending / audit_unreadable."""
+    import sys as _sys
+    import json as _json
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("run_integrated_alpha_crisis_challenger",):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    from run_integrated_alpha_crisis_challenger import read_a1_a2_audit
+
+    assert read_a1_a2_audit(None)["status"] == "data_pending"
+    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        _json.dump({"gates": {"A1": {"passed": True}, "A2": {"passed": True}}}, f)
+        p = _Path(f.name)
+    assert read_a1_a2_audit(p)["status"] == "both_passed"
+    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        _json.dump({"gates": {"A1": {"passed": False}, "A2": {"passed": True}}}, f)
+        p = _Path(f.name)
+    assert read_a1_a2_audit(p)["status"] == "audit_failed"
+    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        _json.dump({"gates": {"A1": {"passed": None}, "A2": {"passed": None}}}, f)
+        p = _Path(f.name)
+    assert read_a1_a2_audit(p)["status"] == "audit_inconclusive"
+    # Unreadable
+    with _tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        f.write("not json")
+        p = _Path(f.name)
+    assert read_a1_a2_audit(p)["status"] == "audit_unreadable"
+
+
+@_test("logic.plan_c_g_verdict_downgrade_logic")
+def test_plan_c_g_verdict_downgrade() -> None:
+    """Phase G: SHIP must downgrade to PARTIAL when A1/A2 unproven or
+    bootstrap CI lower bound fails -- this is the core safety property."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    for mod in ("run_integrated_alpha_crisis_challenger",):
+        if mod in _sys.modules:
+            del _sys.modules[mod]
+    import pandas as _pd
+    import numpy as _np
+    from run_integrated_alpha_crisis_challenger import (
+        pick_best_and_verdict, MAIN_GATES,
+    )
+
+    # Construct a grid that passes ALL hard gates so the verdict depends on
+    # A1/A2 + bootstrap only
+    grid = _pd.DataFrame([{
+        "portfolio": "main", "governor": "conservative", "hold_vs_replace": "off",
+        "cost_bps_annual": 0.0,  "rows": 60, "status": "ok",
+        "original_cagr": 0.10, "governed_cagr": 0.12,
+        "delta_cagr_pp": 2.0, "original_mdd": -0.30, "governed_mdd": -0.20,
+        "delta_mdd_pp": 10.0, "original_sharpe": 0.80, "governed_sharpe": 1.00,
+        "delta_sharpe": 0.20, "original_avg_cash": 0.05, "governed_avg_cash": 0.10,
+    }, {
+        # Same combo at 50bps cost still positive dCAGR -> cost sensitivity passes
+        "portfolio": "main", "governor": "conservative", "hold_vs_replace": "off",
+        "cost_bps_annual": 50.0, "rows": 60, "status": "ok",
+        "original_cagr": 0.10, "governed_cagr": 0.115,
+        "delta_cagr_pp": 1.5, "original_mdd": -0.30, "governed_mdd": -0.20,
+        "delta_mdd_pp": 10.0, "original_sharpe": 0.80, "governed_sharpe": 0.95,
+        "delta_sharpe": 0.15, "original_avg_cash": 0.05, "governed_avg_cash": 0.10,
+    }])
+    # Tight, healthy bootstrap (high mean, narrow CI)
+    rng = _np.random.RandomState(0)
+    bs_input = rng.normal(0.012, 0.005, 200)  # very low vol -> tight CI
+    v1 = pick_best_and_verdict(
+        grid, MAIN_GATES,
+        {"status": "both_passed", "A1_passed": True, "A2_passed": True},
+        bootstrap_iter=200, bootstrap_input=bs_input,
+    )
+    # With everything passing, should be SHIP
+    assert v1["verdict"] == "SHIP", f"expected SHIP, got {v1['verdict']}"
+
+    # Same grid + bootstrap but A1/A2 data_pending -> downgrade to PARTIAL
+    v2 = pick_best_and_verdict(
+        grid, MAIN_GATES,
+        {"status": "data_pending", "A1_passed": None, "A2_passed": None},
+        bootstrap_iter=200, bootstrap_input=bs_input,
+    )
+    assert v2["verdict"] == "PARTIAL", f"data_pending must downgrade SHIP, got {v2['verdict']}"
+
+    # Same grid + A1/A2 passed but failing bootstrap (very volatile returns) -> PARTIAL
+    bad_bs = rng.normal(0.05, 0.20, 60)  # huge vol -> wide CI lower bound
+    v3 = pick_best_and_verdict(
+        grid, MAIN_GATES,
+        {"status": "both_passed", "A1_passed": True, "A2_passed": True},
+        bootstrap_iter=500, bootstrap_input=bad_bs,
+    )
+    assert v3["verdict"] in ("PARTIAL", "REJECT"), (
+        f"volatile bootstrap must downgrade SHIP, got {v3['verdict']}"
+    )
+
+
 @_test("logic.plan_c_f_g0a_pit_filter")
 def test_plan_c_f_g0a_pit() -> None:
     """G0-A: candidates with available_from_ts > as_of_date must be filtered,

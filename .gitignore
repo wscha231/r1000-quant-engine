@@ -19,3 +19,4 @@ outputs/crisis_governor_replay/
 outputs/crisis_signals/
 outputs/drawdown_segments/
 outputs/hold_vs_replace/
+outputs/integrated_challenger/
