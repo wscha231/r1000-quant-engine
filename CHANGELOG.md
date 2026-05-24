@@ -51,6 +51,86 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-24
+
+### 22:02 KST - phase-g-crisis-hold-replace-clean-port
+
+- scope:
+  - Clean-port Claude E/F/G crisis governor research from the diverged branch onto current master, keep G1 counterfactual research-only, and add a G2 target-book bridge for official broker-ledger replay.
+- files:
+  - `.gitignore` ->ignores generated crisis governor, crisis signal, hold-vs-replace, and integrated challenger outputs.
+  - `r1000_crisis_governor.py` ->adds pure crisis exposure and re-entry ladder logic with no production wiring.
+  - `r1000_hold_vs_replace.py` ->adds pure hold/trim/replace/cash decision logic with PIT candidate filtering and replacement priority.
+  - `tools/run_crisis_signal_builder.py` ->adds crisis daily feature construction and composite crisis score output.
+  - `tools/run_crisis_type_classifier.py` ->adds crisis archetype classifier for shock crash, credit crisis, slow bear, pullback, and recovery regimes.
+  - `tools/run_crisis_governor_replay.py` ->adds research-only equity-curve governor replay and stress-window metrics.
+  - `tools/run_hold_vs_replace_evaluator.py` ->adds CLI evaluator for hold-vs-replace decisions from holdings and candidate pools.
+  - `tools/run_integrated_alpha_crisis_challenger.py` ->adds G1 integrated counterfactual grid and marks outputs as research-only/non-production.
+  - `tools/build_crisis_governed_target_books.py` ->adds G2 research-only target-book materialization that can run broker-ledger replay.
+  - `tests/crisis_signal_builder_smoke.py` ->adds PIT-stability coverage for composite crisis score.
+  - `tests/crisis_type_classifier_smoke.py` ->adds classifier coverage for shock crash and slow bear regimes.
+  - `tests/crisis_governor_smoke.py` ->adds exposure ladder and re-entry ladder coverage.
+  - `tests/crisis_governor_replay_smoke.py` ->adds synthetic MDD-reduction replay coverage.
+  - `tests/hold_vs_replace_smoke.py` ->adds PIT-safe replacement and global priority coverage.
+  - `tests/integrated_alpha_crisis_challenger_smoke.py` ->adds G1 grid and A1/A2 fail-closed coverage.
+  - `tests/crisis_governed_target_books_smoke.py` ->adds G2 target-book-to-broker-ledger coverage.
+  - `tools/run_pr_validation.py` ->adds the new E/F/G smoke tests to fast validation.
+  - `research/final_integrated_engine_20260524/plan.md` ->documents the G1/G2 split and broker-ledger promotion requirement.
+  - `research/final_integrated_engine_20260524/research.md` ->ports the E/F/G research notes from the Claude branch.
+  - `CHANGELOG.md` ->records the clean-port implementation.
+- symbols_added:
+  - `ExposureTarget` ->describes one crisis exposure-ladder evaluation.
+  - `crisis_zone(crisis_score, low, mid, high)` ->maps crisis score to normal/caution/defense/crisis.
+  - `evaluate_exposure_target(crisis_score, cfg_thresholds, new_buy_throttle_at, concentrated_floor)` ->returns cash/exposure behavior for a crisis score.
+  - `apply_exposure_ladder(weights, crisis_score, target, cfg_thresholds, cash_ticker)` ->reshapes target weights to respect crisis cash floors.
+  - `compute_reentry_score(features)` ->scores market recovery for risk re-entry.
+  - `reentry_exposure_multiplier(reentry_score, prior_multiplier)` ->maps recovery score to a monotonic re-entry multiplier.
+  - `maybe_apply_governor(weights, crisis_score, reentry_score, prior_multiplier, cfg)` ->single-call governor facade for later gated pipeline wiring.
+  - `PositionState` ->holds classified position state and data-quality flags.
+  - `ReplacementDecision` ->holds hold/trim/replace/cash decision output.
+  - `classify_position_state(ticker, current_price, entry_price, rs_rank, ma200, target_gain_pct, pe_zscore)` ->classifies holdings as winner, weakening, broken, or review-required.
+  - `select_replacement_candidate(held_score_z, candidates, held_sector, held_industry, crisis_zone, threshold_sigma, as_of_date, sector_policy)` ->selects PIT-safe replacement candidates.
+  - `decide_action(position, held_score_z, candidates, held_sector, held_industry, crisis_zone, as_of_date, sector_policy, weight)` ->maps one holding to a sized decision.
+  - `evaluate_portfolio_holds_vs_replaces(holdings, candidates, crisis_zone, concentrated_floor, max_replacements, as_of_date, sector_policy)` ->evaluates portfolio-level hold/replace decisions with replacement caps.
+  - `decision_summary(decisions)` ->summarizes hold-vs-replace decisions.
+  - `compute_composite_crisis_score(features)` ->builds the composite crisis score from market, volatility, credit, and rate features.
+  - `classify_rows(features, thr)` ->assigns crisis archetype labels.
+  - `compute_governed_curve(equity_curve, features, date_col, return_col, cash_col, label)` ->runs research-only governor replay over an equity curve.
+  - `replay_combo(eq, features, governor_mode, hold_vs_replace_mode, cost_bps_annual, date_col, return_col, cash_col)` ->runs one G1 counterfactual combo.
+  - `run_grid(eq, features, date_col, return_col, cash_col, portfolio_label)` ->runs the G1 governor/hold-vs-replace/cost grid.
+  - `pick_best_and_verdict(grid, gates, a1a2, bootstrap_iter, bootstrap_input)` ->selects the best G1 combo and fail-closes on missing broker-accounting audit.
+  - `build_governed_book(target_book, crisis_features, portfolio_kind, mode, allow_normal_cash_deploy)` ->materializes G2 crisis-governed target books from observable feature rows.
+  - `build(args)` ->writes G2 target books, schedule audits, summary, report, and optional broker replay outputs.
+- symbols_changed:
+  - `run_integrated_alpha_crisis_challenger.main()` ->adds research-only metadata, official metric requirement, and G2 next-step metadata to verdict outputs.
+  - `run_pr_validation.DEFAULT_TESTS` ->adds seven E/F/G smoke tests to Tier-1 fast validation.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/crisis_signals/daily_features.parquet` ->crisis daily features generated by the signal builder.
+  - `outputs/crisis_governor_replay/` ->research-only E7 counterfactual replay outputs.
+  - `outputs/hold_vs_replace/` ->research-only F evaluator decisions and summaries.
+  - `outputs/integrated_challenger/` ->research-only G1 counterfactual grid, verdict, and promotion audit.
+  - `outputs/crisis_governed_target_books/` ->research-only G2 target-book bridge outputs and optional broker replay results.
+- validation:
+  - `python -m py_compile r1000_crisis_governor.py r1000_hold_vs_replace.py tools/run_crisis_signal_builder.py tools/run_crisis_type_classifier.py tools/run_crisis_governor_replay.py tools/run_hold_vs_replace_evaluator.py tools/run_integrated_alpha_crisis_challenger.py` ->PASS.
+  - `python -m py_compile tools/build_crisis_governed_target_books.py tests/crisis_signal_builder_smoke.py tests/crisis_type_classifier_smoke.py tests/crisis_governor_smoke.py tests/crisis_governor_replay_smoke.py tests/hold_vs_replace_smoke.py tests/integrated_alpha_crisis_challenger_smoke.py tests/crisis_governed_target_books_smoke.py` ->PASS.
+  - `python tests\crisis_signal_builder_smoke.py` ->PASS.
+  - `python tests\crisis_type_classifier_smoke.py` ->PASS.
+  - `python tests\crisis_governor_smoke.py` ->PASS.
+  - `python tests\crisis_governor_replay_smoke.py` ->PASS.
+  - `python tests\hold_vs_replace_smoke.py` ->PASS.
+  - `python tests\integrated_alpha_crisis_challenger_smoke.py` ->PASS.
+  - `python tests\crisis_governed_target_books_smoke.py` ->PASS.
+  - `python tools\run_pr_validation.py --only crisis --only hold_vs_replace --only integrated_alpha_crisis_challenger --quiet` ->PASS, 8/8.
+  - `python tools\run_pr_validation.py --quiet` ->PASS, 51/51.
+- risks_or_notes:
+  - G1 is explicitly counterfactual and cannot be promotion evidence.
+  - G2 creates replayable target books, but real promotion still requires full data artifacts, cost sensitivity, stress-window comparison, and human approval.
+  - No production defaults or live score switches are changed.
+
 ## 2026-05-21
 
 ### 14:29 KST - post-disclosure-tiebreaker-ablation
