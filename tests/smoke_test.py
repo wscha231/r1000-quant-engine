@@ -1735,6 +1735,49 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_e1_drawdown_segment_classifier")
+def test_plan_c_e1_drawdown_classifier() -> None:
+    """Plan C v3.6 Phase E1 — drawdown segment classifier distinguishes
+    shock_crash from slow_bear by speed-to-10pct threshold."""
+    import sys as _sys
+    tools_dir = ROOT / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.insert(0, str(tools_dir))
+    if "run_drawdown_segment_audit" in _sys.modules:
+        del _sys.modules["run_drawdown_segment_audit"]
+    from run_drawdown_segment_audit import compute_segments, EquitySource
+    import pandas as _pd
+    import numpy as _np
+
+    dates = _pd.date_range("2020-01-01", periods=200, freq="D")
+    eq = _np.ones(200)
+    # Two distinct DD patterns (above-threshold for clean classification)
+    for i in range(0, 21):
+        eq[i] = 1.0 + 0.15 * (i / 20.0)
+    peak1 = eq[20]
+    for i in range(21, 81):  # 60 days slow decline to -25% (clearly slow_bear)
+        eq[i] = peak1 * (1.0 - 0.25 * ((i - 20) / 60.0))
+    for i in range(81, 141):  # recovery
+        eq[i] = eq[80] + (peak1 - eq[80]) * ((i - 80) / 60.0)
+    peak2 = eq[140]
+    for i in range(141, 156):  # 15-day shock crash to -30%
+        eq[i] = peak2 * (1.0 - 0.30 * ((i - 140) / 15.0))
+    for i in range(156, 200):
+        eq[i] = eq[155] + (peak2 - eq[155]) * ((i - 155) / 44.0)
+    df = _pd.DataFrame({"rebalance_date": dates, "equity": eq})
+    src = EquitySource(
+        label="test", path=None, is_broker_ledger=False,
+        date_col="rebalance_date", equity_col="equity",
+        return_col=None, benchmark_col=None,
+        cash_weight_col=None, breaker_col=None,
+    )
+    segments = compute_segments(df, src, threshold=0.10)
+    assert len(segments) >= 2, f"expected >=2 segments, got {len(segments)}"
+    archetypes = segments["likely_archetype"].tolist()
+    assert "slow_bear" in archetypes, f"slow_bear missing from {archetypes}"
+    assert "shock_crash" in archetypes, f"shock_crash missing from {archetypes}"
+
+
 @_test("logic.plan_c_kill_switch_on_applies_capped_overlay")
 def test_plan_c_kill_switch_on_caps_bonus() -> None:
     """Plan C v3.5 — when switch ON, SEC bonus is added but clipped at cap."""
