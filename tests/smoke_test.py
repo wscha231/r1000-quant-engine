@@ -1735,6 +1735,70 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_e5_e6_governor_ladders")
+def test_plan_c_e5_e6_governor() -> None:
+    """Plan C v3.6 Phase E5+E6 -- exposure + re-entry ladders behave correctly."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_crisis_governor" in _sys.modules:
+        del _sys.modules["r1000_crisis_governor"]
+    from r1000_crisis_governor import (
+        crisis_zone, evaluate_exposure_target, apply_exposure_ladder,
+        compute_reentry_score, reentry_exposure_multiplier,
+    )
+    import pandas as _pd
+
+    # Zone mapping
+    assert crisis_zone(0.10) == "normal"
+    assert crisis_zone(0.35) == "caution"
+    assert crisis_zone(0.55) == "defense"
+    assert crisis_zone(0.85) == "crisis"
+
+    # Exposure target
+    t_normal = evaluate_exposure_target(0.10)
+    assert t_normal.target_cash_ceiling == 0.05
+    assert t_normal.block_new_buys is False
+    t_crisis = evaluate_exposure_target(0.85)
+    assert t_crisis.target_cash_floor == 0.25
+    assert t_crisis.block_new_buys is True
+
+    # Ladder: normal zone clips cash to ceiling, preserves non-cash ratio
+    weights = _pd.Series({"AAPL": 0.50, "MSFT": 0.30, "CASH": 0.20})
+    new_w = apply_exposure_ladder(weights, crisis_score=0.10)
+    assert new_w["CASH"] <= 0.05 + 1e-6
+    assert abs(new_w.sum() - 1.0) < 1e-6
+    # Crisis zone lifts cash from 0.05 to >=0.25, preserves ranking
+    weights2 = _pd.Series({"AAPL": 0.50, "MSFT": 0.45, "CASH": 0.05})
+    new_w2 = apply_exposure_ladder(weights2, crisis_score=0.85)
+    assert new_w2["CASH"] >= 0.25 - 1e-6
+    ratio_before = 0.50 / 0.95
+    ratio_after = new_w2["AAPL"] / (new_w2["AAPL"] + new_w2["MSFT"])
+    assert abs(ratio_before - ratio_after) < 1e-6, "non-cash ranking broken"
+
+    # Reentry score: healthy market high, crisis low
+    healthy = _pd.Series({
+        "vix_zscore_60d": 0.3, "qqq_close": 380.0, "qqq_ma20": 370.0,
+        "qqq_ma50": 365.0, "spy_20d_dd": -0.01, "hy_oas_zscore_60d": 0.4,
+        "spy_5d_dd": -0.005,
+    })
+    assert compute_reentry_score(healthy) > 0.65
+    crisis = _pd.Series({
+        "vix_zscore_60d": 2.8, "qqq_close": 280.0, "qqq_ma20": 340.0,
+        "qqq_ma50": 350.0, "spy_20d_dd": -0.18, "hy_oas_zscore_60d": 2.5,
+        "spy_5d_dd": -0.05,
+    })
+    assert compute_reentry_score(crisis) < 0.30
+
+    # Reentry multiplier ladder
+    assert reentry_exposure_multiplier(0.10, prior_multiplier=0.0) == 0.0
+    assert reentry_exposure_multiplier(0.50, prior_multiplier=0.0) == 0.25
+    assert reentry_exposure_multiplier(0.65, prior_multiplier=0.25) == 0.60
+    assert reentry_exposure_multiplier(0.80, prior_multiplier=0.60) == 1.00
+    # Monotonic: once at full risk, declining score keeps full risk
+    assert reentry_exposure_multiplier(0.50, prior_multiplier=1.0) == 1.0
+
+
 @_test("logic.plan_c_e3_crisis_classifier_pit_safe")
 def test_plan_c_e3_crisis_classifier() -> None:
     """Plan C v3.6 Phase E3 -- classifier distinguishes 2020 shock_crash
