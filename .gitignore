@@ -28,6 +28,11 @@ outputs/winner_lifecycle/
 outputs/winner_onset_study/
 outputs/autolearning_winner_challenger/
 outputs/live_extension/
+outputs/crisis_governor_replay/
+outputs/crisis_governed_target_books/
+outputs/crisis_signals/
+outputs/hold_vs_replace/
+outputs/integrated_challenger/
 outputs/shakeout_breakdown_study/
 outputs/main_cash_drag_replay/
 outputs/main_v2_backtest/
