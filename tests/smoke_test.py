@@ -1735,6 +1735,106 @@ def test_plan_c_kill_switch_off_no_score_change() -> None:
     assert "pda_total_score" in df.columns
 
 
+@_test("logic.plan_c_f_hold_vs_replace_classifier")
+def test_plan_c_f_position_classifier() -> None:
+    """Plan C v3.6 Phase F1 -- position state classifier covers all paths."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    from r1000_hold_vs_replace import classify_position_state
+
+    # winner_intact
+    p = classify_position_state("AAPL", 110, 100, rs_rank=75, ma200=95)
+    assert p.state == "winner_intact"
+    # weakening
+    p = classify_position_state("MSFT", 92, 100, rs_rank=55, ma200=88)
+    assert p.state == "weakening"
+    # broken via drawdown
+    p = classify_position_state("NVDA", 78, 100, rs_rank=45, ma200=85)
+    assert p.state == "broken"
+    # broken via MA200
+    p = classify_position_state("GOOG", 95, 100, rs_rank=55, ma200=98)
+    assert p.state == "broken"
+    # broken via RS
+    p = classify_position_state("META", 102, 100, rs_rank=25, ma200=98)
+    assert p.state == "broken"
+    # winner_overextended
+    p = classify_position_state("AMD", 140, 100, rs_rank=80, ma200=110, pe_zscore=2.5)
+    assert p.state == "winner_overextended"
+
+
+@_test("logic.plan_c_f_hold_vs_replace_evaluator")
+def test_plan_c_f_evaluator() -> None:
+    """Plan C v3.6 Phase F2+F3 -- end-to-end portfolio evaluator + caps."""
+    import sys as _sys
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    if "r1000_hold_vs_replace" in _sys.modules:
+        del _sys.modules["r1000_hold_vs_replace"]
+    import pandas as _pd
+    from r1000_hold_vs_replace import (
+        evaluate_portfolio_holds_vs_replaces,
+        select_replacement_candidate,
+        NORMAL_REPLACEMENT_SIGMA,
+        CRISIS_QUALITY_FLOOR,
+    )
+
+    # F2: same-sector + crisis filter
+    cands = _pd.DataFrame({
+        "ticker": ["A", "B", "C", "SAME"],
+        "score_z": [1.5, 0.5, 2.0, 1.8],
+        "sector": ["tech", "finance", "energy", "consumer"],
+        "quality_growth_score": [0.85, 0.6, 0.9, 0.75],
+    })
+    # Crisis mode filters out anything with quality < 0.70
+    best_c = select_replacement_candidate(0.0, cands, held_sector=None, crisis_zone="crisis")
+    assert best_c is not None
+    assert best_c["quality_growth_score"] >= CRISIS_QUALITY_FLOOR
+    # Same-sector blocked
+    best_s = select_replacement_candidate(1.0, cands, held_sector="consumer", crisis_zone="normal")
+    assert best_s["ticker"] != "SAME"
+
+    # F3: replacement cap + concentrated floor
+    all_broken = _pd.DataFrame({
+        "ticker": list("ABCDE"),
+        "current_price": [70] * 5,
+        "entry_price":   [100] * 5,
+        "weight":        [0.20] * 5,
+        "score_z":       [0.5] * 5,
+        "sector":        ["tech"] * 5,
+        "rs_rank":       [50] * 5,
+        "ma200":         [80] * 5,
+    })
+    # No candidates that meet threshold (all weak) -> all default to cash in crisis
+    weak = _pd.DataFrame({
+        "ticker": ["X"], "score_z": [0.6], "sector": ["energy"], "quality_growth_score": [0.5],
+    })
+    d_crisis = evaluate_portfolio_holds_vs_replaces(
+        all_broken, weak, crisis_zone="crisis", concentrated_floor=0.30,
+    )
+    # Floor 0.30 means at least 30% equity must remain
+    cash_w = d_crisis[d_crisis["action"] == "cash"]["weight"].sum()
+    remaining_equity = 1.0 - cash_w
+    assert remaining_equity >= 0.30 - 1e-6, (
+        f"concentrated_floor breached: equity={remaining_equity:.3f}"
+    )
+
+    # Replacement cap test: 5 broken positions, only top 2 replaced
+    strong = _pd.DataFrame({
+        "ticker": ["P", "Q", "R", "S", "T"],
+        "score_z": [2.0, 2.0, 2.0, 2.0, 2.0],
+        "sector": ["x", "x", "x", "x", "x"],
+        "quality_growth_score": [0.9] * 5,
+    })
+    d_normal = evaluate_portfolio_holds_vs_replaces(
+        all_broken, strong, crisis_zone="normal"
+    )
+    replaces = (d_normal["action"] == "replace").sum()
+    assert replaces <= 2, f"replacement cap (2) violated: {replaces}"
+
+
 @_test("logic.plan_c_e7_governor_replay_reduces_mdd")
 def test_plan_c_e7_governor_replay() -> None:
     """Plan C v3.6 Phase E7 -- counterfactual replay reduces MDD without
