@@ -30,6 +30,7 @@ DEFAULT_OUTPUT_DIR = "data_pit/sec"
 DEFAULT_RAW_DIR = "data_raw/sec"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
+SUBMISSIONS_ARCHIVE_URL = "https://data.sec.gov/submissions/{name}"
 
 
 def cik10(value: Any) -> str:
@@ -166,6 +167,31 @@ def fetch_submissions(
         return {}
 
 
+def fetch_submission_archive(
+    file_name: str,
+    raw_dir: Path,
+    *,
+    user_agent: str | None = None,
+    refresh: bool = False,
+    sleep_s: float = 0.12,
+) -> dict[str, Any]:
+    """Fetch an older SEC submissions archive file listed under filings.files."""
+    name = str(file_name or "").strip()
+    if not name or "/" in name or "\\" in name:
+        return {}
+    out_dir = raw_dir / "submissions"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cache = out_dir / name
+    if refresh or not cache.exists():
+        payload = sec_get_json(SUBMISSIONS_ARCHIVE_URL.format(name=name), user_agent=user_agent, sleep_s=sleep_s)
+        cache.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        return payload
+    try:
+        return json.loads(cache.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _recent_value(recent: dict[str, list[Any]], key: str, idx: int) -> Any:
     values = recent.get(key) or []
     if idx >= len(values):
@@ -183,6 +209,31 @@ def filing_archive_url(cik: str, accession: str, primary_document: str = "") -> 
     return f"{base}/{primary_document}" if primary_document else base
 
 
+def _in_history_window(
+    *,
+    accepted: Any,
+    filing_date: Any,
+    report_date: Any,
+    history_start: str = "",
+    history_end: str = "",
+) -> bool:
+    start = pd.to_datetime(history_start, errors="coerce", utc=True) if history_start else pd.NaT
+    end = pd.to_datetime(history_end, errors="coerce", utc=True) if history_end else pd.NaT
+    candidates = [
+        parse_sec_datetime(accepted),
+        parse_sec_datetime(filing_date),
+        parse_sec_datetime(report_date),
+    ]
+    dt = next((x for x in candidates if pd.notna(x)), pd.NaT)
+    if pd.isna(dt):
+        return True
+    if pd.notna(start) and dt < start:
+        return False
+    if pd.notna(end) and dt > end:
+        return False
+    return True
+
+
 def filings_from_submissions(
     ticker: str,
     cik: str,
@@ -190,6 +241,9 @@ def filings_from_submissions(
     *,
     forms: Iterable[str] | None = None,
     safety_delay_hours: float = 0.0,
+    source: str = "sec_submissions_recent",
+    history_start: str = "",
+    history_end: str = "",
 ) -> pd.DataFrame:
     wanted = {str(f).upper().strip() for f in forms or [] if str(f).strip()}
     recent = (payload.get("filings") or {}).get("recent") or {}
@@ -205,6 +259,14 @@ def filings_from_submissions(
         accepted = _recent_value(recent, "acceptanceDateTime", idx)
         filing_date = _recent_value(recent, "filingDate", idx)
         period = _recent_value(recent, "reportDate", idx)
+        if not _in_history_window(
+            accepted=accepted,
+            filing_date=filing_date,
+            report_date=period,
+            history_start=history_start,
+            history_end=history_end,
+        ):
+            continue
         rows.append(
             {
                 "ticker": str(ticker).upper().strip(),
@@ -217,12 +279,24 @@ def filings_from_submissions(
                 "period_of_report": str(period or ""),
                 "primary_document": primary_doc,
                 "filing_url": filing_archive_url(norm_cik, accession, primary_doc),
-                "source": "sec_submissions_recent",
+                "source": source,
                 "download_status": "indexed",
                 "parse_status": "pending",
             }
         )
     return pd.DataFrame(rows)
+
+
+def older_submission_file_names(payload: dict[str, Any], *, max_files: int = 0) -> list[str]:
+    files = (payload.get("filings") or {}).get("files") or []
+    out: list[str] = []
+    for item in files if isinstance(files, list) else []:
+        name = str(item.get("name") or "").strip() if isinstance(item, dict) else ""
+        if name and name.endswith(".json"):
+            out.append(name)
+    if max_files and max_files > 0:
+        out = out[: int(max_files)]
+    return out
 
 
 def collect_filings_index(
@@ -236,6 +310,10 @@ def collect_filings_index(
     sleep_s: float = 0.12,
     safety_delay_hours: float = 0.0,
     max_tickers: int = 0,
+    include_older_submissions: bool = False,
+    history_start: str = "",
+    history_end: str = "",
+    max_submission_files: int = 0,
 ) -> pd.DataFrame:
     ticker_map = load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh)
     if tickers:
@@ -289,9 +367,56 @@ def collect_filings_index(
             payload,
             forms=forms,
             safety_delay_hours=safety_delay_hours,
+            source="sec_submissions_recent",
+            history_start=history_start,
+            history_end=history_end,
         )
         if not frame.empty:
             frames.append(frame)
+        if include_older_submissions:
+            for file_name in older_submission_file_names(payload, max_files=max_submission_files):
+                try:
+                    archive_payload = fetch_submission_archive(
+                        file_name,
+                        raw_dir,
+                        user_agent=user_agent,
+                        refresh=refresh,
+                        sleep_s=sleep_s,
+                    )
+                    archived = filings_from_submissions(
+                        str(row["ticker"]),
+                        str(row["cik10"]),
+                        archive_payload,
+                        forms=forms,
+                        safety_delay_hours=safety_delay_hours,
+                        source=f"sec_submissions_archive:{file_name}",
+                        history_start=history_start,
+                        history_end=history_end,
+                    )
+                    if not archived.empty:
+                        frames.append(archived)
+                except Exception as exc:
+                    frames.append(
+                        pd.DataFrame(
+                            [
+                                {
+                                    "ticker": str(row.get("ticker") or "").upper().strip(),
+                                    "cik10": cik10(row.get("cik10")),
+                                    "accession_number": "",
+                                    "form_type": "",
+                                    "filing_date": "",
+                                    "accepted_at": "",
+                                    "available_from": "",
+                                    "period_of_report": "",
+                                    "primary_document": "",
+                                    "filing_url": "",
+                                    "source": f"sec_submissions_archive:{file_name}",
+                                    "download_status": "fetch_error",
+                                    "parse_status": f"archive_fetch_error: {type(exc).__name__}: {str(exc)[:180]}",
+                                }
+                            ]
+                        )
+                    )
     if not frames:
         return pd.DataFrame(
             columns=[
@@ -328,6 +453,9 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
         "row_count": int(len(frame)),
         "ticker_count": int(frame["ticker"].nunique()) if "ticker" in frame else 0,
         "form_counts": frame["form_type"].value_counts().to_dict() if "form_type" in frame else {},
+        "source_counts": frame["source"].value_counts().to_dict() if "source" in frame else {},
+        "min_available_from": str(frame["available_from"].replace("", pd.NA).dropna().min()) if "available_from" in frame and frame["available_from"].replace("", pd.NA).notna().any() else "",
+        "max_available_from": str(frame["available_from"].replace("", pd.NA).dropna().max()) if "available_from" in frame and frame["available_from"].replace("", pd.NA).notna().any() else "",
         "parquet": str(parquet_path),
         "csv": str(csv_path),
     }
@@ -349,6 +477,10 @@ def main() -> int:
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-tickers", type=int, default=0)
     parser.add_argument("--safety-delay-hours", type=float, default=0.0)
+    parser.add_argument("--include-older-submissions", action="store_true")
+    parser.add_argument("--history-start", default="")
+    parser.add_argument("--history-end", default="")
+    parser.add_argument("--max-submission-files", type=int, default=0)
     args = parser.parse_args()
 
     forms = [x.strip().upper() for x in args.forms.split(",") if x.strip()]
@@ -364,6 +496,10 @@ def main() -> int:
         sleep_s=float(args.sleep),
         safety_delay_hours=float(args.safety_delay_hours),
         max_tickers=int(args.max_tickers),
+        include_older_submissions=bool(args.include_older_submissions),
+        history_start=str(args.history_start or ""),
+        history_end=str(args.history_end or ""),
+        max_submission_files=int(args.max_submission_files),
     )
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))

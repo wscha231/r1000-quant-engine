@@ -1722,6 +1722,9 @@ class EngineConfig:
     backtest_window_comparison_years: list[int] = field(default_factory=lambda: [5, 8, 10])
     embargo_days: int = 126
     min_train_samples: int = 3000
+    compact_universe_train_sample_relax_enabled: bool = True
+    compact_universe_max_median_tickers: int = 250
+    compact_universe_min_train_samples: int = 800
 
     ridge_alpha: float = 8.0
     logreg_c: float = 1.0

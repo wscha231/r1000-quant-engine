@@ -51,6 +51,226 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-25
+
+### 23:58 KST - prune-failed-run-artifacts
+
+- scope:
+  - Remove committed failed full-rebuild artifacts from the operating minimal sync PR so repository history and review focus stay on code, workflows, and documented outputs.
+- files:
+  - `cloud_results/full_rebuild/failed_runs/` ->removed tracked failed-run output files from the branch.
+  - `.gitignore` ->documents the failed-run artifact path as ignored runtime output.
+  - `CHANGELOG.md` ->records the cleanup.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - pending targeted PR validation after artifact cleanup.
+- risks_or_notes:
+  - This cleanup does not change model scoring, crisis logic, broker replay logic, or production defaults.
+
+### 14:01 KST - fast-pit-top-manager-workflow
+
+- scope:
+  - Avoid full rebuilds for PIT top-manager follow-study research by running the study inside the lighter post-disclosure alpha workflow.
+- files:
+  - `.github/workflows/post_disclosure_alpha_pipeline.yml` ->runs `run_pit_top_manager_follow_study.py` after disclosure labels are built, uploads PIT top-manager artifacts, and syncs them to Google Drive.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `post_disclosure_alpha_pipeline.yml` ->adds a PIT top-manager follow-study step and includes its outputs in artifact and Drive sync paths.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/pit_top_manager_follow_study/` ->research-only PIT top-manager follow-study outputs from the lighter post-disclosure workflow.
+  - `data_pit/sec/pit_top_manager_cohorts.*` ->PIT cohort history uploaded by the lighter workflow.
+  - `data_pit/sec/top_manager_13f_follow_events.*` ->selected follow events uploaded by the lighter workflow.
+- validation:
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 30/30
+  - `git diff --check` ->PASS, CRLF warnings only
+- risks_or_notes:
+  - This is the preferred fast path for disclosure research; full rebuild remains reserved for official broker-ledger portfolio metrics.
+
+### 13:39 KST - pit-top-manager-follow-study
+
+- scope:
+  - Add a research-only PIT top-manager 13F follow study that ranks managers from completed historical post-disclosure outcomes before each cohort date, then tests whether later new/add positions rose after public filing availability.
+- files:
+  - `tools/run_pit_top_manager_follow_study.py` ->builds semiannual PIT top-manager cohorts, selected follow events, forward-return bucket stats, and a markdown report without changing live scoring.
+  - `tests/pit_top_manager_follow_study_smoke.py` ->checks completed-label leakage guard, top-manager event selection, and blocked missing-data behavior.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the PIT top-manager follow study only under `research_full`.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes PIT top-manager study outputs in research-full artifacts and cloud-results bundles.
+  - `tools/build_gdrive_sync_manifest.py` ->adds PIT top-manager study outputs to research-mode Drive sync manifest entries.
+  - `tools/run_pr_validation.py` ->adds the new smoke test to PR validation.
+  - `tests/smoke_test.py` ->adds structural guards for the new research-only study.
+- symbols_added:
+  - `normalize_labels(labels, events, horizons)` ->joins PIT event metadata into post-disclosure labels and prepares completion timestamps.
+  - `build_cohorts(labels, dates, *, top_n, ranking_lookback_days, ranking_horizon, min_manager_events)` ->builds no-lookahead manager cohorts from completed prior labels.
+  - `assign_top_cohort_events(events, labels, cohorts, dates, horizons)` ->selects later new/add 13F events from the PIT top-manager cohort in force at each event date.
+  - `bucket_performance(follow_events, horizons)` ->summarizes forward returns by horizon and discovery buckets.
+  - `run(args)` ->orchestrates the PIT top-manager follow study.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->includes `tests/pit_top_manager_follow_study_smoke.py`.
+  - `SHELL_SCRIPT` ->adds `run_pit_top_manager_follow_study.py` to the `research_full` sidecar path only.
+  - `RESEARCH_FILES` ->adds PIT top-manager research outputs for non-root Drive research sync.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/pit_top_manager_cohorts.parquet` ->PIT manager cohort history ranked only from completed prior post-disclosure labels.
+  - `data_pit/sec/top_manager_13f_follow_events.parquet` ->new/add 13F follow events from managers in the active top cohort.
+  - `outputs/pit_top_manager_follow_study/cohort_history.csv` ->CSV copy of PIT top-manager cohorts.
+  - `outputs/pit_top_manager_follow_study/event_forward_returns.csv` ->selected follow events with forward-return labels.
+  - `outputs/pit_top_manager_follow_study/bucket_performance.csv` ->1/3/6/12 month follow-performance summary by bucket.
+  - `outputs/pit_top_manager_follow_study/report.md` ->human-readable research report.
+  - `outputs/pit_top_manager_follow_study/summary.json` ->machine-readable study summary.
+- validation:
+  - `py -3 tests\pit_top_manager_follow_study_smoke.py` ->PASS
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 30/30
+  - `py -3 tests\smoke_test.py` ->PASS, 113/113
+  - `py -3 tools\run_pr_validation.py --only pit_top_manager_follow_study` ->PASS, 1/1
+  - `py -3 tools\run_pr_validation.py` ->PASS, 46/46
+  - `git diff --check` ->PASS, CRLF warnings only
+- risks_or_notes:
+  - Research-only; no production score activation or automatic trading.
+  - Early cohorts may be empty until enough completed historical labels accumulate.
+
+### 13:17 KST - top-manager-cik-and-long-shakeout-fix
+
+- scope:
+  - Fix Gavin Baker / Alex Sacerdote 13F manager CIKs, propagate manager quality into 13F position events, extend shakeout-disclosure learning to 3-6 month base resets, and relax walk-forward training thresholds only for compact global-alpha universes.
+- files:
+  - `research/sec_13f_manager_universe_20260519/managers.csv` ->corrects Whale Rock / Alex Sacerdote to CIK `0001387322` and Atreides / Gavin Baker to CIK `0001777813`.
+  - `tools/run_13f_position_event_builder.py` ->attaches manager rank, external performance, and allocation tier from `managers.csv` to PIT 13F event rows.
+  - `tools/run_shakeout_disclosure_reversal_study.py` ->adds long-base reset detection so CRDO-style 3-6 month drawdown/reclaim patterns are not missed.
+  - `r1000_config.py` ->adds compact-universe training sample relaxation fields.
+  - `r1000_pipeline.py` ->uses the compact-universe train threshold only when median monthly ticker count is small and emits richer no-OOS diagnostics.
+  - `tests/sec_13f_position_event_builder_smoke.py` ->checks manager metadata propagation.
+  - `tests/shakeout_disclosure_reversal_study_smoke.py` ->adds a synthetic long-base shakeout/reclaim case.
+  - `tests/smoke_test.py` ->checks corrected top-manager CIKs and compact-universe walk-forward guard wiring.
+- symbols_added:
+  - `manager_metadata_by_cik(manager_universe)` ->maps reviewed manager metadata by SEC CIK for 13F event rows.
+- symbols_changed:
+  - `build_position_events(holdings, metadata, manager_universe)` ->adds manager quality fields to PIT 13F events.
+  - `analyze_event(event, px, *, peak_window, reset_window, event_window)` ->detects both fast and long-base shakeout/reversal patterns.
+  - `train_walkforward(cfg, features)` ->relaxes `min_train_samples` only for compact universes and reports skip statistics when no OOS rows are produced.
+- config_fields_added:
+  - `compact_universe_train_sample_relax_enabled: bool = True` ->allows compact global-alpha runs to avoid all-month walk-forward skips.
+  - `compact_universe_max_median_tickers: int = 250` ->limits the relaxation to small universes.
+  - `compact_universe_min_train_samples: int = 800` ->sets the compact-universe lower training sample floor.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/13f_position_events.parquet` ->now includes manager rank, external performance, and allocation tier when `managers.csv` is available.
+  - `outputs/shakeout_disclosure_reversal_study/events.csv` ->now includes long-base reset fields such as reset window, reset-volume ratio, and 63-day reclaim flags.
+- validation:
+  - `py -3 tests\sec_13f_position_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\shakeout_disclosure_reversal_study_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 45/45.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - SEC submissions were used to verify that prior Atreides and Whale Rock CIK placeholders were wrong; a fresh 13F refresh is required before those corrected managers appear in data artifacts.
+  - The compact-universe threshold does not change R1000-scale training because it is gated by median monthly ticker count.
+  - Long-base shakeout output remains research-only and must pass broker-ledger challenger testing before any score activation.
+
+### 13:05 KST - shakeout-disclosure-reversal-study
+
+- scope:
+  - Add a research-only CRDO-style shakeout plus disclosure catalyst reversal study and fix rclone unzip prompts in the full rebuild workflow.
+- files:
+  - `tools/run_shakeout_disclosure_reversal_study.py` ->adds a research-only event study for fast reset, volume expansion, disclosure catalyst, and price reclaim confirmation.
+  - `tests/shakeout_disclosure_reversal_study_smoke.py` ->adds a synthetic CRDO-style reset/reclaim regression test.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the new study only in the `research_full` sidecar profile.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes the new research output in `research_full` artifacts and uses `unzip -qo` for rclone install steps.
+  - `tools/run_pr_validation.py` ->adds the new smoke test to PR validation.
+  - `tests/smoke_test.py` ->adds syntax coverage for the new tool.
+  - `tests/workflow_artifact_smoke.py` ->adds workflow coverage for the new research sidecar and log artifact.
+- symbols_added:
+  - `run(args)` ->runs the shakeout plus disclosure reversal event study.
+  - `analyze_event(event, px, *, peak_window, event_window)` ->computes reset, volume, reclaim, and forward-label features for one event.
+  - `manager_quality_score(event)` ->normalizes manager rank/performance/alpha fields into a 0-1 catalyst quality score.
+  - `build_summary(events)` ->summarizes confirmed/watch/breakdown buckets and label completeness.
+  - `render_report(summary, events)` ->writes the research-only markdown report.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->includes `tests/shakeout_disclosure_reversal_study_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/shakeout_disclosure_reversal_study/events.csv` ->event-level reset, volume, confirmation, and forward-label features.
+  - `outputs/shakeout_disclosure_reversal_study/pattern_summary.json` ->bucket counts, label completeness, and top candidates.
+  - `outputs/shakeout_disclosure_reversal_study/shakeout_disclosure_reversal_report.md` ->research-only markdown report.
+- validation:
+  - `py -3 tests\shakeout_disclosure_reversal_study_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 45/45.
+- risks_or_notes:
+  - The new study is research-only and is not connected to production score activation.
+  - Incomplete forward labels are marked as incomplete instead of being counted as failed outcomes.
+  - Manual CRDO case-study validation identified a confirmed reset/reclaim pattern, but the top-manager disclosure source should be verified against canonical SEC holdings before treating manager identity as factual.
+
+### 12:02 KST - operating-minimal-crisis-sync
+
+- scope:
+  - Add minimal operating generation/sync profiles, a current-holdings-only user report, manifest-based Google Drive sync, daily crisis monitoring, and Phase G crisis-governed broker replay wiring.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds `sidecar_profile`, `artifact_profile`, and `gdrive_sync_mode`, defaults to minimal operating sidecars/artifacts, and replaces broad Drive sync with manifest allowlist sync.
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->adds the research-only Phase G crisis/liquidity broker-ledger replay workflow.
+  - `.github/workflows/daily_crisis_monitor.yml` ->adds after-close crisis-state monitoring without full rebuild or auto-trade behavior.
+  - `tools/run_user_current_report.py` ->builds `outputs/user_current` with current holdings, cash, period returns, official metrics, benchmark comparison, and a single action status.
+  - `tools/build_gdrive_sync_manifest.py` ->builds a Drive sync allowlist manifest with semantic type, production validity, bytes, and hashes.
+  - `tools/run_daily_crisis_monitor.py` ->emits GREEN/WATCH/DEFENSE_REVIEW/REENTRY_READY review states with hysteresis and shakeout guardrails.
+  - `tools/audit_evidence_readiness.py` ->adds selection-impact and broker-impact audit sections so nonzero evidence is not treated as promotion evidence.
+  - `tools/build_crisis_governed_target_books.py` ->adds Phase G decision outputs and stricter broker-ledger gate summaries.
+  - `tests/smoke_test.py` ->adds structural regression coverage for minimal profiles, current-only user output, GDrive manifest semantics, evidence impact audit, and crisis monitoring.
+- symbols_added:
+  - `build_report(args)` ->builds the minimal current-holdings user report.
+  - `build_manifest(args)` ->builds the manifest-driven Drive sync allowlist.
+  - `build_monitor(args)` ->builds the daily crisis monitor summary.
+  - `selection_impact(latest_run)` ->summarizes whether nonzero evidence reaches selected targets.
+  - `broker_impact(latest_run)` ->summarizes whether evidence has broker-ledger challenger output.
+  - `write_decision_outputs(payload, latest_run, output_dir)` ->writes Phase G crisis decision summaries.
+- symbols_changed:
+  - `build_payload(args)` ->includes evidence data/signal/selection/broker impact audit sections.
+  - `build(args)` ->writes Phase G decision summary artifacts after crisis-governed replay.
+- config_fields_added:
+  - `sidecar_profile: workflow_dispatch choice = operating_minimal` ->controls heavy sidecar generation.
+  - `artifact_profile: workflow_dispatch choice = minimal` ->controls artifact upload breadth.
+  - `gdrive_sync_mode: workflow_dispatch choice = minimal` ->controls Drive sync allowlist scope.
+- breaking_changes:
+  - Default full rebuild artifacts and Drive root output are intentionally smaller; research diagnostics now require `artifact_profile=research_full` and `gdrive_sync_mode=research`.
+- outputs:
+  - `outputs/user_current/*` ->default user-facing current holdings, cash, official metrics, period returns, benchmark comparison, and action status.
+  - `outputs/gdrive_sync_manifest.json` ->Drive sync allowlist status and semantic metadata.
+  - `outputs/daily_crisis_monitor/*` ->daily crisis review state and guardrail summary.
+  - `outputs/phase_g_crisis_evidence_liquidity/decision_summary.json` ->Phase G broker-ledger decision gates.
+  - `outputs/phase_g_crisis_evidence_liquidity/crisis_governed_broker_metrics.csv` ->base vs crisis-governed broker metric deltas.
+- validation:
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+  - `git diff --check` ->PASS.
+  - PyYAML parse of modified workflows ->PASS.
+- risks_or_notes:
+  - `operating_minimal` and `official` skip heavy research sidecars by default; use `research_full` profiles for full diagnostics.
+  - Crisis monitor and Phase G outputs are review/challenger artifacts only and do not activate production trading.
+  - SEC/Form4/ETF evidence remains shadow/challenger-only until selection impact and broker impact pass.
+
 ## 2026-05-21
 
 ### 14:29 KST - post-disclosure-tiebreaker-ablation

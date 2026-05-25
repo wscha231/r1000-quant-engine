@@ -2562,6 +2562,8 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "default_backtest_years: int = 8",
         'leader_rescue_backtest_mode: str = "latest_only"',
         "strategic_global_hardware_universe_enabled: bool = True",
+        "compact_universe_train_sample_relax_enabled: bool = True",
+        "compact_universe_min_train_samples: int = 800",
         "[5, 8, 10]",
     ):
         assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
@@ -2575,6 +2577,8 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "load_strategic_global_hardware_universe_frame",
         "strategic_global_hardware",
         "leader_rescue_backtest_filter_summary.json",
+        "effective_min_train_samples",
+        "No OOS rows were generated in walk-forward training.",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
 
@@ -2950,6 +2954,9 @@ def test_sec_13f_manager_universe_csv_present() -> None:
         assert expected in labels, (
             f"managers.csv missing required entry: {expected}"
         )
+    by_label = {r["label"].upper(): r for r in rows}
+    assert by_label["WHALEROCK"]["cik10"] == "0001387322", "Whale Rock/Alex Sacerdote SEC CIK must be current"
+    assert by_label["ATREIDES"]["cik10"] == "0001777813", "Atreides/Gavin Baker SEC CIK must be current"
 
 
 @_test("regression.sec_13f_workflow_uses_manager_universe")
@@ -3034,6 +3041,166 @@ def test_plan_c_v35_evidence_switch_on_cap() -> None:
     cap = 0.20 * abs(float(off["score"].iloc[0]))
     assert abs(delta - float(on["score_evidence_fusion_overlay"].iloc[0])) < 1e-12
     assert 0.0 <= delta <= cap + 1e-12
+
+
+@_test("syntax.user_current_and_sync_tools_parse")
+def test_user_current_and_sync_tools_parse() -> None:
+    for rel in [
+        "tools/run_user_current_report.py",
+        "tools/build_gdrive_sync_manifest.py",
+        "tools/run_daily_crisis_monitor.py",
+        "tools/build_crisis_governed_target_books.py",
+        "tools/run_full_rebuild_sidecars.py",
+        "tools/run_shakeout_disclosure_reversal_study.py",
+        "tools/run_pit_top_manager_follow_study.py",
+    ]:
+        ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+
+
+@_test("structural.workflow_profiles_operating_minimal_skip_research")
+def test_workflow_profiles_operating_minimal_skip_research() -> None:
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    for token in ["sidecar_profile:", "artifact_profile:", "gdrive_sync_mode:", "operating_minimal", "research_full"]:
+        assert token in wf, f"full_rebuild_manual.yml missing profile token {token}"
+    assert "run_full_rebuild_sidecars.py" in wf
+    assert 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then' in sidecar_tool
+    assert "heavy research sidecars skipped" in sidecar_tool
+    assert "run_user_current_report.py" in sidecar_tool
+    assert "run_daily_crisis_monitor.py" in sidecar_tool
+
+
+@_test("structural.pit_top_manager_follow_study_is_research_only")
+def test_pit_top_manager_follow_study_is_research_only() -> None:
+    src = (ROOT / "tools" / "run_pit_top_manager_follow_study.py").read_text(encoding="utf-8")
+    sidecar = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    post_wf = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
+    manifest = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "completed post-disclosure labels",
+        "label_completion_ts",
+        "production_activation_allowed",
+        "score_total_changed",
+        "cohort_refresh_months",
+        "ranking_lookback_days",
+        "top_n",
+    ]:
+        assert token in src, f"PIT top-manager follow study missing {token}"
+    assert "run_pit_top_manager_follow_study.py" in sidecar
+    assert "outputs/pit_top_manager_follow_study/" in wf
+    assert "Run PIT top-manager follow study" in post_wf
+    assert "data_pit/sec/pit_top_manager_cohorts.*" in post_wf
+    assert "outputs/pit_top_manager_follow_study" in post_wf
+    assert "pit_top_manager_follow_study/bucket_performance.csv" in manifest
+
+
+@_test("structural.user_current_contains_no_research_metrics")
+def test_user_current_contains_no_research_metrics() -> None:
+    tool = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for required in [
+        "01_current_holdings.csv",
+        "03_period_returns.csv",
+        "04_official_metrics.json",
+        "06_benchmark_comparison.csv",
+        "current simulated broker-ledger holdings only",
+    ]:
+        assert required in tool, f"user_current report missing {required}"
+    forbidden = ["portfolio_latest.csv", "concentrated_portfolio_latest.csv", "candidate_replay_book.csv"]
+    readme_block = re.search(r"def write_readme\b.*?def build_report", tool, re.DOTALL)
+    assert readme_block, "write_readme block not found"
+    for token in forbidden:
+        assert token not in readme_block.group(0), f"user_current README should not expose {token}"
+
+
+@_test("structural.gdrive_manifest_marks_deprecated_research")
+def test_gdrive_manifest_marks_deprecated_research() -> None:
+    src = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "semantic_type",
+        "production_valid",
+        "weight_level_research_deprecated",
+        "USER_CURRENT_FILES",
+        "strict-primary",
+        "gdrive_sync_manifest.json",
+    ]:
+        assert token in src, f"gdrive manifest tool missing {token}"
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert "build_gdrive_sync_manifest.py" in wf
+    assert "rclone copyto" in wf
+    assert "outputs/gdrive_sync_files.tsv" in wf
+
+
+@_test("structural.period_returns_include_mdd_and_benchmarks")
+def test_period_returns_include_mdd_and_benchmarks() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for token in ["max_drawdown", "BENCHMARKS = (\"SPY\", \"QQQ\")", "\"YTD\"", "\"2Y\"", "realized_volatility"]:
+        assert token in src, f"period return implementation missing {token}"
+
+
+@_test("structural.action_status_review_when_cash_policy_flag_present")
+def test_action_status_review_when_cash_policy_flag_present() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    assert "cash_policy_flag" in src
+    assert "REVIEW_REQUIRED" in src
+    assert "DO_NOT_USE" in src
+    assert "official_metric_mode" in src
+    assert "broker_ledger_next_close" in src
+
+
+@_test("structural.evidence_nonzero_is_not_enough_without_selection_impact")
+def test_evidence_nonzero_is_not_enough_without_selection_impact() -> None:
+    src = (ROOT / "tools" / "audit_evidence_readiness.py").read_text(encoding="utf-8")
+    for token in [
+        "impact_audit",
+        "selection_impact",
+        "broker_impact",
+        "evidence_nonzero_ticker_count",
+        "Nonzero evidence is necessary but not sufficient",
+    ]:
+        assert token in src, f"evidence readiness audit missing {token}"
+
+
+@_test("structural.phase_g_requires_broker_ledger_official_metrics")
+def test_phase_g_requires_broker_ledger_official_metrics() -> None:
+    wf_path = ROOT / ".github" / "workflows" / "phase_g_crisis_evidence_liquidity_replay.yml"
+    assert wf_path.exists(), "Phase G crisis evidence liquidity workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    tool = (ROOT / "tools" / "build_crisis_governed_target_books.py").read_text(encoding="utf-8")
+    for token in ["--run-broker-replay", "cost_bps", "phase_g_crisis_evidence_liquidity"]:
+        assert token in wf, f"Phase G workflow missing broker-ledger token {token}"
+    for token in ["decision_summary.json", "crisis_governed_broker_metrics.csv", "promotion_allowed_without_human_approval", "broker_ledger_next_close", "next_close"]:
+        assert token in tool, f"Phase G decision output missing {token}"
+
+
+@_test("structural.sec_13f_refresh_uses_historical_submissions")
+def test_sec_13f_refresh_uses_historical_submissions() -> None:
+    wf = (ROOT / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    collector = (ROOT / "tools" / "run_sec_submissions_collector.py").read_text(encoding="utf-8")
+    for token in ["--include-older-submissions", "history_start", "2018-01-01", "max_filings", "1500"]:
+        assert token in wf, f"SEC 13F workflow missing historical backfill token {token}"
+    for token in ["SUBMISSIONS_ARCHIVE_URL", "filings.files", "include_older_submissions", "history_start"]:
+        assert token in collector, f"SEC submissions collector missing historical archive token {token}"
+
+
+@_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
+def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
+    src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
+    for token in [
+        "GREEN",
+        "WATCH",
+        "DEFENSE_REVIEW",
+        "REENTRY_READY",
+        "VIX-only cash raise is forbidden",
+        "single_name_shakeout_cash_raise_forbidden",
+        "long_crisis_daily_features.parquet",
+        "best_thresholds.json",
+        "future_labels_excluded",
+    ]:
+        assert token in src, f"daily crisis monitor missing {token}"
+    assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
+    assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 
 
 # ======================================================================
