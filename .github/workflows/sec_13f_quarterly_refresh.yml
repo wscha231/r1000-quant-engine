@@ -10,7 +10,11 @@ on:
       max_filings:
         description: 'Max indexed 13F filings to parse in this shard'
         type: string
-        default: '200'
+        default: '1500'
+      history_start:
+        description: 'Earliest SEC accepted/filing/report date to include. Empty = recent submissions only.'
+        type: string
+        default: '2018-01-01'
       safety_delay_hours:
         description: 'PIT safety delay after SEC accepted_at'
         type: string
@@ -135,7 +139,8 @@ jobs:
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
           MANAGER_CIKS_INPUT: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || '' }}
-          MAX_FILINGS: ${{ github.event.inputs.max_filings || '200' }}
+          MAX_FILINGS: ${{ github.event.inputs.max_filings || '1500' }}
+          HISTORY_START: ${{ github.event.inputs.history_start || '2018-01-01' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
@@ -164,6 +169,8 @@ jobs:
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            --include-older-submissions \
+            --history-start "$HISTORY_START" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_submissions.log
           python tools/run_sec_13f_parser.py \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \

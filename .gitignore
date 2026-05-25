@@ -3,6 +3,7 @@ __pycache__/
 .tmp_*/
 tmp_test_*/
 *.pyc
+artifacts/
 catboost_info/
 # ---- Secrets (NEVER commit) ----
 .env

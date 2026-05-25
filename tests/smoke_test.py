@@ -3173,6 +3173,16 @@ def test_phase_g_requires_broker_ledger_official_metrics() -> None:
         assert token in tool, f"Phase G decision output missing {token}"
 
 
+@_test("structural.sec_13f_refresh_uses_historical_submissions")
+def test_sec_13f_refresh_uses_historical_submissions() -> None:
+    wf = (ROOT / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    collector = (ROOT / "tools" / "run_sec_submissions_collector.py").read_text(encoding="utf-8")
+    for token in ["--include-older-submissions", "history_start", "2018-01-01", "max_filings", "1500"]:
+        assert token in wf, f"SEC 13F workflow missing historical backfill token {token}"
+    for token in ["SUBMISSIONS_ARCHIVE_URL", "filings.files", "include_older_submissions", "history_start"]:
+        assert token in collector, f"SEC submissions collector missing historical archive token {token}"
+
+
 @_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
 def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
     src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
