@@ -6,7 +6,7 @@
 - Rows: 17
 - Cash rows: 2
 - Monster recommendation rows: 0
-- Combined current cash: 14.32%
+- Combined current cash: 13.33%
 - Combined target cash: 25.35%
 - Cash policy review: `CASH_POLICY_REVIEW`
 - Primary user view: `current_operating_holdings_latest.csv`

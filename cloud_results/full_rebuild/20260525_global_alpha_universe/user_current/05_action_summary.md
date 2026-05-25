@@ -8,7 +8,7 @@
 ## Reasons
 
 - cash_policy_flag=target_cash_above_macro_floor_without_confirmation
-- current-vs-target implied turnover 78.65% > 30%
+- current-vs-target implied turnover 79.90% > 30%
 
 ## Operating Rules
 
