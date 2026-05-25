@@ -225,7 +225,7 @@ jobs:
           fi
 
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
           mkdir -p ~/.config/rclone
@@ -574,6 +574,7 @@ jobs:
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
             outputs/shakeout_breakdown_study/
+            outputs/shakeout_disclosure_reversal_study/
             outputs/autolearning_winner_challenger/
             outputs/policy_fusion/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
@@ -601,7 +602,7 @@ jobs:
 
           # Install rclone (~5MB, ~3s)
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
-          unzip -q /tmp/rclone.zip -d /tmp/
+          unzip -qo /tmp/rclone.zip -d /tmp/
           sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
           chmod +x /usr/local/bin/rclone
 

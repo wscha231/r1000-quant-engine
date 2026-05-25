@@ -3044,6 +3044,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/run_daily_crisis_monitor.py",
         "tools/build_crisis_governed_target_books.py",
         "tools/run_full_rebuild_sidecars.py",
+        "tools/run_shakeout_disclosure_reversal_study.py",
     ]:
         ast.parse((ROOT / rel).read_text(encoding="utf-8"))
 

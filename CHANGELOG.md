@@ -53,6 +53,45 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-25
 
+### 13:05 KST - shakeout-disclosure-reversal-study
+
+- scope:
+  - Add a research-only CRDO-style shakeout plus disclosure catalyst reversal study and fix rclone unzip prompts in the full rebuild workflow.
+- files:
+  - `tools/run_shakeout_disclosure_reversal_study.py` ->adds a research-only event study for fast reset, volume expansion, disclosure catalyst, and price reclaim confirmation.
+  - `tests/shakeout_disclosure_reversal_study_smoke.py` ->adds a synthetic CRDO-style reset/reclaim regression test.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the new study only in the `research_full` sidecar profile.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes the new research output in `research_full` artifacts and uses `unzip -qo` for rclone install steps.
+  - `tools/run_pr_validation.py` ->adds the new smoke test to PR validation.
+  - `tests/smoke_test.py` ->adds syntax coverage for the new tool.
+  - `tests/workflow_artifact_smoke.py` ->adds workflow coverage for the new research sidecar and log artifact.
+- symbols_added:
+  - `run(args)` ->runs the shakeout plus disclosure reversal event study.
+  - `analyze_event(event, px, *, peak_window, event_window)` ->computes reset, volume, reclaim, and forward-label features for one event.
+  - `manager_quality_score(event)` ->normalizes manager rank/performance/alpha fields into a 0-1 catalyst quality score.
+  - `build_summary(events)` ->summarizes confirmed/watch/breakdown buckets and label completeness.
+  - `render_report(summary, events)` ->writes the research-only markdown report.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->includes `tests/shakeout_disclosure_reversal_study_smoke.py`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/shakeout_disclosure_reversal_study/events.csv` ->event-level reset, volume, confirmation, and forward-label features.
+  - `outputs/shakeout_disclosure_reversal_study/pattern_summary.json` ->bucket counts, label completeness, and top candidates.
+  - `outputs/shakeout_disclosure_reversal_study/shakeout_disclosure_reversal_report.md` ->research-only markdown report.
+- validation:
+  - `py -3 tests\shakeout_disclosure_reversal_study_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 45/45.
+- risks_or_notes:
+  - The new study is research-only and is not connected to production score activation.
+  - Incomplete forward labels are marked as incomplete instead of being counted as failed outcomes.
+  - Manual CRDO case-study validation identified a confirmed reset/reclaim pattern, but the top-manager disclosure source should be verified against canonical SEC holdings before treating manager identity as factual.
+
 ### 12:02 KST - operating-minimal-crisis-sync
 
 - scope:
