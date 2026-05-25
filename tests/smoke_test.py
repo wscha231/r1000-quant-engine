@@ -3043,6 +3043,73 @@ def test_plan_c_v35_evidence_switch_on_cap() -> None:
     assert 0.0 <= delta <= cap + 1e-12
 
 
+@_test("regression.universe_collapse_guard_counts_r1000_base")
+def test_universe_collapse_guard_counts_r1000_base() -> None:
+    """Full Rebuild #82 regression: count_r1000_base_names must count only the
+    R1000 base sources (live IWB proxy or committed membership), so a starved
+    whitelist-only universe scores 0 and trips the guard."""
+    import pandas as pd
+    from r1000_pipeline import count_r1000_base_names, MIN_R1000_BASE_NAMES
+
+    # Healthy: ~693 R1000-base names (incl. combined-source labels) + whitelists
+    healthy = pd.DataFrame({
+        "universe_source": (
+            ["current_constituents_proxy"] * 690
+            + ["current_constituents_proxy+strategic_global_hardware"] * 3
+            + ["adr_whitelist"] * 28
+            + ["cycle_play_whitelist"] * 5
+        )
+    })
+    assert count_r1000_base_names(healthy) == 693
+    assert count_r1000_base_names(healthy) >= MIN_R1000_BASE_NAMES
+
+    # Starved (the #82 collapse): NO R1000 base, only static whitelists
+    starved = pd.DataFrame({
+        "universe_source": (
+            ["adr_whitelist"] * 28
+            + ["strategic_global_hardware"] * 22
+            + ["cycle_play_whitelist"] * 8
+        )
+    })
+    assert count_r1000_base_names(starved) == 0
+    assert count_r1000_base_names(starved) < MIN_R1000_BASE_NAMES
+
+    # Committed historical membership also counts as a healthy base
+    hist = pd.DataFrame({"universe_source": ["historical_membership_file"] * 500})
+    assert count_r1000_base_names(hist) == 500
+
+    # Robust to empty / missing-column frames
+    assert count_r1000_base_names(pd.DataFrame()) == 0
+    assert count_r1000_base_names(pd.DataFrame({"ticker": ["AAPL"]})) == 0
+
+
+@_test("regression.universe_collapse_guard_floor_threshold")
+def test_universe_collapse_guard_floor_threshold() -> None:
+    """The R1000 base floor must sit well above the 58-name starved collapse and
+    safely below the ~693 healthy base, so transient IWB failures fail loud."""
+    from r1000_pipeline import MIN_R1000_BASE_NAMES
+
+    assert 58 < MIN_R1000_BASE_NAMES < 693, (
+        f"MIN_R1000_BASE_NAMES={MIN_R1000_BASE_NAMES} must be between the 58-name "
+        f"starved collapse and the ~693 healthy base"
+    )
+
+
+@_test("structural.full_rebuild_workflow_blocks_starved_universe")
+def test_full_rebuild_workflow_blocks_starved_universe() -> None:
+    """full_rebuild_manual.yml must gate the latest_ baseline rotation on a
+    universe-health check (UNIVERSE_HEALTHY) so a starved run cannot overwrite
+    the shipped baseline (Full Rebuild #82 regression)."""
+    wf = (ROOT / ".github/workflows/full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert "UNIVERSE_HEALTHY" in wf, "universe-health gate missing from full rebuild workflow"
+    assert "current_constituents_proxy" in wf, "workflow gate must inspect R1000 base source"
+    # The validity gate that selects DEST + rotation must include UNIVERSE_HEALTHY
+    assert '[ "$UNIVERSE_HEALTHY" = "yes" ]' in wf, (
+        "RUN_ARTIFACT_VALID must require UNIVERSE_HEALTHY=yes"
+    )
+    assert "INVALID_UNIVERSE" in wf, "workflow must mark starved runs INVALID_UNIVERSE"
+
+
 @_test("syntax.user_current_and_sync_tools_parse")
 def test_user_current_and_sync_tools_parse() -> None:
     for rel in [
