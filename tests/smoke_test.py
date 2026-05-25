@@ -3177,9 +3177,20 @@ def test_phase_g_requires_broker_ledger_official_metrics() -> None:
 def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
     src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
     wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
-    for token in ["GREEN", "WATCH", "DEFENSE_REVIEW", "REENTRY_READY", "VIX-only cash raise is forbidden", "single_name_shakeout_cash_raise_forbidden"]:
+    for token in [
+        "GREEN",
+        "WATCH",
+        "DEFENSE_REVIEW",
+        "REENTRY_READY",
+        "VIX-only cash raise is forbidden",
+        "single_name_shakeout_cash_raise_forbidden",
+        "long_crisis_daily_features.parquet",
+        "best_thresholds.json",
+        "future_labels_excluded",
+    ]:
         assert token in src, f"daily crisis monitor missing {token}"
     assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
+    assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 
 
 # ======================================================================

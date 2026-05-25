@@ -302,8 +302,10 @@ jobs:
           SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/:' '__')"
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             DEST="gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/phase_g_crisis_evidence_liquidity"
+            CANONICAL_BASE="gdrive:"
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/phase_g_crisis_evidence_liquidity"
+            CANONICAL_BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           for d in outputs/phase_g_crisis_evidence_liquidity outputs/long_crisis_learning outputs/post_disclosure_alpha_pipeline outputs/full_rebuild_logs; do
             if [ -d "$d" ]; then
@@ -312,4 +314,10 @@ jobs:
           done
           if [ -s data_pit/macro/long_crisis_daily_features.parquet ]; then
             rclone copy data_pit/macro "$DEST/data_pit/macro/" --include "long_crisis_daily_features.parquet" || true
+          fi
+          if [ -d outputs/long_crisis_learning ]; then
+            rclone copy outputs/long_crisis_learning "${CANONICAL_BASE}outputs/long_crisis_learning/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          fi
+          if [ -s data_pit/macro/long_crisis_daily_features.parquet ]; then
+            rclone copy data_pit/macro "${CANONICAL_BASE}data_pit/macro/" --include "long_crisis_daily_features.parquet" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
           fi

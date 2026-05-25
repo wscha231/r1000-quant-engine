@@ -1,6 +1,7 @@
 __pycache__/
 *.bak.py
 .tmp_*/
+tmp_test_*/
 *.pyc
 catboost_info/
 # ---- Secrets (NEVER commit) ----

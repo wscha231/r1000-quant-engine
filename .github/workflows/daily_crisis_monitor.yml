@@ -65,7 +65,7 @@ jobs:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
-          mkdir -p outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls outputs/macro_policy_engine
+          mkdir -p outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls outputs/macro_policy_engine outputs/long_crisis_learning data_pit/macro
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
             echo "[daily-crisis] no gdrive auth; running with repo-local outputs only"
             exit 0
@@ -75,7 +75,7 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls outputs/macro_policy_engine; do
+          for d in outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls outputs/macro_policy_engine outputs/long_crisis_learning data_pit/macro; do
             if timeout 30s rclone lsf "$BASE$d" >/dev/null 2>&1; then
               timeout 5m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
