@@ -1,2 +1,0 @@
-[gate-prop] ERROR: neither /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/insights/ic_matrix.csv nor /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/trade_journal/insights/cluster_winrate.csv found.
-[gate-prop] Run tools/trade_insights.py first.

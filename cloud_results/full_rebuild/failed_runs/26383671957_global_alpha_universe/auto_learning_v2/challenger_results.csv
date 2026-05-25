@@ -1,8 +1,0 @@
-hypothesis_id,experiment_id,status,passed_discovery,production_ready,cagr_delta_pp,maxdd_delta_pp,sharpe_delta
-bear_rs_reversal_v1,E1_auto_feature_gates_on,needs_full_challenger_backtest,False,False,-1.2374815698091624,-0.035350870540595825,-0.08594545726117331
-main_future_alpha_concentration_v1,E2_main_v2_balanced,needs_full_challenger_backtest,False,False,0.0,0.0,0.0
-concentrated_neutral_25_v1,E4_concentrated_balanced,needs_full_challenger_backtest,True,False,13.445809942687514,4.332503511417363,0.245547238427817
-risk_governor_layered_exit_v1,E6_risk_sensing_on,counterfactual_available,True,False,-2.937219575004235,5.64744405347003,-0.0636541409809035
-cluster_conviction_router_v1,,infrastructure_or_guardrail,False,False,,,
-alpha_sprint_breakout_fallback_v1,E8_alpha_sprint_sidecar,needs_full_challenger_backtest,False,False,0.0,0.0,0.0
-counterfactual_replay_priority_v1,,infrastructure_or_guardrail,False,False,,,

@@ -53,6 +53,29 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-25
 
+### 23:58 KST - prune-failed-run-artifacts
+
+- scope:
+  - Remove committed failed full-rebuild artifacts from the operating minimal sync PR so repository history and review focus stay on code, workflows, and documented outputs.
+- files:
+  - `cloud_results/full_rebuild/failed_runs/` ->removed tracked failed-run output files from the branch.
+  - `.gitignore` ->documents the failed-run artifact path as ignored runtime output.
+  - `CHANGELOG.md` ->records the cleanup.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - pending targeted PR validation after artifact cleanup.
+- risks_or_notes:
+  - This cleanup does not change model scoring, crisis logic, broker replay logic, or production defaults.
+
 ### 14:01 KST - fast-pit-top-manager-workflow
 
 - scope:

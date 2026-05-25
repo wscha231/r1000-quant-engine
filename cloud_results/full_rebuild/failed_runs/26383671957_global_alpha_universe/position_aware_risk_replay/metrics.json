@@ -1,8 +1,0 @@
-{
-  "experiment_id": "position_aware_risk_replay",
-  "production_activation_allowed": false,
-  "reason": "monthly holdings input is empty or missing",
-  "required_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/main_v2_backtest/monthly_holdings.csv",
-  "research_only": true,
-  "status": "blocked"
-}

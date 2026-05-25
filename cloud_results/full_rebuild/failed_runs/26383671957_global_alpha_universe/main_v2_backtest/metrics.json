@@ -1,8 +1,0 @@
-{
-  "experiment_id": "main_v2_historical_replay",
-  "production_activation_allowed": false,
-  "reason": "missing reports/candidate_replay_book.csv from full rebuild",
-  "required_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/candidate_replay_book.csv",
-  "research_only": true,
-  "status": "blocked"
-}

@@ -42,5 +42,6 @@ outputs/weekly_leader_snapshots/
 outputs/weekly_leader_broker_replay/
 outputs/monster_lifecycle_replay/
 cloud_results/
+cloud_results/full_rebuild/failed_runs/
 research/github_runs/
 research/phase20_artifact/
