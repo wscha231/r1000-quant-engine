@@ -3036,6 +3036,115 @@ def test_plan_c_v35_evidence_switch_on_cap() -> None:
     assert 0.0 <= delta <= cap + 1e-12
 
 
+@_test("syntax.user_current_and_sync_tools_parse")
+def test_user_current_and_sync_tools_parse() -> None:
+    for rel in [
+        "tools/run_user_current_report.py",
+        "tools/build_gdrive_sync_manifest.py",
+        "tools/run_daily_crisis_monitor.py",
+        "tools/build_crisis_governed_target_books.py",
+    ]:
+        ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+
+
+@_test("structural.workflow_profiles_operating_minimal_skip_research")
+def test_workflow_profiles_operating_minimal_skip_research() -> None:
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    for token in ["sidecar_profile:", "artifact_profile:", "gdrive_sync_mode:", "operating_minimal", "research_full"]:
+        assert token in wf, f"full_rebuild_manual.yml missing profile token {token}"
+    assert 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then' in wf
+    assert "heavy research sidecars skipped" in wf
+    assert "run_user_current_report.py" in wf
+    assert "run_daily_crisis_monitor.py" in wf
+
+
+@_test("structural.user_current_contains_no_research_metrics")
+def test_user_current_contains_no_research_metrics() -> None:
+    tool = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for required in [
+        "01_current_holdings.csv",
+        "03_period_returns.csv",
+        "04_official_metrics.json",
+        "06_benchmark_comparison.csv",
+        "current simulated broker-ledger holdings only",
+    ]:
+        assert required in tool, f"user_current report missing {required}"
+    forbidden = ["portfolio_latest.csv", "concentrated_portfolio_latest.csv", "candidate_replay_book.csv"]
+    readme_block = re.search(r"def write_readme\b.*?def build_report", tool, re.DOTALL)
+    assert readme_block, "write_readme block not found"
+    for token in forbidden:
+        assert token not in readme_block.group(0), f"user_current README should not expose {token}"
+
+
+@_test("structural.gdrive_manifest_marks_deprecated_research")
+def test_gdrive_manifest_marks_deprecated_research() -> None:
+    src = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "semantic_type",
+        "production_valid",
+        "weight_level_research_deprecated",
+        "USER_CURRENT_FILES",
+        "strict-primary",
+        "gdrive_sync_manifest.json",
+    ]:
+        assert token in src, f"gdrive manifest tool missing {token}"
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    assert "build_gdrive_sync_manifest.py" in wf
+    assert "rclone copyto" in wf
+    assert "outputs/gdrive_sync_files.tsv" in wf
+
+
+@_test("structural.period_returns_include_mdd_and_benchmarks")
+def test_period_returns_include_mdd_and_benchmarks() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    for token in ["max_drawdown", "BENCHMARKS = (\"SPY\", \"QQQ\")", "\"YTD\"", "\"2Y\"", "realized_volatility"]:
+        assert token in src, f"period return implementation missing {token}"
+
+
+@_test("structural.action_status_review_when_cash_policy_flag_present")
+def test_action_status_review_when_cash_policy_flag_present() -> None:
+    src = (ROOT / "tools" / "run_user_current_report.py").read_text(encoding="utf-8")
+    assert "cash_policy_flag" in src
+    assert "REVIEW_REQUIRED" in src
+    assert "DO_NOT_USE" in src
+    assert "official_metric_mode" in src
+    assert "broker_ledger_next_close" in src
+
+
+@_test("structural.evidence_nonzero_is_not_enough_without_selection_impact")
+def test_evidence_nonzero_is_not_enough_without_selection_impact() -> None:
+    src = (ROOT / "tools" / "audit_evidence_readiness.py").read_text(encoding="utf-8")
+    for token in [
+        "impact_audit",
+        "selection_impact",
+        "broker_impact",
+        "evidence_nonzero_ticker_count",
+        "Nonzero evidence is necessary but not sufficient",
+    ]:
+        assert token in src, f"evidence readiness audit missing {token}"
+
+
+@_test("structural.phase_g_requires_broker_ledger_official_metrics")
+def test_phase_g_requires_broker_ledger_official_metrics() -> None:
+    wf_path = ROOT / ".github" / "workflows" / "phase_g_crisis_evidence_liquidity_replay.yml"
+    assert wf_path.exists(), "Phase G crisis evidence liquidity workflow missing"
+    wf = wf_path.read_text(encoding="utf-8")
+    tool = (ROOT / "tools" / "build_crisis_governed_target_books.py").read_text(encoding="utf-8")
+    for token in ["--run-broker-replay", "cost_bps", "phase_g_crisis_evidence_liquidity"]:
+        assert token in wf, f"Phase G workflow missing broker-ledger token {token}"
+    for token in ["decision_summary.json", "crisis_governed_broker_metrics.csv", "promotion_allowed_without_human_approval", "broker_ledger_next_close", "next_close"]:
+        assert token in tool, f"Phase G decision output missing {token}"
+
+
+@_test("structural.daily_crisis_monitor_has_hysteresis_and_shakeout_guard")
+def test_daily_crisis_monitor_has_hysteresis_and_shakeout_guard() -> None:
+    src = (ROOT / "tools" / "run_daily_crisis_monitor.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "daily_crisis_monitor.yml").read_text(encoding="utf-8")
+    for token in ["GREEN", "WATCH", "DEFENSE_REVIEW", "REENTRY_READY", "VIX-only cash raise is forbidden", "single_name_shakeout_cash_raise_forbidden"]:
+        assert token in src, f"daily crisis monitor missing {token}"
+    assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
+
+
 # ======================================================================
 # main
 # ======================================================================

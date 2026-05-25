@@ -55,6 +55,32 @@ on:
         description: 'guarded: if candidate gates pass promotion checks, commit research/auto_feature_gates.yaml for the next run'
         type: boolean
         default: false
+      sidecar_profile:
+        description: 'sidecar generation profile: operating_minimal avoids heavy research sidecars'
+        type: choice
+        options:
+          - operating_minimal
+          - official
+          - research_full
+          - phase_g_only
+        default: operating_minimal
+      artifact_profile:
+        description: 'artifact upload profile'
+        type: choice
+        options:
+          - minimal
+          - official
+          - research_full
+        default: minimal
+      gdrive_sync_mode:
+        description: 'Google Drive sync allowlist mode'
+        type: choice
+        options:
+          - minimal
+          - official
+          - research
+          - off
+        default: minimal
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -414,6 +440,32 @@ jobs:
         run: |
           set -e
           set -o pipefail
+          SIDECAR_PROFILE="${{ inputs.sidecar_profile }}"
+          echo "[sidecar] profile=${SIDECAR_PROFILE}"
+          if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
+            echo "[sidecar] phase_g_only is handled by phase_g_crisis_evidence_liquidity_replay.yml; skipping full rebuild sidecars."
+            exit 0
+          fi
+          if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
+            python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+            python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target outputs/portfolio_latest.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log || true
+            python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json --target outputs/concentrated_portfolio_latest.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/account_ledger_preview/concentrated --cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log || true
+            python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee outputs/full_rebuild_logs/live_trading_safety_audit.log || true
+            python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
+            python tools/run_macro_policy_engine.py --latest-run outputs --output-dir outputs/macro_policy_engine 2>&1 | tee outputs/full_rebuild_logs/macro_policy_engine.log || true
+            python tools/run_cash_policy_attribution.py --latest-run outputs --output-dir outputs/cash_policy 2>&1 | tee outputs/full_rebuild_logs/cash_policy_attribution.log || true
+            python tools/run_portfolio_goal_search.py --latest-run outputs 2>&1 | tee outputs/full_rebuild_logs/portfolio_goal_search.log || true
+            python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
+            python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
+            python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+            python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
+            python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
+            python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
+            echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
+            exit 0
+          fi
           python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
           python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
           python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
@@ -520,13 +572,54 @@ jobs:
           python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
           python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+          python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
+          python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 
-      - name: Upload artifact (logs + scored CSVs)
+      - name: Upload artifact (user operating minimal)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-rebuild-${{ inputs.universe_mode }}-${{ github.run_id }}
+          name: user-operating-minimal-${{ inputs.universe_mode }}-${{ github.run_id }}
+          path: |
+            outputs/user_current/
+            outputs/daily_crisis_monitor/
+            outputs/account_evaluation/official_metrics.json
+            outputs/broker_replay/main/metrics.json
+            outputs/broker_replay/concentrated/metrics.json
+            outputs/operating_snapshot/current_operating_holdings_latest.csv
+            outputs/operating_snapshot/current_portfolio_snapshot_summary.json
+            outputs/portfolio_system_guard/error_check.json
+            outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
+            outputs/full_rebuild_logs/user_current_report.log
+            outputs/full_rebuild_logs/daily_crisis_monitor.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload artifact (official broker-ledger evidence)
+        if: always() && inputs.artifact_profile != 'minimal'
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
+          path: |
+            outputs/account_evaluation/
+            outputs/broker_replay/
+            outputs/operating_snapshot/
+            outputs/account_ledger_preview/
+            outputs/live_trading_safety/
+            outputs/live_trading_risk_controls/
+            outputs/portfolio_system_guard/
+          if-no-files-found: warn
+          retention-days: 365
+
+      - name: Upload artifact (research full diagnostics)
+        if: always() && inputs.artifact_profile == 'research_full'
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-full-${{ inputs.universe_mode }}-${{ github.run_id }}
+          # Explicit legacy diagnostics preserved for research_full:
+          # outputs/target_snapshots/latest_manifest.json
+          # outputs/data_readiness/summary.json
           path: |
             outputs/full_rebuild_logs/
             outputs/scored_*.csv
@@ -724,142 +817,79 @@ jobs:
               fi
             fi
           fi
-          echo "[gdrive-sync] branch=$BRANCH_NAME safe_branch=$SAFE_BRANCH scope=$GDRIVE_SCOPE valid_primary_outputs=$VALID_PRIMARY_OUTPUTS"
-          echo "[gdrive-sync] copying outputs/ to $DEST/"
-          copy_if_exists() {
-            local src="$1"
-            local dst="$2"
-            if [ -e "$src" ]; then
-              rclone copy "$src" "$dst/"
-            else
+          SYNC_MODE="${{ inputs.gdrive_sync_mode }}"
+          if [ "$SYNC_MODE" = "off" ]; then
+            echo "[gdrive-sync] gdrive_sync_mode=off; skipping"
+            exit 0
+          fi
+          echo "[gdrive-sync] branch=$BRANCH_NAME safe_branch=$SAFE_BRANCH scope=$GDRIVE_SCOPE mode=$SYNC_MODE valid_primary_outputs=$VALID_PRIMARY_OUTPUTS"
+          # Manifest field: portfolio_system_guard_hard_errors
+          python tools/build_gdrive_sync_manifest.py \
+            --latest-run outputs \
+            --mode "$SYNC_MODE" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --head-sha "${GITHUB_SHA}" \
+            --branch-name "$BRANCH_NAME" \
+            --safe-branch "$SAFE_BRANCH" \
+            --auth "$AUTH" \
+            --dest "$DEST" \
+            --portfolio-system-guard-hard-errors "$GUARD_HARD_ERRORS" \
+            --strict-primary
+
+          : > outputs/gdrive_copy_status.jsonl
+          while IFS=$'\t' read -r src rel required semantic production_valid metric_mode; do
+            if [ -z "$src" ]; then
+              continue
+            fi
+            if [ ! -e "$src" ]; then
               echo "[gdrive-sync] skip missing: $src"
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": True, "copied": False, "failed": False}) + "\n")
+          PY
+              continue
             fi
-          }
-          verify_if_exists() {
-            local src="$1"
-            local dst="$2"
-            local name="${3:-$(basename "$src")}"
-            if [ -e "$src" ]; then
-              echo "[gdrive-sync] verifying $dst/$name"
-              rclone lsf "$dst" --files-only | grep -Fx "$name" >/dev/null
-            fi
-          }
-          copy_if_exists outputs/scored_latest.csv "$DEST"
-          copy_if_exists outputs/scored_unified.csv "$DEST"
-          copy_if_exists outputs/portfolio_latest.csv "$DEST"
-          copy_if_exists outputs/concentrated_portfolio_latest.csv "$DEST"
-          copy_if_exists outputs/backtest_metrics.json "$DEST"
-          copy_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
-          copy_if_exists outputs/equity_curve.csv "$DEST"
-          if [ -d outputs/orchestrator ]; then
-            rclone copy outputs/orchestrator "$DEST/orchestrator/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/orchestrator"
-          fi
-          copy_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
-          copy_if_exists outputs/reports/baseline_registry.md "$DEST/reports"
-          copy_if_exists outputs/reports/config_audit.json "$DEST/reports"
-          copy_if_exists outputs/reports/config_audit.md "$DEST/reports"
-          # Phase 15-A fix (2026-04-28): include the SEC bulk archive so user
-          # gdrive reflects the freshly downloaded companyfacts.zip. Previously
-          # the file refreshed inside the GHA runner cache but never reached
-          # gdrive — user could only see "stale" file from a manual upload.
-          copy_if_exists outputs/companyfacts.zip "$DEST"
-          copy_if_exists outputs/reports/global_alpha_sleeve_audit_by_month.csv "$DEST/reports"
-          copy_if_exists outputs/reports/global_alpha_sleeve_audit_summary.csv "$DEST/reports"
-          copy_if_exists outputs/reports/backtest_window_comparison.csv "$DEST/reports"
-          copy_if_exists outputs/reports/concentrated_strategy_comparison.csv "$DEST/reports"
-          copy_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
-          copy_if_exists outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports"
-          copy_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
-          copy_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
-          copy_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
-          copy_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
-          copy_if_exists outputs/reports/operating_target_books_report.md "$DEST/reports"
-          copy_if_exists outputs/reports/tactical_monthly_weights.csv "$DEST/reports"
-          copy_if_exists outputs/reports/alpha_sprint_monthly_weights.csv "$DEST/reports"
-          copy_if_exists outputs/reports/regime_by_month.csv "$DEST/reports"
-          copy_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
-          copy_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
-          copy_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
-          copy_if_exists outputs/reports/dataset_coverage_audit.md "$DEST/reports"
-          copy_if_exists outputs/reports/dataset_coverage_audit_coverage.csv "$DEST/reports"
-          copy_if_exists outputs/reports/dataset_coverage_audit_watchlist.csv "$DEST/reports"
-          copy_if_exists outputs/reports/dataset_coverage_audit_distributions.csv "$DEST/reports"
-          if [ -d outputs/trade_journal ]; then
-            rclone copy outputs/trade_journal "$DEST/trade_journal/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/trade_journal"
-          fi
-          if [ -d outputs/concentrated_trade_journal ]; then
-            rclone copy outputs/concentrated_trade_journal "$DEST/concentrated_trade_journal/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/concentrated_trade_journal"
-          fi
-          if [ -d outputs/auto_learning ]; then
-            rclone copy outputs/auto_learning "$DEST/auto_learning/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/auto_learning"
-          fi
-          if [ -d outputs/orchestrator_replay ]; then
-            rclone copy outputs/orchestrator_replay "$DEST/orchestrator_replay/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/orchestrator_replay"
-          fi
-          if [ -d outputs/portfolio_goal_search ]; then
-            rclone copy outputs/portfolio_goal_search "$DEST/portfolio_goal_search/"
-          else
-            echo "[gdrive-sync] skip missing: outputs/portfolio_goal_search"
-          fi
-          for d in target_snapshots data_readiness main_v2_backtest concentrated_policy_replay concentrated_position_risk_replay alpha_sprint_backtest position_aware_risk_replay position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_crisis_reentry_replay broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot user_portfolio_reports portfolio_system_guard account_evaluation governance_catalyst style_regime_report macro_policy_engine cash_policy main_cash_drag_replay crisis_reentry_replay monster_lifecycle_replay lifecycle_review_overlay_main monster_lifecycle_review_main monster_lifecycle_review_concentrated historical_trade_journey selection_audit ten_year_backtest_readiness weekly_evaluation theme_leadership_tape theme_concentration_challenger auto_learning_v2 winner_lifecycle winner_onset_study shakeout_breakdown_study autolearning_winner_challenger policy_fusion; do
-            if [ -d "outputs/$d" ]; then
-              rclone copy "outputs/$d" "$DEST/$d/"
+            echo "[gdrive-sync] copy $src -> $DEST/$rel [$semantic]"
+            if rclone copyto "$src" "$DEST/$rel" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": True, "failed": False}) + "\n")
+          PY
             else
-              echo "[gdrive-sync] skip missing: outputs/$d"
+              if [ "$required" = "true" ]; then
+                python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "rclone copyto failed"}) + "\n")
+          PY
+                exit 2
+              fi
+              python - <<PY
+          import json
+          with open("outputs/gdrive_copy_status.jsonl", "a", encoding="utf-8") as f:
+              f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "optional rclone copyto failed"}) + "\n")
+          PY
             fi
-          done
+          done < outputs/gdrive_sync_files.tsv
 
-          # Also sync log + verdict for diagnostic visibility
-          rclone copy outputs/full_rebuild_logs/ "$LOG_DEST/"
-
-          cat > outputs/gdrive_sync_manifest.json <<EOF
-          {
-            "run_id": "${GITHUB_RUN_ID}",
-            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
-            "head_sha": "${GITHUB_SHA}",
-            "auth": "${AUTH}",
-            "branch_name": "${BRANCH_NAME}",
-            "safe_branch": "${SAFE_BRANCH}",
-            "gdrive_scope": "${GDRIVE_SCOPE}",
-            "valid_primary_outputs": "${VALID_PRIMARY_OUTPUTS}",
-            "portfolio_system_guard_hard_errors": "${GUARD_HARD_ERRORS}",
-            "dest": "${DEST}",
-            "log_dest": "${LOG_DEST}",
-            "synced_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-          rclone copy outputs/gdrive_sync_manifest.json "$DEST/"
-
-          verify_if_exists outputs/gdrive_sync_manifest.json "$DEST"
-          verify_if_exists outputs/scored_latest.csv "$DEST"
-          verify_if_exists outputs/portfolio_latest.csv "$DEST"
-          verify_if_exists outputs/backtest_metrics.json "$DEST"
-          verify_if_exists outputs/concentrated_backtest_metrics.json "$DEST"
-          verify_if_exists outputs/reports/baseline_registry.json "$DEST/reports"
-          verify_if_exists outputs/reports/concentrated_strategy_monthly.csv "$DEST/reports"
-          verify_if_exists outputs/reports/main_monthly_weights.csv "$DEST/reports"
-          verify_if_exists outputs/reports/operating_main_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/operating_concentrated_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/operating_target_books_summary.json "$DEST/reports"
-          verify_if_exists outputs/reports/event_main_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/event_concentrated_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/weekly_leader_main_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/weekly_leader_concentrated_target_book.csv "$DEST/reports"
-          verify_if_exists outputs/target_snapshots/latest_manifest.json "$DEST/target_snapshots"
-          verify_if_exists outputs/data_readiness/summary.json "$DEST/data_readiness"
-          verify_if_exists outputs/reports/sleeve_returns_by_month.csv "$DEST/reports"
-          verify_if_exists outputs/reports/candidate_replay_book.csv "$DEST/reports"
-          verify_if_exists outputs/reports/dataset_coverage_audit.json "$DEST/reports"
+          python tools/build_gdrive_sync_manifest.py \
+            --latest-run outputs \
+            --mode "$SYNC_MODE" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --head-sha "${GITHUB_SHA}" \
+            --branch-name "$BRANCH_NAME" \
+            --safe-branch "$SAFE_BRANCH" \
+            --auth "$AUTH" \
+            --dest "$DEST" \
+            --portfolio-system-guard-hard-errors "$GUARD_HARD_ERRORS" \
+            --copy-status outputs/gdrive_copy_status.jsonl \
+            --strict-primary
+          rclone copyto outputs/gdrive_sync_manifest.json "$DEST/gdrive_sync_manifest.json"
+          echo "[gdrive-sync] manifest allowlist sync complete: $DEST"
 
           # Cleanup secret file
           rm -f /tmp/sa.json
@@ -914,14 +944,15 @@ jobs:
           # gives the operator the most useful numbers on phone. A
           # richer bundling story can be revisited later.
           TG_FILES=(
+            "outputs/user_current/README_FIRST.md"
+            "outputs/user_current/01_current_holdings.csv"
+            "outputs/user_current/03_period_returns.csv"
+            "outputs/user_current/04_official_metrics.json"
+            "outputs/user_current/05_action_summary.md"
+            "outputs/user_current/06_benchmark_comparison.csv"
+            "outputs/daily_crisis_monitor/crisis_action_status.md"
             "outputs/broker_replay/main/metrics.json"
             "outputs/broker_replay/concentrated/metrics.json"
-            "outputs/weekly_leader_broker_replay/main/metrics.json"
-            "outputs/weekly_leader_broker_replay/concentrated/metrics.json"
-            "outputs/cost_sensitivity/main/summary.json"
-            "outputs/cost_sensitivity/concentrated/summary.json"
-            "outputs/portfolio_latest.csv"
-            "outputs/concentrated_portfolio_latest.csv"
           )
           MAX_TG_FILE_BYTES=5000000
           for FILE in "${TG_FILES[@]}"; do
@@ -993,6 +1024,14 @@ jobs:
               cp -R "$src"/. "$dst"/ 2>/dev/null || true
             fi
           }
+          copy_if_exists() {
+            local src="$1"
+            local dst="$2"
+            if [ -e "$src" ]; then
+              mkdir -p "$dst"
+              cp "$src" "$dst"/ 2>/dev/null || true
+            fi
+          }
           # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
           if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
             LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
@@ -1001,6 +1040,17 @@ jobs:
           fi
           # Job status indicator
           echo "job_status: ${{ job.status }}" > "$DEST/job_status.txt"
+          if [ "${{ inputs.artifact_profile }}" != "research_full" ]; then
+            echo "[push] artifact_profile=${{ inputs.artifact_profile }}; writing minimal cloud_results bundle."
+            copy_dir_clean outputs/user_current "$DEST/user_current"
+            copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
+            copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+            mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
+            cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
+            cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+          else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
           cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
@@ -1088,6 +1138,7 @@ jobs:
           copy_dir_clean outputs/shakeout_breakdown_study "$DEST/shakeout_breakdown_study"
           copy_dir_clean outputs/autolearning_winner_challenger "$DEST/autolearning_winner_challenger"
           copy_dir_clean outputs/policy_fusion "$DEST/policy_fusion"
+          fi
           # Run summary
           cp outputs/full_rebuild_logs/verdict.log "$DEST/" 2>/dev/null || true
           # Symlink/copy to "latest" pointer only when the run has complete

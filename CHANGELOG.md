@@ -51,6 +51,55 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-25
+
+### 12:02 KST - operating-minimal-crisis-sync
+
+- scope:
+  - Add minimal operating generation/sync profiles, a current-holdings-only user report, manifest-based Google Drive sync, daily crisis monitoring, and Phase G crisis-governed broker replay wiring.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->adds `sidecar_profile`, `artifact_profile`, and `gdrive_sync_mode`, defaults to minimal operating sidecars/artifacts, and replaces broad Drive sync with manifest allowlist sync.
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->adds the research-only Phase G crisis/liquidity broker-ledger replay workflow.
+  - `.github/workflows/daily_crisis_monitor.yml` ->adds after-close crisis-state monitoring without full rebuild or auto-trade behavior.
+  - `tools/run_user_current_report.py` ->builds `outputs/user_current` with current holdings, cash, period returns, official metrics, benchmark comparison, and a single action status.
+  - `tools/build_gdrive_sync_manifest.py` ->builds a Drive sync allowlist manifest with semantic type, production validity, bytes, and hashes.
+  - `tools/run_daily_crisis_monitor.py` ->emits GREEN/WATCH/DEFENSE_REVIEW/REENTRY_READY review states with hysteresis and shakeout guardrails.
+  - `tools/audit_evidence_readiness.py` ->adds selection-impact and broker-impact audit sections so nonzero evidence is not treated as promotion evidence.
+  - `tools/build_crisis_governed_target_books.py` ->adds Phase G decision outputs and stricter broker-ledger gate summaries.
+  - `tests/smoke_test.py` ->adds structural regression coverage for minimal profiles, current-only user output, GDrive manifest semantics, evidence impact audit, and crisis monitoring.
+- symbols_added:
+  - `build_report(args)` ->builds the minimal current-holdings user report.
+  - `build_manifest(args)` ->builds the manifest-driven Drive sync allowlist.
+  - `build_monitor(args)` ->builds the daily crisis monitor summary.
+  - `selection_impact(latest_run)` ->summarizes whether nonzero evidence reaches selected targets.
+  - `broker_impact(latest_run)` ->summarizes whether evidence has broker-ledger challenger output.
+  - `write_decision_outputs(payload, latest_run, output_dir)` ->writes Phase G crisis decision summaries.
+- symbols_changed:
+  - `build_payload(args)` ->includes evidence data/signal/selection/broker impact audit sections.
+  - `build(args)` ->writes Phase G decision summary artifacts after crisis-governed replay.
+- config_fields_added:
+  - `sidecar_profile: workflow_dispatch choice = operating_minimal` ->controls heavy sidecar generation.
+  - `artifact_profile: workflow_dispatch choice = minimal` ->controls artifact upload breadth.
+  - `gdrive_sync_mode: workflow_dispatch choice = minimal` ->controls Drive sync allowlist scope.
+- breaking_changes:
+  - Default full rebuild artifacts and Drive root output are intentionally smaller; research diagnostics now require `artifact_profile=research_full` and `gdrive_sync_mode=research`.
+- outputs:
+  - `outputs/user_current/*` ->default user-facing current holdings, cash, official metrics, period returns, benchmark comparison, and action status.
+  - `outputs/gdrive_sync_manifest.json` ->Drive sync allowlist status and semantic metadata.
+  - `outputs/daily_crisis_monitor/*` ->daily crisis review state and guardrail summary.
+  - `outputs/phase_g_crisis_evidence_liquidity/decision_summary.json` ->Phase G broker-ledger decision gates.
+  - `outputs/phase_g_crisis_evidence_liquidity/crisis_governed_broker_metrics.csv` ->base vs crisis-governed broker metric deltas.
+- validation:
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 44/44.
+  - `git diff --check` ->PASS.
+  - PyYAML parse of modified workflows ->PASS.
+- risks_or_notes:
+  - `operating_minimal` and `official` skip heavy research sidecars by default; use `research_full` profiles for full diagnostics.
+  - Crisis monitor and Phase G outputs are review/challenger artifacts only and do not activate production trading.
+  - SEC/Form4/ETF evidence remains shadow/challenger-only until selection impact and broker impact pass.
+
 ## 2026-05-21
 
 ### 14:29 KST - post-disclosure-tiebreaker-ablation

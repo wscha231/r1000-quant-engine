@@ -203,6 +203,102 @@ def evidence_restore_manifest(latest_run: Path) -> dict[str, Any]:
     }
 
 
+def evidence_score_columns(frame: pd.DataFrame) -> list[str]:
+    if frame.empty:
+        return []
+    columns = []
+    for col in frame.columns:
+        name = str(col).lower()
+        if "evidence" in name or name.startswith("sec_") or name.startswith("etf_"):
+            if any(token in name for token in ["score", "signal", "confidence"]):
+                columns.append(str(col))
+    return columns
+
+
+def evidence_nonzero_count(frame: pd.DataFrame) -> int:
+    columns = evidence_score_columns(frame)
+    if frame.empty or not columns:
+        return 0
+    numeric = frame[columns].apply(pd.to_numeric, errors="coerce").fillna(0.0).abs()
+    return int((numeric.sum(axis=1) > 1e-12).sum())
+
+
+def ticker_set(frame: pd.DataFrame) -> set[str]:
+    if frame.empty:
+        return set()
+    for col in ["ticker", "ticker_mapped", "holding_ticker", "issuer_ticker"]:
+        if col in frame.columns:
+            values = frame[col].astype(str).str.upper().str.strip()
+            return set(values[values.ne("") & values.ne("NAN")])
+    return set()
+
+
+def selection_impact(latest_run: Path) -> dict[str, Any]:
+    scored = read_table(latest_run / "scored_latest.csv")
+    if scored.empty:
+        scored = read_table(repo_path("outputs/scored_latest.csv"))
+    scored_tickers = ticker_set(scored)
+    nonzero_tickers: set[str] = set()
+    if not scored.empty:
+        columns = evidence_score_columns(scored)
+        if columns:
+            numeric = scored[columns].apply(pd.to_numeric, errors="coerce").fillna(0.0).abs()
+            mask = numeric.sum(axis=1) > 1e-12
+            nonzero_tickers = ticker_set(scored.loc[mask].copy())
+
+    selected_frames = [
+        read_table(latest_run / "portfolio_latest.csv"),
+        read_table(latest_run / "concentrated_portfolio_latest.csv"),
+        read_table(latest_run / "reports" / "operating_main_target_book.csv"),
+        read_table(latest_run / "reports" / "operating_concentrated_target_book.csv"),
+    ]
+    selected = set().union(*(ticker_set(frame) for frame in selected_frames))
+    selected_nonzero = selected & nonzero_tickers
+    return {
+        "status": "completed" if scored_tickers or selected else "missing_inputs",
+        "scored_ticker_count": int(len(scored_tickers)),
+        "evidence_nonzero_ticker_count": int(len(nonzero_tickers)),
+        "selected_ticker_count": int(len(selected)),
+        "selected_evidence_nonzero_ticker_count": int(len(selected_nonzero)),
+        "selection_impact_confirmed": bool(selected_nonzero),
+        "rank_delta_available": False,
+        "target_overlap_delta_available": False,
+        "note": "Nonzero evidence is necessary but not sufficient; broker_impact must pass before promotion.",
+    }
+
+
+def broker_impact(latest_run: Path) -> dict[str, Any]:
+    candidates = [
+        latest_run / "post_disclosure_alpha_pipeline" / "broker_grid_summary.csv",
+        latest_run / "post_disclosure_alpha_pipeline" / "broker_grid_results.csv",
+        latest_run / "post_disclosure_overlay_challenger" / "summary.json",
+        latest_run / "phase_g_crisis_evidence_liquidity" / "crisis_governed_broker_metrics.csv",
+    ]
+    selected = first_existing(candidates)
+    if not selected:
+        return {
+            "status": "not_evaluated",
+            "broker_ledger_required": True,
+            "official_metric_only": True,
+            "promotion_allowed": False,
+            "path": "",
+        }
+    payload: dict[str, Any] = {
+        "status": "available",
+        "broker_ledger_required": True,
+        "official_metric_only": True,
+        "promotion_allowed": False,
+        "path": str(selected),
+    }
+    frame = read_table(selected)
+    if not frame.empty:
+        payload["rows"] = int(len(frame))
+        payload["columns"] = list(map(str, frame.columns[:30]))
+    else:
+        payload["payload"] = read_json(selected)
+    return payload
+
+
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
@@ -270,6 +366,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     )
     switches = switch_health()
     manifest = evidence_restore_manifest(latest_run)
+    selection = selection_impact(latest_run)
+    broker = broker_impact(latest_run)
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -329,6 +427,16 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "etf_holdings": etf_raw,
             "etf_signals": etf_signals,
         },
+        "impact_audit": {
+            "data_health": "see sources",
+            "signal_health": {
+                "form4_signal_tickers": form4_signals.get("ticker_count", 0),
+                "institutional_13f_signal_tickers": f13_signals.get("ticker_count", 0),
+                "etf_signal_tickers": etf_signals.get("ticker_count", 0),
+            },
+            "selection_impact": selection,
+            "broker_impact": broker,
+        },
         "blockers": blockers,
         "warnings": warnings,
         "next_actions": sorted(set(next_actions)),
@@ -372,6 +480,21 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.extend(["", "## Warnings", ""])
     warnings = payload.get("warnings") or []
     lines.extend([f"- {item}" for item in warnings] if warnings else ["- none"])
+    impact = payload.get("impact_audit", {})
+    selection = impact.get("selection_impact", {}) if isinstance(impact, dict) else {}
+    broker = impact.get("broker_impact", {}) if isinstance(impact, dict) else {}
+    lines.extend(
+        [
+            "",
+            "## Evidence Impact Audit",
+            "",
+            f"- evidence_nonzero_ticker_count: `{selection.get('evidence_nonzero_ticker_count', 0)}`",
+            f"- selected_evidence_nonzero_ticker_count: `{selection.get('selected_evidence_nonzero_ticker_count', 0)}`",
+            f"- selection_impact_confirmed: `{selection.get('selection_impact_confirmed', False)}`",
+            f"- broker_impact_status: `{broker.get('status', 'not_evaluated')}`",
+            "- rule: nonzero evidence is not promotion evidence without selection and broker impact.",
+        ]
+    )
     lines.extend(["", "## Next Actions", ""])
     actions = payload.get("next_actions") or []
     lines.extend([f"- {item}" for item in actions] if actions else ["- none"])
