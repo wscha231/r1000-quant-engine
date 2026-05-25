@@ -51,6 +51,44 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-26
+
+### 02:18 KST - phase-g-minimal-source-fallback
+
+- scope:
+  - Allow Phase G replay to use a successful operating-minimal full rebuild as `source_run_id` without requiring a heavy research artifact upload.
+- files:
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->falls back to committed `cloud_results/full_rebuild/latest_<universe>` when the source run artifact contains only `user_current` minimal files.
+  - `.github/workflows/full_rebuild_manual.yml` ->adds the compact Phase-G replay source files to the operating-minimal artifact and minimal `cloud_results` bundle.
+  - `tools/run_portfolio_system_guard.py` ->keeps non-strict PR/manual guard report-only when committed latest artifacts are incomplete, matching the tool contract.
+  - `tests/auto_learning_v2_smoke.py` ->removes brittle real-data anomaly count assumptions while still requiring nonempty proposal-only anomalies and hypotheses.
+  - `tests/workflow_artifact_smoke.py` ->asserts the operating-minimal artifact contains the compact files needed for Phase G replay.
+  - `CHANGELOG.md` ->records the workflow fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `Download source full rebuild artifact` workflow step ->keeps the existing artifact path for full/research artifacts and adds committed `cloud_results` fallback for minimal artifacts.
+  - `Upload artifact (user operating minimal)` workflow step ->includes backtest metrics, latest books, monthly holdings, regime map, and operating target books for follow-on replay.
+  - `Commit cloud results back to branch` workflow step ->preserves the same compact replay source files in minimal `cloud_results`.
+  - `main()` ->fails hard-error checks only in strict or require-latest-artifacts mode.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\phase_g_liquidity_workflow_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\auto_learning_v2_smoke.py` ->PASS.
+  - `py -3 tools\run_portfolio_system_guard.py --latest-run cloud_results/full_rebuild/latest_global_alpha_universe` ->PASS in non-strict report mode.
+  - `py -3 tools\run_portfolio_system_guard.py --latest-run cloud_results/full_rebuild/latest_global_alpha_universe --require-latest-artifacts` ->expected nonzero when committed latest lacks target books.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 48/48 tests.
+  - `py -3 -` PyYAML parse for `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->PASS.
+- risks_or_notes:
+  - This does not change broker replay, scoring, target-book generation, or production defaults; it only fixes Phase G source restoration.
+  - Existing run `26407211960` was created before this minimal artifact expansion and still lacks the new compact Phase G source files; a new operating-minimal rebuild is required before a fully source-run-based Phase G replay.
+
 ## 2026-05-25
 
 ### 23:58 KST - prune-failed-run-artifacts

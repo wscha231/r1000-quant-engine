@@ -141,9 +141,26 @@ jobs:
           gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
           SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
           if [ -z "$SRC" ]; then
-            echo "[phase-g] ERROR: could not locate backtest_metrics.json in source artifacts"
+            echo "[phase-g] source artifact does not contain full rebuild research files; trying committed cloud_results fallback"
             find source_artifacts -maxdepth 3 -type f | head -100
-            exit 2
+            ARTIFACT_ROOT="$(find source_artifacts -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            UNIVERSE=""
+            if [ -n "$ARTIFACT_ROOT" ]; then
+              ARTIFACT_NAME="$(basename "$ARTIFACT_ROOT")"
+              UNIVERSE="${ARTIFACT_NAME#user-operating-minimal-}"
+              UNIVERSE="${UNIVERSE%-${{ inputs.source_run_id }}}"
+            fi
+            if [ -n "$UNIVERSE" ] && [ -s "cloud_results/full_rebuild/latest_${UNIVERSE}/backtest_metrics.json" ]; then
+              SRC="cloud_results/full_rebuild/latest_${UNIVERSE}"
+            else
+              SRC="$(find cloud_results/full_rebuild -maxdepth 2 -type f -name backtest_metrics.json -path '*/latest_*/*' -print -quit | xargs -r dirname)"
+            fi
+            if [ -z "$SRC" ]; then
+              echo "[phase-g] ERROR: could not locate full rebuild source in artifacts or committed cloud_results"
+              find cloud_results/full_rebuild -maxdepth 2 -type f -name backtest_metrics.json | head -20 || true
+              exit 2
+            fi
+            echo "[phase-g] using committed fallback source: $SRC"
           fi
           cp -R "$SRC"/. outputs/
           test -s outputs/reports/main_monthly_weights.csv

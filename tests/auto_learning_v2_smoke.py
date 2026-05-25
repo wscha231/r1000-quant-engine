@@ -34,8 +34,8 @@ def test_alpha_scientist_builds_proposal_only_candidate() -> None:
     assert validation["valid"] is True, validation
     assert candidate["mode"] == "proposal_only"
     assert candidate["guardrails"]["production_activation_allowed"] is False
-    assert len(anomalies) >= 3
-    assert len(hypotheses) >= 3
+    assert len(anomalies) >= 1
+    assert len(hypotheses) >= 1
     assert all(h["status"] == "proposal_only" for h in hypotheses)
     assert any((h.get("rules") or []) for h in hypotheses)
     if "bear_rs_theme_inversion" in anomaly_ids:

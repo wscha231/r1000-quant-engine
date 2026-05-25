@@ -106,6 +106,27 @@ def test_workflow_keeps_monthly_books() -> None:
         assert token in text, token
 
 
+def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "name: user-operating-minimal-${{ inputs.universe_mode }}-${{ github.run_id }}",
+        "outputs/backtest_metrics.json",
+        "outputs/concentrated_backtest_metrics.json",
+        "outputs/portfolio_latest.csv",
+        "outputs/concentrated_portfolio_latest.csv",
+        "outputs/scored_latest.csv",
+        "outputs/reports/main_monthly_weights.csv",
+        "outputs/reports/concentrated_strategy_holdings.csv",
+        "outputs/reports/regime_by_month.csv",
+        "outputs/reports/operating_*_target_book.csv",
+        "outputs/reports/operating_target_books_*",
+        'cp outputs/backtest_metrics.json "$DEST/"',
+        'cp outputs/reports/main_monthly_weights.csv "$DEST/reports/"',
+        'cp outputs/reports/regime_by_month.csv "$DEST/reports/"',
+    ]:
+        assert token in text, token
+
+
 def test_cloud_results_copy_is_not_nested() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "copy_dir_clean()" in text
