@@ -1,0 +1,26 @@
+======================================================================
+r1000 Quant Engine -- local run
+======================================================================
+  commit:        885bdce (DIRTY)
+  started:       2026-05-25 13:32:49 KST
+  base_dir:      /home/runner/work/r1000-quant-engine/r1000-quant-engine
+  end_date:      2026-05-25
+  mode:          QUICK_RESCORE
+  fast_mode:     True
+  universe_mode: (cfg default)
+  backtest_years: (cfg default)
+  leader_rescue: (cfg default)
+  collector:     run
+  verdict_only:  True
+  Phase 9 C1:    auto
+  Phase 9 C2:    auto
+  Phase 9 C3:    auto
+  Phase 14:      auto
+======================================================================
+OK: companyfacts.zip 0.0d old, 1320 MB
+
+VERDICT: outputs missing -- cannot run Cell E verdict:
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/scored_latest.csv
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/backtest_metrics.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/weights_latest.json
+  MISS  /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv
