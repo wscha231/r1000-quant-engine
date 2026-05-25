@@ -53,6 +53,51 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-25
 
+### 13:39 KST - pit-top-manager-follow-study
+
+- scope:
+  - Add a research-only PIT top-manager 13F follow study that ranks managers from completed historical post-disclosure outcomes before each cohort date, then tests whether later new/add positions rose after public filing availability.
+- files:
+  - `tools/run_pit_top_manager_follow_study.py` ->builds semiannual PIT top-manager cohorts, selected follow events, forward-return bucket stats, and a markdown report without changing live scoring.
+  - `tests/pit_top_manager_follow_study_smoke.py` ->checks completed-label leakage guard, top-manager event selection, and blocked missing-data behavior.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the PIT top-manager follow study only under `research_full`.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes PIT top-manager study outputs in research-full artifacts and cloud-results bundles.
+  - `tools/build_gdrive_sync_manifest.py` ->adds PIT top-manager study outputs to research-mode Drive sync manifest entries.
+  - `tools/run_pr_validation.py` ->adds the new smoke test to PR validation.
+  - `tests/smoke_test.py` ->adds structural guards for the new research-only study.
+- symbols_added:
+  - `normalize_labels(labels, events, horizons)` ->joins PIT event metadata into post-disclosure labels and prepares completion timestamps.
+  - `build_cohorts(labels, dates, *, top_n, ranking_lookback_days, ranking_horizon, min_manager_events)` ->builds no-lookahead manager cohorts from completed prior labels.
+  - `assign_top_cohort_events(events, labels, cohorts, dates, horizons)` ->selects later new/add 13F events from the PIT top-manager cohort in force at each event date.
+  - `bucket_performance(follow_events, horizons)` ->summarizes forward returns by horizon and discovery buckets.
+  - `run(args)` ->orchestrates the PIT top-manager follow study.
+- symbols_changed:
+  - `DEFAULT_TESTS` ->includes `tests/pit_top_manager_follow_study_smoke.py`.
+  - `SHELL_SCRIPT` ->adds `run_pit_top_manager_follow_study.py` to the `research_full` sidecar path only.
+  - `RESEARCH_FILES` ->adds PIT top-manager research outputs for non-root Drive research sync.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/pit_top_manager_cohorts.parquet` ->PIT manager cohort history ranked only from completed prior post-disclosure labels.
+  - `data_pit/sec/top_manager_13f_follow_events.parquet` ->new/add 13F follow events from managers in the active top cohort.
+  - `outputs/pit_top_manager_follow_study/cohort_history.csv` ->CSV copy of PIT top-manager cohorts.
+  - `outputs/pit_top_manager_follow_study/event_forward_returns.csv` ->selected follow events with forward-return labels.
+  - `outputs/pit_top_manager_follow_study/bucket_performance.csv` ->1/3/6/12 month follow-performance summary by bucket.
+  - `outputs/pit_top_manager_follow_study/report.md` ->human-readable research report.
+  - `outputs/pit_top_manager_follow_study/summary.json` ->machine-readable study summary.
+- validation:
+  - `py -3 tests\pit_top_manager_follow_study_smoke.py` ->PASS
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 30/30
+  - `py -3 tests\smoke_test.py` ->PASS, 113/113
+  - `py -3 tools\run_pr_validation.py --only pit_top_manager_follow_study` ->PASS, 1/1
+  - `py -3 tools\run_pr_validation.py` ->PASS, 46/46
+  - `git diff --check` ->PASS, CRLF warnings only
+- risks_or_notes:
+  - Research-only; no production score activation or automatic trading.
+  - Early cohorts may be empty until enough completed historical labels accumulate.
+
 ### 13:17 KST - top-manager-cik-and-long-shakeout-fix
 
 - scope:

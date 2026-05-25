@@ -3052,6 +3052,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/build_crisis_governed_target_books.py",
         "tools/run_full_rebuild_sidecars.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
+        "tools/run_pit_top_manager_follow_study.py",
     ]:
         ast.parse((ROOT / rel).read_text(encoding="utf-8"))
 
@@ -3067,6 +3068,27 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "heavy research sidecars skipped" in sidecar_tool
     assert "run_user_current_report.py" in sidecar_tool
     assert "run_daily_crisis_monitor.py" in sidecar_tool
+
+
+@_test("structural.pit_top_manager_follow_study_is_research_only")
+def test_pit_top_manager_follow_study_is_research_only() -> None:
+    src = (ROOT / "tools" / "run_pit_top_manager_follow_study.py").read_text(encoding="utf-8")
+    sidecar = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    manifest = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
+    for token in [
+        "completed post-disclosure labels",
+        "label_completion_ts",
+        "production_activation_allowed",
+        "score_total_changed",
+        "cohort_refresh_months",
+        "ranking_lookback_days",
+        "top_n",
+    ]:
+        assert token in src, f"PIT top-manager follow study missing {token}"
+    assert "run_pit_top_manager_follow_study.py" in sidecar
+    assert "outputs/pit_top_manager_follow_study/" in wf
+    assert "pit_top_manager_follow_study/bucket_performance.csv" in manifest
 
 
 @_test("structural.user_current_contains_no_research_metrics")

@@ -50,6 +50,11 @@ RESEARCH_FILES = [
     "reports/candidate_replay_book.csv",
     "backtest_metrics.json",
     "concentrated_backtest_metrics.json",
+    "pit_top_manager_follow_study/summary.json",
+    "pit_top_manager_follow_study/report.md",
+    "pit_top_manager_follow_study/cohort_history.csv",
+    "pit_top_manager_follow_study/event_forward_returns.csv",
+    "pit_top_manager_follow_study/bucket_performance.csv",
 ]
 DEPRECATED_NAMES = {"backtest_metrics.json", "concentrated_backtest_metrics.json"}
 

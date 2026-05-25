@@ -575,6 +575,7 @@ jobs:
             outputs/winner_onset_study/
             outputs/shakeout_breakdown_study/
             outputs/shakeout_disclosure_reversal_study/
+            outputs/pit_top_manager_follow_study/
             outputs/autolearning_winner_challenger/
             outputs/policy_fusion/
           retention-days: 365   # FULL rebuild is expensive — keep 1 year
@@ -1001,6 +1002,8 @@ jobs:
           copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
           copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"
           copy_dir_clean outputs/shakeout_breakdown_study "$DEST/shakeout_breakdown_study"
+          copy_dir_clean outputs/shakeout_disclosure_reversal_study "$DEST/shakeout_disclosure_reversal_study"
+          copy_dir_clean outputs/pit_top_manager_follow_study "$DEST/pit_top_manager_follow_study"
           copy_dir_clean outputs/autolearning_winner_challenger "$DEST/autolearning_winner_challenger"
           copy_dir_clean outputs/policy_fusion "$DEST/policy_fusion"
           fi
