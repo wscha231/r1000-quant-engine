@@ -105,6 +105,27 @@ def test_initial_period_is_not_false_new_signal() -> None:
     assert first["history_boundary"].astype(bool).all()
 
 
+def test_manager_universe_metadata_is_attached() -> None:
+    manager_universe = pd.DataFrame(
+        [
+            {
+                "label": "ATREIDES",
+                "manager_name": "Atreides Management LP",
+                "cik10": "0001067983",
+                "user_priority": 6,
+                "external_performance_2y": 1.744,
+                "allocation_tier": "growth_hedge",
+            }
+        ]
+    )
+    events = build_position_events(holdings_fixture(), metadata_fixture(), manager_universe)
+    latest = events[events["report_period"].eq("2026-03-31")]
+    assert float(latest["manager_rank"].max()) == 6.0
+    assert float(latest["external_performance_2y"].max()) == 1.744
+    assert set(latest["allocation_tier"]) == {"growth_hedge"}
+    assert set(latest["manager_name"]) == {"Atreides Management LP"}
+
+
 def test_cli_writes_pit_and_latest_outputs() -> None:
     tmp = Path(tempfile.mkdtemp(prefix="13f_events_"))
     try:
@@ -139,6 +160,7 @@ def test_cli_writes_pit_and_latest_outputs() -> None:
 def main() -> int:
     test_event_builder_detects_add_new_and_exit()
     test_initial_period_is_not_false_new_signal()
+    test_manager_universe_metadata_is_attached()
     test_cli_writes_pit_and_latest_outputs()
     print("sec_13f_position_event_builder_smoke: PASS")
     return 0

@@ -2562,6 +2562,8 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "default_backtest_years: int = 8",
         'leader_rescue_backtest_mode: str = "latest_only"',
         "strategic_global_hardware_universe_enabled: bool = True",
+        "compact_universe_train_sample_relax_enabled: bool = True",
+        "compact_universe_min_train_samples: int = 800",
         "[5, 8, 10]",
     ):
         assert token in cfg_src, f"r1000_config.py missing 8y default or 5/8/10 comparison token: {token}"
@@ -2575,6 +2577,8 @@ def test_global_alpha_universe_window_audit_wired() -> None:
         "load_strategic_global_hardware_universe_frame",
         "strategic_global_hardware",
         "leader_rescue_backtest_filter_summary.json",
+        "effective_min_train_samples",
+        "No OOS rows were generated in walk-forward training.",
     ):
         assert token in pipe_src, f"r1000_pipeline.py missing global-alpha audit wiring: {token}"
 
@@ -2950,6 +2954,9 @@ def test_sec_13f_manager_universe_csv_present() -> None:
         assert expected in labels, (
             f"managers.csv missing required entry: {expected}"
         )
+    by_label = {r["label"].upper(): r for r in rows}
+    assert by_label["WHALEROCK"]["cik10"] == "0001387322", "Whale Rock/Alex Sacerdote SEC CIK must be current"
+    assert by_label["ATREIDES"]["cik10"] == "0001777813", "Atreides/Gavin Baker SEC CIK must be current"
 
 
 @_test("regression.sec_13f_workflow_uses_manager_universe")

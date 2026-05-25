@@ -49,8 +49,10 @@ OUTPUT_COLUMNS = [
     "event_close",
     "shakeout_low_date",
     "shakeout_low",
+    "reset_window_days",
     "drawdown_from_prior_peak",
     "days_peak_to_low",
+    "max_volume_ratio_reset_window",
     "max_volume_ratio_around_event",
     "volume_ratio_at_low",
     "sma50_at_event",
@@ -63,7 +65,9 @@ OUTPUT_COLUMNS = [
     "max_dd_21d",
     "max_dd_63d",
     "rebound_from_low_21d",
+    "rebound_from_low_63d",
     "reclaim_prior_peak_21d",
+    "reclaim_prior_peak_63d",
     "days_to_reclaim_prior_peak",
     "up_day_volume_confirmation",
     "shakeout_setup_score",
@@ -255,7 +259,14 @@ def max_drawdown_after(px: pd.DataFrame, pos: int, horizon: int, entry_price: fl
     return float((window / entry_price - 1.0).min())
 
 
-def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event_window: int) -> dict[str, Any] | None:
+def analyze_event(
+    event: pd.Series,
+    px: pd.DataFrame,
+    *,
+    peak_window: int,
+    reset_window: int,
+    event_window: int,
+) -> dict[str, Any] | None:
     if px.empty:
         return None
     event_date, event_pos = trading_offset(px, event.get("available_from_ts"), 0)
@@ -266,17 +277,24 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
         return None
     prior_peak_close = float(prior["close"].max())
     prior_peak_date = pd.Timestamp(prior["close"].idxmax())
+    prior_peak_pos = int(pd.DatetimeIndex(px.index).get_loc(prior_peak_date))
     around = window_slice(px, event_pos, event_window, event_window)
     if around.empty or prior_peak_close <= 0:
         return None
-    low_date = pd.Timestamp(around["low"].idxmin())
-    low_price = float(around.loc[low_date, "low"])
+    reset_start = max(0, min(prior_peak_pos, event_pos - int(reset_window)))
+    reset_end = min(len(px), event_pos + int(event_window) + 1)
+    reset = px.iloc[reset_start:reset_end].copy()
+    reset_after_peak = reset.loc[reset.index >= prior_peak_date].copy()
+    low_source = reset_after_peak if not reset_after_peak.empty else around
+    low_date = pd.Timestamp(low_source["low"].idxmin())
+    low_price = float(low_source.loc[low_date, "low"])
     low_pos = int(pd.DatetimeIndex(px.index).get_loc(low_date))
     event_close = float(px["close"].iloc[event_pos])
     close = pd.to_numeric(px["close"], errors="coerce")
     volume = pd.to_numeric(px["volume"], errors="coerce")
     vol20 = volume.rolling(20, min_periods=5).mean().shift(1)
     vol_ratio = volume / vol20.replace(0, np.nan)
+    max_vol_ratio_reset = safe_float(vol_ratio.iloc[reset_start:reset_end].max(), math.nan)
     max_vol_ratio = safe_float(vol_ratio.iloc[max(0, event_pos - event_window): min(len(px), event_pos + event_window + 1)].max(), math.nan)
     low_vol_ratio = safe_float(vol_ratio.iloc[low_pos], math.nan)
     sma50 = safe_float(close.iloc[max(0, event_pos - 49): event_pos + 1].mean(), math.nan)
@@ -296,9 +314,14 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
 
     forward21 = px.iloc[event_pos: min(len(px), event_pos + 22)].copy()
     reclaim_hits = forward21[forward21["close"] >= prior_peak_close] if not forward21.empty else pd.DataFrame()
+    forward63 = px.iloc[event_pos: min(len(px), event_pos + 64)].copy()
+    reclaim_hits_63 = forward63[forward63["close"] >= prior_peak_close] if not forward63.empty else pd.DataFrame()
     reclaimed = not reclaim_hits.empty
-    days_to_reclaim = int((pd.Timestamp(reclaim_hits.index[0]) - event_date).days) if reclaimed else -1
+    reclaimed63 = not reclaim_hits_63.empty
+    first_reclaim = reclaim_hits.index[0] if reclaimed else (reclaim_hits_63.index[0] if reclaimed63 else None)
+    days_to_reclaim = int((pd.Timestamp(first_reclaim) - event_date).days) if first_reclaim is not None else -1
     rebound_from_low = float(forward21["close"].max() / low_price - 1.0) if not forward21.empty and low_price > 0 else math.nan
+    rebound_from_low_63 = float(forward63["close"].max() / low_price - 1.0) if not forward63.empty and low_price > 0 else math.nan
     up_days = px.iloc[event_pos: min(len(px), event_pos + 6)].copy()
     up_day_vol_confirm = 0
     if len(up_days) >= 2:
@@ -306,10 +329,13 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
         ratios = vol_ratio.loc[up_days.index]
         up_day_vol_confirm = int(bool(((rets > 0.03) & (ratios >= 1.10)).any()))
 
+    fast_reset = -0.45 <= drawdown <= -0.12 and 0 <= days_peak_to_low <= 21
+    long_reset = -0.65 <= drawdown <= -0.20 and 22 <= days_peak_to_low <= 150
+    max_vol_signal = max([x for x in [max_vol_ratio, max_vol_ratio_reset] if math.isfinite(x)] or [0.0])
     setup_checks = [
-        (-0.45 <= drawdown <= -0.12, 0.24),
-        (0 <= days_peak_to_low <= 21, 0.12),
-        (max_vol_ratio >= 1.15, 0.14),
+        (fast_reset or long_reset, 0.24),
+        (0 <= days_peak_to_low <= 150, 0.12),
+        (max_vol_signal >= 1.15, 0.14),
         (positive_disclosure, 0.20),
         (m_quality >= 0.40, 0.15),
         ((event_close / sma200 - 1.0) >= -0.20 if math.isfinite(sma200) and sma200 > 0 else True, 0.15),
@@ -318,7 +344,7 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
     confirmation_checks = [
         (ret5 >= 0.05 if math.isfinite(ret5) else False, 0.16),
         (rebound_from_low >= 0.15 if math.isfinite(rebound_from_low) else False, 0.20),
-        (reclaimed, 0.25),
+        (reclaimed or reclaimed63, 0.25),
         (up_day_vol_confirm == 1, 0.16),
         (max_dd21 >= -0.12 if math.isfinite(max_dd21) else False, 0.10),
         (ret21 >= 0.10 if math.isfinite(ret21) else False, 0.13),
@@ -326,7 +352,7 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
     confirmation_score = sum(w for ok, w in confirmation_checks if bool(ok)) / sum(w for _, w in confirmation_checks)
     total_score = 0.55 * setup_score + 0.45 * confirmation_score
     if setup_score >= 0.60 and confirmation_score >= 0.60:
-        bucket = "shakeout_reversal_confirmed"
+        bucket = "long_base_shakeout_reversal_confirmed" if long_reset else "shakeout_reversal_confirmed"
     elif setup_score >= 0.60:
         bucket = "shakeout_watch_needs_confirmation"
     elif drawdown <= -0.45 or (math.isfinite(max_dd21) and max_dd21 <= -0.25):
@@ -350,8 +376,10 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
         "event_close": event_close,
         "shakeout_low_date": low_date.date().isoformat(),
         "shakeout_low": low_price,
+        "reset_window_days": int(reset_window),
         "drawdown_from_prior_peak": drawdown,
         "days_peak_to_low": days_peak_to_low,
+        "max_volume_ratio_reset_window": max_vol_ratio_reset,
         "max_volume_ratio_around_event": max_vol_ratio,
         "volume_ratio_at_low": low_vol_ratio,
         "sma50_at_event": sma50,
@@ -364,7 +392,9 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
         "max_dd_21d": max_dd21,
         "max_dd_63d": max_dd63,
         "rebound_from_low_21d": rebound_from_low,
+        "rebound_from_low_63d": rebound_from_low_63,
         "reclaim_prior_peak_21d": int(reclaimed),
+        "reclaim_prior_peak_63d": int(reclaimed63),
         "days_to_reclaim_prior_peak": days_to_reclaim,
         "up_day_volume_confirmation": up_day_vol_confirm,
         "shakeout_setup_score": setup_score,
@@ -391,7 +421,7 @@ def analyze_event(event: pd.Series, px: pd.DataFrame, *, peak_window: int, event
 def build_summary(events: pd.DataFrame) -> dict[str, Any]:
     if events.empty:
         return {
-            "schema_version": "shakeout-disclosure-reversal-v1",
+            "schema_version": "shakeout-disclosure-reversal-v2",
             "research_only": True,
             "production_activation_allowed": False,
             "event_count": 0,
@@ -413,12 +443,15 @@ def build_summary(events: pd.DataFrame) -> dict[str, Any]:
         )
     top = events.sort_values("shakeout_disclosure_reversal_score", ascending=False).head(20)
     return {
-        "schema_version": "shakeout-disclosure-reversal-v1",
+        "schema_version": "shakeout-disclosure-reversal-v2",
         "research_only": True,
         "production_activation_allowed": False,
         "event_count": int(len(events)),
         "mean_score": safe_float(score.mean(), 0.0),
-        "confirmed_count": int(bucket_counts.get("shakeout_reversal_confirmed", 0)),
+        "confirmed_count": int(
+            bucket_counts.get("shakeout_reversal_confirmed", 0)
+            + bucket_counts.get("long_base_shakeout_reversal_confirmed", 0)
+        ),
         "watch_count": int(bucket_counts.get("shakeout_watch_needs_confirmation", 0)),
         "label_complete_21d_count": int(pd.to_numeric(events["label_complete_21d"] if "label_complete_21d" in events.columns else pd.Series(dtype=float), errors="coerce").fillna(0).sum()),
         "label_complete_63d_count": int(pd.to_numeric(events["label_complete_63d"] if "label_complete_63d" in events.columns else pd.Series(dtype=float), errors="coerce").fillna(0).sum()),
@@ -426,7 +459,7 @@ def build_summary(events: pd.DataFrame) -> dict[str, Any]:
         "by_bucket": by_bucket,
         "top_candidates": top[["ticker", "available_from", "pattern_bucket", "shakeout_disclosure_reversal_score", "drawdown_from_prior_peak", "ret_21d", "ret_63d"]].to_dict(orient="records"),
         "notes": [
-            "Research-only CRDO-style pattern: fast reset, volume expansion, disclosure catalyst, and reclaim confirmation.",
+            "Research-only CRDO-style pattern: fast or 3-6 month reset, volume expansion, disclosure catalyst, and reclaim confirmation.",
             "Do not use this as production evidence until broker-ledger challenger improves CAGR/MDD.",
             "13F availability must use accepted_at/available_from, not report_period.",
         ],
@@ -480,7 +513,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if px.empty:
             continue
         for _, event in group.iterrows():
-            row = analyze_event(event, px, peak_window=int(args.peak_window), event_window=int(args.event_window))
+            row = analyze_event(
+                event,
+                px,
+                peak_window=int(args.peak_window),
+                reset_window=int(args.reset_window),
+                event_window=int(args.event_window),
+            )
             if row is not None:
                 rows.append(row)
     out = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
@@ -498,8 +537,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--events", action="append", default=[DEFAULT_EVENTS], help="CSV/parquet disclosure event file; repeat or comma-separate")
     parser.add_argument("--price-cache", default=DEFAULT_PRICE_CACHE)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--peak-window", type=int, default=63)
-    parser.add_argument("--event-window", type=int, default=5)
+    parser.add_argument("--peak-window", type=int, default=126)
+    parser.add_argument("--reset-window", type=int, default=126)
+    parser.add_argument("--event-window", type=int, default=10)
     return parser.parse_args()
 
 

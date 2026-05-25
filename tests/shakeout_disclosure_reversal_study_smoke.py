@@ -84,6 +84,7 @@ def main() -> int:
             "price_cache": str(price_cache),
             "output_dir": str(output_dir),
             "peak_window": 63,
+            "reset_window": 63,
             "event_window": 5,
         },
     )()
@@ -97,6 +98,80 @@ def main() -> int:
     assert int(row["reclaim_prior_peak_21d"]) == 1
     payload = json.loads((output_dir / "pattern_summary.json").read_text(encoding="utf-8"))
     assert payload["production_activation_allowed"] is False
+
+    dates2 = pd.bdate_range("2025-12-01", periods=150)
+    close2 = []
+    volume2 = []
+    for i, _ in enumerate(dates2):
+        if i <= 2:
+            price = 180 + i * 5.0
+            vol = 1_000_000
+        elif i <= 84:
+            price = 190 - (i - 2) * 1.25
+            vol = 1_100_000
+        elif i <= 100:
+            price = 87 + (i - 84) * 3.0
+            vol = 1_200_000
+        elif i <= 124:
+            price = 135 + (i - 100) * 1.5
+            vol = 1_300_000
+        elif i <= 130:
+            price = 171 - (i - 124) * 2.0
+            vol = 2_400_000
+        else:
+            price = 160 + (i - 130) * 4.0
+            vol = 2_000_000
+        close2.append(price)
+        volume2.append(vol)
+    px2 = pd.DataFrame(
+        {
+            "Open": close2,
+            "High": [x * 1.02 for x in close2],
+            "Low": [x * 0.98 for x in close2],
+            "Close": close2,
+            "Adj Close": close2,
+            "Volume": volume2,
+        },
+        index=dates2,
+    )
+    px2.to_parquet(price_cache / px_cache_name("BBB"))
+    event2 = pd.DataFrame(
+        [
+            {
+                "event_id": "13f:atreides:BBB",
+                "source_type": "13f",
+                "manager_cik": "0001777813",
+                "manager_name": "Atreides Management LP",
+                "ticker": "BBB",
+                "event_type": "new",
+                "available_from": dates2[128].isoformat(),
+                "event_seed_score": 0.85,
+                "manager_rank": 6,
+                "external_performance_2y": 1.744,
+            }
+        ]
+    )
+    event2_path = tmp / "events2.csv"
+    event2.to_csv(event2_path, index=False)
+    output2_dir = tmp / "out2"
+    args2 = type(
+        "Args",
+        (),
+        {
+            "events": [str(event2_path)],
+            "price_cache": str(price_cache),
+            "output_dir": str(output2_dir),
+            "peak_window": 126,
+            "reset_window": 126,
+            "event_window": 10,
+        },
+    )()
+    run(args2)
+    out2 = pd.read_csv(output2_dir / "events.csv")
+    row2 = out2.iloc[0]
+    assert row2["pattern_bucket"] == "long_base_shakeout_reversal_confirmed"
+    assert int(row2["days_peak_to_low"]) > 21
+    assert int(row2["reclaim_prior_peak_63d"]) == 1
     print("shakeout_disclosure_reversal_study_smoke: PASS")
     return 0
 

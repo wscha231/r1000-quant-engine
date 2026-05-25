@@ -53,6 +53,46 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-25
 
+### 13:17 KST - top-manager-cik-and-long-shakeout-fix
+
+- scope:
+  - Fix Gavin Baker / Alex Sacerdote 13F manager CIKs, propagate manager quality into 13F position events, extend shakeout-disclosure learning to 3-6 month base resets, and relax walk-forward training thresholds only for compact global-alpha universes.
+- files:
+  - `research/sec_13f_manager_universe_20260519/managers.csv` ->corrects Whale Rock / Alex Sacerdote to CIK `0001387322` and Atreides / Gavin Baker to CIK `0001777813`.
+  - `tools/run_13f_position_event_builder.py` ->attaches manager rank, external performance, and allocation tier from `managers.csv` to PIT 13F event rows.
+  - `tools/run_shakeout_disclosure_reversal_study.py` ->adds long-base reset detection so CRDO-style 3-6 month drawdown/reclaim patterns are not missed.
+  - `r1000_config.py` ->adds compact-universe training sample relaxation fields.
+  - `r1000_pipeline.py` ->uses the compact-universe train threshold only when median monthly ticker count is small and emits richer no-OOS diagnostics.
+  - `tests/sec_13f_position_event_builder_smoke.py` ->checks manager metadata propagation.
+  - `tests/shakeout_disclosure_reversal_study_smoke.py` ->adds a synthetic long-base shakeout/reclaim case.
+  - `tests/smoke_test.py` ->checks corrected top-manager CIKs and compact-universe walk-forward guard wiring.
+- symbols_added:
+  - `manager_metadata_by_cik(manager_universe)` ->maps reviewed manager metadata by SEC CIK for 13F event rows.
+- symbols_changed:
+  - `build_position_events(holdings, metadata, manager_universe)` ->adds manager quality fields to PIT 13F events.
+  - `analyze_event(event, px, *, peak_window, reset_window, event_window)` ->detects both fast and long-base shakeout/reversal patterns.
+  - `train_walkforward(cfg, features)` ->relaxes `min_train_samples` only for compact universes and reports skip statistics when no OOS rows are produced.
+- config_fields_added:
+  - `compact_universe_train_sample_relax_enabled: bool = True` ->allows compact global-alpha runs to avoid all-month walk-forward skips.
+  - `compact_universe_max_median_tickers: int = 250` ->limits the relaxation to small universes.
+  - `compact_universe_min_train_samples: int = 800` ->sets the compact-universe lower training sample floor.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_pit/sec/13f_position_events.parquet` ->now includes manager rank, external performance, and allocation tier when `managers.csv` is available.
+  - `outputs/shakeout_disclosure_reversal_study/events.csv` ->now includes long-base reset fields such as reset window, reset-volume ratio, and 63-day reclaim flags.
+- validation:
+  - `py -3 tests\sec_13f_position_event_builder_smoke.py` ->PASS.
+  - `py -3 tests\shakeout_disclosure_reversal_study_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 29/29.
+  - `py -3 tests\smoke_test.py` ->PASS, 112/112.
+  - `py -3 tools\run_pr_validation.py` ->PASS, 45/45.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - SEC submissions were used to verify that prior Atreides and Whale Rock CIK placeholders were wrong; a fresh 13F refresh is required before those corrected managers appear in data artifacts.
+  - The compact-universe threshold does not change R1000-scale training because it is gated by median monthly ticker count.
+  - Long-base shakeout output remains research-only and must pass broker-ledger challenger testing before any score activation.
+
 ### 13:05 KST - shakeout-disclosure-reversal-study
 
 - scope:

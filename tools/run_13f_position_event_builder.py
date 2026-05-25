@@ -27,12 +27,16 @@ DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/13f_position_events"
 DEFAULT_PIT_OUTPUT = "data_pit/sec/13f_position_events.parquet"
 DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"
+DEFAULT_MANAGER_UNIVERSE = "research/sec_13f_manager_universe_20260519/managers.csv"
 
 EVENT_COLUMNS = [
     "event_id",
     "source_type",
     "manager_cik",
     "manager_name",
+    "manager_rank",
+    "external_performance_2y",
+    "allocation_tier",
     "ticker",
     "cusip",
     "issuer_name",
@@ -196,6 +200,25 @@ def metadata_by_ticker(metadata: pd.DataFrame) -> dict[str, dict[str, Any]]:
     return out
 
 
+def manager_metadata_by_cik(manager_universe: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    if manager_universe.empty or "cik10" not in manager_universe.columns:
+        return {}
+    d = manager_universe.copy()
+    d["manager_cik"] = txt(d, "cik10").map(cik10)
+    d = d[d["manager_cik"].ne("")].drop_duplicates("manager_cik", keep="last")
+    out: dict[str, dict[str, Any]] = {}
+    for _, row in d.iterrows():
+        cik = str(row.get("manager_cik", "")).strip()
+        out[cik] = {
+            "manager_rank": float(pd.to_numeric(pd.Series([row.get("user_priority", 0)]), errors="coerce").fillna(0).iloc[0]),
+            "external_performance_2y": float(pd.to_numeric(pd.Series([row.get("external_performance_2y", 0)]), errors="coerce").fillna(0.0).iloc[0]),
+            "allocation_tier": str(row.get("allocation_tier", "") or ""),
+            "manager_label": str(row.get("label", "") or ""),
+            "manager_name": str(row.get("manager_name", "") or ""),
+        }
+    return out
+
+
 def period_filing_meta(period_frame: pd.DataFrame) -> dict[str, Any]:
     d = period_frame.sort_values(["accepted_at_ts", "available_from_ts"])
     row = d.iloc[-1]
@@ -245,13 +268,19 @@ def seed_score(event: dict[str, Any]) -> float:
     return float(max(-1.0, min(1.0, score)))
 
 
-def build_position_events(holdings: pd.DataFrame, metadata: pd.DataFrame | None = None) -> pd.DataFrame:
+def build_position_events(
+    holdings: pd.DataFrame,
+    metadata: pd.DataFrame | None = None,
+    manager_universe: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     d = normalize_holdings(holdings)
     if d.empty:
         return pd.DataFrame(columns=EVENT_COLUMNS)
     meta = metadata_by_ticker(metadata if metadata is not None else pd.DataFrame())
+    manager_meta = manager_metadata_by_cik(manager_universe if manager_universe is not None else pd.DataFrame())
     rows: list[dict[str, Any]] = []
     for manager_cik, manager_frame in d.groupby("manager_cik", sort=True):
+        mgr = manager_meta.get(str(manager_cik), {})
         periods = sorted(manager_frame["report_period_ts"].dropna().unique())
         previous = pd.DataFrame()
         for index, period in enumerate(periods):
@@ -278,7 +307,16 @@ def build_position_events(holdings: pd.DataFrame, metadata: pd.DataFrame | None 
                     "event_id": f"13f:{manager_cik}:{pd.Timestamp(period).date().isoformat()}:{ticker}",
                     "source_type": "13f",
                     "manager_cik": manager_cik,
-                    "manager_name": str(cur_row.get("manager_name") or prev_row.get("manager_name") or filing.get("manager_name") or ""),
+                    "manager_name": str(
+                        mgr.get("manager_name")
+                        or cur_row.get("manager_name")
+                        or prev_row.get("manager_name")
+                        or filing.get("manager_name")
+                        or ""
+                    ),
+                    "manager_rank": float(mgr.get("manager_rank") or 0.0),
+                    "external_performance_2y": float(mgr.get("external_performance_2y") or 0.0),
+                    "allocation_tier": str(mgr.get("allocation_tier") or ""),
                     "ticker": str(ticker).upper().strip(),
                     "cusip": str(cur_row.get("cusip") or prev_row.get("cusip") or ""),
                     "issuer_name": str(cur_row.get("issuer_name") or prev_row.get("issuer_name") or ""),
@@ -369,13 +407,15 @@ def render_report(summary: dict[str, Any], events: pd.DataFrame) -> str:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     holdings_path = repo_path(args.holdings)
     metadata_path = repo_path(args.metadata)
+    manager_universe_path = repo_path(getattr(args, "manager_universe", DEFAULT_MANAGER_UNIVERSE))
     pit_output = repo_path(args.pit_output)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     holdings = read_table(holdings_path)
     metadata = read_table(metadata_path)
-    events = build_position_events(holdings, metadata)
+    manager_universe = read_table(manager_universe_path)
+    events = build_position_events(holdings, metadata, manager_universe)
     write_table(events, pit_output)
     write_table(events, output_dir / "13f_position_events.csv")
     latest = events.copy()
@@ -397,6 +437,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "score_total_changed": False,
         "holdings": str(holdings_path),
         "metadata": str(metadata_path),
+        "manager_universe": str(manager_universe_path),
         "pit_output": str(pit_output),
         "event_rows": int(len(events)),
         "latest_rows": int(len(latest)),
@@ -424,6 +465,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--holdings", default=DEFAULT_13F)
     parser.add_argument("--metadata", default=DEFAULT_METADATA)
+    parser.add_argument("--manager-universe", default=DEFAULT_MANAGER_UNIVERSE)
     parser.add_argument("--pit-output", default=DEFAULT_PIT_OUTPUT)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     return parser.parse_args()

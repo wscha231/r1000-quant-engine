@@ -9620,6 +9620,31 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     d["future_winner_bin"] = future_ybin_all
     d["future_winner_available"] = future_avail_all
 
+    monthly_ticker_counts = (
+        d.dropna(subset=["rebalance_date"])
+        .groupby("rebalance_date")["ticker"]
+        .nunique()
+        .astype(float)
+    )
+    median_monthly_tickers = float(monthly_ticker_counts.median()) if len(monthly_ticker_counts) else 0.0
+    max_monthly_tickers = float(monthly_ticker_counts.max()) if len(monthly_ticker_counts) else 0.0
+    effective_min_train_samples = int(cfg.min_train_samples)
+    if (
+        bool(getattr(cfg, "compact_universe_train_sample_relax_enabled", True))
+        and 0 < median_monthly_tickers <= float(getattr(cfg, "compact_universe_max_median_tickers", 250))
+    ):
+        compact_floor = max(int(getattr(cfg, "compact_universe_min_train_samples", 800)), 100)
+        dynamic_min = max(compact_floor, int(np.ceil(median_monthly_tickers * 12.0)))
+        dynamic_min = min(int(cfg.min_train_samples), dynamic_min)
+        if dynamic_min < effective_min_train_samples:
+            log(
+                "Phase 4: compact-universe train threshold relaxed "
+                f"from {effective_min_train_samples} to {dynamic_min} "
+                f"(median_monthly_tickers={median_monthly_tickers:.0f}, "
+                f"max_monthly_tickers={max_monthly_tickers:.0f})."
+            )
+            effective_min_train_samples = dynamic_min
+
     dates = monthly_test_dates(d)
     if not dates:
         raise RuntimeError(
@@ -9681,6 +9706,13 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     current_cbc: Optional[Any] = None
     current_cbrk: Optional[Any] = None
     current_rank_enabled = bool(cfg.ranking_enabled and catboost_available)
+    skip_stats = {
+        "completed": 0,
+        "empty_test": 0,
+        "min_train_samples": 0,
+        "missing_model": 0,
+    }
+    train_sample_sizes: list[int] = []
 
     for idx, test_dt in enumerate(dates):
         date_key = pd.Timestamp(test_dt).strftime("%Y-%m-%d")
@@ -9688,6 +9720,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             continue
         test_mask = d["rebalance_date"] == test_dt
         if test_mask.sum() == 0:
+            skip_stats["empty_test"] += 1
             continue
         test_df = d[test_mask].copy()
         anchor_idx = walkforward_anchor_index(idx, retrain_every)
@@ -9699,12 +9732,14 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             anchor_train_mask = (d["feature_date"] >= anchor_train_start) & (d["feature_date"] <= anchor_train_end)
             anchor_train_df = d[anchor_train_mask].copy()
 
-            if len(anchor_train_df) < cfg.min_train_samples:
+            if len(anchor_train_df) < effective_min_train_samples:
                 current_train_end = test_dt - pd.Timedelta(days=cfg.embargo_days)
                 current_train_start = test_dt - pd.DateOffset(years=cfg.train_lookback_years)
                 current_train_mask = (d["feature_date"] >= current_train_start) & (d["feature_date"] <= current_train_end)
                 anchor_train_df = d[current_train_mask].copy()
-            if len(anchor_train_df) < cfg.min_train_samples:
+            train_sample_sizes.append(int(len(anchor_train_df)))
+            if len(anchor_train_df) < effective_min_train_samples:
+                skip_stats["min_train_samples"] += 1
                 continue
 
             fit_df, valid_df = split_walkforward_train_valid(anchor_train_df, cfg.cat_validation_months)
@@ -9734,7 +9769,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             future_fit_df = fit_df[fit_df["future_winner_available"].fillna(False).astype(bool)].copy()
             current_future_reg = None
             current_future_clf = None
-            if len(future_fit_df) >= max(500, cfg.min_train_samples // 4):
+            if len(future_fit_df) >= max(500, effective_min_train_samples // 4):
                 X_fit_future = apply_scaler(future_fit_df, current_scaler, model_features)
                 y_future_fit = pd.to_numeric(future_fit_df["future_winner_y"], errors="coerce").fillna(0.0).values
                 current_future_reg = Ridge(
@@ -9830,6 +9865,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             current_anchor_idx = anchor_idx
 
         if current_scaler is None or current_reg is None:
+            skip_stats["missing_model"] += 1
             continue
 
         X_test = apply_scaler(test_df, current_scaler, model_features)
@@ -9883,6 +9919,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         oos_rows.append(tmp)
         completed_dates.add(date_key)
         completed_now += 1
+        skip_stats["completed"] += 1
         if cfg.resume_partial_walkforward and (
             completed_now == len(pending_dates)
             or (completed_now % int(cfg.walkforward_checkpoint_every) == 0)
@@ -9902,7 +9939,24 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             log(f"Phase 4 progress: completed_months={len(completed_dates)}/{len(dates)} (latest={date_key})")
 
     if not oos_rows:
-        raise RuntimeError("No OOS rows were generated in walk-forward training.")
+        if train_sample_sizes:
+            train_sample_summary = {
+                "min": int(np.nanmin(train_sample_sizes)),
+                "median": int(np.nanmedian(train_sample_sizes)),
+                "max": int(np.nanmax(train_sample_sizes)),
+            }
+        else:
+            train_sample_summary = {"min": 0, "median": 0, "max": 0}
+        raise RuntimeError(
+            "No OOS rows were generated in walk-forward training. "
+            f"rows_after_filters={len(d)}, test_months={len(dates)}, "
+            f"pending_months={len(pending_dates)}, "
+            f"min_train_samples={cfg.min_train_samples}, "
+            f"effective_min_train_samples={effective_min_train_samples}, "
+            f"median_monthly_tickers={median_monthly_tickers:.1f}, "
+            f"max_monthly_tickers={max_monthly_tickers:.1f}, "
+            f"skip_stats={skip_stats}, train_sample_summary={train_sample_summary}"
+        )
     scored = pd.concat(oos_rows, ignore_index=True)
     scored = scored.sort_values(["rebalance_date", "score"], ascending=[True, False])
     scored = scored.drop_duplicates(["rebalance_date", "ticker"], keep="last")
