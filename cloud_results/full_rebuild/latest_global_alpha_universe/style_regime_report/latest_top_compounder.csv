@@ -1,9 +1,0 @@
-ticker,Name,sector,portfolio_sleeve_label,score,style_row_compounder_fit,market_style_regime_label
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.574596042071806,0.9850688114109784,breakout_growth
-NTES,NetEase,Internet,core_compounder,2.22799313384241,0.9720340764277036,breakout_growth
-UI,UBIQUITI INC,Information Technology,unassigned,-2.7011642750089107,0.9638916756323468,breakout_growth
-VRSK,VERISK ANALYTICS INC,Industrials,early_scout,-0.0319697432697946,0.9540413775915894,breakout_growth
-COST,COSTCO WHOLESALE CORP,Consumer Staples,core_compounder,5.060665846717948,0.9361982725335258,breakout_growth
-AAPL,APPLE INC,Information Technology,core_compounder,5.042143369193779,0.9263634286310118,breakout_growth
-WDC,WESTERN DIGITAL CORP,Information Technology,future_winner,5.630013029485316,0.9184515091358764,breakout_growth
-ZTO,ZTO Express,Industrials,future_winner,1.848366066970408,0.8950964202537165,breakout_growth

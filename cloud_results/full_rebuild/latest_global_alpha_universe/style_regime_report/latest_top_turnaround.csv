@@ -1,9 +1,0 @@
-ticker,Name,sector,portfolio_sleeve_label,score,style_row_turnaround_fit,market_style_regime_label
-PDD,PDD Holdings (Pinduoduo / Temu),Internet,unassigned,1.7601303578662162,0.4813760380374089,breakout_growth
-AMZN,AMAZON.COM INC,Consumer Discretionary,core_compounder,5.242205305825442,0.282489282092994,breakout_growth
-CART,MAPLEBEAR INC,Consumer Staples,unassigned,-0.6316821639222702,0.2670544396074243,breakout_growth
-PLTR,PALANTIR TECHNOLOGIES INC CLASS A,Information Technology,core_compounder,6.609783100684205,0.2650165273590331,breakout_growth
-GOOGL,ALPHABET INC CLASS A,Communication,core_compounder,6.648662475708999,0.2600702258222278,breakout_growth
-GOOG,ALPHABET INC CLASS C,Communication,core_compounder,6.660119083983758,0.2555830861814509,breakout_growth
-UDR,UDR REIT INC,Real Estate,unassigned,1.3998741329961102,0.2479332893886354,breakout_growth
-APP,APPLOVIN CORP CLASS A,Information Technology,core_compounder,2.883692963844558,0.2360607913071082,breakout_growth

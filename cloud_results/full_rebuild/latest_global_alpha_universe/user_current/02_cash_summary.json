@@ -1,0 +1,22 @@
+{
+  "by_portfolio": {
+    "concentrated": {
+      "cash_value_usd": 119.29507833960088,
+      "cash_weight": 0.0011434153372778
+    },
+    "main": {
+      "cash_value_usd": 32379.414500222192,
+      "cash_weight": 0.2640347092139994
+    }
+  },
+  "cash_policy_flag": "target_cash_above_macro_floor_without_confirmation",
+  "cash_policy_review_action": "CASH_POLICY_REVIEW",
+  "combined_cash_gap_weight": 0.11027356857480869,
+  "combined_current_cash_weight": 0.1431879404171738,
+  "combined_target_cash_weight": 0.2534615089919825,
+  "macro_cash_raise_confirmation_count": 0.0,
+  "macro_cash_raise_gate": "none",
+  "macro_recommended_cash_floor": 0.03,
+  "schema_version": "user-current-cash-summary-v1",
+  "source": "outputs/operating_snapshot/current_portfolio_snapshot_summary.json"
+}

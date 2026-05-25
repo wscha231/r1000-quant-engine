@@ -1,9 +1,0 @@
-ticker,Name,sector,portfolio_sleeve_label,score,style_row_breakout_fit,market_style_regime_label
-NVDA,NVIDIA CORP,Information Technology,core_compounder,4.574596042071806,0.6333695293903917,breakout_growth
-CBOE,CBOE GLOBAL MARKETS INC,Financials,future_winner,2.346295127087955,0.6333695293903917,breakout_growth
-TXN,TEXAS INSTRUMENT INC,Information Technology,core_compounder,6.24850704566831,0.6238689864495358,breakout_growth
-ADI,ANALOG DEVICES INC,Information Technology,future_winner,5.119168922624527,0.6238689864495358,breakout_growth
-FTNT,FORTINET INC,Information Technology,core_compounder,1.7725231503230292,0.6238689864495358,breakout_growth
-EXEL,EXELIXIS INC,Health Care,future_winner,1.5954226850194004,0.6238689864495358,breakout_growth
-CDNS,CADENCE DESIGN SYSTEMS INC,Information Technology,unassigned,1.21812941994721,0.6238689864495358,breakout_growth
-FFIV,F5 INC,Information Technology,future_winner,0.5614341384461717,0.6207570774057455,breakout_growth
