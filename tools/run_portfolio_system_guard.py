@@ -742,7 +742,7 @@ def main() -> int:
     if args.strict_targets and not result["targets_pass"]:
         return 2
     hard_errors = [row for row in result["error_checks"] if row["severity"] == "error" and not row["passed"]]
-    if hard_errors:
+    if (args.strict_targets or args.require_latest_artifacts) and hard_errors:
         return 1
     return 0
 

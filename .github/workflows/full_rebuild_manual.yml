@@ -451,6 +451,16 @@ jobs:
             outputs/account_evaluation/official_metrics.json
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/concentrated/metrics.json
+            outputs/backtest_metrics.json
+            outputs/concentrated_backtest_metrics.json
+            outputs/portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv
+            outputs/scored_latest.csv
+            outputs/reports/main_monthly_weights.csv
+            outputs/reports/concentrated_strategy_holdings.csv
+            outputs/reports/regime_by_month.csv
+            outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_target_books_*
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
             outputs/portfolio_system_guard/error_check.json
@@ -916,6 +926,17 @@ jobs:
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
             cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
             cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
+            cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
+            cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
+            cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+            cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
+            mkdir -p "$DEST/reports"
+            cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/concentrated_strategy_holdings.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
