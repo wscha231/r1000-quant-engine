@@ -3043,6 +3043,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/build_gdrive_sync_manifest.py",
         "tools/run_daily_crisis_monitor.py",
         "tools/build_crisis_governed_target_books.py",
+        "tools/run_full_rebuild_sidecars.py",
     ]:
         ast.parse((ROOT / rel).read_text(encoding="utf-8"))
 
@@ -3050,12 +3051,14 @@ def test_user_current_and_sync_tools_parse() -> None:
 @_test("structural.workflow_profiles_operating_minimal_skip_research")
 def test_workflow_profiles_operating_minimal_skip_research() -> None:
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
     for token in ["sidecar_profile:", "artifact_profile:", "gdrive_sync_mode:", "operating_minimal", "research_full"]:
         assert token in wf, f"full_rebuild_manual.yml missing profile token {token}"
-    assert 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then' in wf
-    assert "heavy research sidecars skipped" in wf
-    assert "run_user_current_report.py" in wf
-    assert "run_daily_crisis_monitor.py" in wf
+    assert "run_full_rebuild_sidecars.py" in wf
+    assert 'if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then' in sidecar_tool
+    assert "heavy research sidecars skipped" in sidecar_tool
+    assert "run_user_current_report.py" in sidecar_tool
+    assert "run_daily_crisis_monitor.py" in sidecar_tool
 
 
 @_test("structural.user_current_contains_no_research_metrics")

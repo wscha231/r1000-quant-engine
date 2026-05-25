@@ -153,6 +153,8 @@ def test_pipeline_exports_monthly_books() -> None:
 
 def test_workflow_runs_latest_diagnostics_sidecars() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    combined = text + "\n" + sidecar_tool
     for token in [
         "tools/run_leader_drop_diagnostics_sidecar.py",
         "tools/run_governance_catalyst_report.py",
@@ -278,7 +280,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/data_readiness/summary.json",
         "outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2",
     ]:
-        assert token in text, token
+        assert token in combined, token
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
