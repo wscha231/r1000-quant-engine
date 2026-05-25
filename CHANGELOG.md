@@ -51,6 +51,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-05-26
+
+### 02:18 KST - phase-g-minimal-source-fallback
+
+- scope:
+  - Allow Phase G replay to use a successful operating-minimal full rebuild as `source_run_id` without requiring a heavy research artifact upload.
+- files:
+  - `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->falls back to committed `cloud_results/full_rebuild/latest_<universe>` when the source run artifact contains only `user_current` minimal files.
+  - `CHANGELOG.md` ->records the workflow fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `Download source full rebuild artifact` workflow step ->keeps the existing artifact path for full/research artifacts and adds committed `cloud_results` fallback for minimal artifacts.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - none
+- validation:
+  - `py -3 tests\phase_g_liquidity_workflow_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -` PyYAML parse for `.github/workflows/phase_g_crisis_evidence_liquidity_replay.yml` ->PASS.
+- risks_or_notes:
+  - This does not change broker replay, scoring, target-book generation, or production defaults; it only fixes Phase G source restoration.
+
 ## 2026-05-25
 
 ### 23:58 KST - prune-failed-run-artifacts
