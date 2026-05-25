@@ -3075,6 +3075,7 @@ def test_pit_top_manager_follow_study_is_research_only() -> None:
     src = (ROOT / "tools" / "run_pit_top_manager_follow_study.py").read_text(encoding="utf-8")
     sidecar = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")
+    post_wf = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
     manifest = (ROOT / "tools" / "build_gdrive_sync_manifest.py").read_text(encoding="utf-8")
     for token in [
         "completed post-disclosure labels",
@@ -3088,6 +3089,9 @@ def test_pit_top_manager_follow_study_is_research_only() -> None:
         assert token in src, f"PIT top-manager follow study missing {token}"
     assert "run_pit_top_manager_follow_study.py" in sidecar
     assert "outputs/pit_top_manager_follow_study/" in wf
+    assert "Run PIT top-manager follow study" in post_wf
+    assert "data_pit/sec/pit_top_manager_cohorts.*" in post_wf
+    assert "outputs/pit_top_manager_follow_study" in post_wf
     assert "pit_top_manager_follow_study/bucket_performance.csv" in manifest
 
 

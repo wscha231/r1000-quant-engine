@@ -53,6 +53,30 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-05-25
 
+### 14:01 KST - fast-pit-top-manager-workflow
+
+- scope:
+  - Avoid full rebuilds for PIT top-manager follow-study research by running the study inside the lighter post-disclosure alpha workflow.
+- files:
+  - `.github/workflows/post_disclosure_alpha_pipeline.yml` ->runs `run_pit_top_manager_follow_study.py` after disclosure labels are built, uploads PIT top-manager artifacts, and syncs them to Google Drive.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `post_disclosure_alpha_pipeline.yml` ->adds a PIT top-manager follow-study step and includes its outputs in artifact and Drive sync paths.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/pit_top_manager_follow_study/` ->research-only PIT top-manager follow-study outputs from the lighter post-disclosure workflow.
+  - `data_pit/sec/pit_top_manager_cohorts.*` ->PIT cohort history uploaded by the lighter workflow.
+  - `data_pit/sec/top_manager_13f_follow_events.*` ->selected follow events uploaded by the lighter workflow.
+- validation:
+  - `py -3 tests\smoke_test.py --quick` ->PASS, 30/30
+  - `git diff --check` ->PASS, CRLF warnings only
+- risks_or_notes:
+  - This is the preferred fast path for disclosure research; full rebuild remains reserved for official broker-ledger portfolio metrics.
+
 ### 13:39 KST - pit-top-manager-follow-study
 
 - scope:
