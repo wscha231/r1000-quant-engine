@@ -6,7 +6,7 @@
 
 ## Reasons
 
-- cash policy review active: target_cash_above_macro_floor_without_confirmation
+- cash policy review active: cash_above_target
 
 ## Guardrails
 

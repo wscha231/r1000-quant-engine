@@ -3,13 +3,13 @@
 - Status: `simulation`
 - Approval: `simulation_ready_preview_only`
 - Account source: `simulated_broker_replay`
-- Target source: `/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv`
+- Target source: `account_ledger_preview/*/target_weights.csv`
 - As-of date: `2026-05-22`
-- Total equity: $1,175,808.83
-- Current cash: 8.99%
-- Target cash: 32.81%
-- Cash policy review: `CASH_POLICY_REVIEW`
-- Preview orders represented: 35
+- Total equity: $1,106,975.23
+- Current cash: 9.09%
+- Target cash: 1.59%
+- Cash policy review: `DEPLOY_CASH_REVIEW`
+- Preview orders represented: 60
 
 This file is the canonical operator snapshot. Raw portfolio_latest files are model targets, not account holdings.
 

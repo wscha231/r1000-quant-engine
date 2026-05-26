@@ -80,19 +80,19 @@
     },
     {
       "check": "main_target_book_reaches_broker_end",
-      "detail": "selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=1778; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
+      "detail": "selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=2391; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_operating_target_book_available",
-      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=1778; max_date=2026-05-22",
+      "detail": "operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2391; max_date=2026-05-22",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_historical_research_book_reaches_broker_end",
-      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-22; rows=1764; operating_book_max=2026-05-22; operating_rows=1778",
+      "detail": "historical_book_max=2026-02-27; broker_end=2026-05-22; rows=2372; operating_book_max=2026-05-22; operating_rows=2391",
       "passed": false,
       "severity": "warn"
     },
@@ -128,15 +128,15 @@
     },
     {
       "check": "current_only_operating_holdings_available",
-      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=20; legacy_snapshot_exists=True",
+      "detail": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=54; legacy_snapshot_exists=True",
       "passed": true,
       "severity": "ok"
     },
     {
       "check": "main_current_position_count_near_latest_target_count",
-      "detail": "main_positions=14; latest_target_rows=14; excess=0",
-      "passed": true,
-      "severity": "ok"
+      "detail": "main_positions=48; latest_target_rows=19; excess=29",
+      "passed": false,
+      "severity": "warn"
     },
     {
       "check": "concentrated_replay_filter_matches_latest_target",
