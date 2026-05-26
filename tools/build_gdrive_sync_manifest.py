@@ -45,6 +45,8 @@ OPERATOR_REVIEW_FILES = [
     "operator_review/execution_lag_review.md",
     "operator_review/position_risk_review.json",
     "operator_review/position_risk_review.md",
+    "operator_review/concentrated_broker_variant_review.json",
+    "operator_review/concentrated_broker_variant_review.md",
     "live_trading_safety/safety_audit_summary.json",
     "portfolio_system_guard/error_check.json",
 ]
