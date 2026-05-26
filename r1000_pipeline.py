@@ -2879,6 +2879,44 @@ def load_historical_universe_membership(cfg: EngineConfig, paths: dict[str, Path
     return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"])
 
 
+def iwb_seed_universe_candidates(paths: dict[str, Path]) -> list[Path]:
+    """Offline R1000 seed candidates used only when live IWB/base sources fail."""
+    repo_root = Path(__file__).resolve().parent
+    return [
+        paths["data_raw"] / "iwb_holdings_seed.csv",
+        repo_root / "data_static" / "iwb_holdings_seed.csv",
+        repo_root / "aggressive" / "cache" / "universe" / "iwb_holdings.parquet",
+    ]
+
+
+def load_iwb_seed_universe_frame(paths: dict[str, Path]) -> pd.DataFrame:
+    for path in iwb_seed_universe_candidates(paths):
+        if not path.exists():
+            continue
+        try:
+            d = read_table_auto(path)
+        except Exception as e:
+            log(f"[WARN] failed to read static IWB seed {path}: {e}")
+            continue
+        if d is None or d.empty:
+            log(f"[WARN] static IWB seed was empty: {path}")
+            continue
+        seed = _candidate_source_frame(d, "current_constituents_proxy_static_seed")
+        if seed.empty:
+            log(f"[WARN] static IWB seed had no usable tickers: {path}")
+            continue
+        seed = seed[~seed.apply(lambda r: looks_like_noncommon(r["ticker"], r.get("Name")), axis=1)]
+        seed = seed.drop_duplicates("ticker").reset_index(drop=True)
+        if len(seed) >= MIN_R1000_BASE_NAMES:
+            log(f"[universe-fallback] loaded static IWB seed {path} rows={len(seed)}")
+            return seed
+        log(
+            f"[WARN] static IWB seed below floor: {path} rows={len(seed)} "
+            f"< {MIN_R1000_BASE_NAMES}"
+        )
+    return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "universe_source"])
+
+
 def apply_historical_membership_filter(monthly: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
     if monthly.empty or membership is None or membership.empty:
         return monthly
@@ -3621,6 +3659,9 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             frames.append(_candidate_source_frame(iwb, "current_constituents_proxy"))
         except Exception as e:
             log(f"[WARN] IWB holdings fetch failed: {e}")
+            seed = load_iwb_seed_universe_frame(paths)
+            if not seed.empty:
+                frames.append(seed)
 
         if cfg.use_wikipedia_lists:
             try:
@@ -3752,6 +3793,19 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
     uni = uni[uni["ticker"].map(is_valid_ticker)]
     uni = _combine_candidate_universe_sources(uni)
+    if not adr_only:
+        base_count_before_seed = count_r1000_base_names(uni)
+        if base_count_before_seed < MIN_R1000_BASE_NAMES:
+            seed = load_iwb_seed_universe_frame(paths)
+            if not seed.empty:
+                before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+                added = set(seed["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                uni = _combine_candidate_universe_sources(pd.concat([uni, seed], ignore_index=True, sort=False))
+                log(
+                    "[universe-fallback] added static IWB seed before guard: "
+                    f"base_before={base_count_before_seed}, seed_rows={len(seed)}, added={len(added)}, "
+                    f"base_after={count_r1000_base_names(uni)}"
+                )
 
     sec_map = load_sec_company_tickers(cfg, paths)
     uni = uni.merge(sec_map, on="ticker", how="left")
