@@ -288,13 +288,41 @@ def build_cash_summary(latest_run: Path, current: pd.DataFrame) -> dict[str, Any
         "macro_cash_raise_confirmation_count": snapshot.get("macro_cash_raise_confirmation_count"),
         "by_portfolio": {},
     }
+    projected_cash_usd = 0.0
+    projected_equity_usd = 0.0
+    target_cash_weighted = 0.0
+    preview_found = False
     if not current.empty and {"portfolio_kind", "row_type", "current_weight"}.issubset(current.columns):
         cash = current[current["row_type"].astype(str).str.lower().eq("cash")].copy()
         for _, row in cash.iterrows():
-            out["by_portfolio"][str(row.get("portfolio_kind"))] = {
+            portfolio = str(row.get("portfolio_kind"))
+            item = {
                 "cash_weight": safe_float(row.get("current_weight")),
                 "cash_value_usd": safe_float(row.get("current_value_usd")),
             }
+            preview = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
+            if preview:
+                preview_found = True
+                equity = safe_float(preview.get("equity_usd"))
+                projected_equity = safe_float(preview.get("projected_equity_usd"), equity)
+                item.update(
+                    {
+                        "target_cash_weight": safe_float(preview.get("target_cash_weight"), np.nan),
+                        "projected_cash_weight": safe_float(preview.get("projected_cash_weight"), np.nan),
+                        "projected_cash_usd": safe_float(preview.get("projected_cash_usd"), np.nan),
+                        "order_count": int(safe_float(preview.get("order_count"), 0.0)),
+                        "ready_order_count": int(safe_float(preview.get("ready_order_count"), 0.0)),
+                        "blocked_order_count": int(safe_float(preview.get("blocked_order_count"), 0.0)),
+                    }
+                )
+                projected_cash_usd += safe_float(preview.get("projected_cash_usd"))
+                projected_equity_usd += projected_equity
+                target_cash_weighted += safe_float(preview.get("target_cash_weight")) * equity
+            out["by_portfolio"][portfolio] = item
+    if preview_found:
+        out["combined_projected_cash_weight_after_ready_orders"] = projected_cash_usd / max(projected_equity_usd, 1e-12)
+        out["combined_preview_target_cash_weight"] = target_cash_weighted / max(projected_equity_usd, 1e-12)
+        out["preview_order_semantics"] = "projected after order preview; no orders are placed by this report"
     return out
 
 
@@ -328,6 +356,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         f"- official_metric_mode: `{official_metric_mode(metrics) or 'missing'}`",
         f"- valid_for_production: `{production_valid(metrics)}`",
         f"- cash_policy_flag: `{cash.get('cash_policy_flag') or ''}`",
+        f"- combined_projected_cash_after_ready_orders: `{safe_float(cash.get('combined_projected_cash_weight_after_ready_orders'), np.nan):.2%}`",
         "",
         "## Reasons",
         "",

@@ -127,7 +127,7 @@ def _write_broker_snapshot(root: Path, portfolio: str, equity: float, cash: floa
     ).to_csv(journal / "open_positions.csv", index=False)
 
 
-def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() -> None:
+def test_operating_snapshot_accepts_simulation_mode_and_prefers_preview_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         orch = root / "orchestrator"
@@ -189,14 +189,16 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         assert payload["status"] == "simulation"
         assert payload["approval_status"] == "simulation_ready_preview_only"
         assert payload["account_source"] == "simulated_broker_replay"
-        assert payload["target_cash_weight"] == 0.40
+        assert payload["target_cash_weight"] == 0.0
+        assert payload["target_precedence"] == "account_ledger_preview_target_weights"
         frame = pd.read_csv(root / "operating_snapshot" / "operating_snapshot_latest.csv")
         cash = frame[frame["ticker"] == "CASH"].iloc[0]
         assert cash["row_type"] == "cash"
-        assert cash["target_weight"] == 0.40
+        assert cash["target_weight"] == 0.0
         aaa = frame[frame["ticker"] == "AAA"].iloc[0]
-        assert aaa["target_weight"] == 0.40
+        assert aaa["target_weight"] == 0.30
         assert "portfolio_latest" not in str(aaa["source_target"])
+        assert "account_ledger_preview" in str(aaa["source_target"])
         current = pd.read_csv(root / "operating_snapshot" / "current_portfolio_snapshot_latest.csv")
         main_aaa = current[(current["portfolio_kind"] == "main") & (current["ticker"] == "AAA")].iloc[0]
         assert main_aaa["snapshot_semantics"] == "current_broker_ledger_mark_to_market"
@@ -205,16 +207,16 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
         assert main_aaa["review_action"] == "HOLD"
         cash_rows = current[current["row_type"] == "cash"]
         assert set(cash_rows["portfolio_kind"]) == {"main", "concentrated"}
-        assert set(cash_rows["review_action"]) == {"CASH_POLICY_REVIEW"}
+        assert set(cash_rows["review_action"]) == {"DEPLOY_CASH_REVIEW"}
         assert cash_rows["combined_current_cash_weight"].astype(float).iloc[0] == 0.20
-        assert cash_rows["combined_target_cash_weight"].astype(float).iloc[0] == 0.40
-        assert cash_rows["cash_policy_flag"].iloc[0] == "target_cash_above_macro_floor_without_confirmation"
+        assert cash_rows["combined_target_cash_weight"].astype(float).iloc[0] == 0.0
+        assert cash_rows["cash_policy_flag"].iloc[0] == "cash_above_target"
         summary = json.loads((root / "operating_snapshot" / "current_portfolio_snapshot_summary.json").read_text())
         assert summary["status"] == "completed"
         assert summary["schema_version"] == "current-portfolio-snapshot-v2"
         assert summary["primary_user_view"] == "current_operating_holdings_latest.csv"
         assert summary["portfolio_position_counts"]["main"] == 2
-        assert summary["cash_policy_review_action"] == "CASH_POLICY_REVIEW"
+        assert summary["cash_policy_review_action"] == "DEPLOY_CASH_REVIEW"
         current_only = pd.read_csv(root / "operating_snapshot" / "current_operating_holdings_latest.csv")
         assert "target_portfolio_weight" not in set(current_only.columns)
         assert "daily_review_action" in set(current_only.columns)
@@ -226,7 +228,7 @@ def test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target() ->
 
 
 def main() -> int:
-    test_operating_snapshot_accepts_simulation_mode_and_uses_unified_target()
+    test_operating_snapshot_accepts_simulation_mode_and_prefers_preview_target()
     print("operating_snapshot_smoke: PASS")
     return 0
 

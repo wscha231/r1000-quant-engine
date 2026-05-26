@@ -3254,9 +3254,9 @@ def test_phase_g_requires_broker_ledger_official_metrics() -> None:
     assert wf_path.exists(), "Phase G crisis evidence liquidity workflow missing"
     wf = wf_path.read_text(encoding="utf-8")
     tool = (ROOT / "tools" / "build_crisis_governed_target_books.py").read_text(encoding="utf-8")
-    for token in ["--run-broker-replay", "cost_bps", "phase_g_crisis_evidence_liquidity"]:
+    for token in ["--run-broker-replay", "cost_bps", "phase_g_crisis_evidence_liquidity", "--require-learned-thresholds"]:
         assert token in wf, f"Phase G workflow missing broker-ledger token {token}"
-    for token in ["decision_summary.json", "crisis_governed_broker_metrics.csv", "promotion_allowed_without_human_approval", "broker_ledger_next_close", "next_close"]:
+    for token in ["decision_summary.json", "crisis_governed_broker_metrics.csv", "promotion_allowed_without_human_approval", "broker_ledger_next_close", "next_close", "learned_thresholds_required_but_missing"]:
         assert token in tool, f"Phase G decision output missing {token}"
 
 

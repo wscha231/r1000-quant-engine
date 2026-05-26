@@ -755,6 +755,7 @@ def write_current_portfolio_snapshot(
             "current_operating_holdings_latest.csv is the primary current-only user view.",
             "proposed_target_deltas_latest.csv is the separate recommendation/review delta view.",
             "portfolio_latest.csv and concentrated_portfolio_latest.csv remain target recommendation books, not current holdings snapshots.",
+            "Account-ledger preview target_weights are preferred over orchestrator unified target when computing operating cash/target deltas because they match the visible order preview.",
             "Review actions are suggestions from the order preview; this tool does not place orders.",
             "Cash policy fields are combined-account policy context, not duplicated per-portfolio cash targets.",
         ],
@@ -828,9 +829,20 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     preview_metrics = load_preview_metrics(latest_run)
     current, total_equity, total_cash = load_current_positions(latest_run, preview_metrics)
     account_source, account_source_note = detect_account_source(preview_metrics)
-    target, target_source, orchestrator_payload = load_unified_target(latest_run)
-    if target.empty:
-        target, target_source = fallback_preview_target(latest_run, preview_metrics, total_equity)
+    unified_target, unified_target_source, orchestrator_payload = load_unified_target(latest_run)
+    preview_target, preview_target_source = fallback_preview_target(latest_run, preview_metrics, total_equity)
+    if not preview_target.empty:
+        target = preview_target
+        target_source = preview_target_source
+        target_precedence = "account_ledger_preview_target_weights"
+    elif not unified_target.empty:
+        target = unified_target
+        target_source = unified_target_source
+        target_precedence = "orchestrator_unified_target"
+    else:
+        target = pd.DataFrame()
+        target_source = ""
+        target_precedence = "missing"
     current_map = aggregate_current(current, total_equity)
     target_map = aggregate_target(target)
     order_map = aggregate_orders(latest_run)
@@ -942,6 +954,8 @@ def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
         "account_source": account_source,
         "account_source_note": account_source_note,
         "target_source": target_source,
+        "target_precedence": target_precedence,
+        "orchestrator_target_source": unified_target_source,
         "approval_status": approval,
         "approval_note": approval_note,
         "risk_controls_status": risk.get("status", "missing") if risk else "missing",
