@@ -560,8 +560,17 @@ def write_decision_outputs(payload: dict[str, Any], latest_run: Path, output_dir
         "valid_for_production": False,
         "official_metric_required": "broker_ledger_next_close",
         "promotion_allowed_without_human_approval": False,
+        "status": payload.get("status"),
+        "blocked_reason": payload.get("blocked_reason", ""),
+        "threshold_learning_status": payload.get("threshold_learning_status", ""),
         "rows": rows,
-        "overall_status": "candidate_pass" if rows and all(row.get("candidate_pass") for row in rows) else "review_or_reject",
+        "overall_status": (
+            "candidate_pass"
+            if rows and all(row.get("candidate_pass") for row in rows)
+            else "blocked"
+            if payload.get("blocked_reason")
+            else "review_or_reject"
+        ),
     }
     write_json(output_dir / "decision_summary.json", decision)
     if rows:
@@ -572,10 +581,18 @@ def write_decision_outputs(payload: dict[str, Any], latest_run: Path, output_dir
         f"- overall_status: `{decision['overall_status']}`",
         "- auto_trade_allowed: `false`",
         "- production_activation_allowed: `false`",
-        "",
-        "| portfolio | base CAGR | governed CAGR | base MDD | governed MDD | candidate pass | promotion candidate |",
-        "| --- | ---: | ---: | ---: | ---: | --- | --- |",
     ]
+    if decision.get("blocked_reason"):
+        status_lines.extend(["", f"- blocked_reason: `{decision.get('blocked_reason')}`"])
+    if decision.get("threshold_learning_status"):
+        status_lines.extend(["", f"- threshold_learning_status: `{decision.get('threshold_learning_status')}`"])
+    status_lines.extend(
+        [
+            "",
+            "| portfolio | base CAGR | governed CAGR | base MDD | governed MDD | candidate pass | promotion candidate |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
     for row in rows:
         status_lines.append(
             "| {p} | {bc:.2%} | {gc:.2%} | {bm:.2%} | {gm:.2%} | {cp} | {pc} |".format(
@@ -616,6 +633,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "thresholds_json": str(repo_path(args.thresholds_json)) if args.thresholds_json else "",
         "portfolios": {},
     }
+    thresholds_path = repo_path(args.thresholds_json) if args.thresholds_json else None
+    missing_required_thresholds = bool(
+        getattr(args, "require_learned_thresholds", False)
+        and args.mode == "learned"
+        and (thresholds_path is None or not thresholds_path.exists() or thresholds_path.stat().st_size <= 0)
+    )
+    if missing_required_thresholds:
+        payload.update(
+            {
+                "status": "blocked",
+                "blocked_reason": "learned_thresholds_required_but_missing",
+                "threshold_learning_status": "missing_best_thresholds_json",
+            }
+        )
+        write_json(output_dir / "summary.json", payload)
+        write_text(output_dir / "report.md", render_report(payload))
+        write_decision_outputs(payload, latest_run, output_dir)
+        return payload
     for portfolio_kind in selected:
         book, audit_df, summary = build_governed_book(
             target_book=target_books[portfolio_kind],
@@ -624,7 +659,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             mode=args.mode,
             allow_normal_cash_deploy=bool(args.allow_normal_cash_deploy),
             cash_hard_gate=bool(args.cash_hard_gate),
-            thresholds_json=repo_path(args.thresholds_json) if args.thresholds_json else None,
+            thresholds_json=thresholds_path,
         )
         book_path = reports_dir / f"crisis_governed_{portfolio_kind}_target_book.csv"
         audit_path = output_dir / f"{portfolio_kind}_schedule_audit.csv"
@@ -666,6 +701,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-normal-cash-deploy", action="store_true")
     parser.add_argument("--cash-hard-gate", action="store_true", help="Require liquidity/trend/credit confirmation before defense/crisis cash raises")
     parser.add_argument("--thresholds-json", default="", help="Optional best_thresholds.json from long crisis learning")
+    parser.add_argument("--require-learned-thresholds", action="store_true", help="Block learned mode when long-crisis best_thresholds.json is unavailable")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--reports-dir", default=DEFAULT_REPORTS_DIR)
     parser.add_argument("--run-broker-replay", action="store_true")

@@ -49,6 +49,49 @@ def parse_float_grid(text: str) -> list[float]:
     return [float(x.strip()) for x in str(text).split(",") if x.strip()]
 
 
+def _split_counts(features: pd.DataFrame) -> dict[str, int]:
+    if features.empty or "split" not in features.columns:
+        return {}
+    return {str(k): int(v) for k, v in features["split"].astype(str).value_counts().sort_index().items()}
+
+
+def ensure_usable_learning_splits(features: pd.DataFrame, *, min_rows: int = 504) -> tuple[pd.DataFrame, str, dict[str, int]]:
+    """Use declared crisis-era splits when possible, otherwise fall back to chronological folds.
+
+    The long-crisis feature builder has static 1990/2003/2010/2020 splits.  In
+    environments where the restored price/macro cache starts later, those static
+    train/validation windows can be empty.  A blocked threshold search then makes
+    Phase G silently fall back to defaults.  This fallback keeps the learning
+    research-only but ensures a current 7-8y+ dataset can still select thresholds
+    from completed historical rows.
+    """
+    declared = _split_counts(features)
+    if declared.get("train", 0) > 0 and declared.get("validation", 0) > 0:
+        return features, "declared_static", declared
+    d = features.copy()
+    date_series = pd.Series(pd.to_datetime(d.index, errors="coerce"), index=d.index)
+    if date_series.isna().all() and "date" in d.columns:
+        date_series = pd.to_datetime(d["date"], errors="coerce")
+        date_series = pd.Series(date_series, index=d.index)
+    valid = ~date_series.isna()
+    d = d.loc[valid].copy()
+    date_series = date_series.loc[valid]
+    if len(d) < int(min_rows):
+        return features, "declared_static_insufficient", declared
+    d["_learning_date"] = list(date_series)
+    d = d.sort_values("_learning_date").drop(columns=["_learning_date"])
+    n = len(d)
+    train_end = max(1, int(n * 0.45))
+    validation_end = max(train_end + 1, int(n * 0.65))
+    test_end = max(validation_end + 1, int(n * 0.80))
+    labels = ["train"] * train_end
+    labels.extend(["validation"] * (validation_end - train_end))
+    labels.extend(["test"] * (test_end - validation_end))
+    labels.extend(["holdout"] * (n - test_end))
+    d["split"] = labels[:n]
+    return d, "dynamic_chronological_fallback", _split_counts(d)
+
+
 def render_report(summary: dict[str, Any], grid: pd.DataFrame) -> str:
     lines = [
         "# Long Crisis Threshold Search",
@@ -101,6 +144,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         (output_dir / "threshold_search_report.md").write_text(render_report(summary, pd.DataFrame()), encoding="utf-8")
         print(json.dumps({"status": "blocked", "reason": summary["reason"]}, sort_keys=True))
         return summary
+    features, split_mode, split_counts = ensure_usable_learning_splits(features)
 
     crisis_grid = parse_float_grid(args.crisis_gates)
     liquidity_grid = parse_float_grid(args.liquidity_gates)
@@ -171,6 +215,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "best_thresholds": str(output_dir / "best_thresholds.json") if selected else "",
         "selected_reason": selected_reason,
         "selected": selected,
+        "split_mode": split_mode,
+        "split_counts": split_counts,
     }
     write_json(output_dir / "threshold_search_summary.json", summary)
     (output_dir / "threshold_search_report.md").write_text(render_report(summary, grid), encoding="utf-8")

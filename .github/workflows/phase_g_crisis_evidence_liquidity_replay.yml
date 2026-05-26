@@ -257,10 +257,11 @@ jobs:
         run: |
           MODE="${{ inputs.governor_mode }}"
           THRESHOLDS=""
+          REQUIRE_LEARNED=""
           if [ -s outputs/long_crisis_learning/best_thresholds.json ]; then
             THRESHOLDS="--thresholds-json outputs/long_crisis_learning/best_thresholds.json"
           elif [ "$MODE" = "learned" ]; then
-            MODE="conservative"
+            REQUIRE_LEARNED="--require-learned-thresholds"
           fi
           FEATURES="outputs/crisis_signals/daily_features.parquet"
           if [ -s data_pit/macro/long_crisis_daily_features.parquet ]; then
@@ -276,6 +277,7 @@ jobs:
             --crisis-features "$FEATURES" \
             --cash-hard-gate \
             $THRESHOLDS \
+            $REQUIRE_LEARNED \
             --run-broker-replay \
             --price-cache cache_prices \
             --cost-bps "${{ inputs.cost_bps }}" \
