@@ -6,8 +6,8 @@ Fast integrated check from existing artifacts. Production defaults are not chang
 
 | Portfolio | CAGR | Target | Gap | MaxDD | Target | DD improvement needed | Pass |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main | 20.33% | 30.00% | 9.67pp | -32.93% | -15.00% | 17.93pp | false |
-| concentrated | 34.72% | 50.00% | 15.28pp | -39.51% | -18.00% | 21.51pp | false |
+| main | 20.94% | 30.00% | 9.06pp | -31.86% | -15.00% | 16.86pp | false |
+| concentrated | 31.50% | 50.00% | 18.50pp | -39.52% | -18.00% | 21.52pp | false |
 
 Metric sources:
 - `main`: `broker_ledger_next_close`
@@ -30,8 +30,8 @@ Strict target mode: `false`
 
 | Portfolio | Best candidate | CAGR | Gap | MaxDD | Gap | Target Pass | Action |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| main | `main_latest_champion` | 29.86% | 0.14pp | -17.01% | 2.01pp | false | `blocked_both` |
-| concentrated | `concentrated_latest_champion` | 48.17% | 1.83pp | -16.09% | 0.00pp | false | `needs_alpha_boost` |
+| main | `main_rebalance_interval_fixed_interval_I1` | 29.74% | 0.26pp | -16.43% | 1.43pp | false | `blocked_both` |
+| concentrated | `concentrated_latest_champion` | 45.71% | 4.29pp | -16.08% | 0.00pp | false | `needs_alpha_boost` |
 
 ## Error Checks
 
@@ -48,16 +48,16 @@ Strict target mode: `false`
 - `WARN` candidate_production_ready: production_ready_count=0
 - `WARN` operating_event_backtest_available: outputs/operating_event_backtest/operating_event_backtest_summary.json
 - `WARN` orchestrator_replay_valid_for_promotion: status=blocked_missing_concentrated_monthly; data_mode=proxy_top_raw_score_within_main_holdings
-- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=2293; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2293; max_date=2026-05-22
-- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-22; rows=2274; operating_book_max=2026-05-22; operating_rows=2293
+- `PASS` main_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=2187; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
+- `PASS` main_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv; rows=2187; max_date=2026-05-22
+- `WARN` main_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-22; rows=2168; operating_book_max=2026-05-22; operating_rows=2187
 - `PASS` main_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv
-- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=23439; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23439; max_date=2026-05-22
-- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-22; rows=23436; operating_book_max=2026-05-22; operating_rows=23439
+- `PASS` concentrated_target_book_reaches_broker_end: selected_role=operating_target_book; target_book_max=2026-05-22; broker_end=2026-05-22; rows=23454; path=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
+- `PASS` concentrated_operating_target_book_available: operating_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv; rows=23454; max_date=2026-05-22
+- `WARN` concentrated_historical_research_book_reaches_broker_end: historical_book_max=2026-02-27; broker_end=2026-05-22; rows=23451; operating_book_max=2026-05-22; operating_rows=23454
 - `PASS` concentrated_broker_replay_uses_operating_target_book: metric_target_book=/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv
-- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=34; legacy_snapshot_exists=True
-- `WARN` main_current_position_count_near_latest_target_count: main_positions=29; latest_target_rows=19; excess=10
+- `PASS` current_only_operating_holdings_available: /home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv; rows=32; legacy_snapshot_exists=True
+- `WARN` main_current_position_count_near_latest_target_count: main_positions=27; latest_target_rows=19; excess=8
 - `PASS` concentrated_replay_filter_matches_latest_target: broker_filter_n=3; latest_target_n=3; broker_mode=score_power; latest_mode=score_power
 
 ## Automation Plan

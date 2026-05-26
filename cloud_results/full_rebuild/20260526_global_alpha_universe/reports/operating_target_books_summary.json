@@ -8,7 +8,7 @@
       "freshness_error": "",
       "history_max_rebalance_date": "2026-02-27",
       "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/main_monthly_weights.csv",
-      "history_row_count": 2274,
+      "history_row_count": 2168,
       "latest_price_close_date": "2026-05-22",
       "latest_target_appended": true,
       "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/portfolio_latest.csv",
@@ -19,7 +19,7 @@
       "output_max_rebalance_date": "2026-05-22",
       "output_name": "operating_main_target_book.csv",
       "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_main_target_book.csv",
-      "output_row_count": 2293,
+      "output_row_count": 2187,
       "portfolio": "main"
     },
     {
@@ -28,7 +28,7 @@
       "freshness_error": "",
       "history_max_rebalance_date": "2026-02-27",
       "history_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/concentrated_strategy_holdings.csv",
-      "history_row_count": 23436,
+      "history_row_count": 23451,
       "latest_price_close_date": "2026-05-22",
       "latest_target_appended": true,
       "latest_target_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/concentrated_portfolio_latest.csv",
@@ -39,11 +39,11 @@
       "output_max_rebalance_date": "2026-05-22",
       "output_name": "operating_concentrated_target_book.csv",
       "output_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
-      "output_row_count": 23439,
+      "output_row_count": 23454,
       "portfolio": "concentrated"
     }
   ],
-  "generated_at_utc": "2026-05-26T18:42:15.072978+00:00",
+  "generated_at_utc": "2026-05-26T22:29:03.174047+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "outputs": {
     "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",
