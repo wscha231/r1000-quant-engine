@@ -48,7 +48,9 @@ def main() -> int:
             new_entry_scale=1.0,
         )
         assert metrics["status"] == "completed"
-        assert metrics["valid_for_production"] is True
+        assert metrics["broker_ledger_valid"] is True
+        assert metrics["valid_for_production"] is False
+        assert metrics["research_only"] is True
         assert metrics["metric_mode"] == "broker_ledger_execution_policy_next_close"
         trades = pd.read_csv(out / "trades.csv")
         assert len(trades) == 1, trades
