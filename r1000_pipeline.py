@@ -3572,6 +3572,29 @@ def count_r1000_base_names(frame: pd.DataFrame) -> int:
     return int(mask.sum())
 
 
+OFFLINE_R1000_SEED_REL = "data/universe/r1000_offline_seed.csv"
+
+
+def load_offline_r1000_seed() -> pd.DataFrame:
+    """Committed broad R1000 seed (PR #53 equiv). Last-resort fallback when the
+    live iShares IWB + Wikipedia + cached-prev sources all fail, so a transient
+    source outage degrades to a healthy-enough universe instead of collapsing to
+    the static whitelists (the Full Rebuild #82 starvation). Columns:
+    ticker, Name, sector, cik10."""
+    path = Path(__file__).resolve().parent / OFFLINE_R1000_SEED_REL
+    if not path.exists():
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10"])
+    try:
+        seed = pd.read_csv(path, dtype=str)
+    except Exception as e:
+        log(f"[WARN] offline R1000 seed read failed: {e}")
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10"])
+    if "ticker" not in seed.columns:
+        return pd.DataFrame(columns=["ticker", "Name", "sector", "cik10"])
+    seed["ticker"] = seed["ticker"].astype(str).str.strip().str.upper()
+    return seed[seed["ticker"].ne("")].copy()
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3693,6 +3716,21 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                 log(
                     "Strategic global hardware universe injection: "
                     f"candidates={len(strategic_hw)}, added_pre_dedup={len(added)}"
+                )
+
+        # Offline R1000 seed fallback (PR #53 equiv): if the live sources (IWB +
+        # Wikipedia + leader-rescue) failed to produce a broad R1000 base, inject
+        # the committed offline seed so a transient outage degrades gracefully
+        # instead of collapsing to whitelist-only ~58 names (Full Rebuild #82).
+        _frames_base = count_r1000_base_names(pd.concat(frames, ignore_index=True)) if frames else 0
+        if _frames_base < MIN_R1000_BASE_NAMES:
+            seed = load_offline_r1000_seed()
+            if not seed.empty:
+                frames.append(_candidate_source_frame(seed, "current_constituents_proxy"))
+                log(
+                    f"[universe-guard] live R1000 sources thin ({_frames_base} base names < "
+                    f"{MIN_R1000_BASE_NAMES}); injected offline R1000 seed "
+                    f"({len(seed)} names) from {OFFLINE_R1000_SEED_REL}."
                 )
 
         if not frames:

@@ -3095,6 +3095,27 @@ def test_universe_collapse_guard_floor_threshold() -> None:
     )
 
 
+@_test("regression.offline_r1000_seed_fallback_present")
+def test_offline_r1000_seed_fallback_present() -> None:
+    """PR #53 equiv: a committed broad R1000 offline seed must exist and be large
+    enough to clear the universe-health floor, so a transient IWB/Wikipedia outage
+    degrades gracefully instead of collapsing to whitelist-only ~58 names."""
+    import csv as _csv
+    from r1000_pipeline import OFFLINE_R1000_SEED_REL, MIN_R1000_BASE_NAMES
+
+    seed_path = ROOT / OFFLINE_R1000_SEED_REL
+    assert seed_path.exists(), f"offline R1000 seed missing at {OFFLINE_R1000_SEED_REL}"
+    with seed_path.open() as f:
+        rows = list(_csv.DictReader(f))
+    assert "ticker" in rows[0], "offline seed must have a ticker column"
+    tickers = [r["ticker"].strip().upper() for r in rows if r.get("ticker", "").strip()]
+    assert len(tickers) == len(set(tickers)), "offline seed has duplicate tickers"
+    assert len(tickers) >= MIN_R1000_BASE_NAMES, (
+        f"offline seed has {len(tickers)} tickers; must be >= floor "
+        f"{MIN_R1000_BASE_NAMES} so the fallback clears the universe-health guard"
+    )
+
+
 @_test("structural.full_rebuild_workflow_blocks_starved_universe")
 def test_full_rebuild_workflow_blocks_starved_universe() -> None:
     """full_rebuild_manual.yml must gate the latest_ baseline rotation on a
