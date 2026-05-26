@@ -1,7 +1,7 @@
 {
   "action_status": "REVIEW_REQUIRED",
-  "current_holding_rows": 17,
-  "generated_at_utc": "2026-05-25T19:19:45.345358+00:00",
+  "current_holding_rows": 20,
+  "generated_at_utc": "2026-05-26T06:20:22.146036+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "missing_required_files": [],
   "output_dir": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/user_current",
