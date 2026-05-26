@@ -125,6 +125,7 @@ jobs:
             cache_sec_actual
             cache_misc
             cache_live_fund
+            aggressive/cache/universe
             aggressive/cache/bars
             aggressive/cache/finnhub
             aggressive/state/finnhub

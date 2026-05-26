@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import json
 import re
 import sys
@@ -3095,6 +3096,24 @@ def test_universe_collapse_guard_floor_threshold() -> None:
     )
 
 
+@_test("regression.iwb_static_seed_fallback_is_broad_base")
+def test_iwb_static_seed_fallback_is_broad_base() -> None:
+    """A tracked IWB seed keeps full rebuilds usable when live iShares/Wikipedia
+    fetches are blocked, while the universe-collapse guard still enforces a
+    broad R1000 base."""
+    from r1000_pipeline import MIN_R1000_BASE_NAMES, count_r1000_base_names, load_iwb_seed_universe_frame
+
+    seed_path = ROOT / "data_static" / "iwb_holdings_seed.csv"
+    assert seed_path.exists(), "tracked IWB seed missing"
+    with seed_path.open(newline="", encoding="utf-8") as fh:
+        seed_tickers = {row.get("ticker", "").strip().upper() for row in csv.DictReader(fh)}
+    assert len(seed_tickers - {""}) >= MIN_R1000_BASE_NAMES, "tracked IWB seed is too narrow"
+
+    seed = load_iwb_seed_universe_frame({"data_raw": ROOT / ".tmp_missing_data_raw"})
+    assert count_r1000_base_names(seed) >= MIN_R1000_BASE_NAMES
+    assert "current_constituents_proxy_static_seed" in set(seed["universe_source"].astype(str))
+
+
 @_test("structural.full_rebuild_workflow_blocks_starved_universe")
 def test_full_rebuild_workflow_blocks_starved_universe() -> None:
     """full_rebuild_manual.yml must gate the latest_ baseline rotation on a
@@ -3108,6 +3127,7 @@ def test_full_rebuild_workflow_blocks_starved_universe() -> None:
         "RUN_ARTIFACT_VALID must require UNIVERSE_HEALTHY=yes"
     )
     assert "INVALID_UNIVERSE" in wf, "workflow must mark starved runs INVALID_UNIVERSE"
+    assert "aggressive/cache/universe" in wf, "workflow must cache the offline IWB universe fallback"
 
 
 @_test("syntax.user_current_and_sync_tools_parse")
