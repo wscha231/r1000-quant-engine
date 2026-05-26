@@ -481,6 +481,7 @@ jobs:
             outputs/broker_replay/
             outputs/operating_snapshot/
             outputs/account_ledger_preview/
+            outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operator_review/
             outputs/live_trading_safety/
