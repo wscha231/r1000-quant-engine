@@ -3138,6 +3138,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/run_daily_crisis_monitor.py",
         "tools/build_crisis_governed_target_books.py",
         "tools/run_full_rebuild_sidecars.py",
+        "tools/run_execution_lag_review.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
         "tools/run_pit_top_manager_follow_study.py",
     ]:
@@ -3155,6 +3156,10 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "heavy research sidecars skipped" in sidecar_tool
     assert "run_user_current_report.py" in sidecar_tool
     assert "run_daily_crisis_monitor.py" in sidecar_tool
+    assert 'if [ "$SIDECAR_PROFILE" = "official" ]; then' in sidecar_tool
+    assert "run_execution_lag_review.py" in sidecar_tool
+    assert "outputs/broker_execution_policy_replay/" in wf
+    assert "outputs/operator_review/" in wf
 
 
 @_test("structural.pit_top_manager_follow_study_is_research_only")
@@ -3210,6 +3215,7 @@ def test_gdrive_manifest_marks_deprecated_research() -> None:
         "USER_CURRENT_FILES",
         "strict-primary",
         "gdrive_sync_manifest.json",
+        "execution_lag_review.json",
     ]:
         assert token in src, f"gdrive manifest tool missing {token}"
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")

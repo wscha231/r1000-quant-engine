@@ -41,6 +41,8 @@ OPERATOR_REVIEW_FILES = [
     "operating_snapshot/proposed_target_deltas_latest.csv",
     "account_ledger_preview/main/orders_preview.csv",
     "account_ledger_preview/concentrated/orders_preview.csv",
+    "operator_review/execution_lag_review.json",
+    "operator_review/execution_lag_review.md",
     "live_trading_safety/safety_audit_summary.json",
     "portfolio_system_guard/error_check.json",
 ]

@@ -52,6 +52,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/broker_ledger_correctness_smoke.py", []),
     ("tests/broker_position_risk_replay_smoke.py", []),
     ("tests/broker_execution_policy_replay_smoke.py", []),
+    ("tests/execution_lag_review_smoke.py", []),
     ("tests/broker_crisis_reentry_replay_smoke.py", []),
     ("tests/operating_target_books_smoke.py", []),
     ("tests/event_target_books_smoke.py", []),
