@@ -3548,6 +3548,30 @@ def _combine_candidate_universe_sources(uni: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+# Universe-collapse guard (Full Rebuild #82 regression, 2026-05-26).
+# A live iShares IWB (Russell 1000) fetch failure on the runner used to silently
+# drop the ~700-name R1000 base, leaving only static whitelists (ADR +
+# strategic_global_hardware + cycle_play ~= 58 names). That starved universe then
+# produced a REGRESS backtest (CAGR 24.5% -> 14.7%, avg_stock_names 24 -> 8,
+# 28% residual cash from an unfillable core sleeve) and rotated into the shipped
+# baseline. Healthy R1000 base is ~693; anything far below signals a fetch failure.
+MIN_R1000_BASE_NAMES = 400
+
+
+def count_r1000_base_names(frame: pd.DataFrame) -> int:
+    """Count rows whose universe_source is the R1000 base (live IWB proxy or a
+    committed historical-membership snapshot). Combined labels such as
+    'current_constituents_proxy+strategic_global_hardware' still count."""
+    if frame is None or getattr(frame, "empty", True) or "universe_source" not in frame.columns:
+        return 0
+    src = frame["universe_source"].astype(str)
+    mask = (
+        src.str.contains("current_constituents_proxy", regex=False)
+        | src.str.contains("historical_membership_file", regex=False)
+    )
+    return int(mask.sum())
+
+
 def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
     out_path = paths["feature_store"] / "candidate_universe_latest.parquet"
     log("Building candidate universe from free sources ...")
@@ -3739,6 +3763,33 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cik10_y = uni["cik10_y"] if "cik10_y" in uni.columns else pd.Series(np.nan, index=uni.index)
         uni["cik10"] = cik10_x.fillna(cik10_y)
     uni = uni[["ticker", "Name", "sector", "cik10", "universe_source"]].copy()
+
+    # Universe-collapse guard (Full Rebuild #82 regression). For any mode that
+    # expects the R1000 base (everything except adr-only), refuse to ship a
+    # universe whose R1000 base collapsed below the floor. Prefer the last good
+    # cached universe; if that is also starved, fail loud so a transient IWB
+    # fetch failure can never overwrite the shipped baseline with ~58 names.
+    if not adr_only:
+        base_count = count_r1000_base_names(uni)
+        if base_count < MIN_R1000_BASE_NAMES:
+            prev_base = count_r1000_base_names(prev)
+            if prev_base >= MIN_R1000_BASE_NAMES:
+                log(
+                    f"[universe-guard] R1000 base collapsed (got {base_count} < "
+                    f"{MIN_R1000_BASE_NAMES}); reusing cached candidate_universe_latest.parquet "
+                    f"({prev_base} base names). Live IWB fetch likely failed this run."
+                )
+                uni = prev.copy()
+            else:
+                raise RuntimeError(
+                    f"R1000 base universe collapsed: only {base_count} "
+                    f"current_constituents_proxy/historical_membership_file names "
+                    f"(need >= {MIN_R1000_BASE_NAMES}). Live IWB (Russell 1000) fetch "
+                    f"likely failed AND no healthy cached universe (prev base={prev_base}). "
+                    f"Refusing to ship a starved {len(uni)}-name universe that would REGRESS "
+                    f"the baseline. Restore the data source / cached universe and re-run."
+                )
+
     if include_adr:
         log("Skipping historical membership auto-archive for global alpha / ADR-augmented universe run.")
     else:

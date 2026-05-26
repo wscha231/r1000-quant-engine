@@ -670,11 +670,25 @@ jobs:
           else
             echo "[gdrive-sync] WARN: portfolio_system_guard/error_check.json missing; preserving canonical outputs."
           fi
+          # Universe-collapse guard (Full Rebuild #82 regression): a starved
+          # universe (R1000 base dropped after a failed live IWB fetch) must NOT
+          # overwrite the production GDrive outputs/ either. Mirror the
+          # cloud_results rotation gate so master runs with < 400 scored R1000
+          # base are routed to failed_runs/ instead of canonical outputs.
+          UNIVERSE_HEALTHY="yes"
+          if [ "${{ inputs.universe_mode }}" != "adr" ]; then
+            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            echo "[gdrive-sync] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
+          fi
           VALID_PRIMARY_OUTPUTS="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
             VALID_PRIMARY_OUTPUTS="yes"
           else
-            echo "[gdrive-sync] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+              echo "[gdrive-sync] WARN: INVALID_UNIVERSE (R1000 base collapsed); preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            else
+              echo "[gdrive-sync] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; preserving canonical outputs and syncing this run under failed_runs/${GITHUB_RUN_ID}/"
+            fi
             if [ -n "$GDRIVE_ROOT_FOLDER_ID" ]; then
               if [ "$BRANCH_NAME" = "master" ]; then
                 DEST="gdrive:failed_runs/${GITHUB_RUN_ID}/outputs"
@@ -882,15 +896,32 @@ jobs:
           else
             echo "[push] WARN: portfolio_system_guard/error_check.json missing; preserving latest pointer."
           fi
+          # Universe-collapse guard (Full Rebuild #82 regression, 2026-05-26).
+          # Even when metrics exist and the system guard is clean, a starved
+          # universe (R1000 base dropped after a failed live IWB fetch -> ~58
+          # whitelist-only names) must NOT overwrite the shipped baseline.
+          # Require the scored set to carry the R1000 base for non-adr modes.
+          UNIVERSE_HEALTHY="yes"
+          if [ "${{ inputs.universe_mode }}" != "adr" ]; then
+            UNIVERSE_HEALTHY="$(python -c 'import csv; from pathlib import Path; p=Path("outputs/scored_latest.csv"); rows=(list(csv.DictReader(p.open())) if p.exists() else []); base=sum(1 for r in rows if "current_constituents_proxy" in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))); print("yes" if (rows and "universe_source" in rows[0] and base>=400) else "no")' 2>/dev/null || echo no)"
+            echo "[push] universe_healthy=$UNIVERSE_HEALTHY (scored R1000 base >= 400 required for ${{ inputs.universe_mode }})"
+          fi
           RUN_ARTIFACT_VALID="no"
-          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ]; then
+          if [ -s outputs/backtest_metrics.json ] && [ -s outputs/concentrated_backtest_metrics.json ] && [ "$GUARD_HARD_ERRORS" = "0" ] && [ "$UNIVERSE_HEALTHY" = "yes" ]; then
             RUN_ARTIFACT_VALID="yes"
             DEST="cloud_results/full_rebuild/$(date +%Y%m%d)_${{ inputs.universe_mode }}"
           else
             DEST="cloud_results/full_rebuild/failed_runs/${GITHUB_RUN_ID}_${{ inputs.universe_mode }}"
-            echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+              echo "[push] WARN: INVALID_UNIVERSE (R1000 base collapsed); writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            else
+              echo "[push] WARN: core metrics missing or system guard hard errors=$GUARD_HARD_ERRORS; writing diagnostics to $DEST and preserving latest_${{ inputs.universe_mode }}."
+            fi
           fi
           mkdir -p "$DEST"
+          if [ "$UNIVERSE_HEALTHY" != "yes" ]; then
+            echo "INVALID_UNIVERSE: scored R1000 base below floor (starved universe; likely failed IWB fetch)" > "$DEST/INVALID_UNIVERSE.txt" 2>/dev/null || true
+          fi
           copy_dir_clean() {
             local src="$1"
             local dst="$2"
