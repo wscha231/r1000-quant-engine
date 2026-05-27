@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from r1000_market_leader_engine import (  # noqa: E402
+    RISK_MODE_BENCHMARK_GUARD,
     MarketLeaderVariant,
+    apply_benchmark_risk_overlay,
     load_prices,
     score_market_leaders,
     select_market_leader_targets,
@@ -176,11 +178,72 @@ def test_warning_is_no_add_but_previous_holding_can_persist() -> None:
     assert "warning_hold_no_add" in str(warn["selection_reason"])
 
 
+def test_chase_risk_reduces_new_entry_cap() -> None:
+    scored = pd.DataFrame(
+        [
+            {
+                "ticker": "HOT",
+                "leader_tier": "DUAL_LEADER",
+                "leader_state": "HOLD",
+                "liquidity_capacity_weight_cap": 1.0,
+                "main_leader_score": 10.0,
+                "concentrated_leader_score": 10.0,
+                "leader_subindustry": "chips",
+                "leader_broad_theme": "semis",
+                "leader_chase_risk_score": 2.0,
+            },
+            {
+                "ticker": "OK",
+                "leader_tier": "DUAL_LEADER",
+                "leader_state": "HOLD",
+                "liquidity_capacity_weight_cap": 1.0,
+                "main_leader_score": 2.0,
+                "concentrated_leader_score": 2.0,
+                "leader_subindustry": "software",
+                "leader_broad_theme": "software",
+                "leader_chase_risk_score": 0.0,
+            },
+        ]
+    )
+    selected = select_market_leader_targets(scored, MarketLeaderVariant("main", "test", 2, 0.20, 1.0, 1.0))
+    hot = selected[selected["ticker"].eq("HOT")].iloc[0]
+    assert float(hot["target_weight"]) <= 0.111
+    assert float(hot["chase_risk_weight_scale"]) < 1.0
+
+
+def test_benchmark_guard_reduces_gross_exposure() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+        for ticker, ret in {"SPY": -0.0020, "QQQ": -0.0025, "DUAL": 0.0010}.items():
+            write_price(cache, ticker, 100, ret)
+        prices = load_prices(cache, {"SPY", "QQQ", "DUAL"})
+        selected = pd.DataFrame(
+            [
+                {
+                    "ticker": "DUAL",
+                    "weight": 0.80,
+                    "target_weight": 0.80,
+                    "leader_tier": "DUAL_LEADER",
+                    "leader_state": "HOLD",
+                    "selection_reason": "DUAL_LEADER",
+                    "residual_cash_reason": "",
+                }
+            ]
+        )
+        variant = MarketLeaderVariant("main", "risk_test", 1, 1.0, 1.0, 1.0, risk_mode=RISK_MODE_BENCHMARK_GUARD)
+        out = apply_benchmark_risk_overlay(selected, variant, prices, "2025-08-29")
+        assert float(out["gross_exposure_cap"].iloc[0]) < 1.0
+        assert float(out["target_weight"].iloc[0]) < 0.80
+        assert "benchmark_risk_gross_cap" in str(out["selection_reason"].iloc[0])
+
+
 def main() -> int:
     test_dual_benchmark_tier_and_concentrated_gate()
     test_missing_evidence_is_confidence_not_quality_zero()
     test_shakeout_guard_blocks_exit_on_one_month_wobble()
     test_warning_is_no_add_but_previous_holding_can_persist()
+    test_chase_risk_reduces_new_entry_cap()
+    test_benchmark_guard_reduces_gross_exposure()
     print("market_leader_engine_smoke: PASS")
     return 0
 

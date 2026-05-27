@@ -98,13 +98,13 @@ def test_market_leader_challenger_builds_historical_target_books() -> None:
         assert conc_book["rebalance_date"].nunique() >= 3
         assert "target_weight" in main_book.columns
         assert set(conc_book.loc[conc_book["ticker"].ne("CASH"), "leader_tier"]) == {"DUAL_LEADER"}
-        assert (out / "broker_replay" / "main_N15_cap15_sub50_theme70" / "metrics.json").exists()
+        assert (out / "broker_replay" / "main_N18_cap12_sub40_theme60_risk" / "metrics.json").exists()
         rejected = pd.read_csv(out / "rejected_leaders.csv")
         assert rejected["rejection_reason"].astype(str).str.len().min() > 0
         stability = pd.read_csv(out / "parameter_stability.csv")
         assert not stability.empty
         churn = pd.read_csv(out / "holding_churn_diagnostics.csv")
-        assert {"monthly_turnover_proxy", "avg_name_overlap", "median_holding_months"}.issubset(churn.columns)
+        assert {"monthly_turnover_proxy", "avg_name_overlap", "median_holding_months", "gross_exposure_cap"}.issubset(churn.columns)
         cost = pd.read_csv(out / "cost_sensitivity.csv")
         assert set(cost["cost_bps"].round(0).astype(int)) >= {25, 50, 75, 100}
 

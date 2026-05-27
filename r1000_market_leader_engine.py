@@ -25,6 +25,8 @@ MAIN_ALLOWED_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 CONCENTRATED_ALLOWED_TIERS = {"DUAL_LEADER"}
 NEW_ENTRY_ALLOWED_STATES = {"HOLD", "SHAKEOUT_GUARD"}
 PREVIOUS_HOLD_ALLOWED_STATES = {"HOLD", "SHAKEOUT_GUARD", "WARNING"}
+RISK_MODE_NONE = "none"
+RISK_MODE_BENCHMARK_GUARD = "benchmark_guard"
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class MarketLeaderVariant:
     single_cap: float
     subindustry_cap: float
     theme_cap: float
+    risk_mode: str = RISK_MODE_NONE
 
 
 def default_variants() -> list[MarketLeaderVariant]:
@@ -45,28 +48,53 @@ def default_variants() -> list[MarketLeaderVariant]:
         for single_cap in (0.12, 0.15):
             for sub_cap in (0.40, 0.50):
                 for theme_cap in (0.60, 0.70):
+                    base_id = f"main_N{n}_cap{int(single_cap*100)}_sub{int(sub_cap*100)}_theme{int(theme_cap*100)}"
                     out.append(
                         MarketLeaderVariant(
                             portfolio_kind="main",
-                            variant_id=f"main_N{n}_cap{int(single_cap*100)}_sub{int(sub_cap*100)}_theme{int(theme_cap*100)}",
+                            variant_id=base_id,
                             target_n=n,
                             single_cap=single_cap,
                             subindustry_cap=sub_cap,
                             theme_cap=theme_cap,
                         )
                     )
+                    if n in (15, 18):
+                        out.append(
+                            MarketLeaderVariant(
+                                portfolio_kind="main",
+                                variant_id=f"{base_id}_risk",
+                                target_n=n,
+                                single_cap=single_cap,
+                                subindustry_cap=sub_cap,
+                                theme_cap=theme_cap,
+                                risk_mode=RISK_MODE_BENCHMARK_GUARD,
+                            )
+                        )
     for n in (3, 5):
         single_caps = (0.40, 0.45) if n == 3 else (0.30, 0.35)
         for single_cap in single_caps:
             for sub_cap in (0.70, 0.80):
+                base_id = f"concentrated_N{n}_cap{int(single_cap*100)}_sub{int(sub_cap*100)}"
                 out.append(
                     MarketLeaderVariant(
                         portfolio_kind="concentrated",
-                        variant_id=f"concentrated_N{n}_cap{int(single_cap*100)}_sub{int(sub_cap*100)}",
+                        variant_id=base_id,
                         target_n=n,
                         single_cap=single_cap,
                         subindustry_cap=sub_cap,
                         theme_cap=1.0,
+                    )
+                )
+                out.append(
+                    MarketLeaderVariant(
+                        portfolio_kind="concentrated",
+                        variant_id=f"{base_id}_risk",
+                        target_n=n,
+                        single_cap=single_cap,
+                        subindustry_cap=sub_cap,
+                        theme_cap=1.0,
+                        risk_mode=RISK_MODE_BENCHMARK_GUARD,
                     )
                 )
     return out
@@ -126,6 +154,109 @@ def price_return(prices: dict[str, pd.DataFrame], ticker: str, as_of_date: Any, 
     if start_dt is None or start_px is None or start_px <= 0:
         return 0.0, False
     return float(end_px / start_px - 1.0), True
+
+
+def _price_frame_for_ma(px: pd.DataFrame) -> pd.DataFrame:
+    if px.empty:
+        return pd.DataFrame()
+    d = px.copy()
+    if "date" in d.columns:
+        d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    else:
+        d["date"] = pd.to_datetime(d.index, errors="coerce")
+    close_col = next((col for col in ("close", "Close", "Adj Close", "adj_close", "AdjClose") if col in d.columns), "")
+    if not close_col:
+        numeric_cols = [col for col in d.columns if col != "date" and pd.api.types.is_numeric_dtype(d[col])]
+        close_col = numeric_cols[0] if numeric_cols else ""
+    if not close_col:
+        return pd.DataFrame()
+    d["close_for_ma"] = pd.to_numeric(d[close_col], errors="coerce")
+    d = d.dropna(subset=["date", "close_for_ma"]).sort_values("date")
+    return d[["date", "close_for_ma"]]
+
+
+def ma_ratio(prices: dict[str, pd.DataFrame], ticker: str, as_of_date: Any, window: int) -> tuple[float, bool]:
+    px = prices.get(str(ticker).upper(), pd.DataFrame())
+    if px.empty:
+        return 1.0, False
+    end_dt, end_px = price_on_or_before(px, as_of_date, "close")
+    if end_dt is None or end_px is None or end_px <= 0:
+        return 1.0, False
+    d = _price_frame_for_ma(px)
+    if d.empty:
+        return 1.0, False
+    part = d[d["date"].le(pd.Timestamp(end_dt))].tail(int(window))
+    min_rows = max(20, int(window) // 2)
+    if len(part) < min_rows:
+        return 1.0, False
+    avg = float(part["close_for_ma"].mean())
+    if not math.isfinite(avg) or avg <= 0:
+        return 1.0, False
+    return float(end_px / avg), True
+
+
+def benchmark_guard_signal(
+    prices: dict[str, pd.DataFrame],
+    rebalance_date: Any,
+    portfolio_kind: str,
+) -> dict[str, Any]:
+    """Point-in-time SPY/QQQ gross exposure governor for research sidecars."""
+
+    spy_1m, _ = price_return(prices, "SPY", rebalance_date, 1)
+    qqq_1m, _ = price_return(prices, "QQQ", rebalance_date, 1)
+    spy_3m, _ = price_return(prices, "SPY", rebalance_date, 3)
+    qqq_3m, _ = price_return(prices, "QQQ", rebalance_date, 3)
+    spy_ma50, _ = ma_ratio(prices, "SPY", rebalance_date, 50)
+    qqq_ma50, _ = ma_ratio(prices, "QQQ", rebalance_date, 50)
+    spy_ma200, _ = ma_ratio(prices, "SPY", rebalance_date, 200)
+    qqq_ma200, _ = ma_ratio(prices, "QQQ", rebalance_date, 200)
+
+    risk_score = 0
+    reasons: list[str] = []
+    checks = [
+        (spy_1m < -0.06, "spy_1m_down_gt_6pct"),
+        (qqq_1m < -0.08, "qqq_1m_down_gt_8pct"),
+        (spy_3m < 0 and qqq_3m < 0, "both_3m_negative"),
+        (spy_ma50 < 1 and qqq_ma50 < 1, "both_below_ma50"),
+        (spy_ma200 < 1, "spy_below_ma200"),
+        (qqq_ma200 < 1, "qqq_below_ma200"),
+        (spy_3m < -0.10 and qqq_3m < -0.10, "both_3m_down_gt_10pct"),
+    ]
+    for passed, reason in checks:
+        if passed:
+            risk_score += 1
+            reasons.append(reason)
+
+    if risk_score >= 5:
+        gross = 0.35 if portfolio_kind == "main" else 0.25
+        regime = "crisis_defense"
+    elif risk_score >= 4:
+        gross = 0.50 if portfolio_kind == "main" else 0.35
+        regime = "risk_off"
+    elif risk_score >= 3:
+        gross = 0.70 if portfolio_kind == "main" else 0.55
+        regime = "caution"
+    elif risk_score >= 2:
+        gross = 0.85 if portfolio_kind == "main" else 0.70
+        regime = "early_warning"
+    else:
+        gross = 1.0
+        regime = "risk_on"
+
+    return {
+        "market_regime": regime,
+        "gross_exposure_cap": gross,
+        "risk_overlay_reason": ",".join(reasons) if reasons else "risk_on",
+        "benchmark_risk_score": risk_score,
+        "spy_1m_return": spy_1m,
+        "qqq_1m_return": qqq_1m,
+        "spy_3m_return": spy_3m,
+        "qqq_3m_return": qqq_3m,
+        "spy_ma50_ratio": spy_ma50,
+        "qqq_ma50_ratio": qqq_ma50,
+        "spy_ma200_ratio": spy_ma200,
+        "qqq_ma200_ratio": qqq_ma200,
+    }
 
 
 def add_benchmark_relative_returns(
@@ -412,6 +543,8 @@ def _selection_reason(row: pd.Series, portfolio_kind: str) -> str:
         bits.append("confirmed_by_evidence")
     if safe_float(row.get("leader_chase_risk_score")) > 0.75:
         bits.append("entry_scaled_for_chase_risk")
+    if safe_float(row.get("gross_exposure_cap"), 1.0) < 0.999:
+        bits.append("benchmark_risk_gross_cap")
     if portfolio_kind == "concentrated":
         bits.append("strict_dual_benchmark")
     return ",".join([b for b in bits if b])
@@ -479,12 +612,20 @@ def select_market_leader_targets(
         theme = str(row.get("leader_broad_theme") or sub)
         state = str(row.get("leader_state") or "HOLD")
         state_scale = 0.50 if state == "WARNING" and safe_float(row.get("warning_streak")) >= 2 else 1.0
+        chase = safe_float(row.get("leader_chase_risk_score"))
+        was_prev = safe_float(row.get("was_prev_holding")) > 0
+        if chase >= 1.50:
+            chase_scale = 0.75 if was_prev else 0.55
+        elif chase >= 0.75:
+            chase_scale = 0.90 if was_prev else 0.70
+        else:
+            chase_scale = 1.0
         cap = min(
             float(variant.single_cap),
             safe_float(row.get("liquidity_capacity_weight_cap"), 1.0),
             max(0.0, float(variant.subindustry_cap) - sub_totals.get(sub, 0.0)),
             max(0.0, float(variant.theme_cap) - theme_totals.get(theme, 0.0)),
-        ) * state_scale
+        ) * state_scale * chase_scale
         weight = min(raw.get(ticker, 0.0), cap)
         if weight <= 1e-9:
             continue
@@ -492,6 +633,8 @@ def select_market_leader_targets(
         sub_totals[sub] = sub_totals.get(sub, 0.0) + weight
         theme_totals[theme] = theme_totals.get(theme, 0.0) + weight
         out = row.to_dict()
+        out["chase_risk_weight_scale"] = chase_scale
+        out["effective_single_weight_cap"] = cap
         out["weight"] = weight
         out["target_weight"] = weight
         out["selection_reason"] = _selection_reason(row, variant.portfolio_kind)
@@ -511,7 +654,7 @@ def select_market_leader_targets(
             sub = str(out.get("leader_subindustry") or "unknown")
             theme = str(out.get("leader_broad_theme") or sub)
             room = min(
-                float(variant.single_cap) - weights.get(ticker, 0.0),
+                safe_float(out.get("effective_single_weight_cap"), variant.single_cap) - weights.get(ticker, 0.0),
                 safe_float(out.get("liquidity_capacity_weight_cap"), 1.0) - weights.get(ticker, 0.0),
                 float(variant.subindustry_cap) - sub_totals.get(sub, 0.0),
                 float(variant.theme_cap) - theme_totals.get(theme, 0.0),
@@ -541,6 +684,43 @@ def select_market_leader_targets(
             residual_reason = "position_caps_or_liquidity_caps_left_cash"
         selected["residual_cash_reason"] = residual_reason
     return selected.sort_values("weight", ascending=False).reset_index(drop=True)
+
+
+def apply_benchmark_risk_overlay(
+    selection: pd.DataFrame,
+    variant: MarketLeaderVariant,
+    prices: dict[str, pd.DataFrame],
+    rebalance_date: Any,
+) -> pd.DataFrame:
+    if selection.empty:
+        return selection
+    d = selection.copy()
+    if variant.risk_mode != RISK_MODE_BENCHMARK_GUARD:
+        signal = {
+            "market_regime": "risk_on",
+            "gross_exposure_cap": 1.0,
+            "risk_overlay_reason": "risk_mode_none",
+            "benchmark_risk_score": 0,
+        }
+    else:
+        signal = benchmark_guard_signal(prices, rebalance_date, variant.portfolio_kind)
+    gross = safe_float(signal.get("gross_exposure_cap"), 1.0)
+    gross = min(max(gross, 0.0), 1.0)
+    d["risk_mode"] = variant.risk_mode
+    for key, value in signal.items():
+        d[key] = value
+    if gross < 0.999:
+        d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0) * gross
+        d["target_weight"] = d["weight"]
+        reason = str(signal.get("risk_overlay_reason") or "benchmark_risk_gross_cap")
+        if "selection_reason" in d.columns:
+            d["selection_reason"] = d["selection_reason"].astype(str) + ",benchmark_risk_gross_cap"
+        if "residual_cash_reason" in d.columns:
+            d["residual_cash_reason"] = d["residual_cash_reason"].where(
+                d["residual_cash_reason"].astype(str).str.len().gt(0),
+                f"benchmark_risk_overlay:{reason}",
+            )
+    return d
 
 
 def rejection_reason(row: pd.Series, selected_tickers: set[str], variant: MarketLeaderVariant, selected: pd.DataFrame) -> str:
@@ -585,8 +765,15 @@ def target_book_columns() -> list[str]:
         "smart_money_confirmation_boost",
         "smart_money_evidence_confidence",
         "leader_chase_risk_score",
+        "chase_risk_weight_scale",
+        "effective_single_weight_cap",
         "liquidity_capacity_score",
         "liquidity_capacity_weight_cap",
+        "risk_mode",
+        "market_regime",
+        "gross_exposure_cap",
+        "risk_overlay_reason",
+        "benchmark_risk_score",
         "selection_reason",
         "residual_cash_reason",
         "was_prev_holding",
@@ -631,6 +818,7 @@ def target_rows_from_selection(selection: pd.DataFrame, variant: MarketLeaderVar
                 "single_cap": variant.single_cap,
                 "subindustry_cap": variant.subindustry_cap,
                 "theme_cap": variant.theme_cap,
+                "risk_mode": variant.risk_mode,
             }
         )
         rows.append(out)
@@ -656,6 +844,11 @@ def target_rows_from_selection(selection: pd.DataFrame, variant: MarketLeaderVar
                 "single_cap": variant.single_cap,
                 "subindustry_cap": variant.subindustry_cap,
                 "theme_cap": variant.theme_cap,
+                "risk_mode": variant.risk_mode,
+                "market_regime": "cash",
+                "gross_exposure_cap": 0.0,
+                "risk_overlay_reason": str(rows[0].get("risk_overlay_reason") or "") if rows else "",
+                "benchmark_risk_score": safe_float(rows[0].get("benchmark_risk_score"), 0.0) if rows else 0.0,
                 "selection_reason": "residual_cash_from_caps",
                 "residual_cash_reason": str(rows[0].get("residual_cash_reason") or "position_caps_or_liquidity_caps_left_cash") if rows else "no_selected_leaders",
             }
