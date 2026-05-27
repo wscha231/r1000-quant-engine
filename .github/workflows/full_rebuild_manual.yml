@@ -484,6 +484,8 @@ jobs:
             outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operator_review/
+            outputs/baseline_lock/
+            outputs/market_leader_challenger/
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
@@ -584,6 +586,8 @@ jobs:
             outputs/weekly_evaluation/
             outputs/theme_leadership_tape/
             outputs/theme_concentration_challenger/
+            outputs/baseline_lock/
+            outputs/market_leader_challenger/
             outputs/auto_learning_v2/
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
@@ -1054,6 +1058,8 @@ jobs:
           copy_dir_clean outputs/weekly_evaluation "$DEST/weekly_evaluation"
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
           copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"
+          copy_dir_clean outputs/baseline_lock "$DEST/baseline_lock"
+          copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
           copy_dir_clean outputs/auto_learning_v2 "$DEST/auto_learning_v2"
           copy_dir_clean outputs/winner_lifecycle "$DEST/winner_lifecycle"
           copy_dir_clean outputs/winner_onset_study "$DEST/winner_onset_study"

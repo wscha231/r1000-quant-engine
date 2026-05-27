@@ -47,6 +47,13 @@ OPERATOR_REVIEW_FILES = [
     "operator_review/position_risk_review.md",
     "operator_review/concentrated_broker_variant_review.json",
     "operator_review/concentrated_broker_variant_review.md",
+    "baseline_lock/latest_status.json",
+    "market_leader_challenger/summary.json",
+    "market_leader_challenger/report.md",
+    "market_leader_challenger/grid_results.csv",
+    "market_leader_challenger/main_metrics.json",
+    "market_leader_challenger/concentrated_metrics.json",
+    "market_leader_challenger/parameter_stability.csv",
     "live_trading_safety/safety_audit_summary.json",
     "portfolio_system_guard/error_check.json",
 ]
@@ -61,6 +68,13 @@ RESEARCH_FILES = [
     "pit_top_manager_follow_study/cohort_history.csv",
     "pit_top_manager_follow_study/event_forward_returns.csv",
     "pit_top_manager_follow_study/bucket_performance.csv",
+    "market_leader_challenger/main_target_book.csv",
+    "market_leader_challenger/concentrated_target_book.csv",
+    "market_leader_challenger/selected_leaders_latest.csv",
+    "market_leader_challenger/leader_state_history.csv",
+    "market_leader_challenger/rejected_leaders.csv",
+    "market_leader_challenger/stress_window_metrics.csv",
+    "market_leader_challenger/benchmark_relative_metrics.csv",
 ]
 DEPRECATED_NAMES = {"backtest_metrics.json", "concentrated_backtest_metrics.json"}
 
