@@ -3141,8 +3141,11 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/run_execution_lag_review.py",
         "tools/run_position_risk_review.py",
         "tools/run_concentrated_broker_variant_review.py",
+        "tools/create_healthy_baseline_lock.py",
+        "tools/run_market_leader_challenger.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
         "tools/run_pit_top_manager_follow_study.py",
+        "r1000_market_leader_engine.py",
     ]:
         ast.parse((ROOT / rel).read_text(encoding="utf-8"))
 
@@ -3162,9 +3165,13 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "run_execution_lag_review.py" in sidecar_tool
     assert "run_position_risk_review.py" in sidecar_tool
     assert "run_concentrated_broker_variant_review.py" in sidecar_tool
+    assert "create_healthy_baseline_lock.py" in sidecar_tool
+    assert "run_market_leader_challenger.py" in sidecar_tool
     assert "outputs/broker_position_risk_replay/" in wf
     assert "outputs/broker_execution_policy_replay/" in wf
     assert "outputs/operator_review/" in wf
+    assert "outputs/baseline_lock/" in wf
+    assert "outputs/market_leader_challenger/" in wf
 
 
 @_test("structural.pit_top_manager_follow_study_is_research_only")
