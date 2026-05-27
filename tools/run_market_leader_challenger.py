@@ -25,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from r1000_market_leader_engine import (  # noqa: E402
     BENCHMARKS,
     MarketLeaderVariant,
+    apply_benchmark_risk_overlay,
     apply_state_history,
     default_variants,
     load_prices,
@@ -42,8 +43,8 @@ from tools.run_weekly_evaluation import price_on_or_before  # noqa: E402
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/market_leader_challenger"
 EXPERIMENT_ID = "market_leader_concentration_historical_broker_replay"
-DEFAULT_MAIN_VARIANT = "main_N15_cap15_sub50_theme70"
-DEFAULT_CONCENTRATED_VARIANT = "concentrated_N5_cap35_sub80"
+DEFAULT_MAIN_VARIANT = "main_N18_cap12_sub40_theme60_risk"
+DEFAULT_CONCENTRATED_VARIANT = "concentrated_N5_cap30_sub70_risk"
 STRESS_WINDOWS = {
     "covid_2020": ("2020-02-01", "2020-05-31"),
     "inflation_2022": ("2021-11-01", "2022-12-31"),
@@ -205,6 +206,7 @@ def build_target_books(
         for variant in variants:
             prev_weights = prev_holdings_by_variant.get(variant.variant_id, {})
             selected = select_market_leader_targets(scored, variant, prev_holdings=prev_weights)
+            selected = apply_benchmark_risk_overlay(selected, variant, prices, dt)
             new_weights: dict[str, float] = {}
             if not selected.empty:
                 selected = selected.copy()
@@ -244,6 +246,13 @@ def build_target_books(
                     "leader_exit_count": int(sum(1 for ticker in prev_names if state_lookup.get(ticker) == "EXIT_REPLACE")),
                     "warning_hold_count": int((selected["leader_state"].astype(str).eq("WARNING")).sum()) if not selected.empty else 0,
                     "shakeout_guard_count": int((selected["leader_state"].astype(str).eq("SHAKEOUT_GUARD")).sum()) if not selected.empty else 0,
+                    "benchmark_risk_score": float(pd.to_numeric(selected.get("benchmark_risk_score", pd.Series(dtype=float)), errors="coerce").max())
+                    if not selected.empty
+                    else 0.0,
+                    "gross_exposure_cap": float(pd.to_numeric(selected.get("gross_exposure_cap", pd.Series(dtype=float)), errors="coerce").min())
+                    if not selected.empty
+                    else 1.0,
+                    "market_regime": str(selected.get("market_regime", pd.Series(dtype=str)).iloc[0]) if not selected.empty and "market_regime" in selected.columns else "",
                     "residual_cash_reason": residual_reason,
                 }
             )
@@ -396,6 +405,7 @@ def grid_row(
         "single_cap": variant.single_cap,
         "subindustry_cap": variant.subindustry_cap,
         "theme_cap": variant.theme_cap,
+        "risk_mode": variant.risk_mode,
         "status": metrics.get("status", "missing"),
         "metric_mode": metrics.get("metric_mode", metrics.get("metric_mode_review", "")),
         "start_date": metrics.get("start_date"),
@@ -438,6 +448,8 @@ def churn_summary(churn: pd.DataFrame) -> pd.DataFrame:
         "leader_exit_count",
         "warning_hold_count",
         "shakeout_guard_count",
+        "benchmark_risk_score",
+        "gross_exposure_cap",
     ]:
         if col in numeric.columns:
             numeric[col] = pd.to_numeric(numeric[col], errors="coerce")
@@ -452,6 +464,8 @@ def churn_summary(churn: pd.DataFrame) -> pd.DataFrame:
                 "leader_exit_count": int(group.get("leader_exit_count", pd.Series(dtype=float)).sum()),
                 "warning_hold_count": int(group.get("warning_hold_count", pd.Series(dtype=float)).sum()),
                 "shakeout_guard_count": int(group.get("shakeout_guard_count", pd.Series(dtype=float)).sum()),
+                "avg_benchmark_risk_score": float(group.get("benchmark_risk_score", pd.Series(dtype=float)).mean()),
+                "min_gross_exposure_cap": float(group.get("gross_exposure_cap", pd.Series(dtype=float)).min()),
             }
         )
     return pd.DataFrame(rows)
