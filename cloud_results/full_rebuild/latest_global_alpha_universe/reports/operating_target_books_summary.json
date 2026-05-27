@@ -43,7 +43,7 @@
       "portfolio": "concentrated"
     }
   ],
-  "generated_at_utc": "2026-05-26T22:29:03.174047+00:00",
+  "generated_at_utc": "2026-05-27T02:25:18.113702+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "outputs": {
     "concentrated_operating_target_book": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/reports/operating_concentrated_target_book.csv",

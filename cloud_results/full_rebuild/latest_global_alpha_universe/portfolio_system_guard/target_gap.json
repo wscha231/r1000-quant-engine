@@ -192,7 +192,7 @@
       "cagr_gap_pp": 0.2571,
       "candidate_id": "main_rebalance_interval_fixed_interval_I1",
       "governance_action": "blocked_both",
-      "max_dd": -0.16433390447053953,
+      "max_dd": -0.16433390447053975,
       "max_dd_gap_pp": 1.4334,
       "portfolio": "main",
       "target_pass": false,
