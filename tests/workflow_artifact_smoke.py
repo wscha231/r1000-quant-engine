@@ -129,6 +129,16 @@ def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
         assert token in text, token
 
 
+def test_official_artifact_keeps_market_leader_replay_source() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}",
+        "outputs/reports/candidate_replay_book.csv",
+        'cp outputs/reports/candidate_replay_book.csv "$DEST/reports/"',
+    ]:
+        assert token in text, token
+
+
 def test_cloud_results_copy_is_not_nested() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "copy_dir_clean()" in text

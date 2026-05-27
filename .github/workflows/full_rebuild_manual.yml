@@ -484,6 +484,7 @@ jobs:
             outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operator_review/
+            outputs/reports/candidate_replay_book.csv
             outputs/baseline_lock/
             outputs/market_leader_challenger/
             outputs/live_trading_safety/
@@ -976,6 +977,7 @@ jobs:
             cp outputs/reports/regime_by_month.csv "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
             cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
+            cp outputs/reports/candidate_replay_book.csv "$DEST/reports/" 2>/dev/null || true
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
