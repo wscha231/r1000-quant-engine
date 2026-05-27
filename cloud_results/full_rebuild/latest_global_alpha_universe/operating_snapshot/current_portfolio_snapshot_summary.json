@@ -6,7 +6,7 @@
   "combined_cash_gap_weight": -0.0569703242769808,
   "combined_current_cash_weight": 0.08786094979263558,
   "combined_target_cash_weight": 0.030890625515654777,
-  "generated_at_utc": "2026-05-27T08:04:54.838423+00:00",
+  "generated_at_utc": "2026-05-27T13:17:16.353662+00:00",
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "macro_cash_raise_confirmation_count": 0.0,
   "macro_cash_raise_gate": "none",

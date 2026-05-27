@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-05-27T08:04:54+00:00",
+  "generated_at_utc": "2026-05-27T13:17:15+00:00",
   "goal_search_summary": {
     "best_concentrated": {
       "avg_turnover_monthly": null,
@@ -32,7 +32,7 @@
       "distance_to_target_pp": 2.0677,
       "governance_action": "blocked_both",
       "invalid_reason": null,
-      "max_dd": -0.16364205946268773,
+      "max_dd": -0.16364205946268762,
       "max_dd_gap_pp": 1.3642,
       "max_dd_target": -0.15,
       "metrics_valid": true,
@@ -42,7 +42,7 @@
         "rebalance_interval_months": "1"
       },
       "portfolio": "main",
-      "rank_score": -1.7901112717765337,
+      "rank_score": -1.790111271776523,
       "sharpe": 1.6839789087140296,
       "source": "latest_run_report:outputs/reports/rebalance_interval_comparison.csv",
       "target_pass": false,
@@ -2046,7 +2046,7 @@
         "distance_to_target_pp": 2.0677,
         "governance_action": "blocked_both",
         "invalid_reason": null,
-        "max_dd": -0.16364205946268773,
+        "max_dd": -0.16364205946268762,
         "max_dd_gap_pp": 1.3642,
         "max_dd_target": -0.15,
         "metrics_valid": true,
@@ -2056,7 +2056,7 @@
           "rebalance_interval_months": "1"
         },
         "portfolio": "main",
-        "rank_score": -1.7901112717765337,
+        "rank_score": -1.790111271776523,
         "sharpe": 1.6839789087140296,
         "source": "latest_run_report:outputs/reports/rebalance_interval_comparison.csv",
         "target_pass": false,
@@ -2136,14 +2136,14 @@
       },
       {
         "avg_turnover_monthly": 0.22239543441908574,
-        "cagr": 0.22415233105823495,
+        "cagr": 0.22415233105823518,
         "cagr_gap_pp": 7.5848,
         "cagr_target": 0.3,
         "candidate_id": "main_rebalance_interval_fixed_interval_I3",
         "distance_to_target_pp": 7.5848,
         "governance_action": "needs_alpha_boost",
         "invalid_reason": null,
-        "max_dd": -0.134279877699931,
+        "max_dd": -0.13427987769993088,
         "max_dd_gap_pp": 0.0,
         "max_dd_target": -0.15,
         "metrics_valid": true,
@@ -2153,8 +2153,8 @@
           "rebalance_interval_months": "3"
         },
         "portfolio": "main",
-        "rank_score": -7.37065640946905,
-        "sharpe": 1.5121058479598983,
+        "rank_score": -7.370656409469028,
+        "sharpe": 1.5121058479598979,
         "source": "latest_run_report:outputs/reports/rebalance_interval_comparison.csv",
         "target_pass": false,
         "valid_for_production": false
@@ -2179,7 +2179,7 @@
         },
         "portfolio": "main",
         "rank_score": -8.473530289064406,
-        "sharpe": 1.5708109890155166,
+        "sharpe": 1.5708109890155162,
         "source": "latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv",
         "target_pass": false,
         "valid_for_production": false
@@ -2218,7 +2218,7 @@
         "distance_to_target_pp": 9.4785,
         "governance_action": "blocked_both",
         "invalid_reason": null,
-        "max_dd": -0.20277636900049534,
+        "max_dd": -0.20277636900049523,
         "max_dd_gap_pp": 5.2776,
         "max_dd_target": -0.15,
         "metrics_valid": true,
@@ -2228,7 +2228,7 @@
           "rebalance_interval_months": "1"
         },
         "portfolio": "main",
-        "rank_score": -9.25062445291673,
+        "rank_score": -9.250624452916718,
         "sharpe": 1.5359432021318997,
         "source": "latest_run_report:outputs/reports/sleeve_cap_policy_comparison.csv",
         "target_pass": false,

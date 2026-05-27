@@ -29,4 +29,4 @@ Legacy weight-level backtest metrics are retained only as research comparison fi
 - Official metric mode: `broker_ledger_next_close`
 - Production target pass: `false`
 - Research target pass: `false`
-- Generated at: `2026-05-27T08:04:54+00:00`
+- Generated at: `2026-05-27T13:17:15+00:00`
