@@ -6,12 +6,12 @@
     "WATCH": "monitor; do not raise cash without confirmation"
   },
   "auto_trade_allowed": false,
-  "generated_at_utc": "2026-05-27T02:26:50.301728+00:00",
+  "generated_at_utc": "2026-05-27T08:04:56.682310+00:00",
   "hysteresis": {
     "raw_state": "WATCH",
     "raw_state_streak": 1,
     "state": "GREEN",
-    "updated_at_utc": "2026-05-27T02:26:50.297774+00:00"
+    "updated_at_utc": "2026-05-27T08:04:56.678442+00:00"
   },
   "long_crisis": {
     "available": false,
