@@ -16,19 +16,19 @@ from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def write_price(cache: Path, ticker: str, start: float, daily_ret: float) -> None:
-    dates = pd.date_range("2025-01-02", "2025-08-29", freq="B")
+    dates = pd.date_range("2024-01-02", "2025-08-29", freq="B")
     values = [start * ((1.0 + daily_ret) ** i) for i in range(len(dates))]
-    pd.DataFrame({"Adj Close": values, "Close": values, "Open": values}, index=dates).to_parquet(cache / px_cache_name(ticker))
+    pd.DataFrame({"date": dates, "Adj Close": values, "Close": values, "Open": values}, index=dates).to_parquet(cache / px_cache_name(ticker))
 
 
 def candidate_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for dt in ("2025-04-30", "2025-05-30", "2025-06-30", "2025-07-31"):
-        for ticker, name, sector, ret, dv in [
-            ("DUAL", "Dual Leader", "Technology", 0.10, 500_000_000),
-            ("SPYONLY", "SPY Only", "Industrials", 0.03, 500_000_000),
-            ("LOWLIQ", "Low Liquidity", "Technology", 0.20, 1_000_000),
-            ("LAGG", "Lagging", "Technology", -0.05, 500_000_000),
+        for ticker, name, sector, ret, dv, strength in [
+            ("DUAL", "Dual Leader", "Technology", 0.10, 500_000_000, 2.0),
+            ("SPYONLY", "SPY Only", "Industrials", 0.03, 500_000_000, 1.0),
+            ("LOWLIQ", "Low Liquidity", "Technology", 0.20, 1_000_000, 1.5),
+            ("LAGG", "Lagging", "Technology", -0.05, 500_000_000, -1.0),
         ]:
             rows.append(
                 {
@@ -40,11 +40,11 @@ def candidate_rows() -> list[dict[str, object]]:
                     "subindustry": sector,
                     "period_forward_return": ret,
                     "score": 1.0,
-                    "industry_group_strength_score": 1.0 if ticker != "LAGG" else -1.0,
-                    "industry_within_leader_rank": 1.0 if ticker != "LAGG" else 0.0,
-                    "oneil_leadership_score": 1.0 if ticker != "LAGG" else 0.0,
-                    "sub_industry_rs_score": 1.0 if ticker != "LAGG" else -1.0,
-                    "industry_leader_gap": 1.0 if ticker != "LAGG" else -1.0,
+                    "industry_group_strength_score": strength,
+                    "industry_within_leader_rank": strength,
+                    "oneil_leadership_score": strength,
+                    "sub_industry_rs_score": strength,
+                    "industry_leader_gap": strength,
                     "future_winner_confirmation_score": 1.0 if ticker != "LAGG" else 0.0,
                     "quality_growth_score": 0.8,
                     "entry_quality_score": 0.7,
@@ -103,6 +103,10 @@ def test_market_leader_challenger_builds_historical_target_books() -> None:
         assert rejected["rejection_reason"].astype(str).str.len().min() > 0
         stability = pd.read_csv(out / "parameter_stability.csv")
         assert not stability.empty
+        churn = pd.read_csv(out / "holding_churn_diagnostics.csv")
+        assert {"monthly_turnover_proxy", "avg_name_overlap", "median_holding_months"}.issubset(churn.columns)
+        cost = pd.read_csv(out / "cost_sensitivity.csv")
+        assert set(cost["cost_bps"].round(0).astype(int)) >= {25, 50, 75, 100}
 
 
 def test_latest_only_is_blocked_from_broker_metrics() -> None:
