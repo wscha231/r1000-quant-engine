@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
+import json
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -19,14 +20,46 @@ def test_healthy_baseline_lock_requires_broker_and_broad_universe() -> None:
         latest = Path(tmp)
         (latest / "account_evaluation").mkdir()
         (latest / "portfolio_system_guard").mkdir()
+        (latest / "broker_replay" / "main").mkdir(parents=True)
+        (latest / "broker_replay" / "concentrated").mkdir(parents=True)
         official = {
             "official_metric_mode": "broker_ledger_next_close",
             "portfolios": {
-                "main": {"cagr": 0.21, "max_dd": -0.30, "sharpe": 1.0, "position_count": 15},
-                "concentrated": {"cagr": 0.32, "max_dd": -0.35, "sharpe": 1.1, "position_count": 5},
+                "main": {
+                    "cagr": 0.21,
+                    "max_dd": -0.30,
+                    "sharpe": 1.0,
+                    "position_count": 15,
+                    "valid_for_production": True,
+                    "official_source": "broker_replay/main/metrics.json",
+                },
+                "concentrated": {
+                    "cagr": 0.32,
+                    "max_dd": -0.35,
+                    "sharpe": 1.1,
+                    "position_count": 5,
+                    "valid_for_production": True,
+                    "official_source": "broker_replay/concentrated/metrics.json",
+                },
             },
         }
-        (latest / "account_evaluation" / "official_metrics.json").write_text(__import__("json").dumps(official), encoding="utf-8")
+        broker_base = {
+            "status": "completed",
+            "metric_mode": "broker_ledger_next_close",
+            "valid_for_production": True,
+            "years": 7.1,
+            "start_date": "2019-01-31",
+            "end_date": "2026-03-31",
+        }
+        (latest / "account_evaluation" / "official_metrics.json").write_text(json.dumps(official), encoding="utf-8")
+        (latest / "broker_replay" / "main" / "metrics.json").write_text(
+            json.dumps({**broker_base, "cagr": 0.21, "max_dd": -0.30, "sharpe": 1.0}),
+            encoding="utf-8",
+        )
+        (latest / "broker_replay" / "concentrated" / "metrics.json").write_text(
+            json.dumps({**broker_base, "cagr": 0.32, "max_dd": -0.35, "sharpe": 1.1}),
+            encoding="utf-8",
+        )
         (latest / "portfolio_system_guard" / "error_check.json").write_text('{"hard_error_count": 0}', encoding="utf-8")
         pd.DataFrame(
             {
@@ -38,6 +71,8 @@ def test_healthy_baseline_lock_requires_broker_and_broad_universe() -> None:
         assert blockers == []
         assert payload["promotion_eligible"] is True
         assert payload["scored_row_count"] == 450
+        assert payload["r1000_base_count"] == 450
+        assert payload["broker_period_years"] >= 6.8
 
 
 def test_baseline_lock_blocks_collapsed_universe() -> None:

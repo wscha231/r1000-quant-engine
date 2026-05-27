@@ -21,9 +21,9 @@ from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
 def write_price(cache: Path, ticker: str, start: float, daily_ret: float) -> None:
-    dates = pd.date_range("2025-01-02", "2025-08-29", freq="B")
+    dates = pd.date_range("2024-01-02", "2025-08-29", freq="B")
     values = [start * ((1.0 + daily_ret) ** i) for i in range(len(dates))]
-    pd.DataFrame({"Adj Close": values, "Close": values, "Open": values}, index=dates).to_parquet(cache / px_cache_name(ticker))
+    pd.DataFrame({"date": dates, "Adj Close": values, "Close": values, "Open": values}, index=dates).to_parquet(cache / px_cache_name(ticker))
 
 
 def base_rows() -> list[dict[str, object]]:
@@ -140,10 +140,47 @@ def test_shakeout_guard_blocks_exit_on_one_month_wobble() -> None:
     assert "leadership_intact" in reason
 
 
+def test_warning_is_no_add_but_previous_holding_can_persist() -> None:
+    scored = pd.DataFrame(
+        [
+            {
+                "ticker": "WARN",
+                "leader_tier": "DUAL_LEADER",
+                "leader_state": "WARNING",
+                "warning_streak": 1,
+                "liquidity_capacity_weight_cap": 1.0,
+                "main_leader_score": 10.0,
+                "concentrated_leader_score": 10.0,
+                "leader_subindustry": "chips",
+                "leader_broad_theme": "semis",
+            },
+            {
+                "ticker": "HOLD",
+                "leader_tier": "DUAL_LEADER",
+                "leader_state": "HOLD",
+                "warning_streak": 0,
+                "liquidity_capacity_weight_cap": 1.0,
+                "main_leader_score": 1.0,
+                "concentrated_leader_score": 1.0,
+                "leader_subindustry": "software",
+                "leader_broad_theme": "software",
+            },
+        ]
+    )
+    variant = MarketLeaderVariant("main", "test", 2, 0.50, 1.0, 1.0)
+    fresh = select_market_leader_targets(scored, variant)
+    assert "WARN" not in set(fresh["ticker"])
+    persisted = select_market_leader_targets(scored, variant, prev_holdings={"WARN": 0.25})
+    assert "WARN" in set(persisted["ticker"])
+    warn = persisted[persisted["ticker"].eq("WARN")].iloc[0]
+    assert "warning_hold_no_add" in str(warn["selection_reason"])
+
+
 def main() -> int:
     test_dual_benchmark_tier_and_concentrated_gate()
     test_missing_evidence_is_confidence_not_quality_zero()
     test_shakeout_guard_blocks_exit_on_one_month_wobble()
+    test_warning_is_no_add_but_previous_holding_can_persist()
     print("market_leader_engine_smoke: PASS")
     return 0
 

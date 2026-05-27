@@ -137,6 +137,8 @@ def blocked_outputs(output_dir: Path, reason: str, candidate_book: Path, source_
         "parameter_stability.csv",
         "stress_window_metrics.csv",
         "benchmark_relative_metrics.csv",
+        "holding_churn_diagnostics.csv",
+        "cost_sensitivity.csv",
     ]:
         pd.DataFrame().to_csv(output_dir / name, index=False)
     write_text(output_dir / "report.md", render_report(payload, [], []))
@@ -165,10 +167,13 @@ def build_target_books(
     prices = prepare_prices(candidate, price_cache)
     state_by_ticker: dict[str, dict[str, int]] = {}
     target_rows: dict[str, list[dict[str, Any]]] = {variant.variant_id: [] for variant in variants}
+    prev_holdings_by_variant: dict[str, dict[str, float]] = {variant.variant_id: {} for variant in variants}
+    holding_streak_by_variant: dict[str, dict[str, int]] = {variant.variant_id: {} for variant in variants}
     default_latest_rows: list[dict[str, Any]] = []
     state_rows: list[dict[str, Any]] = []
     rejected_rows: list[dict[str, Any]] = []
     attribution_rows: list[dict[str, Any]] = []
+    churn_rows: list[dict[str, Any]] = []
     dates = sorted(pd.to_datetime(candidate["rebalance_date"], errors="coerce").dropna().unique())
     latest_dt = pd.Timestamp(dates[-1]).normalize() if dates else None
 
@@ -198,9 +203,51 @@ def build_target_books(
                 }
             )
         for variant in variants:
-            selected = select_market_leader_targets(scored, variant)
+            prev_weights = prev_holdings_by_variant.get(variant.variant_id, {})
+            selected = select_market_leader_targets(scored, variant, prev_holdings=prev_weights)
+            new_weights: dict[str, float] = {}
+            if not selected.empty:
+                selected = selected.copy()
+                tickers = selected["ticker"].astype(str).str.upper().tolist()
+                prev_streak = holding_streak_by_variant.get(variant.variant_id, {})
+                holding_months = {ticker: int(prev_streak.get(ticker, 0)) + 1 for ticker in tickers}
+                selected["holding_months"] = selected["ticker"].astype(str).str.upper().map(holding_months).fillna(1).astype(int)
+                new_weights = {
+                    str(row.ticker).upper(): safe_float(row.weight)
+                    for row in selected.itertuples(index=False)
+                    if str(row.ticker).upper() != "CASH"
+                }
+                holding_streak_by_variant[variant.variant_id] = holding_months
+            else:
+                holding_streak_by_variant[variant.variant_id] = {}
             rows = target_rows_from_selection(selected, variant, dt)
             target_rows[variant.variant_id].extend(rows)
+            all_weight_keys = set(prev_weights) | set(new_weights)
+            turnover_proxy = 0.5 * sum(abs(float(new_weights.get(ticker, 0.0)) - float(prev_weights.get(ticker, 0.0))) for ticker in all_weight_keys)
+            prev_names = {ticker for ticker, weight in prev_weights.items() if weight > 1e-12}
+            new_names = {ticker for ticker, weight in new_weights.items() if weight > 1e-12}
+            state_lookup = {
+                str(row.get("ticker") or "").upper(): str(row.get("leader_state") or "")
+                for row in scored.to_dict("records")
+            }
+            residual_reason = ""
+            if rows:
+                residual_reason = str(next((row.get("residual_cash_reason") for row in rows if row.get("residual_cash_reason")), "") or "")
+            churn_rows.append(
+                {
+                    "rebalance_date": dt.date().isoformat(),
+                    "portfolio_kind": variant.portfolio_kind,
+                    "variant_id": variant.variant_id,
+                    "avg_name_overlap": (len(prev_names & new_names) / max(len(prev_names), 1)) if prev_names else 0.0,
+                    "monthly_turnover_proxy": turnover_proxy,
+                    "median_holding_months": float(selected["holding_months"].median()) if not selected.empty and "holding_months" in selected.columns else 0.0,
+                    "leader_exit_count": int(sum(1 for ticker in prev_names if state_lookup.get(ticker) == "EXIT_REPLACE")),
+                    "warning_hold_count": int((selected["leader_state"].astype(str).eq("WARNING")).sum()) if not selected.empty else 0,
+                    "shakeout_guard_count": int((selected["leader_state"].astype(str).eq("SHAKEOUT_GUARD")).sum()) if not selected.empty else 0,
+                    "residual_cash_reason": residual_reason,
+                }
+            )
+            prev_holdings_by_variant[variant.variant_id] = new_weights
             if dt == latest_dt and variant.variant_id in {DEFAULT_MAIN_VARIANT, DEFAULT_CONCENTRATED_VARIANT}:
                 default_latest_rows.extend(rows)
             if variant.variant_id in {DEFAULT_MAIN_VARIANT, DEFAULT_CONCENTRATED_VARIANT}:
@@ -257,6 +304,7 @@ def build_target_books(
         "leader_state_latest": pd.DataFrame(state_rows)[lambda x: x["rebalance_date"].eq(pd.Timestamp(latest_dt).date().isoformat())] if latest_dt is not None and state_rows else pd.DataFrame(),
         "rejected_leaders": pd.DataFrame(rejected_rows),
         "attribution_by_component": pd.DataFrame(attribution_rows),
+        "holding_churn_diagnostics": pd.DataFrame(churn_rows),
     }
 
 
@@ -311,6 +359,12 @@ def run_broker_variant(
     return metrics
 
 
+def cost_label(cost_bps: float) -> str:
+    if float(cost_bps).is_integer():
+        return f"{int(cost_bps)}bps"
+    return f"{cost_bps:g}bps"
+
+
 def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -363,6 +417,44 @@ def grid_row(
         row["cagr_delta_vs_baseline"] = ""
         row["mdd_improvement_vs_baseline"] = ""
     return row
+
+
+def broker_completed(metrics: dict[str, Any]) -> bool:
+    return (
+        str(metrics.get("status") or "") == "completed"
+        and str(metrics.get("metric_mode") or "") == "broker_ledger_next_close"
+        and str(metrics.get("metric_mode_review") or "") != "DO_NOT_USE"
+    )
+
+
+def churn_summary(churn: pd.DataFrame) -> pd.DataFrame:
+    if churn.empty or "variant_id" not in churn.columns:
+        return pd.DataFrame()
+    numeric = churn.copy()
+    for col in [
+        "monthly_turnover_proxy",
+        "avg_name_overlap",
+        "median_holding_months",
+        "leader_exit_count",
+        "warning_hold_count",
+        "shakeout_guard_count",
+    ]:
+        if col in numeric.columns:
+            numeric[col] = pd.to_numeric(numeric[col], errors="coerce")
+    rows = []
+    for variant_id, group in numeric.groupby("variant_id"):
+        rows.append(
+            {
+                "variant_id": variant_id,
+                "avg_monthly_turnover": float(group.get("monthly_turnover_proxy", pd.Series(dtype=float)).mean()),
+                "avg_name_overlap": float(group.get("avg_name_overlap", pd.Series(dtype=float)).mean()),
+                "median_holding_months": float(group.get("median_holding_months", pd.Series(dtype=float)).median()),
+                "leader_exit_count": int(group.get("leader_exit_count", pd.Series(dtype=float)).sum()),
+                "warning_hold_count": int(group.get("warning_hold_count", pd.Series(dtype=float)).sum()),
+                "shakeout_guard_count": int(group.get("shakeout_guard_count", pd.Series(dtype=float)).sum()),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def max_drawdown(values: pd.Series) -> float | None:
@@ -543,6 +635,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated", "both"], default="both")
     parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument("--cost-bps-list", nargs="*", type=float, default=[25.0, 50.0, 75.0, 100.0])
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--baseline-lock", default=None)
     parser.add_argument("--allow-missing-baseline-lock", action="store_true")
@@ -583,10 +676,13 @@ def main() -> int:
     build = build_target_books(frame, price_cache, variants)
     target_root = output_dir / "variant_target_books"
     replay_root = output_dir / "broker_replay"
+    sensitivity_root = output_dir / "broker_replay_cost_sensitivity"
     grid_rows: list[dict[str, Any]] = []
     stress_rows: list[dict[str, Any]] = []
     bench_rows: list[dict[str, Any]] = []
+    cost_rows: list[dict[str, Any]] = []
     metrics_by_variant: dict[str, dict[str, Any]] = {}
+    target_paths_by_variant: dict[str, Path] = {}
 
     baseline_lock_path = repo_path(args.baseline_lock) if args.baseline_lock else None
     baseline_payload = load_json(baseline_lock_path) if baseline_lock_path else {}
@@ -597,6 +693,7 @@ def main() -> int:
     for variant in variants:
         rows = build["target_rows"].get(variant.variant_id, [])
         target_path = target_root / f"{variant.variant_id}.csv"
+        target_paths_by_variant[variant.variant_id] = target_path
         target_df = write_variant_target_book(rows, target_path)
         if target_df.empty:
             metrics = {"status": "blocked", "reason": "empty market leader target book", "metric_mode": "DO_NOT_USE"}
@@ -620,6 +717,55 @@ def main() -> int:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     grid = pd.DataFrame(grid_rows)
+    churn = build["holding_churn_diagnostics"]
+    churn.to_csv(output_dir / "holding_churn_diagnostics.csv", index=False)
+    churn_agg = churn_summary(churn)
+    if not grid.empty and not churn_agg.empty:
+        grid = grid.merge(churn_agg, on="variant_id", how="left")
+
+    cost_values = sorted({float(args.cost_bps), *[float(x) for x in (args.cost_bps_list or [])]})
+    default_variant_ids = {
+        DEFAULT_MAIN_VARIANT if DEFAULT_MAIN_VARIANT in metrics_by_variant else next((v.variant_id for v in variants if v.portfolio_kind == "main"), ""),
+        DEFAULT_CONCENTRATED_VARIANT if DEFAULT_CONCENTRATED_VARIANT in metrics_by_variant else next((v.variant_id for v in variants if v.portfolio_kind == "concentrated"), ""),
+    }
+    default_variant_ids.discard("")
+    variant_by_id = {variant.variant_id: variant for variant in variants}
+    for variant_id in sorted(default_variant_ids):
+        variant = variant_by_id.get(variant_id)
+        target_path = target_paths_by_variant.get(variant_id)
+        if variant is None or target_path is None or not target_path.exists():
+            continue
+        for cost_bps in cost_values:
+            if abs(float(cost_bps) - float(args.cost_bps)) < 1e-9:
+                metrics = metrics_by_variant.get(variant_id, {})
+            else:
+                metrics = run_broker_variant(
+                    target_book=target_path,
+                    price_cache=price_cache,
+                    output_dir=sensitivity_root / variant_id / cost_label(cost_bps),
+                    portfolio_kind=variant.portfolio_kind,
+                    cost_bps=float(cost_bps),
+                    max_fill_lag_days=args.max_fill_lag_days,
+                )
+            cost_rows.append(
+                {
+                    "portfolio_kind": variant.portfolio_kind,
+                    "variant_id": variant_id,
+                    "cost_bps": float(cost_bps),
+                    "status": metrics.get("status", "missing"),
+                    "metric_mode": metrics.get("metric_mode", metrics.get("metric_mode_review", "")),
+                    "cagr": metrics.get("cagr"),
+                    "max_dd": metrics.get("max_dd"),
+                    "sharpe": metrics.get("sharpe"),
+                    "trade_count": metrics.get("trade_count"),
+                    "total_fees_usd": metrics.get("total_fees_usd"),
+                    "avg_cash_weight": metrics.get("avg_cash_weight"),
+                    "research_only": True,
+                    "production_activation_allowed": False,
+                }
+            )
+    pd.DataFrame(cost_rows).to_csv(output_dir / "cost_sensitivity.csv", index=False)
+
     grid.to_csv(output_dir / "grid_results.csv", index=False)
     pd.DataFrame(stress_rows).to_csv(output_dir / "stress_window_metrics.csv", index=False)
     pd.DataFrame(bench_rows).to_csv(output_dir / "benchmark_relative_metrics.csv", index=False)
@@ -648,9 +794,17 @@ def main() -> int:
 
     main_default_rows = grid[grid["variant_id"].eq(default_main)].to_dict("records") if default_main and not grid.empty else []
     conc_default_rows = grid[grid["variant_id"].eq(default_conc)].to_dict("records") if default_conc and not grid.empty else []
+    required_default_metrics: list[dict[str, Any]] = []
+    if args.portfolio_kind in {"main", "both"}:
+        required_default_metrics.append(metrics_by_variant.get(default_main, {}))
+    if args.portfolio_kind in {"concentrated", "both"}:
+        required_default_metrics.append(metrics_by_variant.get(default_conc, {}))
+    defaults_completed = bool(required_default_metrics) and all(broker_completed(metrics) for metrics in required_default_metrics)
+    summary_status = "completed" if defaults_completed else "partial_or_blocked"
+    summary_metric_mode = "broker_ledger_next_close" if defaults_completed else "DO_NOT_USE"
     summary = {
         "experiment_id": EXPERIMENT_ID,
-        "status": "completed",
+        "status": summary_status,
         "candidate_book": str(candidate_book),
         "candidate_source_mode": source_mode,
         "rebalance_date_count": int(len(unique_dates)),
@@ -667,7 +821,10 @@ def main() -> int:
         "feature_store_mutated": False,
         "score_total_changed": False,
         "production_target_defaults_changed": False,
-        "metric_mode": "broker_ledger_next_close",
+        "metric_mode": summary_metric_mode,
+        "default_variants_completed_broker_ledger": defaults_completed,
+        "cost_sensitivity_path": str(output_dir / "cost_sensitivity.csv"),
+        "holding_churn_diagnostics_path": str(output_dir / "holding_churn_diagnostics.csv"),
     }
     write_json(output_dir / "summary.json", summary)
     write_text(output_dir / "report.md", render_report(summary, main_default_rows, conc_default_rows))

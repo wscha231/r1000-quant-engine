@@ -23,6 +23,8 @@ BENCHMARKS = ("SPY", "QQQ")
 LOOKBACK_MONTHS = (1, 3, 6, 12)
 MAIN_ALLOWED_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 CONCENTRATED_ALLOWED_TIERS = {"DUAL_LEADER"}
+NEW_ENTRY_ALLOWED_STATES = {"HOLD", "SHAKEOUT_GUARD"}
+PREVIOUS_HOLD_ALLOWED_STATES = {"HOLD", "SHAKEOUT_GUARD", "WARNING"}
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,7 @@ def compute_smart_money_confirmation_score(frame: pd.DataFrame) -> pd.DataFrame:
         coverage = coverage.add(mask.astype(float) * weight, fill_value=0.0)
     d["smart_money_confirmation_score"] = weighted
     d["smart_money_evidence_confidence"] = coverage.clip(0.0, 1.0)
+    d["smart_money_confirmation_boost"] = robust_z(weighted).clip(lower=0.0)
     return d
 
 
@@ -274,7 +277,7 @@ def compute_leader_selection_score(frame: pd.DataFrame) -> pd.DataFrame:
         0.28 * d["market_leader_tape_score"]
         + 0.22 * d["sector_leadership_score"]
         + 0.25 * robust_z(d["future_winner_confirmation_score"])
-        + 0.08 * robust_z(d["smart_money_confirmation_score"])
+        + 0.08 * d["smart_money_confirmation_boost"]
         + 0.09 * robust_z(d["quality_growth_score"])
         + 0.05 * robust_z(d["entry_quality_score"])
         + 0.03 * d["liquidity_capacity_score"]
@@ -284,7 +287,7 @@ def compute_leader_selection_score(frame: pd.DataFrame) -> pd.DataFrame:
         0.32 * d["market_leader_tape_score"]
         + 0.23 * d["sector_leadership_score"]
         + 0.20 * robust_z(d["future_winner_confirmation_score"])
-        + 0.12 * robust_z(d["smart_money_confirmation_score"])
+        + 0.12 * d["smart_money_confirmation_boost"]
         + 0.05 * robust_z(d["quality_growth_score"])
         + 0.05 * robust_z(d["entry_quality_score"])
         + 0.03 * d["liquidity_capacity_score"]
@@ -401,6 +404,10 @@ def _score_col(portfolio_kind: str) -> str:
 
 def _selection_reason(row: pd.Series, portfolio_kind: str) -> str:
     bits = [str(row.get("leader_tier") or "")]
+    if safe_float(row.get("was_prev_holding")) > 0:
+        bits.append("previous_holding_priority")
+    if str(row.get("leader_state") or "") == "WARNING":
+        bits.append("warning_hold_no_add" if safe_float(row.get("warning_streak")) < 2 else "second_warning_trim_review")
     if safe_float(row.get("smart_money_evidence_confidence")) > 0:
         bits.append("confirmed_by_evidence")
     if safe_float(row.get("leader_chase_risk_score")) > 0.75:
@@ -423,21 +430,40 @@ def _raw_weights(candidates: pd.DataFrame, score_col: str) -> dict[str, float]:
     return {str(ticker).upper(): float(value / total) for ticker, value in zip(candidates["ticker"], raw)}
 
 
-def select_market_leader_targets(scored: pd.DataFrame, variant: MarketLeaderVariant) -> pd.DataFrame:
+def select_market_leader_targets(
+    scored: pd.DataFrame,
+    variant: MarketLeaderVariant,
+    prev_holdings: dict[str, float] | None = None,
+) -> pd.DataFrame:
     if scored.empty:
         return pd.DataFrame()
     score_col = _score_col(variant.portfolio_kind)
     allowed = allowed_tiers(variant.portfolio_kind)
+    prev_holdings = {str(k).upper(): float(v) for k, v in (prev_holdings or {}).items() if str(k).upper() != CASH_TICKER}
     if "leader_state" not in scored.columns:
         scored = scored.copy()
         scored["leader_state"] = "HOLD"
-    candidates = scored[
-        scored["leader_tier"].isin(allowed)
-        & ~scored["leader_state"].eq("EXIT_REPLACE")
-        & pd.to_numeric(scored["liquidity_capacity_weight_cap"], errors="coerce").gt(0)
+    work = scored.copy()
+    work["was_prev_holding"] = work["ticker"].astype(str).str.upper().isin(prev_holdings).astype(float)
+    base_gate = (
+        work["leader_tier"].isin(allowed)
+        & pd.to_numeric(work["liquidity_capacity_weight_cap"], errors="coerce").gt(0)
+    )
+    prev_candidates = work[
+        base_gate
+        & work["ticker"].astype(str).str.upper().isin(prev_holdings)
+        & work["leader_state"].astype(str).isin(PREVIOUS_HOLD_ALLOWED_STATES)
     ].copy()
-    candidates = candidates.sort_values(score_col, ascending=False).head(max(int(variant.target_n) * 4, int(variant.target_n)))
-    candidates = candidates.head(int(variant.target_n)).copy()
+    new_candidates = work[
+        base_gate
+        & ~work["ticker"].astype(str).str.upper().isin(prev_holdings)
+        & work["leader_state"].astype(str).isin(NEW_ENTRY_ALLOWED_STATES)
+    ].copy()
+    pool_limit = max(int(variant.target_n) * 4, int(variant.target_n))
+    prev_candidates = prev_candidates.sort_values(score_col, ascending=False)
+    new_candidates = new_candidates.sort_values(score_col, ascending=False).head(pool_limit)
+    candidates = pd.concat([prev_candidates, new_candidates], ignore_index=True)
+    candidates = candidates.drop_duplicates("ticker", keep="first").head(pool_limit).copy()
     if candidates.empty:
         return pd.DataFrame()
     raw = _raw_weights(candidates, score_col)
@@ -446,15 +472,19 @@ def select_market_leader_targets(scored: pd.DataFrame, variant: MarketLeaderVari
     sub_totals: dict[str, float] = {}
     theme_totals: dict[str, float] = {}
     for _, row in candidates.iterrows():
+        if len(selected_rows) >= int(variant.target_n):
+            break
         ticker = str(row.get("ticker") or "").upper()
         sub = str(row.get("leader_subindustry") or "unknown")
         theme = str(row.get("leader_broad_theme") or sub)
+        state = str(row.get("leader_state") or "HOLD")
+        state_scale = 0.50 if state == "WARNING" and safe_float(row.get("warning_streak")) >= 2 else 1.0
         cap = min(
             float(variant.single_cap),
             safe_float(row.get("liquidity_capacity_weight_cap"), 1.0),
             max(0.0, float(variant.subindustry_cap) - sub_totals.get(sub, 0.0)),
             max(0.0, float(variant.theme_cap) - theme_totals.get(theme, 0.0)),
-        )
+        ) * state_scale
         weight = min(raw.get(ticker, 0.0), cap)
         if weight <= 1e-9:
             continue
@@ -465,6 +495,7 @@ def select_market_leader_targets(scored: pd.DataFrame, variant: MarketLeaderVari
         out["weight"] = weight
         out["target_weight"] = weight
         out["selection_reason"] = _selection_reason(row, variant.portfolio_kind)
+        out["residual_cash_reason"] = ""
         selected_rows.append(out)
 
     # Recycle residual cash into selected names where caps allow; otherwise the
@@ -502,6 +533,13 @@ def select_market_leader_targets(scored: pd.DataFrame, variant: MarketLeaderVari
     if not selected.empty:
         selected["weight"] = selected["ticker"].astype(str).str.upper().map(weights).fillna(0.0)
         selected["target_weight"] = selected["weight"]
+        invested = float(selected["weight"].sum())
+        residual_reason = ""
+        if len(selected) < int(variant.target_n):
+            residual_reason = "candidate_pool_or_caps_exhausted"
+        elif invested < 0.999:
+            residual_reason = "position_caps_or_liquidity_caps_left_cash"
+        selected["residual_cash_reason"] = residual_reason
     return selected.sort_values("weight", ascending=False).reset_index(drop=True)
 
 
@@ -513,6 +551,8 @@ def rejection_reason(row: pd.Series, selected_tickers: set[str], variant: Market
         return "failed_dual_benchmark" if variant.portfolio_kind == "concentrated" else "failed_leader_tier_gate"
     if str(row.get("leader_state")) == "EXIT_REPLACE":
         return "exit_replace_state"
+    if str(row.get("leader_state")) == "WARNING" and safe_float(row.get("was_prev_holding")) <= 0:
+        return "warning_no_new_add"
     if safe_float(row.get("liquidity_capacity_weight_cap")) <= 0:
         return "liquidity_too_low"
     if not selected.empty:
@@ -542,11 +582,15 @@ def target_book_columns() -> list[str]:
         "sector_leadership_score",
         "future_winner_confirmation_score",
         "smart_money_confirmation_score",
+        "smart_money_confirmation_boost",
         "smart_money_evidence_confidence",
         "leader_chase_risk_score",
         "liquidity_capacity_score",
         "liquidity_capacity_weight_cap",
         "selection_reason",
+        "residual_cash_reason",
+        "was_prev_holding",
+        "holding_months",
         "portfolio_kind",
         "variant_id",
         "target_n",
@@ -613,6 +657,7 @@ def target_rows_from_selection(selection: pd.DataFrame, variant: MarketLeaderVar
                 "subindustry_cap": variant.subindustry_cap,
                 "theme_cap": variant.theme_cap,
                 "selection_reason": "residual_cash_from_caps",
+                "residual_cash_reason": str(rows[0].get("residual_cash_reason") or "position_caps_or_liquidity_caps_left_cash") if rows else "no_selected_leaders",
             }
         )
     return rows

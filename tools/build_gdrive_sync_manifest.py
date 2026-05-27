@@ -54,6 +54,8 @@ OPERATOR_REVIEW_FILES = [
     "market_leader_challenger/main_metrics.json",
     "market_leader_challenger/concentrated_metrics.json",
     "market_leader_challenger/parameter_stability.csv",
+    "market_leader_challenger/cost_sensitivity.csv",
+    "market_leader_challenger/holding_churn_diagnostics.csv",
     "live_trading_safety/safety_audit_summary.json",
     "portfolio_system_guard/error_check.json",
 ]
@@ -73,6 +75,7 @@ RESEARCH_FILES = [
     "market_leader_challenger/selected_leaders_latest.csv",
     "market_leader_challenger/leader_state_history.csv",
     "market_leader_challenger/rejected_leaders.csv",
+    "market_leader_challenger/attribution_by_component.csv",
     "market_leader_challenger/stress_window_metrics.csv",
     "market_leader_challenger/benchmark_relative_metrics.csv",
 ]
