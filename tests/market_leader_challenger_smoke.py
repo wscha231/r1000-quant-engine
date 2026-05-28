@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -99,6 +100,8 @@ def test_market_leader_challenger_builds_historical_target_books() -> None:
         assert "target_weight" in main_book.columns
         assert set(conc_book.loc[conc_book["ticker"].ne("CASH"), "leader_tier"]) == {"DUAL_LEADER"}
         assert (out / "broker_replay" / "main_N18_cap12_sub40_theme60_risk" / "metrics.json").exists()
+        conc_metrics = json.loads((out / "broker_replay" / "concentrated_N5_cap30_sub70_risk" / "metrics.json").read_text(encoding="utf-8"))
+        assert conc_metrics.get("target_book_filter_source") == "disabled_explicit"
         rejected = pd.read_csv(out / "rejected_leaders.csv")
         assert rejected["rejection_reason"].astype(str).str.len().min() > 0
         stability = pd.read_csv(out / "parameter_stability.csv")

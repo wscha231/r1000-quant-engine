@@ -98,6 +98,8 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/theme_concentration_challenger/",
         "outputs/baseline_lock/",
         "outputs/market_leader_challenger/",
+        "outputs/integrated_theme_leader_crisis_replay/",
+        "outputs/strategy_logic_ledger/",
         "outputs/auto_learning_v2/",
         "outputs/winner_lifecycle/",
         "outputs/winner_onset_study/",
@@ -134,6 +136,8 @@ def test_official_artifact_keeps_market_leader_replay_source() -> None:
     for token in [
         "name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}",
         "outputs/reports/candidate_replay_book.csv",
+        "outputs/integrated_theme_leader_crisis_replay/",
+        "outputs/strategy_logic_ledger/",
         'cp outputs/reports/candidate_replay_book.csv "$DEST/reports/"',
     ]:
         assert token in text, token
@@ -227,6 +231,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_theme_concentration_challenger.py",
         "tools/create_healthy_baseline_lock.py",
         "tools/run_market_leader_challenger.py",
+        "tools/run_integrated_theme_leader_crisis_replay.py",
+        "tools/run_strategy_logic_ledger.py",
         "tools/run_auto_learning_v2.py",
         "tools/run_winner_lifecycle_reports.py",
         "tools/run_winner_onset_study.py",
@@ -292,6 +298,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/theme_concentration_challenger.log",
         "outputs/full_rebuild_logs/baseline_lock.log",
         "outputs/full_rebuild_logs/market_leader_challenger.log",
+        "outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log",
+        "outputs/full_rebuild_logs/strategy_logic_ledger.log",
         "outputs/full_rebuild_logs/auto_learning_v2.log",
         "outputs/full_rebuild_logs/winner_lifecycle.log",
         "outputs/full_rebuild_logs/winner_onset_study.log",
@@ -400,7 +408,16 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "tools/run_theme_concentration_challenger.py",
         "tools/run_portfolio_goal_search.py",
         "tools/run_account_evaluation.py",
+        "tools/run_portfolio_system_guard.py",
+        "tools/create_healthy_baseline_lock.py",
+        "tools/run_integrated_theme_leader_crisis_replay.py",
+        "tools/run_strategy_logic_ledger.py",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs",
+        "outputs/baseline_lock/",
+        "outputs/integrated_theme_leader_crisis_replay/",
+        "outputs/strategy_logic_ledger/",
+        "outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log",
+        "outputs/full_rebuild_logs/strategy_logic_ledger.log",
     ]:
         assert token in text, token
     for forbidden in [

@@ -47,6 +47,11 @@ def read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def date_text(value: Any) -> str:
+    dt = pd.to_datetime(value, errors="coerce")
+    return "" if pd.isna(dt) else pd.Timestamp(dt).date().isoformat()
+
+
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
         if value is None or value == "":
@@ -147,6 +152,10 @@ def build_lock(latest_run: Path, run_id: str, branch: str, head_sha: str, row_fl
     metric_mode = str(official.get("official_metric_mode") or official.get("metric_mode") or "")
     main = extract_portfolio_metrics(official, latest_run, "main")
     concentrated = extract_portfolio_metrics(official, latest_run, "concentrated")
+    candidate_book = latest_run / "reports" / "candidate_replay_book.csv"
+    broker_end_dates = [x for x in [main.get("end_date"), concentrated.get("end_date")] if x]
+    broker_end_date = min(broker_end_dates) if broker_end_dates else ""
+    price_latest_date = broker_end_date
     blockers: list[str] = []
     if metric_mode != "broker_ledger_next_close":
         blockers.append("official_metric_mode_not_broker_ledger_next_close")
@@ -198,6 +207,15 @@ def build_lock(latest_run: Path, run_id: str, branch: str, head_sha: str, row_fl
         "concentrated": concentrated,
         "research_only": False,
         "production_activation_allowed": False,
+        "candidate_replay_book_present": bool(candidate_book.exists()),
+        "price_latest_date": date_text(price_latest_date),
+        "broker_end_date": date_text(broker_end_date),
+        "main_cagr": main.get("cagr"),
+        "main_max_dd": main.get("max_dd"),
+        "main_position_count": main.get("position_count"),
+        "concentrated_cagr": concentrated.get("cagr"),
+        "concentrated_max_dd": concentrated.get("max_dd"),
+        "concentrated_position_count": concentrated.get("position_count"),
     }
     return payload, blockers
 
@@ -209,6 +227,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
     parser.add_argument("--branch", default=os.environ.get("GITHUB_REF_NAME", ""))
     parser.add_argument("--head-sha", default=os.environ.get("GITHUB_SHA", ""))
+    parser.add_argument("--artifact-id", default=os.environ.get("GITHUB_ACTIONS_ARTIFACT_ID", ""))
     parser.add_argument("--row-floor", type=int, default=400)
     return parser.parse_args()
 
@@ -225,6 +244,7 @@ def main() -> int:
         head_sha=str(args.head_sha),
         row_floor=int(args.row_floor),
     )
+    payload["artifact_id"] = str(args.artifact_id or "")
     status_path = output_dir / "latest_status.json"
     if blockers:
         blocked_path = output_dir / f"blocked_baseline_{args.run_id}.json"
@@ -235,6 +255,8 @@ def main() -> int:
         return 0
     lock_path = output_dir / f"healthy_baseline_{args.run_id}.json"
     lock_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    active_path = output_dir / "active_baseline.json"
+    active_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     status = {**payload, "status": "healthy", "baseline_lock_path": str(lock_path)}
     status_path.write_text(json.dumps(status, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(f"[baseline-lock] wrote {lock_path}")

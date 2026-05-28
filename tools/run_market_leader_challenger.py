@@ -37,6 +37,7 @@ from r1000_market_leader_engine import (  # noqa: E402
     target_rows_from_selection,
 )
 from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
+from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS  # noqa: E402
 from tools.run_weekly_evaluation import price_on_or_before  # noqa: E402
 
 
@@ -348,7 +349,7 @@ def run_broker_variant(
             cost_bps=cost_bps,
             integer_shares=True,
             max_fill_lag_days=max_fill_lag_days,
-            concentrated_champion_filters={},
+            concentrated_champion_filters=DISABLE_CONCENTRATED_CHAMPION_FILTERS.copy(),
         )
     except Exception as exc:
         output_dir.mkdir(parents=True, exist_ok=True)
