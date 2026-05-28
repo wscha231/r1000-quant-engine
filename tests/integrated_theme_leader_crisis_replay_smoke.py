@@ -225,6 +225,8 @@ def test_integrated_replay_generates_default_8_case_contract() -> None:
         assert (out / "crisis_actions.csv").exists()
         assert (out / "cash_by_crisis_state.csv").exists()
         assert (out / "case_failure_reasons.csv").exists()
+        assert (out / "acceptance_gate_report.csv").exists()
+        assert (out / "promotion_gate_status.json").exists()
         assert (out / "replay_gate_status.json").exists()
         assert (out / "case_level_summary.md").exists()
         assert (out / "top3_stability.csv").exists()
@@ -233,6 +235,9 @@ def test_integrated_replay_generates_default_8_case_contract() -> None:
         mutation = pd.read_json(out / "production_mutation_check.json", typ="series")
         assert mutation["status"] == "passed"
         assert mutation["before_file_count"] >= 2
+        promotion = pd.read_json(out / "promotion_gate_status.json", typ="series")
+        assert promotion["production_activation_allowed"] == False  # noqa: E712
+        assert promotion["status"] in {"passed", "rejected"}
         risk_caps = pd.read_csv(out / "emerging_risk_caps.csv")
         assert "risk_cap_multiplier" in risk_caps.columns
         assert (out / "strategy_logic_ledger.csv").exists() is False

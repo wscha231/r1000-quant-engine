@@ -878,6 +878,76 @@ def top3_stability_report(ab: pd.DataFrame, baseline: dict[str, Any]) -> pd.Data
     return pd.DataFrame(rows)
 
 
+def acceptance_gate_report(ab: pd.DataFrame, top3: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    top3_by_kind = {str(row.get("portfolio_kind")): row for row in top3.to_dict("records")} if not top3.empty else {}
+    for rec in ab.to_dict("records"):
+        case_id = str(rec.get("case_id") or "")
+        portfolio_kind = str(rec.get("portfolio_kind") or "")
+        if case_id != "H":
+            continue
+        cagr = safe_float(rec.get("cagr"), math.nan)
+        max_dd = safe_float(rec.get("max_dd"), math.nan)
+        actual_n = safe_float(rec.get("actual_median_position_count"), math.nan)
+        green_cash = safe_float(rec.get("green_avg_cash"), math.nan)
+        covid_mdd = safe_float(rec.get("covid_mdd"), math.nan)
+        rate_2022_mdd = safe_float(rec.get("rate_2022_mdd"), math.nan)
+        filter_source = str(rec.get("target_book_filter_source") or "")
+        top3_row = top3_by_kind.get(portfolio_kind, {})
+        top3_pass = bool(top3_row.get("top3_median_pass")) if top3_row else False
+        blockers: list[str] = []
+        if portfolio_kind == "main":
+            if not math.isfinite(actual_n) or actual_n > 18:
+                blockers.append("main_position_count_gt_18")
+            if not math.isfinite(cagr) or cagr < 0.2005:
+                blockers.append("main_cagr_below_minimum")
+            if not math.isfinite(max_dd) or max_dd < -0.25:
+                blockers.append("main_max_dd_worse_than_minus_25pct")
+            if math.isfinite(green_cash) and green_cash > 0.10:
+                blockers.append("main_green_cash_gt_10pct")
+            if not top3_pass:
+                blockers.append("main_top3_median_failed")
+        elif portfolio_kind == "concentrated":
+            if not math.isfinite(actual_n) or int(round(actual_n)) not in {3, 5}:
+                blockers.append("concentrated_actual_n_not_3_or_5")
+            if not math.isfinite(cagr) or cagr < 0.2974:
+                blockers.append("concentrated_cagr_below_minimum")
+            if not math.isfinite(max_dd) or max_dd < -0.30:
+                blockers.append("concentrated_max_dd_worse_than_minus_30pct")
+            if not math.isfinite(covid_mdd) or covid_mdd < -0.30:
+                blockers.append("concentrated_covid_mdd_worse_than_minus_30pct")
+            if filter_source == "default_static":
+                blockers.append("concentrated_default_static_filter")
+            if not top3_pass:
+                blockers.append("concentrated_top3_median_failed")
+        rows.append(
+            {
+                "case_id": case_id,
+                "portfolio_kind": portfolio_kind,
+                "candidate_case": "H",
+                "cagr": cagr if math.isfinite(cagr) else "",
+                "max_dd": max_dd if math.isfinite(max_dd) else "",
+                "actual_median_position_count": actual_n if math.isfinite(actual_n) else "",
+                "green_avg_cash": green_cash if math.isfinite(green_cash) else "",
+                "covid_mdd": covid_mdd if math.isfinite(covid_mdd) else "",
+                "rate_2022_mdd": rate_2022_mdd if math.isfinite(rate_2022_mdd) else "",
+                "target_book_filter_source": filter_source,
+                "top3_median_pass": top3_pass,
+                "acceptance_status": "passed" if not blockers else "rejected",
+                "acceptance_blockers": ",".join(blockers),
+            }
+        )
+    status = "passed" if rows and all(str(row["acceptance_status"]) == "passed" for row in rows) else "rejected"
+    payload = {
+        "status": status,
+        "production_activation_allowed": False,
+        "research_only": True,
+        "candidate_case": "H",
+        "blockers": sorted({b for row in rows for b in str(row.get("acceptance_blockers") or "").split(",") if b}),
+    }
+    return pd.DataFrame(rows), payload
+
+
 def case_failure_reasons(ab: pd.DataFrame) -> pd.DataFrame:
     if ab.empty:
         return pd.DataFrame(columns=["case_id", "portfolio_kind", "failure_reason"])
@@ -1277,6 +1347,9 @@ def main() -> int:
     ab = write_csv(output_dir / "ab_matrix.csv", ab)
     write_csv(output_dir / "ab_delta_decomposition.csv", delta_decomposition(ab))
     top3_stability = write_csv(output_dir / "top3_stability.csv", top3_stability_report(ab, baseline))
+    acceptance_report, acceptance_status = acceptance_gate_report(ab, top3_stability)
+    write_csv(output_dir / "acceptance_gate_report.csv", acceptance_report)
+    write_json(output_dir / "promotion_gate_status.json", acceptance_status)
     failures = write_csv(output_dir / "case_failure_reasons.csv", case_failure_reasons(ab))
     write_csv(output_dir / "stress_window_metrics.csv", stress_df)
     if {"case_id", "portfolio_kind", "cash_trap_days"}.issubset(ab.columns):
@@ -1317,6 +1390,8 @@ def main() -> int:
     write_json(output_dir / "replay_integrity" / "production_mutation_check.json", mutation_check)
     replay_gate_status = {
         "status": "passed" if failures.empty and mutation_check.get("status") == "passed" else "review_required",
+        "acceptance_status": acceptance_status.get("status"),
+        "acceptance_blockers": acceptance_status.get("blockers", []),
         "case_failure_count": int(len(failures)),
         "production_mutation_check": mutation_check.get("status"),
         "top3_stability_rows": int(len(top3_stability)),
