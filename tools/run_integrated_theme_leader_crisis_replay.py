@@ -631,9 +631,14 @@ def build_multi_lane_book(candidate: pd.DataFrame, portfolio_kind: str, hold_rep
                 selected_tickers.add(ticker)
                 if len(selected) >= target_n:
                     break
+        if len(selected) > target_n:
+            selected = selected[:target_n]
+            selected_tickers = {str(row.get("ticker") or "").upper() for row in selected}
         emerging_count = sum(1 for row in selected if str(row.get("primary_lane")) in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"})
         ranked = month.sort_values(["lane_confidence", "market_leader_lane_score"], ascending=False)
         for rec in ranked.to_dict("records"):
+            if len(selected) >= target_n:
+                break
             ticker = str(rec.get("ticker") or "").upper()
             if not ticker or ticker in selected_tickers:
                 continue
@@ -727,6 +732,11 @@ def enrich_ab_matrix(ab: pd.DataFrame, stress: pd.DataFrame, cash_by_state: pd.D
             green["cash_weight"] = pd.to_numeric(green["cash_weight"], errors="coerce")
             mapping = green.groupby(["case_id", "portfolio_kind"])["cash_weight"].mean().to_dict()
             out["green_avg_cash"] = [mapping.get((row.case_id, row.portfolio_kind), getattr(row, "green_avg_cash", "")) for row in out.itertuples(index=False)]
+            trap = green[green["cash_weight"] > 0.10].groupby(["case_id", "portfolio_kind"]).size().to_dict()
+            out["cash_trap_days"] = [
+                trap.get((row.case_id, row.portfolio_kind), 0) if bool(row.crisis_overlay_enabled) else getattr(row, "cash_trap_days", "")
+                for row in out.itertuples(index=False)
+            ]
     return out
 
 
@@ -883,7 +893,7 @@ def case_failure_reasons(ab: pd.DataFrame) -> pd.DataFrame:
         review_flags = str(rec.get("review_flags") or "").strip()
         if review_flags and review_flags.lower() not in {"nan", "none"}:
             reasons.append(review_flags)
-        if str(rec.get("target_book_filter_source") or "") == "default_static":
+        if str(rec.get("selection_layer") or "") != "production" and str(rec.get("target_book_filter_source") or "") == "default_static":
             reasons.append("default_static_filter")
         if reasons:
             rows.append(
@@ -1010,6 +1020,13 @@ def run_case(
         diagnostics["crisis_actions"] = actions
         diagnostics["cash_by_crisis_state"] = cash_by_state
         diagnostics["reentry_events"] = reentry
+    expected_target_n: int | None = None
+    if portfolio_kind == "concentrated":
+        expected_target_n = 3 if case.selection_layer == "production" else 5
+    elif case.selection_layer in {"market_leader", "multi_lane"}:
+        expected_target_n = 15
+    if expected_target_n is not None:
+        target["target_n"] = expected_target_n
     target_path = case_dir / "target_book.csv"
     target.to_csv(target_path, index=False)
     coverage = target_price_coverage(target, price_cache)
@@ -1066,11 +1083,15 @@ def run_case(
         artifact_id=artifact_id,
         asof_date=None,
     )
-    if preflight.get("blockers"):
+    preflight_blockers = list(preflight.get("blockers") or [])
+    if case.selection_layer == "production":
+        preflight_blockers = [b for b in preflight_blockers if b != "default_static_concentrated_filter"]
+    if preflight_blockers:
         metrics["metric_mode_review"] = "DO_NOT_USE"
+    metrics["preflight_blockers"] = preflight_blockers
     metrics["candidate_source_mode"] = preflight.get("candidate_source_mode", "")
     metrics["target_book_filter_source"] = preflight.get("target_book_filter_source", metrics.get("target_book_filter_source", ""))
-    metrics["requested_target_n"] = preflight.get("requested_target_n", "")
+    metrics["requested_target_n"] = preflight.get("requested_target_n", "") or (expected_target_n if expected_target_n is not None else "")
     metrics["actual_median_position_count"] = preflight.get("actual_median_position_count", "")
     metrics["actual_latest_position_count"] = preflight.get("actual_latest_position_count", "")
     metrics["price_cache_coverage"] = preflight.get("price_cache_coverage", metrics.get("price_cache_coverage", ""))
@@ -1258,6 +1279,13 @@ def main() -> int:
     top3_stability = write_csv(output_dir / "top3_stability.csv", top3_stability_report(ab, baseline))
     failures = write_csv(output_dir / "case_failure_reasons.csv", case_failure_reasons(ab))
     write_csv(output_dir / "stress_window_metrics.csv", stress_df)
+    if {"case_id", "portfolio_kind", "cash_trap_days"}.issubset(ab.columns):
+        write_csv(output_dir / "cash_trap_days.csv", ab[["case_id", "portfolio_kind", "cash_trap_days"]])
+    if {"case_id", "portfolio_kind", "requested_target_n", "actual_median_position_count", "actual_latest_position_count"}.issubset(ab.columns):
+        write_csv(
+            output_dir / "actual_median_position_count.csv",
+            ab[["case_id", "portfolio_kind", "requested_target_n", "actual_median_position_count", "actual_latest_position_count"]],
+        )
     write_csv(output_dir / "lane_target_book.csv", pd.concat(all_targets, ignore_index=True) if all_targets else pd.DataFrame())
     for name, frames in diag_frames.items():
         write_csv(output_dir / f"{name}.csv", pd.concat(frames, ignore_index=True) if frames else pd.DataFrame())
@@ -1270,7 +1298,6 @@ def main() -> int:
     # Contract placeholders for downstream dashboards; populated as the replay matures.
     for name in [
         "cost_sensitivity.csv",
-        "cash_trap_days.csv",
         "leader_rotation_events.csv",
         "theme_exposure_by_month.csv",
         "hold_duration_distribution.csv",
@@ -1281,7 +1308,6 @@ def main() -> int:
         "false_alarm_cash_drag.csv",
         "cash_trap_after_reentry.csv",
         "same_subindustry_exposure.csv",
-        "actual_median_position_count.csv",
     ]:
         path = output_dir / name
         if not path.exists():

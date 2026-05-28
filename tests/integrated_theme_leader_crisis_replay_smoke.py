@@ -13,6 +13,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
+    build_multi_lane_book,
+    case_failure_reasons,
+    enrich_ab_matrix,
+)
 
 
 def write_price(cache: Path, ticker: str, start: float, daily_ret: float) -> None:
@@ -63,6 +68,92 @@ def candidate_rows() -> list[dict[str, object]]:
                 }
             )
     return rows
+
+
+def concentrated_candidate_rows() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    tickers = ["MELI", "NOW", "PAYC", "QCOM", "SHOP", "UI", "RKLB"]
+    for dt in ("2025-03-31", "2025-04-30", "2025-05-30"):
+        for idx, ticker in enumerate(tickers):
+            emerging = ticker == "RKLB"
+            rows.append(
+                {
+                    "rebalance_date": pd.Timestamp(dt),
+                    "ticker": ticker,
+                    "sector": "Technology",
+                    "industry_group": "Technology",
+                    "subindustry": "Technology",
+                    "score": 1.0,
+                    "rs_benchmark_3m": 0.35 - idx * 0.01,
+                    "rs_benchmark_6m": 0.30 - idx * 0.01,
+                    "relative_strength_composite": 0.30 - idx * 0.01,
+                    "industry_group_strength_score": 0.30,
+                    "industry_within_leader_rank": 0.30,
+                    "oneil_leadership_score": 0.30,
+                    "sub_industry_rs_score": 0.30,
+                    "industry_leader_gap": 0.30,
+                    "portfolio_future_winner_engine_score": 1.0,
+                    "portfolio_early_scout_engine_score": 1.0 if emerging else 0.0,
+                    "portfolio_monster_early_score": 1.0 if emerging else 0.0,
+                    "theme_phase_primary": "emerging" if emerging else "confirmed",
+                    "theme_phase_multiplier_primary": 1.5 if emerging else 1.0,
+                    "dollar_vol_20d": 100_000_000,
+                    "market_cap_live": 5_000_000_000,
+                    "data_confidence": 0.9,
+                    "cash_runway_quarters": 6,
+                    "dilution_4q": 0.05,
+                    "fcf_margin": -0.25 if emerging else 0.15,
+                    "price_above_ma50": 1,
+                    "price_above_ma200": 1,
+                }
+            )
+    return rows
+
+
+def test_concentrated_multi_lane_does_not_exceed_n5_after_hold_persistence() -> None:
+    book, _lane_history, _rejected, _exposure = build_multi_lane_book(pd.DataFrame(concentrated_candidate_rows()), "concentrated", True)
+    non_cash = book[~book["ticker"].astype(str).str.upper().isin({"CASH", "__CASH__"})].copy()
+    counts = non_cash.groupby("rebalance_date")["ticker"].nunique()
+    assert not counts.empty
+    assert int(counts.max()) <= 5
+
+
+def test_cash_trap_days_numeric_and_production_default_static_not_failure() -> None:
+    ab = pd.DataFrame(
+        [
+            {
+                "case_id": "A",
+                "portfolio_kind": "concentrated",
+                "selection_layer": "production",
+                "status": "completed",
+                "metric_mode": "broker_ledger_next_close",
+                "metric_mode_review": "",
+                "target_book_filter_source": "default_static",
+                "crisis_overlay_enabled": False,
+            },
+            {
+                "case_id": "H",
+                "portfolio_kind": "main",
+                "selection_layer": "multi_lane",
+                "status": "completed",
+                "metric_mode": "broker_ledger_next_close",
+                "metric_mode_review": "",
+                "target_book_filter_source": "not_applicable",
+                "crisis_overlay_enabled": True,
+            },
+        ]
+    )
+    cash = pd.DataFrame(
+        [
+            {"case_id": "H", "portfolio_kind": "main", "crisis_state": "GREEN", "cash_weight": 0.11},
+            {"case_id": "H", "portfolio_kind": "main", "crisis_state": "GREEN", "cash_weight": 0.03},
+        ]
+    )
+    enriched = enrich_ab_matrix(ab, pd.DataFrame(), cash)
+    h_cash = enriched.loc[enriched["case_id"].eq("H"), "cash_trap_days"].iloc[0]
+    assert int(h_cash) == 1
+    failures = case_failure_reasons(enriched)
+    assert failures.empty
 
 
 def test_integrated_replay_generates_default_8_case_contract() -> None:
@@ -159,6 +250,8 @@ def test_integrated_replay_generates_default_8_case_contract() -> None:
 
 def main() -> int:
     test_integrated_replay_generates_default_8_case_contract()
+    test_concentrated_multi_lane_does_not_exceed_n5_after_hold_persistence()
+    test_cash_trap_days_numeric_and_production_default_static_not_failure()
     print("integrated_theme_leader_crisis_replay_smoke: PASS")
     return 0
 
