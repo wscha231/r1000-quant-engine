@@ -3,24 +3,24 @@
   "account_source_note": "Current holdings come from broker replay account_state_latest.json, not a live broker account snapshot.",
   "approval_note": "Simulated broker-ledger account mode is active; this is a paper/live-like replay, not a real broker account.",
   "approval_status": "simulation_ready_preview_only",
-  "as_of_date": "2026-05-22",
+  "as_of_date": "2026-05-27",
   "cash_policy_flag": "cash_above_target",
   "cash_policy_review_action": "DEPLOY_CASH_REVIEW",
-  "cash_usd": 97737.326473397,
-  "current_cash_weight": 0.08786094979263558,
+  "cash_usd": 115530.65428358356,
+  "current_cash_weight": 0.08870480813735027,
   "current_portfolio_snapshot": {
-    "as_of_date": "2026-05-22",
+    "as_of_date": "2026-05-27",
     "cash_policy_flag": "cash_above_target",
     "cash_policy_review_action": "DEPLOY_CASH_REVIEW",
     "cash_row_count": 2,
-    "combined_cash_gap_weight": -0.0569703242769808,
-    "combined_current_cash_weight": 0.08786094979263558,
-    "combined_target_cash_weight": 0.030890625515654777,
-    "generated_at_utc": "2026-05-27T08:04:54.838423+00:00",
+    "combined_cash_gap_weight": -0.08128372335154074,
+    "combined_current_cash_weight": 0.08870480813735027,
+    "combined_target_cash_weight": 0.007421084785809524,
+    "generated_at_utc": "2026-05-28T14:02:12.561898+00:00",
     "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
     "macro_cash_raise_confirmation_count": 0.0,
-    "macro_cash_raise_gate": "none",
-    "macro_recommended_cash_floor": 0.03,
+    "macro_cash_raise_gate": "reentry_holdback_only",
+    "macro_recommended_cash_floor": 0.05,
     "monster_recommendation_count": 0,
     "notes": [
       "This is the current simulated broker-ledger account state marked to the latest available close.",
@@ -36,26 +36,26 @@
       "current_operating_holdings_concentrated_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_concentrated_latest.csv",
       "current_operating_holdings_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_latest.csv",
       "current_operating_holdings_main_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_operating_holdings_main_latest.csv",
-      "current_operating_row_count": 32,
+      "current_operating_row_count": 46,
       "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_summary.json",
-      "proposed_target_delta_row_count": 32,
+      "proposed_target_delta_row_count": 46,
       "proposed_target_deltas_csv": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/proposed_target_deltas_latest.csv",
       "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/current_portfolio_snapshot_report.md"
     },
     "portfolio_position_counts": {
       "concentrated": 3,
-      "main": 27
+      "main": 41
     },
     "primary_user_view": "current_operating_holdings_latest.csv",
-    "row_count": 32,
+    "row_count": 46,
     "schema_version": "current-portfolio-snapshot-v2",
     "snapshot_semantics": "current_broker_ledger_mark_to_market",
     "status": "completed"
   },
-  "equity_row_count": 43,
+  "equity_row_count": 56,
   "error_count": 0,
-  "generated_at_utc": "2026-05-27T08:04:54.839410+00:00",
-  "issue_count": 1,
+  "generated_at_utc": "2026-05-28T14:02:12.562983+00:00",
+  "issue_count": 3,
   "issues": [
     {
       "check_id": "simulated_broker_account",
@@ -64,12 +64,28 @@
       "path": "",
       "severity": "info",
       "source": "live_trading_risk_controls"
+    },
+    {
+      "check_id": "main_cost_basis_price_ratio_review",
+      "details": "{\"cost_basis\": 138.94720806652987, \"price\": 902.3099975585938, \"ratio\": 6.493905204101367, \"ticker\": \"LITE\"}",
+      "message": "current price versus stored cost basis is extreme; verify splits, transfers, and cost basis before execution",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/main/positions_current.csv",
+      "severity": "warning",
+      "source": "live_trading_risk_controls"
+    },
+    {
+      "check_id": "main_cost_basis_price_ratio_review",
+      "details": "{\"cost_basis\": 110.37890882033078, \"price\": 530.5999755859375, \"ratio\": 4.80707755907989, \"ticker\": \"WDC\"}",
+      "message": "current price versus stored cost basis is extreme; verify splits, transfers, and cost basis before execution",
+      "path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/account_ledger_preview/main/positions_current.csv",
+      "severity": "warning",
+      "source": "live_trading_risk_controls"
     }
   ],
   "latest_run": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs",
   "macro_cash_raise_confirmation_count": 0.0,
-  "macro_cash_raise_gate": "none",
-  "macro_recommended_cash_floor": 0.03,
+  "macro_cash_raise_gate": "reentry_holdback_only",
+  "macro_recommended_cash_floor": 0.05,
   "monster_recommendation_count": 0,
   "orchestrator_target_source": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/orchestrator/unified_target_latest.csv",
   "outputs": {
@@ -80,15 +96,15 @@
     "json": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_latest.json",
     "report": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operating_snapshot/operating_snapshot_report.md"
   },
-  "preview_order_count": 48,
+  "preview_order_count": 51,
   "risk_controls_status": "pass",
-  "row_count": 44,
+  "row_count": 57,
   "safety_audit_status": "pass",
   "schema_version": "operating-snapshot-v1",
   "status": "simulation",
-  "target_cash_weight": 0.030890625515654777,
+  "target_cash_weight": 0.007421084785809524,
   "target_precedence": "account_ledger_preview_target_weights",
   "target_source": "account_ledger_preview/*/target_weights.csv",
-  "total_equity_usd": 1112409.1727220237,
-  "warning_count": 0
+  "total_equity_usd": 1302417.047164977,
+  "warning_count": 2
 }
