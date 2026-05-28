@@ -3,11 +3,11 @@
 - Status: `completed`
 - As-of date: `2026-05-27`
 - Semantics: `current_broker_ledger_mark_to_market`
-- Rows: 46
+- Rows: 47
 - Cash rows: 2
 - Monster recommendation rows: 0
-- Combined current cash: 8.87%
-- Combined target cash: 0.74%
+- Combined current cash: 8.65%
+- Combined target cash: 2.44%
 - Cash policy review: `DEPLOY_CASH_REVIEW`
 - Primary user view: `current_operating_holdings_latest.csv`
 
@@ -18,5 +18,5 @@ Cash policy fields are combined-account context; they are not separate per-portf
 
 ## Portfolio Rows
 
-- concentrated: 3 equity positions
+- concentrated: 4 equity positions
 - main: 41 equity positions

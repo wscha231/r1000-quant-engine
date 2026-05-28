@@ -6,12 +6,12 @@
     "WATCH": "monitor; do not raise cash without confirmation"
   },
   "auto_trade_allowed": false,
-  "generated_at_utc": "2026-05-28T14:02:14.455545+00:00",
+  "generated_at_utc": "2026-05-28T17:58:54.261191+00:00",
   "hysteresis": {
     "raw_state": "WATCH",
     "raw_state_streak": 1,
     "state": "GREEN",
-    "updated_at_utc": "2026-05-28T14:02:14.451197+00:00"
+    "updated_at_utc": "2026-05-28T17:58:54.256953+00:00"
   },
   "long_crisis": {
     "available": false,
@@ -26,7 +26,7 @@
   "research_only": true,
   "schema_version": "daily-crisis-monitor-v1",
   "shakeout_guard": {
-    "leader_like_current_rows": 32,
+    "leader_like_current_rows": 34,
     "requires_liquidity_trend_credit_confirmation": true,
     "single_name_shakeout_cash_raise_forbidden": true,
     "vix_only_cash_raise_forbidden": true

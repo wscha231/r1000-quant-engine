@@ -5,11 +5,11 @@
 - Account source: `simulated_broker_replay`
 - Target source: `account_ledger_preview/*/target_weights.csv`
 - As-of date: `2026-05-27`
-- Total equity: $1,302,417.05
-- Current cash: 8.87%
-- Target cash: 0.74%
+- Total equity: $1,175,410.32
+- Current cash: 8.65%
+- Target cash: 2.44%
 - Cash policy review: `DEPLOY_CASH_REVIEW`
-- Preview orders represented: 51
+- Preview orders represented: 53
 
 This file is the canonical operator snapshot. Raw portfolio_latest files are model targets, not account holdings.
 
