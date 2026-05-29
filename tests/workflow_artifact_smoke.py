@@ -435,6 +435,9 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "outputs/full_rebuild_logs/strategy_logic_ledger.log",
         "outputs/full_rebuild_logs/patch_application_manifest.log",
         "outputs/full_rebuild_logs/position_cleanup_review.log",
+        "CANDIDATE_BOOK=\"$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)\"",
+        "selected source with candidate_replay_book",
+        "integrated replay will be blocked",
     ]:
         assert token in text, token
     for forbidden in [

@@ -88,7 +88,14 @@ jobs:
           done
           mkdir -p source_artifacts outputs/full_rebuild_logs
           gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
-          SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+          CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)"
+          if [ -n "$CANDIDATE_BOOK" ]; then
+            SRC="$(dirname "$(dirname "$CANDIDATE_BOOK")")"
+            echo "[replay] selected source with candidate_replay_book=$CANDIDATE_BOOK"
+          else
+            SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+            echo "[replay] WARNING: no candidate_replay_book found in source artifacts; integrated replay will be blocked"
+          fi
           if [ -z "$SRC" ]; then
             echo "[replay] ERROR: could not locate backtest_metrics.json in source artifacts"
             find source_artifacts -maxdepth 3 -type f | head -100
