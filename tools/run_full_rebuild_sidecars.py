@@ -16,9 +16,14 @@ import sys
 SHELL_SCRIPT = r"""set -e
 set -o pipefail
 SIDECAR_PROFILE="${SIDECAR_PROFILE:-research_full}"
-echo "[sidecar] profile=${SIDECAR_PROFILE}"
+ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-unknown}"
+GDRIVE_SYNC_MODE="${GDRIVE_SYNC_MODE:-unknown}"
+echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE}"
 if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
   echo "[sidecar] phase_g_only is handled by phase_g_crisis_evidence_liquidity_replay.yml; skipping full rebuild sidecars."
+  mkdir -p outputs/full_rebuild_logs
+  BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
+  python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
   exit 0
 fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
@@ -39,6 +44,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_account_evaluation.py --latest-run outputs --output-dir outputs/account_evaluation 2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log || true
   python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
   python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+  python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
   python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
   python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
@@ -48,12 +54,17 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_execution_lag_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/execution_lag_review.log || true
     python tools/run_position_risk_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_risk_review.log || true
     python tools/run_concentrated_broker_variant_review.py --latest-run outputs --price-cache cache_prices --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/concentrated_broker_variant_review.log || true
+    python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
     python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
     python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
     python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
+    python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+    python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
   fi
+  BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
+  python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
@@ -170,9 +181,13 @@ python tools/run_alphaops_policy_fusion.py --latest-run outputs --output-dir out
 python tools/run_monster_recommendation_bridge.py --latest-run outputs --output-dir outputs/monster_recommendations 2>&1 | tee outputs/full_rebuild_logs/monster_recommendations.log || true
 python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs/operating_snapshot 2>&1 | tee outputs/full_rebuild_logs/operating_snapshot.log || true
 python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
+python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
+BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
+python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
 python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
 python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
+python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
 
 """
 
@@ -185,6 +200,8 @@ def parse_args() -> argparse.Namespace:
         default="operating_minimal",
         help="Sidecar generation profile from full_rebuild_manual.yml",
     )
+    parser.add_argument("--artifact-profile", default=os.environ.get("ARTIFACT_PROFILE", "unknown"))
+    parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
     return parser.parse_args()
 
 
@@ -192,6 +209,8 @@ def main() -> int:
     args = parse_args()
     env = os.environ.copy()
     env["SIDECAR_PROFILE"] = args.profile
+    env["ARTIFACT_PROFILE"] = args.artifact_profile
+    env["GDRIVE_SYNC_MODE"] = args.gdrive_sync_mode
     if os.name == "nt":
         print("run_full_rebuild_sidecars.py is intended for the GitHub Linux runner", file=sys.stderr)
         return 2

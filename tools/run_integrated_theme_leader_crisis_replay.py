@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_candidate_lanes import lane_feature_mapping_payload, score_candidate_lanes  # noqa: E402
+from tools.crisis_state_engine import build_historical_daily_crisis_state  # noqa: E402
 from r1000_market_leader_engine import (  # noqa: E402
     MarketLeaderVariant,
     apply_state_history,
@@ -333,76 +334,21 @@ def price_frame(cache: Path, ticker: str) -> pd.DataFrame:
     return d.dropna(subset=["close"]) if "close" in d.columns else pd.DataFrame()
 
 
-def build_daily_crisis_state(price_cache: Path, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    spy = price_frame(price_cache, "SPY")
-    if spy.empty:
-        dates = pd.bdate_range(start, end)
-        return pd.DataFrame(
-            {
-                "date": dates,
-                "crisis_state": "GREEN",
-                "crisis_score": 0.0,
-                "reentry_stage": "",
-                "reentry_trigger": "",
-            }
-        )
-    spy = spy[(spy.index >= start.normalize()) & (spy.index <= end.normalize())].copy()
-    if spy.empty:
-        dates = pd.bdate_range(start, end)
-        return pd.DataFrame({"date": dates, "crisis_state": "GREEN", "crisis_score": 0.0, "reentry_stage": "", "reentry_trigger": ""})
-    close = pd.to_numeric(spy["close"], errors="coerce")
-    peak = close.cummax()
-    drawdown = close / peak - 1.0
-    ma20 = close.rolling(20, min_periods=5).mean()
-    ma50 = close.rolling(50, min_periods=10).mean()
-    states: list[str] = []
-    stages: list[str] = []
-    triggers: list[str] = []
-    reentry_count = 0
-    prior_defense = False
-    for dt, dd in drawdown.items():
-        px = float(close.loc[dt])
-        above20 = bool(px >= float(ma20.loc[dt])) if pd.notna(ma20.loc[dt]) else True
-        above50 = bool(px >= float(ma50.loc[dt])) if pd.notna(ma50.loc[dt]) else True
-        if dd <= -0.20:
-            state = "CRISIS_DEFENSE"
-            prior_defense = True
-            reentry_count = 0
-            trigger = "drawdown_below_20pct"
-        elif dd <= -0.12 or (dd <= -0.08 and not above50):
-            state = "DEFENSE_REVIEW"
-            prior_defense = True
-            reentry_count = 0
-            trigger = "drawdown_or_ma50_damage"
-        elif prior_defense and dd > -0.12 and above20:
-            state = "REENTRY_READY"
-            reentry_count += 1
-            trigger = "ma20_recovery_after_defense"
-        elif dd <= -0.06 or not above20:
-            state = "WATCH"
-            trigger = "pullback_or_ma20_damage"
-        else:
-            state = "GREEN"
-            prior_defense = False
-            reentry_count = 0
-            trigger = "risk_on"
-        if state == "REENTRY_READY":
-            stage = "REENTRY_STAGE_1" if reentry_count <= 5 else "REENTRY_STAGE_2" if reentry_count <= 15 else "REENTRY_STAGE_3"
-        else:
-            stage = ""
-        states.append(state)
-        stages.append(stage)
-        triggers.append(trigger)
-    out = pd.DataFrame(
-        {
-            "date": spy.index,
-            "crisis_state": states,
-            "crisis_score": (-drawdown * 2.0).clip(lower=0.0, upper=1.0).to_numpy(),
-            "reentry_stage": stages,
-            "reentry_trigger": triggers,
-        }
+def build_daily_crisis_state(
+    price_cache: Path,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    *,
+    long_crisis_features: Path | None = None,
+    long_crisis_thresholds: Path | None = None,
+) -> pd.DataFrame:
+    return build_historical_daily_crisis_state(
+        price_cache,
+        start,
+        end,
+        long_crisis_features=long_crisis_features,
+        long_crisis_thresholds=long_crisis_thresholds,
     )
-    return out.reset_index(drop=True)
 
 
 def mutation_dates(states: pd.DataFrame, target_dates: list[pd.Timestamp]) -> set[pd.Timestamp]:
@@ -812,6 +758,57 @@ def delta_decomposition(ab: pd.DataFrame) -> pd.DataFrame:
                     "max_dd_delta": diff("max_dd"),
                     "avg_cash_delta": diff("avg_cash_weight"),
                     "fees_delta": diff("total_fees_usd"),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def crisis_effect_summary(ab: pd.DataFrame) -> pd.DataFrame:
+    pairs = [
+        ("B-A", "B", "A", "production_crisis_only"),
+        ("D-C", "D", "C", "crisis_on_market_leader"),
+        ("F-E", "F", "E", "crisis_on_market_leader_hold_replace"),
+        ("H-G", "H", "G", "crisis_on_multi_lane_hold_replace"),
+    ]
+    if ab.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for portfolio_kind in sorted({str(x) for x in ab["portfolio_kind"].dropna().unique()}):
+        subset = ab[ab["portfolio_kind"].astype(str).eq(portfolio_kind)].copy()
+        by_case = {str(row.get("case_id")): row for row in subset.to_dict("records")}
+        for delta_id, crisis_case, base_case, effect_name in pairs:
+            crisis = by_case.get(crisis_case)
+            base = by_case.get(base_case)
+            if crisis is None or base is None:
+                continue
+            base_cagr = safe_float(base.get("cagr"), math.nan)
+            crisis_cagr = safe_float(crisis.get("cagr"), math.nan)
+            base_mdd = safe_float(base.get("max_dd"), math.nan)
+            crisis_mdd = safe_float(crisis.get("max_dd"), math.nan)
+            mdd_improved = bool(math.isfinite(base_mdd) and math.isfinite(crisis_mdd) and crisis_mdd > base_mdd)
+            rows.append(
+                {
+                    "portfolio_kind": portfolio_kind,
+                    "delta_id": delta_id,
+                    "effect_name": effect_name,
+                    "baseline_case": base_case,
+                    "crisis_case": crisis_case,
+                    "baseline_status": base.get("status", ""),
+                    "crisis_status": crisis.get("status", ""),
+                    "baseline_cagr": base_cagr if math.isfinite(base_cagr) else "",
+                    "crisis_cagr": crisis_cagr if math.isfinite(crisis_cagr) else "",
+                    "cagr_delta": crisis_cagr - base_cagr if math.isfinite(base_cagr) and math.isfinite(crisis_cagr) else "",
+                    "baseline_max_dd": base_mdd if math.isfinite(base_mdd) else "",
+                    "crisis_max_dd": crisis_mdd if math.isfinite(crisis_mdd) else "",
+                    "max_dd_delta": crisis_mdd - base_mdd if math.isfinite(base_mdd) and math.isfinite(crisis_mdd) else "",
+                    "mdd_improved": mdd_improved,
+                    "baseline_green_avg_cash": base.get("green_avg_cash", ""),
+                    "crisis_green_avg_cash": crisis.get("green_avg_cash", ""),
+                    "crisis_cash_trap_days": crisis.get("cash_trap_days", ""),
+                    "baseline_review_status": base.get("review_status", ""),
+                    "crisis_review_status": crisis.get("review_status", ""),
+                    "crisis_review_flags": crisis.get("review_flags", ""),
+                    "interpretation": "crisis_overlay_improved_mdd" if mdd_improved else "crisis_overlay_did_not_improve_mdd",
                 }
             )
     return pd.DataFrame(rows)
@@ -1250,6 +1247,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated", "both"], default="both")
     parser.add_argument("--cost-bps", type=float, default=25.0)
     parser.add_argument("--artifact-id", default="")
+    parser.add_argument("--long-crisis-features", default="data_pit/macro/long_crisis_daily_features.parquet")
+    parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     parser.add_argument("--default-only", action="store_true", help="Run A/F/H only for quick local inspection")
     return parser.parse_args()
 
@@ -1292,7 +1291,13 @@ def main() -> int:
         return 0
 
     dates = pd.to_datetime(candidate["rebalance_date"], errors="coerce").dropna()
-    crisis_states = build_daily_crisis_state(price_cache, pd.Timestamp(dates.min()), pd.Timestamp(dates.max()))
+    crisis_states = build_daily_crisis_state(
+        price_cache,
+        pd.Timestamp(dates.min()),
+        pd.Timestamp(dates.max()),
+        long_crisis_features=repo_path(args.long_crisis_features),
+        long_crisis_thresholds=repo_path(args.long_crisis_thresholds),
+    )
     crisis_states.to_csv(output_dir / "daily_crisis_state.csv", index=False)
     write_json(output_dir / "lane_feature_mapping.json", lane_feature_mapping_payload())
     write_json(output_dir / "lane_budget_by_regime.json", {"normal": LANE_BUDGETS_NORMAL, "crisis_settings": CRISIS_SETTINGS})
@@ -1346,6 +1351,7 @@ def main() -> int:
     ab = add_numeric_completeness_flags(ab)
     ab = write_csv(output_dir / "ab_matrix.csv", ab)
     write_csv(output_dir / "ab_delta_decomposition.csv", delta_decomposition(ab))
+    write_csv(output_dir / "crisis_effect_summary.csv", crisis_effect_summary(ab))
     top3_stability = write_csv(output_dir / "top3_stability.csv", top3_stability_report(ab, baseline))
     acceptance_report, acceptance_status = acceptance_gate_report(ab, top3_stability)
     write_csv(output_dir / "acceptance_gate_report.csv", acceptance_report)
@@ -1359,7 +1365,24 @@ def main() -> int:
             output_dir / "actual_median_position_count.csv",
             ab[["case_id", "portfolio_kind", "requested_target_n", "actual_median_position_count", "actual_latest_position_count"]],
         )
-    write_csv(output_dir / "lane_target_book.csv", pd.concat(all_targets, ignore_index=True) if all_targets else pd.DataFrame())
+    all_target_df = pd.concat(all_targets, ignore_index=True) if all_targets else pd.DataFrame()
+    write_csv(output_dir / "lane_target_book.csv", all_target_df)
+    if not all_target_df.empty:
+        crisis_book_dir = output_dir / "crisis_adjusted_target_books"
+        crisis_book_dir.mkdir(parents=True, exist_ok=True)
+        for case_id, label in {
+            "B": "production_crisis_only",
+            "D": "market_leader_crisis",
+            "F": "market_leader_crisis_hold_replace",
+            "H": "multi_lane_crisis_hold_replace",
+        }.items():
+            for portfolio_kind in portfolio_kinds:
+                subset = all_target_df[
+                    all_target_df["case_id"].astype(str).eq(case_id)
+                    & all_target_df["portfolio_kind"].astype(str).eq(portfolio_kind)
+                ].copy()
+                if not subset.empty:
+                    write_csv(crisis_book_dir / f"{portfolio_kind}_{case_id}_{label}_target_book.csv", subset)
     for name, frames in diag_frames.items():
         write_csv(output_dir / f"{name}.csv", pd.concat(frames, ignore_index=True) if frames else pd.DataFrame())
     lane_history_all = pd.concat(diag_frames["lane_scores_history"], ignore_index=True) if diag_frames["lane_scores_history"] else pd.DataFrame()

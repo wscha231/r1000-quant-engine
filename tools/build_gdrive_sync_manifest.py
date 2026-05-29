@@ -28,9 +28,11 @@ USER_CURRENT_FILES = [
     "04_official_metrics.json",
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
+    "07_research_sidecar_context.json",
     "summary.json",
 ]
 OFFICIAL_FILES = [
+    "patch_application_manifest.json",
     "account_evaluation/official_metrics.json",
     "broker_replay/main/metrics.json",
     "broker_replay/concentrated/metrics.json",
@@ -47,6 +49,11 @@ OPERATOR_REVIEW_FILES = [
     "operator_review/position_risk_review.md",
     "operator_review/concentrated_broker_variant_review.json",
     "operator_review/concentrated_broker_variant_review.md",
+    "operator_review/position_cleanup_review.json",
+    "operator_review/position_cleanup_review.md",
+    "operator_review/dust_positions_report.csv",
+    "operator_review/dust_cleanup_orders.csv",
+    "operator_review/projected_holdings_after_ready_orders.csv",
     "baseline_lock/latest_status.json",
     "market_leader_challenger/summary.json",
     "market_leader_challenger/report.md",

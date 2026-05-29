@@ -44,6 +44,7 @@ REQUIRED_USER_FILES = [
     "04_official_metrics.json",
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
+    "07_research_sidecar_context.json",
 ]
 
 
@@ -244,6 +245,40 @@ def official_metric_mode(metrics: dict[str, Any]) -> str:
     return str(metrics.get("official_metric_mode") or metrics.get("metric_mode") or "")
 
 
+def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
+    integrated_summary = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "summary.json")
+    replay_gate = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "replay_gate_status.json")
+    promotion_gate = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "promotion_gate_status.json")
+    mutation = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "production_mutation_check.json")
+    market_leader = read_json(latest_run / "market_leader_challenger" / "summary.json")
+    patch_manifest = read_json(latest_run / "patch_application_manifest.json")
+    return {
+        "schema_version": "user-current-research-sidecar-context-v1",
+        "production_applied": False,
+        "sidecar_only": True,
+        "current_holdings_source": "production_operating_target_book",
+        "message": "Market Leader / Multi-Lane / Crisis sidecars are research-only and did not alter current holdings.",
+        "research_outputs_not_applied": [
+            "market_leader_challenger",
+            "integrated_theme_leader_crisis_replay",
+            "multi_lane_allocator",
+            "crisis_overlay",
+        ],
+        "market_leader_challenger_status": market_leader.get("status", "missing"),
+        "integrated_replay_status": integrated_summary.get("status", "missing"),
+        "replay_gate_status": replay_gate.get("status", "missing"),
+        "promotion_gate_status": promotion_gate.get("status", "missing"),
+        "production_mutation_check_status": mutation.get("status", "missing"),
+        "production_mutation_allowed": False,
+        "production_activation_allowed": bool(promotion_gate.get("production_activation_allowed", False)),
+        "patch_application_manifest_status": "present" if patch_manifest else "missing",
+        "reason_not_applied_to_current_holdings": patch_manifest.get(
+            "reason_not_applied_to_current_holdings",
+            "research_only_sidecar_current_holdings_use_production_operating_book",
+        ),
+    }
+
+
 def turnover_estimate(latest_run: Path) -> float:
     deltas = read_csv(latest_run / "operating_snapshot" / "proposed_target_deltas_latest.csv")
     if deltas.empty:
@@ -348,15 +383,25 @@ def build_action_summary(latest_run: Path, metrics: dict[str, Any], cash: dict[s
     return "HOLD", ["no hard review flags"]
 
 
-def render_action_summary(status: str, reasons: list[str], metrics: dict[str, Any], cash: dict[str, Any]) -> str:
+def render_action_summary(status: str, reasons: list[str], metrics: dict[str, Any], cash: dict[str, Any], research: dict[str, Any]) -> str:
     lines = [
         "# User Current Action Summary",
         "",
         f"- action_status: `{status}`",
         f"- official_metric_mode: `{official_metric_mode(metrics) or 'missing'}`",
         f"- valid_for_production: `{production_valid(metrics)}`",
+        f"- production_applied: `{str(research.get('production_applied')).lower()}`",
+        f"- sidecar_only: `{str(research.get('sidecar_only')).lower()}`",
+        f"- current_holdings_source: `{research.get('current_holdings_source')}`",
         f"- cash_policy_flag: `{cash.get('cash_policy_flag') or ''}`",
         f"- combined_projected_cash_after_ready_orders: `{safe_float(cash.get('combined_projected_cash_weight_after_ready_orders'), np.nan):.2%}`",
+        "",
+        "## Research Sidecar Context",
+        "",
+        "- Market Leader / Multi-Lane / Crisis outputs are research-only and did not alter current holdings.",
+        f"- replay_gate_status: `{research.get('replay_gate_status')}`",
+        f"- promotion_gate_status: `{research.get('promotion_gate_status')}`",
+        f"- production_mutation_check_status: `{research.get('production_mutation_check_status')}`",
         "",
         "## Reasons",
         "",
@@ -368,6 +413,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
             "## Operating Rules",
             "",
             "- This report shows current simulated broker-ledger holdings only.",
+            "- Current holdings follow the production operating book, not research sidecar target books.",
             "- Target recommendation books are hidden by default.",
             "- REVIEW_REQUIRED is not an auto-trade instruction.",
             "- Research metrics are not promotion evidence.",
@@ -385,7 +431,9 @@ This folder is the default user-facing operating view.
 - `01_current_holdings.csv` is the current simulated broker-ledger book.
 - `03_period_returns.csv` uses broker replay equity curves and includes drawdown.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
+- `07_research_sidecar_context.json` explains which research-only sidecars did not alter current holdings.
 - Target recommendation books are not current holdings and are hidden by default.
+- Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted later.
 - Deprecated/research backtests are not copied here and are not promotion evidence.
 - Do not trade rows or portfolios marked REVIEW_REQUIRED or DO_NOT_TRADE.
 """
@@ -411,9 +459,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     metrics = load_official_metrics(latest_run)
     write_json(output_dir / "04_official_metrics.json", metrics)
+    research = research_sidecar_context(latest_run)
+    write_json(output_dir / "07_research_sidecar_context.json", research)
 
     status, reasons = build_action_summary(latest_run, metrics, cash)
-    (output_dir / "05_action_summary.md").write_text(render_action_summary(status, reasons, metrics, cash), encoding="utf-8")
+    (output_dir / "05_action_summary.md").write_text(render_action_summary(status, reasons, metrics, cash, research), encoding="utf-8")
     write_readme(output_dir / "README_FIRST.md")
 
     payload = {
@@ -426,6 +476,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "reason_count": len(reasons),
         "current_holding_rows": int(len(current)),
         "period_return_rows": int(len(period)),
+        "production_applied": bool(research.get("production_applied")),
+        "sidecar_only": bool(research.get("sidecar_only")),
+        "current_holdings_source": research.get("current_holdings_source"),
+        "research_sidecar_message": research.get("message"),
         "required_files": REQUIRED_USER_FILES,
         "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
     }
