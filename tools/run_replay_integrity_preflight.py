@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
@@ -49,6 +49,17 @@ def read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     try:
+        return pd.read_csv(path, low_memory=False)
+    except Exception:
+        return pd.DataFrame()
+
+
+def read_table(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        if path.suffix.lower() == ".parquet":
+            return pd.read_parquet(path)
         return pd.read_csv(path, low_memory=False)
     except Exception:
         return pd.DataFrame()
@@ -159,6 +170,22 @@ def actual_position_stats(broker_dir: Path) -> dict[str, Any]:
     }
 
 
+def readable_price_stats(price_cache: Path | None, ticker: str) -> dict[str, Any]:
+    ticker = str(ticker).upper().strip()
+    path = price_cache / px_cache_name(ticker) if price_cache is not None else Path("")
+    exists = bool(price_cache is not None and path.exists())
+    frame = load_price_series(price_cache, ticker) if price_cache is not None else pd.DataFrame()
+    readable = not frame.empty and "close" in frame.columns and pd.to_numeric(frame["close"], errors="coerce").notna().any()
+    dates = pd.to_datetime(frame.index, errors="coerce").dropna() if readable else pd.DatetimeIndex([])
+    return {
+        f"{ticker.lower()}_price_exists": exists,
+        f"{ticker.lower()}_price_readable": bool(readable),
+        f"{ticker.lower()}_price_row_count": int(len(frame)) if readable else 0,
+        f"{ticker.lower()}_price_date_range_start": pd.Timestamp(dates.min()).date().isoformat() if len(dates) else "",
+        f"{ticker.lower()}_price_date_range_end": pd.Timestamp(dates.max()).date().isoformat() if len(dates) else "",
+    }
+
+
 def price_cache_coverage(target_book: Path | None, price_cache: Path | None) -> dict[str, Any]:
     if target_book is None or price_cache is None:
         return {"price_cache_coverage": None, "price_cache_missing_ticker_count": None, "price_cache_missing_tickers": []}
@@ -168,7 +195,7 @@ def price_cache_coverage(target_book: Path | None, price_cache: Path | None) -> 
     tickers = sorted({str(x).upper().strip() for x in target["ticker"].dropna().unique() if str(x).upper().strip() not in {"", "CASH", "__CASH__"}})
     if not tickers:
         return {"price_cache_coverage": 1.0, "price_cache_missing_ticker_count": 0, "price_cache_missing_tickers": []}
-    missing = [ticker for ticker in tickers if not (price_cache / px_cache_name(ticker)).exists()]
+    missing = [ticker for ticker in tickers if not readable_price_stats(price_cache, ticker).get(f"{ticker.lower()}_price_readable")]
     return {
         "price_cache_coverage": float((len(tickers) - len(missing)) / max(len(tickers), 1)),
         "price_cache_missing_ticker_count": int(len(missing)),
@@ -178,12 +205,38 @@ def price_cache_coverage(target_book: Path | None, price_cache: Path | None) -> 
 
 def benchmark_price_coverage(price_cache: Path | None) -> dict[str, Any]:
     if price_cache is None:
-        return {"spy_price_coverage": None, "qqq_price_coverage": None, "benchmark_price_missing": list(BENCHMARK_TICKERS)}
-    missing = [ticker for ticker in BENCHMARK_TICKERS if not (price_cache / px_cache_name(ticker)).exists()]
+        return {
+            "spy_price_coverage": None,
+            "qqq_price_coverage": None,
+            "benchmark_price_missing": list(BENCHMARK_TICKERS),
+            "benchmark_coverage_ratio": 0.0,
+            "benchmark_date_range_start": "",
+            "benchmark_date_range_end": "",
+        }
+    stats: dict[str, Any] = {}
+    missing: list[str] = []
+    starts: list[pd.Timestamp] = []
+    ends: list[pd.Timestamp] = []
+    for ticker in BENCHMARK_TICKERS:
+        ticker_stats = readable_price_stats(price_cache, ticker)
+        stats.update(ticker_stats)
+        if not ticker_stats.get(f"{ticker.lower()}_price_readable"):
+            missing.append(ticker)
+            continue
+        start = pd.to_datetime(ticker_stats.get(f"{ticker.lower()}_price_date_range_start"), errors="coerce")
+        end = pd.to_datetime(ticker_stats.get(f"{ticker.lower()}_price_date_range_end"), errors="coerce")
+        if pd.notna(start):
+            starts.append(pd.Timestamp(start))
+        if pd.notna(end):
+            ends.append(pd.Timestamp(end))
     return {
         "spy_price_coverage": 0.0 if "SPY" in missing else 1.0,
         "qqq_price_coverage": 0.0 if "QQQ" in missing else 1.0,
         "benchmark_price_missing": missing,
+        "benchmark_coverage_ratio": float((len(BENCHMARK_TICKERS) - len(missing)) / max(len(BENCHMARK_TICKERS), 1)),
+        "benchmark_date_range_start": max(starts).date().isoformat() if starts else "",
+        "benchmark_date_range_end": min(ends).date().isoformat() if ends else "",
+        **stats,
     }
 
 
@@ -209,7 +262,34 @@ def infer_execution_tier(
     return "TIER2_FULL_CACHE"
 
 
-def macro_feature_coverage(latest_run: Path, price_cache: Path | None) -> float | None:
+def long_crisis_feature_status(latest_run: Path) -> dict[str, Any]:
+    feature_candidates = [
+        latest_run / "data_pit" / "macro" / "long_crisis_daily_features.parquet",
+        REPO_ROOT / "data_pit" / "macro" / "long_crisis_daily_features.parquet",
+    ]
+    threshold_candidates = [
+        latest_run / "long_crisis_learning" / "best_thresholds.json",
+        latest_run / "outputs" / "long_crisis_learning" / "best_thresholds.json",
+        REPO_ROOT / "outputs" / "long_crisis_learning" / "best_thresholds.json",
+    ]
+    feature_path = next((path for path in feature_candidates if path.exists()), Path(""))
+    threshold_path = next((path for path in threshold_candidates if path.exists()), Path(""))
+    features = read_table(feature_path) if feature_path else pd.DataFrame()
+    date_col = next((col for col in ("date", "Date", "as_of_date") if col in features.columns), "")
+    dates = pd.to_datetime(features[date_col], errors="coerce").dropna() if date_col else pd.to_datetime(features.index, errors="coerce").dropna()
+    return {
+        "long_crisis_features_path": str(feature_path) if feature_path else "",
+        "long_crisis_thresholds_path": str(threshold_path) if threshold_path else "",
+        "long_crisis_features_available": bool(feature_path and not features.empty),
+        "long_crisis_thresholds_available": bool(threshold_path and bool(read_json(threshold_path))),
+        "long_crisis_feature_row_count": int(len(features)) if not features.empty else 0,
+        "long_crisis_feature_date_range_start": pd.Timestamp(dates.min()).date().isoformat() if len(dates) else "",
+        "long_crisis_feature_date_range_end": pd.Timestamp(dates.max()).date().isoformat() if len(dates) else "",
+    }
+
+
+def macro_feature_coverage(latest_run: Path, price_cache: Path | None, long_status: dict[str, Any] | None = None) -> float | None:
+    long_status = long_status or long_crisis_feature_status(latest_run)
     candidates = [
         latest_run / "cache_macro",
         latest_run / "cache_crisis",
@@ -217,7 +297,9 @@ def macro_feature_coverage(latest_run: Path, price_cache: Path | None) -> float 
     ]
     if price_cache is not None:
         candidates.extend([price_cache.parent / "cache_macro", price_cache.parent / "cache_crisis"])
-    return 1.0 if any(path.exists() for path in candidates) else None
+    if not (bool(long_status.get("long_crisis_features_available")) and bool(long_status.get("long_crisis_thresholds_available"))):
+        return None
+    return 1.0 if any(path.exists() for path in candidates) or bool(long_status.get("long_crisis_features_available")) else None
 
 
 def build_report(
@@ -266,7 +348,8 @@ def build_report(
         blockers.append("stale_price_gt_2_us_business_days")
     coverage = safe_float(price_stats.get("price_cache_coverage"), None)
     benchmark_missing = list(benchmark_stats.get("benchmark_price_missing") or [])
-    macro_coverage = macro_feature_coverage(latest_run, price_cache)
+    long_status = long_crisis_feature_status(latest_run)
+    macro_coverage = macro_feature_coverage(latest_run, price_cache, long_status)
     execution_tier = infer_execution_tier(
         source_mode=source_mode,
         candidate_book=candidate_book,
@@ -282,6 +365,10 @@ def build_report(
         blockers.append("BENCHMARK_PRICE_MISSING")
     if macro_coverage is None:
         blockers.append("MACRO_FEATURE_MISSING")
+    if not long_status.get("long_crisis_features_available"):
+        blockers.append("LONG_CRISIS_FEATURE_MISSING")
+    if not long_status.get("long_crisis_thresholds_available"):
+        blockers.append("LONG_CRISIS_THRESHOLDS_MISSING")
     if not baseline:
         blockers.append("NO_BASELINE_LOCK")
     if not candidate_sha:
@@ -327,6 +414,7 @@ def build_report(
         "review_flags": review,
         "target_ticker_price_coverage": price_stats.get("price_cache_coverage"),
         "macro_feature_coverage": macro_coverage,
+        **long_status,
         **target_stats,
         **actual_stats,
         **price_stats,

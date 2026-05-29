@@ -118,6 +118,7 @@ jobs:
             --books outputs/reports/main_monthly_weights.csv outputs/reports/concentrated_strategy_holdings.csv \
             --scored outputs/scored_latest.csv \
             --max-scored 250 \
+            --required-tickers SPY QQQ \
             --output-dir cache_prices \
             --batch-size 40 \
             --refresh-stale-days 2
@@ -216,6 +217,9 @@ jobs:
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
           BASELINE_RUN_ID="${{ inputs.source_run_id }}_${{ github.run_id }}"
           python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" --branch "$GITHUB_REF_NAME" --head-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
+          python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+          python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+          python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
           python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
           python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "${{ github.run_id }}" --commit-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true

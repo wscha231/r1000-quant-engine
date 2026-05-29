@@ -117,6 +117,22 @@ def collect_scored_tickers(path: Path, max_scored: int) -> set[str]:
     return out
 
 
+def parse_required_tickers(values: list[str] | str | None) -> set[str]:
+    if not values:
+        return set()
+    if isinstance(values, str):
+        raw_values = [values]
+    else:
+        raw_values = values
+    out: set[str] = set()
+    for value in raw_values:
+        for token in str(value or "").replace(";", ",").split(","):
+            ticker = normalize_ticker(token)
+            if ticker:
+                out.add(ticker)
+    return out
+
+
 def existing_cache_count(output_dir: Path, tickers: set[str]) -> int:
     return sum(1 for ticker in tickers if (output_dir / px_cache_name(ticker)).exists())
 
@@ -223,9 +239,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     book_paths = [repo_path(x) for x in args.books]
     book_tickers, min_dt, max_dt = collect_book_tickers(book_paths)
     scored_tickers = collect_scored_tickers(repo_path(args.scored), args.max_scored) if args.scored else set()
-    tickers = sorted(book_tickers | scored_tickers)
+    required_tickers = parse_required_tickers(getattr(args, "required_tickers", None))
+    tickers = sorted(book_tickers | scored_tickers | required_tickers)
     if args.max_tickers and args.max_tickers > 0:
-        tickers = tickers[: int(args.max_tickers)]
+        tickers = sorted(set(tickers[: int(args.max_tickers)]) | required_tickers)
     today = pd.Timestamp.utcnow().tz_localize(None).normalize()
     start_dt = pd.Timestamp(args.start).normalize() if args.start else (min_dt or today - pd.DateOffset(years=8)) - pd.Timedelta(days=14)
     end_dt = pd.Timestamp(args.end).normalize() if args.end else today + pd.Timedelta(days=2)
@@ -243,6 +260,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ticker_count": len(tickers),
         "book_ticker_count": len(book_tickers),
         "scored_ticker_count": len(scored_tickers),
+        "required_tickers": sorted(required_tickers),
+        "required_ticker_count": len(required_tickers),
         "existing_cache_count": existing_cache_count(output_dir, set(tickers)),
         "missing_before": len(missing),
         "stale_before": len(stale),
@@ -274,6 +293,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end", default="")
     parser.add_argument("--batch-size", type=int, default=40)
     parser.add_argument("--max-tickers", type=int, default=0)
+    parser.add_argument(
+        "--required-tickers",
+        nargs="*",
+        default=[],
+        help="Tickers that must be included even if they are not in target books, e.g. SPY QQQ.",
+    )
     parser.add_argument(
         "--refresh-stale-days",
         type=int,

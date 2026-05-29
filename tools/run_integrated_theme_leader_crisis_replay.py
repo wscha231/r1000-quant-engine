@@ -404,6 +404,77 @@ def latest_lane_snapshot(lane_history: pd.DataFrame, dt: pd.Timestamp) -> pd.Dat
     return eligible[eligible["rebalance_date"].eq(snap_dt)].copy()
 
 
+def crisis_type_from_state_row(state_row: dict[str, Any]) -> str:
+    text = " ".join(str(state_row.get(key) or "").lower() for key in ["price_trigger", "reentry_trigger", "cash_gate_reason", "raw_state"])
+    if "shock" in text or "ret_5d" in text or "below_20pct" in text:
+        return "shock_crash"
+    if "credit" in text or "rate" in text:
+        return "rate_or_credit_slow_bear"
+    if "drawdown" in text or "ma50" in text:
+        return "slow_bear"
+    return "general_crisis"
+
+
+def concentrated_min_equity(state: str, state_row: dict[str, Any]) -> float:
+    stage = str(state_row.get("reentry_stage") or "")
+    if stage == "REENTRY_STAGE_1":
+        return 0.65
+    if stage == "REENTRY_STAGE_2":
+        return 0.80
+    if stage == "REENTRY_STAGE_3":
+        return 0.90
+    if state == "CRISIS_DEFENSE":
+        return 0.35 if crisis_type_from_state_row(state_row) == "shock_crash" else 0.50
+    if state == "DEFENSE_REVIEW":
+        return 0.75
+    if state == "WATCH":
+        return 0.85
+    return 0.95
+
+
+def defense_multiplier(rec: dict[str, Any], lane: str, state: str, portfolio_kind: str) -> tuple[float, float, str]:
+    base = float(CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])["lane_multiplier"].get(lane, 0.80 if state != "GREEN" else 1.0))
+    if state in {"GREEN", "REENTRY_READY"}:
+        return base, 0.0, "risk_on_or_reentry"
+    leader_state = str(rec.get("leader_state") or rec.get("winner_state") or "").upper()
+    leader_tier = str(rec.get("leader_tier") or "").upper()
+    chase = safe_float(rec.get("leader_chase_risk_score"))
+    liquidity_cap = safe_float(rec.get("liquidity_capacity_weight_cap"), 1.0)
+    volatility = safe_float(rec.get("atr14_pct"))
+    risk = 0.0
+    risk += 0.35 if lane in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"} else 0.0
+    risk += 0.25 if lane == "CYCLICAL_RECOVERY" else 0.0
+    risk += 0.25 if chase >= 1.25 else 0.15 if chase >= 0.75 else 0.0
+    risk += 0.20 if liquidity_cap < 0.10 else 0.0
+    risk += 0.10 if volatility >= 0.08 else 0.0
+    risk += 0.20 if leader_state in {"WARNING_2", "EXIT_REPLACE", "EXIT_REVIEW"} else 0.0
+    intact_dual = leader_tier == "DUAL_LEADER" and leader_state in {"", "HOLD", "SHAKEOUT_GUARD"}
+    if state == "CRISIS_DEFENSE":
+        if lane == "EMERGING_TENBAGGER":
+            base = min(base, 0.20)
+        elif lane == "TOP7_MANAGER_DISCOVERY":
+            base = min(base, 0.25)
+        elif lane == "CYCLICAL_RECOVERY":
+            base = min(base, 0.25)
+        elif lane == "MARKET_LEADER" and not intact_dual:
+            base = min(base, 0.50)
+        elif lane == "QUALITY_COMPOUNDER":
+            base = max(base, 0.75)
+        if intact_dual:
+            base = max(base, 0.75 if portfolio_kind == "concentrated" else 0.70)
+    elif state == "DEFENSE_REVIEW":
+        if lane in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}:
+            base = min(base, 0.45)
+        if lane == "CYCLICAL_RECOVERY":
+            base = min(base, 0.65)
+        if chase >= 1.25 and lane == "MARKET_LEADER":
+            base = min(base, 0.65)
+    multiplier = max(0.05, base * max(0.35, 1.0 - min(risk, 0.65)))
+    if intact_dual and state == "CRISIS_DEFENSE":
+        multiplier = max(multiplier, 0.65)
+    return multiplier, min(risk, 1.0), "lane_aware_defense_cut"
+
+
 def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, states: pd.DataFrame, case_id: str, portfolio_kind: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     target = normalize_target_book(target)
     if target.empty:
@@ -442,7 +513,7 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
             if ticker in CASH_TICKERS:
                 continue
             lane = str(rec.get("primary_lane") or lane_map.get(ticker) or "MARKET_LEADER")
-            mult = float(setting["lane_multiplier"].get(lane, 0.80 if state != "GREEN" else 1.0))
+            mult, cut_score, cut_reason = defense_multiplier(rec, lane, state, portfolio_kind)
             out = dict(rec)
             out["rebalance_date"] = dt.date().isoformat()
             out["primary_lane"] = lane
@@ -450,11 +521,16 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
             out["target_weight"] = out["weight"]
             out["crisis_state"] = state
             out["crisis_action_reason"] = str(state_row.get("reentry_trigger") or state)
+            out["defense_cut_score"] = cut_score
+            out["defense_cut_reason"] = cut_reason
+            out["defense_weight_multiplier"] = mult
             out["new_buy_allowed_by_lane"] = json.dumps(setting["new_buy_allowed"], sort_keys=True)
             adjusted.append(out)
         stock_total = sum(safe_float(x.get("weight")) for x in adjusted)
         target_stock = max(0.0, 1.0 - cash_target)
-        scale = (target_stock / stock_total) if stock_total > target_stock and stock_total > 0 else 1.0
+        if portfolio_kind == "concentrated":
+            target_stock = max(target_stock, concentrated_min_equity(state, state_row))
+        scale = (target_stock / stock_total) if stock_total > 0 and abs(stock_total - target_stock) > 1e-9 else 1.0
         for out in adjusted:
             out["weight"] = safe_float(out.get("weight")) * scale
             out["target_weight"] = out["weight"]
@@ -495,6 +571,8 @@ def apply_crisis_overlay(target: pd.DataFrame, lane_history: pd.DataFrame, state
                 "action_reason": str(state_row.get("reentry_trigger") or state),
                 "lane_impacts": json.dumps(setting["lane_multiplier"], sort_keys=True),
                 "theme_impacts": "",
+                "crisis_type": crisis_type_from_state_row(state_row),
+                "concentrated_min_equity": concentrated_min_equity(state, state_row) if portfolio_kind == "concentrated" else "",
                 "action_blocked_by_hysteresis": False,
                 "minimum_action_gap_days": CRISIS_HYSTERESIS["minimum_action_gap_days"],
                 "crisis_action_count_month": action_counts_by_month[month_key],
@@ -657,6 +735,194 @@ def stress_metrics(equity: pd.DataFrame, case_id: str, portfolio_kind: str) -> l
         mdd = float((eq / eq.cummax() - 1.0).min())
         rows.append({"case_id": case_id, "portfolio_kind": portfolio_kind, "window": name, "window_mdd": mdd, "window_return": float(eq.iloc[-1] / eq.iloc[0] - 1.0), "avg_cash_weight": float(pd.to_numeric(part.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()) if "cash_weight" in part.columns else ""})
     return rows
+
+
+def crisis_state_audit(states: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    if states.empty:
+        payload = {
+            "daily_crisis_state_all_green": True,
+            "missing_data_only_trigger": True,
+            "state_counts": {},
+            "first_watch_date": "",
+            "first_defense_date": "",
+            "first_crisis_defense_date": "",
+            "first_reentry_ready_date": "",
+            "state_transition_count": 0,
+            "avg_state_duration_days": "",
+            "whipsaw_state_count": 0,
+            "green_to_crisis_direct_count": 0,
+            "crisis_to_green_direct_count": 0,
+            "reentry_without_defense_count": 0,
+        }
+        return pd.DataFrame([payload]), pd.DataFrame(), payload
+    d = states.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
+    d = d.dropna(subset=["date"]).sort_values("date")
+    state = d.get("crisis_state", pd.Series("GREEN", index=d.index)).astype(str)
+    counts = state.value_counts(dropna=False).to_dict()
+    trigger_text = (
+        d.get("price_trigger", pd.Series("", index=d.index)).astype(str)
+        + " "
+        + d.get("cash_gate_reason", pd.Series("", index=d.index)).astype(str)
+    ).str.lower()
+    all_green = bool(state.eq("GREEN").all())
+    missing_data_only = bool(all_green and trigger_text.str.contains("missing_spy_price|missing_price|missing_long_crisis", regex=True).all())
+    prev = state.shift(1)
+    transitions = d[state.ne(prev)].copy()
+    transition_pairs = list(zip(prev[state.ne(prev)].fillna("").astype(str), state[state.ne(prev)].astype(str)))
+    durations = d.groupby((state != state.shift()).cumsum())["date"].agg(["min", "max"])
+    duration_days = (durations["max"] - durations["min"]).dt.days + 1 if not durations.empty else pd.Series(dtype=float)
+
+    def first_date(mask: pd.Series) -> str:
+        part = d[mask]
+        return pd.Timestamp(part["date"].iloc[0]).date().isoformat() if not part.empty else ""
+
+    defense_mask = state.isin(["DEFENSE_REVIEW", "CRISIS_DEFENSE"])
+    crisis_mask = state.eq("CRISIS_DEFENSE")
+    reentry_mask = state.eq("REENTRY_READY")
+    payload = {
+        "daily_crisis_state_all_green": all_green,
+        "missing_data_only_trigger": missing_data_only,
+        "state_counts": json.dumps(counts, sort_keys=True),
+        "first_watch_date": first_date(state.eq("WATCH")),
+        "first_defense_date": first_date(defense_mask),
+        "first_crisis_defense_date": first_date(crisis_mask),
+        "first_reentry_ready_date": first_date(reentry_mask),
+        "state_transition_count": max(int(len(transitions) - 1), 0),
+        "avg_state_duration_days": float(duration_days.mean()) if not duration_days.empty else "",
+        "whipsaw_state_count": int(sum(1 for a, b in transition_pairs if a and b and a != b)),
+        "green_to_crisis_direct_count": int(sum(1 for a, b in transition_pairs if a == "GREEN" and b == "CRISIS_DEFENSE")),
+        "crisis_to_green_direct_count": int(sum(1 for a, b in transition_pairs if a == "CRISIS_DEFENSE" and b == "GREEN")),
+        "reentry_without_defense_count": int(1 if reentry_mask.any() and not defense_mask.loc[: reentry_mask.idxmax()].any() else 0) if reentry_mask.any() else 0,
+    }
+    windows = [
+        ("covid_2020", pd.Timestamp("2020-02-01"), pd.Timestamp("2020-05-31")),
+        ("rate_2022", pd.Timestamp("2021-11-01"), pd.Timestamp("2022-12-31")),
+    ]
+    window_rows: list[dict[str, Any]] = []
+    for name, start, end in windows:
+        part = d[(d["date"] >= start) & (d["date"] <= end)].copy()
+        part_state = part.get("crisis_state", pd.Series(dtype=str)).astype(str)
+        first_defense = part[part_state.isin(["DEFENSE_REVIEW", "CRISIS_DEFENSE"])] if not part.empty else pd.DataFrame()
+        first_reentry = part[part_state.eq("REENTRY_READY")] if not part.empty else pd.DataFrame()
+        lag = ""
+        if not first_defense.empty:
+            lag = int((pd.Timestamp(first_defense["date"].iloc[0]) - start).days)
+        window_rows.append(
+            {
+                "window": name,
+                "start": start.date().isoformat(),
+                "end": end.date().isoformat(),
+                "row_count": int(len(part)),
+                "state_counts": json.dumps(part_state.value_counts(dropna=False).to_dict(), sort_keys=True),
+                "first_defense_date": pd.Timestamp(first_defense["date"].iloc[0]).date().isoformat() if not first_defense.empty else "",
+                "first_crisis_defense_date": first_date(d["date"].between(start, end) & state.eq("CRISIS_DEFENSE")),
+                "first_reentry_ready_date": pd.Timestamp(first_reentry["date"].iloc[0]).date().isoformat() if not first_reentry.empty else "",
+                "detection_lag_days": lag,
+                "defense_detected": bool(not first_defense.empty),
+                "reentry_detected": bool(not first_reentry.empty),
+            }
+        )
+        payload[f"{name}_detection_lag_days"] = lag
+    return pd.DataFrame([payload]), pd.DataFrame(window_rows), payload
+
+
+def read_account_positions(latest_run: Path, portfolio_kind: str) -> pd.DataFrame:
+    payload = read_json(latest_run / "broker_replay" / portfolio_kind / "account_state_latest.json")
+    positions = payload.get("positions") if isinstance(payload.get("positions"), list) else []
+    equity = safe_float(payload.get("equity_usd"), 0.0)
+    rows: list[dict[str, Any]] = []
+    for pos in positions:
+        if not isinstance(pos, dict):
+            continue
+        ticker = str(pos.get("ticker") or "").upper().strip()
+        if not ticker:
+            continue
+        market_value = safe_float(pos.get("market_value_usd"))
+        rows.append(
+            {
+                "portfolio_kind": portfolio_kind,
+                "ticker": ticker,
+                "current_shares": safe_float(pos.get("shares")),
+                "current_value_usd": market_value,
+                "current_weight": market_value / equity if equity > 0 else safe_float(pos.get("weight")),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def projected_holdings_after_integrated_target(latest_run: Path, target_book: pd.DataFrame, case_id: str = "H") -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    if target_book.empty:
+        return pd.DataFrame()
+    book = normalize_target_book(target_book)
+    if "case_id" in target_book.columns:
+        book = normalize_target_book(target_book[target_book["case_id"].astype(str).eq(case_id)].copy())
+    if book.empty:
+        return pd.DataFrame()
+    for portfolio_kind in sorted(book.get("portfolio_kind", pd.Series(["main"])).astype(str).unique()):
+        current = read_account_positions(latest_run, portfolio_kind)
+        cur_map = {str(row.get("ticker")).upper(): row for row in current.to_dict("records")}
+        part = book[book.get("portfolio_kind", pd.Series(portfolio_kind, index=book.index)).astype(str).eq(portfolio_kind)].copy()
+        latest_dt = pd.to_datetime(part["rebalance_date"], errors="coerce").max()
+        target = part[pd.to_datetime(part["rebalance_date"], errors="coerce").eq(latest_dt)].copy()
+        target_map = target.groupby("ticker", as_index=False)["weight"].sum()
+        tgt_map = dict(zip(target_map["ticker"].astype(str).str.upper(), target_map["weight"]))
+        for ticker in sorted(set(cur_map) | set(tgt_map)):
+            if ticker in CASH_TICKERS:
+                continue
+            cur = cur_map.get(ticker, {})
+            current_w = safe_float(cur.get("current_weight"))
+            target_w = safe_float(tgt_map.get(ticker))
+            delta = target_w - current_w
+            if target_w <= 1e-9 and current_w > 0:
+                action = "SELL_TO_ZERO_REVIEW"
+            elif delta > 0.0025:
+                action = "BUY_INCREASE_REVIEW"
+            elif delta < -0.0025:
+                action = "TRIM_REVIEW"
+            else:
+                action = "HOLD_REVIEW"
+            rows.append(
+                {
+                    "portfolio_kind": portfolio_kind,
+                    "ticker": ticker,
+                    "source_case": case_id,
+                    "current_weight": current_w,
+                    "integrated_target_weight": target_w,
+                    "projected_weight_after_integrated_target": target_w,
+                    "weight_delta": delta,
+                    "current_shares": safe_float(cur.get("current_shares")),
+                    "current_value_usd": safe_float(cur.get("current_value_usd")),
+                    "projected_action": action,
+                    "operator_review_only": True,
+                    "production_activation_allowed": False,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def exposure_by_group(target_book: pd.DataFrame, *, group_name: str, candidates: list[str]) -> pd.DataFrame:
+    if target_book.empty:
+        return pd.DataFrame()
+    d = target_book.copy()
+    if "rebalance_date" not in d.columns or "ticker" not in d.columns or "weight" not in d.columns:
+        return pd.DataFrame()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.date.astype(str)
+    d["ticker"] = d["ticker"].astype(str).str.upper()
+    d["weight"] = pd.to_numeric(d["weight"], errors="coerce").fillna(0.0)
+    d = d[~d["ticker"].isin(CASH_TICKERS)].copy()
+    if d.empty:
+        return pd.DataFrame()
+    group_col = next((col for col in candidates if col in d.columns), "")
+    if not group_col:
+        d[group_name] = "unknown"
+    else:
+        d[group_name] = d[group_col].astype(str).replace({"": "unknown", "nan": "unknown", "None": "unknown"})
+    keys = [col for col in ["case_id", "portfolio_kind", "rebalance_date", group_name] if col in d.columns]
+    out = d.groupby(keys, as_index=False)["weight"].sum().rename(columns={"weight": "exposure"})
+    out["source_group_column"] = group_col or "fallback_unknown"
+    return out.sort_values(keys).reset_index(drop=True)
 
 
 def enrich_ab_matrix(ab: pd.DataFrame, stress: pd.DataFrame, cash_by_state: pd.DataFrame) -> pd.DataFrame:
@@ -1154,7 +1420,27 @@ def run_case(
     if case.selection_layer == "production":
         preflight_blockers = [b for b in preflight_blockers if b != "default_static_concentrated_filter"]
     if preflight_blockers:
+        for key in [
+            "cagr",
+            "max_dd",
+            "sharpe",
+            "avg_cash_weight",
+            "turnover",
+            "trade_count",
+            "total_fees_usd",
+            "ending_capital_usd",
+            "total_return",
+        ]:
+            metrics.pop(key, None)
+        metrics["status"] = "blocked"
+        metrics["reason"] = "REPLAY_PREFLIGHT_BLOCKED"
+        metrics["reason_detail"] = ";".join(str(x) for x in preflight_blockers)
+        metrics["metric_mode"] = "DO_NOT_USE"
         metrics["metric_mode_review"] = "DO_NOT_USE"
+        metrics["valid_for_production"] = False
+        metrics["research_only"] = True
+        metrics["production_activation_allowed"] = False
+        write_json(case_dir / "broker_replay" / "metrics.json", metrics)
     metrics["preflight_blockers"] = preflight_blockers
     metrics["candidate_source_mode"] = preflight.get("candidate_source_mode", "")
     metrics["target_book_filter_source"] = preflight.get("target_book_filter_source", metrics.get("target_book_filter_source", ""))
@@ -1299,11 +1585,54 @@ def main() -> int:
         long_crisis_thresholds=repo_path(args.long_crisis_thresholds),
     )
     crisis_states.to_csv(output_dir / "daily_crisis_state.csv", index=False)
+    crisis_audit, crisis_window_report, crisis_audit_payload = crisis_state_audit(crisis_states)
+    write_csv(output_dir / "crisis_state_audit.csv", crisis_audit)
+    write_csv(output_dir / "crisis_window_detection_report.csv", crisis_window_report)
     write_json(output_dir / "lane_feature_mapping.json", lane_feature_mapping_payload())
     write_json(output_dir / "lane_budget_by_regime.json", {"normal": LANE_BUDGETS_NORMAL, "crisis_settings": CRISIS_SETTINGS})
     write_json(output_dir / "crisis_hysteresis_config.json", CRISIS_HYSTERESIS)
     write_json(output_dir / "hold_replace_policy.json", HOLD_REPLACE_POLICY)
     (output_dir / "lane_rules.yaml").write_text(LANE_RULES_YAML, encoding="utf-8")
+
+    if bool(crisis_audit_payload.get("daily_crisis_state_all_green")) and bool(crisis_audit_payload.get("missing_data_only_trigger")):
+        payload = {
+            "schema_version": "integrated-theme-leader-crisis-replay-v1",
+            "status": "blocked_invalid_crisis_inputs",
+            "reason": "daily_crisis_state_all_green_with_missing_data_trigger",
+            "candidate_book": str(candidate_book),
+            "candidate_source_mode": source_mode,
+            "rebalance_date_count": int(dates.nunique()),
+            "daily_crisis_state_all_green": True,
+            "missing_data_only_trigger": True,
+            "metric_mode": "DO_NOT_USE",
+            "research_only": True,
+            "production_activation_allowed": False,
+            "production_mutation_check": "not_run",
+        }
+        write_json(output_dir / "summary.json", payload)
+        write_json(
+            output_dir / "promotion_gate_status.json",
+            {
+                "status": "rejected",
+                "candidate_case": "H",
+                "production_activation_allowed": False,
+                "research_only": True,
+                "blockers": ["invalid_crisis_inputs_all_green_missing_data"],
+            },
+        )
+        write_json(
+            output_dir / "replay_gate_status.json",
+            {
+                "status": "blocked",
+                "acceptance_status": "rejected",
+                "acceptance_blockers": ["invalid_crisis_inputs_all_green_missing_data"],
+                "production_mutation_check": "not_run",
+                "research_only": True,
+                "production_activation_allowed": False,
+            },
+        )
+        print(f"[integrated-replay] blocked: {payload['reason']}")
+        return 0
 
     portfolio_kinds = ["main", "concentrated"] if args.portfolio_kind == "both" else [args.portfolio_kind]
     case_specs = CASES
@@ -1339,8 +1668,9 @@ def main() -> int:
             target["case_id"] = case.case_id
             target["portfolio_kind"] = portfolio_kind
             all_targets.append(target)
-            eq = read_table(output_dir / "cases" / case.case_id / portfolio_kind / "broker_replay" / "equity_curve.csv")
-            stress_rows.extend(stress_metrics(eq, case.case_id, portfolio_kind))
+            if str(metrics.get("status") or "").lower() == "completed" and str(metrics.get("metric_mode") or "") == "broker_ledger_next_close":
+                eq = read_table(output_dir / "cases" / case.case_id / portfolio_kind / "broker_replay" / "equity_curve.csv")
+                stress_rows.extend(stress_metrics(eq, case.case_id, portfolio_kind))
             for name, frame in diagnostics.items():
                 if name in diag_frames and frame is not None and not frame.empty:
                     diag_frames[name].append(frame)
@@ -1367,6 +1697,24 @@ def main() -> int:
         )
     all_target_df = pd.concat(all_targets, ignore_index=True) if all_targets else pd.DataFrame()
     write_csv(output_dir / "lane_target_book.csv", all_target_df)
+    projected_integrated = projected_holdings_after_integrated_target(latest_run, all_target_df, case_id="H")
+    write_csv(output_dir / "projected_holdings_after_integrated_target.csv", projected_integrated)
+    write_csv(
+        output_dir / "theme_exposure_by_month.csv",
+        exposure_by_group(
+            all_target_df,
+            group_name="theme",
+            candidates=["leader_broad_theme", "theme_horizon_primary", "theme_phase_primary", "industry_group", "sector", "primary_lane"],
+        ),
+    )
+    write_csv(
+        output_dir / "same_subindustry_exposure.csv",
+        exposure_by_group(
+            all_target_df,
+            group_name="subindustry",
+            candidates=["leader_subindustry", "subindustry", "industry_group", "sector", "primary_lane"],
+        ),
+    )
     if not all_target_df.empty:
         crisis_book_dir = output_dir / "crisis_adjusted_target_books"
         crisis_book_dir.mkdir(parents=True, exist_ok=True)
@@ -1395,7 +1743,6 @@ def main() -> int:
     for name in [
         "cost_sensitivity.csv",
         "leader_rotation_events.csv",
-        "theme_exposure_by_month.csv",
         "hold_duration_distribution.csv",
         "reentry_lag_by_event.csv",
         "missed_rebound_report.csv",
@@ -1403,7 +1750,6 @@ def main() -> int:
         "false_alarm_report.csv",
         "false_alarm_cash_drag.csv",
         "cash_trap_after_reentry.csv",
-        "same_subindustry_exposure.csv",
     ]:
         path = output_dir / name
         if not path.exists():
@@ -1447,6 +1793,11 @@ def main() -> int:
         "feature_store_mutated": False,
         "production_mutation_check": mutation_check.get("status"),
         "official_metric_required": "broker_ledger_next_close",
+        "daily_crisis_state_all_green": bool(crisis_audit_payload.get("daily_crisis_state_all_green")),
+        "missing_data_only_trigger": bool(crisis_audit_payload.get("missing_data_only_trigger")),
+        "first_defense_date": crisis_audit_payload.get("first_defense_date", ""),
+        "first_crisis_defense_date": crisis_audit_payload.get("first_crisis_defense_date", ""),
+        "first_reentry_ready_date": crisis_audit_payload.get("first_reentry_ready_date", ""),
     }
     write_json(output_dir / "summary.json", summary)
     (output_dir / "report.md").write_text(render_report(summary, ab), encoding="utf-8")

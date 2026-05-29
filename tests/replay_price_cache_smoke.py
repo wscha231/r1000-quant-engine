@@ -56,6 +56,7 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
                 end="",
                 batch_size=40,
                 max_tickers=0,
+                required_tickers=[],
                 refresh_stale_days=2,
                 dry_run=True,
             )
@@ -66,6 +67,33 @@ def test_replay_price_cache_marks_stale_existing_tickers() -> None:
         assert payload["download_target_count"] == 2
 
 
+def test_replay_price_cache_always_includes_required_tickers() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        book = root / "book.csv"
+        pd.DataFrame([{"rebalance_date": "2026-01-31", "ticker": "AAA", "weight": 1.0}]).to_csv(book, index=False)
+        cache = root / "cache_prices"
+        payload = run(
+            Namespace(
+                books=[str(book)],
+                scored="",
+                max_scored=0,
+                output_dir=str(cache),
+                start="",
+                end="",
+                batch_size=40,
+                max_tickers=1,
+                required_tickers=["SPY", "QQQ"],
+                refresh_stale_days=-1,
+                dry_run=True,
+            )
+        )
+        assert payload["required_tickers"] == ["QQQ", "SPY"]
+        assert payload["ticker_count"] == 3
+        assert payload["download_target_count"] == 3
+
+
 if __name__ == "__main__":
     test_replay_price_cache_marks_stale_existing_tickers()
+    test_replay_price_cache_always_includes_required_tickers()
     print("replay_price_cache_smoke: PASS")
