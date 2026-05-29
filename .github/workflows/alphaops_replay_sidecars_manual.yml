@@ -88,12 +88,19 @@ jobs:
           done
           mkdir -p source_artifacts outputs/full_rebuild_logs
           gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
+          BASE_SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
           CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)"
+          if [ -n "$BASE_SRC" ]; then
+            echo "[replay] base source=$BASE_SRC"
+            cp -R "$BASE_SRC"/. outputs/
+          fi
           if [ -n "$CANDIDATE_BOOK" ]; then
-            SRC="$(dirname "$(dirname "$CANDIDATE_BOOK")")"
+            CANDIDATE_SRC="$(dirname "$(dirname "$CANDIDATE_BOOK")")"
+            cp -R "$CANDIDATE_SRC"/. outputs/
+            SRC="$CANDIDATE_SRC"
             echo "[replay] selected source with candidate_replay_book=$CANDIDATE_BOOK"
           else
-            SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
+            SRC="$BASE_SRC"
             echo "[replay] WARNING: no candidate_replay_book found in source artifacts; integrated replay will be blocked"
           fi
           if [ -z "$SRC" ]; then
@@ -102,7 +109,6 @@ jobs:
             exit 2
           fi
           echo "[replay] source=$SRC"
-          cp -R "$SRC"/. outputs/
           test -s outputs/reports/main_monthly_weights.csv
           test -s outputs/reports/regime_by_month.csv
           PRICE_FILES="$(find cache_prices aggressive/cache/bars -type f 2>/dev/null | wc -l | tr -d ' ')"
