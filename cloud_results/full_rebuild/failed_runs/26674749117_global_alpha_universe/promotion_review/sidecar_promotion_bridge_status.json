@@ -1,0 +1,22 @@
+{
+  "generated_at_utc": "2026-05-30T05:19:20.306958+00:00",
+  "mode": "market_leader_shadow",
+  "production_mutated": false,
+  "projected_holdings_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/operator_review/projected_holdings_after_market_leader_target.csv",
+  "promotion_check_status": "not_requested",
+  "schema_version": "alphaops-sidecar-shadow-v1",
+  "shadow_metrics": {
+    "concentrated": {
+      "reason": "missing_market_leader_target_book",
+      "source": "missing",
+      "status": "blocked"
+    },
+    "main": {
+      "reason": "missing_market_leader_target_book",
+      "source": "missing",
+      "status": "blocked"
+    }
+  },
+  "source_policy": "market_leader",
+  "status": "completed"
+}
