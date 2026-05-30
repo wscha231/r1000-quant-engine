@@ -82,11 +82,12 @@ on:
           - off
         default: minimal
       portfolio_policy:
-        description: 'operating target policy: baseline, shadow-only integrated, or explicitly approved integrated'
+        description: 'operating target policy: baseline, shadow-only integrated/market-leader, or explicitly approved integrated'
         type: choice
         options:
           - production_baseline
           - integrated_shadow
+          - market_leader_shadow
           - approved_integrated
         default: production_baseline
       approved_target_policy_path:

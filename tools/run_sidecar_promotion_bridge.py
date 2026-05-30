@@ -16,6 +16,7 @@ from r1000_sidecar_promotion import (  # noqa: E402
     rollback_targets,
     run_approved_integrated,
     run_check_promotion,
+    run_market_leader_shadow,
     run_production_baseline,
     run_shadow,
 )
@@ -28,6 +29,7 @@ def parse_args() -> argparse.Namespace:
         choices=[
             "production_baseline",
             "integrated_shadow",
+            "market_leader_shadow",
             "check_promotion",
             "approved_integrated",
             "rollback_targets_only",
@@ -56,6 +58,15 @@ def main() -> int:
         payload = run_production_baseline(latest_run=latest_run, integrated_dir=integrated_dir, output_root=output_root)
     elif args.mode == "integrated_shadow":
         payload = run_shadow(
+            latest_run=latest_run,
+            integrated_dir=integrated_dir,
+            price_cache=price_cache,
+            output_root=output_root,
+            cost_bps=float(args.cost_bps),
+            max_fill_lag_days=int(args.max_fill_lag_days),
+        )
+    elif args.mode == "market_leader_shadow":
+        payload = run_market_leader_shadow(
             latest_run=latest_run,
             integrated_dir=integrated_dir,
             price_cache=price_cache,

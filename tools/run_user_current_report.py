@@ -265,7 +265,9 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         or str(production_audit.get("status") or "").lower() == "applied"
     )
     shadow_path = latest_run / "shadow_operating"
-    projected_path = latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv"
+    integrated_projected_path = latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv"
+    market_leader_projected_path = latest_run / "operator_review" / "projected_holdings_after_market_leader_target.csv"
+    projected_path = market_leader_projected_path if production_policy == "market_leader_shadow" and market_leader_projected_path.exists() else integrated_projected_path
     policy = read_json(repo_path(approved_policy_path))
     source_run_id = str(production_audit.get("source_run_id") or policy.get("source_run_id") or "")
     source_case_id = str(
@@ -287,6 +289,8 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
         "shadow_available": bool(shadow_path.exists()),
         "projected_holdings_path": str(projected_path) if projected_path.exists() else "",
+        "projected_integrated_holdings_path": str(integrated_projected_path) if integrated_projected_path.exists() else "",
+        "projected_market_leader_holdings_path": str(market_leader_projected_path) if market_leader_projected_path.exists() else "",
         "decision_cadence_available": bool(decision_cadence),
         "decision_cadence_path": str(latest_run / "decision_cadence" / "decision_cadence_summary.json") if decision_cadence else "",
         "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
@@ -436,6 +440,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         f"- promotion_status: `{research.get('promotion_status')}`",
         f"- shadow_available: `{str(research.get('shadow_available')).lower()}`",
         f"- projected_holdings_path: `{research.get('projected_holdings_path') or ''}`",
+        f"- projected_market_leader_holdings_path: `{research.get('projected_market_leader_holdings_path') or ''}`",
         f"- decision_cadence_available: `{str(research.get('decision_cadence_available')).lower()}`",
         f"- decision_cadence_path: `{research.get('decision_cadence_path') or ''}`",
         f"- mid_month_reentry_allowed: `{str(research.get('mid_month_reentry_allowed')).lower()}`",
@@ -463,6 +468,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
             "- This report shows current simulated broker-ledger holdings only.",
             "- Current holdings follow the production operating book, not research sidecar target books.",
             "- If integrated_shadow is enabled, projected holdings show what the H-case target would do before approval.",
+            "- If market_leader_shadow is enabled, projected holdings show what the Market Leader target would do before approval.",
             "- If approved_integrated is enabled and approved before broker replay, current holdings can change in the same run.",
             "- Crisis defense does not force month-end waiting; decision_cadence can flag mid-month staged reentry review.",
             "- Target recommendation books are hidden by default.",
@@ -486,6 +492,7 @@ This folder is the default user-facing operating view.
 - Target recommendation books are not current holdings and are hidden by default.
 - Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted by `approved_integrated`.
 - `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
+- `outputs/operator_review/projected_holdings_after_market_leader_target.csv` shows the Market Leader shadow delta when available.
 - `outputs/decision_cadence/decision_cadence_summary.json` explains daily/weekly/monthly review cadence and mid-month reentry rules when available.
 - Deprecated/research backtests are not copied here and are not promotion evidence.
 - Do not trade rows or portfolios marked REVIEW_REQUIRED or DO_NOT_TRADE.

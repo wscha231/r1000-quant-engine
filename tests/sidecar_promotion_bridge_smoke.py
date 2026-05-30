@@ -17,6 +17,7 @@ from r1000_sidecar_promotion import (  # noqa: E402
     file_sha256,
     run_approved_integrated,
     run_check_promotion,
+    run_market_leader_shadow,
     run_shadow,
     rollback_targets,
 )
@@ -81,6 +82,22 @@ def build_fixture(root: Path) -> tuple[Path, Path, Path]:
             {"rebalance_date": "2025-01-31", "ticker": "MU", "weight": 0.25, "portfolio_kind": "concentrated", "case_id": "H"},
         ]
     ).to_csv(h_dir / "concentrated_H_multi_lane_crisis_hold_replace_target_book.csv", index=False)
+    ml_dir = latest / "market_leader_challenger"
+    ml_dir.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {"rebalance_date": "2025-01-31", "ticker": "ON", "weight": 0.3531, "portfolio_kind": "main"},
+            {"rebalance_date": "2025-01-31", "ticker": "WDC", "weight": 0.2648, "portfolio_kind": "main"},
+            {"rebalance_date": "2025-01-31", "ticker": "MU", "weight": 0.2572, "portfolio_kind": "main"},
+        ]
+    ).to_csv(ml_dir / "main_target_book.csv", index=False)
+    pd.DataFrame(
+        [
+            {"rebalance_date": "2025-01-31", "ticker": "ON", "weight": 0.3531, "portfolio_kind": "concentrated"},
+            {"rebalance_date": "2025-01-31", "ticker": "WDC", "weight": 0.2648, "portfolio_kind": "concentrated"},
+            {"rebalance_date": "2025-01-31", "ticker": "MU", "weight": 0.2572, "portfolio_kind": "concentrated"},
+        ]
+    ).to_csv(ml_dir / "concentrated_target_book.csv", index=False)
     pd.DataFrame(
         [
             {"case_id": "H", "portfolio_kind": "main", "acceptance_status": "passed", "acceptance_blockers": ""},
@@ -168,6 +185,70 @@ def test_portfolio_level_promotion_allows_main_while_concentrated_blocks() -> No
         assert rollback["status"] == "completed"
 
 
+def test_market_leader_shadow_shows_pr_etr_exit_and_mu_wdc_add() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest, cache, integrated = build_fixture(root)
+        before_conc = file_sha256(latest / "reports" / "operating_concentrated_target_book.csv")
+        payload = run_market_leader_shadow(latest_run=latest, integrated_dir=integrated, price_cache=cache, output_root=latest)
+        assert payload["production_mutated"] is False
+        assert payload["mode"] == "market_leader_shadow"
+        assert file_sha256(latest / "reports" / "operating_concentrated_target_book.csv") == before_conc
+        projected = pd.read_csv(latest / "operator_review" / "projected_holdings_after_market_leader_target.csv")
+        concentrated = projected[projected["portfolio"].eq("concentrated")]
+        assert {"PR", "ETR", "PEG"}.issubset(set(concentrated[concentrated["action"].eq("FULL_EXIT")]["ticker"]))
+        assert {"ON", "WDC", "MU"}.issubset(set(concentrated[concentrated["action"].eq("ADD")]["ticker"]))
+        assert (latest / "shadow_operating" / "market_leader_concentrated_current_holdings.csv").exists()
+
+
+def test_approved_market_leader_concentrated_override_copies_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest, _cache, integrated = build_fixture(root)
+        run_check_promotion(latest_run=latest, integrated_dir=integrated, output_root=latest)
+        source = latest / "market_leader_challenger" / "concentrated_target_book.csv"
+        policy = {
+            "approved_portfolios": ["concentrated"],
+            "source_run_id": "prior_market_leader_run",
+            "source_policy_concentrated": "market_leader",
+            "source_case_id_concentrated": "market_leader",
+            "source_target_book_path_concentrated": str(source),
+            "source_target_book_sha256_concentrated": file_sha256(source),
+            "main": {"approved": False, "source_policy": "integrated_h", "source_case_id": "H"},
+            "concentrated": {
+                "approved": True,
+                "source_policy": "market_leader",
+                "source_case_id": "market_leader",
+                "source_target_book_path": str(source),
+                "source_target_book_sha256": file_sha256(source),
+                "manual_gate_override": True,
+                "allow_stale_holding_exit_override": True,
+                "manual_gate_override_reason": "Approved replacement for stale PR/ETR/PEG concentrated holdings.",
+            },
+            "human_approved": True,
+            "production_mutation_allowed": True,
+            "allow_replace_operating_target_books": True,
+        }
+        policy_path = latest / "promotion_review" / "approved_target_policy.json"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        before_main = file_sha256(latest / "reports" / "operating_main_target_book.csv")
+        old_env = os.environ.get("ALLOW_PRODUCTION_MUTATION")
+        os.environ["ALLOW_PRODUCTION_MUTATION"] = "1"
+        try:
+            audit = run_approved_integrated(latest_run=latest, output_root=latest, policy_path=policy_path, integrated_dir=integrated)
+        finally:
+            if old_env is None:
+                os.environ.pop("ALLOW_PRODUCTION_MUTATION", None)
+            else:
+                os.environ["ALLOW_PRODUCTION_MUTATION"] = old_env
+        assert audit["status"] == "applied"
+        assert [row["portfolio"] for row in audit["actual_changes"]] == ["concentrated"]
+        assert audit["actual_changes"][0]["source_policy"] == "market_leader"
+        assert audit["actual_changes"][0]["gate_override_used"] is True
+        assert file_sha256(latest / "reports" / "operating_concentrated_target_book.csv") == file_sha256(source)
+        assert file_sha256(latest / "reports" / "operating_main_target_book.csv") == before_main
+
+
 def test_approved_mode_blocks_without_env_or_source_sha() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -194,6 +275,8 @@ def test_approved_mode_blocks_without_env_or_source_sha() -> None:
 def main() -> int:
     test_shadow_mode_does_not_mutate_and_shows_current_to_target_deltas()
     test_portfolio_level_promotion_allows_main_while_concentrated_blocks()
+    test_market_leader_shadow_shows_pr_etr_exit_and_mu_wdc_add()
+    test_approved_market_leader_concentrated_override_copies_target()
     test_approved_mode_blocks_without_env_or_source_sha()
     print("sidecar_promotion_bridge_smoke: PASS")
     return 0

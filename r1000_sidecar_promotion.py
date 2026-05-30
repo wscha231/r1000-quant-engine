@@ -33,6 +33,9 @@ from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS
 PORTFOLIOS = ("main", "concentrated")
 CASH_TICKERS = {"CASH", "__CASH__"}
 H_CASE_LABEL = "multi_lane_crisis_hold_replace"
+SOURCE_INTEGRATED_H = "integrated_h"
+SOURCE_MARKET_LEADER = "market_leader"
+SOURCE_POLICIES = {SOURCE_INTEGRATED_H, SOURCE_MARKET_LEADER}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -112,14 +115,30 @@ def default_policy_example() -> dict[str, Any]:
         "schema_version": "alphaops-approved-target-policy-v1",
         "approved_portfolios": [],
         "source_run_id": "",
+        "source_policy_main": SOURCE_INTEGRATED_H,
+        "source_policy_concentrated": SOURCE_INTEGRATED_H,
         "source_case_id_main": "H",
         "source_case_id_concentrated": "H",
         "source_target_book_path_main": "",
         "source_target_book_path_concentrated": "",
         "source_target_book_sha256_main": "",
         "source_target_book_sha256_concentrated": "",
-        "main": {"approved": False, "source_case_id": "H"},
-        "concentrated": {"approved": False, "source_case_id": "H"},
+        "main": {
+            "approved": False,
+            "source_policy": SOURCE_INTEGRATED_H,
+            "source_case_id": "H",
+            "manual_gate_override": False,
+            "allow_stale_holding_exit_override": False,
+            "manual_gate_override_reason": "",
+        },
+        "concentrated": {
+            "approved": False,
+            "source_policy": SOURCE_INTEGRATED_H,
+            "source_case_id": "H",
+            "manual_gate_override": False,
+            "allow_stale_holding_exit_override": False,
+            "manual_gate_override_reason": "",
+        },
         "human_approved": False,
         "approved_by": "",
         "approved_at": "",
@@ -128,6 +147,30 @@ def default_policy_example() -> dict[str, Any]:
         "required_metric_mode": "broker_ledger_next_close",
         "notes": "Default is false. Approve only a previously validated source target book.",
     }
+
+
+def market_leader_concentrated_policy_example() -> dict[str, Any]:
+    payload = default_policy_example()
+    payload.update(
+        {
+            "approved_portfolios": ["concentrated"],
+            "source_policy_concentrated": SOURCE_MARKET_LEADER,
+            "source_case_id_concentrated": "market_leader",
+            "source_target_book_path_concentrated": "outputs/market_leader_challenger/concentrated_target_book.csv",
+            "notes": "Example only. Fill source_target_book_sha256_concentrated from the previously validated artifact before approval.",
+        }
+    )
+    payload["concentrated"] = {
+        "approved": False,
+        "source_policy": SOURCE_MARKET_LEADER,
+        "source_case_id": "market_leader",
+        "source_target_book_path": "outputs/market_leader_challenger/concentrated_target_book.csv",
+        "source_target_book_sha256": "",
+        "manual_gate_override": False,
+        "allow_stale_holding_exit_override": False,
+        "manual_gate_override_reason": "Concentrated production holdings are stale versus approved Market Leader target.",
+    }
+    return payload
 
 
 def ensure_promotion_dirs(output_root: Path) -> dict[str, Path]:
@@ -141,6 +184,9 @@ def ensure_promotion_dirs(output_root: Path) -> dict[str, Path]:
     example = paths["promotion"] / "approved_target_policy.example.json"
     if not example.exists():
         write_json(example, default_policy_example())
+    ml_example = paths["promotion"] / "approved_market_leader_concentrated_policy.example.json"
+    if not ml_example.exists():
+        write_json(ml_example, market_leader_concentrated_policy_example())
     return paths
 
 
@@ -166,6 +212,10 @@ def h_case_target_path(integrated_dir: Path, portfolio: str) -> Path:
     return integrated_dir / "crisis_adjusted_target_books" / f"{portfolio}_H_{H_CASE_LABEL}_target_book.csv"
 
 
+def market_leader_target_path(latest_run: Path, portfolio: str) -> Path:
+    return latest_run / "market_leader_challenger" / f"{portfolio}_target_book.csv"
+
+
 def load_h_case_target(integrated_dir: Path, portfolio: str) -> tuple[pd.DataFrame, Path, str]:
     direct = h_case_target_path(integrated_dir, portfolio)
     if direct.exists():
@@ -180,6 +230,26 @@ def load_h_case_target(integrated_dir: Path, portfolio: str) -> tuple[pd.DataFra
     if "portfolio_kind" in raw.columns:
         raw = raw[raw["portfolio_kind"].astype(str).eq(portfolio)].copy()
     return normalize_target_book(raw), lane, "lane_target_book_filtered"
+
+
+def load_market_leader_target(latest_run: Path, portfolio: str) -> tuple[pd.DataFrame, Path, str]:
+    path = market_leader_target_path(latest_run, portfolio)
+    if not path.exists():
+        return pd.DataFrame(columns=["rebalance_date", "ticker", "weight"]), path, "missing"
+    return normalize_target_book(read_csv(path)), path, "market_leader_target_book"
+
+
+def load_target_source(
+    *,
+    latest_run: Path,
+    integrated_dir: Path,
+    portfolio: str,
+    source_policy: str,
+) -> tuple[pd.DataFrame, Path, str]:
+    policy = source_policy if source_policy in SOURCE_POLICIES else SOURCE_INTEGRATED_H
+    if policy == SOURCE_MARKET_LEADER:
+        return load_market_leader_target(latest_run, portfolio)
+    return load_h_case_target(integrated_dir, portfolio)
 
 
 def read_positions(latest_run: Path, portfolio: str) -> pd.DataFrame:
@@ -241,10 +311,15 @@ def classify_action(current_weight: float, target_weight: float) -> str:
     return "NO_CHANGE"
 
 
-def projected_holdings(latest_run: Path, integrated_dir: Path) -> pd.DataFrame:
+def projected_holdings_for_source(latest_run: Path, integrated_dir: Path, *, source_policy: str) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for portfolio in PORTFOLIOS:
-        target, target_path, target_source = load_h_case_target(integrated_dir, portfolio)
+        target, target_path, target_source = load_target_source(
+            latest_run=latest_run,
+            integrated_dir=integrated_dir,
+            portfolio=portfolio,
+            source_policy=source_policy,
+        )
         target_weights = latest_target_weights(target)
         current = read_positions(latest_run, portfolio)
         current_map = {str(row.get("ticker")).upper(): row for row in current.to_dict("records")}
@@ -269,12 +344,17 @@ def projected_holdings(latest_run: Path, integrated_dir: Path) -> pd.DataFrame:
                     "action": action,
                     "current_value": safe_float(cur.get("current_value_usd"), current_weight * total_value),
                     "projected_value": target_weight * total_value,
-                    "reason": f"H_case_integrated_target:{target_source}",
+                    "reason": f"{source_policy}_target:{target_source}",
                     "review_flag": "operator_review_only",
+                    "source_policy": source_policy,
                     "source_target_book_path": str(target_path),
                 }
             )
     return pd.DataFrame(rows)
+
+
+def projected_holdings(latest_run: Path, integrated_dir: Path) -> pd.DataFrame:
+    return projected_holdings_for_source(latest_run, integrated_dir, source_policy=SOURCE_INTEGRATED_H)
 
 
 def projected_orders(projected: pd.DataFrame) -> pd.DataFrame:
@@ -347,6 +427,20 @@ def promotion_gate_from_files(latest_run: Path, integrated_dir: Path) -> dict[st
             "source_target_book_mode": target_source,
             "target_row_count": int(len(target)),
         }
+    market_leader_review: dict[str, Any] = {}
+    for portfolio in PORTFOLIOS:
+        ml_target, ml_path, ml_source = load_market_leader_target(latest_run, portfolio)
+        latest_weights = latest_target_weights(ml_target)
+        market_leader_review[portfolio] = {
+            "source_policy": SOURCE_MARKET_LEADER,
+            "source_target_book_path": str(ml_path),
+            "source_target_book_sha256": file_sha256(ml_path) if ml_path.exists() else "",
+            "source_target_book_mode": ml_source,
+            "target_row_count": int(len(ml_target)),
+            "latest_tickers": sorted(latest_weights),
+            "review_only": True,
+            "note": "Market Leader source is separate from integrated H; production use still requires explicit policy, sha match, env flag, and gate pass or manual override.",
+        }
     combined = "passed" if rows["main"]["status"] == "passed" and rows["concentrated"]["status"] == "passed" else "rejected"
     return {
         "schema_version": "alphaops-sidecar-promotion-check-v1",
@@ -354,6 +448,7 @@ def promotion_gate_from_files(latest_run: Path, integrated_dir: Path) -> dict[st
         "status": combined,
         "main_promotion_gate": rows["main"],
         "concentrated_promotion_gate": rows["concentrated"],
+        "market_leader_review": market_leader_review,
         "combined_promotion_gate": {
             "status": combined,
             "production_activation_allowed": False,
@@ -373,31 +468,47 @@ def run_check_promotion(*, latest_run: Path, integrated_dir: Path, output_root: 
     return payload
 
 
-def run_shadow(
+def _run_shadow_for_source(
     *,
     latest_run: Path,
     integrated_dir: Path,
     price_cache: Path,
     output_root: Path,
+    source_policy: str,
+    mode: str,
+    projected_filename: str,
+    orders_filename: str,
+    diff_filename: str,
+    shadow_prefix: str,
+    target_prefix: str,
     cost_bps: float = 25.0,
     max_fill_lag_days: int = 7,
 ) -> dict[str, Any]:
     paths = ensure_promotion_dirs(output_root)
-    promotion = run_check_promotion(latest_run=latest_run, integrated_dir=integrated_dir, output_root=output_root)
-    projected = projected_holdings(latest_run, integrated_dir)
-    write_csv(paths["operator"] / "projected_holdings_after_integrated_target.csv", projected)
-    write_csv(paths["operator"] / "projected_orders_from_integrated_target.csv", projected_orders(projected))
-    write_csv(paths["operator"] / "sidecar_vs_current_diff.csv", projected)
+    promotion_status = "not_requested"
+    if source_policy == SOURCE_INTEGRATED_H:
+        promotion = run_check_promotion(latest_run=latest_run, integrated_dir=integrated_dir, output_root=output_root)
+        promotion_status = str(promotion.get("status") or "missing")
+    projected = projected_holdings_for_source(latest_run, integrated_dir, source_policy=source_policy)
+    write_csv(paths["operator"] / projected_filename, projected)
+    write_csv(paths["operator"] / orders_filename, projected_orders(projected))
+    write_csv(paths["operator"] / diff_filename, projected)
     target_dir = paths["shadow"] / "target_books"
     metrics: dict[str, Any] = {}
     for portfolio in PORTFOLIOS:
-        target, _target_path, source = load_h_case_target(integrated_dir, portfolio)
+        target, _target_path, source = load_target_source(
+            latest_run=latest_run,
+            integrated_dir=integrated_dir,
+            portfolio=portfolio,
+            source_policy=source_policy,
+        )
         if target.empty:
-            metrics[portfolio] = {"status": "blocked", "reason": "missing_integrated_H_target_book", "source": source}
+            metrics[portfolio] = {"status": "blocked", "reason": f"missing_{source_policy}_target_book", "source": source}
             continue
-        target_path = target_dir / f"integrated_{portfolio}_H_target_book.csv"
+        target_path = target_dir / f"{target_prefix}_{portfolio}_target_book.csv"
         write_csv(target_path, target)
-        out_dir = paths["shadow"] / "broker_replay" / portfolio
+        replay_root = "broker_replay" if shadow_prefix == "integrated" else f"{shadow_prefix}_broker_replay"
+        out_dir = paths["shadow"] / replay_root / portfolio
         try:
             metrics[portfolio] = broker_replay(
                 target_book=target_path,
@@ -416,21 +527,74 @@ def run_shadow(
             write_json(out_dir / "metrics.json", metrics[portfolio])
         latest_positions = out_dir / "positions_latest.csv"
         if latest_positions.exists():
-            dest_name = "integrated_concentrated_current_holdings.csv" if portfolio == "concentrated" else "integrated_main_current_holdings.csv"
+            dest_name = f"{shadow_prefix}_{portfolio}_current_holdings.csv"
             shutil.copy2(latest_positions, paths["shadow"] / dest_name)
     payload = {
         "schema_version": "alphaops-sidecar-shadow-v1",
         "generated_at_utc": now_utc(),
         "status": "completed",
-        "mode": "integrated_shadow",
+        "mode": mode,
+        "source_policy": source_policy,
         "production_mutated": False,
-        "promotion_check_status": promotion.get("status"),
+        "promotion_check_status": promotion_status,
         "shadow_metrics": metrics,
-        "projected_holdings_path": str(paths["operator"] / "projected_holdings_after_integrated_target.csv"),
+        "projected_holdings_path": str(paths["operator"] / projected_filename),
     }
-    write_json(paths["shadow"] / "shadow_broker_metrics.json", payload)
+    write_json(paths["shadow"] / f"{shadow_prefix}_shadow_broker_metrics.json", payload)
     write_json(paths["promotion"] / "sidecar_promotion_bridge_status.json", payload)
     return payload
+
+
+def run_shadow(
+    *,
+    latest_run: Path,
+    integrated_dir: Path,
+    price_cache: Path,
+    output_root: Path,
+    cost_bps: float = 25.0,
+    max_fill_lag_days: int = 7,
+) -> dict[str, Any]:
+    return _run_shadow_for_source(
+        latest_run=latest_run,
+        integrated_dir=integrated_dir,
+        price_cache=price_cache,
+        output_root=output_root,
+        source_policy=SOURCE_INTEGRATED_H,
+        mode="integrated_shadow",
+        projected_filename="projected_holdings_after_integrated_target.csv",
+        orders_filename="projected_orders_from_integrated_target.csv",
+        diff_filename="sidecar_vs_current_diff.csv",
+        shadow_prefix="integrated",
+        target_prefix="integrated_H",
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+    )
+
+
+def run_market_leader_shadow(
+    *,
+    latest_run: Path,
+    integrated_dir: Path,
+    price_cache: Path,
+    output_root: Path,
+    cost_bps: float = 25.0,
+    max_fill_lag_days: int = 7,
+) -> dict[str, Any]:
+    return _run_shadow_for_source(
+        latest_run=latest_run,
+        integrated_dir=integrated_dir,
+        price_cache=price_cache,
+        output_root=output_root,
+        source_policy=SOURCE_MARKET_LEADER,
+        mode="market_leader_shadow",
+        projected_filename="projected_holdings_after_market_leader_target.csv",
+        orders_filename="projected_orders_from_market_leader_target.csv",
+        diff_filename="market_leader_vs_current_diff.csv",
+        shadow_prefix="market_leader",
+        target_prefix="market_leader",
+        cost_bps=cost_bps,
+        max_fill_lag_days=max_fill_lag_days,
+    )
 
 
 def load_policy(path: Path) -> dict[str, Any]:
@@ -446,16 +610,44 @@ def policy_portfolio_approved(policy: dict[str, Any], portfolio: str) -> bool:
     return portfolio in approved_portfolios and bool(specific.get("approved", True))
 
 
-def source_path_from_policy(policy: dict[str, Any], portfolio: str) -> Path:
+def source_policy_from_policy(policy: dict[str, Any], portfolio: str) -> str:
+    key = f"source_policy_{portfolio}"
+    specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
+    value = str(specific.get("source_policy") or policy.get(key) or SOURCE_INTEGRATED_H).strip().lower()
+    return value if value in SOURCE_POLICIES else SOURCE_INTEGRATED_H
+
+
+def source_case_id_from_policy(policy: dict[str, Any], portfolio: str) -> str:
+    key = f"source_case_id_{portfolio}"
+    specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
+    return str(specific.get("source_case_id") or policy.get(key) or ("market_leader" if source_policy_from_policy(policy, portfolio) == SOURCE_MARKET_LEADER else "H"))
+
+
+def source_path_from_policy(policy: dict[str, Any], portfolio: str, *, latest_run: Path | None = None, integrated_dir: Path | None = None) -> Path:
     key = f"source_target_book_path_{portfolio}"
     specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
-    return repo_path(str(specific.get("source_target_book_path") or policy.get(key) or ""))
+    configured = str(specific.get("source_target_book_path") or policy.get(key) or "")
+    if configured:
+        return repo_path(configured)
+    source_policy = source_policy_from_policy(policy, portfolio)
+    if source_policy == SOURCE_MARKET_LEADER and latest_run is not None:
+        return market_leader_target_path(latest_run, portfolio)
+    if integrated_dir is not None:
+        return h_case_target_path(integrated_dir, portfolio)
+    return repo_path("")
 
 
 def source_sha_from_policy(policy: dict[str, Any], portfolio: str) -> str:
     key = f"source_target_book_sha256_{portfolio}"
     specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
     return str(specific.get("source_target_book_sha256") or policy.get(key) or "")
+
+
+def manual_gate_override_from_policy(policy: dict[str, Any], portfolio: str) -> tuple[bool, str]:
+    specific = policy.get(portfolio, {}) if isinstance(policy.get(portfolio), dict) else {}
+    enabled = bool(specific.get("manual_gate_override")) and bool(specific.get("allow_stale_holding_exit_override"))
+    reason = str(specific.get("manual_gate_override_reason") or "").strip()
+    return bool(enabled and reason), reason
 
 
 def snapshot(paths: list[Path]) -> dict[str, Any]:
@@ -513,10 +705,16 @@ def run_approved_integrated(*, latest_run: Path, output_root: Path, policy_path:
     copy_plan: list[dict[str, Any]] = []
     for portfolio in approved_portfolios:
         gate = promotion.get(f"{portfolio}_promotion_gate", {})
+        override_allowed, override_reason = manual_gate_override_from_policy(policy, portfolio)
+        gate_override_used = False
         if gate.get("status") != "passed":
-            blockers.append(f"{portfolio}_promotion_gate_not_passed")
-            continue
-        source = source_path_from_policy(policy, portfolio)
+            if not override_allowed:
+                blockers.append(f"{portfolio}_promotion_gate_not_passed")
+                continue
+            gate_override_used = True
+        source_policy = source_policy_from_policy(policy, portfolio)
+        source_case_id = source_case_id_from_policy(policy, portfolio)
+        source = source_path_from_policy(policy, portfolio, latest_run=latest_run, integrated_dir=integrated_dir)
         expected_sha = source_sha_from_policy(policy, portfolio)
         if not source.is_file():
             blockers.append(f"{portfolio}_source_target_book_missing")
@@ -529,7 +727,19 @@ def run_approved_integrated(*, latest_run: Path, output_root: Path, policy_path:
         if not dest.exists():
             blockers.append(f"{portfolio}_operating_target_book_missing")
             continue
-        copy_plan.append({"portfolio": portfolio, "source": source, "destination": dest, "source_sha256": actual_sha})
+        copy_plan.append(
+            {
+                "portfolio": portfolio,
+                "source": source,
+                "destination": dest,
+                "source_sha256": actual_sha,
+                "source_policy": source_policy,
+                "source_case_id": source_case_id,
+                "gate_override_used": gate_override_used,
+                "gate_override_reason": override_reason if gate_override_used else "",
+                "promotion_gate_status": gate.get("status", "missing"),
+            }
+        )
 
     if blockers:
         payload = {
@@ -573,6 +783,11 @@ def run_approved_integrated(*, latest_run: Path, output_root: Path, policy_path:
                 "destination": str(dest),
                 "backup": str(backup),
                 "source_sha256": str(item["source_sha256"]),
+                "source_policy": str(item.get("source_policy") or ""),
+                "source_case_id": str(item.get("source_case_id") or ""),
+                "promotion_gate_status": str(item.get("promotion_gate_status") or ""),
+                "gate_override_used": bool(item.get("gate_override_used")),
+                "gate_override_reason": str(item.get("gate_override_reason") or ""),
             }
         )
 

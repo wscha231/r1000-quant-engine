@@ -32,6 +32,9 @@ run_sidecar_promotion_hook() {
   local hook_mode="$PORTFOLIO_POLICY"
   if [ "$hook_mode" = "integrated_shadow" ]; then
     python tools/run_sidecar_promotion_bridge.py --mode integrated_shadow --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log || true
+  elif [ "$hook_mode" = "market_leader_shadow" ]; then
+    echo "[sidecar-promotion] writing outputs/operator_review/projected_holdings_after_market_leader_target.csv"
+    python tools/run_sidecar_promotion_bridge.py --mode market_leader_shadow --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log || true
   elif [ "$hook_mode" = "approved_integrated" ]; then
     python tools/run_sidecar_promotion_bridge.py --mode approved_integrated --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log
   else
@@ -94,7 +97,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
     build_long_crisis_inputs
     python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
-    if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ]; then
+    if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
       run_sidecar_promotion_hook
     fi
     python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
@@ -211,7 +214,7 @@ python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir o
 python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
 build_long_crisis_inputs
 python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
-if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ]; then
+if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
   run_sidecar_promotion_hook
 fi
 python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
@@ -248,7 +251,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--artifact-profile", default=os.environ.get("ARTIFACT_PROFILE", "unknown"))
     parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
-    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "approved_integrated"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
+    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
     parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
     return parser.parse_args()
 

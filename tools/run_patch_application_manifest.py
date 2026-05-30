@@ -165,8 +165,21 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "decision_cadence_status": decision_cadence.get("schema_version", "missing"),
         "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
         "shadow_available": bool((latest_run / "shadow_operating").exists()),
-        "projected_holdings_path": str(latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv")
+        "projected_holdings_path": (
+            str(latest_run / "operator_review" / "projected_holdings_after_market_leader_target.csv")
+            if portfolio_policy == "market_leader_shadow"
+            and (latest_run / "operator_review" / "projected_holdings_after_market_leader_target.csv").exists()
+            else (
+                str(latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv")
+                if (latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv").exists()
+                else ""
+            )
+        ),
+        "projected_integrated_holdings_path": str(latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv")
         if (latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv").exists()
+        else "",
+        "projected_market_leader_holdings_path": str(latest_run / "operator_review" / "projected_holdings_after_market_leader_target.csv")
+        if (latest_run / "operator_review" / "projected_holdings_after_market_leader_target.csv").exists()
         else "",
         "official_metric_mode": official.get("official_metric_mode") or official.get("metric_mode") or "",
         "valid_for_production": official.get("valid_for_production"),

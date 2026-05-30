@@ -334,6 +334,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "--portfolio-policy",
         "--approved-target-policy-path",
         "outputs/operator_review/projected_holdings_after_integrated_target.csv",
+        "outputs/operator_review/projected_holdings_after_market_leader_target.csv",
+        "market_leader_shadow",
         "--target-book outputs/reports/event_main_target_book.csv",
         "--target-book outputs/reports/event_concentrated_target_book.csv",
         "outputs/reports/event_*_target_book.csv",
