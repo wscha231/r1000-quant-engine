@@ -95,6 +95,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
     python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+    python tools/run_superperformance_trader_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
     build_long_crisis_inputs
     python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
     if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
@@ -212,6 +213,7 @@ python tools/run_theme_concentration_challenger.py --latest-run outputs --output
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
 python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+python tools/run_superperformance_trader_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
 build_long_crisis_inputs
 python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
 if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
