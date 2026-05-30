@@ -81,6 +81,18 @@ on:
           - research
           - off
         default: minimal
+      portfolio_policy:
+        description: 'operating target policy: baseline, shadow-only integrated, or explicitly approved integrated'
+        type: choice
+        options:
+          - production_baseline
+          - integrated_shadow
+          - approved_integrated
+        default: production_baseline
+      approved_target_policy_path:
+        description: 'approved_integrated policy file path; default stays unapproved'
+        type: string
+        default: outputs/promotion_review/approved_target_policy.json
 
 permissions:
   contents: write   # commit final scored CSVs + verdict to cloud_results/
@@ -439,7 +451,7 @@ jobs:
       - name: Portfolio target replay + goal search (sidecar)
         if: always()
         run: |
-          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}"
+          python tools/run_full_rebuild_sidecars.py --profile "${{ inputs.sidecar_profile }}" --artifact-profile "${{ inputs.artifact_profile }}" --gdrive-sync-mode "${{ inputs.gdrive_sync_mode }}" --portfolio-policy "${{ inputs.portfolio_policy }}" --approved-target-policy-path "${{ inputs.approved_target_policy_path }}"
 
       - name: Upload artifact (user operating minimal)
         if: always()
@@ -454,8 +466,13 @@ jobs:
             outputs/operator_review/dust_positions_report.csv
             outputs/operator_review/dust_cleanup_orders.csv
             outputs/operator_review/projected_holdings_after_ready_orders.csv
+            outputs/operator_review/projected_holdings_after_integrated_target.csv
+            outputs/operator_review/projected_orders_from_integrated_target.csv
+            outputs/operator_review/sidecar_vs_current_diff.csv
             outputs/operator_review/position_cleanup_review.json
             outputs/operator_review/position_cleanup_review.md
+            outputs/shadow_operating/
+            outputs/promotion_review/
             outputs/account_evaluation/official_metrics.json
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/concentrated/metrics.json
@@ -491,6 +508,8 @@ jobs:
             outputs/broker_position_risk_replay/
             outputs/broker_execution_policy_replay/
             outputs/operator_review/
+            outputs/shadow_operating/
+            outputs/promotion_review/
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
@@ -581,6 +600,9 @@ jobs:
             outputs/monster_recommendations/
             outputs/operating_snapshot/
             outputs/user_portfolio_reports/
+            outputs/operator_review/
+            outputs/shadow_operating/
+            outputs/promotion_review/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
             outputs/governance_catalyst/
@@ -869,6 +891,11 @@ jobs:
             "outputs/operator_review/dust_positions_report.csv"
             "outputs/operator_review/dust_cleanup_orders.csv"
             "outputs/operator_review/projected_holdings_after_ready_orders.csv"
+            "outputs/operator_review/projected_holdings_after_integrated_target.csv"
+            "outputs/operator_review/projected_orders_from_integrated_target.csv"
+            "outputs/operator_review/sidecar_vs_current_diff.csv"
+            "outputs/shadow_operating"
+            "outputs/promotion_review"
             "outputs/broker_replay/main/metrics.json"
             "outputs/broker_replay/concentrated/metrics.json"
           )
@@ -980,6 +1007,8 @@ jobs:
             copy_dir_clean outputs/user_current "$DEST/user_current"
             cp outputs/patch_application_manifest.json "$DEST/" 2>/dev/null || true
             copy_dir_clean outputs/operator_review "$DEST/operator_review"
+            copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
+            copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
@@ -1066,6 +1095,8 @@ jobs:
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
+          copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
+          copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
           copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"

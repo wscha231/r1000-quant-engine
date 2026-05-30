@@ -252,12 +252,41 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
     mutation = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "production_mutation_check.json")
     market_leader = read_json(latest_run / "market_leader_challenger" / "summary.json")
     patch_manifest = read_json(latest_run / "patch_application_manifest.json")
+    promotion_check = read_json(latest_run / "promotion_review" / "integrated_target_promotion_check.json")
+    production_audit = read_json(latest_run / "promotion_review" / "production_mutation_audit.json")
+    approved_policy_path = str(
+        patch_manifest.get("approved_target_policy_path")
+        or latest_run / "promotion_review" / "approved_target_policy.json"
+    )
+    production_policy = str(patch_manifest.get("portfolio_policy") or "production_baseline")
+    sidecar_applied = bool(
+        patch_manifest.get("sidecar_applied_to_production")
+        or str(production_audit.get("status") or "").lower() == "applied"
+    )
+    shadow_path = latest_run / "shadow_operating"
+    projected_path = latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv"
+    policy = read_json(repo_path(approved_policy_path))
+    source_run_id = str(production_audit.get("source_run_id") or policy.get("source_run_id") or "")
+    source_case_id = str(
+        production_audit.get("source_case_id_main")
+        or policy.get("source_case_id_main")
+        or policy.get("source_case_id")
+        or ""
+    )
     return {
         "schema_version": "user-current-research-sidecar-context-v1",
-        "production_applied": False,
-        "sidecar_only": True,
+        "production_applied": bool(sidecar_applied),
+        "sidecar_only": not bool(sidecar_applied),
+        "production_policy": production_policy,
+        "sidecar_applied_to_production": bool(sidecar_applied),
         "current_holdings_source": "production_operating_target_book",
-        "message": "Market Leader / Multi-Lane / Crisis sidecars are research-only and did not alter current holdings.",
+        "source_target_run_id": source_run_id,
+        "source_target_case_id": source_case_id,
+        "approved_policy_path": approved_policy_path,
+        "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
+        "shadow_available": bool(shadow_path.exists()),
+        "projected_holdings_path": str(projected_path) if projected_path.exists() else "",
+        "message": "Market Leader / Multi-Lane / Crisis sidecars did not alter current holdings unless sidecar_applied_to_production=true.",
         "research_outputs_not_applied": [
             "market_leader_challenger",
             "integrated_theme_leader_crisis_replay",
@@ -268,8 +297,10 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "integrated_replay_status": integrated_summary.get("status", "missing"),
         "replay_gate_status": replay_gate.get("status", "missing"),
         "promotion_gate_status": promotion_gate.get("status", "missing"),
+        "promotion_review_status": promotion_check.get("status", "missing"),
         "production_mutation_check_status": mutation.get("status", "missing"),
-        "production_mutation_allowed": False,
+        "production_mutation_allowed": bool(production_audit.get("mode") == "approved_integrated"),
+        "production_mutation_audit_status": production_audit.get("status", "missing"),
         "production_activation_allowed": bool(promotion_gate.get("production_activation_allowed", False)),
         "patch_application_manifest_status": "present" if patch_manifest else "missing",
         "reason_not_applied_to_current_holdings": patch_manifest.get(
@@ -392,16 +423,25 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         f"- valid_for_production: `{production_valid(metrics)}`",
         f"- production_applied: `{str(research.get('production_applied')).lower()}`",
         f"- sidecar_only: `{str(research.get('sidecar_only')).lower()}`",
+        f"- production_policy: `{research.get('production_policy')}`",
+        f"- sidecar_applied_to_production: `{str(research.get('sidecar_applied_to_production')).lower()}`",
         f"- current_holdings_source: `{research.get('current_holdings_source')}`",
+        f"- source_target_run_id: `{research.get('source_target_run_id') or ''}`",
+        f"- source_target_case_id: `{research.get('source_target_case_id') or ''}`",
+        f"- promotion_status: `{research.get('promotion_status')}`",
+        f"- shadow_available: `{str(research.get('shadow_available')).lower()}`",
+        f"- projected_holdings_path: `{research.get('projected_holdings_path') or ''}`",
         f"- cash_policy_flag: `{cash.get('cash_policy_flag') or ''}`",
         f"- combined_projected_cash_after_ready_orders: `{safe_float(cash.get('combined_projected_cash_weight_after_ready_orders'), np.nan):.2%}`",
         "",
         "## Research Sidecar Context",
         "",
-        "- Market Leader / Multi-Lane / Crisis outputs are research-only and did not alter current holdings.",
+        "- Market Leader / Multi-Lane / Crisis outputs alter current holdings only after approved_integrated promotion.",
         f"- replay_gate_status: `{research.get('replay_gate_status')}`",
         f"- promotion_gate_status: `{research.get('promotion_gate_status')}`",
+        f"- promotion_review_status: `{research.get('promotion_review_status')}`",
         f"- production_mutation_check_status: `{research.get('production_mutation_check_status')}`",
+        f"- production_mutation_audit_status: `{research.get('production_mutation_audit_status')}`",
         "",
         "## Reasons",
         "",
@@ -414,6 +454,8 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
             "",
             "- This report shows current simulated broker-ledger holdings only.",
             "- Current holdings follow the production operating book, not research sidecar target books.",
+            "- If integrated_shadow is enabled, projected holdings show what the H-case target would do before approval.",
+            "- If approved_integrated is enabled and approved before broker replay, current holdings can change in the same run.",
             "- Target recommendation books are hidden by default.",
             "- REVIEW_REQUIRED is not an auto-trade instruction.",
             "- Research metrics are not promotion evidence.",
@@ -433,7 +475,8 @@ This folder is the default user-facing operating view.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
 - `07_research_sidecar_context.json` explains which research-only sidecars did not alter current holdings.
 - Target recommendation books are not current holdings and are hidden by default.
-- Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted later.
+- Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted by `approved_integrated`.
+- `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
 - Deprecated/research backtests are not copied here and are not promotion evidence.
 - Do not trade rows or portfolios marked REVIEW_REQUIRED or DO_NOT_TRADE.
 """
@@ -478,6 +521,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "period_return_rows": int(len(period)),
         "production_applied": bool(research.get("production_applied")),
         "sidecar_only": bool(research.get("sidecar_only")),
+        "production_policy": research.get("production_policy"),
+        "sidecar_applied_to_production": bool(research.get("sidecar_applied_to_production")),
+        "source_target_run_id": research.get("source_target_run_id"),
+        "source_target_case_id": research.get("source_target_case_id"),
+        "approved_policy_path": research.get("approved_policy_path"),
+        "promotion_status": research.get("promotion_status"),
+        "shadow_available": bool(research.get("shadow_available")),
+        "projected_holdings_path": research.get("projected_holdings_path"),
         "current_holdings_source": research.get("current_holdings_source"),
         "research_sidecar_message": research.get("message"),
         "required_files": REQUIRED_USER_FILES,

@@ -56,8 +56,11 @@ def test_user_current_explains_research_sidecars_do_not_alter_holdings() -> None
         summary = (out / "05_action_summary.md").read_text(encoding="utf-8")
         assert payload["production_applied"] is False
         assert payload["sidecar_only"] is True
+        assert payload["production_policy"] == "production_baseline"
+        assert payload["sidecar_applied_to_production"] is False
         assert context["current_holdings_source"] == "production_operating_target_book"
-        assert "Market Leader / Multi-Lane / Crisis outputs are research-only" in summary
+        assert "sidecar_applied_to_production" in summary
+        assert "Market Leader / Multi-Lane / Crisis outputs alter current holdings only after approved_integrated promotion" in summary
         assert "promotion_gate_status" in summary
 
 

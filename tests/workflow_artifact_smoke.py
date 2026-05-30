@@ -100,6 +100,8 @@ def test_workflow_keeps_monthly_books() -> None:
         "outputs/market_leader_challenger/",
         "outputs/integrated_theme_leader_crisis_replay/",
         "outputs/strategy_logic_ledger/",
+        "outputs/shadow_operating/",
+        "outputs/promotion_review/",
         "outputs/patch_application_manifest.json",
         "outputs/replay_integrity/patch_application_manifest.json",
         "outputs/auto_learning_v2/",
@@ -238,6 +240,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_market_leader_challenger.py",
         "tools/run_integrated_theme_leader_crisis_replay.py",
         "tools/run_strategy_logic_ledger.py",
+        "tools/run_sidecar_promotion_bridge.py",
         "tools/run_patch_application_manifest.py",
         "tools/run_auto_learning_v2.py",
         "tools/run_winner_lifecycle_reports.py",
@@ -307,6 +310,7 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/full_rebuild_logs/market_leader_challenger.log",
         "outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log",
         "outputs/full_rebuild_logs/strategy_logic_ledger.log",
+        "outputs/full_rebuild_logs/sidecar_promotion_bridge.log",
         "outputs/full_rebuild_logs/patch_application_manifest.log",
         "outputs/full_rebuild_logs/auto_learning_v2.log",
         "outputs/full_rebuild_logs/winner_lifecycle.log",
@@ -321,6 +325,12 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main",
         "--target-book outputs/reports/operating_main_target_book.csv",
         "--target-book outputs/reports/operating_concentrated_target_book.csv",
+        "portfolio_policy",
+        "approved_target_policy_path",
+        "pre_broker_replay_target_override_hook",
+        "--portfolio-policy",
+        "--approved-target-policy-path",
+        "outputs/operator_review/projected_holdings_after_integrated_target.csv",
         "--target-book outputs/reports/event_main_target_book.csv",
         "--target-book outputs/reports/event_concentrated_target_book.csv",
         "outputs/reports/event_*_target_book.csv",
@@ -336,6 +346,16 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2",
     ]:
         assert token in combined, token
+
+
+def test_sidecar_promotion_hook_runs_before_primary_broker_replay() -> None:
+    sidecar_tool = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    build_idx = sidecar_tool.index("tools/build_operating_target_books.py")
+    hook_idx = sidecar_tool.index("run_sidecar_promotion_hook", build_idx)
+    replay_idx = sidecar_tool.index("--target-book outputs/reports/operating_main_target_book.csv", build_idx)
+    assert build_idx < hook_idx < replay_idx
+    assert "build_long_crisis_inputs" in sidecar_tool
+    assert "tools/run_long_crisis_dataset_builder.py" in sidecar_tool
 
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
@@ -554,6 +574,7 @@ def main() -> int:
     test_cloud_results_copy_is_not_nested()
     test_pipeline_exports_monthly_books()
     test_workflow_runs_latest_diagnostics_sidecars()
+    test_sidecar_promotion_hook_runs_before_primary_broker_replay()
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()

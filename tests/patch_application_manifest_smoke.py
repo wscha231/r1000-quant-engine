@@ -46,12 +46,17 @@ def test_patch_application_manifest_records_research_only_separation() -> None:
                 sidecar_profile="official",
                 artifact_profile="official",
                 gdrive_sync_mode="research",
+                portfolio_policy="integrated_shadow",
+                approved_target_policy_path="outputs/promotion_review/approved_target_policy.json",
             )
         )
         assert payload["production_applied"] is False
         assert payload["sidecar_only"] is True
         assert payload["production_mutated"] is False
         assert payload["candidate_replay_book_present"] is True
+        assert payload["portfolio_policy"] == "integrated_shadow"
+        assert payload["approved_target_policy_path"] == "outputs/promotion_review/approved_target_policy.json"
+        assert payload["sidecar_applied_to_production"] is False
         assert payload["reason_not_applied_to_current_holdings"] == "research_only_sidecar_promotion_gate_not_passed"
         assert (latest / "replay_integrity" / "patch_application_manifest.json").exists()
         executed = {row["name"]: row["executed"] for row in payload["executed_sidecars"]}

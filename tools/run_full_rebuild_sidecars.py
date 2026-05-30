@@ -18,16 +18,43 @@ set -o pipefail
 SIDECAR_PROFILE="${SIDECAR_PROFILE:-research_full}"
 ARTIFACT_PROFILE="${ARTIFACT_PROFILE:-unknown}"
 GDRIVE_SYNC_MODE="${GDRIVE_SYNC_MODE:-unknown}"
-echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE}"
+PORTFOLIO_POLICY="${PORTFOLIO_POLICY:-production_baseline}"
+APPROVED_TARGET_POLICY_PATH="${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}"
+echo "[sidecar] profile=${SIDECAR_PROFILE} artifact_profile=${ARTIFACT_PROFILE} gdrive_sync_mode=${GDRIVE_SYNC_MODE} portfolio_policy=${PORTFOLIO_POLICY}"
+
+run_patch_manifest() {
+  local run_id="${GITHUB_RUN_ID:-local}"
+  python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$run_id" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$run_id" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" --portfolio-policy "$PORTFOLIO_POLICY" --approved-target-policy-path "$APPROVED_TARGET_POLICY_PATH" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+}
+
+run_sidecar_promotion_hook() {
+  echo "[sidecar-promotion] pre_broker_replay_target_override_hook mode=${PORTFOLIO_POLICY}"
+  local hook_mode="$PORTFOLIO_POLICY"
+  if [ "$hook_mode" = "integrated_shadow" ]; then
+    python tools/run_sidecar_promotion_bridge.py --mode integrated_shadow --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log || true
+  elif [ "$hook_mode" = "approved_integrated" ]; then
+    python tools/run_sidecar_promotion_bridge.py --mode approved_integrated --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log
+  else
+    python tools/run_sidecar_promotion_bridge.py --mode production_baseline --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log || true
+  fi
+}
+
+build_long_crisis_inputs() {
+  echo "[long-crisis] building inputs before integrated replay"
+  python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+  python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+  python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
+}
 if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
   echo "[sidecar] phase_g_only is handled by phase_g_crisis_evidence_liquidity_replay.yml; skipping full rebuild sidecars."
   mkdir -p outputs/full_rebuild_logs
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
-  python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+  run_patch_manifest
   exit 0
 fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
   if [ "$SIDECAR_PROFILE" = "official" ]; then
@@ -58,13 +85,17 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
     python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+    build_long_crisis_inputs
     python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+    if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ]; then
+      run_sidecar_promotion_hook
+    fi
     python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
-    python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+    run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
   fi
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
-  python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+  run_patch_manifest
   echo "[sidecar] ${SIDECAR_PROFILE} completed; heavy research sidecars skipped."
   exit 0
 fi
@@ -74,6 +105,7 @@ python tools/run_concentrated_position_risk_replay.py --latest-run outputs --out
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+run_sidecar_promotion_hook
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
 python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
 python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
@@ -168,7 +200,11 @@ python tools/run_theme_concentration_challenger.py --latest-run outputs --output
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
 python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+build_long_crisis_inputs
 python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ]; then
+  run_sidecar_promotion_hook
+fi
 python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
 python tools/run_auto_learning_v2.py --latest-run outputs --output-dir outputs/auto_learning_v2 --research-dir outputs/auto_learning_v2/research 2>&1 | tee outputs/full_rebuild_logs/auto_learning_v2.log || true
 python tools/run_winner_lifecycle_reports.py --latest-run outputs --output-dir outputs/winner_lifecycle 2>&1 | tee outputs/full_rebuild_logs/winner_lifecycle.log || true
@@ -183,11 +219,11 @@ python tools/run_operating_snapshot.py --latest-run outputs --output-dir outputs
 python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
 python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
-python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+run_patch_manifest
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
 python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
 python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
-python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$BASELINE_RUN_ID" --head-sha "${GITHUB_SHA:-}" --branch "${GITHUB_REF_NAME:-}" --artifact-id "$BASELINE_RUN_ID" --sidecar-profile "$SIDECAR_PROFILE" --artifact-profile "$ARTIFACT_PROFILE" --gdrive-sync-mode "$GDRIVE_SYNC_MODE" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+run_patch_manifest
 
 """
 
@@ -202,6 +238,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--artifact-profile", default=os.environ.get("ARTIFACT_PROFILE", "unknown"))
     parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
+    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "approved_integrated"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
+    parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
     return parser.parse_args()
 
 
@@ -211,6 +249,8 @@ def main() -> int:
     env["SIDECAR_PROFILE"] = args.profile
     env["ARTIFACT_PROFILE"] = args.artifact_profile
     env["GDRIVE_SYNC_MODE"] = args.gdrive_sync_mode
+    env["PORTFOLIO_POLICY"] = args.portfolio_policy
+    env["APPROVED_TARGET_POLICY_PATH"] = args.approved_target_policy_path
     if os.name == "nt":
         print("run_full_rebuild_sidecars.py is intended for the GitHub Linux runner", file=sys.stderr)
         return 2

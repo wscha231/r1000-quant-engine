@@ -27,6 +27,8 @@ EXPECTED_PATCHES = {
     "strategy_logic_ledger": "strategy_logic_ledger/summary.json",
     "position_cleanup_review": "operator_review/dust_positions_report.csv",
     "user_current_research_only_notice": "user_current/07_research_sidecar_context.json",
+    "sidecar_promotion_bridge": "promotion_review/sidecar_promotion_bridge_status.json",
+    "sidecar_promotion_check": "promotion_review/integrated_target_promotion_check.json",
 }
 
 
@@ -98,6 +100,11 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     sidecar_profile = args.sidecar_profile or env_first("SIDECAR_PROFILE", default="unknown")
     artifact_profile = args.artifact_profile or env_first("ARTIFACT_PROFILE", default="unknown")
     gdrive_sync_mode = args.gdrive_sync_mode or env_first("GDRIVE_SYNC_MODE", default="unknown")
+    portfolio_policy = getattr(args, "portfolio_policy", "") or env_first("PORTFOLIO_POLICY", default="production_baseline")
+    approved_target_policy_path = getattr(args, "approved_target_policy_path", "") or env_first(
+        "APPROVED_TARGET_POLICY_PATH",
+        default="outputs/promotion_review/approved_target_policy.json",
+    )
     run_id = args.run_id or env_first("GITHUB_RUN_ID", default="local")
     branch = args.branch or env_first("GITHUB_HEAD_REF", "GITHUB_REF_NAME", default="")
     head_sha = args.head_sha or env_first("GITHUB_SHA", default="")
@@ -110,11 +117,16 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     replay_gate = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "replay_gate_status.json")
     promotion_gate = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "promotion_gate_status.json")
     mutation = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "production_mutation_check.json")
+    promotion_check = read_json(latest_run / "promotion_review" / "integrated_target_promotion_check.json")
+    promotion_audit = read_json(latest_run / "promotion_review" / "production_mutation_audit.json")
+    promotion_bridge = read_json(latest_run / "promotion_review" / "sidecar_promotion_bridge_status.json")
     official = read_json(latest_run / "account_evaluation" / "official_metrics.json")
 
-    production_mutated = str(mutation.get("status") or "").lower() == "failed"
+    production_mutated = str(promotion_audit.get("status") or "").lower() == "applied"
     if not integrated:
         reason = "integrated_replay_not_executed"
+    elif production_mutated:
+        reason = "approved_sidecar_target_applied_to_operating_book"
     elif str(promotion_gate.get("status") or "").lower() != "passed":
         reason = "research_only_sidecar_promotion_gate_not_passed"
     else:
@@ -133,16 +145,25 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "sidecar_profile": sidecar_profile,
         "artifact_profile": artifact_profile,
         "gdrive_sync_mode": gdrive_sync_mode,
+        "portfolio_policy": portfolio_policy,
+        "approved_target_policy_path": approved_target_policy_path,
         "expected_patches": {name: True for name in EXPECTED_PATCHES},
         "executed_sidecars": executed,
         "skipped_sidecars": skipped,
-        "production_mutation_allowed": False,
+        "production_mutation_allowed": bool(portfolio_policy == "approved_integrated"),
         "production_mutated": bool(production_mutated),
-        "production_mutation_check_status": mutation.get("status", "missing"),
-        "production_applied": False,
-        "sidecar_only": True,
+        "production_mutation_check_status": promotion_audit.get("status") or mutation.get("status", "missing"),
+        "production_applied": bool(production_mutated),
+        "sidecar_only": not bool(production_mutated),
         "current_holdings_source": current_holdings_source(latest_run),
         "reason_not_applied_to_current_holdings": reason,
+        "sidecar_applied_to_production": bool(production_mutated),
+        "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
+        "promotion_bridge_status": promotion_bridge.get("status", "missing"),
+        "shadow_available": bool((latest_run / "shadow_operating").exists()),
+        "projected_holdings_path": str(latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv")
+        if (latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv").exists()
+        else "",
         "official_metric_mode": official.get("official_metric_mode") or official.get("metric_mode") or "",
         "valid_for_production": official.get("valid_for_production"),
         "candidate_replay_book_present": bool((latest_run / "reports" / "candidate_replay_book.csv").exists()),
@@ -152,9 +173,9 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "integrated_replay_status": integrated.get("status", "missing"),
         "integrated_case_failure_count": integrated.get("case_failure_count", ""),
         "notes": [
-            "Current holdings come from production broker-ledger operating books.",
-            "Market Leader, Multi-Lane, Crisis, and Integrated Replay outputs are research-only.",
-            "This manifest does not promote or mutate production targets.",
+            "Current holdings come from broker-ledger operating books.",
+            "Market Leader, Multi-Lane, Crisis, and Integrated Replay outputs are research-only unless approved_integrated promotion is applied.",
+            "approved_integrated may only replace approved operating target books before broker replay.",
         ],
     }
     write_json(output_path, payload)
@@ -176,6 +197,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sidecar-profile", default="")
     parser.add_argument("--artifact-profile", default="")
     parser.add_argument("--gdrive-sync-mode", default="")
+    parser.add_argument("--portfolio-policy", default="")
+    parser.add_argument("--approved-target-policy-path", default="")
     return parser.parse_args()
 
 
