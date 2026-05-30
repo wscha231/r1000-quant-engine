@@ -254,6 +254,7 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
     patch_manifest = read_json(latest_run / "patch_application_manifest.json")
     promotion_check = read_json(latest_run / "promotion_review" / "integrated_target_promotion_check.json")
     production_audit = read_json(latest_run / "promotion_review" / "production_mutation_audit.json")
+    decision_cadence = read_json(latest_run / "decision_cadence" / "decision_cadence_summary.json")
     approved_policy_path = str(
         patch_manifest.get("approved_target_policy_path")
         or latest_run / "promotion_review" / "approved_target_policy.json"
@@ -286,6 +287,10 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
         "shadow_available": bool(shadow_path.exists()),
         "projected_holdings_path": str(projected_path) if projected_path.exists() else "",
+        "decision_cadence_available": bool(decision_cadence),
+        "decision_cadence_path": str(latest_run / "decision_cadence" / "decision_cadence_summary.json") if decision_cadence else "",
+        "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
+        "target_mutation_policy": decision_cadence.get("target_mutation_policy", ""),
         "message": "Market Leader / Multi-Lane / Crisis sidecars did not alter current holdings unless sidecar_applied_to_production=true.",
         "research_outputs_not_applied": [
             "market_leader_challenger",
@@ -431,6 +436,9 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         f"- promotion_status: `{research.get('promotion_status')}`",
         f"- shadow_available: `{str(research.get('shadow_available')).lower()}`",
         f"- projected_holdings_path: `{research.get('projected_holdings_path') or ''}`",
+        f"- decision_cadence_available: `{str(research.get('decision_cadence_available')).lower()}`",
+        f"- decision_cadence_path: `{research.get('decision_cadence_path') or ''}`",
+        f"- mid_month_reentry_allowed: `{str(research.get('mid_month_reentry_allowed')).lower()}`",
         f"- cash_policy_flag: `{cash.get('cash_policy_flag') or ''}`",
         f"- combined_projected_cash_after_ready_orders: `{safe_float(cash.get('combined_projected_cash_weight_after_ready_orders'), np.nan):.2%}`",
         "",
@@ -456,6 +464,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
             "- Current holdings follow the production operating book, not research sidecar target books.",
             "- If integrated_shadow is enabled, projected holdings show what the H-case target would do before approval.",
             "- If approved_integrated is enabled and approved before broker replay, current holdings can change in the same run.",
+            "- Crisis defense does not force month-end waiting; decision_cadence can flag mid-month staged reentry review.",
             "- Target recommendation books are hidden by default.",
             "- REVIEW_REQUIRED is not an auto-trade instruction.",
             "- Research metrics are not promotion evidence.",
@@ -477,6 +486,7 @@ This folder is the default user-facing operating view.
 - Target recommendation books are not current holdings and are hidden by default.
 - Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted by `approved_integrated`.
 - `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
+- `outputs/decision_cadence/decision_cadence_summary.json` explains daily/weekly/monthly review cadence and mid-month reentry rules when available.
 - Deprecated/research backtests are not copied here and are not promotion evidence.
 - Do not trade rows or portfolios marked REVIEW_REQUIRED or DO_NOT_TRADE.
 """
@@ -529,6 +539,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "promotion_status": research.get("promotion_status"),
         "shadow_available": bool(research.get("shadow_available")),
         "projected_holdings_path": research.get("projected_holdings_path"),
+        "decision_cadence_available": bool(research.get("decision_cadence_available")),
+        "decision_cadence_path": research.get("decision_cadence_path"),
+        "mid_month_reentry_allowed": bool(research.get("mid_month_reentry_allowed")),
         "current_holdings_source": research.get("current_holdings_source"),
         "research_sidecar_message": research.get("message"),
         "required_files": REQUIRED_USER_FILES,

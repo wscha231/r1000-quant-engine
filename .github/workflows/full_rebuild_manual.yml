@@ -463,6 +463,7 @@ jobs:
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/daily_crisis_monitor/
+            outputs/decision_cadence/
             outputs/operator_review/dust_positions_report.csv
             outputs/operator_review/dust_cleanup_orders.csv
             outputs/operator_review/projected_holdings_after_ready_orders.csv
@@ -492,6 +493,7 @@ jobs:
             outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
+            outputs/full_rebuild_logs/decision_cadence_review.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -520,6 +522,7 @@ jobs:
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
+            outputs/decision_cadence/
           if-no-files-found: warn
           retention-days: 365
 
@@ -535,6 +538,7 @@ jobs:
             outputs/full_rebuild_logs/
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
+            outputs/decision_cadence/
             outputs/scored_*.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
@@ -887,6 +891,8 @@ jobs:
             "outputs/user_current/05_action_summary.md"
             "outputs/user_current/06_benchmark_comparison.csv"
             "outputs/daily_crisis_monitor/crisis_action_status.md"
+            "outputs/decision_cadence/decision_cadence_report.md"
+            "outputs/decision_cadence/decision_cadence_summary.json"
             "outputs/patch_application_manifest.json"
             "outputs/operator_review/dust_positions_report.csv"
             "outputs/operator_review/dust_cleanup_orders.csv"
@@ -1010,6 +1016,7 @@ jobs:
             copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
             copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
+            copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
@@ -1093,6 +1100,7 @@ jobs:
           copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
           copy_dir_clean outputs/user_portfolio_reports "$DEST/user_portfolio_reports"
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
+          copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"

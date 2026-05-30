@@ -45,6 +45,12 @@ build_long_crisis_inputs() {
   python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
   python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
 }
+
+run_decision_cadence_review() {
+  echo "[decision-cadence] reviewing daily/weekly/monthly decision cadence"
+  python tools/run_decision_cadence_review.py --latest-run outputs --price-cache cache_prices --output-dir outputs/decision_cadence 2>&1 | tee outputs/full_rebuild_logs/decision_cadence_review.log || true
+}
+
 if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
   echo "[sidecar] phase_g_only is handled by phase_g_crisis_evidence_liquidity_replay.yml; skipping full rebuild sidecars."
   mkdir -p outputs/full_rebuild_logs
@@ -74,6 +80,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
   python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
+  run_decision_cadence_review
   python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then
     python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true
@@ -93,6 +100,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$BASELINE_RUN_ID" --commit-sha "${GITHUB_SHA:-}" --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
     run_patch_manifest
     python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report_final.log || true
+    run_decision_cadence_review
   fi
   BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
   run_patch_manifest
@@ -222,6 +230,7 @@ BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 run_patch_manifest
 python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
 python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
+run_decision_cadence_review
 python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
 run_patch_manifest
 

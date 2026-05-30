@@ -29,6 +29,7 @@ EXPECTED_PATCHES = {
     "user_current_research_only_notice": "user_current/07_research_sidecar_context.json",
     "sidecar_promotion_bridge": "promotion_review/sidecar_promotion_bridge_status.json",
     "sidecar_promotion_check": "promotion_review/integrated_target_promotion_check.json",
+    "decision_cadence_review": "decision_cadence/decision_cadence_summary.json",
 }
 
 
@@ -120,6 +121,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     promotion_check = read_json(latest_run / "promotion_review" / "integrated_target_promotion_check.json")
     promotion_audit = read_json(latest_run / "promotion_review" / "production_mutation_audit.json")
     promotion_bridge = read_json(latest_run / "promotion_review" / "sidecar_promotion_bridge_status.json")
+    decision_cadence = read_json(latest_run / "decision_cadence" / "decision_cadence_summary.json")
     official = read_json(latest_run / "account_evaluation" / "official_metrics.json")
 
     production_mutated = str(promotion_audit.get("status") or "").lower() == "applied"
@@ -160,6 +162,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "sidecar_applied_to_production": bool(production_mutated),
         "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
         "promotion_bridge_status": promotion_bridge.get("status", "missing"),
+        "decision_cadence_status": decision_cadence.get("schema_version", "missing"),
+        "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
         "shadow_available": bool((latest_run / "shadow_operating").exists()),
         "projected_holdings_path": str(latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv")
         if (latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv").exists()
