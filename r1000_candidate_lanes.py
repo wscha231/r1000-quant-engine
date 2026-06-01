@@ -35,8 +35,13 @@ LANE_FEATURE_MAPPING: dict[str, list[str]] = {
         "rule_of_40",
     ],
     "MARKET_LEADER": [
+        "rs_benchmark_1w",
+        "rs_spy_1w",
+        "rs_qqq_1w",
         "rs_benchmark_3m",
         "rs_benchmark_6m",
+        "rs_semis_1m",
+        "rs_semis_3m",
         "relative_strength_composite",
         "industry_group_strength_score",
         "oneil_leadership_score",
@@ -133,6 +138,42 @@ def weighted_positive(frame: pd.DataFrame, cols: list[str]) -> pd.Series:
     return sum(parts) / max(len(parts), 1)
 
 
+def valuation_support_score(frame: pd.DataFrame) -> pd.Series:
+    """Positive-only valuation support used by vNext production selection.
+
+    Missing valuation fields are neutral. Expensive valuations do not hard
+    reject a candidate here; they simply fail to earn the support boost.
+    """
+
+    parts: list[pd.Series] = []
+    inverse_cols = [
+        "forward_pe",
+        "pe_forward",
+        "peg_ratio",
+        "peg",
+        "ev_ebitda",
+        "ev_to_ebitda",
+        "ev_sales",
+        "ev_to_sales",
+        "sector_relative_valuation",
+        "valuation_percentile_sector",
+    ]
+    for col in inverse_cols:
+        if col in frame.columns:
+            raw = pd.to_numeric(frame[col], errors="coerce")
+            fill = float(raw.median(skipna=True)) if raw.notna().any() else 0.0
+            support = (-robust_z(raw.fillna(fill))).clip(lower=0.0)
+            parts.append(support.where(raw.notna(), 0.0))
+    for col in ["fcf_yield", "free_cash_flow_yield", "earnings_yield", "valuation_recovery_score"]:
+        if col in frame.columns:
+            raw = pd.to_numeric(frame[col], errors="coerce")
+            support = positive_z(frame, col)
+            parts.append(support.where(raw.notna(), 0.0))
+    if not parts:
+        return pd.Series(0.0, index=frame.index, dtype=float)
+    return (sum(parts) / len(parts)).clip(lower=0.0)
+
+
 def theme_state_strength(frame: pd.DataFrame) -> pd.Series:
     text = pd.Series("", index=frame.index, dtype=object)
     for col in ("theme_phase_primary", "theme_horizon_primary", "theme_holding_profile_primary"):
@@ -212,13 +253,17 @@ def score_candidate_lanes(frame: pd.DataFrame) -> pd.DataFrame:
     if d.empty:
         return d
     quality = weighted_positive(d, LANE_FEATURE_MAPPING["QUALITY_COMPOUNDER"])
+    valuation = valuation_support_score(d)
     market = (
-        0.30 * positive_z(d, "rs_benchmark_3m")
-        + 0.20 * positive_z(d, "rs_benchmark_6m")
-        + 0.20 * positive_z(d, "relative_strength_composite")
-        + 0.15 * positive_z(d, "industry_group_strength_score")
-        + 0.10 * positive_z(d, "portfolio_future_winner_engine_score")
-        + 0.05 * liquidity_score(d).clip(lower=0.0)
+        0.08 * positive_z(d, "rs_benchmark_1w")
+        + 0.24 * positive_z(d, "rs_benchmark_3m")
+        + 0.17 * positive_z(d, "rs_benchmark_6m")
+        + 0.10 * positive_z(d, "rs_semis_1m")
+        + 0.09 * positive_z(d, "rs_semis_3m")
+        + 0.17 * positive_z(d, "relative_strength_composite")
+        + 0.13 * positive_z(d, "industry_group_strength_score")
+        + 0.08 * positive_z(d, "portfolio_future_winner_engine_score")
+        + 0.04 * liquidity_score(d).clip(lower=0.0)
     )
     smart = (
         0.35 * positive_z(d, "sec_13f_smart_money_score")
@@ -228,7 +273,7 @@ def score_candidate_lanes(frame: pd.DataFrame) -> pd.DataFrame:
     )
     emerging = (
         0.25 * (theme_state_strength(d).clip(lower=0.0) + positive_z(d, "theme_phase_multiplier_primary")) / 2.0
-        + 0.25 * (positive_z(d, "rs_benchmark_3m") + positive_z(d, "rs_acceleration_score")) / 2.0
+        + 0.25 * (positive_z(d, "rs_benchmark_3m") + positive_z(d, "rs_benchmark_1w") + positive_z(d, "rs_acceleration_score")) / 3.0
         + 0.15 * (positive_z(d, "revenue_acceleration") + positive_z(d, "backlog_or_contract_signal")) / 2.0
         + 0.15 * liquidity_score(d).clip(lower=0.0)
         + 0.10 * smart
@@ -236,7 +281,7 @@ def score_candidate_lanes(frame: pd.DataFrame) -> pd.DataFrame:
         + 0.05 * positive_z(d, "portfolio_monster_early_score")
     )
     top7 = weighted_positive(d, LANE_FEATURE_MAPPING["TOP7_MANAGER_DISCOVERY"])
-    cyclical = weighted_positive(d, LANE_FEATURE_MAPPING["CYCLICAL_RECOVERY"])
+    cyclical = 0.80 * weighted_positive(d, LANE_FEATURE_MAPPING["CYCLICAL_RECOVERY"]) + 0.20 * valuation
     defensive_sector = d.get("sector", pd.Series("", index=d.index)).astype(str).str.lower().str.contains("utility|staple|health|defensive")
     crisis = weighted_positive(d, LANE_FEATURE_MAPPING["CRISIS_BENEFICIARY"]) + defensive_sector.astype(float) * 0.5
 
@@ -244,12 +289,14 @@ def score_candidate_lanes(frame: pd.DataFrame) -> pd.DataFrame:
     risk_cap = emerging_risk_cap(d)
     d["quality_compounder_lane_score"] = quality
     d["market_leader_lane_score"] = market
+    d["valuation_support_score"] = valuation
     d["emerging_tenbagger_lane_score_raw"] = emerging
     d["emerging_tenbagger_risk_cap"] = risk_cap
     d["emerging_tenbagger_hard_reject_reason"] = hard_reject
     d["emerging_tenbagger_lane_score"] = emerging * risk_cap
     d.loc[hard_reject.astype(str).ne(""), "emerging_tenbagger_lane_score"] = -999.0
     d["top7_manager_discovery_lane_score"] = top7
+    d["top7_manager_discovery_support_only"] = top7
     d["cyclical_recovery_lane_score"] = cyclical
     d["crisis_beneficiary_lane_score"] = crisis
 
@@ -262,6 +309,15 @@ def score_candidate_lanes(frame: pd.DataFrame) -> pd.DataFrame:
         "CRISIS_BENEFICIARY": "crisis_beneficiary_lane_score",
     }
     scores = pd.DataFrame({lane: pd.to_numeric(d[col], errors="coerce").fillna(-999.0) for lane, col in lane_cols.items()}, index=d.index)
+    confirming_lanes = scores[
+        ["QUALITY_COMPOUNDER", "MARKET_LEADER", "EMERGING_TENBAGGER", "CYCLICAL_RECOVERY", "CRISIS_BENEFICIARY"]
+    ].max(axis=1)
+    top7_standalone = scores["TOP7_MANAGER_DISCOVERY"].gt(confirming_lanes) & confirming_lanes.lt(0.20)
+    scores.loc[top7_standalone, "TOP7_MANAGER_DISCOVERY"] = -999.0
+    d["top7_standalone_blocked"] = top7_standalone
+    d["top7_support_boost"] = d["top7_manager_discovery_support_only"].clip(lower=0.0) * (~top7_standalone).astype(float)
+    for lane in ["QUALITY_COMPOUNDER", "MARKET_LEADER", "EMERGING_TENBAGGER", "CYCLICAL_RECOVERY"]:
+        scores[lane] = scores[lane] + 0.08 * d["top7_support_boost"]
     d["primary_lane"] = scores.idxmax(axis=1)
     d["lane_confidence"] = scores.max(axis=1).replace(-999.0, 0.0).clip(lower=0.0)
     secondaries = []
@@ -283,5 +339,6 @@ def lane_feature_mapping_payload() -> dict[str, Any]:
             "financial_quality_strict_only_for": "QUALITY_COMPOUNDER",
             "negative_fcf_for_emerging": "risk_cap_not_hard_reject",
             "top7_13f": "universe_expansion_and_confidence_only_not_standalone_buy",
+            "valuation": "positive_support_only_missing_is_neutral",
         },
     }

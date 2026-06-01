@@ -706,16 +706,21 @@ def build_trade_target_book(
                 )
                 changed = True
 
-            weights = allocate_weights(holdings, setup_lookup, portfolio_kind)
-            for ticker, weight in weights.items():
-                if ticker in holdings:
-                    holdings[ticker].weight = weight
-            if weights != last_weights or changed:
-                reason = "trade_event" if changed else "target_refresh"
+            if changed or (not last_weights and holdings):
+                weights = allocate_weights(holdings, setup_lookup, portfolio_kind)
+                for ticker, weight in weights.items():
+                    if ticker in holdings:
+                        holdings[ticker].weight = weight
+                reason = "trade_event" if changed else "initial_target"
                 target_book_rows.extend(
                     target_rows(signal_date=signal_date, weights=weights, setup_lookup=setup_lookup, portfolio_kind=portfolio_kind, reason=reason)
                 )
                 last_weights = dict(weights)
+            else:
+                weights = {ticker: float(last_weights.get(ticker, pos.weight)) for ticker, pos in holdings.items()}
+                for ticker, weight in weights.items():
+                    if ticker in holdings:
+                        holdings[ticker].weight = weight
             for ticker, pos in holdings.items():
                 feat = setup_lookup.get(ticker, {})
                 state_rows.append(

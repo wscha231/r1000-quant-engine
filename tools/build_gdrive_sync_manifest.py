@@ -33,6 +33,10 @@ USER_CURRENT_FILES = [
 ]
 OFFICIAL_FILES = [
     "patch_application_manifest.json",
+    "alphaops_vnext/summary.json",
+    "alphaops_vnext/production_activation.json",
+    "alphaops_vnext/official_main_target_book.csv",
+    "alphaops_vnext/official_concentrated_target_book.csv",
     "account_evaluation/official_metrics.json",
     "broker_replay/main/metrics.json",
     "broker_replay/concentrated/metrics.json",

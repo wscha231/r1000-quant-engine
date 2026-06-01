@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Write a manifest explaining which AlphaOps patches ran.
 
-The manifest is diagnostic only. It makes explicit that integrated
-leader/lane/crisis sidecars are research-only and do not mutate current
-production holdings.
+The manifest separates research sidecars from production mutations.  AlphaOps
+vNext production is the explicit mode that can replace operating target books
+before broker replay.
 """
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ EXPECTED_PATCHES = {
     "sidecar_promotion_bridge": "promotion_review/sidecar_promotion_bridge_status.json",
     "sidecar_promotion_check": "promotion_review/integrated_target_promotion_check.json",
     "decision_cadence_review": "decision_cadence/decision_cadence_summary.json",
+    "alphaops_vnext_policy_replay": "alphaops_vnext/summary.json",
 }
 
 
@@ -88,6 +89,9 @@ def sidecar_record(latest_run: Path, name: str, rel_path: str, sidecar_profile: 
 
 
 def current_holdings_source(latest_run: Path) -> str:
+    activation = read_json(latest_run / "alphaops_vnext" / "production_activation.json")
+    if str(activation.get("status") or "").lower() == "applied":
+        return str(activation.get("current_holdings_source") or "alphaops_vnext_policy_target_book")
     if (latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv").exists():
         return "production_operating_snapshot_broker_ledger"
     if (latest_run / "broker_replay" / "main" / "positions_latest.csv").exists():
@@ -123,9 +127,13 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     promotion_bridge = read_json(latest_run / "promotion_review" / "sidecar_promotion_bridge_status.json")
     decision_cadence = read_json(latest_run / "decision_cadence" / "decision_cadence_summary.json")
     official = read_json(latest_run / "account_evaluation" / "official_metrics.json")
+    alphaops_activation = read_json(latest_run / "alphaops_vnext" / "production_activation.json")
 
-    production_mutated = str(promotion_audit.get("status") or "").lower() == "applied"
-    if not integrated:
+    alphaops_applied = str(alphaops_activation.get("status") or "").lower() == "applied"
+    production_mutated = str(promotion_audit.get("status") or "").lower() == "applied" or alphaops_applied
+    if alphaops_applied:
+        reason = "alphaops_vnext_production_replaced_operating_books"
+    elif not integrated:
         reason = "integrated_replay_not_executed"
     elif production_mutated:
         reason = "approved_sidecar_target_applied_to_operating_book"
@@ -152,16 +160,18 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "expected_patches": {name: True for name in EXPECTED_PATCHES},
         "executed_sidecars": executed,
         "skipped_sidecars": skipped,
-        "production_mutation_allowed": bool(portfolio_policy == "approved_integrated"),
+        "production_mutation_allowed": bool(portfolio_policy in {"approved_integrated", "alphaops_vnext_production"}),
         "production_mutated": bool(production_mutated),
-        "production_mutation_check_status": promotion_audit.get("status") or mutation.get("status", "missing"),
+        "production_mutation_check_status": alphaops_activation.get("status") or promotion_audit.get("status") or mutation.get("status", "missing"),
         "production_applied": bool(production_mutated),
         "sidecar_only": not bool(production_mutated),
         "current_holdings_source": current_holdings_source(latest_run),
         "reason_not_applied_to_current_holdings": reason,
         "sidecar_applied_to_production": bool(production_mutated),
         "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
-        "promotion_bridge_status": promotion_bridge.get("status", "missing"),
+        "promotion_bridge_status": alphaops_activation.get("status") or promotion_bridge.get("status", "missing"),
+        "alphaops_vnext_activation_status": alphaops_activation.get("status", "missing"),
+        "alphaops_vnext_summary_path": str(latest_run / "alphaops_vnext" / "summary.json") if alphaops_activation else "",
         "decision_cadence_status": decision_cadence.get("schema_version", "missing"),
         "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
         "shadow_available": bool((latest_run / "shadow_operating").exists()),
@@ -192,7 +202,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "notes": [
             "Current holdings come from broker-ledger operating books.",
             "Market Leader, Multi-Lane, Crisis, and Integrated Replay outputs are research-only unless approved_integrated promotion is applied.",
-            "approved_integrated may only replace approved operating target books before broker replay.",
+            "approved_integrated or alphaops_vnext_production may replace operating target books before broker replay.",
         ],
     }
     write_json(output_path, payload)

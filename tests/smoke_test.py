@@ -3144,6 +3144,7 @@ def test_user_current_and_sync_tools_parse() -> None:
         "tools/run_concentrated_broker_variant_review.py",
         "tools/run_position_cleanup_review.py",
         "tools/run_patch_application_manifest.py",
+        "tools/run_alphaops_vnext_policy_replay.py",
         "tools/create_healthy_baseline_lock.py",
         "tools/run_market_leader_challenger.py",
         "tools/run_shakeout_disclosure_reversal_study.py",
@@ -3177,6 +3178,9 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "outputs/operator_review/" in wf
     assert "outputs/baseline_lock/" in wf
     assert "outputs/market_leader_challenger/" in wf
+    assert "alphaops_vnext_production" in wf
+    assert "tools/run_alphaops_vnext_policy_replay.py" in sidecar_tool
+    assert "outputs/alphaops_vnext/" in wf
 
 
 @_test("structural.pit_top_manager_follow_study_is_research_only")

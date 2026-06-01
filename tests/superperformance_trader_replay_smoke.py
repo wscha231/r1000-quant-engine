@@ -130,6 +130,8 @@ def test_superperformance_replay_builds_dated_buy_sell_books() -> None:
         assert {"MU", "WDC", "ON"}.issubset(set(entries["ticker"].astype(str)))
         main_book = pd.read_csv(out / "main_target_book.csv")
         conc_book = pd.read_csv(out / "concentrated_target_book.csv")
+        assert not main_book["selection_reason"].astype(str).str.contains("target_refresh").any()
+        assert not conc_book["selection_reason"].astype(str).str.contains("target_refresh").any()
         assert {"MU", "WDC", "ON"}.issubset(set(main_book["ticker"].astype(str)))
         assert not {"PR", "ETR", "PEG"}.intersection(set(conc_book["ticker"].astype(str)))
         conc_metrics = json.loads((out / "broker_replay" / "concentrated" / "metrics.json").read_text(encoding="utf-8"))

@@ -245,6 +245,13 @@ def official_metric_mode(metrics: dict[str, Any]) -> str:
     return str(metrics.get("official_metric_mode") or metrics.get("metric_mode") or "")
 
 
+def alphaops_vnext_activation(latest_run: Path) -> dict[str, Any]:
+    activation = read_json(latest_run / "alphaops_vnext" / "production_activation.json")
+    if not activation:
+        activation = read_json(latest_run / "promotion_review" / "alphaops_vnext_production_activation.json")
+    return activation
+
+
 def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
     integrated_summary = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "summary.json")
     replay_gate = read_json(latest_run / "integrated_theme_leader_crisis_replay" / "replay_gate_status.json")
@@ -255,14 +262,18 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
     promotion_check = read_json(latest_run / "promotion_review" / "integrated_target_promotion_check.json")
     production_audit = read_json(latest_run / "promotion_review" / "production_mutation_audit.json")
     decision_cadence = read_json(latest_run / "decision_cadence" / "decision_cadence_summary.json")
+    alphaops_activation = alphaops_vnext_activation(latest_run)
     approved_policy_path = str(
         patch_manifest.get("approved_target_policy_path")
         or latest_run / "promotion_review" / "approved_target_policy.json"
     )
     production_policy = str(patch_manifest.get("portfolio_policy") or "production_baseline")
+    if production_policy == "production_baseline" and alphaops_activation:
+        production_policy = str(alphaops_activation.get("production_policy") or "alphaops_vnext_production")
     sidecar_applied = bool(
         patch_manifest.get("sidecar_applied_to_production")
         or str(production_audit.get("status") or "").lower() == "applied"
+        or str(alphaops_activation.get("status") or "").lower() == "applied"
     )
     shadow_path = latest_run / "shadow_operating"
     integrated_projected_path = latest_run / "operator_review" / "projected_holdings_after_integrated_target.csv"
@@ -282,11 +293,11 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "sidecar_only": not bool(sidecar_applied),
         "production_policy": production_policy,
         "sidecar_applied_to_production": bool(sidecar_applied),
-        "current_holdings_source": "production_operating_target_book",
+        "current_holdings_source": alphaops_activation.get("current_holdings_source") or "production_operating_target_book",
         "source_target_run_id": source_run_id,
         "source_target_case_id": source_case_id,
         "approved_policy_path": approved_policy_path,
-        "promotion_status": promotion_check.get("status") or promotion_gate.get("status", "missing"),
+        "promotion_status": alphaops_activation.get("status") or promotion_check.get("status") or promotion_gate.get("status", "missing"),
         "shadow_available": bool(shadow_path.exists()),
         "projected_holdings_path": str(projected_path) if projected_path.exists() else "",
         "projected_integrated_holdings_path": str(integrated_projected_path) if integrated_projected_path.exists() else "",
@@ -295,7 +306,11 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "decision_cadence_path": str(latest_run / "decision_cadence" / "decision_cadence_summary.json") if decision_cadence else "",
         "mid_month_reentry_allowed": bool(decision_cadence.get("mid_month_reentry_allowed", False)),
         "target_mutation_policy": decision_cadence.get("target_mutation_policy", ""),
-        "message": "Market Leader / Multi-Lane / Crisis sidecars did not alter current holdings unless sidecar_applied_to_production=true.",
+        "message": (
+            "AlphaOps vNext production replaced operating target books before broker replay."
+            if str(alphaops_activation.get("status") or "").lower() == "applied"
+            else "Market Leader / Multi-Lane / Crisis sidecars did not alter current holdings unless sidecar_applied_to_production=true."
+        ),
         "research_outputs_not_applied": [
             "market_leader_challenger",
             "integrated_theme_leader_crisis_replay",
@@ -308,13 +323,15 @@ def research_sidecar_context(latest_run: Path) -> dict[str, Any]:
         "promotion_gate_status": promotion_gate.get("status", "missing"),
         "promotion_review_status": promotion_check.get("status", "missing"),
         "production_mutation_check_status": mutation.get("status", "missing"),
-        "production_mutation_allowed": bool(production_audit.get("mode") == "approved_integrated"),
-        "production_mutation_audit_status": production_audit.get("status", "missing"),
-        "production_activation_allowed": bool(promotion_gate.get("production_activation_allowed", False)),
+        "production_mutation_allowed": bool(production_audit.get("mode") == "approved_integrated" or alphaops_activation),
+        "production_mutation_audit_status": alphaops_activation.get("status") or production_audit.get("status", "missing"),
+        "production_activation_allowed": bool(promotion_gate.get("production_activation_allowed", False) or alphaops_activation),
+        "alphaops_vnext_activation_status": alphaops_activation.get("status", "missing"),
+        "alphaops_vnext_summary_path": str(latest_run / "alphaops_vnext" / "summary.json") if alphaops_activation else "",
         "patch_application_manifest_status": "present" if patch_manifest else "missing",
         "reason_not_applied_to_current_holdings": patch_manifest.get(
             "reason_not_applied_to_current_holdings",
-            "research_only_sidecar_current_holdings_use_production_operating_book",
+            "alphaops_vnext_production_replaced_operating_books" if alphaops_activation else "research_only_sidecar_current_holdings_use_production_operating_book",
         ),
     }
 
@@ -449,7 +466,7 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         "",
         "## Research Sidecar Context",
         "",
-        "- Market Leader / Multi-Lane / Crisis outputs alter current holdings only after approved_integrated promotion.",
+        "- Market Leader / Multi-Lane / Crisis outputs alter current holdings only after production activation.",
         f"- replay_gate_status: `{research.get('replay_gate_status')}`",
         f"- promotion_gate_status: `{research.get('promotion_gate_status')}`",
         f"- promotion_review_status: `{research.get('promotion_review_status')}`",
@@ -466,10 +483,10 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
             "## Operating Rules",
             "",
             "- This report shows current simulated broker-ledger holdings only.",
-            "- Current holdings follow the production operating book, not research sidecar target books.",
+            "- Current holdings follow the production operating book generated before broker replay.",
             "- If integrated_shadow is enabled, projected holdings show what the H-case target would do before approval.",
             "- If market_leader_shadow is enabled, projected holdings show what the Market Leader target would do before approval.",
-            "- If approved_integrated is enabled and approved before broker replay, current holdings can change in the same run.",
+            "- If alphaops_vnext_production or approved_integrated is active before broker replay, current holdings can change in the same run.",
             "- Crisis defense does not force month-end waiting; decision_cadence can flag mid-month staged reentry review.",
             "- Target recommendation books are hidden by default.",
             "- REVIEW_REQUIRED is not an auto-trade instruction.",
@@ -488,9 +505,9 @@ This folder is the default user-facing operating view.
 - `01_current_holdings.csv` is the current simulated broker-ledger book.
 - `03_period_returns.csv` uses broker replay equity curves and includes drawdown.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
-- `07_research_sidecar_context.json` explains which research-only sidecars did not alter current holdings.
+- `07_research_sidecar_context.json` explains whether AlphaOps vNext or research sidecars altered current holdings.
 - Target recommendation books are not current holdings and are hidden by default.
-- Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted by `approved_integrated`.
+- Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted; `alphaops_vnext_production` replaces the operating book before broker replay.
 - `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
 - `outputs/operator_review/projected_holdings_after_market_leader_target.csv` shows the Market Leader shadow delta when available.
 - `outputs/decision_cadence/decision_cadence_summary.json` explains daily/weekly/monthly review cadence and mid-month reentry rules when available.

@@ -19,7 +19,10 @@ from tools.run_weekly_evaluation import load_price_series, price_on_or_before
 
 
 CASH_TICKER = "CASH"
-BENCHMARKS = ("SPY", "QQQ")
+BENCHMARKS = ("SPY", "QQQ", "SMH", "SOXX")
+CORE_BENCHMARKS = ("SPY", "QQQ")
+SEMIS_BENCHMARKS = ("SMH", "SOXX")
+LOOKBACK_DAYS = (5,)
 LOOKBACK_MONTHS = (1, 3, 6, 12)
 MAIN_ALLOWED_TIERS = {"DUAL_LEADER", "SECTOR_LEADER"}
 CONCENTRATED_ALLOWED_TIERS = {"DUAL_LEADER"}
@@ -156,6 +159,20 @@ def price_return(prices: dict[str, pd.DataFrame], ticker: str, as_of_date: Any, 
     return float(end_px / start_px - 1.0), True
 
 
+def price_return_days(prices: dict[str, pd.DataFrame], ticker: str, as_of_date: Any, days: int) -> tuple[float, bool]:
+    px = prices.get(str(ticker).upper(), pd.DataFrame())
+    if px.empty:
+        return 0.0, False
+    end_dt, end_px = price_on_or_before(px, as_of_date, "close")
+    if end_dt is None or end_px is None:
+        return 0.0, False
+    start_target = pd.Timestamp(end_dt) - pd.Timedelta(days=int(days))
+    start_dt, start_px = price_on_or_before(px, start_target, "close")
+    if start_dt is None or start_px is None or start_px <= 0:
+        return 0.0, False
+    return float(end_px / start_px - 1.0), True
+
+
 def _price_frame_for_ma(px: pd.DataFrame) -> pd.DataFrame:
     if px.empty:
         return pd.DataFrame()
@@ -266,12 +283,29 @@ def add_benchmark_relative_returns(
 ) -> pd.DataFrame:
     d = frame.copy()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
+    bench_day_returns: dict[tuple[str, int], tuple[float, bool]] = {}
+    for bench in BENCHMARKS:
+        for days in LOOKBACK_DAYS:
+            bench_day_returns[(bench, days)] = price_return_days(prices, bench, rebalance_date, days)
     bench_returns: dict[tuple[str, int], tuple[float, bool]] = {}
     for bench in BENCHMARKS:
         for months in LOOKBACK_MONTHS:
             bench_returns[(bench, months)] = price_return(prices, bench, rebalance_date, months)
 
     coverage_flags: list[str] = []
+    for days in LOOKBACK_DAYS:
+        raw_vals = []
+        raw_ok = []
+        label = "1w" if int(days) == 5 else f"{int(days)}d"
+        for ticker in d["ticker"].tolist():
+            ret, ok = price_return_days(prices, ticker, rebalance_date, days)
+            raw_vals.append(ret)
+            raw_ok.append(ok)
+        d[f"ticker_ret_{label}"] = raw_vals
+        for bench in BENCHMARKS:
+            bench_ret, _bench_ok = bench_day_returns[(bench, days)]
+            d[f"rs_{bench.lower()}_{label}"] = d[f"ticker_ret_{label}"] - float(bench_ret)
+        d[f"rs_price_coverage_{label}"] = raw_ok
     for months in LOOKBACK_MONTHS:
         raw_vals: list[float] = []
         raw_ok: list[bool] = []
@@ -293,19 +327,29 @@ def add_benchmark_relative_returns(
                 d[f"rs_{bench.lower()}_{months}m"] = d[f"ticker_ret_{months}m"] - float(bench_ret)
         coverage_flags.append(f"{months}m")
         d[f"rs_price_coverage_{months}m"] = raw_ok
+    for label in ["1w", "1m", "3m", "6m"]:
+        core_cols = [f"rs_{bench.lower()}_{label}" for bench in CORE_BENCHMARKS if f"rs_{bench.lower()}_{label}" in d.columns]
+        semi_cols = [f"rs_{bench.lower()}_{label}" for bench in SEMIS_BENCHMARKS if f"rs_{bench.lower()}_{label}" in d.columns]
+        if core_cols:
+            d[f"rs_benchmark_{label}"] = d[core_cols].mean(axis=1)
+        if semi_cols:
+            d[f"rs_semis_{label}"] = d[semi_cols].mean(axis=1)
     d["rs_benchmark_source"] = "price_cache_or_candidate_fallback"
-    d["rs_price_coverage_flag"] = d[[f"rs_price_coverage_{m}m" for m in LOOKBACK_MONTHS]].all(axis=1)
+    coverage_cols = [f"rs_price_coverage_{m}m" for m in LOOKBACK_MONTHS] + [f"rs_price_coverage_{'1w'}"]
+    d["rs_price_coverage_flag"] = d[[col for col in coverage_cols if col in d.columns]].all(axis=1)
     return d
 
 
 def compute_market_leader_tape_score(frame: pd.DataFrame) -> pd.DataFrame:
     d = frame.copy()
     d["market_leader_tape_score"] = (
-        0.25 * robust_z(numeric(d, "rs_spy_1m"))
-        + 0.20 * robust_z(numeric(d, "rs_qqq_1m"))
-        + 0.25 * robust_z(numeric(d, "rs_spy_3m"))
-        + 0.20 * robust_z(numeric(d, "rs_qqq_3m"))
-        + 0.10 * robust_z(numeric(d, "rs_qqq_6m"))
+        0.10 * robust_z(numeric(d, "rs_spy_1w"))
+        + 0.10 * robust_z(numeric(d, "rs_qqq_1w"))
+        + 0.18 * robust_z(numeric(d, "rs_spy_1m"))
+        + 0.17 * robust_z(numeric(d, "rs_qqq_1m"))
+        + 0.20 * robust_z(numeric(d, "rs_spy_3m"))
+        + 0.17 * robust_z(numeric(d, "rs_qqq_3m"))
+        + 0.08 * robust_z(numeric(d, "rs_semis_3m"))
     )
     return d
 
@@ -428,6 +472,8 @@ def compute_leader_selection_score(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def classify_leader_tier(row: pd.Series) -> str:
+    rs_spy_1w = safe_float(row.get("rs_spy_1w"))
+    rs_qqq_1w = safe_float(row.get("rs_qqq_1w"))
     rs_spy_1m = safe_float(row.get("rs_spy_1m"))
     rs_qqq_1m = safe_float(row.get("rs_qqq_1m"))
     rs_spy_3m = safe_float(row.get("rs_spy_3m"))
@@ -439,7 +485,7 @@ def classify_leader_tier(row: pd.Series) -> str:
         return "DUAL_LEADER"
     if rs_spy_3m > 0 and sector > 0:
         return "SECTOR_LEADER"
-    if max(rs_spy_1m, rs_qqq_1m) > 0 and max(rs_spy_3m, rs_qqq_3m) <= 0:
+    if max(rs_spy_1w, rs_qqq_1w, rs_spy_1m, rs_qqq_1m) > 0 and max(rs_spy_3m, rs_qqq_3m) <= 0:
         return "EMERGING_LEADER"
     return "LAGGING"
 
@@ -787,12 +833,30 @@ def target_book_columns() -> list[str]:
         "single_cap",
         "subindustry_cap",
         "theme_cap",
+        "rs_spy_1w",
+        "rs_qqq_1w",
+        "rs_smh_1w",
+        "rs_soxx_1w",
         "rs_spy_1m",
         "rs_spy_3m",
         "rs_spy_6m",
         "rs_qqq_1m",
         "rs_qqq_3m",
         "rs_qqq_6m",
+        "rs_smh_1m",
+        "rs_smh_3m",
+        "rs_smh_6m",
+        "rs_soxx_1m",
+        "rs_soxx_3m",
+        "rs_soxx_6m",
+        "rs_benchmark_1w",
+        "rs_benchmark_1m",
+        "rs_benchmark_3m",
+        "rs_benchmark_6m",
+        "rs_semis_1w",
+        "rs_semis_1m",
+        "rs_semis_3m",
+        "rs_semis_6m",
         "rs_price_coverage_flag",
     ]
 

@@ -82,13 +82,14 @@ on:
           - off
         default: minimal
       portfolio_policy:
-        description: 'operating target policy: baseline, shadow-only integrated/market-leader, or explicitly approved integrated'
+        description: 'operating target policy: baseline, shadow-only integrated/market-leader, approved integrated, or AlphaOps vNext production'
         type: choice
         options:
           - production_baseline
           - integrated_shadow
           - market_leader_shadow
           - approved_integrated
+          - alphaops_vnext_production
         default: production_baseline
       approved_target_policy_path:
         description: 'approved_integrated policy file path; default stays unapproved'
@@ -475,6 +476,7 @@ jobs:
             outputs/operator_review/position_cleanup_review.md
             outputs/shadow_operating/
             outputs/promotion_review/
+            outputs/alphaops_vnext/
             outputs/account_evaluation/official_metrics.json
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/concentrated/metrics.json
@@ -495,6 +497,7 @@ jobs:
             outputs/full_rebuild_logs/user_current_report.log
             outputs/full_rebuild_logs/daily_crisis_monitor.log
             outputs/full_rebuild_logs/decision_cadence_review.log
+            outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -513,10 +516,12 @@ jobs:
             outputs/operator_review/
             outputs/shadow_operating/
             outputs/promotion_review/
+            outputs/alphaops_vnext/
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
             outputs/baseline_lock/
+            outputs/sec_enriched_candidate_replay/
             outputs/market_leader_challenger/
             outputs/superperformance_trader_replay/
             outputs/integrated_theme_leader_crisis_replay/
@@ -557,6 +562,7 @@ jobs:
             outputs/reports/main_monthly_weights.csv
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/alphaops_vnext/
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/target_snapshots/
@@ -566,6 +572,7 @@ jobs:
             outputs/reports/regime_by_month.csv
             outputs/reports/sleeve_returns_by_month.csv
             outputs/reports/candidate_replay_book.csv
+            outputs/sec_enriched_candidate_replay/
             outputs/reports/leader_drop_diagnostics_*.csv
             outputs/reports/leader_drop_diagnostics_summary.json
             outputs/reports/leader_drop_diagnostics_report.md
@@ -905,6 +912,8 @@ jobs:
             "outputs/operator_review/sidecar_vs_current_diff.csv"
             "outputs/shadow_operating"
             "outputs/promotion_review"
+            "outputs/alphaops_vnext/summary.json"
+            "outputs/alphaops_vnext/production_activation.json"
             "outputs/broker_replay/main/metrics.json"
             "outputs/broker_replay/concentrated/metrics.json"
           )
@@ -1018,6 +1027,7 @@ jobs:
             copy_dir_clean outputs/operator_review "$DEST/operator_review"
             copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
             copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
+            copy_dir_clean outputs/alphaops_vnext "$DEST/alphaops_vnext"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
@@ -1108,6 +1118,7 @@ jobs:
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
+          copy_dir_clean outputs/alphaops_vnext "$DEST/alphaops_vnext"
           copy_dir_clean outputs/governance_catalyst "$DEST/governance_catalyst"
           copy_dir_clean outputs/style_regime_report "$DEST/style_regime_report"
           copy_dir_clean outputs/macro_policy_engine "$DEST/macro_policy_engine"
@@ -1126,6 +1137,7 @@ jobs:
           copy_dir_clean outputs/theme_leadership_tape "$DEST/theme_leadership_tape"
           copy_dir_clean outputs/theme_concentration_challenger "$DEST/theme_concentration_challenger"
           copy_dir_clean outputs/baseline_lock "$DEST/baseline_lock"
+          copy_dir_clean outputs/sec_enriched_candidate_replay "$DEST/sec_enriched_candidate_replay"
           copy_dir_clean outputs/market_leader_challenger "$DEST/market_leader_challenger"
           copy_dir_clean outputs/superperformance_trader_replay "$DEST/superperformance_trader_replay"
           copy_dir_clean outputs/integrated_theme_leader_crisis_replay "$DEST/integrated_theme_leader_crisis_replay"

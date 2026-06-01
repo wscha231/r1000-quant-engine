@@ -80,7 +80,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -217,11 +217,19 @@ jobs:
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
           BASELINE_RUN_ID="${{ inputs.source_run_id }}_${{ github.run_id }}"
           python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" --branch "$GITHUB_REF_NAME" --head-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
-          python tools/run_superperformance_trader_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
+          SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+          python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
+          if [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
+            SIDECAR_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+            echo "[replay] using enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+          else
+            echo "[replay] enriched candidate book unavailable; using base candidate book"
+          fi
+          python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
           python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
           python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
           python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
-          python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+          python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
           python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "${{ github.run_id }}" --commit-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
@@ -273,6 +281,7 @@ jobs:
             outputs/account_evaluation/
             outputs/portfolio_system_guard/
             outputs/baseline_lock/
+            outputs/sec_enriched_candidate_replay/
             outputs/superperformance_trader_replay/
             outputs/integrated_theme_leader_crisis_replay/
             outputs/strategy_logic_ledger/

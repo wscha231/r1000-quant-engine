@@ -64,6 +64,46 @@ def test_patch_application_manifest_records_research_only_separation() -> None:
         assert executed["user_current_research_only_notice"] is False
 
 
+def test_patch_application_manifest_records_alphaops_vnext_production() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        (latest / "account_evaluation").mkdir(parents=True)
+        (latest / "alphaops_vnext").mkdir(parents=True)
+        (latest / "account_evaluation" / "official_metrics.json").write_text(
+            '{"official_metric_mode":"broker_ledger_next_close","valid_for_production":true}\n',
+            encoding="utf-8",
+        )
+        (latest / "alphaops_vnext" / "summary.json").write_text('{"status":"completed"}\n', encoding="utf-8")
+        (latest / "alphaops_vnext" / "production_activation.json").write_text(
+            '{"status":"applied","current_holdings_source":"alphaops_vnext_policy_target_book"}\n',
+            encoding="utf-8",
+        )
+        payload = build_manifest(
+            Namespace(
+                latest_run=str(latest),
+                output=str(root / "manifest.json"),
+                run_id="123",
+                run_attempt="1",
+                head_sha="abc",
+                branch="codex/test",
+                artifact_id="456",
+                sidecar_profile="official",
+                artifact_profile="official",
+                gdrive_sync_mode="research",
+                portfolio_policy="alphaops_vnext_production",
+                approved_target_policy_path="outputs/promotion_review/approved_target_policy.json",
+            )
+        )
+        assert payload["production_applied"] is True
+        assert payload["sidecar_only"] is False
+        assert payload["production_mutated"] is True
+        assert payload["current_holdings_source"] == "alphaops_vnext_policy_target_book"
+        assert payload["reason_not_applied_to_current_holdings"] == "alphaops_vnext_production_replaced_operating_books"
+        assert payload["alphaops_vnext_activation_status"] == "applied"
+
+
 if __name__ == "__main__":
     test_patch_application_manifest_records_research_only_separation()
+    test_patch_application_manifest_records_alphaops_vnext_production()
     print("patch_application_manifest_smoke: PASS")

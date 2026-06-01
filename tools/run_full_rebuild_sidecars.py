@@ -30,7 +30,9 @@ run_patch_manifest() {
 run_sidecar_promotion_hook() {
   echo "[sidecar-promotion] pre_broker_replay_target_override_hook mode=${PORTFOLIO_POLICY}"
   local hook_mode="$PORTFOLIO_POLICY"
-  if [ "$hook_mode" = "integrated_shadow" ]; then
+  if [ "$hook_mode" = "alphaops_vnext_production" ]; then
+    echo "[sidecar-promotion] alphaops_vnext_production already replaced operating target books; skipping shadow bridge"
+  elif [ "$hook_mode" = "integrated_shadow" ]; then
     python tools/run_sidecar_promotion_bridge.py --mode integrated_shadow --latest-run outputs --price-cache cache_prices --output-root outputs --approved-policy "$APPROVED_TARGET_POLICY_PATH" --source-integrated-dir outputs/integrated_theme_leader_crisis_replay 2>&1 | tee outputs/full_rebuild_logs/sidecar_promotion_bridge.log || true
   elif [ "$hook_mode" = "market_leader_shadow" ]; then
     echo "[sidecar-promotion] writing outputs/operator_review/projected_holdings_after_market_leader_target.csv"
@@ -49,6 +51,31 @@ build_long_crisis_inputs() {
   python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
 }
 
+SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+build_sec_enriched_candidate_book() {
+  SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+  local enriched="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+  echo "[sec-enrich] building PIT-safe evidence-enriched candidate replay book"
+  if [ ! -s "$SIDECAR_CANDIDATE_BOOK" ]; then
+    echo "[sec-enrich] missing base candidate replay book; sidecars will use default resolver"
+    return 0
+  fi
+  python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
+  if [ -s "$enriched" ]; then
+    SIDECAR_CANDIDATE_BOOK="$enriched"
+    echo "[sec-enrich] using enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+  else
+    echo "[sec-enrich] enriched candidate book unavailable; using base candidate book"
+  fi
+}
+
+run_alphaops_vnext_production() {
+  if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
+    echo "[alphaops-vnext] replacing operating target books before broker replay"
+    python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+  fi
+}
+
 run_decision_cadence_review() {
   echo "[decision-cadence] reviewing daily/weekly/monthly decision cadence"
   python tools/run_decision_cadence_review.py --latest-run outputs --price-cache cache_prices --output-dir outputs/decision_cadence 2>&1 | tee outputs/full_rebuild_logs/decision_cadence_review.log || true
@@ -63,6 +90,7 @@ if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
 fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  run_alphaops_vnext_production
   run_sidecar_promotion_hook
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
@@ -94,10 +122,11 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
-    python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
-    python tools/run_superperformance_trader_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
+    build_sec_enriched_candidate_book
+    python tools/run_market_leader_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+    python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
     build_long_crisis_inputs
-    python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+    python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
     if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
       run_sidecar_promotion_hook
     fi
@@ -118,6 +147,7 @@ python tools/run_concentrated_position_risk_replay.py --latest-run outputs --out
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+run_alphaops_vnext_production
 run_sidecar_promotion_hook
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
 python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
@@ -212,10 +242,11 @@ python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --p
 python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n 3 --single-name-cap 0.50 --cost-bps 50 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
-python tools/run_market_leader_challenger.py --latest-run outputs --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
-python tools/run_superperformance_trader_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
+build_sec_enriched_candidate_book
+python tools/run_market_leader_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
+python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
 build_long_crisis_inputs
-python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps 25 --artifact-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
 if [ "$PORTFOLIO_POLICY" = "integrated_shadow" ] || [ "$PORTFOLIO_POLICY" = "market_leader_shadow" ]; then
   run_sidecar_promotion_hook
 fi
@@ -253,7 +284,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--artifact-profile", default=os.environ.get("ARTIFACT_PROFILE", "unknown"))
     parser.add_argument("--gdrive-sync-mode", default=os.environ.get("GDRIVE_SYNC_MODE", "unknown"))
-    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
+    parser.add_argument("--portfolio-policy", choices=["production_baseline", "integrated_shadow", "market_leader_shadow", "approved_integrated", "alphaops_vnext_production"], default=os.environ.get("PORTFOLIO_POLICY", "production_baseline"))
     parser.add_argument("--approved-target-policy-path", default=os.environ.get("APPROVED_TARGET_POLICY_PATH", "outputs/promotion_review/approved_target_policy.json"))
     return parser.parse_args()
 

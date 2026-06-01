@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 from r1000_candidate_lanes import lane_feature_mapping_payload, score_candidate_lanes  # noqa: E402
 from tools.crisis_state_engine import build_historical_daily_crisis_state  # noqa: E402
 from r1000_market_leader_engine import (  # noqa: E402
+    BENCHMARKS,
     MarketLeaderVariant,
     apply_state_history,
     load_prices,
@@ -604,7 +605,7 @@ def build_market_leader_book(candidate: pd.DataFrame, price_cache: Path, portfol
         else MarketLeaderVariant("main", "integrated_market_leader_main_N15", 15, 0.15, 0.40, 0.60)
     )
     tickers = {str(x).upper() for x in candidate["ticker"].dropna().unique()}
-    tickers.update({"SPY", "QQQ"})
+    tickers.update(BENCHMARKS)
     prices = load_prices(price_cache, tickers)
     state_by_ticker: dict[str, dict[str, int]] = {}
     prev: dict[str, float] = {}

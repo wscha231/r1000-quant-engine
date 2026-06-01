@@ -95,6 +95,50 @@ def load_portfolio(path: Path):
     return df
 
 
+def latest_date_from_frame(df, columns: list[str]) -> Optional[str]:
+    import pandas as pd
+    for col in columns:
+        if col not in df.columns:
+            continue
+        dates = pd.to_datetime(df[col], errors="coerce").dropna()
+        if not dates.empty:
+            return str(pd.Timestamp(dates.max()).date())
+    return None
+
+
+def infer_anchor_date(portfolio_path: Path, portfolio_df, override: Optional[str]) -> Optional[str]:
+    if override:
+        return override
+    direct = latest_date_from_frame(
+        portfolio_df,
+        ["rebalance_date", "asof", "as_of_date", "date", "feature_date", "last_trade_date"],
+    )
+    if direct:
+        return direct
+    equity_candidates = [
+        portfolio_path.parent / "equity_curve.csv",
+        portfolio_path.parent.parent / "equity_curve.csv",
+        REPO_ROOT / "outputs" / "equity_curve.csv",
+        REPO_ROOT / "outputs" / "broker_replay" / "main" / "equity_curve.csv",
+    ]
+    try:
+        import pandas as pd
+    except ImportError:
+        return None
+    for eq_path in equity_candidates:
+        if not eq_path.exists():
+            continue
+        try:
+            eq = pd.read_csv(eq_path)
+        except Exception:
+            continue
+        anchor = latest_date_from_frame(eq, ["rebalance_date", "asof", "as_of_date", "date"])
+        if anchor:
+            print(f"[live-ext] anchor_date auto-detected from {eq_path}: {anchor}")
+            return anchor
+    return None
+
+
 def fetch_history(ticker: str, start: str, end: str):
     """Fetch daily OHLC via yfinance. Returns DataFrame with date index +
     'close' column, or None on failure."""
@@ -267,32 +311,14 @@ def main() -> int:
     df = pd.read_csv(portfolio_path)
     print(f"[live-ext] loaded portfolio: {portfolio_path} ({len(df)} rows)")
 
-    # Determine anchor date
-    if args.anchor_date:
-        anchor_date = args.anchor_date
-    elif "rebalance_date" in df.columns:
-        anchor_date = str(pd.to_datetime(df["rebalance_date"]).max().date())
-    elif "asof" in df.columns:
-        anchor_date = str(pd.to_datetime(df["asof"]).max().date())
-    else:
-        # Fall back to equity_curve.csv in same directory (last row date)
-        eq_path = portfolio_path.parent / "equity_curve.csv"
-        if eq_path.exists():
-            try:
-                eq = pd.read_csv(eq_path)
-                if "rebalance_date" in eq.columns:
-                    anchor_date = str(pd.to_datetime(eq["rebalance_date"]).max().date())
-                    print(f"[live-ext] anchor_date auto-detected from {eq_path.name}: {anchor_date}")
-                else:
-                    print(f"[live-ext] ERROR: equity_curve.csv has no rebalance_date col", file=sys.stderr)
-                    return 2
-            except Exception as exc:
-                print(f"[live-ext] ERROR reading equity_curve.csv: {exc}", file=sys.stderr)
-                return 2
-        else:
-            print("[live-ext] ERROR: no rebalance_date / asof column in portfolio + no equity_curve.csv "
-                  "found in same dir. Pass --anchor-date YYYY-MM-DD explicitly.", file=sys.stderr)
-            return 2
+    anchor_date = infer_anchor_date(portfolio_path, df, args.anchor_date)
+    if not anchor_date:
+        print(
+            "[live-ext] ERROR: no rebalance/asof/date column in portfolio and no usable equity curve "
+            "date found. Pass --anchor-date YYYY-MM-DD explicitly.",
+            file=sys.stderr,
+        )
+        return 2
 
     today_str = args.today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     anchor_dt = pd.to_datetime(anchor_date)
