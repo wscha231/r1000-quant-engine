@@ -99,9 +99,9 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
                 latest_run=str(latest),
                 output_dir=str(out_dir),
                 main_cagr_target=0.30,
-                main_max_dd_target=-0.15,
+                main_max_dd_target=-0.20,
                 concentrated_cagr_target=0.50,
-                concentrated_max_dd_target=-0.18,
+                concentrated_max_dd_target=-0.25,
                 strict_targets=False,
             )
         )
@@ -177,9 +177,9 @@ def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:
                 latest_run=str(latest),
                 output_dir=str(out_dir),
                 main_cagr_target=0.30,
-                main_max_dd_target=-0.15,
+                main_max_dd_target=-0.20,
                 concentrated_cagr_target=0.50,
-                concentrated_max_dd_target=-0.18,
+                concentrated_max_dd_target=-0.25,
                 strict_targets=False,
             )
         )

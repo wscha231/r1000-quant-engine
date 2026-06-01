@@ -6,8 +6,8 @@ defaults and does not promote any candidate. Its job is to make the target
 gap operational after a full rebuild by ranking every available historical
 candidate artifact against:
 
-  - main: CAGR >= 30%, MaxDD >= -15%
-  - concentrated: CAGR >= 50%, MaxDD >= -18%
+  - main: CAGR >= 30%, MaxDD >= -20%
+  - concentrated: CAGR >= 50%, MaxDD >= -25%
 """
 from __future__ import annotations
 

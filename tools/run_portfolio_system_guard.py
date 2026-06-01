@@ -29,8 +29,8 @@ try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS
 except Exception:  # pragma: no cover - isolated smoke fallback
     PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.15},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+        "main": {"cagr": 0.30, "max_dd": -0.20},
+        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
     }
 
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"

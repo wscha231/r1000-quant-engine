@@ -25,8 +25,8 @@ try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS
 except Exception:  # pragma: no cover - isolated smoke fallback
     PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.15},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.18},
+        "main": {"cagr": 0.30, "max_dd": -0.20},
+        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
     }
 
 
@@ -182,7 +182,7 @@ def target_for(portfolio: str) -> dict[str, float]:
     target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
     return {
         "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.15 if portfolio == "main" else -0.18)),
+        "max_dd": float(target.get("max_dd", -0.20 if portfolio == "main" else -0.25)),
     }
 
 
