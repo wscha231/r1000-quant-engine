@@ -219,12 +219,69 @@ def test_concentrated_filter_disable_preserves_n5_target_book() -> None:
         assert len(positions) == 5
 
 
+def test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cache = root / "cache_prices"
+        reports = root / "reports"
+        out = root / "broker"
+        cache.mkdir()
+        reports.mkdir()
+        tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        for ticker in tickers:
+            _write_px(cache, ticker, [100.0, 101.0, 102.0, 103.0, 104.0])
+        target = reports / "operating_concentrated_target_book.csv"
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2026-01-02",
+                    "ticker": ticker,
+                    "weight": 0.19,
+                    "target_stock_names": 5,
+                    "weighting_mode": "alphaops_vnext_score_power",
+                    "active_rebalance_interval_months": 1,
+                    "production_policy": "alphaops_vnext_production",
+                    "operating_target_source": "alphaops_vnext_policy_replay",
+                }
+                for ticker in tickers
+            ]
+        ).to_csv(target, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                    "rebalance_interval_months": 1,
+                    "strategy_cagr": 0.40,
+                    "sharpe": 1.2,
+                    "max_dd": -0.15,
+                }
+            ]
+        ).to_csv(reports / "concentrated_strategy_comparison.csv", index=False)
+
+        metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=out,
+            portfolio_kind="concentrated",
+            starting_capital=100_000.0,
+        )
+
+        assert metrics["status"] == "completed"
+        assert metrics["target_book_filter_source"] == "alphaops_vnext_policy_target_book"
+        assert metrics.get("target_book_filter") in ({}, None)
+        positions = pd.read_csv(out / "positions_latest.csv")
+        assert set(positions["ticker"]) == set(tickers)
+
+
 def main() -> int:
     test_broker_replay_tracks_integer_shares_and_cash()
     test_broker_replay_blocks_contaminated_weight_book()
     test_broker_replay_does_not_backdate_sparse_history_fill()
     test_concentrated_replay_uses_comparison_champion_filter()
     test_concentrated_filter_disable_preserves_n5_target_book()
+    test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter()
     print("broker_ledger_replay_smoke: PASS")
     return 0
 

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_alphaops_vnext_policy_replay import build
+from tools.run_alphaops_vnext_policy_replay import apply_crisis_lane_policy, build, crisis_new_buy_allowed
 
 
 def candidate_rows() -> list[dict[str, object]]:
@@ -148,6 +148,40 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         neg = lane[lane["ticker"].astype(str).eq("NEG")]
         assert not neg.empty
         assert float(neg["emerging_tenbagger_risk_cap"].iloc[0]) < 1.0
+
+
+def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "CYC",
+                "primary_lane": "CYCLICAL_RECOVERY",
+                "alphaops_vnext_score": 10.0,
+                "leader_chase_risk_score": 0.0,
+                "liquidity_capacity_weight_cap": 1.0,
+                "atr14_pct": 0.02,
+            },
+            {
+                "ticker": "QLT",
+                "primary_lane": "QUALITY_COMPOUNDER",
+                "alphaops_vnext_score": 5.0,
+                "leader_chase_risk_score": 0.0,
+                "liquidity_capacity_weight_cap": 1.0,
+                "atr14_pct": 0.02,
+            },
+        ]
+    )
+    out = apply_crisis_lane_policy(frame, {"crisis_state": "CRISIS_DEFENSE"}, "main")
+    cyc = out[out["ticker"].eq("CYC")].iloc[0]
+    qlt = out[out["ticker"].eq("QLT")].iloc[0]
+    assert bool(cyc["crisis_new_buy_allowed"]) is False
+    assert "CRISIS_DEFENSE:CYCLICAL_RECOVERY" in str(cyc["crisis_new_buy_block_reason"])
+    assert bool(qlt["crisis_new_buy_allowed"]) is True
+    assert float(cyc["alphaops_vnext_weight_score"]) < float(cyc["alphaops_vnext_score"])
+    assert float(qlt["alphaops_vnext_weight_score"]) > float(cyc["alphaops_vnext_weight_score"])
+    ok, reason = crisis_new_buy_allowed(cyc.to_dict(), "CRISIS_DEFENSE")
+    assert ok is False
+    assert reason.startswith("crisis_new_buy_blocked_for_lane")
 
 
 if __name__ == "__main__":

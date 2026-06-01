@@ -97,6 +97,16 @@ def resolve_concentrated_champion_filters(
 ) -> tuple[dict[str, str], str, str]:
     if portfolio_kind != "concentrated":
         return {}, "not_applicable", ""
+    if not raw_targets.empty:
+        production_policy = raw_targets.get("production_policy")
+        target_source = raw_targets.get("operating_target_source")
+        is_alphaops_vnext = False
+        if production_policy is not None:
+            is_alphaops_vnext = is_alphaops_vnext or production_policy.astype(str).eq("alphaops_vnext_production").any()
+        if target_source is not None:
+            is_alphaops_vnext = is_alphaops_vnext or target_source.astype(str).eq("alphaops_vnext_policy_replay").any()
+        if is_alphaops_vnext:
+            return {}, "alphaops_vnext_policy_target_book", "legacy concentrated champion filter disabled for AlphaOps vNext production target book"
     if explicit_filters is not None:
         disable = str(explicit_filters.get("__disable_concentrated_champion_filter__") or "").strip().lower()
         if disable in {"1", "true", "yes", "disable", "disabled"}:

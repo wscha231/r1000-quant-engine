@@ -31,6 +31,7 @@ from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     CRISIS_SETTINGS,
     build_daily_crisis_state,
     crisis_state_audit,
+    defense_multiplier,
 )
 from tools.run_market_leader_challenger import normalize_candidate_frame, read_table, resolve_candidate_book  # noqa: E402
 from tools.run_user_current_report import build_report as build_user_current_report  # noqa: E402
@@ -261,7 +262,49 @@ def crisis_cash_target(state: str, portfolio_kind: str) -> float:
     return min(max(base, 0.0), 0.50)
 
 
-def allowed_candidate(rec: dict[str, Any], portfolio_kind: str, emerging_count: int) -> tuple[bool, str]:
+def crisis_new_buy_allowed(rec: dict[str, Any], state: str) -> tuple[bool, str]:
+    setting = CRISIS_SETTINGS.get(state, CRISIS_SETTINGS["GREEN"])
+    lane = str(rec.get("primary_lane") or "MARKET_LEADER")
+    allowed_by_lane = setting.get("new_buy_allowed", {})
+    allowed = bool(allowed_by_lane.get(lane, True))
+    if allowed:
+        return True, ""
+    return False, f"crisis_new_buy_blocked_for_lane:{state}:{lane}"
+
+
+def apply_crisis_lane_policy(month: pd.DataFrame, crisis_row: dict[str, Any], portfolio_kind: str) -> pd.DataFrame:
+    if month.empty:
+        return month
+    state = str(crisis_row.get("crisis_state") or "GREEN")
+    d = month.copy()
+    multipliers: list[float] = []
+    cut_scores: list[float] = []
+    cut_reasons: list[str] = []
+    buy_flags: list[bool] = []
+    buy_reasons: list[str] = []
+    for rec in d.to_dict("records"):
+        lane = str(rec.get("primary_lane") or "MARKET_LEADER")
+        mult, cut_score, cut_reason = defense_multiplier(rec, lane, state, portfolio_kind)
+        allowed, reason = crisis_new_buy_allowed(rec, state)
+        multipliers.append(float(mult))
+        cut_scores.append(float(cut_score))
+        cut_reasons.append(str(cut_reason))
+        buy_flags.append(bool(allowed))
+        buy_reasons.append(str(reason))
+    d["crisis_state"] = state
+    d["crisis_lane_weight_multiplier"] = multipliers
+    d["crisis_defense_cut_score"] = cut_scores
+    d["crisis_defense_cut_reason"] = cut_reasons
+    d["crisis_new_buy_allowed"] = buy_flags
+    d["crisis_new_buy_block_reason"] = buy_reasons
+    d["alphaops_vnext_weight_score"] = (
+        pd.to_numeric(d["alphaops_vnext_score"], errors="coerce").fillna(0.0)
+        * pd.to_numeric(d["crisis_lane_weight_multiplier"], errors="coerce").fillna(1.0)
+    )
+    return d
+
+
+def allowed_candidate(rec: dict[str, Any], portfolio_kind: str, emerging_count: int, *, is_new_buy: bool = False) -> tuple[bool, str]:
     ticker = clean_ticker(rec.get("ticker"))
     if not ticker or ticker in CASH_TICKERS:
         return False, "invalid_ticker"
@@ -277,6 +320,8 @@ def allowed_candidate(rec: dict[str, Any], portfolio_kind: str, emerging_count: 
         return False, "pit_future_evidence_blocked_without_independent_confirmation"
     if bool(rec.get("top7_standalone_blocked")):
         return False, "top7_support_without_price_or_theme_confirmation"
+    if is_new_buy and not bool(rec.get("crisis_new_buy_allowed", True)):
+        return False, str(rec.get("crisis_new_buy_block_reason") or "crisis_new_buy_blocked_for_lane")
     lane = str(rec.get("primary_lane") or "")
     if portfolio_kind == "concentrated":
         if lane in {"EMERGING_TENBAGGER", "TOP7_MANAGER_DISCOVERY"}:
@@ -304,7 +349,7 @@ def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_tar
         return []
     caps = target_caps(portfolio_kind)
     gross = min(max(1.0 - cash_target, 0.0), 1.0)
-    scores = pd.Series([safe_float(row.get("alphaops_vnext_score")) for row in selected], dtype=float)
+    scores = pd.Series([safe_float(row.get("alphaops_vnext_weight_score"), safe_float(row.get("alphaops_vnext_score"))) for row in selected], dtype=float)
     raw = (scores - float(scores.min()) + 0.25).clip(lower=1e-6) ** 2
     raw = raw / max(float(raw.sum()), 1e-12) * gross
     weights = {clean_ticker(row.get("ticker")): min(float(raw.iloc[i]), caps["single"]) for i, row in enumerate(selected)}
@@ -358,6 +403,7 @@ def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_tar
         item["effective_single_weight_cap"] = caps["single"]
         item["subindustry_cap"] = caps["subindustry"]
         item["theme_cap"] = caps["theme"]
+        item["weighting_score"] = safe_float(item.get("alphaops_vnext_weight_score"), safe_float(item.get("alphaops_vnext_score")))
         out.append(item)
     return out
 
@@ -406,6 +452,8 @@ def build_variant_book(
         month = score_month(candidate[candidate["rebalance_date"].eq(dt)].copy())
         if month.empty:
             continue
+        crisis_row = crisis_state_for_date(crisis_states, dt)
+        month = apply_crisis_lane_policy(month, crisis_row, portfolio_kind)
         score_sigma = float(pd.to_numeric(month["alphaops_vnext_score"], errors="coerce").std(ddof=0) or 0.0)
         score_median = float(pd.to_numeric(month["alphaops_vnext_score"], errors="coerce").median() or 0.0)
         month_records = month.to_dict("records")
@@ -422,7 +470,7 @@ def build_variant_book(
             if state == "EXIT":
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": state_reason, "prior_holding": True})
                 continue
-            ok, reason = allowed_candidate(rec, portfolio_kind, emerging_count)
+            ok, reason = allowed_candidate(rec, portfolio_kind, emerging_count, is_new_buy=False)
             if not ok:
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": reason, "prior_holding": True})
                 continue
@@ -437,14 +485,14 @@ def build_variant_book(
                 emerging_count += 1
             if len(selected) >= target_n:
                 break
-        ranked = sorted(month_records, key=lambda rec: safe_float(rec.get("alphaops_vnext_score")), reverse=True)
+        ranked = sorted(month_records, key=lambda rec: safe_float(rec.get("alphaops_vnext_weight_score"), safe_float(rec.get("alphaops_vnext_score"))), reverse=True)
         threshold_normal = max(0.15, 0.75 * max(score_sigma, 0.20))
         threshold_broken = max(0.08, 0.35 * max(score_sigma, 0.20))
         for rec in ranked:
             ticker = clean_ticker(rec.get("ticker"))
             if not ticker or ticker in selected_tickers:
                 continue
-            ok, reason = allowed_candidate(rec, portfolio_kind, emerging_count)
+            ok, reason = allowed_candidate(rec, portfolio_kind, emerging_count, is_new_buy=True)
             if not ok:
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": reason, "prior_holding": False})
                 continue
@@ -471,7 +519,6 @@ def build_variant_book(
                 selected_tickers.add(ticker)
             else:
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": "hold_replace_threshold_not_met", "prior_holding": False})
-        crisis_row = crisis_state_for_date(crisis_states, dt)
         cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
         weighted = assign_weights(selected, portfolio_kind, cash_target)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
