@@ -28,6 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
+
 
 SCHEMA_VERSION = "mdd-cash-overlay-research-v1"
 PORTFOLIOS = ("main", "concentrated")
@@ -51,6 +53,70 @@ EQUITY_DD_BREAKERS = {
     "main": [(-0.10, 0.35), (-0.15, 0.55), (-0.20, 0.75)],
     "concentrated": [(-0.08, 0.45), (-0.12, 0.65), (-0.18, 0.85)],
 }
+SWEEP_VARIANTS = [
+    {
+        "variant": "crisis_only_confirm2",
+        "description": "Daily crisis-state floors only; no account equity drawdown breaker.",
+        "enable_equity_breaker": False,
+        "confirm_days": 2,
+        "release_step": 0.10,
+        "change_band": 0.03,
+        "cash_floors": CASH_FLOORS,
+        "equity_breakers": {"main": [], "concentrated": []},
+    },
+    {
+        "variant": "crisis_only_fast_reentry",
+        "description": "Crisis-state floors only with faster confirmation and cash release.",
+        "enable_equity_breaker": False,
+        "confirm_days": 1,
+        "release_step": 0.20,
+        "change_band": 0.02,
+        "cash_floors": CASH_FLOORS,
+        "equity_breakers": {"main": [], "concentrated": []},
+    },
+    {
+        "variant": "balanced_lite_dd",
+        "description": "Lower crisis floors plus a delayed portfolio drawdown breaker.",
+        "enable_equity_breaker": True,
+        "confirm_days": 2,
+        "release_step": 0.20,
+        "change_band": 0.03,
+        "cash_floors": {
+            "main": {"GREEN": 0.03, "REENTRY_READY": 0.10, "WATCH": 0.08, "DEFENSE_REVIEW": 0.25, "CRISIS_DEFENSE": 0.45},
+            "concentrated": {"GREEN": 0.03, "REENTRY_READY": 0.12, "WATCH": 0.10, "DEFENSE_REVIEW": 0.30, "CRISIS_DEFENSE": 0.55},
+        },
+        "equity_breakers": {
+            "main": [(-0.15, 0.25), (-0.25, 0.45), (-0.35, 0.60)],
+            "concentrated": [(-0.12, 0.35), (-0.20, 0.50), (-0.30, 0.70)],
+        },
+    },
+    {
+        "variant": "late_dd_fast_release",
+        "description": "Late drawdown breaker intended to avoid long cash lockups.",
+        "enable_equity_breaker": True,
+        "confirm_days": 1,
+        "release_step": 0.30,
+        "change_band": 0.04,
+        "cash_floors": {
+            "main": {"GREEN": 0.03, "REENTRY_READY": 0.08, "WATCH": 0.05, "DEFENSE_REVIEW": 0.20, "CRISIS_DEFENSE": 0.35},
+            "concentrated": {"GREEN": 0.03, "REENTRY_READY": 0.10, "WATCH": 0.08, "DEFENSE_REVIEW": 0.25, "CRISIS_DEFENSE": 0.45},
+        },
+        "equity_breakers": {
+            "main": [(-0.20, 0.30), (-0.30, 0.50), (-0.40, 0.65)],
+            "concentrated": [(-0.18, 0.40), (-0.30, 0.60), (-0.42, 0.75)],
+        },
+    },
+    {
+        "variant": "strong_dd_cap",
+        "description": "Aggressive account drawdown defense; useful as an MDD lower-bound test.",
+        "enable_equity_breaker": True,
+        "confirm_days": 2,
+        "release_step": 0.10,
+        "change_band": 0.03,
+        "cash_floors": CASH_FLOORS,
+        "equity_breakers": EQUITY_DD_BREAKERS,
+    },
+]
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -96,6 +162,20 @@ def write_json(path: Path, payload: Any) -> None:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def json_ready_record(record: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in record.items():
+        if isinstance(value, np.bool_):
+            out[key] = bool(value)
+        elif isinstance(value, np.integer):
+            out[key] = int(value)
+        elif isinstance(value, np.floating):
+            out[key] = float(value)
+        else:
+            out[key] = value
+    return out
 
 
 def pct(value: float | None) -> str:
@@ -196,15 +276,23 @@ def calc_metrics(curve: pd.DataFrame, value_col: str, cash_col: str) -> dict[str
     }
 
 
-def floor_for_state(portfolio: str, state: str) -> float:
-    return float(CASH_FLOORS.get(portfolio, CASH_FLOORS["main"]).get(str(state).upper(), CASH_FLOORS[portfolio]["GREEN"]))
+def floor_for_state(portfolio: str, state: str, cash_floors: dict[str, dict[str, float]] | None = None) -> float:
+    floors = cash_floors or CASH_FLOORS
+    portfolio_floors = floors.get(portfolio, floors.get("main", CASH_FLOORS["main"]))
+    return float(portfolio_floors.get(str(state).upper(), portfolio_floors.get("GREEN", 0.03)))
 
 
-def equity_breaker_floor(portfolio: str, drawdown: float, enabled: bool) -> float:
+def equity_breaker_floor(
+    portfolio: str,
+    drawdown: float,
+    enabled: bool,
+    equity_breakers: dict[str, list[tuple[float, float]]] | None = None,
+) -> float:
     if not enabled:
         return 0.0
     floor = 0.0
-    for threshold, cash_floor in EQUITY_DD_BREAKERS.get(portfolio, []):
+    breakers = equity_breakers or EQUITY_DD_BREAKERS
+    for threshold, cash_floor in breakers.get(portfolio, []):
         if drawdown <= threshold:
             floor = max(floor, cash_floor)
     return float(floor)
@@ -217,14 +305,15 @@ def confirmed_policy_floor(
     requested_state: str,
     current_cash: float,
     confirm_days: int,
+    cash_floors: dict[str, dict[str, float]] | None = None,
 ) -> float:
-    requested = floor_for_state(portfolio, requested_state)
+    requested = floor_for_state(portfolio, requested_state, cash_floors)
     if requested <= current_cash or confirm_days <= 1:
         return requested
     recent = states[-int(confirm_days):]
     if len(recent) < int(confirm_days):
         return current_cash
-    return min(floor_for_state(portfolio, state) for state in recent)
+    return min(floor_for_state(portfolio, state, cash_floors) for state in recent)
 
 
 def next_cash_weight(
@@ -253,6 +342,8 @@ def simulate_overlay(
     release_step: float,
     change_band: float,
     enable_equity_breaker: bool,
+    cash_floors: dict[str, dict[str, float]] | None = None,
+    equity_breakers: dict[str, list[tuple[float, float]]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     merged = equity.merge(crisis, on="date", how="left")
     merged["crisis_state"] = merged["crisis_state"].fillna("GREEN").astype(str).str.upper()
@@ -269,7 +360,7 @@ def simulate_overlay(
             "base_cash_weight": float(merged["cash_weight"].iloc[0]),
             "overlay_cash_weight": overlay_cash,
             "crisis_state": str(merged["crisis_state"].iloc[0]),
-            "policy_cash_floor": floor_for_state(portfolio, str(merged["crisis_state"].iloc[0])),
+            "policy_cash_floor": floor_for_state(portfolio, str(merged["crisis_state"].iloc[0]), cash_floors),
             "equity_drawdown_cash_floor": 0.0,
             "target_cash_weight_next": overlay_cash,
             "cash_action": "INIT",
@@ -296,8 +387,9 @@ def simulate_overlay(
             requested_state=state,
             current_cash=overlay_cash,
             confirm_days=confirm_days,
+            cash_floors=cash_floors,
         )
-        dd_floor = equity_breaker_floor(portfolio, overlay_drawdown_now, enable_equity_breaker)
+        dd_floor = equity_breaker_floor(portfolio, overlay_drawdown_now, enable_equity_breaker, equity_breakers)
         base_cash_floor = float(np.clip(safe_float(cur.get("cash_weight"), 0.0), 0.0, 0.98))
         target_floor = max(policy_floor, dd_floor, base_cash_floor)
         new_cash, action = next_cash_weight(
@@ -408,10 +500,114 @@ def holdings_contributors(holdings: pd.DataFrame, peak: str, trough: str) -> pd.
     return joined.sort_values("peak_to_trough_value_delta_usd").head(15).reset_index(drop=True)
 
 
+def target_eval(portfolio: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    targets = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
+    cagr = safe_float(metrics.get("cagr"), float("nan"))
+    max_dd = safe_float(metrics.get("max_dd"), float("nan"))
+    cagr_target = safe_float(targets.get("cagr"), 0.0)
+    max_dd_target = safe_float(targets.get("max_dd"), -1.0)
+    cagr_gap = max(0.0, cagr_target - cagr)
+    mdd_gap = max(0.0, max_dd_target - max_dd)
+    return {
+        "cagr_target": cagr_target,
+        "max_dd_target": max_dd_target,
+        "cagr_gap": float(cagr_gap),
+        "max_dd_gap": float(mdd_gap),
+        "target_pass": bool(cagr >= cagr_target and max_dd >= max_dd_target),
+    }
+
+
+def sweep_cash_variants(
+    *,
+    equity: pd.DataFrame,
+    crisis: pd.DataFrame,
+    portfolio: str,
+    base_metrics: dict[str, Any],
+    cost_bps: float,
+    include_default: dict[str, Any],
+) -> pd.DataFrame:
+    variants = [
+        {
+            "variant": "workflow_default",
+            "description": "Workflow command-line parameters.",
+            **include_default,
+            "cash_floors": CASH_FLOORS,
+            "equity_breakers": EQUITY_DD_BREAKERS,
+        },
+        *SWEEP_VARIANTS,
+    ]
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for variant in variants:
+        name = str(variant["variant"])
+        if name in seen:
+            continue
+        seen.add(name)
+        curve, actions = simulate_overlay(
+            equity=equity,
+            crisis=crisis,
+            portfolio=portfolio,
+            cost_bps=cost_bps,
+            confirm_days=int(variant["confirm_days"]),
+            release_step=float(variant["release_step"]),
+            change_band=float(variant["change_band"]),
+            enable_equity_breaker=bool(variant["enable_equity_breaker"]),
+            cash_floors=variant.get("cash_floors"),
+            equity_breakers=variant.get("equity_breakers"),
+        )
+        metrics = calc_metrics(curve, "overlay_equity_usd", "overlay_cash_weight")
+        target = target_eval(portfolio, metrics)
+        cagr_delta = safe_float(metrics.get("cagr")) - safe_float(base_metrics.get("cagr"))
+        max_dd_improvement = safe_float(metrics.get("max_dd")) - safe_float(base_metrics.get("max_dd"))
+        avg_cash_delta = safe_float(metrics.get("avg_cash_weight")) - safe_float(base_metrics.get("avg_cash_weight"))
+        cagr_loss = max(0.0, -cagr_delta)
+        score = (
+            100.0 * max_dd_improvement
+            - 55.0 * cagr_loss
+            - 20.0 * avg_cash_delta
+            - 150.0 * safe_float(target.get("cagr_gap"))
+            - 100.0 * safe_float(target.get("max_dd_gap"))
+        )
+        if target["target_pass"]:
+            score += 100.0
+        rows.append(
+            {
+                "portfolio": portfolio,
+                "variant": name,
+                "description": variant.get("description", ""),
+                "target_pass": target["target_pass"],
+                "score": float(score),
+                "cagr": safe_float(metrics.get("cagr")),
+                "max_dd": safe_float(metrics.get("max_dd")),
+                "sharpe": safe_float(metrics.get("sharpe")),
+                "avg_cash_weight": safe_float(metrics.get("avg_cash_weight")),
+                "cagr_delta": float(cagr_delta),
+                "max_dd_improvement": float(max_dd_improvement),
+                "avg_cash_delta": float(avg_cash_delta),
+                "cagr_gap": safe_float(target.get("cagr_gap")),
+                "max_dd_gap": safe_float(target.get("max_dd_gap")),
+                "cash_action_count": int(len(actions)),
+                "estimated_cash_action_cost_usd": float(
+                    pd.to_numeric(actions.get("estimated_cost_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()
+                )
+                if not actions.empty
+                else 0.0,
+                "confirm_days": int(variant["confirm_days"]),
+                "release_step": float(variant["release_step"]),
+                "change_band": float(variant["change_band"]),
+                "equity_drawdown_breaker_enabled": bool(variant["enable_equity_breaker"]),
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(["target_pass", "score"], ascending=[False, False]).reset_index(drop=True)
+
+
 def render_report(payload: dict[str, Any]) -> str:
     base = payload.get("base_metrics") or {}
     overlay = payload.get("overlay_metrics") or {}
     trade = payload.get("base_mdd_trade_summary") or {}
+    best = payload.get("best_variant") or {}
     lines = [
         f"# MDD Cash Overlay Research - {payload.get('portfolio')}",
         "",
@@ -438,6 +634,13 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Estimated cash-action cost: `${safe_float(payload.get('estimated_cash_action_cost_usd')):,.0f}`",
         f"- Confirm days: `{payload.get('confirm_days')}`",
         f"- Release step: `{pct(payload.get('release_step'))}`",
+        "",
+        "## Variant Sweep",
+        "",
+        f"- Best variant: `{best.get('variant', '')}`",
+        f"- Best CAGR / MaxDD: `{pct(best.get('cagr'))}` / `{pct(best.get('max_dd'))}`",
+        f"- Best target pass: `{best.get('target_pass', False)}`",
+        f"- Best cash actions: `{best.get('cash_action_count', 0)}`",
         "",
         "Research-only. Promotion requires an account-ledger implementation with real orders and next-close fills.",
         "",
@@ -479,6 +682,8 @@ def analyze_portfolio(
         release_step=release_step,
         change_band=change_band,
         enable_equity_breaker=enable_equity_breaker,
+        cash_floors=CASH_FLOORS,
+        equity_breakers=EQUITY_DD_BREAKERS,
     )
     base_metrics = {
         **calc_metrics(curve, "base_equity_usd", "base_cash_weight"),
@@ -502,6 +707,21 @@ def analyze_portfolio(
     holdings = read_csv(latest_run / "broker_replay" / portfolio / "holdings_daily.csv")
     trade_summary = summarize_mdd_trades(trades, str(base_metrics.get("max_dd_peak_date") or ""), str(base_metrics.get("max_dd_trough_date") or ""))
     contributors = holdings_contributors(holdings, str(base_metrics.get("max_dd_peak_date") or ""), str(base_metrics.get("max_dd_trough_date") or ""))
+    sweep = sweep_cash_variants(
+        equity=equity,
+        crisis=crisis,
+        portfolio=portfolio,
+        base_metrics=base_metrics,
+        cost_bps=cost_bps,
+        include_default={
+            "confirm_days": int(confirm_days),
+            "release_step": float(release_step),
+            "change_band": float(change_band),
+            "enable_equity_breaker": bool(enable_equity_breaker),
+        },
+    )
+    best_variant = json_ready_record(sweep.iloc[0].to_dict()) if not sweep.empty else {}
+    target = target_eval(portfolio, overlay_metrics)
 
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -519,6 +739,7 @@ def analyze_portfolio(
         "cost_bps_per_side_proxy": float(cost_bps),
         "base_metrics": base_metrics,
         "overlay_metrics": overlay_metrics,
+        "overlay_target_eval": target,
         "cagr_delta": safe_float(overlay_metrics.get("cagr")) - safe_float(base_metrics.get("cagr")),
         "max_dd_improvement": safe_float(overlay_metrics.get("max_dd")) - safe_float(base_metrics.get("max_dd")),
         "sharpe_delta": safe_float(overlay_metrics.get("sharpe")) - safe_float(base_metrics.get("sharpe")),
@@ -526,15 +747,23 @@ def analyze_portfolio(
         "cash_action_count": int(len(actions)),
         "estimated_cash_action_cost_usd": float(pd.to_numeric(actions.get("estimated_cost_usd", pd.Series(dtype=float)), errors="coerce").fillna(0.0).sum()) if not actions.empty else 0.0,
         "base_mdd_trade_summary": trade_summary,
+        "best_variant": best_variant,
+        "cash_overlay_target_pass": bool(target.get("target_pass")),
+        "cash_overlay_sweep_target_pass": bool(best_variant.get("target_pass")) if best_variant else False,
         "research_only": True,
         "production_activation_allowed": False,
-        "next_step": "Convert to broker-account order overlay only if MaxDD improvement is material after cash-action costs.",
+        "next_step": (
+            "Convert to broker-account order overlay only if a sweep variant meets target gates after cash-action costs."
+            if best_variant.get("target_pass")
+            else "Cash conversion alone did not meet target gates; combine with selection/cluster-risk changes before production."
+        ),
     }
     out_dir = output_root / portfolio
     out_dir.mkdir(parents=True, exist_ok=True)
     curve.to_csv(out_dir / "overlay_equity_curve.csv", index=False)
     actions.to_csv(out_dir / "cash_actions.csv", index=False)
     contributors.to_csv(out_dir / "mdd_holdings_contributors.csv", index=False)
+    sweep.to_csv(out_dir / "variant_sweep.csv", index=False)
     window_filter(trades, "date", str(base_metrics.get("max_dd_peak_date") or ""), str(base_metrics.get("max_dd_trough_date") or "")).to_csv(out_dir / "mdd_trade_window.csv", index=False)
     write_json(out_dir / "metrics.json", payload)
     write_text(out_dir / "research_report.md", render_report(payload))

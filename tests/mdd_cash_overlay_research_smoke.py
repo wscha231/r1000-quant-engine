@@ -110,6 +110,11 @@ def test_mdd_cash_overlay_reduces_drawdown_without_future_labels() -> None:
         assert actions.iloc[0]["cash_action"] == "RAISE_CASH"
         assert (out / "summary.json").exists()
         assert (out / "main" / "mdd_trade_window.csv").exists()
+        sweep = pd.read_csv(out / "main" / "variant_sweep.csv")
+        assert not sweep.empty
+        assert "workflow_default" in set(sweep["variant"])
+        assert isinstance(main["best_variant"], dict)
+        assert "target_pass" in main["best_variant"]
 
 
 if __name__ == "__main__":
