@@ -13,7 +13,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_alphaops_vnext_policy_replay import apply_crisis_lane_policy, build, crisis_new_buy_allowed
+from tools.run_alphaops_vnext_policy_replay import (
+    DEFAULT_CONCENTRATED_TARGET_N,
+    apply_crisis_lane_policy,
+    build,
+    crisis_new_buy_allowed,
+)
 from tools.run_weekly_evaluation import px_cache_name
 
 
@@ -220,6 +225,12 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
     assert reason.startswith("crisis_new_buy_blocked_for_lane")
 
 
+def test_alphaops_vnext_concentrated_production_default_is_n3() -> None:
+    assert DEFAULT_CONCENTRATED_TARGET_N == 3
+
+
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
+    test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
+    test_alphaops_vnext_concentrated_production_default_is_n3()
     print("alphaops_vnext_policy_replay_smoke: PASS")

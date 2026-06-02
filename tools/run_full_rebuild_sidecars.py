@@ -72,7 +72,7 @@ build_sec_enriched_candidate_book() {
 run_alphaops_vnext_production() {
   if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
     echo "[alphaops-vnext] replacing operating target books before broker replay"
-    python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+    python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 3 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
   fi
 }
 

@@ -76,6 +76,10 @@ WINDOWS = {
 }
 MAIN_VARIANTS = (12, 15, 18)
 CONCENTRATED_VARIANTS = (3, 5)
+# N3 is the production concentrated default after broker-ledger variant review;
+# N5 remains generated for diagnostics and future promotion evidence.
+DEFAULT_MAIN_TARGET_N = 15
+DEFAULT_CONCENTRATED_TARGET_N = 3
 
 
 def repo_path(value: str | Path) -> Path:
@@ -1183,8 +1187,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--portfolio-kind", choices=["main", "concentrated", "both"], default="both")
-    parser.add_argument("--main-target-n", type=int, choices=MAIN_VARIANTS, default=15)
-    parser.add_argument("--concentrated-target-n", type=int, choices=CONCENTRATED_VARIANTS, default=5)
+    parser.add_argument("--main-target-n", type=int, choices=MAIN_VARIANTS, default=DEFAULT_MAIN_TARGET_N)
+    parser.add_argument("--concentrated-target-n", type=int, choices=CONCENTRATED_VARIANTS, default=DEFAULT_CONCENTRATED_TARGET_N)
     parser.add_argument("--production-output-mode", choices=["replace_operating", "shadow_only"], default="replace_operating")
     parser.add_argument("--skip-broker-replay", action="store_true")
     parser.add_argument("--run-current-report", action="store_true")
