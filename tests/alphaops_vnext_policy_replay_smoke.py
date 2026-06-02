@@ -331,7 +331,7 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
             "holding_state": "HOLD",
             "hold_replace_decision": "keep_prior_holding",
             "market_style_regime_label": "quality_compounder",
-            "regime_capacity_regime": "bull",
+            "regime_state": "bull",
             "selection_confirmation_score": 0.24,
             "rs_benchmark_1m": 0.12,
             "primary_lane": "MARKET_LEADER",

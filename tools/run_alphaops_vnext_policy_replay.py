@@ -574,7 +574,7 @@ def apply_main_quality_hold_weak_timing_trim(
         replace_decision = str(item.get("hold_replace_decision") or "")
         is_hold = holding_state_text == "HOLD" or replace_decision == "keep_prior_holding"
         style_regime = str(item.get("market_style_regime_label") or "")
-        capacity_regime = str(item.get("regime_capacity_regime") or "")
+        capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
         confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
         rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 1.0)
         weak_timing = (
