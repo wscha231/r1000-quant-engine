@@ -76,10 +76,8 @@ WINDOWS = {
 }
 MAIN_VARIANTS = (12, 15, 18)
 CONCENTRATED_VARIANTS = (3, 5)
-# N3 is the production concentrated default after broker-ledger variant review;
-# N5 remains generated for diagnostics and future promotion evidence.
 DEFAULT_MAIN_TARGET_N = 15
-DEFAULT_CONCENTRATED_TARGET_N = 3
+DEFAULT_CONCENTRATED_TARGET_N = 5
 
 
 def repo_path(value: str | Path) -> Path:

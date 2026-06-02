@@ -225,12 +225,12 @@ def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
     assert reason.startswith("crisis_new_buy_blocked_for_lane")
 
 
-def test_alphaops_vnext_concentrated_production_default_is_n3() -> None:
-    assert DEFAULT_CONCENTRATED_TARGET_N == 3
+def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
+    assert DEFAULT_CONCENTRATED_TARGET_N == 5
 
 
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
-    test_alphaops_vnext_concentrated_production_default_is_n3()
+    test_alphaops_vnext_concentrated_production_default_is_n5()
     print("alphaops_vnext_policy_replay_smoke: PASS")
