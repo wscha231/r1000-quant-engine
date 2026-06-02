@@ -476,7 +476,14 @@ jobs:
             outputs/operator_review/position_cleanup_review.md
             outputs/shadow_operating/
             outputs/promotion_review/
-            outputs/alphaops_vnext/
+            outputs/alphaops_vnext/summary.json
+            outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/crisis_state_audit.csv
+            outputs/alphaops_vnext/crisis_window_detection_report.csv
+            outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/selected_latest.csv
+            outputs/alphaops_vnext/official_*_target_book.csv
+            outputs/alphaops_vnext/variants/*_target_book.csv
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
             outputs/broker_replay/main/metrics.json
@@ -519,14 +526,29 @@ jobs:
             outputs/operator_review/
             outputs/shadow_operating/
             outputs/promotion_review/
-            outputs/alphaops_vnext/
+            outputs/alphaops_vnext/summary.json
+            outputs/alphaops_vnext/production_activation.json
+            outputs/alphaops_vnext/crisis_state_audit.csv
+            outputs/alphaops_vnext/crisis_window_detection_report.csv
+            outputs/alphaops_vnext/daily_crisis_state.csv
+            outputs/alphaops_vnext/selected_latest.csv
+            outputs/alphaops_vnext/official_*_target_book.csv
+            outputs/alphaops_vnext/variants/*_target_book.csv
             outputs/patch_application_manifest.json
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
             outputs/baseline_lock/
-            outputs/sec_enriched_candidate_replay/
-            outputs/market_leader_challenger/
-            outputs/superperformance_trader_replay/
+            outputs/sec_enriched_candidate_replay/summary.json
+            outputs/sec_enriched_candidate_replay/report.md
+            outputs/market_leader_challenger/summary.json
+            outputs/market_leader_challenger/*report*.md
+            outputs/market_leader_challenger/*status*.json
+            outputs/superperformance_trader_replay/summary.json
+            outputs/superperformance_trader_replay/superperformance_report.md
+            outputs/superperformance_trader_replay/entry_events.csv
+            outputs/superperformance_trader_replay/exit_events.csv
+            outputs/superperformance_trader_replay/entry_exit_events.csv
+            outputs/superperformance_trader_replay/*target_book.csv
             outputs/integrated_theme_leader_crisis_replay/
             outputs/strategy_logic_ledger/
             outputs/live_trading_safety/
@@ -1015,6 +1037,22 @@ jobs:
               cp "$src" "$dst"/ 2>/dev/null || true
             fi
           }
+          copy_alphaops_vnext_light() {
+            local src="outputs/alphaops_vnext"
+            local dst="$DEST/alphaops_vnext"
+            if [ -d "$src" ]; then
+              rm -rf "$dst"
+              mkdir -p "$dst/variants"
+              cp "$src"/summary.json "$dst"/ 2>/dev/null || true
+              cp "$src"/production_activation.json "$dst"/ 2>/dev/null || true
+              cp "$src"/crisis_state_audit.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/crisis_window_detection_report.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/daily_crisis_state.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/selected_latest.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/official_*_target_book.csv "$dst"/ 2>/dev/null || true
+              cp "$src"/variants/*_target_book.csv "$dst/variants"/ 2>/dev/null || true
+            fi
+          }
           # Capture run log tail (last 300 lines) for diagnostics regardless of outcome
           if ls outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log 1>/dev/null 2>&1; then
             LATEST_LOG=$(ls -t outputs/full_rebuild_logs/*_${{ inputs.universe_mode }}.log | head -1)
@@ -1030,7 +1068,7 @@ jobs:
             copy_dir_clean outputs/operator_review "$DEST/operator_review"
             copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
             copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
-            copy_dir_clean outputs/alphaops_vnext "$DEST/alphaops_vnext"
+            copy_alphaops_vnext_light
             copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
