@@ -126,6 +126,97 @@ def trades_in_window(trade_journal: pd.DataFrame, peak_date: str, trough_date: s
     }
 
 
+def broker_trades_in_window(trades: pd.DataFrame, peak_date: str, trough_date: str) -> dict[str, Any]:
+    if trades.empty or not peak_date or not trough_date or "date" not in trades.columns:
+        return {"trade_count": 0, "gross_value_usd": 0.0, "buy_count": 0, "sell_count": 0, "net_cash_delta_usd": 0.0}
+    t = trades.copy()
+    t["date"] = pd.to_datetime(t["date"], errors="coerce")
+    t = t.dropna(subset=["date"])
+    peak = pd.Timestamp(peak_date)
+    trough = pd.Timestamp(trough_date)
+    window = t[(t["date"] >= peak) & (t["date"] <= trough)].copy()
+    if window.empty:
+        return {"trade_count": 0, "gross_value_usd": 0.0, "buy_count": 0, "sell_count": 0, "net_cash_delta_usd": 0.0}
+    window["gross_value"] = pd.to_numeric(window.get("gross_value", 0.0), errors="coerce").fillna(0.0)
+    window["cash_delta"] = pd.to_numeric(window.get("cash_delta", 0.0), errors="coerce").fillna(0.0)
+    side = window.get("side", pd.Series(dtype=str)).astype(str).str.upper()
+    top_gross = (
+        window.groupby("ticker", dropna=False)["gross_value"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+        .reset_index()
+        .rename(columns={"gross_value": "gross_value_usd"})
+        .to_dict("records")
+    )
+    return {
+        "trade_count": int(len(window)),
+        "gross_value_usd": float(window["gross_value"].sum()),
+        "buy_count": int(side.eq("BUY").sum()),
+        "sell_count": int(side.eq("SELL").sum()),
+        "net_cash_delta_usd": float(window["cash_delta"].sum()),
+        "top_tickers_by_gross_value": top_gross,
+    }
+
+
+def target_metadata(latest_run: Path, portfolio_kind: str) -> dict[str, dict[str, str]]:
+    name = "operating_main_target_book.csv" if portfolio_kind == "main" else "operating_concentrated_target_book.csv"
+    target = read_csv(latest_run / "reports" / name)
+    if target.empty or "ticker" not in target.columns:
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for row in target.to_dict("records"):
+        ticker = str(row.get("ticker") or "").upper().strip()
+        if not ticker or ticker in {"CASH", "__CASH__"}:
+            continue
+        out[ticker] = {
+            "sector": str(row.get("sector") or ""),
+            "industry_group": str(row.get("industry_group") or ""),
+            "primary_lane": str(row.get("primary_lane") or ""),
+        }
+    return out
+
+
+def holdings_pnl_contributors(
+    holdings: pd.DataFrame,
+    peak_date: str,
+    trough_date: str,
+    metadata: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    if holdings.empty or not peak_date or not trough_date or "date" not in holdings.columns:
+        return [], {}, {}
+    h = holdings.copy()
+    h["date"] = pd.to_datetime(h["date"], errors="coerce")
+    h["ticker"] = h.get("ticker", "").astype(str).str.upper().str.strip()
+    h["market_value_usd"] = pd.to_numeric(h.get("market_value_usd", 0.0), errors="coerce").fillna(0.0)
+    h["weight"] = pd.to_numeric(h.get("weight", 0.0), errors="coerce").fillna(0.0)
+    h = h.dropna(subset=["date"]).sort_values(["ticker", "date"])
+    h["prev_value"] = h.groupby("ticker")["market_value_usd"].shift(1)
+    h["position_pnl_usd"] = h["market_value_usd"] - h["prev_value"]
+    peak = pd.Timestamp(peak_date)
+    trough = pd.Timestamp(trough_date)
+    window = h[(h["date"] > peak) & (h["date"] <= trough)].copy()
+    if window.empty:
+        return [], {}, {}
+    by_ticker = (
+        window.groupby("ticker")
+        .agg(
+            position_pnl_usd=("position_pnl_usd", "sum"),
+            avg_weight=("weight", "mean"),
+            max_weight=("weight", "max"),
+            days_held=("date", "nunique"),
+        )
+        .reset_index()
+    )
+    for col in ("sector", "industry_group", "primary_lane"):
+        by_ticker[col] = by_ticker["ticker"].map(lambda ticker: metadata.get(str(ticker), {}).get(col, ""))
+    by_ticker = by_ticker.sort_values("position_pnl_usd")
+    records = by_ticker.head(30).to_dict("records")
+    sector_loss = loss_by_group(by_ticker[by_ticker["position_pnl_usd"] < 0], "sector", "position_pnl_usd")
+    industry_loss = loss_by_group(by_ticker[by_ticker["position_pnl_usd"] < 0], "industry_group", "position_pnl_usd")
+    return records, sector_loss, industry_loss
+
+
 def worst_n(frame: pd.DataFrame, pnl_col: str, n: int) -> list[dict[str, Any]]:
     if frame.empty or pnl_col not in frame.columns:
         return []
@@ -310,8 +401,111 @@ def analyze_portfolio(
         }
     trade_journal = read_csv(latest_run / "broker_trade_journal" / portfolio_kind / "round_trips.csv")
     equity = read_csv(latest_run / "broker_replay" / portfolio_kind / "equity_curve.csv")
+    broker_trades = read_csv(latest_run / "broker_replay" / portfolio_kind / "trades.csv")
+    holdings = read_csv(latest_run / "broker_replay" / portfolio_kind / "holdings_daily.csv")
     pnl_col = pick_pnl_column(trade_journal)
     if pnl_col is None or trade_journal.empty:
+        mdd_info = mdd_window(equity)
+        metadata = target_metadata(latest_run, portfolio_kind)
+        trade_window = broker_trades_in_window(broker_trades, mdd_info.get("peak_date", ""), mdd_info.get("trough_date", "")) if mdd_info else {}
+        contributors, sector_loss, industry_loss = holdings_pnl_contributors(
+            holdings,
+            mdd_info.get("peak_date", ""),
+            mdd_info.get("trough_date", ""),
+            metadata,
+        ) if mdd_info else ([], {}, {})
+        if mdd_info and contributors:
+            findings: list[dict[str, Any]] = []
+            peak_eq = safe_float(mdd_info.get("peak_equity_usd"))
+            trough_eq = safe_float(mdd_info.get("trough_equity_usd"))
+            equity_loss_usd = max(0.0, peak_eq - trough_eq)
+            drawdown_pct = safe_float(mdd_info.get("drawdown_pct"))
+            worst = contributors[0]
+            negative_pnl = sum(safe_float(row.get("position_pnl_usd")) for row in contributors if safe_float(row.get("position_pnl_usd")) < 0)
+            worst_share = abs(safe_float(worst.get("position_pnl_usd"))) / max(abs(negative_pnl), 1e-12)
+            if drawdown_pct <= -20.0 and worst_share >= 0.15:
+                findings.append(
+                    {
+                        "finding_id": f"F6_mdd_ticker_loss_concentration_{portfolio_kind}",
+                        "severity": "high" if worst_share >= 0.25 else "medium",
+                        "evidence": (
+                            f"During MDD {mdd_info.get('peak_date')} to {mdd_info.get('trough_date')}, "
+                            f"{worst.get('ticker')} contributed ${safe_float(worst.get('position_pnl_usd')):,.0f} "
+                            f"of top-30 negative position P&L ({worst_share:.0%} share). "
+                            f"Max weight was {safe_float(worst.get('max_weight')):.1%}."
+                        ),
+                        "candidate_fix": (
+                            "Add drawdown-aware single-name and industry caps to the event target book, "
+                            "and require staged re-entry after DEFENSE_REVIEW/CRISIS_DEFENSE before the name "
+                            "can be restored to full target weight."
+                        ),
+                    }
+                )
+            avg_cash = 0.0
+            if not equity.empty and "cash_weight" in equity.columns and mdd_info:
+                eq = equity.copy()
+                eq["date"] = pd.to_datetime(eq["date"], errors="coerce")
+                window = eq[(eq["date"] >= pd.Timestamp(mdd_info["peak_date"])) & (eq["date"] <= pd.Timestamp(mdd_info["trough_date"]))]
+                avg_cash = float(pd.to_numeric(window.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()) if not window.empty else 0.0
+            if drawdown_pct <= -25.0 and avg_cash < 0.20:
+                findings.append(
+                    {
+                        "finding_id": f"F7_mdd_window_under_hedged_{portfolio_kind}",
+                        "severity": "high",
+                        "evidence": (
+                            f"MDD was {drawdown_pct:.2f}% while average cash inside the peak-to-trough "
+                            f"window was only {avg_cash:.1%}. Broker trade window had "
+                            f"{trade_window.get('trade_count', 0)} executions and net cash delta "
+                            f"${safe_float(trade_window.get('net_cash_delta_usd')):,.0f}."
+                        ),
+                        "candidate_fix": (
+                            "Convert daily crisis states into broker-fillable target-book cash rows. "
+                            "Use hysteresis and a re-entry delay so raised cash is not redeployed immediately."
+                        ),
+                    }
+                )
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "portfolio_kind": portfolio_kind,
+                "status": "completed",
+                "analysis_mode": "broker_ledger_trades_holdings_fallback",
+                "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+                "broker_metrics_summary": {
+                    "cagr": metrics.get("cagr"),
+                    "sharpe": metrics.get("sharpe"),
+                    "max_dd": metrics.get("max_dd"),
+                    "trade_count": metrics.get("trade_count"),
+                    "total_fees_usd": metrics.get("total_fees_usd"),
+                },
+                "trade_pnl_distribution": {
+                    "round_trip_count": 0,
+                    "winners_count": 0,
+                    "losers_count": 0,
+                    "win_rate": None,
+                    "avg_winner_usd": None,
+                    "avg_loser_usd": None,
+                    "total_winner_usd": None,
+                    "total_loser_usd": None,
+                    "note": "round-trip journal missing; using broker execution and holdings_daily fallback",
+                },
+                "mdd_window": {
+                    **mdd_info,
+                    "broker_trades_in_window": trade_window,
+                    "top_position_pnl_contributors": contributors[:15],
+                },
+                "loss_by_sector": sector_loss,
+                "loss_by_industry_group": industry_loss,
+                "top_10_losers": contributors[:10],
+                "top_10_winners": [],
+                "findings": findings,
+                "research_only": True,
+                "production_activation_allowed": False,
+            }
+            out_dir = output_dir / portfolio_kind
+            write_json(out_dir / "findings.json", payload)
+            pd.DataFrame(contributors).to_csv(out_dir / "mdd_position_pnl_by_ticker.csv", index=False)
+            write_text(out_dir / "attribution_report.md", render_report(payload))
+            return payload
         return {
             "portfolio_kind": portfolio_kind,
             "status": "blocked",
@@ -394,10 +588,11 @@ def render_report(payload: dict[str, Any]) -> str:
     pnl = payload.get("trade_pnl_distribution") or {}
     metrics = payload.get("broker_metrics_summary") or {}
     lines = [
-        f"# Trade Attribution Report — {payload.get('portfolio_kind')}",
+        f"# Trade Attribution Report - {payload.get('portfolio_kind')}",
         "",
         f"- Generated: {payload.get('generated_at_utc')}",
         f"- Schema: `{payload.get('schema_version')}`",
+        f"- Analysis mode: `{payload.get('analysis_mode', 'round_trip_journal')}`",
         "",
         "## Broker-Ledger Headline",
         "",
@@ -423,6 +618,40 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Trades exited inside window: {mdd.get('trades_exited_in_window')} (total P&L ${safe_float(mdd.get('trades_exited_pnl_usd')):,.0f})",
         "",
     ]
+    broker_window = mdd.get("broker_trades_in_window") if isinstance(mdd, dict) else None
+    if isinstance(broker_window, dict) and broker_window:
+        lines.extend(
+            [
+                "## Broker Trades In MDD Window",
+                "",
+                f"- Executions: {broker_window.get('trade_count', 0)}",
+                f"- Buys / sells: {broker_window.get('buy_count', 0)} / {broker_window.get('sell_count', 0)}",
+                f"- Gross traded: ${safe_float(broker_window.get('gross_value_usd')):,.0f}",
+                f"- Net cash delta: ${safe_float(broker_window.get('net_cash_delta_usd')):,.0f}",
+                "",
+            ]
+        )
+    contributors = mdd.get("top_position_pnl_contributors") if isinstance(mdd, dict) else None
+    if isinstance(contributors, list) and contributors:
+        lines.extend(
+            [
+                "## Top Position P&L Contributors",
+                "",
+                "| Ticker | P&L | Avg weight | Max weight | Days held |",
+                "| --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for row in contributors[:10]:
+            lines.append(
+                "| {ticker} | ${pnl:,.0f} | {avg:.1%} | {maxw:.1%} | {days} |".format(
+                    ticker=row.get("ticker", ""),
+                    pnl=safe_float(row.get("position_pnl_usd")),
+                    avg=safe_float(row.get("avg_weight")),
+                    maxw=safe_float(row.get("max_weight")),
+                    days=int(safe_float(row.get("days_held"))),
+                )
+            )
+        lines.append("")
     if findings:
         lines.append("## Findings (machine-readable in findings.json)")
         lines.append("")
