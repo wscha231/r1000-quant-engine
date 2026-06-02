@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
+    apply_concentrated_hold_decay_trim,
     apply_concentrated_risk_state_new_entry_cap,
     apply_crisis_lane_policy,
     apply_main_high_volatility_new_entry_cap,
@@ -319,10 +320,71 @@ def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
     assert concentrated[0]["weight"] == 0.12
 
 
+def test_concentrated_hold_decay_trim_applies_to_decaying_holds_only() -> None:
+    selected = [
+        {
+            "ticker": "DECAY",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "ticker_ret_1m": -0.02,
+            "rs_benchmark_1m": 0.03,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "RELDECAY",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "ticker_ret_1m": 0.04,
+            "rs_benchmark_1m": -0.01,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "NEW",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "ticker_ret_1m": -0.02,
+            "rs_benchmark_1m": -0.01,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "OKHOLD",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "ticker_ret_1m": 0.02,
+            "rs_benchmark_1m": 0.01,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    trimmed = apply_concentrated_hold_decay_trim(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in trimmed}
+    assert by_ticker["DECAY"]["weight"] == 0.12
+    assert by_ticker["DECAY"]["target_weight"] == 0.12
+    assert by_ticker["DECAY"]["concentrated_hold_decay_trim_status"] == "applied"
+    assert by_ticker["RELDECAY"]["weight"] == 0.12
+    assert by_ticker["RELDECAY"]["concentrated_hold_decay_trim_status"] == "applied"
+    assert by_ticker["NEW"]["weight"] == 0.30
+    assert by_ticker["OKHOLD"]["weight"] == 0.30
+    main = apply_concentrated_hold_decay_trim(selected, "main")
+    assert main[0]["weight"] == 0.30
+
+
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
+    test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")

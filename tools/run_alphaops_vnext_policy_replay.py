@@ -80,6 +80,7 @@ DEFAULT_MAIN_TARGET_N = 15
 DEFAULT_CONCENTRATED_TARGET_N = 5
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
 CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
+CONCENTRATED_HOLD_DECAY_CAP = 0.12
 MAIN_HIGH_VOL_NEW_ENTRY_CAP = 0.08
 MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
@@ -554,6 +555,39 @@ def apply_main_high_volatility_new_entry_cap(
     return capped
 
 
+def apply_concentrated_hold_decay_trim(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    trimmed: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_hold = holding_state_text == "HOLD" or replace_decision == "keep_prior_holding"
+        ticker_ret_1m = safe_float(item.get("ticker_ret_1m"))
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"))
+        is_decay = ticker_ret_1m < 0.0 or rs_benchmark_1m < 0.0
+        weight = safe_float(item.get("weight"))
+        if ticker not in CASH_TICKERS and is_hold and is_decay and weight > CONCENTRATED_HOLD_DECAY_CAP:
+            item["pre_concentrated_hold_decay_trim_weight"] = weight
+            item["weight"] = CONCENTRATED_HOLD_DECAY_CAP
+            item["target_weight"] = CONCENTRATED_HOLD_DECAY_CAP
+            item["concentrated_hold_decay_trim_cap"] = CONCENTRATED_HOLD_DECAY_CAP
+            item["concentrated_hold_decay_trim_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_hold_decay_trim"
+            )
+        else:
+            item["concentrated_hold_decay_trim_status"] = "not_applicable"
+        trimmed.append(item)
+    return trimmed
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -677,6 +711,7 @@ def build_variant_book(
         )
         weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:
