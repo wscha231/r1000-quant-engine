@@ -17,6 +17,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
     apply_concentrated_risk_state_new_entry_cap,
     apply_crisis_lane_policy,
+    apply_main_high_volatility_new_entry_cap,
     build,
     crisis_new_buy_allowed,
 )
@@ -263,9 +264,65 @@ def test_concentrated_risk_state_caps_new_entries_only() -> None:
     assert main[0]["weight"] == 0.30
 
 
+def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
+    selected = [
+        {
+            "ticker": "RISK",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.08,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "KEEP",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "atr14_pct": 0.08,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QUALITY",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.08,
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+        {
+            "ticker": "LOWVOL",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.04,
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_main_high_volatility_new_entry_cap(selected, "main")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["RISK"]["weight"] == 0.08
+    assert by_ticker["RISK"]["target_weight"] == 0.08
+    assert by_ticker["RISK"]["main_high_vol_new_entry_cap_status"] == "applied"
+    assert by_ticker["KEEP"]["weight"] == 0.12
+    assert by_ticker["QUALITY"]["weight"] == 0.12
+    assert by_ticker["LOWVOL"]["weight"] == 0.12
+    concentrated = apply_main_high_volatility_new_entry_cap(selected, "concentrated")
+    assert concentrated[0]["weight"] == 0.12
+
+
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
+    test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")
