@@ -43,6 +43,10 @@ on:
         description: 'Optionally copy compact replay summaries to Google Drive'
         type: boolean
         default: false
+      run_extended_research_sidecars:
+        description: 'Run slower research sidecars such as superperformance and integrated theme/leader/crisis replay'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -232,19 +236,23 @@ jobs:
           BASELINE_RUN_ID="${{ inputs.source_run_id }}_${{ github.run_id }}"
           python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" --branch "$GITHUB_REF_NAME" --head-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
           SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
-          python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
-          if [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
-            SIDECAR_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
-            echo "[replay] using enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+          if [ "${{ inputs.run_extended_research_sidecars }}" = "true" ]; then
+            python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
+            if [ -s outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv ]; then
+              SIDECAR_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+              echo "[replay] using enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+            else
+              echo "[replay] enriched candidate book unavailable; using base candidate book"
+            fi
+            python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
+            python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
+            python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
+            python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
+            python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
+            python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "${{ github.run_id }}" --commit-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           else
-            echo "[replay] enriched candidate book unavailable; using base candidate book"
+            echo "[replay] skipping extended research sidecars; set run_extended_research_sidecars=true to include superperformance and integrated theme/leader/crisis replay"
           fi
-          python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
-          python tools/run_long_crisis_dataset_builder.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_dataset_builder.log || true
-          python tools/run_long_crisis_signal_learning.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_signal_learning.log || true
-          python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
-          python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
-          python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "${{ github.run_id }}" --commit-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "${{ inputs.portfolio_policy }}" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "${{ inputs.portfolio_policy }}" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest_final.log || true
