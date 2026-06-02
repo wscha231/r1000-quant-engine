@@ -17,6 +17,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
     apply_concentrated_hold_decay_trim,
     apply_concentrated_risk_state_new_entry_cap,
+    apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_crisis_lane_policy,
     apply_main_high_volatility_new_entry_cap,
     build,
@@ -380,6 +381,82 @@ def test_concentrated_hold_decay_trim_applies_to_decaying_holds_only() -> None:
     assert main[0]["weight"] == 0.30
 
 
+def test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only() -> None:
+    selected = [
+        {
+            "ticker": "CAP",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "primary_lane": "MARKET_LEADER",
+            "crisis_state": "GREEN",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.08,
+            "selection_confirmation_score": 0.0,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "CONFIRMED",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "primary_lane": "MARKET_LEADER",
+            "crisis_state": "GREEN",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.08,
+            "selection_confirmation_score": 1.0,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "WATCH",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "primary_lane": "MARKET_LEADER",
+            "crisis_state": "WATCH",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.08,
+            "selection_confirmation_score": 0.0,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "HOLD",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "primary_lane": "MARKET_LEADER",
+            "crisis_state": "GREEN",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "atr14_pct": 0.08,
+            "selection_confirmation_score": 0.0,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "LOWVOL",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "primary_lane": "MARKET_LEADER",
+            "crisis_state": "GREEN",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "atr14_pct": 0.04,
+            "selection_confirmation_score": 0.0,
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_concentrated_unconfirmed_high_vol_new_entry_cap(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["CAP"]["weight"] == 0.12
+    assert by_ticker["CAP"]["target_weight"] == 0.12
+    assert by_ticker["CAP"]["concentrated_unconfirmed_high_vol_new_entry_cap_status"] == "applied"
+    assert by_ticker["CONFIRMED"]["weight"] == 0.30
+    assert by_ticker["WATCH"]["weight"] == 0.30
+    assert by_ticker["HOLD"]["weight"] == 0.30
+    assert by_ticker["LOWVOL"]["weight"] == 0.30
+    main = apply_concentrated_unconfirmed_high_vol_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.30
+
+
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
@@ -387,4 +464,5 @@ if __name__ == "__main__":
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
+    test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")

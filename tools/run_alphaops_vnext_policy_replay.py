@@ -81,6 +81,8 @@ DEFAULT_CONCENTRATED_TARGET_N = 5
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
 CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
 CONCENTRATED_HOLD_DECAY_CAP = 0.12
+CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
+CONCENTRATED_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_CAP = 0.08
 MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
@@ -588,6 +590,48 @@ def apply_concentrated_hold_decay_trim(
     return trimmed
 
 
+def apply_concentrated_unconfirmed_high_vol_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        atr14 = safe_float(item.get("atr14_pct"))
+        confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane == "MARKET_LEADER"
+            and crisis_state == "GREEN"
+            and is_new_entry
+            and atr14 >= CONCENTRATED_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD
+            and confirmation < 1.0
+            and weight > CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP
+        ):
+            item["pre_concentrated_unconfirmed_high_vol_new_entry_cap_weight"] = weight
+            item["weight"] = CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP
+            item["target_weight"] = CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP
+            item["concentrated_unconfirmed_high_vol_new_entry_cap"] = CONCENTRATED_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP
+            item["concentrated_unconfirmed_high_vol_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_unconfirmed_high_vol_new_entry_cap"
+            )
+        else:
+            item["concentrated_unconfirmed_high_vol_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -712,6 +756,7 @@ def build_variant_book(
         weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
+        weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:
