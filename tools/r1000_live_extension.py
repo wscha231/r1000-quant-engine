@@ -106,6 +106,15 @@ def latest_date_from_frame(df, columns: list[str]) -> Optional[str]:
     return None
 
 
+def date_only(value: object):
+    import pandas as pd
+
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return pd.Timestamp(ts).date()
+
+
 def latest_date_from_json_payload(payload: dict, keys: list[str]) -> Optional[str]:
     import pandas as pd
 
@@ -427,6 +436,7 @@ def main() -> int:
     equity_rows = []
     running_cash = anchor_cash
     for dt in dates:
+        dt_day = date_only(dt)
         equity_invested = 0.0
         cash_from_stops = 0.0
         n_active = 0
@@ -435,8 +445,8 @@ def main() -> int:
             if w <= 0:
                 continue
             if r.get("stop_triggered"):
-                exit_dt = pd.to_datetime(r.get("exit_date"))
-                if dt <= exit_dt:
+                exit_day = date_only(r.get("exit_date"))
+                if exit_day is None or dt_day is None or dt_day <= exit_day:
                     # Pre-exit: track cumret
                     series = r.get("daily_returns")
                     if isinstance(series, pd.Series) and dt in series.index:
@@ -458,6 +468,15 @@ def main() -> int:
                 equity_invested += w * cum
                 n_active += 1
         total_equity = anchor_cash + equity_invested + cash_from_stops
+        n_stopped = 0
+        if dt_day is not None:
+            n_stopped = sum(
+                1
+                for r in walk_results
+                if r.get("stop_triggered")
+                and (exit_day := date_only(r.get("exit_date"))) is not None
+                and exit_day <= dt_day
+            )
         equity_rows.append({
             "date": str(pd.Timestamp(dt).date()),
             "equity_norm": total_equity,
@@ -465,7 +484,7 @@ def main() -> int:
             "invested_norm": equity_invested,
             "cash_norm": anchor_cash + cash_from_stops,
             "n_active_positions": n_active,
-            "n_stopped": sum(1 for r in walk_results if r.get("stop_triggered") and pd.to_datetime(r.get("exit_date", "1900-01-01")) <= dt),
+            "n_stopped": n_stopped,
         })
 
     equity_df = pd.DataFrame(equity_rows)
