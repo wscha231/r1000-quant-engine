@@ -86,6 +86,9 @@ CONCENTRATED_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_CAP = 0.08
 MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
+MAIN_QUALITY_HOLD_WEAK_TIMING_CAP = 0.08
+MAIN_QUALITY_HOLD_CONFIRMATION_THRESHOLD = 0.50
+MAIN_QUALITY_HOLD_RS_1M_THRESHOLD = 0.05
 
 
 def repo_path(value: str | Path) -> Path:
@@ -557,6 +560,51 @@ def apply_main_high_volatility_new_entry_cap(
     return capped
 
 
+def apply_main_quality_hold_weak_timing_trim(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    trimmed: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_hold = holding_state_text == "HOLD" or replace_decision == "keep_prior_holding"
+        style_regime = str(item.get("market_style_regime_label") or "")
+        capacity_regime = str(item.get("regime_capacity_regime") or "")
+        confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 1.0)
+        weak_timing = (
+            confirmation < MAIN_QUALITY_HOLD_CONFIRMATION_THRESHOLD
+            or rs_benchmark_1m < MAIN_QUALITY_HOLD_RS_1M_THRESHOLD
+        )
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and is_hold
+            and style_regime == "quality_compounder"
+            and capacity_regime == "bull"
+            and weak_timing
+            and weight > MAIN_QUALITY_HOLD_WEAK_TIMING_CAP
+        ):
+            item["pre_main_quality_hold_weak_timing_trim_weight"] = weight
+            item["weight"] = MAIN_QUALITY_HOLD_WEAK_TIMING_CAP
+            item["target_weight"] = MAIN_QUALITY_HOLD_WEAK_TIMING_CAP
+            item["main_quality_hold_weak_timing_trim_cap"] = MAIN_QUALITY_HOLD_WEAK_TIMING_CAP
+            item["main_quality_hold_weak_timing_trim_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_quality_hold_weak_timing_trim"
+            )
+        else:
+            item["main_quality_hold_weak_timing_trim_status"] = "not_applicable"
+        trimmed.append(item)
+    return trimmed
+
+
 def apply_concentrated_hold_decay_trim(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -755,6 +803,7 @@ def build_variant_book(
         )
         weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}

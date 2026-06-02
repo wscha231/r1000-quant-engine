@@ -20,6 +20,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_crisis_lane_policy,
     apply_main_high_volatility_new_entry_cap,
+    apply_main_quality_hold_weak_timing_trim,
     build,
     crisis_new_buy_allowed,
 )
@@ -321,6 +322,102 @@ def test_main_high_volatility_cap_applies_to_new_market_leaders_only() -> None:
     assert concentrated[0]["weight"] == 0.12
 
 
+def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> None:
+    selected = [
+        {
+            "ticker": "LOWCONF",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "WEAKRS",
+            "weight": 0.11,
+            "target_weight": 0.11,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.02,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "OKHOLD",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "NEW",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "BEAR",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bear",
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "BREAKOUT",
+            "weight": 0.12,
+            "target_weight": 0.12,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "breakout_growth",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    trimmed = apply_main_quality_hold_weak_timing_trim(selected, "main")
+    by_ticker = {row["ticker"]: row for row in trimmed}
+    assert by_ticker["LOWCONF"]["weight"] == 0.08
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.08
+    assert by_ticker["LOWCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
+    assert by_ticker["WEAKRS"]["weight"] == 0.08
+    assert by_ticker["WEAKRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
+    assert by_ticker["OKHOLD"]["weight"] == 0.12
+    assert by_ticker["NEW"]["weight"] == 0.12
+    assert by_ticker["BEAR"]["weight"] == 0.12
+    assert by_ticker["BREAKOUT"]["weight"] == 0.12
+    concentrated = apply_main_quality_hold_weak_timing_trim(selected, "concentrated")
+    assert concentrated[0]["weight"] == 0.12
+
+
 def test_concentrated_hold_decay_trim_applies_to_decaying_holds_only() -> None:
     selected = [
         {
@@ -463,6 +560,7 @@ if __name__ == "__main__":
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()
     test_main_high_volatility_cap_applies_to_new_market_leaders_only()
+    test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only()
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
     test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")
