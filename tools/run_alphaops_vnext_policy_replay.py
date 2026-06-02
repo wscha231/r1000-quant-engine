@@ -78,6 +78,8 @@ MAIN_VARIANTS = (12, 15, 18)
 CONCENTRATED_VARIANTS = (3, 5)
 DEFAULT_MAIN_TARGET_N = 15
 DEFAULT_CONCENTRATED_TARGET_N = 5
+CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
+CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -478,6 +480,39 @@ def apply_vnext_benchmark_guard(
     return guarded.to_dict("records")
 
 
+def apply_concentrated_risk_state_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        state = str(item.get("crisis_state") or "").upper()
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and state in CONCENTRATED_RISK_STATE_CAP_STATES
+            and is_new_entry
+            and weight > CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP
+        ):
+            item["pre_risk_state_new_entry_cap_weight"] = weight
+            item["weight"] = CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP
+            item["target_weight"] = CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP
+            item["risk_state_new_entry_cap"] = CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP
+            item["risk_state_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score") + "|risk_state_new_entry_cap"
+        else:
+            item["risk_state_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -599,6 +634,7 @@ def build_variant_book(
             prices=prices,
             rebalance_date=dt,
         )
+        weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:

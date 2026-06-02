@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
+    apply_concentrated_risk_state_new_entry_cap,
     apply_crisis_lane_policy,
     build,
     crisis_new_buy_allowed,
@@ -229,8 +230,42 @@ def test_alphaops_vnext_concentrated_production_default_is_n5() -> None:
     assert DEFAULT_CONCENTRATED_TARGET_N == 5
 
 
+def test_concentrated_risk_state_caps_new_entries_only() -> None:
+    selected = [
+        {
+            "ticker": "RISK",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "crisis_state": "WATCH",
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "KEEP",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "crisis_state": "WATCH",
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_concentrated_risk_state_new_entry_cap(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["RISK"]["weight"] == 0.20
+    assert by_ticker["RISK"]["target_weight"] == 0.20
+    assert by_ticker["RISK"]["risk_state_new_entry_cap_status"] == "applied"
+    assert by_ticker["KEEP"]["weight"] == 0.30
+    main = apply_concentrated_risk_state_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.30
+
+
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
+    test_concentrated_risk_state_caps_new_entries_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")
