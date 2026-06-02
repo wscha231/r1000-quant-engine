@@ -52,6 +52,7 @@ def candidate_rows() -> list[dict[str, object]]:
                     "peg_ratio": 1.1 + rank * 0.1,
                     "fcf_yield": 0.04,
                     "available_from": dt,
+                    "regime_state": "bear" if dt == "2026-02-28" else "neutral",
                 }
             )
     rows.append(
@@ -63,6 +64,7 @@ def candidate_rows() -> list[dict[str, object]]:
             "top7_discovery_score": 999.0,
             "sec_13f_smart_money_score": 999.0,
             "available_from": "2026-03-15",
+            "regime_state": "bear",
             "dollar_vol_20d": 100_000_000,
             "market_cap_live": 20_000_000_000,
             "data_confidence": 1.0,
@@ -91,6 +93,7 @@ def candidate_rows() -> list[dict[str, object]]:
             "fcf_margin": -0.05,
             "cash_runway_quarters": 8,
             "available_from": "2026-02-28",
+            "regime_state": "bear",
         }
     )
     return rows
@@ -161,8 +164,15 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         assert main["rebalance_date"].min() == "2026-01-31"
         assert main["rebalance_date"].max() == "2026-03-05"
         assert concentrated["rebalance_date"].max() == "2026-03-05"
+        assert float(main[~main["ticker"].astype(str).eq("CASH")]["effective_single_weight_cap"].dropna().max()) <= 0.120001
+        assert float(concentrated[~concentrated["ticker"].astype(str).eq("CASH")]["effective_single_weight_cap"].dropna().max()) <= 0.300001
         latest_main = main[pd.to_datetime(main["rebalance_date"]).dt.date.astype(str).eq("2026-03-05")]
         assert bool(latest_main["operating_appended"].all())
+        latest_concentrated = concentrated[pd.to_datetime(concentrated["rebalance_date"]).dt.date.astype(str).eq("2026-03-05")]
+        latest_concentrated_stock = latest_concentrated[~latest_concentrated["ticker"].astype(str).eq("CASH")]
+        assert not latest_concentrated_stock.empty
+        assert set(latest_concentrated_stock["regime_capacity_regime"].astype(str)) == {"bear"}
+        assert set(round(float(x), 2) for x in latest_concentrated_stock["regime_capacity_multiplier"]) == {0.5}
         operating_summary = json.loads((reports / "operating_target_books_summary.json").read_text(encoding="utf-8"))
         assert all(row["operating_book_current"] for row in operating_summary["books"])
         assert "alphaops_vnext_policy_replay" in set(main["operating_target_source"].astype(str))

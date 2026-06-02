@@ -32,6 +32,13 @@ on:
         description: 'Max trading-day lag for next-close fills'
         type: string
         default: '7'
+      portfolio_policy:
+        description: 'Operating target policy to replay from the source artifact'
+        type: choice
+        options:
+          - production_baseline
+          - alphaops_vnext_production
+        default: alphaops_vnext_production
 
 permissions:
   contents: read
@@ -80,7 +87,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -134,6 +141,9 @@ jobs:
           set -e
           set -o pipefail
           python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+          if [ "${{ inputs.portfolio_policy }}" = "alphaops_vnext_production" ]; then
+            python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "${{ inputs.cost_bps }}" --max-fill-lag-days "${{ inputs.max_fill_lag_days }}" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+          fi
           python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log
           if [ -s outputs/main_v2_backtest/monthly_holdings.csv ]; then
@@ -231,9 +241,9 @@ jobs:
           python tools/run_long_crisis_threshold_search.py 2>&1 | tee outputs/full_rebuild_logs/long_crisis_threshold_search.log || true
           python tools/run_integrated_theme_leader_crisis_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/integrated_theme_leader_crisis_replay --baseline-lock outputs/baseline_lock/active_baseline.json --portfolio-kind both --cost-bps "${{ inputs.cost_bps }}" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/integrated_theme_leader_crisis_replay.log || true
           python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "${{ github.run_id }}" --commit-sha "$GITHUB_SHA" --artifact-id "${{ inputs.source_run_id }}" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
-          python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
+          python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "${{ inputs.portfolio_policy }}" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
-          python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest_final.log || true
+          python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "${{ inputs.source_run_id }}" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "${{ inputs.portfolio_policy }}" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest_final.log || true
 
       - name: Upload replay artifact
         if: always()
@@ -245,6 +255,7 @@ jobs:
             outputs/reports/operating_target_books_*
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
+            outputs/alphaops_vnext/
             outputs/target_snapshots/
             outputs/data_readiness/
             outputs/position_risk_weekly_validation/
@@ -328,7 +339,7 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot operator_review user_portfolio_reports user_current weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation portfolio_system_guard baseline_lock superperformance_trader_replay integrated_theme_leader_crisis_replay strategy_logic_ledger full_rebuild_logs; do
+          for d in reports alphaops_vnext target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot operator_review user_portfolio_reports user_current weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation portfolio_system_guard baseline_lock superperformance_trader_replay integrated_theme_leader_crisis_replay strategy_logic_ledger full_rebuild_logs; do
             if [ -d "outputs/$d" ]; then
               rclone copy "outputs/$d" "$DEST/$d/"
             fi

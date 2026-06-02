@@ -43,6 +43,26 @@ DEFAULT_OUTPUT_DIR = "outputs/alphaops_vnext"
 CASH_TICKERS = {"CASH", "__CASH__"}
 CORE_BENCHMARKS = ("SPY", "QQQ")
 SEMIS_BENCHMARKS = ("SMH", "SOXX")
+DEFAULT_REGIME_CAPACITY_MULTIPLIERS = {
+    "main": {
+        "exceptional_bull": 1.0,
+        "strong_bull": 1.0,
+        "bull": 1.0,
+        "neutral": 1.0,
+        "bear": 1.0,
+        "deep_bear": 1.0,
+        "unknown": 1.0,
+    },
+    "concentrated": {
+        "exceptional_bull": 1.0,
+        "strong_bull": 1.0,
+        "bull": 1.0,
+        "neutral": 1.0,
+        "bear": 0.50,
+        "deep_bear": 0.25,
+        "unknown": 1.0,
+    },
+}
 WINDOWS = {
     "1w": ("days", 5),
     "1m": ("months", 1),
@@ -345,8 +365,8 @@ def cap_group_key(row: dict[str, Any], kind: str) -> str:
 
 def target_caps(portfolio_kind: str) -> dict[str, float]:
     if portfolio_kind == "concentrated":
-        return {"single": 0.35, "subindustry": 0.70, "theme": 1.0}
-    return {"single": 0.15, "subindustry": 0.40, "theme": 0.60}
+        return {"single": 0.30, "subindustry": 0.70, "theme": 1.0}
+    return {"single": 0.12, "subindustry": 0.40, "theme": 0.60}
 
 
 def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_target: float) -> list[dict[str, Any]]:
@@ -658,6 +678,136 @@ def append_latest_operating_decision(
     }
 
 
+def dominant_text(values: pd.Series, default: str = "unknown") -> str:
+    if values is None or values.empty:
+        return default
+    s = values.dropna().astype(str).str.strip().str.lower()
+    s = s[(s != "") & (s != "nan") & (s != "none")]
+    if s.empty:
+        return default
+    mode = s.mode()
+    return default if mode.empty else str(mode.iloc[0])
+
+
+def capacity_cash_row(date: pd.Timestamp, portfolio_kind: str, cash_weight: float, template: pd.Series | None) -> dict[str, Any]:
+    row = dict(template.to_dict()) if template is not None else {}
+    row.update(
+        {
+            "rebalance_date": pd.Timestamp(date).date().isoformat(),
+            "ticker": "CASH",
+            "Name": "Cash",
+            "sector": "Cash",
+            "weight": float(max(0.0, cash_weight)),
+            "target_weight": float(max(0.0, cash_weight)),
+            "portfolio_kind": portfolio_kind,
+            "primary_lane": "CASH",
+            "selection_reason": "cash_from_vnext_regime_capacity_overlay",
+            "operating_target_source": "alphaops_vnext_policy_replay",
+            "production_policy": "alphaops_vnext_production",
+            "current_holdings_source": "alphaops_vnext_policy_target_book",
+        }
+    )
+    return row
+
+
+def apply_regime_capacity_overlay(
+    book: pd.DataFrame,
+    *,
+    portfolio_kind: str,
+) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
+    """Apply broker-fillable capacity dampening to vNext production books.
+
+    This promotes the historically useful regime-capacity sidecar into the
+    vNext target book itself, but only for regimes configured below 1.0. The
+    current default is intentionally asymmetric: main keeps its higher-CAGR
+    exposure profile, while concentrated cuts gross exposure during confirmed
+    bear/deep_bear months.
+    """
+
+    if book.empty or "rebalance_date" not in book.columns or "weight" not in book.columns:
+        summary = {
+            "portfolio": portfolio_kind,
+            "status": "blocked",
+            "reason": "empty_or_missing_required_columns",
+            "multipliers": DEFAULT_REGIME_CAPACITY_MULTIPLIERS.get(portfolio_kind, {}),
+            "rebalance_dates_total": 0,
+            "rebalance_dates_dampened": 0,
+        }
+        return book, summary, pd.DataFrame()
+    multipliers = DEFAULT_REGIME_CAPACITY_MULTIPLIERS.get(portfolio_kind, DEFAULT_REGIME_CAPACITY_MULTIPLIERS["main"])
+    out = book.copy()
+    out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce")
+    out = out.dropna(subset=["rebalance_date"])
+    out["ticker"] = out["ticker"].map(clean_ticker)
+    out["weight"] = pd.to_numeric(out["weight"], errors="coerce").fillna(0.0)
+    if "target_weight" in out.columns:
+        out["target_weight"] = pd.to_numeric(out["target_weight"], errors="coerce").fillna(out["weight"])
+    else:
+        out["target_weight"] = out["weight"]
+    audit_rows: list[dict[str, Any]] = []
+    rebuilt: list[pd.DataFrame] = []
+    for raw_dt in sorted(out["rebalance_date"].dropna().unique()):
+        dt = pd.Timestamp(raw_dt).normalize()
+        day = out[out["rebalance_date"].eq(raw_dt)].copy()
+        regime = dominant_text(day["regime_state"]) if "regime_state" in day.columns else "unknown"
+        factor = float(multipliers.get(regime, 1.0))
+        stock_mask = ~day["ticker"].isin(CASH_TICKERS)
+        pre_stock = float(day.loc[stock_mask, "weight"].sum())
+        if factor < 1.0 - 1e-12:
+            day.loc[stock_mask, "weight"] = day.loc[stock_mask, "weight"] * factor
+            day.loc[stock_mask, "target_weight"] = day.loc[stock_mask, "target_weight"] * factor
+            day.loc[stock_mask, "selection_reason"] = (
+                day.loc[stock_mask, "selection_reason"].astype(str) + "|regime_capacity_dampened"
+                if "selection_reason" in day.columns
+                else "regime_capacity_dampened"
+            )
+        post_stock = float(day.loc[stock_mask, "weight"].sum())
+        cash_weight = max(0.0, 1.0 - post_stock)
+        cash_mask = day["ticker"].isin(CASH_TICKERS)
+        if cash_mask.any():
+            first_cash_idx = day.index[cash_mask][0]
+            day.loc[cash_mask, ["weight", "target_weight"]] = 0.0
+            day.loc[first_cash_idx, "weight"] = cash_weight
+            day.loc[first_cash_idx, "target_weight"] = cash_weight
+            if "selection_reason" in day.columns:
+                day.loc[first_cash_idx, "selection_reason"] = "cash_from_vnext_regime_capacity_overlay"
+        elif cash_weight > 1e-10:
+            template = day.iloc[0] if not day.empty else None
+            day = pd.concat([day, pd.DataFrame([capacity_cash_row(dt, portfolio_kind, cash_weight, template)])], ignore_index=True)
+        day["regime_capacity_overlay_status"] = "applied"
+        day["regime_capacity_regime"] = regime
+        day["regime_capacity_multiplier"] = factor
+        day["regime_capacity_cash_target"] = cash_weight
+        day["regime_capacity_policy"] = "alphaops_vnext_concentrated_bear_capacity" if portfolio_kind == "concentrated" else "alphaops_vnext_main_cap_only"
+        rebuilt.append(day)
+        audit_rows.append(
+            {
+                "rebalance_date": dt.date().isoformat(),
+                "portfolio_kind": portfolio_kind,
+                "regime": regime,
+                "multiplier": factor,
+                "pre_stock_weight": pre_stock,
+                "post_stock_weight": post_stock,
+                "cash_weight": cash_weight,
+                "rows_affected": int(stock_mask.sum() if factor < 1.0 - 1e-12 else 0),
+            }
+        )
+    result = pd.concat(rebuilt, ignore_index=True) if rebuilt else out
+    result["rebalance_date"] = pd.to_datetime(result["rebalance_date"], errors="coerce").dt.date.astype(str)
+    result = result.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+    audit = pd.DataFrame(audit_rows)
+    summary = {
+        "portfolio": portfolio_kind,
+        "status": "completed",
+        "multipliers": multipliers,
+        "rebalance_dates_total": int(len(audit)),
+        "rebalance_dates_dampened": int((pd.to_numeric(audit.get("multiplier", pd.Series(dtype=float)), errors="coerce") < 1.0).sum()) if not audit.empty else 0,
+        "avg_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").mean()) if not audit.empty else 0.0,
+        "max_cash_weight": float(pd.to_numeric(audit.get("cash_weight", pd.Series(dtype=float)), errors="coerce").max()) if not audit.empty else 0.0,
+    }
+    return result, summary, audit
+
+
 def write_operating_summary(latest_run: Path, output_dir: Path, summaries: dict[str, dict[str, Any]]) -> None:
     reports = latest_run / "reports"
     reports.mkdir(parents=True, exist_ok=True)
@@ -827,6 +977,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 exposure_frames.append(exposure)
 
     operating_append_summaries: dict[str, dict[str, Any]] = {}
+    regime_capacity_summaries: dict[str, dict[str, Any]] = {}
+    regime_capacity_audits: list[pd.DataFrame] = []
     for key, book in list(variants.items()):
         portfolio_kind = "concentrated" if key.startswith("concentrated_") else "main"
         current_book, append_summary = append_latest_operating_decision(
@@ -835,8 +987,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             portfolio_kind=portfolio_kind,
             variant_key=key,
         )
+        current_book, capacity_summary, capacity_audit = apply_regime_capacity_overlay(
+            current_book,
+            portfolio_kind=portfolio_kind,
+        )
+        capacity_summary["variant_key"] = key
+        append_summary["regime_capacity_overlay"] = capacity_summary
         variants[key] = current_book
         operating_append_summaries[key] = append_summary
+        regime_capacity_summaries[key] = capacity_summary
+        if not capacity_audit.empty:
+            capacity_audit["variant_key"] = key
+            regime_capacity_audits.append(capacity_audit)
         write_csv(output_dir / "variants" / f"{key}_target_book.csv", current_book)
 
     main_key = f"main_N{int(args.main_target_n)}"
@@ -851,6 +1013,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     write_csv(output_dir / "lane_scores_history.csv", lane_history)
     write_csv(output_dir / "rejected_by_reason.csv", rejected)
     write_csv(output_dir / "lane_exposure_by_month.csv", exposure)
+    write_csv(
+        output_dir / "regime_capacity_overlay_audit.csv",
+        pd.concat(regime_capacity_audits, ignore_index=True) if regime_capacity_audits else pd.DataFrame(),
+    )
     latest_rows = []
     for key, book in variants.items():
         if book.empty:
@@ -898,6 +1064,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             default="",
         ),
         "crisis_overlay_status": crisis_status,
+        "regime_capacity_overlay": {
+            "status": "applied",
+            "summaries": regime_capacity_summaries,
+            "audit_path": str(output_dir / "regime_capacity_overlay_audit.csv"),
+        },
     }
     write_json(output_dir / "production_activation.json", activation)
     if production_applied:
@@ -933,6 +1104,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "rejected_rows": int(len(rejected)),
         "pit_evidence_blocked_rows": int(len(pit_audit)),
         "crisis_overlay_status": crisis_status,
+        "regime_capacity_overlay": {
+            "status": "applied",
+            "summaries": regime_capacity_summaries,
+            "audit_path": str(output_dir / "regime_capacity_overlay_audit.csv"),
+        },
         "broker_replay_ran": not bool(args.skip_broker_replay),
         "broker_metrics": broker_metrics,
         "official_target_books": copied,
