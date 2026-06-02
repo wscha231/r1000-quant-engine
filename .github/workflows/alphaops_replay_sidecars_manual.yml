@@ -261,6 +261,7 @@ jobs:
             python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA" --artifact-id "$SOURCE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           else
             echo "[replay] skipping extended research sidecars; set run_extended_research_sidecars=true to include superperformance and integrated theme/leader/crisis replay"
+            rm -rf outputs/sec_enriched_candidate_replay outputs/superperformance_trader_replay outputs/integrated_theme_leader_crisis_replay outputs/strategy_logic_ledger
           fi
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "$SOURCE_RUN_ID" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "$PORTFOLIO_POLICY" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
@@ -277,6 +278,8 @@ jobs:
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/alphaops_vnext/
+            !outputs/alphaops_vnext/lane_scores_history.csv
+            !outputs/alphaops_vnext/rejected_by_reason.csv
             outputs/target_snapshots/
             outputs/data_readiness/
             outputs/position_risk_weekly_validation/
@@ -313,13 +316,22 @@ jobs:
             outputs/account_evaluation/
             outputs/portfolio_system_guard/
             outputs/baseline_lock/
+            outputs/patch_application_manifest.json
+            outputs/replay_integrity/patch_application_manifest.json
+            outputs/full_rebuild_logs/
+          retention-days: 14
+
+      - name: Upload extended replay research artifact
+        if: always() && inputs.run_extended_research_sidecars
+        uses: actions/upload-artifact@v4
+        with:
+          name: alphaops-replay-research-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
             outputs/sec_enriched_candidate_replay/
             outputs/superperformance_trader_replay/
             outputs/integrated_theme_leader_crisis_replay/
             outputs/strategy_logic_ledger/
-            outputs/patch_application_manifest.json
-            outputs/replay_integrity/patch_application_manifest.json
-            outputs/full_rebuild_logs/
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Sync replay outputs to Google Drive
