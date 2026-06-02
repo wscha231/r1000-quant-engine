@@ -69,6 +69,11 @@ def write_csv(path: Path, frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def clean_ticker(value: Any) -> str:
     text = str(value or "").upper().strip()
     return "" if text in {"", "NAN", "NONE"} else text
@@ -570,6 +575,167 @@ def copy_operating_books(latest_run: Path, main_book: pd.DataFrame, concentrated
     return {"main": str(main_path), "concentrated": str(concentrated_path)}
 
 
+def latest_price_close_date(price_cache: Path, tickers: list[str]) -> pd.Timestamp | None:
+    dates: list[pd.Timestamp] = []
+    cleaned = {clean_ticker(t) for t in tickers}
+    for ticker in sorted(t for t in cleaned if t and t not in CASH_TICKERS):
+        px = load_price_series(price_cache, ticker)
+        if px.empty:
+            continue
+        dates.append(pd.Timestamp(px.index.max()).normalize())
+    return min(dates) if dates else None
+
+
+def latest_book_date(book: pd.DataFrame) -> pd.Timestamp | None:
+    if book.empty or "rebalance_date" not in book.columns:
+        return None
+    dates = pd.to_datetime(book["rebalance_date"], errors="coerce").dropna()
+    return pd.Timestamp(dates.max()).normalize() if not dates.empty else None
+
+
+def append_latest_operating_decision(
+    book: pd.DataFrame,
+    *,
+    price_cache: Path,
+    portfolio_kind: str,
+    variant_key: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if book.empty:
+        return book, {
+            "portfolio": portfolio_kind,
+            "variant_key": variant_key,
+            "latest_target_appended": False,
+            "append_reason": "target book empty",
+        }
+    history_max = latest_book_date(book)
+    latest_slice = book[pd.to_datetime(book["rebalance_date"], errors="coerce").dt.normalize().eq(history_max)].copy()
+    price_close = latest_price_close_date(price_cache, latest_slice["ticker"].astype(str).tolist()) if not latest_slice.empty else None
+    appended = False
+    append_reason = "latest close unavailable"
+    out = book.copy()
+    if history_max is not None and price_close is not None:
+        if pd.Timestamp(price_close).normalize() > pd.Timestamp(history_max).normalize():
+            latest_rows = latest_slice.copy()
+            latest_rows["rebalance_date"] = pd.Timestamp(price_close).date().isoformat()
+            latest_rows["operating_appended"] = True
+            latest_rows["operating_signal_source_date"] = pd.Timestamp(history_max).date().isoformat()
+            latest_rows["operating_latest_price_date"] = pd.Timestamp(price_close).date().isoformat()
+            latest_rows["decision_frequency"] = "monthly_replay_plus_latest_close_hold_forward"
+            latest_rows["operating_decision_semantics"] = "latest_close_hold_forward_from_vnext_policy"
+            if "selection_reason" in latest_rows.columns:
+                latest_rows["selection_reason"] = latest_rows["selection_reason"].astype(str) + "|hold_forward_to_latest_close"
+            else:
+                latest_rows["selection_reason"] = "alphaops_vnext_score|hold_forward_to_latest_close"
+            out = pd.concat([out, latest_rows], ignore_index=True)
+            appended = True
+            append_reason = "latest vNext target held forward to latest observable close"
+        else:
+            append_reason = "latest price close is not newer than vNext policy book"
+    if "operating_appended" not in out.columns:
+        out["operating_appended"] = False
+    if "operating_signal_source_date" not in out.columns:
+        out["operating_signal_source_date"] = ""
+    if "operating_latest_price_date" not in out.columns:
+        out["operating_latest_price_date"] = ""
+    if not out.empty:
+        out["rebalance_date"] = pd.to_datetime(out["rebalance_date"], errors="coerce").dt.date.astype(str)
+        out = out.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+    output_max = latest_book_date(out)
+    current = bool(price_close is not None and output_max is not None and output_max >= price_close)
+    return out, {
+        "portfolio": portfolio_kind,
+        "variant_key": variant_key,
+        "history_max_rebalance_date": date_text(history_max),
+        "latest_price_close_date": date_text(price_close),
+        "operating_signal_date": date_text(price_close if price_close is not None else history_max),
+        "output_max_rebalance_date": date_text(output_max),
+        "latest_target_appended": bool(appended),
+        "operating_book_current": bool(current),
+        "append_reason": append_reason,
+        "decision_frequency": "monthly_replay_plus_latest_close_hold_forward",
+        "history_row_count": int(len(book)),
+        "output_row_count": int(len(out)),
+    }
+
+
+def write_operating_summary(latest_run: Path, output_dir: Path, summaries: dict[str, dict[str, Any]]) -> None:
+    reports = latest_run / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    books: list[dict[str, Any]] = []
+    for portfolio, filename in (
+        ("main", "operating_main_target_book.csv"),
+        ("concentrated", "operating_concentrated_target_book.csv"),
+    ):
+        row = dict(summaries.get(portfolio, {}))
+        path = reports / filename
+        row.update(
+            {
+                "portfolio": portfolio,
+                "history_path": str(output_dir / f"official_{portfolio}_target_book.csv"),
+                "latest_target_path": str(output_dir / "selected_latest.csv"),
+                "output_name": filename,
+                "output_path": str(path),
+                "latest_target_row_count": int(csv_row_count(path, row.get("output_max_rebalance_date"))),
+                "freshness_error": ""
+                if row.get("operating_book_current")
+                else "operating target book does not reach latest observable close",
+            }
+        )
+        books.append(row)
+    payload = {
+        "schema_version": "operating-target-books-summary-vnext-v1",
+        "status": "completed",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "latest_run": str(latest_run),
+        "price_cache": "",
+        "books": books,
+        "blocked_books": [row["portfolio"] for row in books if not row.get("operating_book_current")],
+        "blocked_reason": "one_or_more_vnext_operating_books_are_stale"
+        if any(not row.get("operating_book_current") for row in books)
+        else "",
+        "outputs": {
+            "main_operating_target_book": str(reports / "operating_main_target_book.csv"),
+            "concentrated_operating_target_book": str(reports / "operating_concentrated_target_book.csv"),
+            "summary_json": str(reports / "operating_target_books_summary.json"),
+            "report_md": str(reports / "operating_target_books_report.md"),
+        },
+    }
+    write_json(reports / "operating_target_books_summary.json", payload)
+    lines = [
+        "# Operating Target Books",
+        "",
+        "AlphaOps vNext production books are held forward to the latest observable close when the latest policy rebalance is older than the broker replay end date.",
+        "",
+        "| Portfolio | Rows | Policy max | Latest close | Output max | Appended | Current |",
+        "| --- | ---: | --- | --- | --- | ---: | ---: |",
+    ]
+    for row in books:
+        lines.append(
+            "| {portfolio} | {rows} | {history} | {close} | {output} | {appended} | {current} |".format(
+                portfolio=row.get("portfolio"),
+                rows=row.get("output_row_count"),
+                history=row.get("history_max_rebalance_date") or "",
+                close=row.get("latest_price_close_date") or "",
+                output=row.get("output_max_rebalance_date") or "",
+                appended=str(row.get("latest_target_appended")).lower(),
+                current=str(row.get("operating_book_current")).lower(),
+            )
+        )
+    write_text(reports / "operating_target_books_report.md", "\n".join(lines) + "\n")
+
+
+def csv_row_count(path: Path, rebalance_date: Any = None) -> int:
+    if not path.exists():
+        return 0
+    try:
+        frame = pd.read_csv(path, usecols=lambda col: col in {"rebalance_date"})
+    except Exception:
+        return 0
+    if rebalance_date:
+        return int(pd.to_datetime(frame["rebalance_date"], errors="coerce").dt.date.astype(str).eq(str(rebalance_date)).sum())
+    return int(len(frame))
+
+
 def run_broker_replays(args: argparse.Namespace, latest_run: Path) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     metrics: dict[str, Any] = {}
@@ -652,7 +818,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             )
             key = f"{portfolio_kind}_N{target_n}"
             variants[key] = target
-            write_csv(output_dir / "variants" / f"{key}_target_book.csv", target)
             if not lanes.empty:
                 lanes["variant_id"] = key
                 lane_frames.append(lanes)
@@ -660,6 +825,19 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 reject_frames.append(rejected)
             if not exposure.empty:
                 exposure_frames.append(exposure)
+
+    operating_append_summaries: dict[str, dict[str, Any]] = {}
+    for key, book in list(variants.items()):
+        portfolio_kind = "concentrated" if key.startswith("concentrated_") else "main"
+        current_book, append_summary = append_latest_operating_decision(
+            book,
+            price_cache=price_cache,
+            portfolio_kind=portfolio_kind,
+            variant_key=key,
+        )
+        variants[key] = current_book
+        operating_append_summaries[key] = append_summary
+        write_csv(output_dir / "variants" / f"{key}_target_book.csv", current_book)
 
     main_key = f"main_N{int(args.main_target_n)}"
     concentrated_key = f"concentrated_N{int(args.concentrated_target_n)}"
@@ -687,6 +865,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     production_applied = False
     if args.production_output_mode == "replace_operating":
         copied = copy_operating_books(latest_run, main_book, concentrated_book)
+        write_operating_summary(
+            latest_run,
+            output_dir,
+            {
+                "main": operating_append_summaries.get(main_key, {}),
+                "concentrated": operating_append_summaries.get(concentrated_key, {}),
+            },
+        )
         production_applied = True
     broker_metrics = {} if args.skip_broker_replay else run_broker_replays(args, latest_run)
     activation = {
@@ -704,6 +890,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_source_mode": source_mode,
         "first_rebalance_date": date_text(dates.min()),
         "last_rebalance_date": date_text(dates.max()),
+        "last_operating_signal_date": max(
+            (
+                str(row.get("output_max_rebalance_date") or "")
+                for row in (operating_append_summaries.get(main_key, {}), operating_append_summaries.get(concentrated_key, {}))
+            ),
+            default="",
+        ),
         "crisis_overlay_status": crisis_status,
     }
     write_json(output_dir / "production_activation.json", activation)
@@ -735,6 +928,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "concentrated_target_n": int(args.concentrated_target_n),
         "main_rows": int(len(main_book)),
         "concentrated_rows": int(len(concentrated_book)),
+        "operating_append_summaries": operating_append_summaries,
         "lane_score_rows": int(len(lane_history)),
         "rejected_rows": int(len(rejected)),
         "pit_evidence_blocked_rows": int(len(pit_audit)),

@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_alphaops_vnext_policy_replay import apply_crisis_lane_policy, build, crisis_new_buy_allowed
+from tools.run_weekly_evaluation import px_cache_name
 
 
 def candidate_rows() -> list[dict[str, object]]:
@@ -95,13 +96,32 @@ def candidate_rows() -> list[dict[str, object]]:
     return rows
 
 
+def write_price_cache(cache_dir: Path, tickers: set[str], latest_date: str = "2026-03-05") -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    index = pd.to_datetime(["2026-01-31", "2026-02-28", latest_date])
+    for ticker in sorted(tickers):
+        pd.DataFrame(
+            {
+                "Open": [10.0, 11.0, 12.0],
+                "Close": [10.0, 11.0, 12.0],
+                "Adj Close": [10.0, 11.0, 12.0],
+            },
+            index=index,
+        ).to_parquet(cache_dir / px_cache_name(ticker))
+
+
 def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         latest = root / "outputs"
         reports = latest / "reports"
         reports.mkdir(parents=True)
-        pd.DataFrame(candidate_rows()).to_csv(reports / "candidate_replay_book.csv", index=False)
+        candidates = candidate_rows()
+        pd.DataFrame(candidates).to_csv(reports / "candidate_replay_book.csv", index=False)
+        write_price_cache(
+            root / "cache_prices",
+            {str(row["ticker"]) for row in candidates if str(row["ticker"]) != "FUT"},
+        )
         pd.DataFrame([{"rebalance_date": "2026-01-31", "ticker": "OLD", "weight": 1.0}]).to_csv(
             reports / "operating_main_target_book.csv",
             index=False,
@@ -139,6 +159,12 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         assert "OLD" not in set(main["ticker"].astype(str))
         assert "OLD" not in set(concentrated["ticker"].astype(str))
         assert main["rebalance_date"].min() == "2026-01-31"
+        assert main["rebalance_date"].max() == "2026-03-05"
+        assert concentrated["rebalance_date"].max() == "2026-03-05"
+        latest_main = main[pd.to_datetime(main["rebalance_date"]).dt.date.astype(str).eq("2026-03-05")]
+        assert bool(latest_main["operating_appended"].all())
+        operating_summary = json.loads((reports / "operating_target_books_summary.json").read_text(encoding="utf-8"))
+        assert all(row["operating_book_current"] for row in operating_summary["books"])
         assert "alphaops_vnext_policy_replay" in set(main["operating_target_source"].astype(str))
         assert "FUT" not in set(main["ticker"].astype(str))
 
