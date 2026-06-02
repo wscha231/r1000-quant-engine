@@ -339,11 +339,18 @@ jobs:
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/replay_outputs"
           fi
-          for d in reports alphaops_vnext target_snapshots data_readiness position_risk_weekly_validation broker_replay event_target_books event_broker_replay weekly_leader_snapshots weekly_leader_broker_replay cost_sensitivity trade_attribution broker_position_risk_replay broker_execution_policy_replay operating_event_backtest broker_gap_attribution broker_trade_journal account_ledger_preview live_trading_safety live_trading_risk_controls monster_recommendations operating_snapshot operator_review user_portfolio_reports user_current weekly_evaluation theme_leadership_tape theme_concentration_challenger portfolio_goal_search account_evaluation portfolio_system_guard baseline_lock superperformance_trader_replay integrated_theme_leader_crisis_replay strategy_logic_ledger full_rebuild_logs; do
-            if [ -d "outputs/$d" ]; then
-              rclone copy "outputs/$d" "$DEST/$d/"
-            fi
-          done
+          SYNC_ROOT="outputs/replay_gdrive_minimal"
+          rm -rf "$SYNC_ROOT"
+          mkdir -p "$SYNC_ROOT"
+          find outputs \
+            \( -path 'outputs/replay_gdrive_minimal' -o -name 'holdings_daily.csv' -o -name 'equity_curve.csv' -o -name 'trades.csv' -o -name 'target_vs_actual_weights.csv' -o -name 'cash_ledger.csv' \) -prune -o \
+            -type f \
+            \( -name '*.json' -o -name '*.md' -o -name '*target_book.csv' -o -path 'outputs/user_current/*' -o -path 'outputs/alphaops_vnext/regime_capacity_overlay_audit.csv' \) \
+            -print | while read -r file; do
+              mkdir -p "$SYNC_ROOT/$(dirname "$file")"
+              cp "$file" "$SYNC_ROOT/$file"
+            done
+          rclone copy "$SYNC_ROOT/outputs" "$DEST/"
           if [ -s outputs/patch_application_manifest.json ]; then
             rclone copyto outputs/patch_application_manifest.json "$DEST/patch_application_manifest.json"
           fi

@@ -25,6 +25,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_candidate_lanes import lane_feature_mapping_payload, score_candidate_lanes  # noqa: E402
 from r1000_market_leader_engine import BENCHMARKS, safe_float  # noqa: E402
+from r1000_market_leader_engine import (  # noqa: E402
+    MarketLeaderVariant,
+    RISK_MODE_BENCHMARK_GUARD,
+    apply_benchmark_risk_overlay,
+)
 from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay as broker_replay  # noqa: E402
 from tools.run_integrated_theme_leader_crisis_replay import (  # noqa: E402
     CRISIS_HYSTERESIS,
@@ -369,6 +374,19 @@ def target_caps(portfolio_kind: str) -> dict[str, float]:
     return {"single": 0.12, "subindustry": 0.40, "theme": 0.60}
 
 
+def risk_variant(portfolio_kind: str, target_n: int) -> MarketLeaderVariant:
+    caps = target_caps(portfolio_kind)
+    return MarketLeaderVariant(
+        portfolio_kind=portfolio_kind,
+        variant_id=f"alphaops_vnext_{portfolio_kind}_N{target_n}_benchmark_guard",
+        target_n=int(target_n),
+        single_cap=float(caps["single"]),
+        subindustry_cap=float(caps["subindustry"]),
+        theme_cap=float(caps["theme"]),
+        risk_mode=RISK_MODE_BENCHMARK_GUARD,
+    )
+
+
 def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_target: float) -> list[dict[str, Any]]:
     if not selected:
         return []
@@ -433,6 +451,31 @@ def assign_weights(selected: list[dict[str, Any]], portfolio_kind: str, cash_tar
     return out
 
 
+def apply_vnext_benchmark_guard(
+    weighted: list[dict[str, Any]],
+    *,
+    portfolio_kind: str,
+    target_n: int,
+    prices: dict[str, pd.DataFrame],
+    rebalance_date: pd.Timestamp,
+) -> list[dict[str, Any]]:
+    if not weighted:
+        return weighted
+    frame = pd.DataFrame(weighted)
+    if frame.empty:
+        return weighted
+    guarded = apply_benchmark_risk_overlay(
+        frame,
+        risk_variant(portfolio_kind, target_n),
+        prices,
+        rebalance_date,
+    )
+    if guarded.empty:
+        return weighted
+    guarded["benchmark_guard_overlay_status"] = "applied"
+    return guarded.to_dict("records")
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -465,6 +508,7 @@ def build_variant_book(
     portfolio_kind: str,
     target_n: int,
     crisis_states: pd.DataFrame,
+    prices: dict[str, pd.DataFrame],
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     variant_id = f"alphaops_vnext_{portfolio_kind}_N{target_n}"
     rows: list[dict[str, Any]] = []
@@ -546,6 +590,13 @@ def build_variant_book(
                 rejects.append({"rebalance_date": dt.date().isoformat(), "ticker": ticker, "portfolio_kind": portfolio_kind, "variant_id": variant_id, "rejection_reason": "hold_replace_threshold_not_met", "prior_holding": False})
         cash_target = crisis_cash_target(str(crisis_row.get("crisis_state") or "GREEN"), portfolio_kind)
         weighted = assign_weights(selected, portfolio_kind, cash_target)
+        weighted = apply_vnext_benchmark_guard(
+            weighted,
+            portfolio_kind=portfolio_kind,
+            target_n=target_n,
+            prices=prices,
+            rebalance_date=dt,
+        )
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
         lane_totals: dict[str, float] = {}
         for rec in weighted:
@@ -932,6 +983,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     candidate, pit_audit = enforce_pit_available(candidate)
     write_csv(output_dir / "pit_evidence_audit.csv", pit_audit)
     candidate = enrich_relative_strength(candidate, price_cache)
+    prices = price_map(price_cache, candidate)
     dates = pd.to_datetime(candidate["rebalance_date"], errors="coerce").dropna()
     crisis_states = build_daily_crisis_state(
         price_cache,
@@ -965,6 +1017,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 portfolio_kind=portfolio_kind,
                 target_n=int(target_n),
                 crisis_states=crisis_states,
+                prices=prices,
             )
             key = f"{portfolio_kind}_N{target_n}"
             variants[key] = target
