@@ -417,7 +417,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "outputs/reports/operating_target_books_*",
         "portfolio_policy",
         "alphaops_vnext_production",
-        "--portfolio-policy \"${{ inputs.portfolio_policy }}\"",
+        "--portfolio-policy \"$PORTFOLIO_POLICY\"",
         "sync_replay_to_gdrive",
         "inputs.sync_replay_to_gdrive",
         "run_extended_research_sidecars",
