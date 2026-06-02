@@ -418,6 +418,8 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "portfolio_policy",
         "alphaops_vnext_production",
         "--portfolio-policy \"${{ inputs.portfolio_policy }}\"",
+        "sync_replay_to_gdrive",
+        "inputs.sync_replay_to_gdrive",
         "outputs/alphaops_vnext/",
         "outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log",
         "outputs/target_snapshots/",
@@ -496,7 +498,6 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "selected source with candidate_replay_book",
         "integrated replay will be blocked",
         "continue-on-error: true",
-        "timeout-minutes: 10",
     ]:
         assert token in text, token
     for forbidden in [

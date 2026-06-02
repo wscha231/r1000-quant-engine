@@ -39,6 +39,10 @@ on:
           - production_baseline
           - alphaops_vnext_production
         default: alphaops_vnext_production
+      sync_replay_to_gdrive:
+        description: 'Optionally copy compact replay summaries to Google Drive'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -302,9 +306,8 @@ jobs:
           retention-days: 14
 
       - name: Sync replay outputs to Google Drive
-        if: always()
+        if: always() && inputs.sync_replay_to_gdrive
         continue-on-error: true
-        timeout-minutes: 10
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
