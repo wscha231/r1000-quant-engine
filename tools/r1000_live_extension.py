@@ -106,6 +106,45 @@ def latest_date_from_frame(df, columns: list[str]) -> Optional[str]:
     return None
 
 
+def latest_date_from_json_payload(payload: dict, keys: list[str]) -> Optional[str]:
+    import pandas as pd
+
+    candidates: list[object] = []
+
+    def collect(obj: object) -> None:
+        if not isinstance(obj, dict):
+            return
+        for key in keys:
+            value = obj.get(key)
+            if value:
+                candidates.append(value)
+        portfolios = obj.get("portfolios")
+        if isinstance(portfolios, dict):
+            for item in portfolios.values():
+                collect(item)
+
+    collect(payload)
+    dates: list[str] = []
+    for value in candidates:
+        ts = pd.to_datetime(value, errors="coerce")
+        if pd.isna(ts):
+            continue
+        dates.append(str(pd.Timestamp(ts).date()))
+    return max(dates) if dates else None
+
+
+def latest_date_from_json_file(path: Path, keys: list[str]) -> Optional[str]:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return latest_date_from_json_payload(payload, keys)
+
+
 def infer_anchor_date(portfolio_path: Path, portfolio_df, override: Optional[str]) -> Optional[str]:
     if override:
         return override
@@ -115,6 +154,18 @@ def infer_anchor_date(portfolio_path: Path, portfolio_df, override: Optional[str
     )
     if direct:
         return direct
+    json_date_keys = ["end_date", "as_of_date", "asof", "date", "anchor_date"]
+    json_candidates = [
+        portfolio_path.parent / "backtest_metrics.json",
+        portfolio_path.parent / "broker_replay" / "main" / "metrics.json",
+        portfolio_path.parent / "user_current" / "04_official_metrics.json",
+        portfolio_path.parent / "user_current" / "summary.json",
+    ]
+    for json_path in json_candidates:
+        anchor = latest_date_from_json_file(json_path, json_date_keys)
+        if anchor:
+            print(f"[live-ext] anchor_date auto-detected from {json_path}: {anchor}")
+            return anchor
     equity_candidates = [
         portfolio_path.parent / "equity_curve.csv",
         portfolio_path.parent.parent / "equity_curve.csv",
