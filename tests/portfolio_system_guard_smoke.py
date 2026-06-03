@@ -42,10 +42,12 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
                 "cagr": 0.21,
                 "max_dd": -0.36,
                 "sharpe": 0.97,
+                "avg_cash_weight": 0.24,
                 "end_date": "2026-01-10",
                 "target_book": "outputs/reports/operating_main_target_book.csv",
             },
         )
+        write_json(latest / "broker_replay" / "main" / "account_state_latest.json", {"cash_weight": 0.24})
         write_json(
             latest / "broker_replay" / "concentrated" / "metrics.json",
             {
@@ -55,11 +57,13 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
                 "cagr": 0.34,
                 "max_dd": -0.40,
                 "sharpe": 1.09,
+                "avg_cash_weight": 0.31,
                 "end_date": "2026-01-10",
                 "target_book": "outputs/reports/operating_concentrated_target_book.csv",
                 "target_book_filter": {"target_stock_names": "4", "weighting_mode": "score_power"},
             },
         )
+        write_json(latest / "broker_replay" / "concentrated" / "account_state_latest.json", {"cash_weight": 0.31})
         write_json(latest / "backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(latest / "concentrated_backtest_metrics.json", {"strategy_cagr": 0.99, "max_dd": -0.01, "sharpe": 9.0})
         write_json(
@@ -131,6 +135,10 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True
+        cash_trap = {row["portfolio"]: row for row in result["cash_trap_guard"]}
+        assert cash_trap["main"]["cash_trap"] is True
+        assert cash_trap["concentrated"]["cash_trap"] is True
+        assert "avg_cash_high_without_mdd_target_pass" in cash_trap["main"]["reasons"]
         assert (out_dir / "system_guard_report.md").exists()
         assert (out_dir / "target_gap.json").exists()
 

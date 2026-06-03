@@ -486,6 +486,7 @@ jobs:
             outputs/alphaops_vnext/variants/*_target_book.csv
             outputs/mdd_cash_overlay_research/
             outputs/account_evaluation/official_metrics.json
+            outputs/metric_hygiene/
             outputs/broker_replay/main/metrics.json
             outputs/broker_replay/concentrated/metrics.json
             outputs/backtest_metrics.json
@@ -507,6 +508,7 @@ jobs:
             outputs/full_rebuild_logs/decision_cadence_review.log
             outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             outputs/full_rebuild_logs/mdd_cash_overlay_research.log
+            outputs/full_rebuild_logs/metric_hygiene_report.log
           if-no-files-found: warn
           retention-days: 30
 
@@ -554,6 +556,7 @@ jobs:
             outputs/live_trading_safety/
             outputs/live_trading_risk_controls/
             outputs/portfolio_system_guard/
+            outputs/metric_hygiene/
             outputs/decision_cadence/
           if-no-files-found: warn
           retention-days: 365
@@ -643,6 +646,7 @@ jobs:
             outputs/promotion_review/
             outputs/portfolio_system_guard/
             outputs/account_evaluation/
+            outputs/metric_hygiene/
             outputs/governance_catalyst/
             outputs/style_regime_report/
             outputs/macro_policy_engine/
@@ -1073,6 +1077,7 @@ jobs:
             copy_dir_clean outputs/daily_crisis_monitor "$DEST/daily_crisis_monitor"
             copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
             copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+            copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
@@ -1158,6 +1163,7 @@ jobs:
           copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
           copy_dir_clean outputs/decision_cadence "$DEST/decision_cadence"
           copy_dir_clean outputs/account_evaluation "$DEST/account_evaluation"
+          copy_dir_clean outputs/metric_hygiene "$DEST/metric_hygiene"
           copy_dir_clean outputs/operator_review "$DEST/operator_review"
           copy_dir_clean outputs/shadow_operating "$DEST/shadow_operating"
           copy_dir_clean outputs/promotion_review "$DEST/promotion_review"

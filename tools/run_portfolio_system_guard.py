@@ -505,6 +505,50 @@ def goal_search_candidates(goal_search: dict[str, Any] | None = None) -> list[di
     return out
 
 
+def cash_trap_guard(statuses: list[dict[str, Any]], inputs: dict[str, Any], latest_run: Path) -> list[dict[str, Any]]:
+    """Flag high-cash portfolios that still miss the drawdown gate.
+
+    This is a diagnosis guard, not a production blocker by itself. It prevents
+    the common misread that more cash automatically means better MDD defense.
+    """
+
+    out: list[dict[str, Any]] = []
+    status_by_portfolio = {str(row.get("portfolio")): row for row in statuses}
+    thresholds = {"main": 0.20, "concentrated": 0.25}
+    for portfolio in ("main", "concentrated"):
+        status = status_by_portfolio.get(portfolio, {})
+        metrics = inputs.get(f"{portfolio}_metrics", {}) or {}
+        account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
+        avg_cash = metric(metrics, "avg_cash_weight", default=0.0)
+        latest_cash = metric(account_state, "cash_weight", default=0.0)
+        cagr_gap = max(0.0, safe_float(status.get("cagr_target"), 0.0) - safe_float(status.get("cagr"), 0.0))
+        dd_gap = max(0.0, safe_float(status.get("max_dd_target"), 0.0) - safe_float(status.get("max_dd"), 0.0))
+        avg_cash_high = avg_cash >= thresholds[portfolio]
+        latest_cash_high = latest_cash >= 0.50
+        dd_not_defended = dd_gap >= 0.05
+        reasons: list[str] = []
+        if avg_cash_high and dd_not_defended:
+            reasons.append("avg_cash_high_without_mdd_target_pass")
+        if avg_cash_high and cagr_gap > 0:
+            reasons.append("cash_drag_with_cagr_gap")
+        if latest_cash_high:
+            reasons.append("latest_cash_above_50pct_requires_crisis_state_review")
+        out.append(
+            {
+                "portfolio": portfolio,
+                "severity": "warn" if reasons else "ok",
+                "cash_trap": bool(reasons),
+                "avg_cash_weight": avg_cash,
+                "latest_cash_weight": latest_cash,
+                "cagr_gap_pp": pp(cagr_gap),
+                "max_dd_gap_pp": pp(dd_gap),
+                "reasons": reasons,
+                "diagnosis": "cash is defensive only when MDD gap improves without unacceptable CAGR/reentry drag",
+            }
+        )
+    return out
+
+
 def candidate_priority(row: dict[str, Any]) -> float:
     score = safe_float(row.get("discovery_score"), 0.0)
     if row.get("passed_discovery"):
@@ -564,6 +608,7 @@ def render_report(
     concentrated_status: dict[str, Any],
     candidates: list[dict[str, Any]],
     goal_candidates: list[dict[str, Any]],
+    cash_trap: list[dict[str, Any]],
     checks: list[dict[str, Any]],
     plan: dict[str, Any],
     strict_targets: bool,
@@ -595,6 +640,20 @@ def render_report(
     for row in [main_status, concentrated_status]:
         lines.append(f"- `{row['portfolio']}`: `{row.get('metric_source', 'unknown')}`")
     lines.extend(["", f"Strict target mode: `{str(strict_targets).lower()}`", ""])
+
+    lines.extend(["## Cash Trap Guard", ""])
+    for row in cash_trap:
+        reasons = ", ".join(row.get("reasons") or []) or "none"
+        lines.append(
+            "- `{portfolio}`: severity=`{severity}`, avg_cash={avg_cash:.2%}, latest_cash={latest_cash:.2%}, reasons={reasons}".format(
+                portfolio=row.get("portfolio"),
+                severity=row.get("severity"),
+                avg_cash=safe_float(row.get("avg_cash_weight"), 0.0),
+                latest_cash=safe_float(row.get("latest_cash_weight"), 0.0),
+                reasons=reasons,
+            )
+        )
+    lines.append("")
 
     lines.extend(["## Candidate Priority", ""])
     if candidates:
@@ -675,6 +734,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     candidates = top_research_candidates(inputs["experiment_summary"], inputs.get("orchestrator_replay"))
     goal_candidates = goal_search_candidates(inputs.get("goal_search"))
+    cash_trap = cash_trap_guard(statuses, inputs, latest_run)
     plan = automation_plan(inputs, targets_pass)
     hard_errors = [row for row in checks if row["severity"] == "error" and not row["passed"]]
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
@@ -686,6 +746,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "portfolio_status": statuses,
         "top_research_candidates": candidates,
         "goal_search_candidates": goal_candidates,
+        "cash_trap_guard": cash_trap,
         "error_checks": checks,
         "automation_plan": plan,
     }
@@ -695,7 +756,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "error_check.json", {"checks": checks, "hard_error_count": len(hard_errors)})
     write_json(output_dir / "automation_plan.json", plan)
     write_text(output_dir / "automation_plan.md", render_automation_plan(plan))
-    report = render_report(main_status, concentrated_status, candidates, goal_candidates, checks, plan, args.strict_targets)
+    report = render_report(main_status, concentrated_status, candidates, goal_candidates, cash_trap, checks, plan, args.strict_targets)
     write_text(output_dir / "system_guard_report.md", report)
 
     return payload

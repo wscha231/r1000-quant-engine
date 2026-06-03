@@ -38,6 +38,9 @@ OFFICIAL_FILES = [
     "alphaops_vnext/official_main_target_book.csv",
     "alphaops_vnext/official_concentrated_target_book.csv",
     "account_evaluation/official_metrics.json",
+    "metric_hygiene/summary.json",
+    "metric_hygiene/official_metrics.json",
+    "metric_hygiene/report.md",
     "broker_replay/main/metrics.json",
     "broker_replay/concentrated/metrics.json",
     "operating_snapshot/current_operating_holdings_latest.csv",
@@ -69,6 +72,7 @@ OPERATOR_REVIEW_FILES = [
     "market_leader_challenger/holding_churn_diagnostics.csv",
     "live_trading_safety/safety_audit_summary.json",
     "portfolio_system_guard/error_check.json",
+    "metric_hygiene/deprecated_metric_manifest.json",
 ]
 RESEARCH_FILES = [
     "scored_latest.csv",
@@ -89,8 +93,15 @@ RESEARCH_FILES = [
     "market_leader_challenger/attribution_by_component.csv",
     "market_leader_challenger/stress_window_metrics.csv",
     "market_leader_challenger/benchmark_relative_metrics.csv",
+    "metric_hygiene/deprecated_legacy_backtest_metrics.json",
+    "metric_hygiene/deprecated_concentrated_weight_level_metrics.json",
 ]
-DEPRECATED_NAMES = {"backtest_metrics.json", "concentrated_backtest_metrics.json"}
+DEPRECATED_NAMES = {
+    "backtest_metrics.json",
+    "concentrated_backtest_metrics.json",
+    "deprecated_legacy_backtest_metrics.json",
+    "deprecated_concentrated_weight_level_metrics.json",
+}
 
 
 def repo_path(value: str | Path) -> Path:
