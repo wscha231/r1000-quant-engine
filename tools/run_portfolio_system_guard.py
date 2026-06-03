@@ -286,13 +286,15 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
         operating = summaries["operating"]
         max_dt = parse_date(summary.get("max_date"))
         end_dt = parse_date(broker_end.get(portfolio))
-        passed = bool(max_dt and end_dt and max_dt.date() >= end_dt.date())
+        allowed_lag_days = 7 if summary.get("target_book_role") == "operating_target_book" else 0
+        date_gap_days = (end_dt.date() - max_dt.date()).days if max_dt and end_dt else None
+        passed = bool(max_dt and end_dt and date_gap_days is not None and date_gap_days <= allowed_lag_days)
         checks.append(
             {
                 "check": f"{portfolio}_target_book_reaches_broker_end",
                 "passed": passed,
                 "severity": "error" if not passed else "ok",
-                "detail": f"selected_role={summary.get('target_book_role')}; target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; rows={summary.get('row_count')}; path={summary.get('path')}",
+                "detail": f"selected_role={summary.get('target_book_role')}; target_book_max={summary.get('max_date')}; broker_end={broker_end.get(portfolio)}; date_gap_days={date_gap_days}; allowed_lag_days={allowed_lag_days}; rows={summary.get('row_count')}; path={summary.get('path')}",
             }
         )
         operating_exists = bool(operating.get("exists") and int(operating.get("row_count") or 0) > 0)

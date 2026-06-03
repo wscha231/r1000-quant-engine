@@ -80,10 +80,10 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
             latest / "reports" / "concentrated_strategy_holdings.csv",
             [{"rebalance_date": "2025-12-31", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
         )
-        write_csv(latest / "reports" / "operating_main_target_book.csv", [{"rebalance_date": "2026-01-10", "ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "reports" / "operating_main_target_book.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
         write_csv(
             latest / "reports" / "operating_concentrated_target_book.csv",
-            [{"rebalance_date": "2026-01-10", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
+            [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0, "target_stock_names": 4, "weighting_mode": "score_power"}],
         )
         write_csv(latest / "portfolio_latest.csv", [{"ticker": "AAA", "weight": 0.5}, {"ticker": "BBB", "weight": 0.5}])
         write_csv(
