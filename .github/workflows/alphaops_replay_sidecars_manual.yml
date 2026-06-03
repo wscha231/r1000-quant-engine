@@ -157,9 +157,23 @@ jobs:
         run: |
           set -e
           set -o pipefail
+          mkdir -p outputs/replay_integrity
+          if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
+            cp outputs/alphaops_vnext/official_main_target_book.csv outputs/replay_integrity/source_vnext_official_main_target_book.csv 2>/dev/null || true
+            cp outputs/alphaops_vnext/official_concentrated_target_book.csv outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv 2>/dev/null || true
+          fi
           python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
-            python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+            if [ -s outputs/reports/candidate_replay_book.csv ]; then
+              python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+            elif [ -s outputs/replay_integrity/source_vnext_official_main_target_book.csv ] && [ -s outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv ]; then
+              echo "[replay] candidate_replay_book missing; restoring archived vNext official operating target books" | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+              cp outputs/replay_integrity/source_vnext_official_main_target_book.csv outputs/reports/operating_main_target_book.csv
+              cp outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv outputs/reports/operating_concentrated_target_book.csv
+            else
+              echo "[replay] ERROR: alphaops_vnext_production requires candidate_replay_book or archived official vNext target books" | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+              exit 2
+            fi
           fi
           python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log
