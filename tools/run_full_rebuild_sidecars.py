@@ -149,7 +149,7 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   exit 0
 fi
 python tools/run_main_v2_backtest.py --latest-run outputs --output-dir outputs/main_v2_backtest 2>&1 | tee outputs/full_rebuild_logs/main_v2_backtest.log || true
-python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
+python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir outputs/concentrated_policy_replay --price-cache cache_prices --run-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/concentrated_policy_replay.log || true
 python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true

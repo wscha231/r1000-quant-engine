@@ -484,7 +484,14 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_policy_replay",
         source_label="sidecar",
         valid_for_production=False,
-        notes="Research-only concentrated policy replay from candidate_replay_book.",
+        notes="Research-only monthly proxy from candidate_replay_book; use concentrated_policy_broker_replay for production-compatible evidence.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "concentrated_policy_replay" / "broker_replay" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_policy_broker_replay",
+        source_label="sidecar",
+        notes="Broker-ledger next-close replay of the concentrated policy target_book.csv generated from historical candidate_replay_book.",
     )
     concentrated += candidate_from_json(
         latest_run / "concentrated_position_risk_replay" / "metrics.json",
