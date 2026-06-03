@@ -4,7 +4,7 @@
   "crisis_overlay_status": "applied",
   "current_holdings_source": "alphaops_vnext_policy_target_book",
   "first_rebalance_date": "2019-05-31",
-  "generated_at_utc": "2026-06-02T06:52:43.300330+00:00",
+  "generated_at_utc": "2026-06-03T12:33:23.777961+00:00",
   "last_operating_signal_date": "2026-06-01",
   "last_rebalance_date": "2026-03-31",
   "official_target_books": {
@@ -14,6 +14,102 @@
   "production_applied": true,
   "production_output_mode": "replace_operating",
   "production_policy": "alphaops_vnext_production",
+  "regime_capacity_overlay": {
+    "audit_path": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/outputs/alphaops_vnext/regime_capacity_overlay_audit.csv",
+    "status": "applied",
+    "summaries": {
+      "concentrated_N3": {
+        "avg_cash_weight": 0.37498473918879516,
+        "max_cash_weight": 1.0,
+        "multipliers": {
+          "bear": 0.5,
+          "bull": 1.0,
+          "deep_bear": 0.25,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "concentrated",
+        "rebalance_dates_dampened": 18,
+        "rebalance_dates_total": 84,
+        "status": "completed",
+        "variant_key": "concentrated_N3"
+      },
+      "concentrated_N5": {
+        "avg_cash_weight": 0.3063152412237778,
+        "max_cash_weight": 1.0,
+        "multipliers": {
+          "bear": 0.5,
+          "bull": 1.0,
+          "deep_bear": 0.25,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "concentrated",
+        "rebalance_dates_dampened": 18,
+        "rebalance_dates_total": 84,
+        "status": "completed",
+        "variant_key": "concentrated_N5"
+      },
+      "main_N12": {
+        "avg_cash_weight": 0.19690977356301076,
+        "max_cash_weight": 0.8320000000000001,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 84,
+        "status": "completed",
+        "variant_key": "main_N12"
+      },
+      "main_N15": {
+        "avg_cash_weight": 0.19446235511223434,
+        "max_cash_weight": 0.79,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 84,
+        "status": "completed",
+        "variant_key": "main_N15"
+      },
+      "main_N18": {
+        "avg_cash_weight": 0.1937708440287983,
+        "max_cash_weight": 0.79,
+        "multipliers": {
+          "bear": 1.0,
+          "bull": 1.0,
+          "deep_bear": 1.0,
+          "exceptional_bull": 1.0,
+          "neutral": 1.0,
+          "strong_bull": 1.0,
+          "unknown": 1.0
+        },
+        "portfolio": "main",
+        "rebalance_dates_dampened": 0,
+        "rebalance_dates_total": 84,
+        "status": "completed",
+        "variant_key": "main_N18"
+      }
+    }
+  },
   "schema_version": "alphaops-vnext-production-activation-v1",
   "sidecar_applied_to_production": true,
   "sidecar_only": false,

@@ -1,0 +1,2 @@
+daily_crisis_state_all_green,missing_data_only_trigger,state_counts,first_watch_date,first_defense_date,first_crisis_defense_date,first_reentry_ready_date,state_transition_count,avg_state_duration_days,whipsaw_state_count,green_to_crisis_direct_count,crisis_to_green_direct_count,reentry_without_defense_count,covid_2020_detection_lag_days,rate_2022_detection_lag_days
+False,False,"{""CRISIS_DEFENSE"": 58, ""DEFENSE_REVIEW"": 443, ""GREEN"": 929, ""REENTRY_READY"": 7, ""WATCH"": 346}",2019-08-01,2020-02-28,2020-03-11,2020-06-09,98,24.818181818181817,98,0,0,0,27,86
