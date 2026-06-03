@@ -81,9 +81,6 @@ DEFAULT_CONCENTRATED_TARGET_N = 5
 CONCENTRATED_RISK_STATE_NEW_ENTRY_CAP = 0.20
 CONCENTRATED_RISK_STATE_CAP_STATES = {"WATCH", "DEFENSE_REVIEW"}
 CONCENTRATED_HOLD_DECAY_CAP = 0.12
-CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_CAP = 0.12
-CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_ATR_THRESHOLD = 0.05
-CONCENTRATED_WATCH_UNCONFIRMED_HOLD_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_ATR_THRESHOLD = 0.06
 CONCENTRATED_WATCH_UNCONFIRMED_CONFIRMATION_THRESHOLD = 0.50
@@ -646,50 +643,6 @@ def apply_concentrated_hold_decay_trim(
     return trimmed
 
 
-def apply_concentrated_watch_unconfirmed_high_vol_hold_trim(
-    weighted: list[dict[str, Any]],
-    portfolio_kind: str,
-) -> list[dict[str, Any]]:
-    if portfolio_kind != "concentrated" or not weighted:
-        return weighted
-    trimmed: list[dict[str, Any]] = []
-    for rec in weighted:
-        item = dict(rec)
-        ticker = clean_ticker(item.get("ticker"))
-        holding_state_text = str(item.get("holding_state") or "").upper()
-        replace_decision = str(item.get("hold_replace_decision") or "")
-        is_hold = holding_state_text == "HOLD" or replace_decision == "keep_prior_holding"
-        crisis_state = str(item.get("crisis_state") or "").upper()
-        style_regime = str(item.get("market_style_regime_label") or "")
-        capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
-        confirmation = safe_float(item.get("selection_confirmation_score"), 1.0)
-        atr14 = safe_float(item.get("atr14_pct"))
-        weight = safe_float(item.get("weight"))
-        if (
-            ticker not in CASH_TICKERS
-            and is_hold
-            and crisis_state in CONCENTRATED_RISK_STATE_CAP_STATES
-            and style_regime == "quality_compounder"
-            and capacity_regime == "neutral"
-            and confirmation < CONCENTRATED_WATCH_UNCONFIRMED_HOLD_CONFIRMATION_THRESHOLD
-            and atr14 >= CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_ATR_THRESHOLD
-            and weight > CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_CAP
-        ):
-            item["pre_concentrated_watch_unconfirmed_high_vol_hold_trim_weight"] = weight
-            item["weight"] = CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_CAP
-            item["target_weight"] = CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_CAP
-            item["concentrated_watch_unconfirmed_high_vol_hold_trim_cap"] = CONCENTRATED_WATCH_UNCONFIRMED_HIGH_VOL_HOLD_CAP
-            item["concentrated_watch_unconfirmed_high_vol_hold_trim_status"] = "applied"
-            item["selection_reason"] = (
-                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
-                + "|concentrated_watch_unconfirmed_high_vol_hold_trim"
-            )
-        else:
-            item["concentrated_watch_unconfirmed_high_vol_hold_trim_status"] = "not_applicable"
-        trimmed.append(item)
-    return trimmed
-
-
 def apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -941,7 +894,6 @@ def build_variant_book(
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
-        weighted = apply_concentrated_watch_unconfirmed_high_vol_hold_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
