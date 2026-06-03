@@ -3243,6 +3243,10 @@ def test_gdrive_manifest_marks_deprecated_research() -> None:
         "position_cleanup_review.json",
         "dust_positions_report.csv",
         "patch_application_manifest.json",
+        "MINIMAL_ANALYSIS_FILES",
+        "broker_replay/main/trades.csv",
+        "broker_replay/concentrated/cash_ledger.csv",
+        "reports/operating_main_target_book.csv",
     ]:
         assert token in src, f"gdrive manifest tool missing {token}"
     wf = (ROOT / ".github" / "workflows" / "full_rebuild_manual.yml").read_text(encoding="utf-8")

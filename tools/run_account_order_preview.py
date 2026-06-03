@@ -71,16 +71,13 @@ def normalize_target(frame: pd.DataFrame, portfolio_kind: str, target_date: str 
                 d = prior[prior["rebalance_date"].eq(prior["rebalance_date"].max())].copy() if not prior.empty else d
         elif d["rebalance_date"].notna().any():
             d = d[d["rebalance_date"].eq(d["rebalance_date"].max())].copy()
-    if portfolio_kind == "concentrated":
-        for col, expected in {
-            "target_stock_names": "3",
-            "weighting_mode": "score_power",
-            "active_rebalance_interval_months": "1",
-        }.items():
-            if col in d.columns:
-                mask = d[col].astype(str).str.strip().eq(expected)
-                if mask.any():
-                    d = d[mask].copy()
+    if portfolio_kind == "concentrated" and "target_stock_names" in d.columns:
+        non_cash = d[~d["ticker"].astype(str).str.upper().eq("CASH")].copy()
+        counts = non_cash["target_stock_names"].astype(str).str.strip()
+        counts = counts[~counts.str.lower().isin({"", "nan", "none"})]
+        if not counts.empty and counts.nunique() > 1:
+            preferred_n = counts.value_counts().index[0]
+            d = d[d["target_stock_names"].astype(str).str.strip().eq(preferred_n)].copy()
     weight_col = "target_weight" if "target_weight" in d.columns else "weight"
     if weight_col not in d.columns:
         weight_col = "proposed_weight" if "proposed_weight" in d.columns else ""

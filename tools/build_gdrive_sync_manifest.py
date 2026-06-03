@@ -42,9 +42,48 @@ OFFICIAL_FILES = [
     "metric_hygiene/official_metrics.json",
     "metric_hygiene/report.md",
     "broker_replay/main/metrics.json",
+    "broker_replay/main/account_state_latest.json",
+    "broker_replay/main/positions_latest.csv",
+    "broker_replay/main/trades.csv",
+    "broker_replay/main/cash_ledger.csv",
+    "broker_replay/main/equity_curve.csv",
+    "broker_replay/main/target_vs_actual_weights.csv",
     "broker_replay/concentrated/metrics.json",
+    "broker_replay/concentrated/account_state_latest.json",
+    "broker_replay/concentrated/positions_latest.csv",
+    "broker_replay/concentrated/trades.csv",
+    "broker_replay/concentrated/cash_ledger.csv",
+    "broker_replay/concentrated/equity_curve.csv",
+    "broker_replay/concentrated/target_vs_actual_weights.csv",
     "operating_snapshot/current_operating_holdings_latest.csv",
     "operating_snapshot/current_portfolio_snapshot_summary.json",
+]
+MINIMAL_ANALYSIS_FILES = [
+    "patch_application_manifest.json",
+    "alphaops_vnext/summary.json",
+    "alphaops_vnext/production_activation.json",
+    "alphaops_vnext/official_main_target_book.csv",
+    "alphaops_vnext/official_concentrated_target_book.csv",
+    "account_evaluation/official_metrics.json",
+    "metric_hygiene/summary.json",
+    "metric_hygiene/official_metrics.json",
+    "metric_hygiene/report.md",
+    "broker_replay/main/metrics.json",
+    "broker_replay/main/account_state_latest.json",
+    "broker_replay/main/positions_latest.csv",
+    "broker_replay/main/trades.csv",
+    "broker_replay/main/cash_ledger.csv",
+    "broker_replay/main/equity_curve.csv",
+    "broker_replay/main/target_vs_actual_weights.csv",
+    "broker_replay/concentrated/metrics.json",
+    "broker_replay/concentrated/account_state_latest.json",
+    "broker_replay/concentrated/positions_latest.csv",
+    "broker_replay/concentrated/trades.csv",
+    "broker_replay/concentrated/cash_ledger.csv",
+    "broker_replay/concentrated/equity_curve.csv",
+    "broker_replay/concentrated/target_vs_actual_weights.csv",
+    "reports/operating_main_target_book.csv",
+    "reports/operating_concentrated_target_book.csv",
 ]
 OPERATOR_REVIEW_FILES = [
     "operating_snapshot/proposed_target_deltas_latest.csv",
@@ -182,6 +221,20 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
                 metric_mode=metric_mode if name in {"03_period_returns.csv", "04_official_metrics.json"} else "",
             )
         )
+
+    if mode == "minimal":
+        for name in MINIMAL_ANALYSIS_FILES:
+            entries.append(
+                entry(
+                    latest_run=latest_run,
+                    rel_source=name,
+                    rel_dest=f"official/{args.run_id}/{name}",
+                    required=False,
+                    semantic_type="official",
+                    production_valid=True,
+                    metric_mode=metric_mode,
+                )
+            )
 
     if mode in {"official", "research"}:
         for name in OFFICIAL_FILES:

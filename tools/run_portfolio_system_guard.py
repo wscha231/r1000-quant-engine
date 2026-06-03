@@ -100,6 +100,27 @@ def csv_row_count(path: Path) -> int:
     return len(read_csv_rows(path))
 
 
+def latest_target_filter(path: Path) -> dict[str, str]:
+    rows = read_csv_rows(path)
+    if not rows:
+        return {}
+    dates = [parse_date(row.get("rebalance_date")) for row in rows]
+    dates = [dt for dt in dates if dt is not None]
+    if dates:
+        max_date = max(dates).date().isoformat()
+        rows = [row for row in rows if str(row.get("rebalance_date") or "")[:10] == max_date]
+    rows = [row for row in rows if str(row.get("ticker") or "").upper().strip() != "CASH"]
+    out: dict[str, str] = {}
+    for col in ("target_stock_names", "target_n", "weighting_mode"):
+        values = [filter_value(row.get(col)) for row in rows]
+        values = [value for value in values if value]
+        if values:
+            out[col] = max(set(values), key=values.count)
+    if "target_n" in out and "target_stock_names" not in out:
+        out["target_stock_names"] = out["target_n"]
+    return out
+
+
 def target_book_summaries(latest_run: Path, portfolio: str) -> dict[str, dict[str, Any]]:
     if portfolio == "main":
         historical = latest_run / "reports" / "main_monthly_weights.csv"
@@ -331,19 +352,25 @@ def operating_alignment_checks(inputs: dict[str, Any], latest_run: Path) -> list
 
     concentrated_metrics = inputs.get("concentrated_metrics", {})
     metric_filter = concentrated_metrics.get("target_book_filter") or {}
+    operating_filter = latest_target_filter(latest_run / "reports" / "operating_concentrated_target_book.csv")
     latest_conc_rows = read_csv_rows(latest_run / "concentrated_portfolio_latest.csv")
     latest_conc = latest_conc_rows[0] if latest_conc_rows else {}
     metric_n = filter_value(metric_filter.get("target_stock_names"))
-    latest_n = filter_value(latest_conc.get("target_stock_names"))
+    latest_n = filter_value(operating_filter.get("target_stock_names") or latest_conc.get("target_stock_names"))
     metric_mode = filter_value(metric_filter.get("weighting_mode"))
-    latest_mode = filter_value(latest_conc.get("weighting_mode"))
-    filter_match = bool(metric_n and latest_n and metric_n == latest_n and metric_mode == latest_mode)
+    latest_mode = filter_value(operating_filter.get("weighting_mode") or latest_conc.get("weighting_mode"))
+    metric_target_book = str(concentrated_metrics.get("target_book") or "").replace("\\", "/")
+    uses_operating = "operating_concentrated_target_book.csv" in metric_target_book
+    filter_match = bool(
+        (uses_operating and latest_n)
+        or (metric_n and latest_n and metric_n == latest_n and (not metric_mode or metric_mode == latest_mode))
+    )
     checks.append(
         {
             "check": "concentrated_replay_filter_matches_latest_target",
             "passed": filter_match,
             "severity": "warn" if not filter_match else "ok",
-            "detail": f"broker_filter_n={metric_n or 'missing'}; latest_target_n={latest_n or 'missing'}; broker_mode={metric_mode or 'missing'}; latest_mode={latest_mode or 'missing'}",
+            "detail": f"broker_filter_n={metric_n or ('operating_book' if uses_operating else 'missing')}; latest_operating_target_n={latest_n or 'missing'}; broker_mode={metric_mode or ('operating_book' if uses_operating else 'missing')}; latest_mode={latest_mode or 'missing'}",
         }
     )
     return checks

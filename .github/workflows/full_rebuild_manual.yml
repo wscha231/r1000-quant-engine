@@ -488,7 +488,19 @@ jobs:
             outputs/account_evaluation/official_metrics.json
             outputs/metric_hygiene/
             outputs/broker_replay/main/metrics.json
+            outputs/broker_replay/main/account_state_latest.json
+            outputs/broker_replay/main/positions_latest.csv
+            outputs/broker_replay/main/trades.csv
+            outputs/broker_replay/main/cash_ledger.csv
+            outputs/broker_replay/main/equity_curve.csv
+            outputs/broker_replay/main/target_vs_actual_weights.csv
             outputs/broker_replay/concentrated/metrics.json
+            outputs/broker_replay/concentrated/account_state_latest.json
+            outputs/broker_replay/concentrated/positions_latest.csv
+            outputs/broker_replay/concentrated/trades.csv
+            outputs/broker_replay/concentrated/cash_ledger.csv
+            outputs/broker_replay/concentrated/equity_curve.csv
+            outputs/broker_replay/concentrated/target_vs_actual_weights.csv
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
             outputs/portfolio_latest.csv
@@ -1081,8 +1093,10 @@ jobs:
             copy_dir_clean outputs/operating_snapshot "$DEST/operating_snapshot"
             copy_dir_clean outputs/portfolio_system_guard "$DEST/portfolio_system_guard"
             mkdir -p "$DEST/broker_replay/main" "$DEST/broker_replay/concentrated"
-            cp outputs/broker_replay/main/metrics.json "$DEST/broker_replay/main/" 2>/dev/null || true
-            cp outputs/broker_replay/concentrated/metrics.json "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            for file in metrics.json account_state_latest.json positions_latest.csv trades.csv cash_ledger.csv equity_curve.csv target_vs_actual_weights.csv; do
+              cp "outputs/broker_replay/main/$file" "$DEST/broker_replay/main/" 2>/dev/null || true
+              cp "outputs/broker_replay/concentrated/$file" "$DEST/broker_replay/concentrated/" 2>/dev/null || true
+            done
             cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
             cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
             cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true

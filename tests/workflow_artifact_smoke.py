@@ -135,8 +135,15 @@ def test_operating_minimal_artifact_is_phase_g_replay_ready() -> None:
         "outputs/reports/operating_target_books_*",
         "outputs/metric_hygiene/",
         'cp outputs/backtest_metrics.json "$DEST/"',
+        "outputs/broker_replay/main/trades.csv",
+        "outputs/broker_replay/main/cash_ledger.csv",
+        "outputs/broker_replay/main/equity_curve.csv",
+        "outputs/broker_replay/concentrated/trades.csv",
+        'for file in metrics.json account_state_latest.json positions_latest.csv trades.csv cash_ledger.csv equity_curve.csv target_vs_actual_weights.csv; do',
         'cp outputs/reports/main_monthly_weights.csv "$DEST/reports/"',
         'cp outputs/reports/regime_by_month.csv "$DEST/reports/"',
+        "--target outputs/reports/operating_main_target_book.csv",
+        "--target outputs/reports/operating_concentrated_target_book.csv",
     ]:
         assert token in text, token
 
