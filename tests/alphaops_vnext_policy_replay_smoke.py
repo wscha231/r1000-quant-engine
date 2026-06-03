@@ -19,6 +19,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_risk_state_new_entry_cap,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_quality_bull_new_entry_cap,
+    apply_concentrated_watch_unconfirmed_high_vol_hold_trim,
     apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap,
     apply_crisis_lane_policy,
     apply_main_high_volatility_new_entry_cap,
@@ -642,6 +643,92 @@ def test_concentrated_watch_unconfirmed_high_vol_cap_applies_to_watch_new_entrie
     assert main[0]["weight"] == 0.20
 
 
+def test_concentrated_watch_unconfirmed_high_vol_hold_trim_applies_to_watch_holds_only() -> None:
+    selected = [
+        {
+            "ticker": "CAP",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "atr14_pct": 0.06,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "NEW",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "atr14_pct": 0.06,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "CONFIRMED",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 1.0,
+            "atr14_pct": 0.06,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "GREEN",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "GREEN",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "atr14_pct": 0.06,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "LOWVOL",
+            "weight": 0.30,
+            "target_weight": 0.30,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "WATCH",
+            "market_style_regime_label": "quality_compounder",
+            "regime_state": "neutral",
+            "selection_confirmation_score": 0.24,
+            "atr14_pct": 0.03,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    trimmed = apply_concentrated_watch_unconfirmed_high_vol_hold_trim(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in trimmed}
+    assert by_ticker["CAP"]["weight"] == 0.12
+    assert by_ticker["CAP"]["target_weight"] == 0.12
+    assert by_ticker["CAP"]["concentrated_watch_unconfirmed_high_vol_hold_trim_status"] == "applied"
+    assert by_ticker["NEW"]["weight"] == 0.30
+    assert by_ticker["CONFIRMED"]["weight"] == 0.30
+    assert by_ticker["GREEN"]["weight"] == 0.30
+    assert by_ticker["LOWVOL"]["weight"] == 0.30
+    main = apply_concentrated_watch_unconfirmed_high_vol_hold_trim(selected, "main")
+    assert main[0]["weight"] == 0.30
+
+
 def test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only() -> None:
     selected = [
         {
@@ -728,5 +815,6 @@ if __name__ == "__main__":
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
     test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     test_concentrated_watch_unconfirmed_high_vol_cap_applies_to_watch_new_entries_only()
+    test_concentrated_watch_unconfirmed_high_vol_hold_trim_applies_to_watch_holds_only()
     test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")
