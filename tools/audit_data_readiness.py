@@ -231,9 +231,48 @@ def fundamentals_summary(free_data_root: Path, latest_run: Path) -> dict[str, An
     }
 
 
+def sec_evidence_store_summary(latest_run: Path) -> dict[str, Any]:
+    root = latest_run.parent
+    files = {
+        "form4_transactions": [
+            root / "data_pit" / "sec" / "form4_transactions.parquet",
+            latest_run / "data_pit" / "sec" / "form4_transactions.parquet",
+            REPO_ROOT / "data_pit" / "sec" / "form4_transactions.parquet",
+        ],
+        "institutional_13f_holdings": [
+            root / "data_pit" / "sec" / "institutional_13f_holdings.parquet",
+            latest_run / "data_pit" / "sec" / "institutional_13f_holdings.parquet",
+            REPO_ROOT / "data_pit" / "sec" / "institutional_13f_holdings.parquet",
+        ],
+        "etf_holdings": [
+            root / "data_pit" / "etf_holdings" / "etf_holdings.parquet",
+            latest_run / "data_pit" / "etf_holdings" / "etf_holdings.parquet",
+            REPO_ROOT / "data_pit" / "etf_holdings" / "etf_holdings.parquet",
+        ],
+        "sec_enriched_candidate": [
+            latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
+            root / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
+            REPO_ROOT / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
+        ],
+    }
+    entries: dict[str, Any] = {}
+    for name, candidates in files.items():
+        entries[name] = {
+            "candidates": [file_stats(path) for path in candidates],
+            "any_available": any(path.exists() for path in candidates),
+        }
+    return {
+        "files": entries,
+        "any_available": any(item["any_available"] for item in entries.values()),
+    }
+
+
 def macro_summary(free_data_root: Path, latest_run: Path) -> dict[str, Any]:
     candidates = [
         free_data_root / "macro",
+        latest_run.parent / "data_pit" / "macro",
+        latest_run / "data_pit" / "macro",
+        REPO_ROOT / "data_pit" / "macro",
         REPO_ROOT / "cache_macro",
         latest_run / "macro",
         latest_run / "macro_policy_engine",
@@ -271,6 +310,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     prices = price_cache_summary(price_cache, free_data_root)
     fundamentals = fundamentals_summary(free_data_root, latest_run)
+    sec_evidence_store = sec_evidence_store_summary(latest_run)
     macro = macro_summary(free_data_root, latest_run)
     coverage = read_json(coverage_path)
     manifest = read_json(manifest_path)
@@ -303,8 +343,11 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     if not fundamentals["canonical_available"]:
         warnings.append("canonical data_raw/free/sec/companyfacts.zip is missing")
         next_actions.append("Restore root companyfacts.zip into data_raw/free/sec or run the SEC companyfacts bootstrap.")
+    companyfacts_blocker = "no SEC companyfacts archive was found in canonical, root, or latest-run paths"
     if not fundamentals["any_available"]:
-        blockers.append("no SEC companyfacts archive was found in canonical, root, or latest-run paths")
+        blockers.append(companyfacts_blocker)
+    if not macro.get("any_available"):
+        blockers.append("macro data was not found in data_raw/free/macro, data_pit/macro, cache_macro, or latest-run outputs")
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
@@ -336,7 +379,11 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     if known_gaps:
         warnings.extend(f"free-data gap: {gap}" for gap in known_gaps)
 
+    policy_replay_blockers = list(blockers)
+    if sec_evidence_store.get("any_available") and companyfacts_blocker in policy_replay_blockers:
+        policy_replay_blockers.remove(companyfacts_blocker)
     ready_for_fullrun = not blockers
+    ready_for_policy_replay = not policy_replay_blockers and price_file_count >= int(args.min_price_files)
     status = "ready" if ready_for_fullrun and not warnings else ("blocked" if blockers else "warn")
     payload = {
         "schema_version": "data-readiness-v1",
@@ -344,10 +391,13 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "status": status,
         "ready_for_fullrun": bool(ready_for_fullrun),
         "ready_for_skip_collector_replay": bool(ready_for_fullrun and price_file_count >= int(args.min_price_files)),
+        "ready_for_policy_replay": bool(ready_for_policy_replay),
+        "policy_replay_blockers": policy_replay_blockers,
         "latest_target_date": latest_target_date,
         "latest_run": str(latest_run),
         "price_cache": prices,
         "fundamentals": fundamentals,
+        "sec_evidence_store": sec_evidence_store,
         "macro": macro,
         "free_data_coverage": {
             "path": str(coverage_path),
@@ -392,6 +442,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- status: `{payload.get('status')}`",
         f"- ready_for_fullrun: `{str(payload.get('ready_for_fullrun')).lower()}`",
         f"- ready_for_skip_collector_replay: `{str(payload.get('ready_for_skip_collector_replay')).lower()}`",
+        f"- ready_for_policy_replay: `{str(payload.get('ready_for_policy_replay')).lower()}`",
         f"- latest_target_date: `{payload.get('latest_target_date') or ''}`",
         "",
         "## Prices",

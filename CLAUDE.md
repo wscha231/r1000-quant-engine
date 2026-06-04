@@ -3,6 +3,12 @@
 ## Project Overview
 Russell 1000 기반 Top 30 기관급 퀀트 종목 선정 엔진. S&P 500 초과수익 목표.
 
+## AlphaOps Data-First Contract
+- Read `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` before changing AlphaOps vNext selection, sizing, cash, current-holding, or broker-replay policy.
+- Do not interpret CAGR/MDD as production-valid unless `outputs/data_readiness/summary.json`, `outputs/reports/dataset_coverage_audit.json`, `outputs/sec_enriched_candidate_replay/summary.json`, `outputs/alphaops_vnext/summary.json`, and `outputs/portfolio_system_guard/error_check.json` all support the run.
+- If SEC/Form4/13F/ETF/smart-money evidence exists, vNext production must use `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`; summary-only evidence is not enough.
+- Fix data restore, PIT availability, enriched-candidate materialization, and guard wiring before resuming CAGR/MDD optimization.
+
 ## Key Files
 - `SESSION_HANDOFF.md` — **다른 기기/세션에서 이어 작업할 때 제일 먼저 읽을 파일. "방금 뭐 했고 다음에 뭐 해야 하는지" 단일 inbox. Phase 하나 끝날 때마다 덮어씀.**
 - `r1000_top30_institutional.py` — 메인 엔진 (~27,400+ lines, Phase 9 까지 shipped. C1+C2 verdict 확정 후 Refactor Phase A 로 5-module 분리 예정)

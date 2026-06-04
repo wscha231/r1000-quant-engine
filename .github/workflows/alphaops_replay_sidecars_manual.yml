@@ -144,7 +144,7 @@ jobs:
             exit 3
           fi
 
-      - name: Restore SEC evidence overlays from Google Drive
+      - name: Restore evidence overlays from Google Drive
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -152,7 +152,7 @@ jobs:
           GDRIVE_FOLDER_NAME: "r1000_top30_institutional"
         run: |
           set -euo pipefail
-          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings
+          mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings data_pit/macro
           MANIFEST="outputs/full_rebuild_logs/sec_evidence_restore_manifest.json"
           python - <<'PY' > "$MANIFEST"
           import json
@@ -212,6 +212,7 @@ jobs:
           restore_dir data_pit/sec
           restore_dir outputs/etf_thematic_signals
           restore_dir data_pit/etf_holdings
+          restore_dir data_pit/macro
 
           python - <<PY > "$MANIFEST"
           import json
@@ -248,6 +249,7 @@ jobs:
               "data_pit_13f_holdings": Path("data_pit/sec/institutional_13f_holdings.parquet").exists(),
               "etf_thematic_latest": Path("outputs/etf_thematic_signals/etf_latest.csv").exists() or Path("outputs/etf_thematic_signals/etf_latest.parquet").exists(),
               "data_pit_etf_holdings": Path("data_pit/etf_holdings/etf_holdings.parquet").exists(),
+              "data_pit_macro": Path("data_pit/macro").exists() and any(Path("data_pit/macro").glob("*")),
           }
           stats = {
               "form4_latest_csv": table_stats("outputs/sec_ownership_signals/form4_latest.csv"),

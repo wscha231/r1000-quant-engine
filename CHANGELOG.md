@@ -51,6 +51,52 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-06-04
+
+### 14:37 KST - alphaops-data-system-contract
+
+- scope:
+  - Make AlphaOps vNext production replay data-first by requiring Drive evidence restore, SEC-enriched candidate materialization, PIT-safe evidence usage, and production guard checks before CAGR/MDD optimization.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->documents canonical storage roles, update cadence, replay gates, PIT rules, current-holding reporting rules, and agent workflow order.
+  - `CLAUDE.md` ->points future agents to the AlphaOps data-first contract before changing selection, sizing, cash, current-holding, or broker-replay policy.
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->restores SEC/13F/ETF/macro evidence overlays from Google Drive before fast vNext replay and writes `sec_evidence_restore_manifest.json`.
+  - `tools/run_portfolio_system_guard.py` ->loads data readiness, dataset coverage, SEC-enriched candidate, and AlphaOps vNext activation artifacts, then blocks promotion when production replay is data-invalid.
+  - `tools/run_alphaops_vnext_policy_replay.py` ->normalizes PIT evidence availability dates with UTC parsing before comparing against rebalance dates.
+  - `tests/portfolio_system_guard_smoke.py` ->covers data readiness failure, missing SEC-enriched candidate materialization, and base-candidate vNext usage as hard errors.
+  - `tests/workflow_artifact_smoke.py` ->asserts fast replay restores Drive evidence overlays and preserves compact replay artifacts.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers timezone-aware `available_from` values in PIT evidence enforcement.
+  - `CHANGELOG.md` ->records the data-system contract and replay gate changes.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `load_inputs(latest_run)` ->loads data readiness, dataset coverage, SEC-enriched candidate, AlphaOps vNext summary, and production activation inputs for guard checks.
+  - `error_checks(inputs, latest_run, require_latest_artifacts)` ->adds hard data-validity checks for blocked readiness, missing enriched candidate materialization, and vNext production using the base candidate book when smart-money evidence exists.
+  - `enforce_pit_available(candidate)` ->parses rebalance and evidence availability dates with `utc=True`, strips timezone, normalizes to date, and then blocks future evidence.
+  - `Restore evidence overlays from Google Drive` workflow step ->restores `outputs/sec_institutional_signals`, `outputs/sec_ownership_signals`, `data_pit/sec`, `outputs/etf_thematic_signals`, `data_pit/etf_holdings`, and `data_pit/macro` before fast replay.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Fast replay may now take several additional minutes when restoring Drive evidence overlays.
+  - Production-valid analysis now requires data readiness and enriched-candidate usage; runs that produce broker metrics but do not use available evidence are blocked by `portfolio_system_guard`.
+- outputs:
+  - `outputs/full_rebuild_logs/sec_evidence_restore_manifest.json` ->records restored/missing/error Drive evidence paths and row-count stats.
+  - `outputs/data_readiness/summary.json` ->must show readiness before production-valid analysis.
+  - `outputs/reports/dataset_coverage_audit.json` ->reports candidate and SEC-enriched evidence coverage.
+  - `outputs/sec_enriched_candidate_replay/summary.json` ->records SEC/Form4/13F/ETF evidence coverage and materialization state.
+  - `outputs/portfolio_system_guard/error_check.json` ->blocks data-invalid production promotion.
+- validation:
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_system_guard_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -B -c "...compile(...)"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - Google Drive connector auth in the Codex app was expired during inspection; GitHub Actions rclone restore is the verified path for CI evidence restore.
+  - Run `26930143678` and run `26930897465` succeeded but were data-invalid for production analysis because vNext used the base candidate book while SEC/smart-money evidence existed.
+  - Run `26931670009` proved Drive evidence restore and SEC-enriched candidate generation worked, then failed on timezone-aware PIT comparison; this was fixed by `enforce_pit_available(candidate)`.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback

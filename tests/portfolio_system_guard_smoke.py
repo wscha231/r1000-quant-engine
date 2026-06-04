@@ -92,7 +92,7 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         )
         write_json(
             latest / "data_readiness" / "summary.json",
-            {"status": "ready", "ready_for_fullrun": True, "blockers": [], "warnings": []},
+            {"status": "ready", "ready_for_fullrun": True, "ready_for_policy_replay": True, "blockers": [], "policy_replay_blockers": [], "warnings": []},
         )
         write_json(
             latest / "reports" / "dataset_coverage_audit.json",
@@ -175,7 +175,7 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["operating_event_backtest_available"]["passed"] is True
         assert checks["daily_risk_overlay_backtest_validated"]["passed"] is True
         assert checks["full_nonmonthly_entry_replacement_backtest_validated"]["severity"] == "warn"
-        assert checks["data_readiness_ready_for_fullrun"]["passed"] is True
+        assert checks["data_readiness_ready_for_production_replay"]["passed"] is True
         assert checks["sec_enriched_candidate_materialized_for_audit"]["passed"] is True
         assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["passed"] is True
         assert checks["current_only_operating_holdings_available"]["passed"] is True
@@ -277,7 +277,9 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
             {
                 "status": "blocked",
                 "ready_for_fullrun": False,
+                "ready_for_policy_replay": False,
                 "blockers": ["no SEC companyfacts archive was found"],
+                "policy_replay_blockers": ["macro data was not found"],
                 "warnings": ["canonical data_raw/free/sec/companyfacts.zip is missing"],
             },
         )
@@ -312,7 +314,7 @@ def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
         )
         checks = {row["check"]: row for row in result["error_checks"]}
         assert result["overall_status"] == "blocked"
-        assert checks["data_readiness_ready_for_fullrun"]["severity"] == "error"
+        assert checks["data_readiness_ready_for_production_replay"]["severity"] == "error"
         assert checks["sec_enriched_candidate_materialized_for_audit"]["severity"] == "error"
         assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["severity"] == "error"
 

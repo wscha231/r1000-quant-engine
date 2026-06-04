@@ -40,6 +40,8 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         )
         (free / "sec").mkdir(parents=True)
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
+        (root / "data_pit" / "macro").mkdir(parents=True)
+        (root / "data_pit" / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
         write_json(pit / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "pit_label": "pit_proxy_universe", "known_gaps": []})
         write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
         pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-11", "2026-05-11"], "score": [1, 2]}).to_csv(
@@ -78,7 +80,67 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         payload = build_payload(args)
         assert payload["status"] == "ready"
         assert payload["ready_for_skip_collector_replay"] is True
+        assert payload["ready_for_policy_replay"] is True
         assert payload["blockers"] == []
+
+
+def test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "outputs"
+        reports = latest / "reports"
+        cache = root / "cache_prices"
+        free = root / "data_raw" / "free"
+        pit = root / "data_pit"
+        manifests = root / "manifests" / "free_data"
+        cache.mkdir(parents=True)
+        reports.mkdir(parents=True)
+        for idx in range(3):
+            (cache / f"{idx}.parquet").write_bytes(b"placeholder")
+        write_json(
+            free / "prices" / "replay_price_cache_manifest.json",
+            {"start": "2019-01-01", "end": "2026-05-11", "ticker_count": 3, "failed_count": 0, "status": "completed"},
+        )
+        (pit / "sec").mkdir(parents=True)
+        (pit / "sec" / "form4_transactions.parquet").write_bytes(b"pit")
+        (pit / "sec" / "institutional_13f_holdings.parquet").write_bytes(b"pit")
+        (pit / "macro").mkdir(parents=True)
+        (pit / "macro" / "long_crisis_daily_features.parquet").write_bytes(b"macro")
+        write_json(root / "data_pit" / "free" / "coverage_audit.json", {"readiness": "ready_for_proxy_replay", "known_gaps": []})
+        write_json(manifests / "latest_manifest.json", {"status": "completed", "generated_at_utc": "2026-05-12T00:00:00Z"})
+        pd.DataFrame({"ticker": ["AAA", "BBB"], "feature_date": ["2026-05-11", "2026-05-11"], "score": [1, 2]}).to_csv(
+            latest / "scored_latest.csv", index=False
+        )
+        pd.DataFrame({"ticker": ["AAA"], "weight": [1.0], "feature_date": ["2026-05-11"]}).to_csv(latest / "portfolio_latest.csv", index=False)
+        pd.DataFrame({"ticker": ["BBB"], "weight": [1.0], "feature_date": ["2026-05-11"]}).to_csv(
+            latest / "concentrated_portfolio_latest.csv", index=False
+        )
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["AAA"], "weight": [1.0]}).to_csv(
+            reports / "operating_main_target_book.csv", index=False
+        )
+        pd.DataFrame({"rebalance_date": ["2026-05-11"], "ticker": ["BBB"], "weight": [1.0]}).to_csv(
+            reports / "operating_concentrated_target_book.csv", index=False
+        )
+        write_json(latest / "target_snapshots" / "latest_manifest.json", {"snapshot_date": "2026-05-11"})
+
+        args = Namespace(
+            latest_run=str(latest),
+            price_cache=str(cache),
+            free_data_root=str(free),
+            coverage=str(root / "data_pit" / "free" / "coverage_audit.json"),
+            manifest=str(manifests / "latest_manifest.json"),
+            output_dir=str(root / "audit"),
+            max_stale_days=999,
+            min_price_files=3,
+            min_scored_rows=2,
+            strict=False,
+        )
+        payload = build_payload(args)
+        assert payload["ready_for_fullrun"] is False
+        assert payload["ready_for_skip_collector_replay"] is False
+        assert payload["ready_for_policy_replay"] is True
+        assert payload["policy_replay_blockers"] == []
+        assert any("companyfacts" in item for item in payload["blockers"])
 
 
 def test_data_readiness_reports_stale_operating_book() -> None:
@@ -117,5 +179,6 @@ def test_data_readiness_reports_stale_operating_book() -> None:
 
 if __name__ == "__main__":
     test_data_readiness_detects_fresh_operating_books_and_snapshots()
+    test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts()
     test_data_readiness_reports_stale_operating_book()
     print("data_readiness_smoke: PASS")

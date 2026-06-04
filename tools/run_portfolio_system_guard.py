@@ -478,14 +478,21 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
     )
     if data_readiness:
         ready_for_fullrun = bool(data_readiness.get("ready_for_fullrun"))
+        ready_for_policy_replay = bool(data_readiness.get("ready_for_policy_replay"))
         blockers = data_readiness.get("blockers") or []
+        policy_blockers = data_readiness.get("policy_replay_blockers") or []
         warnings = data_readiness.get("warnings") or []
+        ready_for_production_replay = ready_for_fullrun or ready_for_policy_replay
         out.append(
             {
-                "check": "data_readiness_ready_for_fullrun",
-                "passed": ready_for_fullrun,
-                "severity": "error" if not ready_for_fullrun else "ok",
-                "detail": f"status={data_readiness.get('status')}; ready_for_fullrun={ready_for_fullrun}; blockers={blockers}; warnings={warnings}",
+                "check": "data_readiness_ready_for_production_replay",
+                "passed": ready_for_production_replay,
+                "severity": "error" if not ready_for_production_replay else "ok",
+                "detail": (
+                    f"status={data_readiness.get('status')}; ready_for_fullrun={ready_for_fullrun}; "
+                    f"ready_for_policy_replay={ready_for_policy_replay}; blockers={blockers}; "
+                    f"policy_replay_blockers={policy_blockers}; warnings={warnings}"
+                ),
             }
         )
     dataset_coverage = inputs.get("dataset_coverage") or {}
