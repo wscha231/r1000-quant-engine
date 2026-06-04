@@ -582,8 +582,8 @@ def test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     ]
     capped = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(selected, "concentrated")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["CAP"]["weight"] == 0.20
-    assert by_ticker["CAP"]["target_weight"] == 0.20
+    assert by_ticker["CAP"]["weight"] == 0.12
+    assert by_ticker["CAP"]["target_weight"] == 0.12
     assert by_ticker["CAP"]["concentrated_unconfirmed_quality_bull_new_entry_cap_status"] == "applied"
     assert by_ticker["CONFIRMED"]["weight"] == 0.30
     assert by_ticker["NEUTRAL"]["weight"] == 0.30

@@ -122,6 +122,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Compact replay artifact size may increase slightly, but this file is required evidence for production-valid vNext replay audits.
 
+### 16:48 KST - tighten-concentrated-quality-bull-entry-cap
+
+- scope:
+  - Start broker-rule CAGR/MDD improvement after the data-valid replay gate by tightening a narrow concentrated-only unconfirmed quality-bull NEW-entry cap.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP` from 20% to 12%.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->updates the cap assertion to the new 12% limit.
+  - `CHANGELOG.md` ->records the policy experiment and verification requirement.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated NEW entries at 12% when `market_style_regime_label=quality_compounder`, regime is bull, and confirmation is below 0.50.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/alphaops_vnext/*target_book.csv` ->future replay should show lower weights and higher cash for affected concentrated unconfirmed quality-bull NEW entries.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "...compile(...)"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This is a broker-replay experiment, not an accepted policy until a fast replay proves concentrated MDD improves with acceptable CAGR and Sharpe impact.
+  - Motivation from run `26936165688`: concentrated 2021-11-08 to 2023-09-26 MDD losses included BLDR, ACLS, ANET, and ON quality-bull unconfirmed NEW entries near 16%-20% target weight; row-proxy favored a 12% cap.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback
