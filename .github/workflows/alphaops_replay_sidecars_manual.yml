@@ -426,7 +426,6 @@ jobs:
           else
             echo "[replay] skipping extended research sidecars; set run_extended_research_sidecars=true to include superperformance and integrated theme/leader/crisis replay"
             rm -rf outputs/superperformance_trader_replay outputs/integrated_theme_leader_crisis_replay outputs/strategy_logic_ledger
-            rm -f outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
           fi
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "$SOURCE_RUN_ID" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "$PORTFOLIO_POLICY" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
@@ -448,6 +447,7 @@ jobs:
             !outputs/alphaops_vnext/rejected_by_reason.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/position_risk_weekly_validation/

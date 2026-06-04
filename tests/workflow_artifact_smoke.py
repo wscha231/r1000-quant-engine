@@ -446,7 +446,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "run_extended_research_sidecars",
         "inputs.run_extended_research_sidecars",
         "skipping extended research sidecars",
-        "rm -f outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+        "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
         "!outputs/alphaops_vnext/lane_scores_history.csv",
         "!outputs/alphaops_vnext/rejected_by_reason.csv",
         "Upload extended replay research artifact",
@@ -539,6 +539,7 @@ def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
         "python run_local.py --full",
         "Refresh SEC companyfacts bulk archive",
         "Full Rebuild START",
+        "rm -f outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
     ]:
         assert forbidden not in text, forbidden
 

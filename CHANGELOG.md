@@ -97,6 +97,31 @@ All entries must be written in English. Entries must be predictable and machine-
   - Run `26930143678` and run `26930897465` succeeded but were data-invalid for production analysis because vNext used the base candidate book while SEC/smart-money evidence existed.
   - Run `26931670009` proved Drive evidence restore and SEC-enriched candidate generation worked, then failed on timezone-aware PIT comparison; this was fixed by `enforce_pit_available(candidate)`.
 
+### 15:56 KST - preserve-enriched-replay-candidate
+
+- scope:
+  - Preserve the SEC-enriched candidate book as a first-class fast replay artifact even when slower extended research sidecars are disabled.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->keeps `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` after production replay and includes it in the compact replay artifact.
+  - `tests/workflow_artifact_smoke.py` ->asserts the enriched candidate CSV is uploaded and that the skip-extended-sidecars path does not delete it.
+  - `CHANGELOG.md` ->records the replay artifact preservation fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `Upload replay artifact` workflow step ->includes `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` in the compact replay artifact.
+  - `Run fast replay sidecars` workflow step ->stops deleting the SEC-enriched candidate CSV when `run_extended_research_sidecars=false`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` ->preserved in compact replay artifacts for data-utilization audit and future agent inspection.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - Compact replay artifact size may increase slightly, but this file is required evidence for production-valid vNext replay audits.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback
