@@ -5,14 +5,29 @@ from __future__ import annotations
 import csv
 import sys
 import json
+import os
+import shutil
+import uuid
 from argparse import Namespace
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_portfolio_system_guard import run  # noqa: E402
+
+
+class TestWorkspace:
+    def __init__(self, name: str) -> None:
+        base = Path(os.environ.get("R1000_TEST_TMPDIR", REPO_ROOT.parent / "_tmp"))
+        self.path = base / f"{name}_{uuid.uuid4().hex}"
+
+    def __enter__(self) -> Path:
+        self.path.mkdir(parents=True, exist_ok=True)
+        return self.path
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -30,9 +45,9 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def test_portfolio_system_guard_reports_target_gaps() -> None:
-    with TemporaryDirectory() as tmp:
-        out_dir = Path(tmp) / "guard"
-        latest = Path(tmp) / "latest"
+    with TestWorkspace("portfolio_system_guard") as tmp:
+        out_dir = tmp / "guard"
+        latest = tmp / "latest"
         write_json(
             latest / "broker_replay" / "main" / "metrics.json",
             {
@@ -74,6 +89,34 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
                 "daily_risk_action_evidence_count": 2,
                 "full_nonmonthly_entry_replacement_validated": False,
             },
+        )
+        write_json(
+            latest / "data_readiness" / "summary.json",
+            {"status": "ready", "ready_for_fullrun": True, "blockers": [], "warnings": []},
+        )
+        write_json(
+            latest / "reports" / "dataset_coverage_audit.json",
+            {
+                "status": "completed",
+                "sec_enriched_candidate_present": True,
+                "sec_enriched_evidence_summary": {"rows_with_smart_money_evidence": 10},
+            },
+        )
+        write_json(
+            latest / "sec_enriched_candidate_replay" / "summary.json",
+            {"status": "ok", "rows_with_smart_money_evidence": 10},
+        )
+        write_json(
+            latest / "alphaops_vnext" / "summary.json",
+            {
+                "status": "completed",
+                "candidate_book": "outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv",
+                "production_policy": "alphaops_vnext_production",
+            },
+        )
+        write_json(
+            latest / "alphaops_vnext" / "production_activation.json",
+            {"production_policy": "alphaops_vnext_production"},
         )
         write_csv(latest / "reports" / "main_monthly_weights.csv", [{"rebalance_date": "2025-12-31", "ticker": "AAA", "weight": 1.0}])
         write_csv(
@@ -132,6 +175,9 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
         assert checks["operating_event_backtest_available"]["passed"] is True
         assert checks["daily_risk_overlay_backtest_validated"]["passed"] is True
         assert checks["full_nonmonthly_entry_replacement_backtest_validated"]["severity"] == "warn"
+        assert checks["data_readiness_ready_for_fullrun"]["passed"] is True
+        assert checks["sec_enriched_candidate_materialized_for_audit"]["passed"] is True
+        assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["passed"] is True
         assert checks["current_only_operating_holdings_available"]["passed"] is True
         assert checks["main_current_position_count_near_latest_target_count"]["passed"] is False
         assert checks["concentrated_replay_filter_matches_latest_target"]["passed"] is True
@@ -144,9 +190,9 @@ def test_portfolio_system_guard_reports_target_gaps() -> None:
 
 
 def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:
-    with TemporaryDirectory() as tmp:
-        out_dir = Path(tmp) / "guard"
-        latest = Path(tmp) / "latest"
+    with TestWorkspace("portfolio_system_guard_stale") as tmp:
+        out_dir = tmp / "guard"
+        latest = tmp / "latest"
         write_json(
             latest / "broker_replay" / "main" / "metrics.json",
             {
@@ -201,7 +247,78 @@ def test_portfolio_system_guard_blocks_stale_historical_broker_replay() -> None:
         assert checks["concentrated_broker_replay_uses_operating_target_book"]["severity"] == "error"
 
 
+def test_portfolio_system_guard_blocks_data_readiness_failures() -> None:
+    with TestWorkspace("portfolio_system_guard_data") as tmp:
+        out_dir = tmp / "guard"
+        latest = tmp / "latest"
+        for portfolio in ("main", "concentrated"):
+            target = f"outputs/reports/operating_{portfolio}_target_book.csv"
+            write_json(
+                latest / "broker_replay" / portfolio / "metrics.json",
+                {
+                    "status": "completed",
+                    "metric_mode": "broker_ledger_next_close",
+                    "valid_for_production": True,
+                    "cagr": 0.60,
+                    "max_dd": -0.10,
+                    "sharpe": 2.0,
+                    "end_date": "2026-01-10",
+                    "target_book": target,
+                },
+            )
+        write_csv(latest / "reports" / "main_monthly_weights.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "reports" / "concentrated_strategy_holdings.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "reports" / "operating_main_target_book.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "reports" / "operating_concentrated_target_book.csv", [{"rebalance_date": "2026-01-09", "ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "portfolio_latest.csv", [{"ticker": "AAA", "weight": 1.0}])
+        write_csv(latest / "concentrated_portfolio_latest.csv", [{"ticker": "AAA", "weight": 1.0}])
+        write_json(
+            latest / "data_readiness" / "summary.json",
+            {
+                "status": "blocked",
+                "ready_for_fullrun": False,
+                "blockers": ["no SEC companyfacts archive was found"],
+                "warnings": ["canonical data_raw/free/sec/companyfacts.zip is missing"],
+            },
+        )
+        write_json(
+            latest / "reports" / "dataset_coverage_audit.json",
+            {
+                "status": "completed",
+                "sec_enriched_candidate_present": False,
+                "sec_enriched_evidence_summary": {"rows_with_smart_money_evidence": 5},
+            },
+        )
+        write_json(latest / "sec_enriched_candidate_replay" / "summary.json", {"rows_with_smart_money_evidence": 5})
+        write_json(
+            latest / "alphaops_vnext" / "summary.json",
+            {
+                "candidate_book": "outputs/reports/candidate_replay_book.csv",
+                "production_policy": "alphaops_vnext_production",
+            },
+        )
+        write_json(latest / "alphaops_vnext" / "production_activation.json", {"production_policy": "alphaops_vnext_production"})
+
+        result = run(
+            Namespace(
+                latest_run=str(latest),
+                output_dir=str(out_dir),
+                main_cagr_target=0.30,
+                main_max_dd_target=-0.20,
+                concentrated_cagr_target=0.50,
+                concentrated_max_dd_target=-0.25,
+                strict_targets=False,
+            )
+        )
+        checks = {row["check"]: row for row in result["error_checks"]}
+        assert result["overall_status"] == "blocked"
+        assert checks["data_readiness_ready_for_fullrun"]["severity"] == "error"
+        assert checks["sec_enriched_candidate_materialized_for_audit"]["severity"] == "error"
+        assert checks["alphaops_vnext_uses_sec_enriched_candidate_book"]["severity"] == "error"
+
+
 if __name__ == "__main__":
     test_portfolio_system_guard_reports_target_gaps()
     test_portfolio_system_guard_blocks_stale_historical_broker_replay()
+    test_portfolio_system_guard_blocks_data_readiness_failures()
     print("portfolio_system_guard_smoke: ok")

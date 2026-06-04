@@ -267,6 +267,16 @@ def load_inputs(latest_run: Path) -> dict[str, Any]:
         or read_json(REPO_ROOT / "outputs" / "portfolio_goal_search" / "goal_search_summary.json"),
         "account_evaluation": read_json(latest_run / "account_evaluation" / "account_evaluation_summary.json")
         or read_json(REPO_ROOT / "outputs" / "account_evaluation" / "account_evaluation_summary.json"),
+        "data_readiness": read_json(latest_run / "data_readiness" / "summary.json")
+        or read_json(REPO_ROOT / "outputs" / "data_readiness" / "summary.json"),
+        "dataset_coverage": read_json(latest_run / "reports" / "dataset_coverage_audit.json")
+        or read_json(REPO_ROOT / "outputs" / "reports" / "dataset_coverage_audit.json"),
+        "sec_enriched_candidate": read_json(latest_run / "sec_enriched_candidate_replay" / "summary.json")
+        or read_json(REPO_ROOT / "outputs" / "sec_enriched_candidate_replay" / "summary.json"),
+        "alphaops_vnext": read_json(latest_run / "alphaops_vnext" / "summary.json")
+        or read_json(REPO_ROOT / "outputs" / "alphaops_vnext" / "summary.json"),
+        "production_activation": read_json(latest_run / "alphaops_vnext" / "production_activation.json")
+        or read_json(REPO_ROOT / "outputs" / "alphaops_vnext" / "production_activation.json"),
         "operating_event_backtest": read_json(latest_run / "operating_event_backtest" / "operating_event_backtest_summary.json")
         or read_json(REPO_ROOT / "outputs" / "operating_event_backtest" / "operating_event_backtest_summary.json"),
         "workflows": existing_workflows(),
@@ -455,6 +465,64 @@ def error_checks(inputs: dict[str, Any], latest_run: Path, require_latest_artifa
                 "passed": full_entries,
                 "severity": "warn" if not full_entries else "ok",
                 "detail": f"full_nonmonthly_entry_replacement_validated={full_entries}; daily_risk_action_evidence_count={action_count}",
+            }
+        )
+    data_readiness = inputs.get("data_readiness") or {}
+    out.append(
+        {
+            "check": "data_readiness_audit_available",
+            "passed": bool(data_readiness),
+            "severity": "warn" if not data_readiness else "ok",
+            "detail": "outputs/data_readiness/summary.json",
+        }
+    )
+    if data_readiness:
+        ready_for_fullrun = bool(data_readiness.get("ready_for_fullrun"))
+        blockers = data_readiness.get("blockers") or []
+        warnings = data_readiness.get("warnings") or []
+        out.append(
+            {
+                "check": "data_readiness_ready_for_fullrun",
+                "passed": ready_for_fullrun,
+                "severity": "error" if not ready_for_fullrun else "ok",
+                "detail": f"status={data_readiness.get('status')}; ready_for_fullrun={ready_for_fullrun}; blockers={blockers}; warnings={warnings}",
+            }
+        )
+    dataset_coverage = inputs.get("dataset_coverage") or {}
+    out.append(
+        {
+            "check": "dataset_coverage_audit_available",
+            "passed": bool(dataset_coverage),
+            "severity": "warn" if not dataset_coverage else "ok",
+            "detail": "outputs/reports/dataset_coverage_audit.json",
+        }
+    )
+    if dataset_coverage:
+        sec_present = bool(dataset_coverage.get("sec_enriched_candidate_present"))
+        sec_summary = dataset_coverage.get("sec_enriched_evidence_summary") or {}
+        evidence_rows = int(safe_float(sec_summary.get("rows_with_smart_money_evidence"), 0))
+        out.append(
+            {
+                "check": "sec_enriched_candidate_materialized_for_audit",
+                "passed": sec_present or evidence_rows == 0,
+                "severity": "error" if evidence_rows > 0 and not sec_present else "ok",
+                "detail": f"sec_enriched_candidate_present={sec_present}; rows_with_smart_money_evidence={evidence_rows}",
+            }
+        )
+    sec_enriched = inputs.get("sec_enriched_candidate") or {}
+    alphaops = inputs.get("alphaops_vnext") or {}
+    activation = inputs.get("production_activation") or {}
+    production_policy = str(activation.get("production_policy") or alphaops.get("production_policy") or "")
+    alphaops_candidate = str(alphaops.get("candidate_book") or "").replace("\\", "/")
+    sec_rows = int(safe_float(sec_enriched.get("rows_with_smart_money_evidence"), 0))
+    if production_policy == "alphaops_vnext_production" and sec_rows > 0:
+        uses_enriched = "sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv" in alphaops_candidate
+        out.append(
+            {
+                "check": "alphaops_vnext_uses_sec_enriched_candidate_book",
+                "passed": uses_enriched,
+                "severity": "error" if not uses_enriched else "ok",
+                "detail": f"candidate_book={alphaops_candidate or 'missing'}; rows_with_smart_money_evidence={sec_rows}",
             }
         )
     replay = inputs.get("orchestrator_replay") or {}
