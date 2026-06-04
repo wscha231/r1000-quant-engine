@@ -148,6 +148,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is a broker-replay experiment, not an accepted policy until a fast replay proves concentrated MDD improves with acceptable CAGR and Sharpe impact.
   - Motivation from run `26936165688`: concentrated 2021-11-08 to 2023-09-26 MDD losses included BLDR, ACLS, ANET, and ON quality-bull unconfirmed NEW entries near 16%-20% target weight; row-proxy favored a 12% cap.
 
+### 17:49 KST - cap-watch-unconfirmed-market-leader-entries
+
+- scope:
+  - Add narrow main and concentrated cash-wait caps for unconfirmed MARKET_LEADER NEW entries during WATCH/DEFENSE neutral quality-compounder conditions.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds main 4% and concentrated 8% caps for unconfirmed WATCH/DEFENSE neutral MARKET_LEADER NEW entries.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new main and concentrated cap functions and their non-applicable cases.
+  - `CHANGELOG.md` ->records the policy experiment and broker-replay verification requirement.
+- symbols_added:
+  - `apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)` ->caps main low-confirmation MARKET_LEADER NEW entries at 4% in WATCH/DEFENSE neutral quality-compounder regimes.
+  - `apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated low-confirmation MARKET_LEADER NEW entries at 8% in WATCH/DEFENSE neutral quality-compounder regimes.
+- symbols_changed:
+  - `build(args)` ->applies the new main cap after the high-volatility NEW-entry cap and applies the new concentrated cap after the high-volatility WATCH cap.
+- config_fields_added:
+  - `MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP: float = 0.04` ->main cap for unconfirmed WATCH/DEFENSE neutral MARKET_LEADER NEW entries.
+  - `MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD: float = 0.50` ->main confirmation threshold for the new cap.
+  - `CONCENTRATED_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP: float = 0.08` ->concentrated cap for unconfirmed WATCH/DEFENSE neutral MARKET_LEADER NEW entries.
+  - `CONCENTRATED_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD: float = 0.50` ->concentrated confirmation threshold for the new cap.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show `main_watch_unconfirmed_ml_new_entry_cap_status=applied` for affected main rows.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show `concentrated_watch_unconfirmed_ml_new_entry_cap_status=applied` for affected concentrated rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "...compile(...)"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This policy is not accepted until a fast broker replay confirms MDD improves without unacceptable CAGR/Sharpe loss.
+  - Motivation from run `26938502287`: row-proxy favored these narrow caps around 2021-11 WATCH entries such as AMD, RKLB, CAR, and NVDA; broad low-confirmation MARKET_LEADER caps were rejected because they hurt full-period proxy returns.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback
