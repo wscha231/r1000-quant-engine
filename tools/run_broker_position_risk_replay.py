@@ -53,6 +53,11 @@ from run_weekly_evaluation import load_price_series  # noqa: E402
 
 
 DEFAULT_OUT_DIR = "outputs/broker_position_risk_replay"
+DEFAULT_HARD_STOP = -0.12
+DEFAULT_TRAILING_STOP = -0.20
+DEFAULT_TRAILING_ACTIVATION = 0.25
+DEFAULT_RELATIVE_TRIM_THRESHOLD = -0.10
+DEFAULT_RELATIVE_EXIT_THRESHOLD = -0.20
 
 
 @dataclass
@@ -294,11 +299,11 @@ def replay(
     max_reasonable_weight_sum: float = 1.05,
     max_fill_lag_days: int = 7,
     benchmark_ticker: str = "SPY",
-    hard_stop: float = -0.08,
-    trailing_stop: float = -0.15,
-    trailing_activation: float = 0.15,
-    relative_trim_threshold: float = -0.06,
-    relative_exit_threshold: float = -0.12,
+    hard_stop: float = DEFAULT_HARD_STOP,
+    trailing_stop: float = DEFAULT_TRAILING_STOP,
+    trailing_activation: float = DEFAULT_TRAILING_ACTIVATION,
+    relative_trim_threshold: float = DEFAULT_RELATIVE_TRIM_THRESHOLD,
+    relative_exit_threshold: float = DEFAULT_RELATIVE_EXIT_THRESHOLD,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
@@ -556,11 +561,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-integer-shares", action="store_true")
     parser.add_argument("--max-fill-lag-days", type=int, default=7)
     parser.add_argument("--benchmark-ticker", default="SPY")
-    parser.add_argument("--hard-stop", type=float, default=-0.08)
-    parser.add_argument("--trailing-stop", type=float, default=-0.15)
-    parser.add_argument("--trailing-activation", type=float, default=0.15)
-    parser.add_argument("--relative-trim-threshold", type=float, default=-0.06)
-    parser.add_argument("--relative-exit-threshold", type=float, default=-0.12)
+    parser.add_argument("--hard-stop", type=float, default=DEFAULT_HARD_STOP)
+    parser.add_argument("--trailing-stop", type=float, default=DEFAULT_TRAILING_STOP)
+    parser.add_argument("--trailing-activation", type=float, default=DEFAULT_TRAILING_ACTIVATION)
+    parser.add_argument("--relative-trim-threshold", type=float, default=DEFAULT_RELATIVE_TRIM_THRESHOLD)
+    parser.add_argument("--relative-exit-threshold", type=float, default=DEFAULT_RELATIVE_EXIT_THRESHOLD)
     return parser.parse_args()
 
 

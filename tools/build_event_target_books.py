@@ -60,6 +60,12 @@ DEFAULT_CLUSTER_CAPS: dict[str, dict[str, float]] = {
     "main": {"single_name": 0.12, "industry_group": 0.35, "sector": 0.55},
     "concentrated": {"single_name": 0.25, "industry_group": 0.40, "sector": 0.55},
 }
+DEFAULT_HARD_STOP = -0.12
+DEFAULT_TRAILING_STOP = -0.20
+DEFAULT_TRAILING_ACTIVATION = 0.25
+DEFAULT_RELATIVE_TRIM_THRESHOLD = -0.10
+DEFAULT_RELATIVE_EXIT_THRESHOLD = -0.20
+DEFAULT_TRIM_WEIGHT = 0.35
 DEFENSE_STATES = {"DEFENSE_REVIEW", "CRISIS_DEFENSE"}
 
 
@@ -753,12 +759,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concentrated-single-name-cap", type=float, default=DEFAULT_CLUSTER_CAPS["concentrated"]["single_name"])
     parser.add_argument("--concentrated-industry-group-cap", type=float, default=DEFAULT_CLUSTER_CAPS["concentrated"]["industry_group"])
     parser.add_argument("--concentrated-sector-cap", type=float, default=DEFAULT_CLUSTER_CAPS["concentrated"]["sector"])
-    parser.add_argument("--hard-stop", type=float, default=-0.08)
-    parser.add_argument("--trailing-stop", type=float, default=-0.15)
-    parser.add_argument("--trailing-activation", type=float, default=0.15)
-    parser.add_argument("--relative-trim-threshold", type=float, default=-0.06)
-    parser.add_argument("--relative-exit-threshold", type=float, default=-0.12)
-    parser.add_argument("--trim-weight", type=float, default=0.50)
+    parser.add_argument("--hard-stop", type=float, default=DEFAULT_HARD_STOP)
+    parser.add_argument("--trailing-stop", type=float, default=DEFAULT_TRAILING_STOP)
+    parser.add_argument("--trailing-activation", type=float, default=DEFAULT_TRAILING_ACTIVATION)
+    parser.add_argument("--relative-trim-threshold", type=float, default=DEFAULT_RELATIVE_TRIM_THRESHOLD)
+    parser.add_argument("--relative-exit-threshold", type=float, default=DEFAULT_RELATIVE_EXIT_THRESHOLD)
+    parser.add_argument("--trim-weight", type=float, default=DEFAULT_TRIM_WEIGHT)
     return parser.parse_args()
 
 

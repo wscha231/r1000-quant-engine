@@ -45,6 +45,7 @@ REQUIRED_USER_FILES = [
     "05_action_summary.md",
     "06_benchmark_comparison.csv",
     "07_research_sidecar_context.json",
+    "08_broker_rule_backtest.json",
 ]
 
 
@@ -245,6 +246,147 @@ def official_metric_mode(metrics: dict[str, Any]) -> str:
     return str(metrics.get("official_metric_mode") or metrics.get("metric_mode") or "")
 
 
+def optional_float(value: Any) -> float | None:
+    out = safe_float(value, np.nan)
+    return float(out) if math.isfinite(out) else None
+
+
+def metric_payload(metrics: dict[str, Any], *, source: str = "", default_mode: str = "") -> dict[str, Any]:
+    mode = str(metrics.get("official_metric_mode") or metrics.get("metric_mode") or default_mode or "")
+    return {
+        "status": metrics.get("status", "missing") if metrics else "missing",
+        "metric_mode": mode,
+        "source": source,
+        "valid_for_production": bool(metrics.get("valid_for_production", False)) if metrics else False,
+        "start_date": metrics.get("start_date", "") if metrics else "",
+        "end_date": metrics.get("end_date", "") if metrics else "",
+        "cagr": optional_float(metrics.get("cagr")) if metrics else None,
+        "max_dd": optional_float(metrics.get("max_dd")) if metrics else None,
+        "sharpe": optional_float(metrics.get("sharpe")) if metrics else None,
+        "avg_cash_weight": optional_float(metrics.get("avg_cash_weight")) if metrics else None,
+        "ending_capital_usd": optional_float(metrics.get("ending_capital_usd")) if metrics else None,
+        "trade_count": int(safe_float(metrics.get("broker_trade_count", metrics.get("trade_count")), 0)) if metrics else 0,
+        "total_fees_usd": optional_float(metrics.get("total_fees_usd")) if metrics else None,
+        "fill_mode": metrics.get("fill_mode", "") if metrics else "",
+        "integer_shares": metrics.get("integer_shares", None) if metrics else None,
+        "cost_bps_per_side": optional_float(metrics.get("cost_bps_per_side")) if metrics else None,
+    }
+
+
+def official_portfolio_metric(latest_run: Path, metrics: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    portfolios = metrics.get("portfolios") if isinstance(metrics.get("portfolios"), dict) else {}
+    item = portfolios.get(portfolio) if isinstance(portfolios, dict) else {}
+    if not isinstance(item, dict) or not item:
+        item = metrics.get(portfolio) if isinstance(metrics.get(portfolio), dict) else {}
+    if isinstance(item, dict) and item:
+        broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+        merged = {**broker, **item} if broker else dict(item)
+        source = str(item.get("official_source") or "account_evaluation/official_metrics.json")
+        return metric_payload(merged, source=source, default_mode=official_metric_mode(metrics))
+    broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+    return metric_payload(broker, source=f"broker_replay/{portfolio}/metrics.json", default_mode="broker_ledger_next_close")
+
+
+def event_backtest_row(summary: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    rows = summary.get("portfolios") if isinstance(summary.get("portfolios"), list) else []
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("portfolio") or "").lower() == portfolio:
+            return row
+    return {}
+
+
+def build_broker_rule_backtest(latest_run: Path, metrics: dict[str, Any]) -> dict[str, Any]:
+    event_summary = read_json(latest_run / "operating_event_backtest" / "operating_event_backtest_summary.json")
+    payload: dict[str, Any] = {
+        "schema_version": "user-current-broker-rule-backtest-v1",
+        "official_metric_mode": official_metric_mode(metrics) or "missing",
+        "display_rule": {
+            "current_holdings_backtest": "official broker-ledger replay only",
+            "official_rule": "next-close fills, integer shares, explicit cash ledger, trading costs included",
+            "daily_monitoring_rule": "daily close risk signals with next-close risk fills are shown as a separate monitoring overlay",
+            "deprecated_weight_level_metrics_allowed": False,
+        },
+        "daily_monitoring_status": "validated" if event_summary.get("daily_risk_overlay_validated") else "missing_or_unvalidated",
+        "daily_risk_overlay_validated": bool(event_summary.get("daily_risk_overlay_validated", False)),
+        "daily_risk_action_evidence_count": int(safe_float(event_summary.get("daily_risk_action_evidence_count"), 0)),
+        "full_nonmonthly_entry_replacement_validated": bool(event_summary.get("full_nonmonthly_entry_replacement_validated", False)),
+        "operating_event_backtest_source": "operating_event_backtest/operating_event_backtest_summary.json"
+        if event_summary
+        else "",
+        "portfolios": {},
+    }
+    for portfolio in PORTFOLIOS:
+        event_row = event_backtest_row(event_summary, portfolio)
+        event_broker = read_json(latest_run / "event_broker_replay" / portfolio / "metrics.json")
+        position_risk = read_json(latest_run / "broker_position_risk_replay" / portfolio / "metrics.json")
+        execution_policy = read_json(latest_run / "broker_execution_policy_replay" / portfolio / "metrics.json")
+        payload["portfolios"][portfolio] = {
+            "official_broker_ledger": official_portfolio_metric(latest_run, metrics, portfolio),
+            "daily_monitoring_backtest": {
+                "status": event_row.get("operating_event_backtest_status", "missing"),
+                "daily_risk_engine_backtest_completed": bool(event_row.get("daily_risk_engine_backtest_completed", False)),
+                "daily_risk_action_evidence": bool(event_row.get("daily_risk_action_evidence", False)),
+                "risk_action_count": int(safe_float(event_row.get("risk_action_count"), 0)),
+                "nonmonthly_risk_action_count": int(safe_float(event_row.get("nonmonthly_risk_action_count"), 0)),
+                "target_book_submonthly_decisions_validated": bool(event_row.get("target_book_submonthly_decisions_validated", False)),
+                "full_nonmonthly_entry_replacement_validated": bool(event_row.get("full_nonmonthly_entry_replacement_validated", False)),
+                "position_risk_broker_ledger": metric_payload(
+                    position_risk,
+                    source=f"broker_position_risk_replay/{portfolio}/metrics.json",
+                    default_mode="broker_ledger_position_risk_next_close",
+                ),
+                "event_target_book_broker_ledger": metric_payload(
+                    event_broker,
+                    source=f"event_broker_replay/{portfolio}/metrics.json",
+                    default_mode="broker_ledger_next_close",
+                ),
+                "execution_policy_broker_ledger": metric_payload(
+                    execution_policy,
+                    source=f"broker_execution_policy_replay/{portfolio}/metrics.json",
+                    default_mode="broker_ledger_execution_policy_next_close",
+                ),
+            },
+        }
+    return payload
+
+
+def attach_broker_rule_columns(current: pd.DataFrame, broker_rule: dict[str, Any]) -> pd.DataFrame:
+    if current.empty:
+        return current
+    out = current.copy()
+    for col in [
+        "backtest_metric_mode",
+        "official_broker_cagr",
+        "official_broker_max_dd",
+        "official_broker_sharpe",
+        "official_broker_avg_cash_weight",
+        "daily_monitoring_backtest_status",
+        "daily_monitoring_position_risk_cagr",
+        "daily_monitoring_position_risk_max_dd",
+        "daily_monitoring_risk_action_count",
+    ]:
+        out[col] = ""
+    portfolios = broker_rule.get("portfolios") if isinstance(broker_rule.get("portfolios"), dict) else {}
+    for idx, row in out.iterrows():
+        portfolio = str(row.get("portfolio_kind") or "").lower().strip()
+        item = portfolios.get(portfolio) if isinstance(portfolios, dict) else {}
+        if not isinstance(item, dict):
+            continue
+        official = item.get("official_broker_ledger") if isinstance(item.get("official_broker_ledger"), dict) else {}
+        daily = item.get("daily_monitoring_backtest") if isinstance(item.get("daily_monitoring_backtest"), dict) else {}
+        position = daily.get("position_risk_broker_ledger") if isinstance(daily.get("position_risk_broker_ledger"), dict) else {}
+        out.at[idx, "backtest_metric_mode"] = official.get("metric_mode", "")
+        out.at[idx, "official_broker_cagr"] = official.get("cagr", "")
+        out.at[idx, "official_broker_max_dd"] = official.get("max_dd", "")
+        out.at[idx, "official_broker_sharpe"] = official.get("sharpe", "")
+        out.at[idx, "official_broker_avg_cash_weight"] = official.get("avg_cash_weight", "")
+        out.at[idx, "daily_monitoring_backtest_status"] = daily.get("status", "")
+        out.at[idx, "daily_monitoring_position_risk_cagr"] = position.get("cagr", "")
+        out.at[idx, "daily_monitoring_position_risk_max_dd"] = position.get("max_dd", "")
+        out.at[idx, "daily_monitoring_risk_action_count"] = daily.get("nonmonthly_risk_action_count", "")
+    return out
+
+
 def alphaops_vnext_activation(latest_run: Path) -> dict[str, Any]:
     activation = read_json(latest_run / "alphaops_vnext" / "production_activation.json")
     if not activation:
@@ -440,7 +582,19 @@ def build_action_summary(latest_run: Path, metrics: dict[str, Any], cash: dict[s
     return "HOLD", ["no hard review flags"]
 
 
-def render_action_summary(status: str, reasons: list[str], metrics: dict[str, Any], cash: dict[str, Any], research: dict[str, Any]) -> str:
+def pct_text(value: Any) -> str:
+    number = safe_float(value, np.nan)
+    return "missing" if not math.isfinite(number) else f"{number:.2%}"
+
+
+def render_action_summary(
+    status: str,
+    reasons: list[str],
+    metrics: dict[str, Any],
+    cash: dict[str, Any],
+    research: dict[str, Any],
+    broker_rule: dict[str, Any],
+) -> str:
     lines = [
         "# User Current Action Summary",
         "",
@@ -464,18 +618,58 @@ def render_action_summary(status: str, reasons: list[str], metrics: dict[str, An
         f"- cash_policy_flag: `{cash.get('cash_policy_flag') or ''}`",
         f"- combined_projected_cash_after_ready_orders: `{safe_float(cash.get('combined_projected_cash_weight_after_ready_orders'), np.nan):.2%}`",
         "",
-        "## Research Sidecar Context",
+        "## Broker Rule Backtest",
         "",
-        "- Market Leader / Multi-Lane / Crisis outputs alter current holdings only after production activation.",
-        f"- replay_gate_status: `{research.get('replay_gate_status')}`",
-        f"- promotion_gate_status: `{research.get('promotion_gate_status')}`",
-        f"- promotion_review_status: `{research.get('promotion_review_status')}`",
-        f"- production_mutation_check_status: `{research.get('production_mutation_check_status')}`",
-        f"- production_mutation_audit_status: `{research.get('production_mutation_audit_status')}`",
+        f"- current_holdings_backtest_rule: `{broker_rule.get('official_metric_mode') or 'missing'}`",
+        "- broker_rule_detail: `next_close_fills + integer_shares + cash_ledger + trading_costs`",
+        f"- daily_monitoring_backtest_status: `{broker_rule.get('daily_monitoring_status')}`",
+        f"- daily_risk_overlay_validated: `{str(broker_rule.get('daily_risk_overlay_validated')).lower()}`",
+        f"- daily_risk_action_evidence_count: `{broker_rule.get('daily_risk_action_evidence_count')}`",
+        f"- full_nonmonthly_entry_replacement_validated: `{str(broker_rule.get('full_nonmonthly_entry_replacement_validated')).lower()}`",
         "",
-        "## Reasons",
-        "",
+        "| Portfolio | Official Broker CAGR | Official Broker MaxDD | Official Sharpe | Daily Position-Risk CAGR | Daily Position-Risk MaxDD | Daily Risk Actions |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
+    portfolios = broker_rule.get("portfolios") if isinstance(broker_rule.get("portfolios"), dict) else {}
+    for portfolio in PORTFOLIOS:
+        item = portfolios.get(portfolio) if isinstance(portfolios, dict) else {}
+        official = item.get("official_broker_ledger") if isinstance(item, dict) and isinstance(item.get("official_broker_ledger"), dict) else {}
+        daily = item.get("daily_monitoring_backtest") if isinstance(item, dict) and isinstance(item.get("daily_monitoring_backtest"), dict) else {}
+        position = daily.get("position_risk_broker_ledger") if isinstance(daily.get("position_risk_broker_ledger"), dict) else {}
+        lines.append(
+            "| {portfolio} | {cagr} | {mdd} | {sharpe:.3f} | {risk_cagr} | {risk_mdd} | {actions} |".format(
+                portfolio=portfolio,
+                cagr=pct_text(official.get("cagr")),
+                mdd=pct_text(official.get("max_dd")),
+                sharpe=safe_float(official.get("sharpe"), float("nan")),
+                risk_cagr=pct_text(position.get("cagr")),
+                risk_mdd=pct_text(position.get("max_dd")),
+                actions=int(safe_float(daily.get("nonmonthly_risk_action_count"), 0)),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "- Official current-holding performance must be judged by the broker-ledger row, not deprecated weight-level research metrics.",
+            "- Daily monitoring results are displayed separately so a risk overlay cannot be mistaken for the monthly production target-book result.",
+            "",
+        ]
+    )
+    lines.extend(
+        [
+            "## Research Sidecar Context",
+            "",
+            "- Market Leader / Multi-Lane / Crisis outputs alter current holdings only after production activation.",
+            f"- replay_gate_status: `{research.get('replay_gate_status')}`",
+            f"- promotion_gate_status: `{research.get('promotion_gate_status')}`",
+            f"- promotion_review_status: `{research.get('promotion_review_status')}`",
+            f"- production_mutation_check_status: `{research.get('production_mutation_check_status')}`",
+            f"- production_mutation_audit_status: `{research.get('production_mutation_audit_status')}`",
+            "",
+            "## Reasons",
+            "",
+        ]
+    )
     lines.extend([f"- {item}" for item in reasons] if reasons else ["- none"])
     lines.extend(
         [
@@ -506,6 +700,7 @@ This folder is the default user-facing operating view.
 - `03_period_returns.csv` uses broker replay equity curves and includes drawdown.
 - `04_official_metrics.json` is the official broker-ledger metric payload.
 - `07_research_sidecar_context.json` explains whether AlphaOps vNext or research sidecars altered current holdings.
+- `08_broker_rule_backtest.json` summarizes official broker-rule backtests and the separate daily monitoring overlay.
 - Target recommendation books are not current holdings and are hidden by default.
 - Market Leader / Multi-Lane / Crisis sidecars are research-only unless explicitly promoted; `alphaops_vnext_production` replaces the operating book before broker replay.
 - `outputs/operator_review/projected_holdings_after_integrated_target.csv` shows the shadow target delta when available.
@@ -524,6 +719,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     current = normalize_current_holdings(latest_run)
+    metrics = load_official_metrics(latest_run)
+    broker_rule = build_broker_rule_backtest(latest_run, metrics)
+    current = attach_broker_rule_columns(current, broker_rule)
     current.to_csv(output_dir / "01_current_holdings.csv", index=False)
 
     cash = build_cash_summary(latest_run, current)
@@ -534,13 +732,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     benchmarks = period[period["series_type"].astype(str).eq("benchmark")].copy() if not period.empty else pd.DataFrame()
     benchmarks.to_csv(output_dir / "06_benchmark_comparison.csv", index=False)
 
-    metrics = load_official_metrics(latest_run)
     write_json(output_dir / "04_official_metrics.json", metrics)
     research = research_sidecar_context(latest_run)
     write_json(output_dir / "07_research_sidecar_context.json", research)
+    write_json(output_dir / "08_broker_rule_backtest.json", broker_rule)
 
     status, reasons = build_action_summary(latest_run, metrics, cash)
-    (output_dir / "05_action_summary.md").write_text(render_action_summary(status, reasons, metrics, cash, research), encoding="utf-8")
+    (output_dir / "05_action_summary.md").write_text(
+        render_action_summary(status, reasons, metrics, cash, research, broker_rule),
+        encoding="utf-8",
+    )
     write_readme(output_dir / "README_FIRST.md")
 
     payload = {
@@ -568,6 +769,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "mid_month_reentry_allowed": bool(research.get("mid_month_reentry_allowed")),
         "current_holdings_source": research.get("current_holdings_source"),
         "research_sidecar_message": research.get("message"),
+        "broker_rule_backtest_path": str(output_dir / "08_broker_rule_backtest.json"),
+        "official_metric_mode": broker_rule.get("official_metric_mode"),
+        "daily_monitoring_backtest_status": broker_rule.get("daily_monitoring_status"),
+        "daily_risk_overlay_validated": bool(broker_rule.get("daily_risk_overlay_validated")),
+        "daily_risk_action_evidence_count": int(safe_float(broker_rule.get("daily_risk_action_evidence_count"), 0)),
+        "full_nonmonthly_entry_replacement_validated": bool(broker_rule.get("full_nonmonthly_entry_replacement_validated")),
         "required_files": REQUIRED_USER_FILES,
         "missing_required_files": [name for name in REQUIRED_USER_FILES if not (output_dir / name).exists()],
     }
