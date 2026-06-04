@@ -207,13 +207,13 @@ def test_sec_available_from_columns_are_pit_checked_and_positive_only() -> None:
                 "rebalance_date": "2026-02-28",
                 "ticker": "FUT",
                 "sec_13f_smart_money_score": 10.0,
-                "latest_13f_available_from": "2026-03-15",
+                "latest_13f_available_from": "2026-03-15T18:00:00Z",
             },
             {
                 "rebalance_date": "2026-02-28",
                 "ticker": "OK",
                 "sec_13f_smart_money_score": 4.0,
-                "latest_13f_available_from": "2026-02-15",
+                "latest_13f_available_from": "2026-02-15T18:00:00+00:00",
             },
             {
                 "rebalance_date": "2026-02-28",

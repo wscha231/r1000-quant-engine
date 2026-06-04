@@ -218,7 +218,7 @@ def enforce_pit_available(candidate: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     d = candidate.copy()
     if "rebalance_date" not in d.columns:
         return d, pd.DataFrame()
-    signal_dt = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
+    signal_dt = pd.to_datetime(d["rebalance_date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
     availability_cols = sorted(
         {
             col
@@ -232,7 +232,7 @@ def enforce_pit_available(candidate: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
         return d, pd.DataFrame()
     blocked = pd.Series(False, index=d.index)
     for col in availability_cols:
-        available = pd.to_datetime(d[col], errors="coerce").dt.normalize()
+        available = pd.to_datetime(d[col], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
         blocked = blocked | (available.notna() & signal_dt.notna() & available.gt(signal_dt))
     evidence_cols = [
         col
