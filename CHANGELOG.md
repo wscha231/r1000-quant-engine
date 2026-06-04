@@ -179,6 +179,39 @@ All entries must be written in English. Entries must be predictable and machine-
   - This policy is not accepted until a fast broker replay confirms MDD improves without unacceptable CAGR/Sharpe loss.
   - Motivation from run `26938502287`: row-proxy favored these narrow caps around 2021-11 WATCH entries such as AMD, RKLB, CAR, and NVDA; broad low-confirmation MARKET_LEADER caps were rejected because they hurt full-period proxy returns.
 
+### 19:03 KST - cap-green-weak-rs-and-cyclical-entries
+
+- scope:
+  - Add two narrow cash-wait caps for remaining MDD contributors after run `26941791195`: main cyclical high-volatility GREEN neutral NEW entries and concentrated confirmed GREEN MARKET_LEADER NEW entries with weak 1-month benchmark-relative strength.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds main 6% cyclical high-vol NEW-entry cap and concentrated 15% weak-RS confirmed MARKET_LEADER NEW-entry cap.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers both new cap functions and non-applicable cases.
+  - `CHANGELOG.md` ->records the policy experiment and broker-replay verification requirement.
+- symbols_added:
+  - `apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->caps main Energy/Materials MARKET_LEADER NEW entries at 6% when crisis is GREEN, regime is neutral, and ATR14 is at least 10%.
+  - `apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated confirmed MARKET_LEADER NEW entries at 15% when crisis is GREEN and 1-month benchmark-relative strength is below 12%.
+- symbols_changed:
+  - `build(args)` ->applies the new main cap after existing main high-volatility and WATCH unconfirmed caps, and applies the new concentrated cap before unconfirmed concentrated caps.
+- config_fields_added:
+  - `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP: float = 0.06` ->main cap for cyclical high-volatility GREEN neutral MARKET_LEADER NEW entries.
+  - `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD: float = 0.10` ->minimum ATR14 percentage for the main cyclical cap.
+  - `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_SECTORS: set[str] = {"Energy", "Materials"}` ->sector scope for the main cyclical cap.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP: float = 0.15` ->concentrated cap for confirmed weak-RS MARKET_LEADER NEW entries.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD: float = 0.12` ->maximum 1-month benchmark-relative strength for the concentrated weak-RS cap.
+  - `CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD: float = 1.0` ->minimum confirmation score for the concentrated weak-RS cap.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show `main_green_neutral_cyclical_high_vol_new_entry_cap_status=applied` for affected main rows.
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show `concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status=applied` for affected concentrated rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "...compile(...)"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This policy is not accepted until a fast broker replay confirms MDD improves without unacceptable CAGR/Sharpe loss.
+  - Motivation from run `26941791195`: row-proxy favored the main cyclical cap around BKR/SQM/MOS/EXE and favored the concentrated weak-RS cap around BLD/ON/UBER/AMD/HALO/AXON-style high-weight GREEN entries.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback

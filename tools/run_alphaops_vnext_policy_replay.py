@@ -90,11 +90,17 @@ CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_UNCONFIRMED_QUALITY_BULL_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
+CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP = 0.15
+CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD = 0.12
+CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD = 1.0
 MAIN_HIGH_VOL_NEW_ENTRY_CAP = 0.08
 MAIN_HIGH_VOL_NEW_ENTRY_ATR_THRESHOLD = 0.06
 MAIN_HIGH_VOL_NEW_ENTRY_LANES = {"MARKET_LEADER"}
 MAIN_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.04
 MAIN_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
+MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP = 0.06
+MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD = 0.10
+MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_SECTORS = {"Energy", "Materials"}
 MAIN_QUALITY_HOLD_WEAK_TIMING_CAP = 0.08
 MAIN_QUALITY_HOLD_CONFIRMATION_THRESHOLD = 0.50
 MAIN_QUALITY_HOLD_RS_1M_THRESHOLD = 0.05
@@ -644,6 +650,52 @@ def apply_main_watch_unconfirmed_market_leader_new_entry_cap(
     return capped
 
 
+def apply_main_green_neutral_cyclical_high_vol_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "main" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        capacity_regime = str(item.get("regime_capacity_regime") or item.get("regime_state") or "")
+        sector = str(item.get("sector") or "")
+        atr14 = safe_float(item.get("atr14_pct"))
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane == "MARKET_LEADER"
+            and is_new_entry
+            and crisis_state == "GREEN"
+            and capacity_regime == "neutral"
+            and sector in MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_SECTORS
+            and atr14 >= MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD
+            and weight > MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP
+        ):
+            item["pre_main_green_neutral_cyclical_high_vol_new_entry_cap_weight"] = weight
+            item["weight"] = MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP
+            item["target_weight"] = MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP
+            item["main_green_neutral_cyclical_high_vol_new_entry_cap"] = (
+                MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP
+            )
+            item["main_green_neutral_cyclical_high_vol_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|main_green_neutral_cyclical_high_vol_new_entry_cap"
+            )
+        else:
+            item["main_green_neutral_cyclical_high_vol_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
 def apply_main_quality_hold_weak_timing_trim(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -806,6 +858,50 @@ def apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(
             )
         else:
             item["concentrated_watch_unconfirmed_ml_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
+def apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        confirmation = safe_float(item.get("selection_confirmation_score"), 0.0)
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 1.0)
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane == "MARKET_LEADER"
+            and is_new_entry
+            and crisis_state == "GREEN"
+            and confirmation >= CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD
+            and rs_benchmark_1m < CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD
+            and weight > CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP
+        ):
+            item["pre_concentrated_green_confirmed_ml_weak_rs_new_entry_cap_weight"] = weight
+            item["weight"] = CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP
+            item["target_weight"] = CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP
+            item["concentrated_green_confirmed_ml_weak_rs_new_entry_cap"] = (
+                CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP
+            )
+            item["concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_green_confirmed_ml_weak_rs_new_entry_cap"
+            )
+        else:
+            item["concentrated_green_confirmed_ml_weak_rs_new_entry_cap_status"] = "not_applicable"
         capped.append(item)
     return capped
 
@@ -1016,10 +1112,12 @@ def build_variant_book(
         weighted = apply_concentrated_risk_state_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_high_volatility_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_hold_decay_trim(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         prev = {clean_ticker(row.get("ticker")): row for row in weighted}
