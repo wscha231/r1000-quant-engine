@@ -55,6 +55,11 @@ SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
 build_sec_enriched_candidate_book() {
   SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
   local enriched="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+  if [ -s "$enriched" ]; then
+    SIDECAR_CANDIDATE_BOOK="$enriched"
+    echo "[sec-enrich] using existing enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+    return 0
+  fi
   echo "[sec-enrich] building PIT-safe evidence-enriched candidate replay book"
   if [ ! -s "$SIDECAR_CANDIDATE_BOOK" ]; then
     echo "[sec-enrich] missing base candidate replay book; sidecars will use default resolver"
@@ -72,7 +77,8 @@ build_sec_enriched_candidate_book() {
 run_alphaops_vnext_production() {
   if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
     echo "[alphaops-vnext] replacing operating target books before broker replay"
-    python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+    build_sec_enriched_candidate_book
+    python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
   fi
 }
 
@@ -119,6 +125,8 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log
   python tools/run_daily_crisis_monitor.py --latest-run outputs --output-dir outputs/daily_crisis_monitor 2>&1 | tee outputs/full_rebuild_logs/daily_crisis_monitor.log || true
   run_decision_cadence_review
+  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
+  python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
   python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
   if [ "$SIDECAR_PROFILE" = "official" ]; then
     python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log || true

@@ -552,6 +552,7 @@ jobs:
             outputs/replay_integrity/patch_application_manifest.json
             outputs/reports/candidate_replay_book.csv
             outputs/baseline_lock/
+            outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
             outputs/sec_enriched_candidate_replay/summary.json
             outputs/sec_enriched_candidate_replay/report.md
             outputs/market_leader_challenger/summary.json

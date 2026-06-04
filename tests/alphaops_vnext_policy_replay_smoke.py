@@ -25,6 +25,8 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_main_quality_hold_weak_timing_trim,
     build,
     crisis_new_buy_allowed,
+    enforce_pit_available,
+    evidence_support_score,
 )
 from tools.run_weekly_evaluation import px_cache_name
 
@@ -196,6 +198,41 @@ def test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence() ->
         neg = lane[lane["ticker"].astype(str).eq("NEG")]
         assert not neg.empty
         assert float(neg["emerging_tenbagger_risk_cap"].iloc[0]) < 1.0
+
+
+def test_sec_available_from_columns_are_pit_checked_and_positive_only() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-02-28",
+                "ticker": "FUT",
+                "sec_13f_smart_money_score": 10.0,
+                "latest_13f_available_from": "2026-03-15",
+            },
+            {
+                "rebalance_date": "2026-02-28",
+                "ticker": "OK",
+                "sec_13f_smart_money_score": 4.0,
+                "latest_13f_available_from": "2026-02-15",
+            },
+            {
+                "rebalance_date": "2026-02-28",
+                "ticker": "MISS",
+            },
+        ]
+    )
+    checked, audit = enforce_pit_available(frame)
+    by_ticker = {row["ticker"]: row for row in checked.to_dict("records")}
+    assert by_ticker["FUT"]["pit_evidence_blocked"] is True
+    assert by_ticker["FUT"]["sec_13f_smart_money_score"] == 0.0
+    assert by_ticker["OK"]["pit_evidence_blocked"] is False
+    assert by_ticker["OK"]["sec_13f_smart_money_score"] == 4.0
+    assert len(audit) == 1
+
+    support = evidence_support_score(checked)
+    assert float(support.loc[checked["ticker"].eq("OK")].iloc[0]) > 0.0
+    assert float(support.loc[checked["ticker"].eq("FUT")].iloc[0]) == 0.0
+    assert float(support.loc[checked["ticker"].eq("MISS")].iloc[0]) == 0.0
 
 
 def test_alphaops_vnext_applies_crisis_lane_new_buy_blocks() -> None:
@@ -720,6 +757,7 @@ def test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only
 
 if __name__ == "__main__":
     test_alphaops_vnext_replaces_operating_books_and_blocks_future_evidence()
+    test_sec_available_from_columns_are_pit_checked_and_positive_only()
     test_alphaops_vnext_applies_crisis_lane_new_buy_blocks()
     test_alphaops_vnext_concentrated_production_default_is_n5()
     test_concentrated_risk_state_caps_new_entries_only()

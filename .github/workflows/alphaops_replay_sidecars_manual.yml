@@ -95,7 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_concentrated_policy_replay.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_metric_hygiene_report.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
+          for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py tools/run_dataset_coverage_audit.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py tools/run_theme_concentration_challenger.py tools/run_concentrated_policy_replay.py tools/run_portfolio_goal_search.py tools/run_account_evaluation.py tools/run_metric_hygiene_report.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py tools/run_strategy_logic_ledger.py; do
             if [ ! -f "$tool" ]; then
               echo "[replay] ERROR: missing $tool. Run this workflow from a branch that contains the AlphaOps replay tools."
               exit 4
@@ -165,7 +165,23 @@ jobs:
           python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
             if [ -s outputs/reports/candidate_replay_book.csv ]; then
-              python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book outputs/reports/candidate_replay_book.csv --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+              ALPHAOPS_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+              ENRICHED_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+              if [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
+                ALPHAOPS_CANDIDATE_BOOK="$ENRICHED_CANDIDATE_BOOK"
+                echo "[replay] using existing enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
+              elif [ -s data_pit/sec/form4_transactions.parquet ] || [ -s data_pit/sec/institutional_13f_holdings.parquet ] || [ -s data_pit/etf_holdings/etf_holdings.parquet ]; then
+                python tools/run_sec_enriched_candidate_replay.py --candidate-book "$ALPHAOPS_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay_for_vnext.log || true
+                if [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
+                  ALPHAOPS_CANDIDATE_BOOK="$ENRICHED_CANDIDATE_BOOK"
+                  echo "[replay] built enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
+                else
+                  echo "[replay] enriched candidate book unavailable for vNext; using base candidate book"
+                fi
+              else
+                echo "[replay] SEC/ETF PIT stores unavailable; using base candidate book for vNext"
+              fi
+              python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book "$ALPHAOPS_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             elif [ -s outputs/replay_integrity/source_vnext_official_main_target_book.csv ] && [ -s outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv ]; then
               echo "[replay] candidate_replay_book missing; restoring archived vNext official operating target books" | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
               cp outputs/replay_integrity/source_vnext_official_main_target_book.csv outputs/reports/operating_main_target_book.csv
@@ -261,6 +277,7 @@ jobs:
           python tools/run_user_portfolio_reports.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_portfolio_reports 2>&1 | tee outputs/full_rebuild_logs/user_portfolio_reports.log || true
           python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
           python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness.log || true
+          python tools/run_dataset_coverage_audit.py --latest-run outputs --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/dataset_coverage_audit.log || true
           python tools/run_portfolio_system_guard.py --latest-run outputs --output-dir outputs/portfolio_system_guard 2>&1 | tee outputs/full_rebuild_logs/portfolio_system_guard.log || true
           BASELINE_RUN_ID="${SOURCE_RUN_ID}_${GITHUB_RUN_ID}"
           python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" --branch "$GITHUB_REF_NAME" --head-sha "$GITHUB_SHA" --artifact-id "$SOURCE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
@@ -281,7 +298,8 @@ jobs:
             python tools/run_strategy_logic_ledger.py --latest-run outputs --integrated-output outputs/integrated_theme_leader_crisis_replay --output-dir outputs/strategy_logic_ledger --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA" --artifact-id "$SOURCE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/strategy_logic_ledger.log || true
           else
             echo "[replay] skipping extended research sidecars; set run_extended_research_sidecars=true to include superperformance and integrated theme/leader/crisis replay"
-            rm -rf outputs/sec_enriched_candidate_replay outputs/superperformance_trader_replay outputs/integrated_theme_leader_crisis_replay outputs/strategy_logic_ledger
+            rm -rf outputs/superperformance_trader_replay outputs/integrated_theme_leader_crisis_replay outputs/strategy_logic_ledger
+            rm -f outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
           fi
           python tools/run_patch_application_manifest.py --latest-run outputs --output outputs/patch_application_manifest.json --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --head-sha "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" --artifact-id "$SOURCE_RUN_ID" --sidecar-profile "alphaops_replay_sidecars" --artifact-profile "replay_sidecar" --gdrive-sync-mode "research" --portfolio-policy "$PORTFOLIO_POLICY" 2>&1 | tee outputs/full_rebuild_logs/patch_application_manifest.log || true
           python tools/run_user_current_report.py --latest-run outputs --price-cache cache_prices --output-dir outputs/user_current --strict 2>&1 | tee outputs/full_rebuild_logs/user_current_report.log || true
@@ -295,6 +313,7 @@ jobs:
           path: |
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/reports/dataset_coverage_audit.*
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
             outputs/alphaops_vnext/
@@ -302,6 +321,8 @@ jobs:
             !outputs/alphaops_vnext/rejected_by_reason.csv
             outputs/target_snapshots/
             outputs/data_readiness/
+            outputs/sec_enriched_candidate_replay/summary.json
+            outputs/sec_enriched_candidate_replay/report.md
             outputs/position_risk_weekly_validation/
             outputs/broker_replay/
             outputs/event_target_books/

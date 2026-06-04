@@ -219,7 +219,14 @@ def enforce_pit_available(candidate: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     if "rebalance_date" not in d.columns:
         return d, pd.DataFrame()
     signal_dt = pd.to_datetime(d["rebalance_date"], errors="coerce").dt.normalize()
-    availability_cols = [col for col in ["available_from", "latest_available_from", "evidence_available_from"] if col in d.columns]
+    availability_cols = sorted(
+        {
+            col
+            for col in d.columns
+            if col in {"available_from", "latest_available_from", "evidence_available_from"}
+            or col.endswith("_available_from")
+        }
+    )
     if not availability_cols:
         d["pit_evidence_blocked"] = False
         return d, pd.DataFrame()
@@ -241,6 +248,28 @@ def enforce_pit_available(candidate: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
     return d, d.loc[blocked, [col for col in audit_cols if col in d.columns]].copy()
 
 
+def evidence_support_score(frame: pd.DataFrame) -> pd.Series:
+    """Positive-only support from PIT-safe SEC/ETF evidence, never a standalone buy rule."""
+
+    support_cols = [
+        "evidence_fusion_score",
+        "smart_money_shadow_score",
+        "smart_money_convergence_bonus",
+        "sec_combined_evidence_score",
+        "leader_onset_sec_v3_score",
+        "institutional_evidence_score",
+        "sec_13f_smart_money_score",
+        "sec_13f_accumulation_score",
+        "sec_form4_score",
+        "etf_theme_leadership_score",
+        "etf_holdings_score",
+    ]
+    pieces = [robust_z(numeric(frame, col)).clip(lower=0.0, upper=3.0) for col in support_cols if col in frame.columns]
+    if not pieces:
+        return pd.Series(0.0, index=frame.index)
+    return pd.concat(pieces, axis=1).max(axis=1).fillna(0.0)
+
+
 def alphaops_score(frame: pd.DataFrame) -> pd.Series:
     return (
         pd.to_numeric(frame.get("lane_confidence", 0.0), errors="coerce").fillna(0.0)
@@ -249,11 +278,13 @@ def alphaops_score(frame: pd.DataFrame) -> pd.Series:
         + 0.12 * robust_z(numeric(frame, "rs_benchmark_1w")).clip(lower=0.0)
         + 0.10 * robust_z(numeric(frame, "rs_semis_3m")).clip(lower=0.0)
         + 0.08 * pd.to_numeric(frame.get("top7_support_boost", 0.0), errors="coerce").fillna(0.0)
+        + 0.06 * numeric(frame, "evidence_support_score").clip(lower=0.0, upper=3.0)
     )
 
 
 def score_month(month: pd.DataFrame) -> pd.DataFrame:
     d = score_candidate_lanes(month.copy())
+    d["evidence_support_score"] = evidence_support_score(d)
     d["alphaops_vnext_score"] = alphaops_score(d)
     d["dual_leader_gate"] = (
         numeric(d, "rs_spy_3m").gt(0.0)
