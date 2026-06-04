@@ -212,6 +212,37 @@ All entries must be written in English. Entries must be predictable and machine-
   - This policy is not accepted until a fast broker replay confirms MDD improves without unacceptable CAGR/Sharpe loss.
   - Motivation from run `26941791195`: row-proxy favored the main cyclical cap around BKR/SQM/MOS/EXE and favored the concentrated weak-RS cap around BLD/ON/UBER/AMD/HALO/AXON-style high-weight GREEN entries.
 
+### 20:21 KST - tighten-concentrated-entry-cash-wait-caps
+
+- scope:
+  - Tighten concentrated cash-wait behavior for remaining drawdown rows after run `26946485993`.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers the concentrated unconfirmed quality-bull NEW-entry cap from 12% to 10%, adds an 8% GREEN neutral cyclical high-volatility NEW-entry cap, and adds a 15% DEFENSE neutral quality NEW-entry cap.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->updates the unconfirmed quality-bull cap expectation and covers the two new concentrated cap functions.
+  - `CHANGELOG.md` ->records the policy experiment and broker-replay verification requirement.
+- symbols_added:
+  - `apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated Energy/Materials MARKET_LEADER NEW entries at 8% when crisis is GREEN, regime is neutral, and ATR14 is at least 10%.
+  - `apply_concentrated_defense_neutral_quality_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated QUALITY_COMPOUNDER NEW entries at 15% when crisis is DEFENSE_REVIEW and regime is neutral.
+- symbols_changed:
+  - `apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)` ->uses the tighter 10% cap through `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP`.
+  - `build(args)` ->applies the two new concentrated caps before the existing unconfirmed quality/high-vol caps.
+- config_fields_added:
+  - `CONCENTRATED_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP: float = 0.08` ->concentrated cap for cyclical high-volatility GREEN neutral MARKET_LEADER NEW entries.
+  - `CONCENTRATED_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD: float = 0.10` ->minimum ATR14 percentage for the concentrated cyclical cap.
+  - `CONCENTRATED_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_SECTORS: set[str] = {"Energy", "Materials"}` ->sector scope for the concentrated cyclical cap.
+  - `CONCENTRATED_DEFENSE_NEUTRAL_QUALITY_NEW_ENTRY_CAP: float = 0.15` ->concentrated cap for DEFENSE neutral QUALITY_COMPOUNDER NEW entries.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show `concentrated_green_neutral_cyclical_high_vol_new_entry_cap_status=applied` and `concentrated_defense_neutral_quality_new_entry_cap_status=applied` for affected rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "...compile(...)"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This policy is not accepted until a fast broker replay confirms MDD improves without unacceptable CAGR/Sharpe loss.
+  - Motivation from run `26946485993`: row-proxy favored tightening unconfirmed quality-bull rows around BLDR/ACLS/ANET/ON, cyclical high-vol rows around BKR/MOS/SQM, and DEFENSE neutral quality rows around CPRT/JBL/LRCX/TXRH.
+
 ## 2026-05-26
 
 ### 02:18 KST - phase-g-minimal-source-fallback

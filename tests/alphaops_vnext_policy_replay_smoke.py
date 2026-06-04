@@ -15,9 +15,11 @@ if str(ROOT) not in sys.path:
 
 from tools.run_alphaops_vnext_policy_replay import (
     DEFAULT_CONCENTRATED_TARGET_N,
+    apply_concentrated_defense_neutral_quality_new_entry_cap,
     apply_concentrated_hold_decay_trim,
     apply_concentrated_risk_state_new_entry_cap,
     apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap,
+    apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_quality_bull_new_entry_cap,
     apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap,
@@ -720,8 +722,8 @@ def test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     ]
     capped = apply_concentrated_unconfirmed_quality_bull_new_entry_cap(selected, "concentrated")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["CAP"]["weight"] == 0.12
-    assert by_ticker["CAP"]["target_weight"] == 0.12
+    assert by_ticker["CAP"]["weight"] == 0.10
+    assert by_ticker["CAP"]["target_weight"] == 0.10
     assert by_ticker["CAP"]["concentrated_unconfirmed_quality_bull_new_entry_cap_status"] == "applied"
     assert by_ticker["CONFIRMED"]["weight"] == 0.30
     assert by_ticker["NEUTRAL"]["weight"] == 0.30
@@ -954,6 +956,147 @@ def test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_e
     assert main[0]["weight"] == 0.24
 
 
+def test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only() -> None:
+    selected = [
+        {
+            "ticker": "CAP",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "sector": "Materials",
+            "atr14_pct": 0.14,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "LOW_VOL",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "sector": "Energy",
+            "atr14_pct": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "TECH",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "sector": "Information Technology",
+            "atr14_pct": 0.14,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "BEAR",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "DEFENSE_REVIEW",
+            "regime_state": "neutral",
+            "sector": "Materials",
+            "atr14_pct": 0.14,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+    ]
+    capped = apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(
+        selected,
+        "concentrated",
+    )
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["CAP"]["weight"] == 0.08
+    assert by_ticker["CAP"]["target_weight"] == 0.08
+    assert by_ticker["CAP"]["concentrated_green_neutral_cyclical_high_vol_new_entry_cap_status"] == "applied"
+    assert by_ticker["LOW_VOL"]["weight"] == 0.20
+    assert by_ticker["TECH"]["weight"] == 0.20
+    assert by_ticker["BEAR"]["weight"] == 0.20
+    main = apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.20
+
+
+def test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries_only() -> None:
+    selected = [
+        {
+            "ticker": "CAP",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "DEFENSE_REVIEW",
+            "regime_state": "neutral",
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+        {
+            "ticker": "GREEN",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+        {
+            "ticker": "BULL",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "DEFENSE_REVIEW",
+            "regime_state": "bull",
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+        {
+            "ticker": "LEADER",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "DEFENSE_REVIEW",
+            "regime_state": "neutral",
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "HOLD",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "DEFENSE_REVIEW",
+            "regime_state": "neutral",
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+    ]
+    capped = apply_concentrated_defense_neutral_quality_new_entry_cap(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["CAP"]["weight"] == 0.15
+    assert by_ticker["CAP"]["target_weight"] == 0.15
+    assert by_ticker["CAP"]["concentrated_defense_neutral_quality_new_entry_cap_status"] == "applied"
+    assert by_ticker["GREEN"]["weight"] == 0.20
+    assert by_ticker["BULL"]["weight"] == 0.20
+    assert by_ticker["LEADER"]["weight"] == 0.20
+    assert by_ticker["HOLD"]["weight"] == 0.20
+    main = apply_concentrated_defense_neutral_quality_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.20
+
+
 def test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only() -> None:
     selected = [
         {
@@ -1045,5 +1188,7 @@ if __name__ == "__main__":
     test_concentrated_watch_unconfirmed_high_vol_cap_applies_to_watch_new_entries_only()
     test_concentrated_watch_unconfirmed_market_leader_cap_applies_without_atr_filter()
     test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_entries_only()
+    test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
+    test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries_only()
     test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     print("alphaops_vnext_policy_replay_smoke: PASS")
