@@ -168,6 +168,34 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Replay artifacts based on source full run `26797935603` still show archived fullrun readiness missing companyfacts; data maintenance run `26987903823` fixed the Drive/canonical data source for the next preflight or full rebuild.
 
+### 15:42 KST - data-readiness-observable-close-freshness
+
+- scope:
+  - Prevent data readiness from blocking production replay when latest target candidates are dated after the latest observable market close.
+- files:
+  - `tools/audit_data_readiness.py` ->caps the target-book freshness gate to the latest observable close date from the price manifest or operating target-book summary while preserving the raw latest target date for audit.
+  - `tests/data_readiness_smoke.py` ->adds a regression case where current target candidates are one day newer than the latest observable close but operating target books are current to the close.
+  - `CHANGELOG.md` ->records the observable-close freshness fix.
+- symbols_added:
+  - `latest_observable_close_date(prices, operating_summary)` ->returns the newest observable close date available from price metadata or operating target-book summaries.
+- symbols_changed:
+  - `build_payload(args)` ->uses `effective_latest_target_date` for operating target-book freshness checks and reports `latest_observable_close_date`.
+  - `render_report(payload)` ->prints raw latest target date, latest observable close date, and effective target date.
+  - `test_data_readiness_caps_target_freshness_to_observable_close()` ->covers the false-blocker scenario found in full rebuild run `26992264956`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json` ->now includes `latest_observable_close_date` and `effective_latest_target_date`.
+- validation:
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; [compile(Path(p).read_text(encoding='utf-8'), p, 'exec') for p in ['tools/audit_data_readiness.py','tests/data_readiness_smoke.py']]; print('compile ok')"` ->PASS.
+  - `git diff --check -- tools\audit_data_readiness.py tests\data_readiness_smoke.py` ->PASS.
+- risks_or_notes:
+  - This fixes a readiness false positive only; it does not change broker trades or target-book selection.
+  - A true stale operating book still blocks when it is older than the latest observable close.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract
