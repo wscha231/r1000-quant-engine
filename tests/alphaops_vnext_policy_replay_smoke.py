@@ -22,6 +22,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_green_consumer_overheat_new_entry_cap,
     apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap,
     apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap,
+    apply_concentrated_high_vol_weak_timing_new_entry_cap,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_quality_bull_new_entry_cap,
     apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap,
@@ -741,6 +742,96 @@ def test_concentrated_hold_decay_trim_applies_to_decaying_holds_only() -> None:
     assert main[0]["weight"] == 0.30
 
 
+def test_concentrated_high_vol_weak_timing_new_entry_cap_applies_narrowly() -> None:
+    selected = [
+        {
+            "ticker": "LOWCONF",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "MARKET_LEADER",
+            "atr14_pct": 0.05,
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.20,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "WEAKRS",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "MARKET_LEADER",
+            "atr14_pct": 0.07,
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.02,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "CONFIRMED",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "MARKET_LEADER",
+            "atr14_pct": 0.07,
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.20,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "LOWVOL",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "MARKET_LEADER",
+            "atr14_pct": 0.04,
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.20,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "HOLD",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "primary_lane": "MARKET_LEADER",
+            "atr14_pct": 0.07,
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.20,
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "OTHERLANE",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "atr14_pct": 0.07,
+            "selection_confirmation_score": 0.24,
+            "rs_benchmark_1m": 0.20,
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+    ]
+    capped = apply_concentrated_high_vol_weak_timing_new_entry_cap(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["LOWCONF"]["weight"] == 0.08
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.08
+    assert by_ticker["LOWCONF"]["concentrated_high_vol_weak_timing_new_entry_cap_status"] == "applied"
+    assert by_ticker["WEAKRS"]["weight"] == 0.08
+    assert by_ticker["WEAKRS"]["concentrated_high_vol_weak_timing_new_entry_cap_status"] == "applied"
+    assert by_ticker["CONFIRMED"]["weight"] == 0.20
+    assert by_ticker["LOWVOL"]["weight"] == 0.20
+    assert by_ticker["HOLD"]["weight"] == 0.20
+    assert by_ticker["OTHERLANE"]["weight"] == 0.20
+    main = apply_concentrated_high_vol_weak_timing_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.20
+
+
 def test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only() -> None:
     selected = [
         {
@@ -1437,6 +1528,7 @@ if __name__ == "__main__":
     test_main_green_bull_low_confirm_high_vol_cap_applies_to_new_market_leaders_only()
     test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only()
     test_concentrated_hold_decay_trim_applies_to_decaying_holds_only()
+    test_concentrated_high_vol_weak_timing_new_entry_cap_applies_narrowly()
     test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     test_concentrated_watch_unconfirmed_high_vol_cap_applies_to_watch_new_entries_only()
     test_concentrated_watch_unconfirmed_market_leader_cap_applies_without_atr_filter()

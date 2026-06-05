@@ -53,6 +53,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 02:27 KST - concentrated-high-vol-weak-timing-new-entry-cap
+
+- scope:
+  - Add a concentrated production cap for high-volatility weak-timing new MARKET_LEADER entries after broker artifact proxy analysis showed positive all-period and MDD deltas on both official and neutral90 target books.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds and applies the concentrated high-volatility weak-timing new-entry cap after existing concentrated caps.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers low-confirmation and weak-relative-strength concentrated new-entry cap cases and excludes confirmed, low-volatility, hold, other-lane, and main rows.
+  - `CHANGELOG.md` ->records the concentrated high-volatility weak-timing new-entry cap.
+- symbols_added:
+  - `apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated MARKET_LEADER NEW rows to 8% when `atr14_pct >= 0.05` and either confirmation is below 0.50 or one-month benchmark-relative strength is below 0.05.
+- symbols_changed:
+  - `build_target_book(candidate, crisis_states, portfolio_kind, target_n, variant_id, prices)` ->applies the new concentrated cap after existing concentrated cap rules.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show `concentrated_high_vol_weak_timing_new_entry_cap_status=applied` on qualifying rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `git diff --check -- tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27027514754`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 01:36 KST - tighten-main-quality-hold-trim
 
 - scope:
