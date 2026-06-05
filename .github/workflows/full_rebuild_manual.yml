@@ -512,6 +512,7 @@ jobs:
             outputs/reports/concentrated_strategy_holdings.csv
             outputs/reports/regime_by_month.csv
             outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_*_target_book_macro*.csv
             outputs/reports/operating_*_target_book_regime_capacity*.csv
             outputs/reports/operating_target_books_*
             outputs/reports/candidate_replay_book.csv

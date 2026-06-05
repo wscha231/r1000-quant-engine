@@ -464,6 +464,27 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible broker replay after PIT regime-capacity dampening of bearish target-book exposure.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor50",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.50.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main_factor25" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor25",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.25.",
+    )
+    main += candidate_from_json_metric_validity(
+        latest_run / "macro_circuit_broker_replay" / "main_factor00" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_macro_circuit_broker_replay_factor00",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after SPY 200-day macro circuit exposure factor 0.00.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_position_risk_replay",

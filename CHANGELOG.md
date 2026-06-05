@@ -51,6 +51,41 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-06-06
+
+### 00:41 KST - main-macro-circuit-exposure-sweep
+
+- scope:
+  - Add broker-valid main macro circuit exposure sweep candidates to measure whether stronger broad-market cash defense can close the main MDD gap.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs main SPY 200-day macro circuit factor 0.25 and 0.00 filters plus broker-ledger replays in fast replay artifacts.
+  - `.github/workflows/full_rebuild_manual.yml` ->preserves macro-filtered target books in full rebuild artifacts.
+  - `tools/run_full_rebuild_sidecars.py` ->mirrors the main macro circuit factor 0.25 and 0.00 broker replay sidecars in full rebuild diagnostics.
+  - `tools/run_portfolio_goal_search.py` ->collects main macro circuit factor 0.50, 0.25, and 0.00 broker candidates.
+  - `tests/workflow_artifact_smoke.py` ->expects the new macro circuit sweep logs and target-book artifact paths.
+  - `CHANGELOG.md` ->records the main macro circuit exposure sweep.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_macro_circuit_broker_replay_factor50`, `main_macro_circuit_broker_replay_factor25`, and `main_macro_circuit_broker_replay_factor00`.
+  - `run_full_rebuild_sidecars.py::research full diagnostics` ->runs main macro circuit factor 0.25 and 0.00 filters plus broker replays.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book_macro_factor25.csv` ->main operating target book with SPY 200-day crisis exposure multiplied by 0.25.
+  - `outputs/reports/operating_main_target_book_macro_factor00.csv` ->main operating target book with SPY 200-day crisis exposure moved fully to cash.
+  - `outputs/macro_circuit_broker_replay/main_factor25/metrics.json` ->broker-ledger next-close metrics for factor 0.25.
+  - `outputs/macro_circuit_broker_replay/main_factor00/metrics.json` ->broker-ledger next-close metrics for factor 0.00.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py tools\run_full_rebuild_sidecars.py tests\workflow_artifact_smoke.py` ->PASS.
+- risks_or_notes:
+  - Run `27021859379` showed the existing factor 0.50 macro circuit replay reached main `29.77% CAGR / -33.17% MDD`; this sweep tests whether stronger broad-market exposure cuts materially reduce MDD and whether the CAGR cost is tolerable.
+  - These are sidecar candidates only and do not change official production target books.
+
 ## 2026-06-05
 
 ### 08:38 KST - alphaops-data-readiness-operating-plan
