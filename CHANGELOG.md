@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 07:28 KST - tighten-concentrated-quality-bull-new-entry-cap
+
+- scope:
+  - Tighten the existing concentrated quality-compounder bull low-confirmation NEW-entry cap after current broker artifact analysis showed positive all-period and concentrated MDD row-proxy deltas.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `CONCENTRATED_UNCONFIRMED_QUALITY_BULL_NEW_ENTRY_CAP` from `0.08` to `0.03`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying concentrated quality-bull low-confirmation NEW rows to cap at 3%.
+  - `CHANGELOG.md` ->records the concentrated quality-bull cap tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_concentrated_unconfirmed_quality_bull_new_entry_cap(weighted, portfolio_kind)` ->qualifying concentrated quality-compounder bull low-confirmation NEW rows now cap at 3%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show qualifying `concentrated_unconfirmed_quality_bull_new_entry_cap_status=applied` rows capped at `0.03`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27041750222`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 06:43 KST - tighten-main-quality-caps-to-three-percent
 
 - scope:
