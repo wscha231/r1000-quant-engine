@@ -615,6 +615,32 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
             "selection_reason": "MARKET_LEADER",
         },
         {
+            "ticker": "MIDCONF",
+            "weight": 0.11,
+            "target_weight": 0.11,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 0.62,
+            "rs_benchmark_1m": 0.12,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "MIDRS",
+            "weight": 0.11,
+            "target_weight": 0.11,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "market_style_regime_label": "quality_compounder",
+            "regime_capacity_regime": "bull",
+            "selection_confirmation_score": 1.0,
+            "rs_benchmark_1m": 0.08,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
             "ticker": "OKHOLD",
             "weight": 0.12,
             "target_weight": 0.12,
@@ -669,11 +695,15 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
     ]
     trimmed = apply_main_quality_hold_weak_timing_trim(selected, "main")
     by_ticker = {row["ticker"]: row for row in trimmed}
-    assert by_ticker["LOWCONF"]["weight"] == 0.06
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.06
+    assert by_ticker["LOWCONF"]["weight"] == 0.04
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.04
     assert by_ticker["LOWCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["WEAKRS"]["weight"] == 0.06
+    assert by_ticker["WEAKRS"]["weight"] == 0.04
     assert by_ticker["WEAKRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
+    assert by_ticker["MIDCONF"]["weight"] == 0.04
+    assert by_ticker["MIDCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
+    assert by_ticker["MIDRS"]["weight"] == 0.04
+    assert by_ticker["MIDRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
     assert by_ticker["OKHOLD"]["weight"] == 0.12
     assert by_ticker["NEW"]["weight"] == 0.12
     assert by_ticker["BEAR"]["weight"] == 0.12

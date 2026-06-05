@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 04:12 KST - widen-main-quality-hold-weak-timing-trim
+
+- scope:
+  - Widen and tighten the main quality-compounder bull HOLD weak-timing trim after broker artifact analysis showed positive all-period and MDD row-proxy deltas for confirmation and one-month benchmark-relative-strength weakness.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_QUALITY_HOLD_WEAK_TIMING_CAP` from `0.06` to `0.04`, raises the weak confirmation threshold from `0.50` to `0.75`, and raises the weak one-month benchmark-relative-strength threshold from `0.05` to `0.10`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the widened weak confirmation and weak one-month benchmark-relative-strength cases and expects qualifying rows to cap at 4%.
+  - `CHANGELOG.md` ->records the main quality HOLD weak-timing trim widening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->qualifying main quality-compounder bull HOLD rows now trim to 4% under broader weak-timing thresholds.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show additional qualifying `main_quality_hold_weak_timing_trim_status=applied` rows capped at `0.04`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27032510419`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 03:19 KST - promote-concentrated-neutral90-and-tighten-hold-decay
 
 - scope:
