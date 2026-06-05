@@ -330,6 +330,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a broker-replay hypothesis from run `27008924043` target-book and MDD analysis; keep it only if official concentrated broker-ledger MDD improves with acceptable CAGR and Sharpe impact.
 
+### 20:56 KST - concentrated-cyclical-atr-threshold-tightening
+
+- scope:
+  - Tighten the existing concentrated GREEN/neutral Energy and Materials high-volatility new-entry cap so moderate high-vol cyclical entries are staged instead of fully sized.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers the concentrated cyclical high-volatility ATR threshold from 10% to 6% while keeping the cap at 6%.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->updates low-volatility controls and adds a 6.5% ATR application case for the concentrated cyclical cap.
+  - `CHANGELOG.md` ->records the policy hypothesis and validation plan.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->now treats Energy/Materials GREEN neutral MARKET_LEADER new entries with `atr14_pct >= 0.06` as high-volatility cap candidates.
+  - `test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()` ->verifies the new 6% ATR threshold and a sub-threshold control.
+- config_fields_added:
+  - `CONCENTRATED_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD: float = 0.06` ->minimum ATR14 percentage for the concentrated cyclical cap.
+- breaking_changes:
+  - none
+- outputs:
+  - `alphaops_vnext/*target_book*.csv` ->future replays may apply `concentrated_green_neutral_cyclical_high_vol_new_entry_cap_status` to additional moderate high-volatility Energy/Materials entries.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `git diff --check -- tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - This is a broker-replay hypothesis from run `27011330255` MDD analysis; the main expected additional historical row is `RGLD` on 2022-03-31, and the rule must be kept only if official concentrated broker-ledger MDD improves with acceptable CAGR and Sharpe impact.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

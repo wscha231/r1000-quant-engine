@@ -1216,7 +1216,20 @@ def test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_
             "crisis_state": "GREEN",
             "regime_state": "neutral",
             "sector": "Energy",
-            "atr14_pct": 0.08,
+            "atr14_pct": 0.05,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "MID_VOL",
+            "weight": 0.20,
+            "target_weight": 0.20,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "sector": "Materials",
+            "atr14_pct": 0.065,
             "primary_lane": "MARKET_LEADER",
             "selection_reason": "MARKET_LEADER",
         },
@@ -1255,6 +1268,9 @@ def test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_
     assert by_ticker["CAP"]["weight"] == 0.06
     assert by_ticker["CAP"]["target_weight"] == 0.06
     assert by_ticker["CAP"]["concentrated_green_neutral_cyclical_high_vol_new_entry_cap_status"] == "applied"
+    assert by_ticker["MID_VOL"]["weight"] == 0.06
+    assert by_ticker["MID_VOL"]["target_weight"] == 0.06
+    assert by_ticker["MID_VOL"]["concentrated_green_neutral_cyclical_high_vol_new_entry_cap_status"] == "applied"
     assert by_ticker["LOW_VOL"]["weight"] == 0.20
     assert by_ticker["TECH"]["weight"] == 0.20
     assert by_ticker["BEAR"]["weight"] == 0.20
