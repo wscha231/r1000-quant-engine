@@ -33,9 +33,9 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
 
 Latest verified broker-ledger production replay:
 
-- GitHub Actions run: `26958138179`
+- GitHub Actions run: `26990030997`
 - Branch: `codex/alphaops-integrated-replay`
-- Commit: `371de428729b47a58f4b976d36d8a23f84322bba`
+- Commit: `3ff15b4446eacc4cd6699701430e13cb6e340019`
 - Source full rebuild replayed: `26797935603`
 - Metric mode: broker ledger next-close fills with costs and cash
 - Production flags:
@@ -53,10 +53,10 @@ Latest verified broker-ledger production replay:
 
 Current broker metrics from that run:
 
-- Main: CAGR `30.5963%`, MDD `-35.0647%`, Sharpe `1.1880`,
-  average cash `24.1504%`
-- Concentrated: CAGR `42.1416%`, MDD `-32.2129%`, Sharpe `1.2761`,
-  average cash `33.7878%`
+- Main: CAGR `30.7638%`, MDD `-34.8303%`, Sharpe `1.1941`,
+  average cash `24.3092%`
+- Concentrated: CAGR `42.8243%`, MDD `-29.3356%`, Sharpe `1.2954`,
+  average cash `34.6905%`
 
 Current acceptance targets:
 
@@ -66,19 +66,24 @@ Current acceptance targets:
 
 Remaining performance gaps:
 
-- Main CAGR passes, but MDD needs about `10.0647pp` additional improvement.
-- Concentrated CAGR needs about `2.8584pp` additional improvement and MDD
-  needs about `7.2129pp` additional improvement.
+- Main CAGR passes, but MDD needs about `9.8303pp` additional improvement.
+- Concentrated CAGR needs about `2.1757pp` additional improvement and MDD
+  needs about `4.3356pp` additional improvement.
 
 Current data blocker:
 
 - Fast policy replay is valid because restored PIT SEC/Form4/13F/ETF/macro
   stores and the SEC-enriched candidate book are available.
-- Full collector rebuild is not valid until
-  `data_raw/free/sec/companyfacts.zip` exists or is refreshed. Run
-  `free_data_lake_bootstrap.yml` with `sec_companyfacts=true`, or run
-  `free_data_daily_update.yml` manually with `sec_companyfacts=true`, before
-  judging a new full rebuild.
+- Data maintenance run `26987903823` on commit
+  `0bf0fdae6583c33ebae0af10071ecc620ba028f5` refreshed
+  `data_raw/free/sec/companyfacts.zip` from SEC bulk companyfacts
+  (`1321.2 MB`, `19831` members), refreshed target-book price cache to
+  `512` tickers, and completed with `coverage_readiness=ready_for_proxy_replay`.
+- Replay artifacts that use source full run `26797935603` may still show
+  `ready_for_fullrun=false` because that archived source run predates the
+  companyfacts refresh. Before judging a new full rebuild, run
+  `data_readiness_preflight.yml` or a new full rebuild after Drive restore and
+  verify `ready_for_fullrun=true`.
 
 ## Storage Contract
 

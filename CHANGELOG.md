@@ -145,6 +145,29 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This change does not alter target books or broker trades; it only corrects official pass/fail target metadata.
 
+### 11:15 KST - alphaops-current-baseline-refresh
+
+- scope:
+  - Refresh the AlphaOps data contract with the latest verified broker-ledger replay and data maintenance evidence.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->updates the current verified replay baseline to run `26990030997`, records the improved broker metrics and remaining target gaps, and documents data update run `26987903823`.
+  - `CHANGELOG.md` ->records the baseline refresh.
+- symbols_added:
+  - none
+- symbols_changed:
+  - none
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `alphaops-replay-sidecars-26797935603-26990030997` ->latest verified fast replay artifact with broker-ledger metrics and updated target gates.
+  - `free-data-daily-update-26987903823` ->data maintenance artifact showing refreshed SEC companyfacts and target-book price cache readiness.
+- validation:
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - Replay artifacts based on source full run `26797935603` still show archived fullrun readiness missing companyfacts; data maintenance run `26987903823` fixed the Drive/canonical data source for the next preflight or full rebuild.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract
