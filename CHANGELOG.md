@@ -303,6 +303,33 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - Minimal full-rebuild artifacts will grow, but the extra candidate source files are required for policy-only fast replays to test new code instead of reusing archived target books.
 
+### 20:05 KST - concentrated-consumer-overheat-entry-cap
+
+- scope:
+  - Add a narrow concentrated AlphaOps vNext entry cap for Consumer Discretionary market-leader chase entries with overheated one-month benchmark-relative strength.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds and wires a concentrated-only 8% cap for GREEN Consumer Discretionary MARKET_LEADER new entries when `rs_benchmark_1m > 0.25`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new cap and controls for low-RS, HOLD, WATCH, non-consumer, and main-portfolio rows.
+  - `CHANGELOG.md` ->records the policy hypothesis and validation.
+- symbols_added:
+  - `apply_concentrated_green_consumer_overheat_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated GREEN Consumer Discretionary MARKET_LEADER new entries to 8% when one-month benchmark-relative strength is above 25%.
+  - `test_concentrated_green_consumer_overheat_cap_applies_to_new_entries_only()` ->verifies the new cap and non-applicability controls.
+- symbols_changed:
+  - `build_variant_book()` ->applies the new concentrated Consumer Discretionary overheat new-entry cap after the QQQ-down cap and before broader concentrated green market-leader entry caps.
+- config_fields_added:
+  - `CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP: float = 0.08` ->maximum target weight for overheated Consumer Discretionary new entries.
+  - `CONCENTRATED_GREEN_CONSUMER_OVERHEAT_RS_1M_THRESHOLD: float = 0.25` ->one-month benchmark-relative strength threshold for the cap.
+- breaking_changes:
+  - none
+- outputs:
+  - `alphaops_vnext/*target_book*.csv` ->future replays may include `concentrated_green_consumer_overheat_new_entry_cap_status` and related cap metadata on affected concentrated rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `git diff --check -- tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - This is a broker-replay hypothesis from run `27008924043` target-book and MDD analysis; keep it only if official concentrated broker-ledger MDD improves with acceptable CAGR and Sharpe impact.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

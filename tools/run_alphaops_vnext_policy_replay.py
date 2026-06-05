@@ -92,6 +92,8 @@ CONCENTRATED_WATCH_UNCONFIRMED_ML_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_WATCH_UNCONFIRMED_ML_CONFIRMATION_THRESHOLD = 0.50
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_NEW_ENTRY_CAP = 0.08
 CONCENTRATED_GREEN_BULL_QQQ_DOWN_THRESHOLD = 0.0
+CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP = 0.08
+CONCENTRATED_GREEN_CONSUMER_OVERHEAT_RS_1M_THRESHOLD = 0.25
 CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_NEW_ENTRY_CAP = 0.12
 CONCENTRATED_GREEN_CONFIRMED_ML_WEAK_RS_1M_THRESHOLD = 0.12
 CONCENTRATED_GREEN_CONFIRMED_ML_CONFIRMATION_THRESHOLD = 1.0
@@ -961,6 +963,50 @@ def apply_concentrated_green_bull_qqq_down_new_entry_cap(
     return capped
 
 
+def apply_concentrated_green_consumer_overheat_new_entry_cap(
+    weighted: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    capped: list[dict[str, Any]] = []
+    for rec in weighted:
+        item = dict(rec)
+        ticker = clean_ticker(item.get("ticker"))
+        lane = str(item.get("primary_lane") or "").upper()
+        holding_state_text = str(item.get("holding_state") or "").upper()
+        replace_decision = str(item.get("hold_replace_decision") or "")
+        is_new_entry = holding_state_text == "NEW" or replace_decision == "new_entry"
+        crisis_state = str(item.get("crisis_state") or "").upper()
+        sector = str(item.get("sector") or "")
+        rs_benchmark_1m = safe_float(item.get("rs_benchmark_1m"), 0.0)
+        weight = safe_float(item.get("weight"))
+        if (
+            ticker not in CASH_TICKERS
+            and lane == "MARKET_LEADER"
+            and is_new_entry
+            and crisis_state == "GREEN"
+            and sector == "Consumer Discretionary"
+            and rs_benchmark_1m > CONCENTRATED_GREEN_CONSUMER_OVERHEAT_RS_1M_THRESHOLD
+            and weight > CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP
+        ):
+            item["pre_concentrated_green_consumer_overheat_new_entry_cap_weight"] = weight
+            item["weight"] = CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP
+            item["target_weight"] = CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP
+            item["concentrated_green_consumer_overheat_new_entry_cap"] = (
+                CONCENTRATED_GREEN_CONSUMER_OVERHEAT_NEW_ENTRY_CAP
+            )
+            item["concentrated_green_consumer_overheat_new_entry_cap_status"] = "applied"
+            item["selection_reason"] = (
+                str(item.get("selection_reason") or item.get("primary_lane") or "alphaops_vnext_score")
+                + "|concentrated_green_consumer_overheat_new_entry_cap"
+            )
+        else:
+            item["concentrated_green_consumer_overheat_new_entry_cap_status"] = "not_applicable"
+        capped.append(item)
+    return capped
+
+
 def apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(
     weighted: list[dict[str, Any]],
     portfolio_kind: str,
@@ -1306,6 +1352,7 @@ def build_variant_book(
         weighted = apply_concentrated_watch_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_watch_unconfirmed_market_leader_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_bull_qqq_down_new_entry_cap(weighted, portfolio_kind)
+        weighted = apply_concentrated_green_consumer_overheat_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_defense_neutral_quality_new_entry_cap(weighted, portfolio_kind)
