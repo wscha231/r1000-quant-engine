@@ -248,6 +248,32 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - If operating target-book summary metadata is missing, the audit still falls back to the price cache manifest end and may require a stricter source-specific close-date check later.
 
+### 18:40 KST - concentrated-green-bull-qqq-down-entry-cap
+
+- scope:
+  - Add a narrow concentrated AlphaOps vNext entry cap for GREEN/bull market-leader new entries when QQQ one-month tape is negative.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->adds and wires a concentrated-only 8% cap for MARKET_LEADER new entries in GREEN/bull state when `qqq_1m_return < 0`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->covers the new cap and non-applicability for QQQ-positive, neutral-regime, HOLD, non-market-leader, and main-portfolio rows.
+  - `CHANGELOG.md` ->records the policy hypothesis and validation.
+- symbols_added:
+  - `apply_concentrated_green_bull_qqq_down_new_entry_cap(weighted, portfolio_kind)` ->caps concentrated GREEN/bull MARKET_LEADER new entries to 8% when QQQ one-month return is negative.
+  - `test_concentrated_green_bull_qqq_down_cap_applies_to_new_market_leaders_only()` ->verifies the new cap and controls.
+- symbols_changed:
+  - `build_variant_book()` ->applies the new concentrated GREEN/bull QQQ-down new-entry cap before broader concentrated green market-leader entry caps.
+- config_fields_added:
+  - `CONCENTRATED_GREEN_BULL_QQQ_DOWN_NEW_ENTRY_CAP: float = 0.08` ->maximum target weight for the narrow concentrated entry cap.
+  - `CONCENTRATED_GREEN_BULL_QQQ_DOWN_THRESHOLD: float = 0.0` ->QQQ one-month return threshold for the cap.
+- breaking_changes:
+  - none
+- outputs:
+  - `alphaops_vnext/*target_book*.csv` ->future replays may include `concentrated_green_bull_qqq_down_new_entry_cap_status` and related cap metadata on affected concentrated rows.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; [compile(Path(p).read_text(encoding='utf-8'), p, 'exec') for p in ['tools/run_alphaops_vnext_policy_replay.py','tests/alphaops_vnext_policy_replay_smoke.py']]; print('compile ok')"` ->PASS.
+- risks_or_notes:
+  - This is a broker-replay hypothesis based on 26992264956 target-book row analysis; keep it only if fast replay improves official concentrated broker-ledger MDD with acceptable CAGR and Sharpe impact.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

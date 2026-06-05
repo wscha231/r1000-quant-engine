@@ -18,6 +18,7 @@ from tools.run_alphaops_vnext_policy_replay import (
     apply_concentrated_defense_neutral_quality_new_entry_cap,
     apply_concentrated_hold_decay_trim,
     apply_concentrated_risk_state_new_entry_cap,
+    apply_concentrated_green_bull_qqq_down_new_entry_cap,
     apply_concentrated_green_confirmed_market_leader_weak_rs_new_entry_cap,
     apply_concentrated_green_neutral_cyclical_high_vol_new_entry_cap,
     apply_concentrated_unconfirmed_high_vol_new_entry_cap,
@@ -972,6 +973,82 @@ def test_concentrated_watch_unconfirmed_market_leader_cap_applies_without_atr_fi
     assert main[0]["weight"] == 0.20
 
 
+def test_concentrated_green_bull_qqq_down_cap_applies_to_new_market_leaders_only() -> None:
+    selected = [
+        {
+            "ticker": "CAP",
+            "weight": 0.24,
+            "target_weight": 0.24,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "bull",
+            "qqq_1m_return": -0.02,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QQQ_UP",
+            "weight": 0.24,
+            "target_weight": 0.24,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "bull",
+            "qqq_1m_return": 0.01,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "NEUTRAL",
+            "weight": 0.24,
+            "target_weight": 0.24,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "neutral",
+            "qqq_1m_return": -0.02,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "HOLD",
+            "weight": 0.24,
+            "target_weight": 0.24,
+            "holding_state": "HOLD",
+            "hold_replace_decision": "keep_prior_holding",
+            "crisis_state": "GREEN",
+            "regime_state": "bull",
+            "qqq_1m_return": -0.02,
+            "primary_lane": "MARKET_LEADER",
+            "selection_reason": "MARKET_LEADER",
+        },
+        {
+            "ticker": "QUALITY",
+            "weight": 0.24,
+            "target_weight": 0.24,
+            "holding_state": "NEW",
+            "hold_replace_decision": "new_entry",
+            "crisis_state": "GREEN",
+            "regime_state": "bull",
+            "qqq_1m_return": -0.02,
+            "primary_lane": "QUALITY_COMPOUNDER",
+            "selection_reason": "QUALITY_COMPOUNDER",
+        },
+    ]
+    capped = apply_concentrated_green_bull_qqq_down_new_entry_cap(selected, "concentrated")
+    by_ticker = {row["ticker"]: row for row in capped}
+    assert by_ticker["CAP"]["weight"] == 0.08
+    assert by_ticker["CAP"]["target_weight"] == 0.08
+    assert by_ticker["CAP"]["concentrated_green_bull_qqq_down_new_entry_cap_status"] == "applied"
+    assert by_ticker["QQQ_UP"]["weight"] == 0.24
+    assert by_ticker["NEUTRAL"]["weight"] == 0.24
+    assert by_ticker["HOLD"]["weight"] == 0.24
+    assert by_ticker["QUALITY"]["weight"] == 0.24
+    main = apply_concentrated_green_bull_qqq_down_new_entry_cap(selected, "main")
+    assert main[0]["weight"] == 0.24
+
+
 def test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_entries_only() -> None:
     selected = [
         {
@@ -1270,6 +1347,7 @@ if __name__ == "__main__":
     test_concentrated_unconfirmed_quality_bull_cap_applies_to_new_entries_only()
     test_concentrated_watch_unconfirmed_high_vol_cap_applies_to_watch_new_entries_only()
     test_concentrated_watch_unconfirmed_market_leader_cap_applies_without_atr_filter()
+    test_concentrated_green_bull_qqq_down_cap_applies_to_new_market_leaders_only()
     test_concentrated_green_confirmed_market_leader_weak_rs_cap_applies_to_new_entries_only()
     test_concentrated_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_materials_only()
     test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries_only()
