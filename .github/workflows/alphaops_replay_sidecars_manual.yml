@@ -104,7 +104,10 @@ jobs:
           mkdir -p source_artifacts outputs/full_rebuild_logs
           gh run download "${{ inputs.source_run_id }}" --repo "$GITHUB_REPOSITORY" --dir source_artifacts
           BASE_SRC="$(find source_artifacts -type f -name backtest_metrics.json -print -quit | xargs -r dirname)"
-          CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)"
+          SOURCE_REPORT_CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/reports/candidate_replay_book.csv' -print -quit)"
+          SOURCE_ENRICHED_CANDIDATE_BOOK="$(find source_artifacts -type f -path '*/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv' -print -quit)"
+          REPO_FALLBACK_CANDIDATE_BOOK="$(find cloud_results/full_rebuild/failed_runs -type f -path "*/${{ inputs.source_run_id }}_*/reports/candidate_replay_book.csv" -print -quit 2>/dev/null || true)"
+          CANDIDATE_BOOK="${SOURCE_REPORT_CANDIDATE_BOOK:-${SOURCE_ENRICHED_CANDIDATE_BOOK:-$REPO_FALLBACK_CANDIDATE_BOOK}}"
           if [ -n "$BASE_SRC" ]; then
             echo "[replay] base source=$BASE_SRC"
             cp -R "$BASE_SRC"/. outputs/
@@ -113,10 +116,10 @@ jobs:
             CANDIDATE_SRC="$(dirname "$(dirname "$CANDIDATE_BOOK")")"
             cp -R "$CANDIDATE_SRC"/. outputs/
             SRC="$CANDIDATE_SRC"
-            echo "[replay] selected source with candidate_replay_book=$CANDIDATE_BOOK"
+            echo "[replay] selected source with replay candidate=$CANDIDATE_BOOK"
           else
             SRC="$BASE_SRC"
-            echo "[replay] WARNING: no candidate_replay_book found in source artifacts; integrated replay will be blocked"
+            echo "[replay] WARNING: no candidate replay book found in source artifacts or repo fallback; policy replay may restore archived target books"
           fi
           if [ -z "$SRC" ]; then
             echo "[replay] ERROR: could not locate backtest_metrics.json in source artifacts"
@@ -291,22 +294,26 @@ jobs:
           fi
           python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
           if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
-            if [ -s outputs/reports/candidate_replay_book.csv ]; then
-              ALPHAOPS_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
-              ENRICHED_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+            BASE_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
+            ENRICHED_CANDIDATE_BOOK="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
+            if [ -s "$BASE_CANDIDATE_BOOK" ] || [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
               if [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
                 ALPHAOPS_CANDIDATE_BOOK="$ENRICHED_CANDIDATE_BOOK"
-                echo "[replay] using existing enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
-              elif [ -s data_pit/sec/form4_transactions.parquet ] || [ -s data_pit/sec/institutional_13f_holdings.parquet ] || [ -s data_pit/etf_holdings/etf_holdings.parquet ]; then
-                python tools/run_sec_enriched_candidate_replay.py --candidate-book "$ALPHAOPS_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay_for_vnext.log || true
-                if [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
-                  ALPHAOPS_CANDIDATE_BOOK="$ENRICHED_CANDIDATE_BOOK"
-                  echo "[replay] built enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
-                else
-                  echo "[replay] enriched candidate book unavailable for vNext; using base candidate book"
-                fi
+                echo "[replay] using restored enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
               else
-                echo "[replay] SEC/ETF PIT stores unavailable; using base candidate book for vNext"
+                ALPHAOPS_CANDIDATE_BOOK="$BASE_CANDIDATE_BOOK"
+                echo "[replay] using base candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
+                if [ -s data_pit/sec/form4_transactions.parquet ] || [ -s data_pit/sec/institutional_13f_holdings.parquet ] || [ -s data_pit/etf_holdings/etf_holdings.parquet ]; then
+                  python tools/run_sec_enriched_candidate_replay.py --candidate-book "$ALPHAOPS_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay_for_vnext.log || true
+                  if [ -s "$ENRICHED_CANDIDATE_BOOK" ]; then
+                    ALPHAOPS_CANDIDATE_BOOK="$ENRICHED_CANDIDATE_BOOK"
+                    echo "[replay] built enriched candidate book for vNext: $ALPHAOPS_CANDIDATE_BOOK"
+                  else
+                    echo "[replay] enriched candidate book unavailable for vNext; using base candidate book"
+                  fi
+                else
+                  echo "[replay] SEC/ETF PIT stores unavailable; using base candidate book for vNext"
+                fi
               fi
               python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book "$ALPHAOPS_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
             elif [ -s outputs/replay_integrity/source_vnext_official_main_target_book.csv ] && [ -s outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv ]; then

@@ -513,6 +513,10 @@ jobs:
             outputs/reports/regime_by_month.csv
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/reports/candidate_replay_book.csv
+            outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+            outputs/sec_enriched_candidate_replay/summary.json
+            outputs/sec_enriched_candidate_replay/report.md
             outputs/operating_snapshot/current_operating_holdings_latest.csv
             outputs/operating_snapshot/current_portfolio_snapshot_summary.json
             outputs/portfolio_system_guard/error_check.json

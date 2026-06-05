@@ -274,6 +274,35 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a broker-replay hypothesis based on 26992264956 target-book row analysis; keep it only if fast replay improves official concentrated broker-ledger MDD with acceptable CAGR and Sharpe impact.
 
+### 19:08 KST - fast-replay-candidate-source-restore
+
+- scope:
+  - Ensure fast AlphaOps replay can actually regenerate vNext target books for policy changes instead of silently restoring archived target books when the source artifact is slim.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->detects source enriched candidate books and repo failed-run candidate fallbacks, then runs vNext from restored enriched/base candidates before falling back to archived target books.
+  - `.github/workflows/full_rebuild_manual.yml` ->adds base and SEC-enriched candidate replay books to the user-operating minimal artifact so later fast policy replays have source material without a full rebuild.
+  - `tests/workflow_artifact_smoke.py` ->checks the new candidate restore paths, vNext replay logs, and minimal artifact candidate source allowlist.
+  - `CHANGELOG.md` ->records the fast replay source-restore fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `alphaops_replay_sidecars_manual.yml::Download source full rebuild artifact` ->selects `reports/candidate_replay_book.csv`, `sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`, or a matching `cloud_results/full_rebuild/failed_runs/<run_id>_*/reports/candidate_replay_book.csv` fallback.
+  - `alphaops_replay_sidecars_manual.yml::Run fast replay sidecars` ->runs `run_alphaops_vnext_policy_replay.py` when either the base candidate or restored enriched candidate exists.
+  - `full_rebuild_manual.yml::Upload artifact (user operating minimal)` ->keeps candidate replay source files needed by future fast policy replays.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/candidate_replay_book.csv` ->included in future user-operating minimal artifacts as fast replay source material.
+  - `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv` ->included in future user-operating minimal artifacts when available.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; [compile(Path(p).read_text(encoding='utf-8'), p, 'exec') for p in ['tests/workflow_artifact_smoke.py','tests/alphaops_vnext_policy_replay_smoke.py','tools/run_alphaops_vnext_policy_replay.py']]; print('compile ok')"` ->PASS.
+- risks_or_notes:
+  - Minimal full-rebuild artifacts will grow, but the extra candidate source files are required for policy-only fast replays to test new code instead of reusing archived target books.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract
