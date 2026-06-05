@@ -219,7 +219,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - `py -3 -c "import pathlib, yaml; yaml.safe_load(pathlib.Path('.github/workflows/data_readiness_preflight.yml').read_text(encoding='utf-8')); print('yaml ok')"` ->PASS.
   - `git diff --check -- .github\workflows\data_readiness_preflight.yml tests\workflow_artifact_smoke.py CHANGELOG.md` ->PASS.
 - risks_or_notes:
-  - Default branch preflight can still audit stale committed `cloud_results` when no matching Drive path exists; pass a concrete Drive path such as `research_runs/<safe_branch>/failed_runs/<run_id>/outputs` to audit a specific branch full rebuild.
+  - Default branch preflight can still audit stale committed `cloud_results` when no matching Drive path exists; pass a concrete path only when that Drive directory contains root `scored_latest.csv` and portfolio files.
+  - Full rebuild minimal Drive sync stores many files under `outputs/official/<run_id>/`, so committed `cloud_results/full_rebuild/failed_runs/<run_id>_<mode>` or the GitHub artifact is the better full-run audit source for branch failed runs.
+
+### 17:47 KST - data-readiness-operating-close-authority
+
+- scope:
+  - Treat operating target-book summary close dates as the authority for target-book freshness when price manifests extend beyond the operating close.
+- files:
+  - `tools/audit_data_readiness.py` ->uses `operating_target_books_summary.json` `latest_price_close_date` values before falling back to the price cache manifest end date.
+  - `tests/data_readiness_smoke.py` ->covers a future-dated price manifest that must not make current-to-close operating books stale.
+  - `CHANGELOG.md` ->records the operating-close authority fix.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `latest_observable_close_date(prices, operating_summary)` ->returns the newest operating book `latest_price_close_date` when present and only falls back to price manifest end when operating close metadata is absent.
+  - `test_data_readiness_caps_target_freshness_to_observable_close()` ->sets the price manifest end later than the operating close to verify the freshness gate stays anchored to the operating close.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/data_readiness/summary.json` ->reports `latest_observable_close_date` from operating target-book metadata when available.
+- validation:
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; [compile(Path(p).read_text(encoding='utf-8'), p, 'exec') for p in ['tools/audit_data_readiness.py','tests/data_readiness_smoke.py']]; print('compile ok')"` ->PASS.
+  - `git diff --check -- tools\audit_data_readiness.py tests\data_readiness_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - If operating target-book summary metadata is missing, the audit still falls back to the price cache manifest end and may require a stricter source-specific close-date check later.
 
 ## 2026-06-04
 

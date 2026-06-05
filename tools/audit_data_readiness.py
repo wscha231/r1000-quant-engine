@@ -131,17 +131,17 @@ def latest_observable_close_date(
     prices: dict[str, Any],
     operating_summary: dict[str, Any],
 ) -> str:
-    dates: list[date] = []
-    price_end = parse_date(prices.get("selected_manifest_end"))
-    if price_end is not None:
-        dates.append(price_end)
+    operating_close_dates: list[date] = []
     for book in operating_summary.get("books") or []:
         if not isinstance(book, dict):
             continue
         close_dt = parse_date(book.get("latest_price_close_date"))
         if close_dt is not None:
-            dates.append(close_dt)
-    return max(dates).isoformat() if dates else ""
+            operating_close_dates.append(close_dt)
+    if operating_close_dates:
+        return max(operating_close_dates).isoformat()
+    price_end = parse_date(prices.get("selected_manifest_end"))
+    return price_end.isoformat() if price_end is not None else ""
 
 
 def min_date_from_columns(frame: pd.DataFrame, columns: list[str] = DATE_COLUMNS) -> str:

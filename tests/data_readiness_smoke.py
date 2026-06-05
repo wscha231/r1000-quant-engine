@@ -36,7 +36,7 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
             (cache / f"{idx}.parquet").write_bytes(b"placeholder")
         write_json(
             free / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2019-01-01", "end": "2026-05-11", "ticker_count": 3, "failed_count": 0, "status": "completed"},
+            {"start": "2019-01-01", "end": "2026-05-15", "ticker_count": 3, "failed_count": 0, "status": "completed"},
         )
         (free / "sec").mkdir(parents=True)
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
@@ -99,7 +99,7 @@ def test_data_readiness_caps_target_freshness_to_observable_close() -> None:
             (cache / f"{idx}.parquet").write_bytes(b"placeholder")
         write_json(
             free / "prices" / "replay_price_cache_manifest.json",
-            {"start": "2019-01-01", "end": "2026-05-11", "ticker_count": 3, "failed_count": 0, "status": "completed"},
+            {"start": "2019-01-01", "end": "2026-05-15", "ticker_count": 3, "failed_count": 0, "status": "completed"},
         )
         (free / "sec").mkdir(parents=True)
         (free / "sec" / "companyfacts.zip").write_bytes(b"zip")
