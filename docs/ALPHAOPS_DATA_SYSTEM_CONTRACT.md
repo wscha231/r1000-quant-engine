@@ -29,6 +29,57 @@ Before changing selection, sizing, cash, or risk rules, every agent must verify:
 - `outputs/portfolio_system_guard/error_check.json`
   - `hard_error_count=0` for production-valid analysis
 
+## Current Acceptance Baseline
+
+Latest verified broker-ledger production replay:
+
+- GitHub Actions run: `26958138179`
+- Branch: `codex/alphaops-integrated-replay`
+- Commit: `371de428729b47a58f4b976d36d8a23f84322bba`
+- Source full rebuild replayed: `26797935603`
+- Metric mode: broker ledger next-close fills with costs and cash
+- Production flags:
+  - `production_applied=true`
+  - `sidecar_only=false`
+  - `sidecar_applied_to_production=true`
+  - `current_holdings_source=alphaops_vnext_policy_target_book`
+  - `official_metric_mode=broker_ledger_next_close`
+- Data gate:
+  - `ready_for_policy_replay=true`
+  - `policy_replay_blockers=[]`
+  - `portfolio_system_guard.hard_error_count=0`
+  - SEC-enriched candidate source:
+    `outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv`
+
+Current broker metrics from that run:
+
+- Main: CAGR `30.5963%`, MDD `-35.0647%`, Sharpe `1.1880`,
+  average cash `24.1504%`
+- Concentrated: CAGR `42.1416%`, MDD `-32.2129%`, Sharpe `1.2761`,
+  average cash `33.7878%`
+
+Current acceptance targets:
+
+- Main: CAGR at or above `30%`, MDD no worse than `-25%`
+- Concentrated: CAGR at or above `45%`, MDD no worse than `-25%`
+- Official evidence: broker trade / broker ledger next-close only
+
+Remaining performance gaps:
+
+- Main CAGR passes, but MDD needs about `10.0647pp` additional improvement.
+- Concentrated CAGR needs about `2.8584pp` additional improvement and MDD
+  needs about `7.2129pp` additional improvement.
+
+Current data blocker:
+
+- Fast policy replay is valid because restored PIT SEC/Form4/13F/ETF/macro
+  stores and the SEC-enriched candidate book are available.
+- Full collector rebuild is not valid until
+  `data_raw/free/sec/companyfacts.zip` exists or is refreshed. Run
+  `free_data_lake_bootstrap.yml` with `sec_companyfacts=true`, or run
+  `free_data_daily_update.yml` manually with `sec_companyfacts=true`, before
+  judging a new full rebuild.
+
 ## Storage Contract
 
 GitHub stores code, schemas, workflows, tests, docs, and small manifests.
@@ -81,6 +132,14 @@ Minimum expected freshness:
 - Universe:
   - current/proxy universe labels must be explicit
   - do not describe proxy-universe results as official Russell 1000 history
+- SEC companyfacts bulk archive:
+  - refresh when older than 3 days before a full collector rebuild
+  - do not download the 1GB+ archive in every scheduled daily run
+  - use the explicit `sec_companyfacts=true` workflow input when readiness
+    reports `data_raw/free/sec/companyfacts.zip` missing
+  - after refresh, preserve the archive at
+    `data_raw/free/sec/companyfacts.zip` so readiness audits and future agents
+    share one canonical path
 
 ## Replay Gate
 
@@ -145,9 +204,12 @@ When resuming AlphaOps work, agents must follow this order:
    current holdings, and target-book changes.
 5. Prefer fast replay for policy-only changes. Use full rebuild only when
    collectors, feature generation, universe construction, or schemas change.
-6. Keep large data in Drive/object storage and commit only code, docs, tests,
+6. If full rebuild readiness is blocked only by missing companyfacts, refresh
+   `data_raw/free/sec/companyfacts.zip` through the data workflow before
+   spending another full rebuild run.
+7. Keep large data in Drive/object storage and commit only code, docs, tests,
    and small manifests.
-7. Update `CHANGELOG.md` in the same commit as any material pipeline or data
+8. Update `CHANGELOG.md` in the same commit as any material pipeline or data
    contract change.
 
 ## Performance Work After Data Passes

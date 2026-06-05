@@ -269,6 +269,8 @@ def test_workflow_runs_latest_diagnostics_sidecars() -> None:
         "tools/run_shakeout_disclosure_reversal_study.py",
         "tools/run_autolearning_winner_challenger.py",
         "tools/run_alphaops_policy_fusion.py",
+        "data_raw/free/sec/companyfacts.zip",
+        "cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip",
         "VALID_PRIMARY_OUTPUTS",
         "RUN_ARTIFACT_VALID",
         "GUARD_HARD_ERRORS",
@@ -597,10 +599,13 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         "outputs/ten_year_backtest_readiness/",
         "CAGR",
         "MaxDD",
+        "sec_companyfacts",
+        "SEC_COMPANYFACTS",
+        "--sec-companyfacts",
+        "--sec-max-age-days",
     ]:
         assert token in text, token
     for forbidden in [
-        "--sec-companyfacts",
         "python run_local.py --full",
         "git commit",
     ]:

@@ -146,6 +146,7 @@ jobs:
             outputs/sec_companyfacts
             outputs/macro
             outputs/companyfacts.zip
+            data_raw/free/sec/companyfacts.zip
           key: collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-
@@ -162,11 +163,12 @@ jobs:
         env:
           SEC_USER_AGENT: "R1000InstitutionalBot (contact: andrewcha231@gmail.com)"
         run: |
-          mkdir -p outputs
+          mkdir -p outputs data_raw/free/sec
           python tools/refresh_companyfacts_bulk.py \
             --base-dir "$(pwd)/outputs" \
             --max-age-days 7 \
             --required
+          cp outputs/companyfacts.zip data_raw/free/sec/companyfacts.zip
 
       # Cache feature_store + scored outputs (large files, prior FULL rebuild result)
       - name: Restore engine cache

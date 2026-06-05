@@ -51,6 +51,41 @@ All entries must be written in English. Entries must be predictable and machine-
 - Do not place free-floating sections between dated entries.
 - Keep newest entries under the correct date, appended chronologically.
 
+## 2026-06-05
+
+### 08:38 KST - alphaops-data-readiness-operating-plan
+
+- scope:
+  - Make the AlphaOps data readiness plan operational by recording the latest broker-ledger acceptance baseline, the remaining CAGR/MDD gaps, and explicit companyfacts refresh paths for full rebuild readiness.
+- files:
+  - `docs/ALPHAOPS_DATA_SYSTEM_CONTRACT.md` ->adds the latest verified broker-ledger replay baseline, target gaps, current data blocker, and SEC companyfacts refresh rules.
+  - `CLAUDE.md` ->summarizes current broker-ledger acceptance targets and the companyfacts readiness recovery path for future agents.
+  - `.github/workflows/free_data_daily_update.yml` ->adds manual `sec_companyfacts` and `sec_max_age_days` inputs so missing companyfacts can be refreshed without changing the scheduled lightweight daily run.
+  - `.github/workflows/full_rebuild_manual.yml` ->copies refreshed `outputs/companyfacts.zip` into canonical `data_raw/free/sec/companyfacts.zip` and caches that path.
+  - `tests/workflow_artifact_smoke.py` ->expects the new manual SEC refresh switch and canonical companyfacts copy in workflow wiring.
+  - `CHANGELOG.md` ->records the data readiness operating plan update.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `free_data_daily_update.yml::Run free data daily validation` ->builds bootstrap args dynamically and passes `--sec-companyfacts --sec-max-age-days` only when the manual input is enabled.
+  - `full_rebuild_manual.yml::Refresh SEC companyfacts bulk archive` ->mirrors the refreshed SEC bulk archive to `data_raw/free/sec/companyfacts.zip`.
+- config_fields_added:
+  - `free_data_daily_update.workflow_dispatch.sec_companyfacts: boolean = false` ->manual-only SEC companyfacts refresh switch for fullrun readiness recovery.
+  - `free_data_daily_update.workflow_dispatch.sec_max_age_days: string = 3` ->freshness threshold used when `sec_companyfacts=true`.
+- breaking_changes:
+  - none
+- outputs:
+  - `data_raw/free/sec/companyfacts.zip` ->canonical SEC bulk archive path required for fullrun readiness audits.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\data_readiness_smoke.py` ->PASS.
+  - `py -3 tests\free_data_lake_bootstrap_smoke.py` ->PASS.
+  - `py -3 -c "import pathlib, yaml; [yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8')) for p in ['.github/workflows/free_data_lake_bootstrap.yml','.github/workflows/free_data_daily_update.yml','.github/workflows/full_rebuild_manual.yml']]; print('yaml ok')"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - Scheduled daily updates remain lightweight because `sec_companyfacts` defaults to `false`.
+  - Latest verified broker-ledger baseline remains run `26958138179` on commit `371de428729b47a58f4b976d36d8a23f84322bba`; targets still do not pass.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract
