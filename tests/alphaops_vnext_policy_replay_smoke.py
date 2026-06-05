@@ -731,10 +731,10 @@ def test_concentrated_hold_decay_trim_applies_to_decaying_holds_only() -> None:
     ]
     trimmed = apply_concentrated_hold_decay_trim(selected, "concentrated")
     by_ticker = {row["ticker"]: row for row in trimmed}
-    assert by_ticker["DECAY"]["weight"] == 0.12
-    assert by_ticker["DECAY"]["target_weight"] == 0.12
+    assert by_ticker["DECAY"]["weight"] == 0.08
+    assert by_ticker["DECAY"]["target_weight"] == 0.08
     assert by_ticker["DECAY"]["concentrated_hold_decay_trim_status"] == "applied"
-    assert by_ticker["RELDECAY"]["weight"] == 0.12
+    assert by_ticker["RELDECAY"]["weight"] == 0.08
     assert by_ticker["RELDECAY"]["concentrated_hold_decay_trim_status"] == "applied"
     assert by_ticker["NEW"]["weight"] == 0.30
     assert by_ticker["OKHOLD"]["weight"] == 0.30

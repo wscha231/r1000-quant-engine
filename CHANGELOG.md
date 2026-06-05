@@ -53,6 +53,33 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 03:19 KST - promote-concentrated-neutral90-and-tighten-hold-decay
+
+- scope:
+  - Promote the concentrated neutral regime-capacity dampening into the production vNext default and tighten concentrated HOLD decay trims after broker artifact analysis showed the neutral90 sidecar nearly reached the 45% CAGR / -25% MDD target.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->sets concentrated neutral regime-capacity multiplier to `0.90` and lowers `CONCENTRATED_HOLD_DECAY_CAP` from `0.12` to `0.08`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects concentrated HOLD decay trims to cap qualifying rows at 8%.
+  - `CHANGELOG.md` ->records the concentrated neutral90 promotion and HOLD decay tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_concentrated_hold_decay_trim(weighted, portfolio_kind)` ->qualifying concentrated HOLD rows now trim to 8% instead of 12%.
+  - `apply_regime_capacity_overlay(rows, portfolio_kind)` ->concentrated neutral rows now receive the default `0.90` regime-capacity multiplier.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book.csv` ->future replay should show neutral concentrated rows dampened by `regime_capacity_multiplier=0.90` and qualifying `concentrated_hold_decay_trim_status=applied` rows capped at `0.08`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `git diff --check -- tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27030012761`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 02:27 KST - concentrated-high-vol-weak-timing-new-entry-cap
 
 - scope:
