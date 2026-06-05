@@ -117,6 +117,34 @@ All entries must be written in English. Entries must be predictable and machine-
   - This is a policy behavior change and requires fast broker replay verification before keeping it.
   - Revert or adjust if official broker-ledger MDD does not improve with acceptable CAGR and Sharpe impact.
 
+### 10:28 KST - alphaops-official-target-gate-update
+
+- scope:
+  - Align official broker-ledger pass/fail gates with the current user targets: main CAGR 30% with MDD no worse than -25%, and concentrated CAGR 45% with MDD no worse than -25%.
+- files:
+  - `r1000_config.py` ->updates `PORTFOLIO_GOAL_TARGETS` for main and concentrated official gates.
+  - `tools/run_account_evaluation.py` ->updates isolated fallback targets to match the canonical config.
+  - `tests/account_evaluation_smoke.py` ->keeps the concentrated smoke case below the new 45% CAGR target.
+  - `CHANGELOG.md` ->records the target gate update.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `target_for(portfolio)` ->uses fallback targets of main 30%/-25% and concentrated 45%/-25%.
+  - `test_account_evaluation_uses_broker_ledger_as_official_source()` ->sets concentrated CAGR below the new target so the fail-path assertion remains meaningful.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - Official account-evaluation `target_pass` semantics change for main MDD and concentrated CAGR to match the current acceptance target.
+- outputs:
+  - `outputs/account_evaluation/official_metrics.json` ->will report the updated target thresholds after the next replay/full rebuild.
+- validation:
+  - `py -3 tests\account_evaluation_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->PASS.
+  - `py -3 -B -c "from pathlib import Path; [compile(Path(p).read_text(encoding='utf-8'), p, 'exec') for p in ['r1000_config.py','tools/run_account_evaluation.py','tests/account_evaluation_smoke.py']]; print('compile ok')"` ->PASS.
+  - `git diff --check` ->PASS.
+- risks_or_notes:
+  - This change does not alter target books or broker trades; it only corrects official pass/fail target metadata.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

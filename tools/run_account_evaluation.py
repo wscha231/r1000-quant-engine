@@ -31,8 +31,8 @@ try:
     from r1000_config import PORTFOLIO_GOAL_TARGETS
 except Exception:  # pragma: no cover - fallback for isolated smoke contexts
     PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.20},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+        "main": {"cagr": 0.30, "max_dd": -0.25},
+        "concentrated": {"cagr": 0.45, "max_dd": -0.25},
     }
 
 
@@ -114,8 +114,8 @@ def legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
 def target_for(portfolio: str) -> dict[str, float]:
     target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
     return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.20 if portfolio == "main" else -0.25)),
+        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.45)),
+        "max_dd": float(target.get("max_dd", -0.25)),
     }
 
 
