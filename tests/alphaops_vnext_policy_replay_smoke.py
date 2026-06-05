@@ -464,7 +464,7 @@ def test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_material
             "crisis_state": "GREEN",
             "regime_state": "neutral",
             "sector": "Materials",
-            "atr14_pct": 0.08,
+            "atr14_pct": 0.04,
             "selection_reason": "MARKET_LEADER",
         },
         {
@@ -496,8 +496,8 @@ def test_main_green_neutral_cyclical_high_vol_cap_applies_to_new_energy_material
     ]
     capped = apply_main_green_neutral_cyclical_high_vol_new_entry_cap(selected, "main")
     by_ticker = {row["ticker"]: row for row in capped}
-    assert by_ticker["CAP"]["weight"] == 0.06
-    assert by_ticker["CAP"]["target_weight"] == 0.06
+    assert by_ticker["CAP"]["weight"] == 0.02
+    assert by_ticker["CAP"]["target_weight"] == 0.02
     assert by_ticker["CAP"]["main_green_neutral_cyclical_high_vol_new_entry_cap_status"] == "applied"
     assert by_ticker["LOW_VOL"]["weight"] == 0.08
     assert by_ticker["TECH"]["weight"] == 0.08

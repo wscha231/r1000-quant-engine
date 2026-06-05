@@ -53,6 +53,31 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 08:47 KST - tighten-main-cyclical-high-vol-entry-cap
+
+- scope:
+  - Tighten the existing main GREEN neutral Energy/Materials high-volatility NEW-entry cap after current broker artifact analysis showed the affected 2022-03-31 cyclical entries dominated remaining main MDD losses.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_NEW_ENTRY_CAP` from `0.06` to `0.02` and lowers `MAIN_GREEN_NEUTRAL_CYCLICAL_HIGH_VOL_ATR_THRESHOLD` from `0.10` to `0.06`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects qualifying main Energy/Materials high-volatility NEW rows to cap at 2% and keeps the low-volatility control below the 6% ATR threshold.
+  - `CHANGELOG.md` ->records the main cyclical high-volatility cap tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_green_neutral_cyclical_high_vol_new_entry_cap(weighted, portfolio_kind)` ->qualifying main GREEN neutral Energy/Materials MARKET_LEADER NEW rows now cap at 2% when ATR14 is at least 6%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying `main_green_neutral_cyclical_high_vol_new_entry_cap_status=applied` rows capped at `0.02`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27045290187`; local target-book proxy was positive for both all-period and main MDD rows, but official acceptance still requires fast replay broker-ledger metrics.
+
 ### 08:20 KST - tighten-main-quality-caps-to-two-percent
 
 - scope:
