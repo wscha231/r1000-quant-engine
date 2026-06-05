@@ -435,6 +435,40 @@ All entries must be written in English. Entries must be predictable and machine-
   - Run `27016343542` showed concentrated neutral 0.85 regime-capacity replay had MDD `-24.74%` but CAGR `43.26%`; neutral 0.90 is a broker-valid attempt to recover CAGR while keeping MDD near `-25%`.
   - This remains a sidecar candidate until fast replay verifies broker-ledger metrics.
 
+### 23:02 KST - legacy-monthly-broker-replay-sidecar
+
+- scope:
+  - Add broker-ledger replays for legacy main monthly weights and legacy concentrated holdings so previous-version target-weight advantages can be tested under next-close account execution.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs `legacy_monthly_broker_replay` for main and concentrated in fast replay and preserves neutral90 regime-capacity target books.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes legacy monthly broker replay outputs and regime-capacity target books in full rebuild artifacts and Drive sync.
+  - `tools/run_full_rebuild_sidecars.py` ->runs legacy monthly broker replay sidecars for operating/official full rebuild profiles.
+  - `tools/run_portfolio_goal_search.py` ->collects legacy monthly broker replays as broker-valid candidates.
+  - `tools/sync_cloud_to_drive.py` ->recognizes `legacy_monthly_broker_replay` as a syncable output directory.
+  - `tests/workflow_artifact_smoke.py` ->expects legacy replay commands, logs, and artifact paths.
+  - `tests/smoke_test.py` ->expects full rebuild artifacts to include legacy monthly broker replay outputs.
+  - `CHANGELOG.md` ->records the legacy monthly broker replay sidecar.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `collect_candidates(latest_run)` ->adds `main_legacy_monthly_broker_replay` and `concentrated_legacy_monthly_broker_replay`.
+  - `run_full_rebuild_sidecars.py::operating official sidecars` ->runs broker-ledger replay on `main_monthly_weights.csv` and `concentrated_strategy_holdings.csv`.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/legacy_monthly_broker_replay/main/metrics.json` ->broker-ledger next-close metrics for legacy main monthly weights.
+  - `outputs/legacy_monthly_broker_replay/concentrated/metrics.json` ->broker-ledger next-close metrics for legacy concentrated holdings.
+  - `outputs/reports/operating_*_target_book_regime_capacity*.csv` ->regime-capacity filtered target books preserved for post-run inspection.
+- validation:
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_portfolio_goal_search.py tools\run_full_rebuild_sidecars.py tools\sync_cloud_to_drive.py tests\workflow_artifact_smoke.py tests\smoke_test.py` ->PASS.
+- risks_or_notes:
+  - This does not promote legacy metrics; it checks whether their apparent MDD advantage survives broker-ledger execution.
+  - If legacy broker replay fails, the previous high legacy scores should stay research-only and not be used as production evidence.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

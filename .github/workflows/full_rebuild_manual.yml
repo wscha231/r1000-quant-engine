@@ -512,6 +512,7 @@ jobs:
             outputs/reports/concentrated_strategy_holdings.csv
             outputs/reports/regime_by_month.csv
             outputs/reports/operating_*_target_book.csv
+            outputs/reports/operating_*_target_book_regime_capacity*.csv
             outputs/reports/operating_target_books_*
             outputs/reports/candidate_replay_book.csv
             outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
@@ -538,6 +539,7 @@ jobs:
           path: |
             outputs/account_evaluation/
             outputs/broker_replay/
+            outputs/legacy_monthly_broker_replay/
             outputs/operating_snapshot/
             outputs/account_ledger_preview/
             outputs/broker_position_risk_replay/
@@ -640,6 +642,7 @@ jobs:
             outputs/broker_replay/
             outputs/event_target_books/
             outputs/event_broker_replay/
+            outputs/legacy_monthly_broker_replay/
             outputs/weekly_leader_snapshots/
             outputs/weekly_leader_broker_replay/
             outputs/cost_sensitivity/
@@ -1171,6 +1174,7 @@ jobs:
           copy_dir_clean outputs/position_aware_risk_replay "$DEST/position_aware_risk_replay"
           copy_dir_clean outputs/position_risk_weekly_validation "$DEST/position_risk_weekly_validation"
           copy_dir_clean outputs/broker_replay "$DEST/broker_replay"
+          copy_dir_clean outputs/legacy_monthly_broker_replay "$DEST/legacy_monthly_broker_replay"
           copy_dir_clean outputs/mdd_cash_overlay_research "$DEST/mdd_cash_overlay_research"
           copy_dir_clean outputs/broker_position_risk_replay "$DEST/broker_position_risk_replay"
           copy_dir_clean outputs/broker_parabolic_risk_replay "$DEST/broker_parabolic_risk_replay"

@@ -68,6 +68,7 @@ SYNC_DIRS = [
     "data_readiness",
     "trade_journal",
     "broker_replay",
+    "legacy_monthly_broker_replay",
     "event_target_books",
     "event_broker_replay",
     "weekly_leader_snapshots",

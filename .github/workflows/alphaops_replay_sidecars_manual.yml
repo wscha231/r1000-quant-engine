@@ -333,6 +333,12 @@ jobs:
           python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
           python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
           python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+          if [ -s outputs/reports/main_monthly_weights.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/legacy_monthly_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log || true
+          fi
+          if [ -s outputs/reports/concentrated_strategy_holdings.csv ]; then
+            python tools/run_broker_ledger_replay.py --target-book outputs/reports/concentrated_strategy_holdings.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/legacy_monthly_broker_replay/concentrated --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/legacy_monthly_broker_replay_concentrated.log || true
+          fi
           python tools/build_event_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/event_target_books --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/event_target_books.log || true
           if [ -s outputs/reports/event_main_target_book.csv ]; then
             python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/event_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_main.log || true
@@ -454,6 +460,7 @@ jobs:
           path: |
             outputs/reports/operating_*_target_book.csv
             outputs/reports/operating_target_books_*
+            outputs/reports/operating_*_target_book_regime_capacity*.csv
             outputs/reports/dataset_coverage_audit.*
             outputs/reports/event_*_target_book.csv
             outputs/reports/weekly_leader_*_target_book.csv
@@ -467,6 +474,7 @@ jobs:
             outputs/sec_enriched_candidate_replay/report.md
             outputs/position_risk_weekly_validation/
             outputs/broker_replay/
+            outputs/legacy_monthly_broker_replay/
             outputs/event_target_books/
             outputs/event_broker_replay/
             outputs/weekly_leader_snapshots/

@@ -450,6 +450,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "legacy_monthly_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_legacy_monthly_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay of legacy main monthly weights. Use to test whether the legacy target-weight edge survives next-close account ledger execution.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "regime_capacity_broker_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_regime_capacity_broker_replay",
@@ -529,6 +536,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_ledger_replay",
         source_label="sidecar",
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "legacy_monthly_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_legacy_monthly_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay of legacy concentrated monthly holdings. Use to test whether the legacy target-weight edge survives next-close account ledger execution.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "regime_capacity_broker_replay" / "concentrated" / "metrics.json",
