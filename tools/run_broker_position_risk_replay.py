@@ -144,6 +144,7 @@ def risk_signal(
     trailing_activation: float,
     relative_trim_threshold: float,
     relative_exit_threshold: float,
+    enable_distribution_exit: bool = True,
 ) -> tuple[str, str, float, dict[str, Any]] | None:
     if close_price <= 0 or meta.entry_price <= 0:
         return None
@@ -171,7 +172,7 @@ def risk_signal(
             safe_float(meta.row.get("risk_penalty"), 0.0),
         )
         rs_accel = safe_float(meta.row.get("rs_acceleration_score"), 0.0)
-        if exit_risk >= 0.85 and rs_accel < 0.0 and total_return < -0.02:
+        if enable_distribution_exit and exit_risk >= 0.85 and rs_accel < 0.0 and total_return < -0.02:
             return "SELL", "weekly_distribution_exit", 1.0, context
         if relative_return <= relative_exit_threshold and not protected:
             return "SELL", "weekly_relative_exit", 1.0, context
@@ -304,6 +305,7 @@ def replay(
     trailing_activation: float = DEFAULT_TRAILING_ACTIVATION,
     relative_trim_threshold: float = DEFAULT_RELATIVE_TRIM_THRESHOLD,
     relative_exit_threshold: float = DEFAULT_RELATIVE_EXIT_THRESHOLD,
+    enable_distribution_exit: bool = True,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
@@ -462,6 +464,7 @@ def replay(
                     trailing_activation=trailing_activation,
                     relative_trim_threshold=relative_trim_threshold,
                     relative_exit_threshold=relative_exit_threshold,
+                    enable_distribution_exit=enable_distribution_exit,
                 )
                 if signal is None:
                     continue
@@ -515,6 +518,7 @@ def replay(
             "trailing_activation": trailing_activation,
             "relative_trim_threshold": relative_trim_threshold,
             "relative_exit_threshold": relative_exit_threshold,
+            "enable_distribution_exit": bool(enable_distribution_exit),
             "risk_exit_count": int(sum(1 for row in risk_action_rows if "exit" in str(row.get("reason", "")))),
             "risk_trim_count": int(sum(1 for row in risk_action_rows if "trim" in str(row.get("reason", "")))),
             "valid_for_production": bool(metrics.get("status") == "completed" and fill_mode == "next_close" and integer_shares),
@@ -566,6 +570,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trailing-activation", type=float, default=DEFAULT_TRAILING_ACTIVATION)
     parser.add_argument("--relative-trim-threshold", type=float, default=DEFAULT_RELATIVE_TRIM_THRESHOLD)
     parser.add_argument("--relative-exit-threshold", type=float, default=DEFAULT_RELATIVE_EXIT_THRESHOLD)
+    parser.add_argument("--disable-distribution-exit", action="store_true", help="Disable weekly distribution exits so only hard/trailing/relative rules can fire.")
     return parser.parse_args()
 
 
@@ -587,6 +592,7 @@ def main() -> int:
         trailing_activation=args.trailing_activation,
         relative_trim_threshold=args.relative_trim_threshold,
         relative_exit_threshold=args.relative_exit_threshold,
+        enable_distribution_exit=not args.disable_distribution_exit,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0

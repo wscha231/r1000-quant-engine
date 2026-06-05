@@ -3174,6 +3174,7 @@ def test_workflow_profiles_operating_minimal_skip_research() -> None:
     assert "create_healthy_baseline_lock.py" in sidecar_tool
     assert "run_market_leader_challenger.py" in sidecar_tool
     assert "outputs/broker_position_risk_replay/" in wf
+    assert "outputs/broker_parabolic_risk_replay/" in wf
     assert "outputs/broker_execution_policy_replay/" in wf
     assert "outputs/operator_review/" in wf
     assert "outputs/baseline_lock/" in wf

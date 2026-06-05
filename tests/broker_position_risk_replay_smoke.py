@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from tools.run_broker_position_risk_replay import replay  # noqa: E402
+from tools.run_broker_position_risk_replay import RiskMeta, replay, risk_signal  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -84,6 +84,57 @@ def test_broker_position_risk_replay_uses_next_close_risk_fills() -> None:
         assert (out / "account_state_latest.json").exists()
 
 
+def test_distribution_exit_can_be_disabled_for_parabolic_replay() -> None:
+    prices = {
+        "SPY": pd.DataFrame(
+            {"Close": [100.0]},
+            index=pd.to_datetime(["2026-01-09"]),
+        )
+    }
+    meta = RiskMeta(
+        entry_price=100.0,
+        entry_date=pd.Timestamp("2026-01-02"),
+        peak_price=100.0,
+        bench_entry_price=100.0,
+        trim_done=False,
+        row={
+            "explosion_exit_score": 0.9,
+            "stage2_overext_penalty": 0.0,
+            "risk_penalty": 0.0,
+            "rs_acceleration_score": -0.1,
+        },
+    )
+    common = {
+        "ticker": "AAA",
+        "date": pd.Timestamp("2026-01-09"),
+        "close_price": 97.0,
+        "prices": prices,
+        "benchmark_ticker": "SPY",
+        "period_end": pd.Timestamp("2026-01-30"),
+        "hard_stop": -9.0,
+        "trailing_stop": -0.20,
+        "trailing_activation": 0.50,
+        "relative_trim_threshold": -9.0,
+        "relative_exit_threshold": -9.0,
+    }
+
+    enabled = risk_signal(meta=meta, enable_distribution_exit=True, **common)
+    assert enabled is not None
+    assert enabled[1] == "weekly_distribution_exit"
+
+    disabled_meta = RiskMeta(
+        entry_price=100.0,
+        entry_date=pd.Timestamp("2026-01-02"),
+        peak_price=100.0,
+        bench_entry_price=100.0,
+        trim_done=False,
+        row=meta.row,
+    )
+    disabled = risk_signal(meta=disabled_meta, enable_distribution_exit=False, **common)
+    assert disabled is None
+
+
 if __name__ == "__main__":
     test_broker_position_risk_replay_uses_next_close_risk_fills()
+    test_distribution_exit_can_be_disabled_for_parabolic_replay()
     print("broker_position_risk_replay_smoke: PASS")

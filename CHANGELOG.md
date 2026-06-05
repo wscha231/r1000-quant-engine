@@ -356,6 +356,49 @@ All entries must be written in English. Entries must be predictable and machine-
 - risks_or_notes:
   - This is a broker-replay hypothesis from run `27011330255` MDD analysis; the main expected additional historical row is `RGLD` on 2022-03-31, and the rule must be kept only if official concentrated broker-ledger MDD improves with acceptable CAGR and Sharpe impact.
 
+### 21:52 KST - broker-parabolic-risk-replay-sidecar
+
+- scope:
+  - Add a broker-valid parabolic-winner trailing-exit sidecar so PLTR-style daily drawdown defense can be tested without promoting broad position-risk exits into official production metrics.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs main and concentrated `broker_parabolic_risk_replay` in fast replay artifacts with hard-stop, relative, and distribution exits disabled.
+  - `.github/workflows/full_rebuild_manual.yml` ->includes `outputs/broker_parabolic_risk_replay/` in official and research artifacts and Google Drive sync.
+  - `tools/run_broker_position_risk_replay.py` ->adds a switch to disable weekly distribution exits while leaving the default broad risk replay unchanged.
+  - `tools/run_full_rebuild_sidecars.py` ->runs parabolic trailing-only broker risk replays for official and research full rebuild sidecars.
+  - `tools/run_portfolio_goal_search.py` ->collects parabolic broker risk replay metrics as separate main and concentrated candidates.
+  - `tools/sync_cloud_to_drive.py` ->recognizes `broker_parabolic_risk_replay` as a syncable output directory.
+  - `tests/broker_position_risk_replay_smoke.py` ->covers disabling the weekly distribution exit for parabolic replay.
+  - `tests/workflow_artifact_smoke.py` ->expects parabolic replay commands, logs, and artifact paths.
+  - `tests/smoke_test.py` ->expects the full rebuild artifact profile to include parabolic replay outputs.
+  - `CHANGELOG.md` ->records the broker-valid parabolic sidecar.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `risk_signal(...)` ->accepts `enable_distribution_exit` so parabolic replay can disable distribution exits without changing default position-risk behavior.
+  - `replay(...)` ->passes `enable_distribution_exit` into daily risk signal evaluation and records it in metrics.
+  - `parse_args()` ->adds `--disable-distribution-exit`.
+  - `collect_candidates(latest_run)` ->adds `main_broker_parabolic_risk_replay` and `concentrated_broker_parabolic_risk_replay`.
+  - `run_full_rebuild_sidecars.py::official sidecars` ->runs parabolic broker risk replay for both portfolios.
+  - `run_full_rebuild_sidecars.py::research full diagnostics` ->runs parabolic broker risk replay for both portfolios.
+- config_fields_added:
+  - `run_broker_position_risk_replay.disable_distribution_exit: boolean = false` ->CLI flag that disables weekly distribution exits for trailing-only broker replay candidates.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/broker_parabolic_risk_replay/main/metrics.json` ->broker-ledger next-close metrics for main parabolic trailing-only risk replay.
+  - `outputs/broker_parabolic_risk_replay/concentrated/metrics.json` ->broker-ledger next-close metrics for concentrated parabolic trailing-only risk replay.
+  - `outputs/full_rebuild_logs/broker_parabolic_risk_replay_main.log` ->main parabolic replay log.
+  - `outputs/full_rebuild_logs/broker_parabolic_risk_replay_concentrated.log` ->concentrated parabolic replay log.
+- validation:
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_full_rebuild_sidecars.py tools\sync_cloud_to_drive.py tests\broker_position_risk_replay_smoke.py tests\workflow_artifact_smoke.py tests\smoke_test.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS, 118/118.
+  - `git diff --check -- .github\workflows\alphaops_replay_sidecars_manual.yml .github\workflows\full_rebuild_manual.yml tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_full_rebuild_sidecars.py tools\sync_cloud_to_drive.py tests\broker_position_risk_replay_smoke.py tests\workflow_artifact_smoke.py tests\smoke_test.py` ->PASS.
+- risks_or_notes:
+  - This does not change official monthly target-book broker metrics yet; it only adds broker-valid evidence for a narrow daily trailing overlay.
+  - Keep or promote this sidecar only if fast replay shows MDD improvement with acceptable CAGR and Sharpe impact versus run `27013516860`.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

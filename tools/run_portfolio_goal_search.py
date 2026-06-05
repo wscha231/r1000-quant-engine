@@ -457,6 +457,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible account-ledger conversion of proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "broker_parabolic_risk_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_broker_parabolic_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of parabolic-winner trailing exits only: daily close signals after large gains with next-close fills, cash, shares, and fees.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_execution_policy_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_execution_policy_replay",
@@ -522,6 +529,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_position_risk_replay",
         source_label="sidecar",
         notes="Production-compatible account-ledger conversion of concentrated proxy risk rules: daily close signals with next-close fills, cash, shares, and fees.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "broker_parabolic_risk_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_broker_parabolic_risk_replay",
+        source_label="sidecar",
+        notes="Production-compatible account-ledger replay of concentrated parabolic-winner trailing exits only: daily close signals after large gains with next-close fills, cash, shares, and fees.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_execution_policy_replay" / "concentrated" / "metrics.json",
