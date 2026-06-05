@@ -668,10 +668,10 @@ def test_main_quality_hold_weak_timing_trim_applies_to_tired_holds_only() -> Non
     ]
     trimmed = apply_main_quality_hold_weak_timing_trim(selected, "main")
     by_ticker = {row["ticker"]: row for row in trimmed}
-    assert by_ticker["LOWCONF"]["weight"] == 0.08
-    assert by_ticker["LOWCONF"]["target_weight"] == 0.08
+    assert by_ticker["LOWCONF"]["weight"] == 0.06
+    assert by_ticker["LOWCONF"]["target_weight"] == 0.06
     assert by_ticker["LOWCONF"]["main_quality_hold_weak_timing_trim_status"] == "applied"
-    assert by_ticker["WEAKRS"]["weight"] == 0.08
+    assert by_ticker["WEAKRS"]["weight"] == 0.06
     assert by_ticker["WEAKRS"]["main_quality_hold_weak_timing_trim_status"] == "applied"
     assert by_ticker["OKHOLD"]["weight"] == 0.12
     assert by_ticker["NEW"]["weight"] == 0.12

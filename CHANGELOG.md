@@ -53,6 +53,32 @@ All entries must be written in English. Entries must be predictable and machine-
 
 ## 2026-06-06
 
+### 01:36 KST - tighten-main-quality-hold-trim
+
+- scope:
+  - Tighten the broker-verified main weak-timing quality HOLD trim from 8% to 6% after artifact proxy analysis showed the narrower cap improves the 2021-2023 main MDD cluster while preserving all-period row proxy.
+- files:
+  - `tools/run_alphaops_vnext_policy_replay.py` ->lowers `MAIN_QUALITY_HOLD_WEAK_TIMING_CAP` from `0.08` to `0.06`.
+  - `tests/alphaops_vnext_policy_replay_smoke.py` ->expects the main quality HOLD weak-timing trim to cap qualifying rows at 6%.
+  - `CHANGELOG.md` ->records the main quality HOLD trim tightening.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `apply_main_quality_hold_weak_timing_trim(weighted, portfolio_kind)` ->qualifying main HOLD rows now trim to 6% instead of 8%.
+- config_fields_added:
+  - none
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_main_target_book.csv` ->future replay should show qualifying `main_quality_hold_weak_timing_trim_status=applied` rows capped at `0.06`.
+- validation:
+  - `py -3 tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py` ->PASS.
+  - `py -3 tests\smoke_test.py` ->PASS 118/118.
+  - `git diff --check -- tools\run_alphaops_vnext_policy_replay.py tests\alphaops_vnext_policy_replay_smoke.py CHANGELOG.md` ->PASS.
+- risks_or_notes:
+  - Candidate was selected from broker artifact `27024781792`; official acceptance still requires fast replay broker-ledger metrics because local artifact proxy is not production evidence.
+
 ### 00:41 KST - main-macro-circuit-exposure-sweep
 
 - scope:
