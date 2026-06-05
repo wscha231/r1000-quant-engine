@@ -127,6 +127,23 @@ def latest_date_from_columns(frame: pd.DataFrame, columns: list[str] = DATE_COLU
     return max(dates).date().isoformat()
 
 
+def latest_observable_close_date(
+    prices: dict[str, Any],
+    operating_summary: dict[str, Any],
+) -> str:
+    dates: list[date] = []
+    price_end = parse_date(prices.get("selected_manifest_end"))
+    if price_end is not None:
+        dates.append(price_end)
+    for book in operating_summary.get("books") or []:
+        if not isinstance(book, dict):
+            continue
+        close_dt = parse_date(book.get("latest_price_close_date"))
+        if close_dt is not None:
+            dates.append(close_dt)
+    return max(dates).isoformat() if dates else ""
+
+
 def min_date_from_columns(frame: pd.DataFrame, columns: list[str] = DATE_COLUMNS) -> str:
     dates: list[pd.Timestamp] = []
     if frame.empty:
@@ -362,12 +379,21 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     ]
     latest_target_dates = [dt for dt in latest_target_dates if dt is not None]
     latest_target_date = max(latest_target_dates).isoformat() if latest_target_dates else ""
+    observable_close_date = latest_observable_close_date(prices, operating_summary)
+    effective_target_dt = parse_date(latest_target_date)
+    observable_dt = parse_date(observable_close_date)
+    if effective_target_dt and observable_dt and effective_target_dt > observable_dt:
+        effective_target_dt = observable_dt
+        warnings.append(
+            f"latest target date {latest_target_date} is after latest observable close {observable_close_date}; freshness gate uses observable close"
+        )
+    effective_latest_target_date = effective_target_dt.isoformat() if effective_target_dt else ""
     for portfolio, book in [("main", operating_main), ("concentrated", operating_concentrated)]:
         if not book.get("exists"):
             warnings.append(f"{portfolio} operating target book is missing")
             continue
         book_dt = parse_date(book.get("max_date"))
-        target_dt = parse_date(latest_target_date)
+        target_dt = parse_date(effective_latest_target_date)
         if book_dt and target_dt and book_dt < target_dt:
             blockers.append(f"{portfolio} operating target book max date {book_dt} is older than latest target date {target_dt}")
 
@@ -394,6 +420,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "ready_for_policy_replay": bool(ready_for_policy_replay),
         "policy_replay_blockers": policy_replay_blockers,
         "latest_target_date": latest_target_date,
+        "latest_observable_close_date": observable_close_date,
+        "effective_latest_target_date": effective_latest_target_date,
         "latest_run": str(latest_run),
         "price_cache": prices,
         "fundamentals": fundamentals,
@@ -444,6 +472,8 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- ready_for_skip_collector_replay: `{str(payload.get('ready_for_skip_collector_replay')).lower()}`",
         f"- ready_for_policy_replay: `{str(payload.get('ready_for_policy_replay')).lower()}`",
         f"- latest_target_date: `{payload.get('latest_target_date') or ''}`",
+        f"- latest_observable_close_date: `{payload.get('latest_observable_close_date') or ''}`",
+        f"- effective_latest_target_date: `{payload.get('effective_latest_target_date') or ''}`",
         "",
         "## Prices",
         "",
