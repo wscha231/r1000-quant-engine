@@ -71,6 +71,7 @@ def test_broker_position_risk_replay_uses_next_close_risk_fills() -> None:
             cost_bps=0.0,
         )
         assert metrics["status"] == "completed"
+        assert metrics["candidate_id"] == "main_broker_position_risk_replay"
         assert metrics["metric_mode"] == "broker_ledger_position_risk_next_close"
         assert metrics["valid_for_production"] is True
         actions = pd.read_csv(out / "risk_actions.csv")
@@ -82,6 +83,24 @@ def test_broker_position_risk_replay_uses_next_close_risk_fills() -> None:
         assert "period_forward_return" not in trades.columns
         assert (trades["reason"] == "daily_hard_stop_exit").any()
         assert (out / "account_state_latest.json").exists()
+
+        variant_out = root / "variant_out"
+        variant_metrics = replay(
+            target_book=target,
+            price_cache=cache,
+            output_dir=variant_out,
+            portfolio_kind="main",
+            hard_stop=-9.0,
+            trailing_stop=-0.15,
+            trailing_activation=0.15,
+            relative_trim_threshold=-9.0,
+            relative_exit_threshold=-9.0,
+            enable_distribution_exit=False,
+            candidate_id="main_broker_parabolic_risk_replay",
+            cost_bps=0.0,
+        )
+        assert variant_metrics["candidate_id"] == "main_broker_parabolic_risk_replay"
+        assert variant_metrics["enable_distribution_exit"] is False
 
 
 def test_distribution_exit_can_be_disabled_for_parabolic_replay() -> None:

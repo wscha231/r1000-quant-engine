@@ -399,6 +399,42 @@ All entries must be written in English. Entries must be predictable and machine-
   - This does not change official monthly target-book broker metrics yet; it only adds broker-valid evidence for a narrow daily trailing overlay.
   - Keep or promote this sidecar only if fast replay shows MDD improvement with acceptable CAGR and Sharpe impact versus run `27013516860`.
 
+### 22:17 KST - concentrated-regime-capacity-neutral90-sidecar
+
+- scope:
+  - Add a concentrated regime-capacity neutral 0.90 broker-valid sidecar and make candidate metadata explicit for parabolic broker replay variants.
+- files:
+  - `.github/workflows/alphaops_replay_sidecars_manual.yml` ->runs a concentrated `neutral=0.90` regime-capacity filter/replay and records explicit parabolic replay candidate ids.
+  - `tools/run_full_rebuild_sidecars.py` ->mirrors the `neutral=0.90` regime-capacity sidecar and explicit parabolic candidate ids in full rebuild sidecars.
+  - `tools/run_broker_position_risk_replay.py` ->accepts an optional `--candidate-id` for variant metrics.
+  - `tools/run_portfolio_goal_search.py` ->collects main regime-capacity replay, concentrated neutral 0.85 replay, and concentrated neutral 0.90 replay as broker-valid candidates.
+  - `tests/broker_position_risk_replay_smoke.py` ->covers default and explicit candidate ids.
+  - `tests/workflow_artifact_smoke.py` ->expects the new neutral 0.90 logs and explicit parabolic candidate id wiring.
+  - `CHANGELOG.md` ->records the neutral 0.90 sidecar update.
+- symbols_added:
+  - none
+- symbols_changed:
+  - `replay(...)` ->accepts `candidate_id` and records it in `metrics.json` when supplied.
+  - `parse_args()` ->adds `--candidate-id`.
+  - `collect_candidates(latest_run)` ->adds regime-capacity broker replay candidates for main, concentrated neutral 0.85, and concentrated neutral 0.90.
+  - `run_full_rebuild_sidecars.py::research full diagnostics` ->runs concentrated `neutral=0.90` regime-capacity filter and broker replay.
+- config_fields_added:
+  - `run_broker_position_risk_replay.candidate_id: string = ""` ->optional metrics identifier for broker replay variants.
+- breaking_changes:
+  - none
+- outputs:
+  - `outputs/reports/operating_concentrated_target_book_regime_capacity_neutral90.csv` ->concentrated target book with bear/deep_bear dampening and neutral exposure multiplied by 0.90.
+  - `outputs/regime_capacity_filter/concentrated_neutral90/diagnostics.json` ->neutral 0.90 regime-capacity filter diagnostics.
+  - `outputs/regime_capacity_broker_replay/concentrated_neutral90/metrics.json` ->broker-ledger next-close metrics for the neutral 0.90 concentrated candidate.
+- validation:
+  - `py -3 tests\broker_position_risk_replay_smoke.py` ->PASS.
+  - `py -3 tests\workflow_artifact_smoke.py` ->PASS.
+  - `py -3 tests\portfolio_goal_search_smoke.py` ->PASS.
+  - `py -3 -m py_compile tools\run_broker_position_risk_replay.py tools\run_portfolio_goal_search.py tools\run_full_rebuild_sidecars.py tests\broker_position_risk_replay_smoke.py tests\workflow_artifact_smoke.py` ->PASS.
+- risks_or_notes:
+  - Run `27016343542` showed concentrated neutral 0.85 regime-capacity replay had MDD `-24.74%` but CAGR `43.26%`; neutral 0.90 is a broker-valid attempt to recover CAGR while keeping MDD near `-25%`.
+  - This remains a sidecar candidate until fast replay verifies broker-ledger metrics.
+
 ## 2026-06-04
 
 ### 14:37 KST - alphaops-data-system-contract

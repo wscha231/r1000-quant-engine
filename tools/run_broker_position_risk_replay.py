@@ -306,6 +306,7 @@ def replay(
     relative_trim_threshold: float = DEFAULT_RELATIVE_TRIM_THRESHOLD,
     relative_exit_threshold: float = DEFAULT_RELATIVE_EXIT_THRESHOLD,
     enable_distribution_exit: bool = True,
+    candidate_id: str | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw = read_csv(target_book)
@@ -500,7 +501,7 @@ def replay(
     metrics.update(
         {
             "portfolio_kind": portfolio_kind,
-            "candidate_id": f"{portfolio_kind}_broker_position_risk_replay",
+            "candidate_id": candidate_id or f"{portfolio_kind}_broker_position_risk_replay",
             "metric_mode": "broker_ledger_position_risk_next_close",
             "data_mode": "daily_price_path_account_ledger",
             "fill_mode": fill_mode,
@@ -571,6 +572,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--relative-trim-threshold", type=float, default=DEFAULT_RELATIVE_TRIM_THRESHOLD)
     parser.add_argument("--relative-exit-threshold", type=float, default=DEFAULT_RELATIVE_EXIT_THRESHOLD)
     parser.add_argument("--disable-distribution-exit", action="store_true", help="Disable weekly distribution exits so only hard/trailing/relative rules can fire.")
+    parser.add_argument("--candidate-id", default="", help="Optional candidate_id to record in metrics for variant sidecars.")
     return parser.parse_args()
 
 
@@ -593,6 +595,7 @@ def main() -> int:
         relative_trim_threshold=args.relative_trim_threshold,
         relative_exit_threshold=args.relative_exit_threshold,
         enable_distribution_exit=not args.disable_distribution_exit,
+        candidate_id=args.candidate_id or None,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0

@@ -450,6 +450,13 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
     )
     main += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "main" / "metrics.json",
+        portfolio="main",
+        candidate_id="main_regime_capacity_broker_replay",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening of bearish target-book exposure.",
+    )
+    main += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "main" / "metrics.json",
         portfolio="main",
         candidate_id="main_broker_position_risk_replay",
@@ -522,6 +529,20 @@ def collect_candidates(latest_run: Path) -> tuple[list[dict[str, Any]], list[dic
         candidate_id="concentrated_broker_ledger_replay",
         source_label="sidecar",
         notes="Production-compatible monthly target replay when metrics mark next-close integer-share ledger as valid.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "concentrated" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_regime_capacity_broker_replay_neutral85",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening with bear=0.5, deep_bear=0.25, and neutral=0.85.",
+    )
+    concentrated += candidate_from_json_metric_validity(
+        latest_run / "regime_capacity_broker_replay" / "concentrated_neutral90" / "metrics.json",
+        portfolio="concentrated",
+        candidate_id="concentrated_regime_capacity_broker_replay_neutral90",
+        source_label="sidecar",
+        notes="Production-compatible broker replay after PIT regime-capacity dampening with bear=0.5, deep_bear=0.25, and neutral=0.90.",
     )
     concentrated += candidate_from_json_metric_validity(
         latest_run / "broker_position_risk_replay" / "concentrated" / "metrics.json",
